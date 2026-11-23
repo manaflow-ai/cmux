@@ -6,28 +6,19 @@ public import Foundation
 /// the account's real home and write that account's cmux folders. Only then does the reopen
 /// pass the home on with `open --env`; a launch in the account's own home passes nothing, so its
 /// `open` argv is what it always was.
-nonisolated public struct RelaunchHome: Sendable {
+nonisolated public struct RelaunchHome {
+    public nonisolated init() {}
     /// The variables that pick the app's home.
     public static let variables = ["HOME", "CFFIXED_USER_HOME"]
-
-    /// The environment the app runs in.
-    public let environment: [String: String]
-    /// The account's home from the user database, or nil when it cannot be read.
-    public let accountHome: String?
-
-    public init(environment: [String: String] = ProcessInfo.processInfo.environment,
-                accountHome: String? = RelaunchHome.accountHome()) {
-        self.environment = environment
-        self.accountHome = accountHome
-    }
 
     /// `open` options (`--env NAME=VALUE` pairs) that keep the running app's home, or none when
     /// `HOME` is the account's home and `CFFIXED_USER_HOME` is unset. Callers pass them as
     /// positional shell arguments (`"$@"`), never inside the script text.
-    public var openArguments: [String] {
+    public static func openArguments(environment: [String: String] = ProcessInfo.processInfo.environment,
+                                     accountHome: String? = RelaunchHome.accountHome()) -> [String] {
         let home = environment["HOME"]
         guard environment["CFFIXED_USER_HOME"] != nil || (home != nil && home != accountHome) else { return [] }
-        return Self.variables.flatMap { name in environment[name].map { ["--env", "\(name)=\($0)"] } ?? [] }
+        return variables.flatMap { name in environment[name].map { ["--env", "\(name)=\($0)"] } ?? [] }
     }
 
     /// The account's home directory from the user database, which no environment variable changes.

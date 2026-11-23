@@ -65,7 +65,7 @@ nonisolated public struct RollbackSwap {
     /// home (``RelaunchHome``), so an app in a custom home reopens in it; none for the account's
     /// own home, where `open`'s argv is just the bundle.
     public static func relaunchCommand(pid: Int32, app: URL,
-                                       openOptions: [String] = RelaunchHome().openArguments) -> [String] {
+                                       openOptions: [String] = RelaunchHome.openArguments()) -> [String] {
         ["/bin/sh", "-c", "/usr/bin/caffeinate -w \(pid); /usr/bin/open \"$@\" \"$0\"", app.path] + openOptions
     }
 }

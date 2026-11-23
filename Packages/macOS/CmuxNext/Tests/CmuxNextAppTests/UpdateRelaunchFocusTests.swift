@@ -167,7 +167,7 @@ import Testing
         let app = URL(fileURLWithPath: "/Applications/cmux NEXT.app")
         let label = UpdateRelaunchBehind.installerJobLabel(bundleIdentifier: "com.cmuxterm.app.next")
         #expect(label == "com.cmuxterm.app.next-sparkle-updater")
-        let ownHome = RelaunchHome(environment: ["HOME": "/Users/ci"], accountHome: "/Users/ci").openArguments
+        let ownHome = RelaunchHome.openArguments(environment: ["HOME": "/Users/ci"], accountHome: "/Users/ci")
         let arguments = UpdateRelaunchBehind.arguments(app: app, installerJob: label, openOptions: ownHome)
         #expect(arguments == ["/bin/sh", "-c", UpdateRelaunchBehind.script, app.path, label, UpdateRelaunchFocus.reopenArgument])
         #expect(UpdateRelaunchBehind.script.contains(#"exec /usr/bin/open -g "$@" "$0" --args "$reopen""#))
@@ -182,7 +182,7 @@ import Testing
     @Test func helperReopensACustomHomeInIt() throws {
         let app = URL(fileURLWithPath: "/Applications/cmux NEXT.app")
         let drill = "/private/tmp/walk home/it's \(UUID().uuidString)"
-        let options = RelaunchHome(environment: ["HOME": drill, "CFFIXED_USER_HOME": drill], accountHome: "/Users/ci").openArguments
+        let options = RelaunchHome.openArguments(environment: ["HOME": drill, "CFFIXED_USER_HOME": drill], accountHome: "/Users/ci")
         let arguments = UpdateRelaunchBehind.arguments(app: app, installerJob: "job", openOptions: options)
         #expect(arguments[2] == UpdateRelaunchBehind.script)
         #expect(try Self.openArgv(arguments) == ["/usr/bin/open", "-g", "--env", "HOME=\(drill)", "--env", "CFFIXED_USER_HOME=\(drill)",

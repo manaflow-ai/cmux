@@ -1,3 +1,4 @@
+import CmuxConversationUI
 import CmuxMobileAuth
 import CmuxMobileDesign
 import CmuxMobileLive
@@ -26,11 +27,25 @@ struct CmuxMobileApp: App {
         ClassicLeftovers.cleanUpIfDue()
         // Settings and account saved under the pre-rename (cnx) names move first.
         LegacyStorage.migrate()
+        #if !CMUX_MOBILE_PRODUCTION
+        // Messages' own + menu and tapback art (ConversationSystemArt). Every shipping
+        // build (Production, TestFlight/cmux INTERNAL, AppStore) carries no
+        // PrivateFrameworks path (App Review 2.5.1) and draws them.
+        var chatKitPath = "/System/Library/PrivateFrameworks/ChatKit.framework"
+        #if targetEnvironment(simulator)
+        if let root = ProcessInfo.processInfo.environment["IPHONE_SIMULATOR_ROOT"] { chatKitPath = root + chatKitPath }
+        #endif
+        ConversationSystemArt.bundle = Bundle(path: chatKitPath)
+        #endif
         #if !DEBUG
         // Release and Production have no Developer page: remove any developer
         // setting (mock data, a scripted demo, relay only) an earlier Debug
         // or Demo install left in this container, before anything reads them.
         DeveloperOptions.removeStoredValues()
+        #else
+        // A UI test's `-cmuxMobile.setupComplete NO` starts setup; setup's
+        // own last page must still be able to finish it.
+        DeveloperOptions.seedLaunchArguments()
         #endif
         // The build's dev tag (Info.plist CmuxMobileDevTag, Debug configuration only): its cloud
         // requests carry `X-Cmux-Build-Space: dev:<slug>` so dev builds never share cloud data. A
@@ -78,6 +93,8 @@ struct CmuxMobileApp: App {
                 ShellScreenSharingLink()
             } else if TerminalFloodBenchRoot.isRequested {
                 TerminalFloodBenchRoot()
+            } else if TerminalHistoryWindowDemoRoot.isRequested {
+                TerminalHistoryWindowDemoRoot()
             } else if TerminalResizeDemoRoot.isRequested {
                 TerminalResizeDemoRoot()
             } else if AgentCLIHybridBenchRoot.isRequested {

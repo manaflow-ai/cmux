@@ -102,14 +102,14 @@ import Testing
     @Test func theReopenKeepsACustomHomeAndOnlyThen() throws {
         let app = URL(fileURLWithPath: "/Applications/cmux NEXT.app")
         let account = "/Users/ci"
-        let ownHome = RelaunchHome(environment: ["HOME": account], accountHome: account).openArguments
+        let ownHome = RelaunchHome.openArguments(environment: ["HOME": account], accountHome: account)
         #expect(ownHome.isEmpty)
         let own = RollbackSwap.relaunchCommand(pid: 42, app: app, openOptions: ownHome)
         #expect(own == ["/bin/sh", "-c", #"/usr/bin/caffeinate -w 42; /usr/bin/open "$@" "$0""#, app.path])
         #expect(try Self.openArgv(own) == ["/usr/bin/open", app.path])
 
         let drill = "/private/tmp/walk home/it's \(UUID().uuidString)"
-        let options = RelaunchHome(environment: ["HOME": drill, "CFFIXED_USER_HOME": drill], accountHome: account).openArguments
+        let options = RelaunchHome.openArguments(environment: ["HOME": drill, "CFFIXED_USER_HOME": drill], accountHome: account)
         #expect(options == ["--env", "HOME=\(drill)", "--env", "CFFIXED_USER_HOME=\(drill)"])
         let custom = RollbackSwap.relaunchCommand(pid: 42, app: app, openOptions: options)
         #expect(custom[2] == own[2], "the home is an argument, never script text")
@@ -118,11 +118,11 @@ import Testing
 
     @Test func relaunchHomePassesOnlyTheVariablesThatAreSet() {
         let account = "/Users/ci"
-        #expect(RelaunchHome(environment: [:], accountHome: account).openArguments.isEmpty)
-        #expect(RelaunchHome(environment: ["HOME": "/tmp/h"], accountHome: account).openArguments == ["--env", "HOME=/tmp/h"])
-        #expect(RelaunchHome(environment: ["HOME": account, "CFFIXED_USER_HOME": "/tmp/h"], accountHome: account).openArguments
+        #expect(RelaunchHome.openArguments(environment: [:], accountHome: account).isEmpty)
+        #expect(RelaunchHome.openArguments(environment: ["HOME": "/tmp/h"], accountHome: account) == ["--env", "HOME=/tmp/h"])
+        #expect(RelaunchHome.openArguments(environment: ["HOME": account, "CFFIXED_USER_HOME": "/tmp/h"], accountHome: account)
             == ["--env", "HOME=\(account)", "--env", "CFFIXED_USER_HOME=/tmp/h"])
-        #expect(RelaunchHome(environment: ["CFFIXED_USER_HOME": "/tmp/h"], accountHome: account).openArguments
+        #expect(RelaunchHome.openArguments(environment: ["CFFIXED_USER_HOME": "/tmp/h"], accountHome: account)
             == ["--env", "CFFIXED_USER_HOME=/tmp/h"])
     }
 
@@ -153,7 +153,7 @@ import Testing
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
         let drill = root.appending(path: "walk home/it's").path
         let out = root.appending(path: "seen")
-        let options = RelaunchHome(environment: ["HOME": drill, "CFFIXED_USER_HOME": drill], accountHome: "/Users/ci").openArguments
+        let options = RelaunchHome.openArguments(environment: ["HOME": drill, "CFFIXED_USER_HOME": drill], accountHome: "/Users/ci")
         _ = try RelaunchHomeShell.run(["/usr/bin/env", "RELAUNCH_HOME_CALLER=caller", "/usr/bin/open", "-W", "-n", "-g"]
                                       + options + [app.path, "--args", out.path])
         let seen = try String(contentsOf: out, encoding: .utf8)
