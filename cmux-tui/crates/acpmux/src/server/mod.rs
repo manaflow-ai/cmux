@@ -2605,6 +2605,7 @@ pub(crate) mod peer_status;
 pub mod peer_text;
 mod pending;
 mod place;
+mod pr_state;
 mod processes;
 mod prompt_cancel;
 mod workflow_activity;

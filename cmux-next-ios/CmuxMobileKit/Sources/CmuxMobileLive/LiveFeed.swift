@@ -46,6 +46,16 @@ public final class LiveFeed: FeedActions {
     var fullReplies: [String: String] = [:]
     /// The transcript read of each turn item whose reply is being read (one per item).
     var replyReads: [String: Task<Void, Never>] = [:]
+    /// Each pull request's last read state (`LiveFeed+PullRequests.swift`), by link.
+    var pullCache: [URL: PullEntry] = [:]
+    /// The `_acpmux/pr_state` read of each pull request being read.
+    var pullReads: [URL: Task<Void, Never>] = [:]
+    /// Pull requests waiting for a read slot, with the chat that opened each.
+    var pullQueue: [(String, URL)] = []
+    /// False once this Mac's acpmux refused `_acpmux/pr_state` as unknown.
+    var pullStateSupported = true
+    /// A pull request's state changed: the workspace rows read the chats' activity again.
+    public var onPullStatesChange: (@MainActor () -> Void)?
 
     /// Whether `itemID` is an ask this feed put in the Feed (its Mac answers it).
     func owns(_ itemID: String) -> Bool { askSessions[itemID] != nil }
@@ -71,6 +81,8 @@ public final class LiveFeed: FeedActions {
         case .permissionPending(let sessionID, let permissionID, let request):
             guard let mapped = AcpmuxRecords(sessionID: sessionID).permission(permissionID, request: request) else { return }
             let session = sessions[sessionID]
+            // The Chief's compactor never asks the person; its machinery stays out of the Feed.
+            if session?.isChiefCompactor == true { return }
             let kind: FeedItem.Kind
             let markdown: String
             let waits: WorkspaceTab.WaitingFor
@@ -95,16 +107,17 @@ public final class LiveFeed: FeedActions {
             guard store.item(id: id) == nil else { return }
             log.info("feed ask \(id, privacy: .public)")
             store.upsert(item(id: id, kind: kind, sessionID: sessionID, session: session, markdown: markdown,
-                              quote: session?.lastPrompt.map { FeedItem.Quote($0) }), atTop: true)
+                              quote: session?.lastPrompt.flatMap(FeedInternal.shownPrompt).map { FeedItem.Quote($0) }), atTop: true)
         case .sessionChanged(let session, let recordKind, let seq):
             if session.pendingPermissions == 0, let asks = openAsks.removeValue(forKey: session.id) {
                 for id in asks { askKinds[id] = nil }
                 for id in asks { store.resolveElsewhere(id, text: "Answered") }
             }
-            guard recordKind == "turn_result" else { return }
+            guard recordKind == "turn_result", Self.showsTurns(of: session) else { return }
             let item = turnItem(session, fallbackKey: "\(seq)", at: now())
             store.upsert(item, atTop: true)
             readFullReply(of: item, sessionID: session.id, turnID: session.lastTurnID, through: seq)
+            readPullStates([session])
         case .permissionResolved:
             break
         case .sessionsLoaded(let sessions):
@@ -122,7 +135,13 @@ public final class LiveFeed: FeedActions {
     /// turns become cards, and only the newest `fullReplyReads` of those read
     /// their whole reply (older cards keep the summary's preview).
     func hydrate(_ sessions: [AcpmuxSession]) {
+        // Cards an older build made for the Chief's own sessions leave the Feed.
+        let hidden = Set(sessions.filter { !Self.showsTurns(of: $0) }.map(\.id))
+        if !hidden.isEmpty {
+            store.withdraw(idPrefixes: Set(hidden.map { "turn-\($0)-" }), macID: macID)
+        }
         let turns = sessions.compactMap { session -> (FeedItem, AcpmuxSession)? in
+            guard Self.showsTurns(of: session) else { return nil }
             guard session.lastTurnStatus != nil, let turnID = session.lastTurnID else { return nil }
             return (turnItem(session, fallbackKey: turnID, at: session.lastTurnEndedAt ?? session.updatedAt ?? now()), session)
         }
@@ -136,6 +155,14 @@ public final class LiveFeed: FeedActions {
         for (item, session) in turns.prefix(Self.fullReplyReads) where shown.contains(item.id) {
             readFullReply(of: item, sessionID: session.id, turnID: session.lastTurnID, through: session.lastSeq)
         }
+        readPullStates(sessions)
+    }
+
+    /// Whether a session's finished turns are Feed cards: never the Chief's compactor slots or its
+    /// own turns (the Chief tab shows those), so the Feed is the person's work (#51332). Their
+    /// asks still reach the Feed when a person must answer them (a Chief turn's question).
+    static func showsTurns(of session: AcpmuxSession) -> Bool {
+        !session.isChiefCompactor && !session.isChiefTurn && HarnessName.family(session.harness) != "chief"
     }
 
     /// How many of the newest turn cards read their whole reply on a read of the Mac.
@@ -156,7 +183,7 @@ public final class LiveFeed: FeedActions {
             ?? (failed ? "The turn failed." : stopped ? "Stopped." : "Finished.")
         var item = item(id: id, kind: failed ? .failed : .response,
                         sessionID: session.id, session: session, markdown: markdown,
-                        quote: session.lastPrompt.map { FeedItem.Quote($0) })
+                        quote: session.lastPrompt.flatMap(FeedInternal.shownPrompt).map { FeedItem.Quote($0) })
         item.createdAt = date
         return item
     }
@@ -174,6 +201,12 @@ public final class LiveFeed: FeedActions {
         )
         item.macID = macID
         item.tabTitle = place?.tabTitle ?? ""
+        if let session {
+            let activity = activity(of: session)
+            item.pullRequest = activity.pullRequest
+            item.devBuild = activity.devBuild
+            item.chatTitle = session.shownName ?? session.title.flatMap { DaemonTree.titleLine($0) }.flatMap(FeedInternal.shownPrompt) ?? ""
+        }
         return item
     }
 

@@ -1,3 +1,4 @@
+import CmuxMobileModel
 import Foundation
 
 /// The live Feed saved on the phone, so a relaunch shows the events it had
@@ -78,6 +79,10 @@ public struct FeedArchive: Sendable {
         var opensTerminal: Bool?
         /// The Mac that sent it (nil in archives before it existed).
         var macID: String?
+        /// The chat's pull request, dev build and title (nil in archives before they existed).
+        var pullRequest: PullRequestSummary?
+        var devBuild: String?
+        var chatTitle: String?
 
         init?(_ item: FeedItem) {
             switch item.kind {
@@ -103,6 +108,9 @@ public struct FeedArchive: Sendable {
             replies = item.replies
             opensTerminal = item.opensTerminal ? true : nil
             macID = item.macID
+            pullRequest = item.pullRequest
+            devBuild = item.devBuild
+            chatTitle = item.chatTitle.isEmpty ? nil : item.chatTitle
         }
 
         var item: FeedItem? {
@@ -123,6 +131,9 @@ public struct FeedArchive: Sendable {
             item.opensTerminal = opensTerminal == true
             item.macID = macID
             item.tabTitle = tabTitle ?? ""
+            item.pullRequest = pullRequest
+            item.devBuild = devBuild
+            item.chatTitle = chatTitle ?? ""
             return item
         }
     }

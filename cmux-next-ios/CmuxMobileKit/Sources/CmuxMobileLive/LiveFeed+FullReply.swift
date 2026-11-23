@@ -1,5 +1,6 @@
 import CmuxMobileAgentChat
 import CmuxMobileFeed
+import CmuxMobileModel
 import Foundation
 import OSLog
 
@@ -45,6 +46,11 @@ extension LiveFeed {
             guard let reply, var current = store.item(id: item.id), current.kind == .response, current.markdown != reply else { return }
             log.info("feed reply \(item.id, privacy: .public): \(reply.count, privacy: .public) chars")
             current.markdown = reply
+            // The whole reply can name the pull request or the dev build its first line did not.
+            if current.pullRequest == nil, let pull = ChatActivity.pullRequests(in: reply).last {
+                current.pullRequest = pullCache[pull.url].map { pull.merged(with: $0.summary) } ?? pull
+            }
+            if current.devBuild == nil { current.devBuild = ChatActivity.devBuildTag(in: reply) }
             store.upsert(current, atTop: false)
         }
     }

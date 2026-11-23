@@ -1,5 +1,6 @@
 import CmuxAgentQuestion
 import CmuxMobileAgentChat
+import CmuxMobileModel
 import Foundation
 
 /// Maps acpmux records (`Event = {sessionId, seq, at, dir, kind, msg}` from
@@ -247,6 +248,83 @@ public struct AcpmuxSession: Hashable, Sendable {
     public var agentSessionID: String?
     /// `watching`: a View Only chat of a conversation another app (a terminal) runs.
     public var watching = false
+    /// `pullRequests`: the pull requests the chat opened (its `gh pr create` calls), oldest first.
+    public var pullRequestLinks: [String] = []
+    /// `pullRequest`: the pull request of the chat's branch with its state, when acpmux has it.
+    public var pullRequest: PullRequestSummary?
+
+    /// What the chat did last, for a workspace row and a Feed card: its reply's first line, a
+    /// failed turn, its newest pull request (with its state when the summary carries it), and a
+    /// dev build its reply names.
+    public var activity: ChatActivity {
+        let reply = preview ?? ""
+        var pull = (pullRequestLinks.last.flatMap(PullRequestSummary.init(link:))) ?? ChatActivity.pullRequests(in: reply).last
+        if let known = pullRequest {
+            pull = pull.map { $0.url == known.url ? $0.merged(with: known) : $0 } ?? known
+        }
+        return ChatActivity(lastLine: ChatActivity.firstLine(reply), failed: lastTurnStatus == "failed",
+                            pullRequest: pull, devBuild: ChatActivity.devBuildTag(in: reply))
+    }
+
+    /// `pullRequest` as acpmux summaries carry it: `{url?, number, title, state, checks}`, `state`
+    /// GitHub's (`OPEN`, `MERGED`, `CLOSED`, or lowercase), `checks` a word or `{state}`.
+    static func pullRequestSummary(_ value: JSONValue?, links: [String]) -> PullRequestSummary? {
+        guard let value, let number = value["number"]?.numberValue.map({ Int($0) }), number > 0 else { return nil }
+        let url = value["url"]?.stringValue.flatMap(PullRequestSummary.init(link:))?.url
+            ?? links.compactMap(PullRequestSummary.init(link:)).last { $0.number == number }?.url
+        guard let url else { return nil }
+        let state: PullRequestSummary.State? = switch value["state"]?.stringValue?.lowercased() {
+        case "open": value["isDraft"] == .bool(true) ? .draft : .open
+        case "draft": .draft
+        case "merged": .merged
+        case "closed": .closed
+        default: nil
+        }
+        let checkWord = (value["checks"]?.stringValue ?? value["checks"]?["state"]?.stringValue)?.lowercased()
+        let checks: PullRequestSummary.Checks? = switch checkWord {
+        case "passing", "pass", "success", "passed", "green": .passing
+        case "failing", "fail", "failure", "failed", "red", "error": .failing
+        case "pending", "running", "queued", "in_progress": .pending
+        default: nil
+        }
+        let mergeable: Bool? = switch value["mergeable"]?.stringValue?.uppercased() {
+        case "MERGEABLE": true
+        case "CONFLICTING": false
+        default: value["mergeable"] == .bool(true) ? true : (value["mergeable"] == .bool(false) ? false : nil)
+        }
+        let title = value["title"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        return PullRequestSummary(url: url, number: number, title: title, state: state, checks: checks, mergeable: mergeable)
+    }
+
+    /// `tags["cmux.chief"]`: the Home Chief that runs this session itself (its turns, its compactor).
+    public var chiefHome: String?
+    /// `tags["cmux.chief.role"]`: `turn` or `compactor` next to `cmux.chief`.
+    public var chiefRole: String?
+
+    /// The prefix of every Chief compactor's name, preset and working directory
+    /// (`$TMPDIR/optchat-compact-<id>/slot-<k>`), as cmux-mobile-host `notify.rs` knows it.
+    static let compactorPrefix = "optchat-compact-"
+
+    /// The Chief's own memory compactor (its `slot-<k>` sessions): machinery, never a person's work.
+    /// It finishes a turn every few seconds while the Chief works, and its prompt is the raw
+    /// `<chat>` view. The rules are cmux-mobile-host `notify.rs` `session_label`'s.
+    public var isChiefCompactor: Bool {
+        chiefRole == "compactor" || name.hasPrefix(Self.compactorPrefix) || harness.hasPrefix(Self.compactorPrefix)
+            || cwd.contains("/\(Self.compactorPrefix)")
+    }
+
+    /// One of the Chief's own turn sessions (`optchat-<home>-<n>`, or tagged `cmux.chief` with a
+    /// role other than compactor): the Chief tab shows its replies; the Feed shows only its asks.
+    public var isChiefTurn: Bool {
+        guard !isChiefCompactor else { return false }
+        if chiefRole == "turn" { return true }
+        let parts = name.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.first == "optchat", parts.count >= 3, parts[1] != "sub", parts[1] != "compact" else {
+            return chiefHome != nil && chiefRole == nil && !name.hasPrefix("optchat-sub-")
+        }
+        let numbers = parts.dropFirst(2)
+        return numbers.count <= 2 && numbers.allSatisfy { Int($0) != nil }
+    }
 
     /// The name a person gave the chat, or nil when it is an id the system made: the Chief's own
     /// sessions (optchat-chief names them `optchat-<home>-<n>`, `optchat-sub-<home>-a<n>`,
@@ -280,6 +358,11 @@ public struct AcpmuxSession: Hashable, Sendable {
         agentSessionID = value["agentSessionId"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         watching = value["watching"]?.stringValue.map { !$0.isEmpty } ?? false
         updatedAt = value["updatedAt"]?.numberValue.map { Date(timeIntervalSince1970: $0 / 1000) }
+        pullRequestLinks = value["pullRequests"]?.arrayValue?.compactMap(\.stringValue) ?? []
+        pullRequest = Self.pullRequestSummary(value["pullRequest"], links: pullRequestLinks)
+        let tags = value["tags"]
+        chiefHome = tags?["cmux.chief"].flatMap { $0.stringValue ?? ($0 == .null ? nil : "chief") }
+        chiefRole = tags?["cmux.chief.role"]?.stringValue
     }
 
     public var summaryStatus: AgentSessionSummary.Status {

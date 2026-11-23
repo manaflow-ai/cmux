@@ -23,6 +23,11 @@ extension AppStore {
             }),
         ]
         func ago(_ minutes: Double) -> Date { now.addingTimeInterval(-minutes * 60) }
+        func mocked(_ tab: WorkspaceTab, _ activity: ChatActivity) -> WorkspaceTab {
+            var tab = tab
+            tab.activity = activity
+            return tab
+        }
         // Needs you (2), working (2), done (1), idle, then the asleep MacBook Pro's.
         let workspaces = [
             Workspace(
@@ -40,8 +45,8 @@ extension AppStore {
             Workspace(
                 id: "ws-web", macID: "mac-studio", title: "cmux.com", directory: "~/Development/web", branch: "main",
                 tabs: [
-                    WorkspaceTab(id: "t-codex", kind: .agent, title: "Codex", subtitle: "Fix pricing page layout", harness: "codex",
-                                 agentStatus: .working),
+                    mocked(WorkspaceTab(id: "t-codex", kind: .agent, title: "Codex", subtitle: "Fix pricing page layout", harness: "codex",
+                                        agentStatus: .working), ChatActivity(lastLine: "Running the pricing page tests on iPhone SE")),
                     WorkspaceTab(id: "t-dev", kind: .terminal, title: "bun dev", subtitle: "localhost:3000"),
                 ],
                 lastActivityAt: ago(3), isWorking: true, colorHex: "#BF5AF2", icon: "globe"
@@ -58,7 +63,11 @@ extension AppStore {
             Workspace(
                 id: "ws-infra", macID: "mac-studio", title: "fleet", directory: "~/fleet", branch: "mini-recovery",
                 tabs: [
-                    WorkspaceTab(id: "t-fleet-claude", kind: .agent, title: "Claude", subtitle: "Audit runner labels", harness: "claude"),
+                    mocked(WorkspaceTab(id: "t-fleet-claude", kind: .agent, title: "Claude", subtitle: "Audit runner labels", harness: "claude"),
+                           ChatActivity(lastLine: "Relabeled 3 minis; the queue drains again.",
+                                        pullRequest: PullRequestSummary(url: URL(string: "https://github.com/manaflow-ai/cmux/pull/51288")!, number: 51288,
+                                                                        title: "Runner labels for the M4 minis", state: .open, checks: .passing,
+                                                                        mergeable: true))),
                     WorkspaceTab(id: "t-htop", kind: .terminal, title: "htop", subtitle: "TUI"),
                 ],
                 lastActivityAt: ago(12), hasUnread: true, colorHex: "#FF9F0A", icon: "server.rack"
@@ -92,7 +101,9 @@ extension AppStore {
             Workspace(
                 id: "ws-zed", macID: "mbp", title: "zed", directory: "~/Development/zed", branch: "cmux-fork",
                 tabs: [
-                    WorkspaceTab(id: "t-zed-claude", kind: .agent, title: "Claude", subtitle: "Port the tab strip", harness: "claude"),
+                    mocked(WorkspaceTab(id: "t-zed-claude", kind: .agent, title: "Claude", subtitle: "Port the tab strip", harness: "claude"),
+                           ChatActivity(lastLine: "Tab strip ported.", pullRequest: PullRequestSummary(
+                               url: URL(string: "https://github.com/manaflow-ai/zed/pull/88")!, number: 88, title: "Tab strip", state: .merged))),
                     WorkspaceTab(id: "t-zed-cargo", kind: .terminal, title: "cargo build", subtitle: "~/Development/zed"),
                 ],
                 lastActivityAt: ago(150)

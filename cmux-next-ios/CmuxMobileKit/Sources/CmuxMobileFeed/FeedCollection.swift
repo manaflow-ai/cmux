@@ -126,6 +126,8 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     private var dataSource: FeedTableDataSource?
     private let layouts = FeedRowLayoutCache<FeedRowLayout>()
     private var states: [String: FeedRowState] = [:]
+    /// Each row's place in its workspace's run (`FeedThread`), from the order last applied.
+    private var threads: [String: FeedThread] = [:]
     private var items: [String: FeedItem] = [:]
     /// The events as the list shows them (the applied snapshot's order).
     private var shownOrder: [String] = []
@@ -317,7 +319,8 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         var laidOut = item
         laidOut.isRead = false
         laidOut.createdAt = .distantPast
-        return FeedRowKey(item: laidOut, state: states[item.id] ?? FeedRowState(), width: Int(width.rounded()), textSize: textSize)
+        return FeedRowKey(item: laidOut, state: states[item.id] ?? FeedRowState(), width: Int(width.rounded()), textSize: textSize,
+                          thread: threads[item.id] ?? .single)
     }
 
     private var styles: NativeTextStyles { NativeTextStyles(category: UIContentSizeCategory(rawValue: textSize)) }
@@ -336,6 +339,8 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         #endif
         applyScheduled = false
         guard let next = pending, width > 0, collectionView != nil else { return }
+        // The thread line follows the order: a row's neighbors decide it.
+        threads = Dictionary(zip(next.map(\.id), FeedThread.positions(next.map { $0.needsYou ? "ask:" + $0.id : $0.threadKey })), uniquingKeysWith: { first, _ in first })
         // A pending question's card shows its saved draft (a relaunch keeps a partly answered question
         // where the person left it); a question answered or cancelled keeps no card state or draft.
         for item in next {
@@ -358,7 +363,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         let widthKey = Int(width.rounded()), size = textSize
         let keys: [(String, FeedRowKey)] = next.map { item in
             if !relayingOut, let shown = shownKeys[item.id], let old = items[item.id], shown.width == widthKey, shown.textSize == size,
-               shown.state == (states[item.id] ?? FeedRowState()), old == item {
+               shown.state == (states[item.id] ?? FeedRowState()), shown.thread == (threads[item.id] ?? .single), old == item {
                 unchanged.insert(item.id)
                 return (item.id, shown)
             }
@@ -1138,13 +1143,67 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         mutateState(id, animated: false) { $0.webHeight = Double(height) }
     }
 
+    func rowOpenPullRequest(_ id: String) {
+        guard let url = items[id]?.pullRequest?.url else { return }
+        UIApplication.shared.open(url)
+    }
+
+    /// The footer's Merge: one confirmation, then the chat that opened the pull request is asked
+    /// to merge it, so its own merge rules (the repository's, the branch's) decide; a refusal comes
+    /// back in its reply. Only offered when the checks pass and it merges cleanly.
+    func rowMerge(_ id: String, from source: UIView) {
+        guard let item = items[id], case .merge(let pull) = item.decision,
+              let host = collectionView?.window?.rootViewController else { return }
+        var top = host
+        while let presented = top.presentedViewController, !presented.isBeingDismissed { top = presented }
+        let alert = UIAlertController(title: "Merge #\(pull.number)?", message: pull.title, preferredStyle: .actionSheet)
+        alert.addAction(UIAlertAction(title: "Merge", style: .default) { [weak self] _ in
+            MainActor.assumeIsolated { self?.sendMerge(id, pull) }
+        })
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.popoverPresentationController?.sourceView = source
+        alert.popoverPresentationController?.sourceRect = source.bounds
+        top.present(alert, animated: true)
+    }
+
+    /// The prompt Merge sends.
+    static func mergePrompt(_ pull: PullRequestSummary) -> String {
+        "Merge \(pull.url.absoluteString) now if every rule for it allows (squash, the repository's own merge path). If something blocks it, say what in one line."
+    }
+
+    private func sendMerge(_ id: String, _ pull: PullRequestSummary) {
+        guard let item = items[id] else { return }
+        let text = Self.mergePrompt(pull)
+        switch FeedRouting.shared.sendPrompt?(item, text) ?? .failed("Open this chat to merge.") {
+        case .sent(let chat):
+            store.reply(id, text: "Merge #\(pull.number)")
+            if replyChats[id] !== chat {
+                replyChats[id] = chat
+                observeReplyChat(id, chat)
+            }
+            mutateState(id) { $0.replyFailure = chat.clientError }
+        case .failed(let reason):
+            mutateState(id) { $0.replyFailure = reason }
+        }
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+    }
+
     func rowMenu(_ id: String) -> UIMenu {
         guard let item = items[id] else { return UIMenu() }
         let store = store, context = context
         var children: [UIMenuElement] = [
             UIAction(title: "Open Tab", image: UIImage(systemName: "arrow.up.right.square")) { _ in context.open(item) },
             UIAction(title: "Copy", image: UIImage(systemName: "doc.on.doc")) { _ in UIPasteboard.general.string = item.markdown },
+            UIAction(title: "Share…", image: UIImage(systemName: "square.and.arrow.up")) { [weak self] _ in
+                guard let self, let source = (self.cell(id) as UIView?) ?? self.collectionView else { return }
+                self.rowShare(id, from: source)
+            },
         ]
+        if let url = item.pullRequest?.url {
+            children.append(UIAction(title: "Open Pull Request", image: UIImage(systemName: "arrow.triangle.pull")) { _ in
+                UIApplication.shared.open(url)
+            })
+        }
         // Everything the trailing swipe leaves out lives here (SPEC swipe rules).
         children.append(item.isRead
             ? UIAction(title: "Mark as Unread", image: UIImage(systemName: "envelope.badge")) { _ in store.markUnread(item.id) }

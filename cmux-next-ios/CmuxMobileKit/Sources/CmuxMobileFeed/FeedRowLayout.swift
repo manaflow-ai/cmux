@@ -25,6 +25,10 @@ struct FeedRowLayout: @unchecked Sendable {
     let menuButton: CGRect
     var quote: Quote?
     var chip: Chip?
+    /// What happened, in one plain line (`FeedItem.headline`), with its state's dot.
+    var headline: Headline
+    /// The chat's pull request with its state, and the dev build its reply names.
+    var pull: PullCard?
     var body: Body
     var answer: Answer
     var error: ErrorPart?
@@ -37,6 +41,30 @@ struct FeedRowLayout: @unchecked Sendable {
     /// Reply is in the footer (`FeedItem.takesReply`), and whether it is disabled (a terminal reply on its way).
     let footerHasReply: Bool
     let footerReplyEnabled: Bool
+    /// The footer's PR (opens the pull request) and Merge (it is ready: checks pass, no conflict).
+    var footerHasPull = false
+    var footerHasMerge = false
+    /// The thread line's segments beside the avatar: above it (to the row before) and below it.
+    var threadAbove: CGRect?
+    var threadBelow: CGRect?
+
+    struct Headline {
+        var text: NSAttributedString
+        var frame: CGRect
+        var dot: UIColor?
+        var dotFrame: CGRect?
+    }
+
+    struct PullCard {
+        var frame: CGRect
+        var url: URL
+        var title: NSAttributedString
+        var titleFrame: CGRect
+        var state: NSAttributedString
+        var stateFrame: CGRect
+        var build: NSAttributedString?
+        var buildFrame: CGRect?
+    }
 
     struct Quote {
         var frame: CGRect
@@ -240,8 +268,9 @@ private struct FeedRowBuilder {
         // The 44 pt "…" target, 12 pt above and below the line, 10 pt into the side padding.
         let menu = CGRect(x: columnX + columnWidth - 44 + 10, y: headerTop - 12, width: 44, height: 44)
 
+        let headline = headlineLayout()
         let quote = item.quote.map { quoteLayout($0) }
-        let chip = chipLayout()
+        let pull = pullLayout()
         let body = bodyLayout()
         let answer = answerLayout()
         let error = errorLayout()
@@ -260,9 +289,12 @@ private struct FeedRowBuilder {
             key: key, height: contentBottom + divider, dividerY: contentBottom,
             column: CGRect(x: columnX, y: 12, width: columnWidth, height: columnHeight),
             avatar: CGRect(x: 16, y: 12, width: 40, height: 40),
-            header: header, menuButton: menu, quote: quote, chip: chip, body: body, answer: answer, error: error,
-            replies: replies, replySending: sending, replyFailure: failure, composer: composer, footer: footer,
-            footerHasReply: item.takesReply, footerReplyEnabled: !(item.opensTerminal && item.pending != nil)
+            header: header, menuButton: menu, quote: quote, chip: nil, headline: headline, pull: pull, body: body, answer: answer,
+            error: error, replies: replies, replySending: sending, replyFailure: failure, composer: composer, footer: footer,
+            footerHasReply: item.takesReply, footerReplyEnabled: !(item.opensTerminal && item.pending != nil),
+            footerHasPull: item.pullRequest != nil, footerHasMerge: item.takesReply && { if case .merge = item.decision { true } else { false } }(),
+            threadAbove: key.thread.joinsAbove ? CGRect(x: 16 + 19, y: 0, width: 2, height: 12 - 4) : nil,
+            threadBelow: key.thread.joinsBelow ? CGRect(x: 16 + 19, y: 12 + 40 + 4, width: 2, height: max(0, contentBottom + divider - 56)) : nil
         )
     }
 
@@ -276,7 +308,8 @@ private struct FeedRowBuilder {
         // The caption's line is the text's (an HStack of a 9 pt symbol and caption2 text).
         let captionSize = CGSize(width: nativeTextSize(caption, width: columnWidth - 24).width, height: ceil(captionFont.lineHeight))
         let text = attributed(quote.text, styles.font(.subheadline), .secondaryLabel)
-        let maxLines = state.quoteExpanded ? 0 : 3
+        // The person's prompt is context: two lines for a finished turn, three for an ask.
+        let maxLines = state.quoteExpanded ? 0 : (item.needsYou ? 3 : 2)
         let bubbleMax = columnWidth - 28
         let textSize = nativeTextSize(text, width: bubbleMax - 24, maxLines: maxLines)
         let bubbleWidth = min(textSize.width + 24, bubbleMax)
@@ -293,6 +326,67 @@ private struct FeedRowBuilder {
             caption: caption, captionFrame: CGRect(x: captionX, y: top, width: captionSize.width, height: captionSize.height),
             bubble: bubble, text: text, textFrame: bubble.insetBy(dx: 12, dy: 8), maxLines: maxLines,
             thread: outgoing ? nil : CGRect(x: columnX, y: bubble.maxY + 6 - 4, width: 14, height: 12)
+        )
+    }
+
+    // MARK: Headline
+
+    /// "Needs your OK: Run git push" (warning dot), "Failed" (danger), "Merged PR #123" (success),
+    /// "PR #123 open", "Finished": at most two lines of semibold subheadline.
+    mutating func headlineLayout() -> FeedRowLayout.Headline {
+        let dot: UIColor? = if item.needsYou { .cmuxMobileWarning }
+            else if item.kind == .failed { .cmuxMobileDanger }
+            else if item.pullRequest?.isMerged == true { .cmuxMobileSuccess }
+            else if item.pullRequest?.checks == .failing { .cmuxMobileDanger }
+            else { nil }
+        let font = styles.font(.subheadline, weight: .semibold)
+        let text = attributed(item.headline, font, .label)
+        let inset: CGFloat = dot != nil ? 7 + 6 : 0
+        let size = nativeTextSize(text, width: columnWidth - inset, maxLines: 2)
+        let top = place(size.height)
+        let line = ceil(font.lineHeight)
+        return FeedRowLayout.Headline(
+            text: text, frame: CGRect(x: columnX + inset, y: top, width: columnWidth - inset, height: size.height), dot: dot,
+            dotFrame: dot.map { _ in CGRect(x: columnX, y: top + (line - 7) / 2, width: 7, height: 7) }
+        )
+    }
+
+    // MARK: Pull request
+
+    /// A rounded card: "#123 Fix login redirect" over "✓ Checks passing · Mergeable" (or "Merged",
+    /// "✕ 2 checks failing"), and "Dev build feed-threads" when the reply names one.
+    mutating func pullLayout() -> FeedRowLayout.PullCard? {
+        guard let pull = item.pullRequest else { return nil }
+        let inner = columnWidth - 24
+        let titleText = [ "#\(pull.number)", pull.title ?? pull.repository ].filter { !$0.isEmpty }.joined(separator: " ")
+        let title = symbolText("arrow.triangle.pull", titleText, font: styles.font(.subheadline, weight: .medium), color: .label,
+                               symbolSize: 13, gap: 6)
+        let titleSize = nativeTextSize(title, width: inner, maxLines: 2)
+        let (symbol, color): (String, UIColor) = switch (pull.state, pull.checks) {
+        case (.merged, _): ("checkmark.seal.fill", .cmuxMobileSuccess)
+        case (.closed, _): ("xmark.circle", .secondaryLabel)
+        case (_, .failing): ("xmark.octagon.fill", .cmuxMobileDanger)
+        case (_, .pending): ("clock", .secondaryLabel)
+        case (_, .passing): pull.mergeable == false ? ("exclamationmark.triangle.fill", .cmuxMobileWarning) : ("checkmark.circle.fill", .cmuxMobileSuccess)
+        default: ("circle.dashed", .secondaryLabel)
+        }
+        let state = symbolText(symbol, pull.stateText, font: styles.font(.footnote), color: color, symbolSize: 12, gap: 5)
+        let stateSize = nativeTextSize(state, width: inner)
+        var height = 10 + titleSize.height + 4 + stateSize.height + 10
+        var build: NSAttributedString?
+        var buildSize = CGSize.zero
+        if let tag = item.devBuild {
+            build = symbolText("hammer", "Dev build \(tag)", font: styles.font(.footnote), color: .secondaryLabel, symbolSize: 12, gap: 5)
+            buildSize = nativeTextSize(build ?? NSAttributedString(), width: inner)
+            height += 4 + buildSize.height
+        }
+        let top = place(height)
+        let titleFrame = CGRect(x: 12, y: 10, width: inner, height: titleSize.height)
+        let stateFrame = CGRect(x: 12, y: titleFrame.maxY + 4, width: inner, height: stateSize.height)
+        return FeedRowLayout.PullCard(
+            frame: CGRect(x: columnX, y: top, width: columnWidth, height: height), url: pull.url, title: title,
+            titleFrame: titleFrame, state: state, stateFrame: stateFrame, build: build,
+            buildFrame: build.map { _ in CGRect(x: 12, y: stateFrame.maxY + 4, width: inner, height: buildSize.height) }
         )
     }
 
@@ -327,7 +421,8 @@ private struct FeedRowBuilder {
     // MARK: Body
 
     mutating func bodyLayout() -> FeedRowLayout.Body {
-        let cap = styles.scaled(224, relativeTo: .body)
+        // About six lines: the headline says what happened; Show more reads the rest.
+        let cap = styles.scaled(150, relativeTo: .body)
         let content: FeedRowLayout.BodyContent
         let full: CGFloat
         let plain = FeedPlainText(item.markdown)

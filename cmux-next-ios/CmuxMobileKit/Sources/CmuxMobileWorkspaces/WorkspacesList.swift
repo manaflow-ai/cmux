@@ -1601,29 +1601,28 @@ struct WorkspaceRow: View {
     }
 }
 
-/// Line 2 of a row: "**Claude is asking permission** · Refactor transport layer"
-/// (or "has a question"; "is waiting" for a terminal agent),
-/// "Codex is working · Fix pricing page" (shimmering), "**Done** · Claude:
-/// Audit runner labels", else the branch or directory.
+/// Line 2 of a row: what the workspace's chat did or is doing, never the harness's name or its
+/// first prompt (manaflow-ai/cmux#51332): "**Needs you** · Asking permission · Run the migration",
+/// "Working · Reading the build log" (shimmering), "**PR #123 open** · Checks passing",
+/// "**Merged** · #123 Fix login", "**Failed** · The build broke on …", else the last line of the
+/// agent's reply; an idle row with no chat news shows its branch or directory.
 struct StatusLine: View {
     let workspace: Workspace
     let status: WorkspaceStatus
     var macName: String?
 
     var body: some View {
+        let line = Self.summary(workspace, status: status, macName: macName)
         Group {
-            switch status {
-            case .needsYou:
-                if let task { Text("\(emphasis(waiting)) · \(task)") } else { emphasis(waiting) }
-            case .working:
+            if status == .working {
                 // One text under the shimmer, so it truncates as one line.
-                ShimmerText(text: [working, task].compactMap(\.self).joined(separator: " · "))
-            case .done:
-                if let task { Text("\(emphasis("Done")) · \(agentName ?? "Agent"): \(task)") } else { emphasis("Done") }
-            case .creating:
-                Text(workspace.directory.isEmpty ? "Creating…" : Self.directoryName(workspace.directory))
-            case .idle, .offline:
-                Text(Self.place(workspace, macName: macName))
+                ShimmerText(text: [line.lead, line.detail].compactMap(\.self).joined(separator: " · "))
+            } else if let lead = line.lead, let detail = line.detail {
+                Text("\(emphasis(lead, tone: line.tone)) · \(detail)")
+            } else if let lead = line.lead {
+                emphasis(lead, tone: line.tone)
+            } else {
+                Text(line.detail ?? "")
             }
         }
         .font(theme.type.rowSubtitle)
@@ -1631,14 +1630,79 @@ struct StatusLine: View {
         .contentTransition(.opacity)
     }
 
-    private var tab: WorkspaceTab? { workspace.agentTab(for: status) }
-    private var agentName: String? { tab?.agentName }
-    private var task: String? { tab?.task }
-    private var waiting: String { tab?.waitingPhrase ?? "Needs you" }
-    private var working: String { agentName.map { "\($0) is working" } ?? "Working" }
+    private func emphasis(_ word: String, tone: Summary.Tone) -> Text {
+        let color: Color = switch tone {
+        case .plain: theme.colors.label.color
+        case .attention: theme.colors.warning.color
+        case .failure: theme.colors.danger.color
+        case .success: theme.colors.success.color
+        }
+        return Text(word).foregroundStyle(color).fontWeight(.semibold)
+    }
 
-    private func emphasis(_ word: String) -> Text {
-        Text(word).foregroundStyle(theme.colors.label).fontWeight(.semibold)
+    /// The line's parts: a short state word or phrase drawn in emphasis, then the detail.
+    struct Summary: Equatable {
+        enum Tone: Equatable { case plain, attention, failure, success }
+        var lead: String?
+        var detail: String?
+        var tone: Tone = .plain
+
+        var words: [String] { [lead, detail].compactMap(\.self) }
+    }
+
+    /// The tab a done or idle row speaks for: the agent tab with news (a pull request, a failure, a
+    /// reply), else the first agent tab.
+    static func newsTab(_ workspace: Workspace, status: WorkspaceStatus) -> WorkspaceTab? {
+        switch status {
+        case .needsYou, .working: return workspace.agentTab(for: status)
+        default:
+            let agents = workspace.tabs.filter(\.isAgent)
+            return agents.first { $0.activity?.pullRequest != nil } ?? agents.first { $0.activity?.failed == true }
+                ?? agents.first { $0.activity?.lastLine != nil } ?? agents.first
+        }
+    }
+
+    static func summary(_ workspace: Workspace, status: WorkspaceStatus, macName: String?) -> Summary {
+        let tab = newsTab(workspace, status: status)
+        let activity = tab?.activity
+        // What it did, in its own words; the tab's task (its name, else the chat's title) only
+        // while the Mac has not said what it did.
+        let said = activity?.lastLine ?? tab?.task
+        switch status {
+        case .needsYou:
+            let ask: String = switch tab?.waitingFor {
+            case .permission: "Asking permission"
+            case .question: "Has a question"
+            case nil: "Waiting for you"
+            }
+            return Summary(lead: "Needs you", detail: [ask, said].compactMap(\.self).joined(separator: " · "), tone: .attention)
+        case .working:
+            return Summary(lead: "Working", detail: said)
+        case .creating:
+            return Summary(detail: workspace.directory.isEmpty ? "Creating…" : directoryName(workspace.directory))
+        case .offline:
+            return Summary(detail: place(workspace, macName: macName))
+        case .done, .idle:
+            if let pull = activity?.pullRequest { return pullSummary(pull) }
+            if activity?.failed == true { return Summary(lead: "Failed", detail: activity?.lastLine, tone: .failure) }
+            if status == .done, let said { return Summary(detail: said) }
+            if status == .done { return Summary(lead: "Finished") }
+            return Summary(detail: place(workspace, macName: macName))
+        }
+    }
+
+    /// "**Merged** · #123 Fix login", "**PR #123 open** · Checks failing", "**Closed** · #123".
+    static func pullSummary(_ pull: PullRequestSummary) -> Summary {
+        let name = pull.title.map { "#\(pull.number) \($0)" } ?? "#\(pull.number)"
+        switch pull.state {
+        case .merged: return Summary(lead: "Merged", detail: name, tone: .success)
+        case .closed: return Summary(lead: "Closed", detail: name)
+        case .draft: return Summary(lead: "Draft PR #\(pull.number)", detail: pull.title)
+        case .open, nil:
+            let tone: Summary.Tone = pull.checks == .failing ? .failure : .plain
+            let state = pull.stateText == "Open" ? pull.title : pull.stateText
+            return Summary(lead: "PR #\(pull.number) open", detail: state, tone: tone)
+        }
     }
 
     /// "Home" for the home directory, as the New Workspace menu says.
@@ -1654,22 +1718,17 @@ struct StatusLine: View {
     /// Whether the line has no words: only an idle or offline row can, when
     /// it has no branch, no folder and no Mac to name.
     static func isBlank(_ workspace: Workspace, status: WorkspaceStatus, macName: String?) -> Bool {
-        switch status {
-        case .idle, .offline: place(workspace, macName: macName).isEmpty
-        case .needsYou, .working, .done, .creating: false
-        }
+        summary(workspace, status: status, macName: macName).words.allSatisfy(\.isEmpty)
     }
 
     /// The same line for VoiceOver.
     static func words(_ workspace: Workspace, status: WorkspaceStatus, macName: String?) -> [String] {
-        let tab = workspace.agentTab(for: status)
+        let words = summary(workspace, status: status, macName: status == .offline ? nil : macName).words.filter { !$0.isEmpty }
         switch status {
-        case .needsYou: return [tab?.waitingPhrase ?? "Needs you", tab?.task].compactMap(\.self)
-        case .working: return [tab.map { "\($0.agentName) is working" } ?? "Working", tab?.task].compactMap(\.self)
-        case .done: return ["Done", tab.map { "\($0.agentName)" }, tab?.task].compactMap(\.self)
+        case .idle where words.isEmpty || summary(workspace, status: status, macName: macName).lead == nil: return ["idle"] + words
+        case .offline: return ["offline"] + words
         case .creating: return ["Creating"]
-        case .idle: return ["idle", place(workspace, macName: macName)].filter { !$0.isEmpty }
-        case .offline: return ["offline", place(workspace, macName: nil)].filter { !$0.isEmpty }
+        default: return words
         }
     }
 }

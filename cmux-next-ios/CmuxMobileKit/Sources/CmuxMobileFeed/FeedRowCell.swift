@@ -29,6 +29,10 @@ protocol FeedRowCellDelegate: AnyObject {
     func rowCopyCommand(_ id: String)
     func rowMenu(_ id: String) -> UIMenu
     func rowWebHeight(_ id: String, _ height: CGFloat)
+    /// The pull request card or the footer's PR: opens the pull request.
+    func rowOpenPullRequest(_ id: String)
+    /// The footer's Merge: asks, then sends the chat the merge.
+    func rowMerge(_ id: String, from source: UIView)
     var rowsSettled: Bool { get }
 }
 
@@ -50,6 +54,19 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
     private let row = UIView()
     private let divider = UIView()
     private let avatar = UIView()
+    /// Threads' line joining the avatars of one workspace's run of rows.
+    private let threadAbove = UIView()
+    private let threadBelow = UIView()
+    private let headlineDot = UIView()
+    private let headline = UILabel()
+    private lazy var pullCard: FeedPullCardView = {
+        let view = FeedPullCardView()
+        view.onTap = { [weak self] in self.map { $0.delegate?.rowOpenPullRequest($0.id) } }
+        row.addSubview(view)
+        made.insert("pull")
+        FeedRowCell.drawAsync(view)
+        return view
+    }()
     private let avatarGlyph = UIImageView()
     private let unread = UIView()
     private let name = UILabel()
@@ -185,6 +202,18 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
         contentView.addSubview(divider)
         divider.backgroundColor = .separator
 
+        for line in [threadAbove, threadBelow] {
+            line.backgroundColor = .separator
+            line.layer.cornerRadius = 1
+            line.isHidden = true
+            row.addSubview(line)
+        }
+        headlineDot.layer.cornerRadius = 3.5
+        row.addSubview(headlineDot)
+        headline.numberOfLines = 2
+        headline.lineBreakMode = .byTruncatingTail
+        headline.accessibilityIdentifier = "feed.row.headline"
+        row.addSubview(headline)
         avatar.backgroundColor = .cmuxMobileSurfaceRaised
         avatar.layer.cornerRadius = 20
         avatar.isAccessibilityElement = false
@@ -241,7 +270,7 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
         row.addSubview(failureLabel)
 
 
-        for (index, title) in ["Reply", "Open", "Copy", "Share"].enumerated() {
+        for (index, title) in ["Reply", "Open", "Pull Request", "Merge"].enumerated() {
             let button = UIButton(type: .custom)
             button.tag = index
             button.accessibilityLabel = title
@@ -324,6 +353,10 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
 
         avatar.frame = layout.avatar
         avatarGlyph.frame = avatar.bounds
+        threadAbove.isHidden = layout.threadAbove == nil
+        threadBelow.isHidden = layout.threadBelow == nil
+        if let frame = layout.threadAbove { threadAbove.frame = frame }
+        if let frame = layout.threadBelow { threadBelow.frame = CGRect(x: frame.minX, y: frame.minY, width: frame.width, height: max(0, layout.height - frame.minY)) }
         avatarGlyph.image = UIImage(systemName: Self.avatarSymbol(item.harness),
                                     withConfiguration: UIImage.SymbolConfiguration(pointSize: 40 * 0.42, weight: .medium))
         unread.isHidden = item.isRead
@@ -345,6 +378,17 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
             chip.apply(part)
         } else if made.contains("chip") {
             chip.isHidden = true
+        }
+        headline.attributedText = layout.headline.text
+        headline.frame = layout.headline.frame
+        headlineDot.isHidden = layout.headline.dot == nil
+        headlineDot.backgroundColor = layout.headline.dot
+        if let frame = layout.headline.dotFrame { headlineDot.frame = frame }
+        if let part = layout.pull {
+            pullCard.isHidden = false
+            pullCard.apply(part)
+        } else if made.contains("pull") {
+            pullCard.isHidden = true
         }
 
         applyBody(layout.body, settled: settled)
@@ -388,19 +432,20 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
         let frame = layout.header
         if styles.isAccessibilitySize {
             // At accessibility sizes the source wraps under the name instead of truncating.
-            name.attributedText = NSAttributedString(string: item.agentName, attributes: [.font: semibold, .foregroundColor: UIColor.label])
-            source.attributedText = NSAttributedString(string: "\(item.place) · \(stamp)", attributes: [.font: font, .foregroundColor: UIColor.secondaryLabel])
+            name.attributedText = NSAttributedString(string: item.title, attributes: [.font: semibold, .foregroundColor: UIColor.label])
+            source.attributedText = NSAttributedString(string: "\(item.agentName) · \(stamp)", attributes: [.font: font, .foregroundColor: UIColor.secondaryLabel])
             time.isHidden = true
-            source.accessibilityLabel = item.place.isEmpty ? date : "in \(item.place), \(date)"
+            source.accessibilityLabel = "\(item.agentName), \(date)"
             let line = ceil(font.lineHeight)
             name.frame = CGRect(x: frame.minX, y: frame.minY, width: frame.width, height: line)
             source.frame = CGRect(x: frame.minX, y: frame.minY + line + 2, width: frame.width, height: line)
             return
         }
         time.isHidden = false
-        source.accessibilityLabel = item.place.isEmpty ? nil : "in \(item.place)"
-        name.attributedText = NSAttributedString(string: item.agentName, attributes: [.font: semibold, .foregroundColor: UIColor.label])
-        source.attributedText = NSAttributedString(string: "· \(item.place)", attributes: [.font: font, .foregroundColor: UIColor.secondaryLabel])
+        // The chat's name leads (#51332): "api-server › Fix login redirect", then its agent.
+        source.accessibilityLabel = "by \(item.agentName)"
+        name.attributedText = NSAttributedString(string: item.title, attributes: [.font: semibold, .foregroundColor: UIColor.label])
+        source.attributedText = NSAttributedString(string: "· \(item.agentName)", attributes: [.font: font, .foregroundColor: UIColor.secondaryLabel])
         time.attributedText = NSAttributedString(string: "· \(stamp)", attributes: [.font: font, .foregroundColor: UIColor.secondaryLabel])
         // HStack(spacing: 4): the time never truncates, then the name, then the source.
         let timeWidth = ceil(time.intrinsicContentSize.width)
@@ -633,9 +678,11 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
     private func applyFooter(_ layout: FeedRowLayout) {
         let styles = NativeTextStyles(category: traitCollection.preferredContentSizeCategory)
         let font = styles.font(.footnote)
-        let copied = layout.key.state.copied
+        // Reply, Open, the pull request, and Merge once it is ready (Copy and Share are in the menu).
         let entries: [(Int, String, String)] = (layout.footerHasReply ? [(0, "bubble.left", "Reply")] : [])
-            + [(1, "arrow.up.right.square", "Open"), (2, copied ? "checkmark" : "doc.on.doc", "Copy"), (3, "square.and.arrow.up", "Share")]
+            + [(1, "arrow.up.right.square", "Open")]
+            + (layout.footerHasPull ? [(2, "arrow.triangle.pull", "PR")] : [])
+            + (layout.footerHasMerge ? [(3, "arrow.triangle.merge", "Merge")] : [])
         var widths: [CGFloat] = []
         for (tag, symbol, title) in entries {
             let button = footerButtons[tag]
@@ -692,9 +739,9 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
         case 1:
             delegate?.rowOpen(id)
         case 2:
-            delegate?.rowCopy(id)
+            delegate?.rowOpenPullRequest(id)
         default:
-            delegate?.rowShare(id, from: button)
+            delegate?.rowMerge(id, from: button)
         }
     }
 
@@ -736,7 +783,8 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
     }
 
     static func avatarSymbol(_ harness: String) -> String {
-        switch harness {
+        // A profile (`claude-sr2`) draws its agent's mark.
+        switch harness == "terminal" ? harness : HarnessName.family(harness) {
         case "claude": "asterisk"
         case "codex": "chevron.left.forwardslash.chevron.right"
         case "cursor": "cursorarrow.rays"
@@ -900,6 +948,47 @@ final class FeedChipView: UIView {
         if let name = part.symbol {
             symbol.image = UIImage(systemName: name, withConfiguration: UIImage.SymbolConfiguration(textStyle: .caption1))
         }
+    }
+}
+
+/// A chat's pull request: its number and title, its state ("Checks passing", "Merged"), and the
+/// dev build its reply names. A tap opens the pull request.
+final class FeedPullCardView: UIView {
+    private let title = UILabel()
+    private let state = UILabel()
+    private let build = UILabel()
+    var onTap: (() -> Void)?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .cmuxMobileFill
+        layer.cornerRadius = 12
+        layer.cornerCurve = .continuous
+        title.numberOfLines = 2
+        title.lineBreakMode = .byTruncatingTail
+        for label in [title, state, build] { addSubview(label) }
+        isAccessibilityElement = true
+        accessibilityTraits = .link
+        accessibilityIdentifier = "feed.row.pull"
+        addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped)))
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    @objc private func tapped() { onTap?() }
+
+    func apply(_ part: FeedRowLayout.PullCard) {
+        frame = part.frame
+        title.attributedText = part.title
+        title.frame = part.titleFrame
+        state.attributedText = part.state
+        state.frame = part.stateFrame
+        build.isHidden = part.build == nil
+        build.attributedText = part.build
+        if let frame = part.buildFrame { build.frame = frame }
+        accessibilityLabel = [part.title.string, part.state.string, part.build?.string].compactMap(\.self)
+            .map { $0.replacingOccurrences(of: "\u{FFFC}", with: "").trimmingCharacters(in: .whitespaces) }.joined(separator: ", ")
     }
 }
 

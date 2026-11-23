@@ -740,6 +740,9 @@ pub mod method {
     /// The other sessions, here and on peers, that work on the files, topic, branch or folder
     /// a query names (`hub/touched.rs`, `touched_files.rs`).
     pub const MUX_WHO_ELSE: &str = "_acpmux/who_else";
+    /// One pull request's state for a chat's card (`server/pr_state.rs`): the `pr_state` tool's
+    /// read, asked by the phone's Feed and workspace rows.
+    pub const MUX_PR_STATE: &str = "_acpmux/pr_state";
     /// A send noted: the daemon answers when one caller sent the same prompt to many sessions
     /// within a minute (`send_fanout.rs`). It refuses nothing.
     pub const MUX_SEND_FANOUT: &str = "_acpmux/send_fanout";

@@ -107,6 +107,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     "_acpmux/host_notice",
     "_acpmux/host_health",
     "_acpmux/place",
+    // Reads with this Mac's own gh login, in this Mac's chat folder (`pr_state.rs`).
+    crate::rpc::method::MUX_PR_STATE,
     "_acpmux/move_targets",
     "_acpmux/models",
     crate::catalog::RPC_GET,

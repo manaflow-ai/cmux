@@ -1362,6 +1362,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/pr_state",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/send_fanout",
       "params": true,
       "result": true

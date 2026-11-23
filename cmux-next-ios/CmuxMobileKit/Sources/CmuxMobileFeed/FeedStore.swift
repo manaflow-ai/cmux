@@ -71,6 +71,13 @@ public struct FeedItem: Identifiable, Hashable, Sendable, Codable {
     /// The page the event opens instead of a chat: a request of the Mac app's own Feed (a PR
     /// held for trial, `MacNeedsYouFeed`), answered there, not in a chat or a terminal.
     public var link: URL?
+    /// The pull request the chat opened, with its state as the Mac last read it (#51332).
+    public var pullRequest: PullRequestSummary?
+    /// The cmux dev build the reply names (its tag), when it names one.
+    public var devBuild: String?
+    /// The chat's own title (acpmux's generated title), first line: names the card when the tab
+    /// has no name of its own.
+    public var chatTitle = ""
 
     public init(
         id: String, kind: Kind, workspaceID: String, tabID: String, agentName: String, harness: String,
@@ -99,10 +106,66 @@ public struct FeedItem: Identifiable, Hashable, Sendable, Codable {
     /// Where it happened: "api-server › Fix login redirect", or the workspace alone when the tab
     /// is unnamed or only repeats the agent's name.
     public var place: String {
-        let tab = tabTitle.trimmingCharacters(in: .whitespaces)
+        let named = tabTitle.trimmingCharacters(in: .whitespaces)
+        let tab = named.isEmpty ? chatTitle.trimmingCharacters(in: .whitespaces) : named
         let repeats = [agentName, harness, workspaceTitle].contains { $0.caseInsensitiveCompare(tab) == .orderedSame }
         guard !tab.isEmpty, !repeats else { return workspaceTitle }
         return workspaceTitle.isEmpty ? tab : "\(workspaceTitle) › \(tab)"
+    }
+
+    /// The thread a card belongs to: its Mac's workspace, else the folder it ran in.
+    public var threadKey: String {
+        "\(macID ?? "")\u{1F}\(workspaceID.isEmpty ? "folder:" + workspaceTitle : workspaceID)"
+    }
+
+    /// The card's name: the chat's place ("api-server › Fix login redirect"), else the agent.
+    public var title: String {
+        let place = place
+        return place.isEmpty ? agentName : place
+    }
+
+    /// What happened, in one plain line (#51332): "Needs your OK: Run git push", "Asks: Which
+    /// database?", "Merged PR #123", "Opened PR #123", "Failed", "Finished".
+    public var headline: String {
+        switch kind {
+        case .permission(let request):
+            if let resolution { return resolution }
+            let title = request.toolCall.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            return title.isEmpty ? "Needs your OK" : "Needs your OK: \(title)"
+        case .question(let question):
+            if let resolution { return "Answered: \(resolution.split(whereSeparator: \.isNewline).first.map(String.init) ?? resolution)" }
+            return question.isPending ? "Asks: \(question.summary)" : "Question closed"
+        case .needsInput:
+            if let resolution { return resolution }
+            return link != nil ? "Needs you" : "Waiting for you in the terminal"
+        case .failed:
+            return "Failed"
+        case .response, .finished:
+            if let pull = pullRequest {
+                switch pull.state {
+                case .merged: return "Merged PR #\(pull.number)"
+                case .closed: return "Closed PR #\(pull.number)"
+                case .draft: return "Opened draft PR #\(pull.number)"
+                case .open, nil: return "PR #\(pull.number) open"
+                }
+            }
+            return "Finished"
+        }
+    }
+
+    /// The decision the card waits on, when one does: the ask open, or a pull request ready to merge.
+    public var decision: Decision? {
+        if needsYou { return .answer }
+        guard kind == .response || kind == .finished, let pull = pullRequest, pull.canMerge,
+              pull.checks == .passing else { return nil }
+        return .merge(pull)
+    }
+
+    public enum Decision: Hashable, Sendable {
+        /// The ask on the card (Allow, Deny, an answer).
+        case answer
+        /// Its pull request passes its checks and merges cleanly: Merge sends the chat the merge.
+        case merge(PullRequestSummary)
     }
 
     public var needsYou: Bool {
@@ -241,6 +304,9 @@ public final class FeedStore {
     @ObservationIgnored private var spilledIDs: Set<String> = []
     /// Spilled events the source withdrew (`remove`): they do not come back.
     @ObservationIgnored private var removedWhileSpilled: Set<String> = []
+    /// Id prefixes of sessions whose cards left the Feed (`withdraw`): a spilled page never brings
+    /// one back.
+    @ObservationIgnored private var withdrawnPrefixes: Set<String> = []
     /// Mark All as Read covered every event up to then, the spilled ones too.
     @ObservationIgnored private var allReadThrough: Date?
     public private(set) var isLoadingOlder = false
@@ -293,7 +359,8 @@ public final class FeedStore {
     /// The window and the evicted done flags apply before the comparison, so a
     /// re-reported history the window already dropped is no change at all.
     private func setItems(_ next: [FeedItem]) {
-        var next = next
+        // The Chief's compactor never reaches the Feed, whoever made the card (#51332).
+        var next = next.contains(where: FeedInternal.isCompactorCard) ? next.filter { !FeedInternal.isCompactorCard($0) } : next
         if !evictedDoneSet.isEmpty {
             for index in next.indices where !next[index].isDone && evictedDoneSet.contains(next[index].id) {
                 next[index].isDone = true
@@ -326,6 +393,7 @@ public final class FeedStore {
         olderOnDisk = 0
         spilledIDs = []
         removedWhileSpilled = []
+        withdrawnPrefixes = []
         allReadThrough = nil
     }
 
@@ -356,7 +424,7 @@ public final class FeedStore {
             spilledIDs.subtract(page.map(\.id))
             // A newer copy already in memory (the Mac re-reported it) wins; one the source
             // withdrew stays gone; what the person read while it was on disk comes back read.
-            let back = page.filter { itemIndex[$0.id] == nil && !removedWhileSpilled.contains($0.id) }.map { item in
+            let back = page.filter { itemIndex[$0.id] == nil && !removedWhileSpilled.contains($0.id) && !isWithdrawn($0.id) }.map { item in
                 var item = item
                 if readSet.contains(item.id) || allReadThrough.map({ item.createdAt <= $0 }) == true { item.isRead = true }
                 return item
@@ -392,7 +460,7 @@ public final class FeedStore {
     /// The filtered list and the count, kept with the items instead of
     /// recomputed by every body that reads them.
     private func refreshDerived() {
-        let visible = Self.pinningNeedsYou(items.filter { !$0.isDone && filter.matches($0) && !mutedWorkspaces.contains($0.workspaceID) })
+        let visible = Self.arranged(items.filter { !$0.isDone && filter.matches($0) && !mutedWorkspaces.contains($0.workspaceID) })
         if visible != visibleItems { visibleItems = visible }
         let open = Set(items.lazy.filter { $0.needsYou && !$0.isDone }.map(\.id))
         if open != needsYouIDs { needsYouIDs = open }
@@ -406,6 +474,29 @@ public final class FeedStore {
         // Stable: each group keeps the order it came in (newest first).
         guard items.contains(where: \.needsYou) else { return items }
         return items.filter(\.needsYou) + items.filter { !$0.needsYou }
+    }
+
+    /// The Feed's order (#51332): the open asks first (`pinningNeedsYou`), then every other event
+    /// grouped by its workspace, a group where its newest event is, newest first inside it. A
+    /// workspace's run reads as one thread.
+    nonisolated static func arranged(_ items: [FeedItem]) -> [FeedItem] {
+        let pinned = pinningNeedsYou(items)
+        let asks = pinned.prefix { $0.needsYou }
+        return Array(asks) + groupingByWorkspace(Array(pinned.dropFirst(asks.count)))
+    }
+
+    /// `items` (newest first) with each workspace's events together, the groups in the order of
+    /// their newest event. Stable.
+    nonisolated static func groupingByWorkspace(_ items: [FeedItem]) -> [FeedItem] {
+        var order: [String] = []
+        var groups: [String: [FeedItem]] = [:]
+        for item in items {
+            let key = item.threadKey
+            if groups[key] == nil { order.append(key) }
+            groups[key, default: []].append(item)
+        }
+        guard order.count < items.count else { return items }
+        return order.flatMap { groups[$0] ?? [] }
     }
 
     /// Whether the Feed knows the ask with acpmux permission `permissionID` from `mac` closed:
@@ -483,7 +574,7 @@ public final class FeedStore {
         self.readIDs = readIDs
         readSet = Set(readIDs)
         let read = readSet
-        self.items = items.sorted { $0.createdAt > $1.createdAt }.map { item in
+        self.items = items.filter { !FeedInternal.isCompactorCard($0) }.sorted { $0.createdAt > $1.createdAt }.map { item in
             var item = item
             if read.contains(item.id) { item.isRead = true }
             return item
@@ -680,6 +771,26 @@ public final class FeedStore {
         if spilledIDs.contains(id) { removedWhileSpilled.insert(id) }
         if items.contains(where: { $0.id == id }) { items.removeAll { $0.id == id } }
         if unseenNewIDs.contains(id) { unseenNewIDs.removeAll { $0 == id } }
+    }
+
+    /// Drops every event `matches` picks (a session the Feed no longer shows, such as the Chief's own).
+    /// Every card whose id starts with one of `idPrefixes` (of the Mac `macID`) leaves, in memory
+    /// and in the spill: a session whose cards the Feed no longer shows (#51332).
+    public func withdraw(idPrefixes: Set<String>, macID: String?) {
+        guard !idPrefixes.isEmpty else { return }
+        if spill != nil { withdrawnPrefixes.formUnion(idPrefixes) }
+        removeAll { item in item.macID == macID && idPrefixes.contains { item.id.hasPrefix($0) } }
+    }
+
+    private func isWithdrawn(_ id: String) -> Bool {
+        !withdrawnPrefixes.isEmpty && withdrawnPrefixes.contains { id.hasPrefix($0) }
+    }
+
+    public func removeAll(where matches: (FeedItem) -> Bool) {
+        guard items.contains(where: matches) else { return }
+        let gone = Set(items.filter(matches).map(\.id))
+        items.removeAll { gone.contains($0.id) }
+        if unseenNewIDs.contains(where: gone.contains) { unseenNewIDs.removeAll { gone.contains($0) } }
     }
 
     /// Marks an open ask resolved elsewhere (another device or the Mac).

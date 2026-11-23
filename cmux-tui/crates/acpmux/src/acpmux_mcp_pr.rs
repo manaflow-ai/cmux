@@ -48,13 +48,13 @@ pub(super) fn tool() -> Value {
 
 /// Which pull request a call names: what gh is given for it, and the repo when a URL names one.
 #[derive(Debug, PartialEq)]
-pub(super) struct Target {
+pub(crate) struct Target {
     pub selector: String,
     pub repo: Option<String>,
 }
 
 /// `pr` and `repo` as gh takes them, or why they are refused.
-pub(super) fn target(args: &Value) -> Result<Target, String> {
+pub(crate) fn target(args: &Value) -> Result<Target, String> {
     let repo = arg(args, "repo").map(str::to_owned);
     if let Some(repo) = &repo
         && !valid_repo(repo)
@@ -95,7 +95,7 @@ fn parse_url(url: &str) -> Option<(String, String)> {
 }
 
 /// The gh command line for a target.
-pub(super) fn gh_args(t: &Target) -> Vec<String> {
+pub(crate) fn gh_args(t: &Target) -> Vec<String> {
     let mut v: Vec<String> = ["pr", "view", t.selector.as_str()].map(str::to_owned).into();
     if let Some(repo) = &t.repo {
         v.extend(["-R".to_owned(), repo.clone()]);
@@ -140,8 +140,8 @@ async fn chat_cwd(daemon: &Arc<Client>, session: &str) -> Option<PathBuf> {
     text(&info, "cwd").map(PathBuf::from).filter(|p| p.is_dir())
 }
 
-async fn run_gh(args: &[String], cwd: Option<PathBuf>) -> Result<Vec<u8>, String> {
-    let mut cmd = tokio::process::Command::new("gh");
+pub(crate) async fn run_gh(args: &[String], cwd: Option<PathBuf>) -> Result<Vec<u8>, String> {
+    let mut cmd = tokio::process::Command::new(gh_program());
     cmd.args(args)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
@@ -167,6 +167,21 @@ async fn run_gh(args: &[String], cwd: Option<PathBuf>) -> Result<Vec<u8>, String
     let tail: String = stderr.chars().skip(skip).collect();
     let code = out.status.code().map_or("a signal".to_owned(), |c| format!("exit {c}"));
     Err(format!("gh pr view failed ({code}): {tail}"))
+}
+
+/// `gh`, else where it is usually installed: an app started from Finder (the daemon the app
+/// starts, which answers `_acpmux/pr_state`) has no Homebrew folder on its PATH.
+fn gh_program() -> PathBuf {
+    let on_path = std::env::var_os("PATH")
+        .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join("gh").is_file()));
+    if on_path {
+        return PathBuf::from("gh");
+    }
+    ["/opt/homebrew/bin/gh", "/usr/local/bin/gh"]
+        .into_iter()
+        .map(PathBuf::from)
+        .find(|p| p.is_file())
+        .unwrap_or_else(|| PathBuf::from("gh"))
 }
 
 /// `v[k]` without the indexing lint: Null when absent.
@@ -274,7 +289,7 @@ fn plural(n: usize, one: &str) -> String {
 
 /// The result of `pr_state` for `gh pr view --json` output: the text (outcome line first) and
 /// the `structuredContent`.
-pub(super) fn pr_state(pr: &Value) -> (String, Value) {
+pub(crate) fn pr_state(pr: &Value) -> (String, Value) {
     let s = |k: &str| text_or_empty(pr, k);
     let number = field(pr, "number").as_u64().unwrap_or(0);
     let head = s("headRefOid").to_lowercase();

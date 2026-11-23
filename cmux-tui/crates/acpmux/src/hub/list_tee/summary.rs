@@ -160,6 +160,8 @@ fn selected_extra(row: &Map<String, Value>, state: &str) -> Value {
             "mux.parent",
             "mux.children",
             "cmux.chief",
+            // The Chief's role (`turn`, `compactor`): the phone's Feed hides its compactor by it.
+            "cmux.chief.role",
             "cmux.chief.participant",
             "archived",
         ],
