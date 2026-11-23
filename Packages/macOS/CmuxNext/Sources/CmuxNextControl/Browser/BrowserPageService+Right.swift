@@ -134,17 +134,18 @@ extension BrowserPageService {
                     "created": .bool(created), "navigated": .bool(navigated), "shared": false,
                     "surface": "agent_workspace"]
         }
-        let found = BrowserAgentWorkspace.resolve(in: call.snapshot.topology, session: home.sessionID)
-        if let found {
-            let usable = found.agentTabs.map(\.id)
-            if let own = await leases.openedTab(of: agent, among: Set(usable)) {
-                if let holder = await leases.acquire(own, for: agent) { throw leaseHeld(holder: holder, tab: own) }
-                return answer(own, workspace: found.workspace, workspaceKey: found.workspace.id, created: false, navigated: false)
-            }
-            if url == nil, let kept = await leases.heldTab(of: agent, among: usable) {
-                _ = await leases.acquire(kept, for: agent)
-                return answer(kept, workspace: found.workspace, workspaceKey: found.workspace.id, created: false, navigated: false)
-            }
+        let topology = call.snapshot.topology
+        let found = BrowserAgentWorkspace.resolve(in: topology, session: home.sessionID)
+        // Its own tab wherever it is now (the person may have moved it or renamed the workspace).
+        let outside = BrowserAgentWorkspace.browserTabs(outside: home, in: topology)
+        if let own = await leases.openedTab(of: agent, among: outside) {
+            if let holder = await leases.acquire(own, for: agent) { throw leaseHeld(holder: holder, tab: own) }
+            let at = listing(own, in: topology)
+            return answer(own, workspace: at, workspaceKey: at?.id ?? found?.workspace.id ?? BrowserAgentWorkspace.key, created: false, navigated: false)
+        }
+        if let found, url == nil, let kept = await leases.heldTab(of: agent, among: found.agentTabs.map(\.id)) {
+            _ = await leases.acquire(kept, for: agent)
+            return answer(kept, workspace: found.workspace, workspaceKey: found.workspace.id, created: false, navigated: false)
         }
         let opened = try await host.openAgentTab(url: url, inWorkspace: found?.workspace.id, named: BrowserAgentWorkspace.name)
         if let holder = await leases.acquire(opened.tab, for: agent, opened: true) { throw leaseHeld(holder: holder, tab: opened.tab) }

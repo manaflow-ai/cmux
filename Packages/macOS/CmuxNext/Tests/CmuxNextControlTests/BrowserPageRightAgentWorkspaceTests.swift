@@ -26,7 +26,9 @@ import Testing
             }
             let tab = "tab_agent\(number)"
             var info = ControlTabInfo(id: tab, surface: "8\(number)", kind: "browser", title: "Agent", url: url)
-            info.browserProfileID = BrowserPageService.agentBrowserProfileID
+            // As the app's topology reports a daemon-made tab before its profile record arrives
+            // (ControlTopologyMapper: `browserProfileID ?? "default"`); the real build showed it.
+            info.browserProfileID = "default"
             router.withLock { $0 }?.snapshots.publish { snapshot in
                 if let w = snapshot.topology.workspaces.firstIndex(where: { $0.id == BrowserPageService.agentWorkspaceKey }) {
                     snapshot.topology.workspaces[w].screens[0].panes[0].tabs.append(info)
@@ -114,6 +116,23 @@ import Testing
         }
         _ = try await right(router, ["agent": "Cloud Chief", "url": "https://example.com/"]).get()
         #expect(host.last?.workspace == BrowserPageService.agentWorkspaceKey)
+    }
+
+    @Test func theAgentsTabIsFoundAfterItsWorkspaceIsRenamedAndRekeyed() async throws {
+        // The person renamed the workspace and it lost its fixed key (a recreate): the agent's
+        // own tab is still found by its lease, and no second tab opens.
+        let (router, _, host) = install()
+        _ = try await right(router, ["agent": "Chief", "url": "https://cmux.com/"]).get()
+        router.snapshots.publish { snapshot in
+            if let w = snapshot.topology.workspaces.firstIndex(where: { $0.id == BrowserPageService.agentWorkspaceKey }) {
+                snapshot.topology.workspaces[w].name = "Mine now"
+                snapshot.topology.workspaces[w].id = "other-key"
+            }
+        }
+        let again = try await right(router, ["agent": "Chief", "verb": "browser.page.click"]).get()
+        #expect(again["tab"] == "tab_agent1")
+        #expect(again["created"] == false)
+        #expect(host.count == 1)
     }
 
     @Test func releaseFreesTheAgentWorkspaceTab() async throws {

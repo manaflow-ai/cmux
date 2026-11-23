@@ -15,20 +15,28 @@ struct BrowserAgentWorkspace: Sendable, Equatable {
     /// The workspace's name when it is made.
     static var name: String { ControlStrings.text("control.browser.agentWorkspaceName", "Agent browser") }
 
-    /// The agents' workspace in `session` (Home's), by its key, else by its name; nil when none.
+    /// The agents' workspace: in `session` (Home's) first, by its key, else by its name; nil when none.
     static func resolve(in topology: ControlTopology, session: String?) -> Self? {
-        let candidates = topology.workspaces.filter { $0.sessionID == session && $0.kind == nil }
-        if let keyed = candidates.first(where: { workspaceKeyForm($0.id) == workspaceKeyForm(key) }) { return Self(workspace: keyed) }
-        return candidates.first { $0.name == name }.map(Self.init(workspace:))
+        let ordered = topology.workspaces.filter { $0.sessionID == session } + topology.workspaces.filter { $0.sessionID != session }
+        if let keyed = ordered.first(where: { workspaceKeyForm($0.id) == workspaceKeyForm(key) }) { return Self(workspace: keyed) }
+        return ordered.first { $0.kind == nil && $0.name == name }.map(Self.init(workspace:))
     }
 
-    /// Its browser tabs of the agent profile, in strip order.
+    /// Its browser tabs, in strip order. Every one is an agent's: the workspace is theirs, and a
+    /// daemon-made tab may report its profile as `default` before the app's record arrives.
     var agentTabs: [ControlTabInfo] {
-        workspace.panes.flatMap(\.tabs).filter { $0.kind == "browser" && $0.page == nil && BrowserPageService.isAgentProfile($0.browserProfileID) }
+        workspace.panes.flatMap(\.tabs).filter { $0.kind == "browser" && $0.page == nil }
     }
 
     /// The pane holding `tab`.
     func pane(of tab: String) -> ControlPaneInfo? {
         workspace.panes.first { $0.tabs.contains { $0.id == tab } }
+    }
+
+    /// Every browser tab outside Home's workspace: where an agent's own tab is looked for when
+    /// Home has no right column, so it is found whatever the agents' workspace is called now.
+    static func browserTabs(outside home: ControlWorkspaceInfo, in topology: ControlTopology) -> Set<String> {
+        Set(topology.workspaces.lazy.filter { $0.id != home.id }.flatMap(\.panes).flatMap(\.tabs)
+            .filter { $0.kind == "browser" && $0.page == nil }.map(\.id))
     }
 }

@@ -37,8 +37,8 @@ enum AgentBrowserProfile {
     @MainActor static func openTab(url: String?, inWorkspace workspace: String?, named name: String, services: AppServices) async throws -> (tab: String, workspace: String) {
         guard case .open(let choice) = services.cache.browserTabs.resolve(requested: nil) else { throw ControlError(code: "unavailable", message: "No browser engine can open the agent's tab") }
         let opened = try await services.machines.emptyWorkspaceRepair(services.daemon.machineID, local: services.emptyWorkspaces).openAgentBrowserTab(
-            url: url, engine: choice.engine, profileID: try await ensure(services.browserProfiles), inWorkspace: workspace.flatMap { services.workspace(id: $0) },
-            key: BrowserPageService.agentWorkspaceKey, name: name, on: services.daemon.connection)
+            url: url, engine: choice.engine, profileID: try await ensure(services.browserProfiles), inWorkspace: workspace,
+            key: BrowserPageService.agentWorkspaceKey, name: name, in: services.daemon.store, on: services.daemon.connection)
         services.cache.browserTabs.opened(choice, opened.surface, on: services.daemon)
         services.cache.markAgentDriven(surface: opened.surface)
         return (opened.tab, opened.workspace)
