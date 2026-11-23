@@ -196,12 +196,16 @@ mod linux {
             AtomicUsize::new(0),
             AtomicU64::new(0),
         );
+        // Every reader starts before any work, so a store that can't be read fails the push
+        // instead of leaving blobs unsent behind a count of zero failures.
+        let readers = (0..8.min(oids.len()))
+            .map(|_| ObjectReader::spawn(&git_dir))
+            .collect::<anyhow::Result<Vec<_>>>()?;
         std::thread::scope(|scope| {
-            for _ in 0..8.min(oids.len()) {
-                scope.spawn(|| {
-                    let Ok(mut reader) = ObjectReader::spawn(&git_dir) else {
-                        return;
-                    };
+            for mut reader in readers {
+                let (next, stored, had, failed, bytes, oids, bucket) =
+                    (&next, &stored, &had, &failed, &bytes, &oids, &bucket);
+                scope.spawn(move || {
                     loop {
                         let Some(oid) = oids.get(next.fetch_add(1, Ordering::Relaxed)) else {
                             return;
