@@ -407,8 +407,14 @@ fn sparse_patterns_are_sent() {
 fn lfs_attributes_are_noticed() {
     let f = Fixture::new();
     write(&f.work.join(".gitattributes"), "*.psd filter=lfs diff=lfs merge=lfs -text\n");
+    write(&f.work.join("art/.gitattributes"), "*.png filter=lfs diff=lfs merge=lfs -text\n");
+    write(&f.work.join("docs/.gitattributes"), "*.md text\n");
     let planned = plan(&f.work, &f.path("seed.bundle")).unwrap();
     assert!(planned.params.lfs);
+    // Where they are, for a head-first seed to tell whether one reaches its head.
+    let mut files = planned.lfs_attributes;
+    files.sort();
+    assert_eq!(files, [".gitattributes", "art/.gitattributes"]);
 }
 
 #[test]

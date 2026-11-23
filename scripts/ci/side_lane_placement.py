@@ -720,9 +720,9 @@ def light_side_label(label: str) -> str:
 
 def _family(label: str) -> str:
     """`<class>-xcode-<version>` for any glaeda label naming a class, whatever its role or namespace
-    (side, fast, trusted, nightly, promote, signing, aws), else "". Wider than
-    portable_job_placement.family(), which reads only pool.OWNED_LABEL: the nightly builder's pool
-    (glaeda-trusted-light-xcode-26.6, cmux22) is a light mini, and its queue must hold the light minis too."""
+    (side, fast, trusted, nightly, promote, signing, aws), else "". Wider than pool.OWNED_LABEL alone:
+    the nightly builder's pool (glaeda-trusted-light-xcode-26.6, cmux22) is a light mini, and its queue must
+    hold the light minis too."""
     parts = (label or "").split("-")
     if not parts or parts[0] != "glaeda":
         return ""
@@ -1103,6 +1103,45 @@ def delimited(jobs: Sequence[str]) -> str:
 
 # The branch whose pushes run the cmux NEXT DEV pipeline.
 FEAT_BRANCH = "refs/heads/feat-cmux-next"
+
+# STACK_SLOT: a same-repository pull request labelled stack-blocker (a base-red repair, or a PR a stack of others waits
+# on) runs its Mac jobs on the std minis' nightly slot, glaeda-nightly-std-xcode-26.6, a label no other PR job asks
+# for, so a busy side label's queue never holds it. GitHub hands a label's queued jobs out in arrival order, so on
+# 2026-11-17 cmux#45498, the repair of a daemon-test red on every feat-cmux-next head, queued behind about 70 PR jobs
+# on glaeda-side-std-xcode-26.6. claude-sr2-coord, 2026-11-17: "A base-red repair jumping the Mac queue is a route we
+# need every day ... build it as the standing mechanism (the stack-blocker path), with a test." glaeda's runner hook
+# admits such a job on the slot (STACK_SLOT there) and ranks it right after nightly jobs. The workflow sets STACK_SLOT
+# only on attempt 1 of a labelled same-repository pull request; it overrides every route a Mac job's runs-on reads
+# ahead of `runner` and `deferred_runner`, so each placed job takes the slot. A rescue re-run (attempt 2) is placed as
+# before. The label is read from the run's own payload, so labelling a PR takes effect on its next push.
+STACK_SLOT_PREFIX = "glaeda-nightly-"
+# The fast tier's own fast label and the DEV compile slot's fresh label are dedicated slots of their own and keep
+# their placement; every shared route a queued job could wait on is cleared.
+STACK_SLOT_CLEARED = ("owned_jobs", "fallback_jobs", "light_jobs", "session_jobs", "borrow_jobs", "retry_jobs",
+                      "blacksmith_12_jobs", "blacksmith_6_jobs")
+
+
+def stack_slot_outputs(env: Mapping[str, str]) -> str:
+    """The outputs that send this run's placed Mac jobs to the nightly slot (STACK_SLOT), or "". Appended after the
+    placement's own, so each key's last value, the one GitHub keeps, is this one."""
+    slot = (env.get("STACK_SLOT") or "").strip()
+    if not slot.startswith(STACK_SLOT_PREFIX) or (env.get("GITHUB_RUN_ATTEMPT") or "").strip() not in ("", "1"):
+        return ""
+    return "".join(f"{key}=\n" for key in STACK_SLOT_CLEARED) + f"runner={slot}\ndeferred_runner={slot}\nwatch=true\n"
+
+
+def write_stack_slot(env: Mapping[str, str]) -> None:
+    """Append stack_slot_outputs() to GITHUB_OUTPUT and say so in the log and the summary."""
+    outputs = stack_slot_outputs(env)
+    if not outputs:
+        return
+    slot = (env.get("STACK_SLOT") or "").strip()
+    why = f"a stack-blocker pull request: its Mac jobs take the nightly slot `{slot}`, ahead of the side label's queue"
+    print(f"side-lane placement: {why}")
+    for name, text in (("GITHUB_OUTPUT", outputs), ("GITHUB_STEP_SUMMARY", f"\n{why}\n")):
+        if path := env.get(name):
+            with open(path, "a", encoding="utf-8") as handle:
+                handle.write(text)
 
 
 def rerun_main(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> int:
@@ -1613,12 +1652,14 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     try:
         signal.signal(signal.SIGALRM, timeout)
         signal.setitimer(signal.ITIMER_REAL, PLACEMENT_DEADLINE_SECONDS)
-        return _main(env)
+        code = _main(env)
     except PlacementDeadline:
-        return _timeout_fallback(env)
+        code = _timeout_fallback(env)
     finally:
         signal.setitimer(signal.ITIMER_REAL, 0)
         signal.signal(signal.SIGALRM, previous)
+    write_stack_slot(env)  # STACK_SLOT: after the deadline, so it is always written
+    return code
 
 
 if __name__ == "__main__":

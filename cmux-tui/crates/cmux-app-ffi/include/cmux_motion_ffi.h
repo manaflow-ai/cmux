@@ -46,7 +46,8 @@ typedef struct {
 /*
  `HoverCardMachine<u64>`, every field. `phase` (`PHASE_*`) with its
  `target` and `token` (each meaningful only for the phases that carry
- it); `suppressions` bit 0 drag, 1 scroll, 2 sidebarHide. The windows are
+ it); `suppressions` bit 0 drag, 1 scroll, 2 sidebarHide; `last_shown` is
+ the id of the target whose card showed last (when `has_last_shown`). The windows are
  nanoseconds; the host may set them between calls (tunables).
  */
 typedef struct {
@@ -59,6 +60,7 @@ typedef struct {
     int64_t leave_window;
     int64_t aim_window;
     int64_t still_pointer_delay;
+    uint64_t last_shown;
     uint8_t phase;
     uint8_t suppressions;
     bool has_last_hit;
@@ -66,6 +68,7 @@ typedef struct {
     bool pointer_on_card;
     bool owned_card_shown;
     bool was_on_card;
+    bool has_last_shown;
 } CmuxHoverCardMachine;
 
 /*
@@ -214,6 +217,50 @@ typedef struct {
     double closing_mode_trailing_pad;
     double closing_mode_exit_delay;
 } CmuxMotionTabStripGeometry;
+
+/*
+ A wallpaper's light field (cmux-motion `LightField`, `appearance.wallpaperLighting`):
+ colors are straight sRGB 0..=1, positions 0..=1 of the picture from its top
+ left. The first `dominant_count` of `dominant` and `dominant_weight` are set.
+ */
+typedef struct {
+    double ambient[3];
+    double ambient_luminance;
+    double key[3];
+    double key_x;
+    double key_y;
+    double key_strength;
+    double key_spread;
+    double dominant[4][3];
+    double dominant_weight[4];
+    uint32_t dominant_count;
+    double rim[3];
+    double bloom[3];
+    double tint[3];
+} CmuxLightField;
+
+/*
+ cmux-motion `LightRim`: a rectangle's radial rim gradient toward the key
+ light, in the rectangle's unit space, and its peak opacity.
+ */
+typedef struct {
+    double center_x;
+    double center_y;
+    double radius_x;
+    double radius_y;
+    double alpha;
+} CmuxLightRim;
+
+/*
+ cmux-motion `LightStyle`: what a page's glass draws from the light.
+ */
+typedef struct {
+    double dx;
+    double dy;
+    double rim_alpha;
+    double bloom_alpha;
+    double tint_share;
+} CmuxLightStyle;
 
 /*
  One terminal view's selection override and first-use hint.
@@ -474,6 +521,75 @@ bool cmux_motion_mix_rgba(const double *from, const double *to, double t, uint8_
  `out` is null or points to a writable `CmuxMotionTabStripGeometry`.
  */
 bool cmux_motion_tab_strip_geometry(uint8_t density, CmuxMotionTabStripGeometry *out);
+
+/*
+ The light field of a small RGBA8 picture with premultiplied alpha (a
+ `CGContext` with `premultipliedLast`), rows top first, `bytes_per_row`
+ apart, `len` bytes in all. Read once per wallpaper, never per frame. False
+ for a null pointer, an empty, too large (over 128 by 128) or fully
+ transparent picture, or a buffer shorter than its size.
+
+ # Safety
+ `pixels` is null or points to `len` readable bytes; `out` is null or points
+ to a writable `CmuxLightField`.
+ */
+bool cmux_motion_light_field(const uint8_t *pixels,
+                             size_t len,
+                             uint32_t width,
+                             uint32_t height,
+                             uint32_t bytes_per_row,
+                             CmuxLightField *out);
+
+/*
+ Where `field`'s key light falls on a `width` by `height` container that a
+ picture of `picture_aspect` (width over height) fills, aspect fill and
+ centered, in points from the container's top left (`out_xy[0]`, `[1]`).
+ False for a null pointer.
+
+ # Safety
+ `field` is null or points to a readable `CmuxLightField`; `out_xy` is null
+ or points to 2 writable doubles.
+ */
+bool cmux_motion_light_point(const CmuxLightField *field,
+                             double picture_aspect,
+                             double width,
+                             double height,
+                             double *out_xy);
+
+/*
+ The rim light of `rect` (x, y, width, height) in a container `diagonal`
+ points across whose key light sits at `light_x, light_y` (from
+ `cmux_motion_light_point`). False for a null pointer or a degenerate
+ rectangle.
+
+ # Safety
+ `field` is null or points to a readable `CmuxLightField`; `rect` is null or
+ points to 4 readable doubles; `out` is null or points to a writable
+ `CmuxLightRim`.
+ */
+bool cmux_motion_light_rim(const CmuxLightField *field,
+                           double light_x,
+                           double light_y,
+                           const double *rect,
+                           double diagonal,
+                           CmuxLightRim *out);
+
+/*
+ The light style of `rect` (x, y, width, height; a window) with the same
+ inputs as `cmux_motion_light_rim`. False for a null pointer or a
+ degenerate rectangle.
+
+ # Safety
+ `field` is null or points to a readable `CmuxLightField`; `rect` is null or
+ points to 4 readable doubles; `out` is null or points to a writable
+ `CmuxLightStyle`.
+ */
+bool cmux_motion_light_style(const CmuxLightField *field,
+                             double light_x,
+                             double light_y,
+                             const double *rect,
+                             double diagonal,
+                             CmuxLightStyle *out);
 
 /*
  Whether a left press with `keys` needs to know if the program has the

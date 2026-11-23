@@ -410,6 +410,45 @@ test("a seq gap reads the records after the pane's newest, not the whole log", a
   expect(frames(chat.drawn, chat.from, chat.shown).rebuilt).toEqual([]);
 });
 
+// The host leaves a hidden pane's stream out (AcpmuxPaneSocket+Hidden.swift): a start marker where the chat stops
+// being whole, the turn's end still arrives (it moves the pane's newest seq past the hole), and the end marker when
+// the pane shows reads from the start marker's seq, so the records in the hole are drawn.
+test("a hidden pane's left-out stream is read from where the hole started when it shows", async () => {
+  const chat = await openChat();
+  const daemon = chat.daemon();
+  const asked = daemon.asked.length;
+  daemon.notify("_acpmux/lagged", { dropped: 0, reason: "host_hidden", phase: "start" });
+  await flush();
+  // Records 17..19 are left out; 20, the turn's end, reaches the page.
+  daemon.log.push(reply(17, "hidden one. "), reply(18, "hidden two. "), reply(19, "hidden three. "));
+  const end = { ...reply(20, ""), kind: "turn_result", dir: "mux" };
+  daemon.log.push(end);
+  daemon.notify("_acpmux/event", end);
+  await flush();
+  // The chat's own reads (a finished turn's transcript check, `kinds`) are not the hole's: only those that read the
+  // whole stream after a seq count.
+  const holeReads = (from: number) =>
+    daemon.asked
+      .slice(from)
+      .filter(
+        (message) =>
+          message.method === "_acpmux/events" &&
+          message.params?.beforeSeq === undefined &&
+          message.params?.kinds === undefined,
+      );
+  // While hidden, the hole is not read, and the list is not read again.
+  expect(holeReads(asked)).toEqual([]);
+  const shown = daemon.asked.length;
+  daemon.notify("_acpmux/lagged", { dropped: 3, reason: "host_hidden" });
+  await flush();
+  const reads = holeReads(shown);
+  // One read, from the seq the chat was whole through, and no list read (only the stream was left out).
+  expect(reads.map((message) => message.params?.afterSeq)).toEqual([16]);
+  expect(daemon.asked.slice(asked).some((message) => message.method === "_acpmux/watch")).toBe(false);
+  expect(JSON.stringify(chat.drawn.at(-1)!.rows)).toContain("hidden two. ");
+  expect(frames(chat.drawn, chat.from, chat.shown).rebuilt).toEqual([]);
+});
+
 test("a session the machine recreated is another transcript: one full replace is counted", async () => {
   const chat = await openChat();
   chat.daemon().createdAt = 200;

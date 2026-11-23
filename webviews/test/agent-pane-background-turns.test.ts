@@ -1001,7 +1001,8 @@ test("a quiet failure's short reply draws under its named line, never folded ins
     const at = view.findIndex((row) => row.kind === BACKGROUND_TURN);
     expect(at).toBeGreaterThanOrEqual(0);
     expect(lineHtml(view[at]!)).toContain("Background command failed (exit code 1)");
-    expect(lineHtml(view[at]!)).not.toContain("aria-expanded");
+    // It opens to its task (backgroundTurnTask.ts), never folds the reply under it.
+    expect(lineHtml(view[at]!)).toContain('data-opens="task"');
     expect(view[at + 1]).toMatchObject({
       kind: "assistant",
       text: "The suite failed on one flaky test; rerunning it.",
@@ -1012,7 +1013,8 @@ test("a quiet failure's short reply draws under its named line, never folded ins
 });
 
 // #33319: a failure that ended with something to say keeps its named line over its rows, so a long
-// reply never hides what failed. The line heads rows that already show, so it opens nothing.
+// reply never hides what failed. The line heads rows that already show, so it opens only to its task
+// (Leo, 2026-11-21: "background tasks not expandable"), never to them.
 test("a failure with a long reply keeps its named line over the reply", async () => {
   const daemon = fakeDaemon(
     record([
@@ -1038,7 +1040,7 @@ test("a failure with a long reply keeps its named line over the reply", async ()
     expect(at).toBeGreaterThanOrEqual(0);
     const line = view[at]!;
     expect(lineHtml(line)).toContain("Background command failed (exit code 101)");
-    expect(lineHtml(line)).not.toContain("aria-expanded");
+    expect(lineHtml(line)).toContain('data-opens="task"');
     expect(lineHtml(line)).toContain('data-background-turn="failed"');
     expect(view.slice(at + 1).some((row) => row.text?.includes("Here is what broke"))).toBe(true);
   } finally {
@@ -1208,3 +1210,39 @@ for (const [shape, steps] of Object.entries(workedShapes))
         client.close();
       }
     });
+
+// A background task's notice that comes in during a turn is what the agent answers with the work
+// under it: the run under it opens nothing, so it sits flush on the 22 pitch, never the 32 turn gap
+// (Leo, 2026-11-16: "why is the background task space after so big").
+test("the run under a background task's notice sits flush under it", async () => {
+  const notification = "<task-notification><summary>Background command finished (exit 0)</summary></task-notification>";
+  const daemon = fakeDaemon(
+    record([
+      ...personTurn("Hi", "Landing.", "t1"),
+      ["mux", "user_message", { text: "Push it", turnId: "t2" }],
+      ["mux", "turn_started", { turnId: "t2" }],
+      ran("push"),
+      started("bg"),
+      ["mux", "user_message", { text: notification, client: "adopt" }],
+      ran("after"),
+      ended("bg", false),
+      say("Pushed."),
+      ["mux", "turn_result", { turnId: "t2", status: "completed" }],
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    const closed = drawn(rows());
+    const view = drawn(
+      rows(),
+      closed.filter((row) => row.kind === "worked" || row.kind === BACKGROUND_TURN).map((row) => row.id),
+    );
+    const notice = view.findIndex((row) => row.kind === "user" && row.incoming?.kind === "notice");
+    expect(notice).toBeGreaterThan(0);
+    const next = view[notice + 1]!;
+    expect(next.kind).toBe("activity");
+    expect(transcriptGap(gridMark(view[notice]!, view[notice - 1]), gridMark(next, view[notice]))).toBe(0);
+  } finally {
+    client.close();
+  }
+});

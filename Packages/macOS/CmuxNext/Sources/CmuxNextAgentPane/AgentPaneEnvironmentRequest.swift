@@ -97,7 +97,7 @@ extension AgentPaneEnvironmentRequest {
 
     /// A save or remove could not be kept.
     static var failedMessage: String {
-        String(localized: "agentPane.error.environment", defaultValue: "The saved environments could not be changed.", bundle: .module)
+        String(localized: "agentPane.error.environment", defaultValue: "The saved environments could not be changed.", bundle: .localizedModule)
     }
 
     /// The JSON object the page reads; nil fields are left out.

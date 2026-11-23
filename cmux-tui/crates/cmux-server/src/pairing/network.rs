@@ -15,6 +15,9 @@ use crate::error::{Error, Result};
 pub struct Network {
     http: reqwest::blocking::Client,
     client_version: String,
+    /// This build's space: a dev build's joining machine pairs in its own space (its own
+    /// PairingDO), never in nightly's.
+    space: Option<cmux_build_space::BuildSpace>,
 }
 
 impl Network {
@@ -23,6 +26,12 @@ impl Network {
     }
 
     pub fn with_client_version(version: &str) -> Result<Self> {
+        Self::in_space(version, cmux_build_space::process().map(|space| space.cloned()))
+    }
+
+    /// [`Self::with_client_version`] in `space`; an unusable space pairs nothing.
+    pub fn in_space(version: &str, space: cmux_build_space::Resolved) -> Result<Self> {
+        let space = space.map_err(|error| Error::rejected(error.to_string()))?;
         version.parse::<reqwest::header::HeaderValue>().map_err(|_| invalid())?;
         let _ = rustls::crypto::ring::default_provider().install_default();
         let http = reqwest::blocking::Client::builder()
@@ -33,25 +42,39 @@ impl Network {
             .user_agent(concat!("cmux-server/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|_| unavailable())?;
-        Ok(Self { http, client_version: version.into() })
+        Ok(Self { http, client_version: version.into(), space })
+    }
+
+    /// A request to the selected backend, with this build's space.
+    fn backend(&self, method: reqwest::Method, url: String) -> reqwest::blocking::RequestBuilder {
+        self.http.request(method, url).headers(cmux_build_space::headers_for(self.space.as_ref()))
     }
 
     fn json(&self, request: reqwest::blocking::RequestBuilder) -> Result<Value> {
-        self.json_refusing(request, |_| "server.pair.api_refused")
+        self.json_refusing(request, |_, _| "server.pair.api_refused")
     }
 
-    /// [`Self::json`], naming each 4xx refusal (the begin route's invite answers).
+    /// [`Self::json`], naming each 4xx refusal from its status and (bounded) JSON body: the begin
+    /// route's invite answers, the challenge route's unknown-or-revoked answer.
     fn json_refusing(
         &self,
         request: reqwest::blocking::RequestBuilder,
-        refusal: impl Fn(reqwest::StatusCode) -> &'static str,
+        refusal: impl Fn(reqwest::StatusCode, Option<&Value>) -> &'static str,
     ) -> Result<Value> {
         let response = request
             .send()
             .map_err(|error| if error.is_connect() { unsent() } else { unavailable() })?;
         if !response.status().is_success() {
             return Err(if response.status().is_client_error() {
-                Error::rejected(refusal(response.status()))
+                let status = response.status();
+                let mut bytes = Vec::new();
+                let body = match response.take(MAX_FRAME_BYTES as u64 + 1).read_to_end(&mut bytes) {
+                    Ok(_) if bytes.len() <= MAX_FRAME_BYTES => {
+                        serde_json::from_slice::<Value>(&bytes).ok()
+                    }
+                    _ => None,
+                };
+                Error::rejected(refusal(status, body.as_ref()))
             } else if response.status() == reqwest::StatusCode::SERVICE_UNAVAILABLE {
                 // The begin route's 503 means no free code: nothing was issued.
                 unsent()
@@ -100,12 +123,14 @@ impl super::Transport for Network {
         bearer: Option<&str>,
     ) -> Result<Value> {
         let mut request = self
-            .http
-            .post(format!("{api}{path}"))
+            .backend(reqwest::Method::POST, format!("{api}{path}"))
             .header("x-cmux-client-version", &self.client_version)
             .json(body);
         if let Some(token) = bearer {
             request = request.bearer_auth(token);
+        }
+        if path == "/v1/auth/challenge" {
+            return self.json_refusing(request, challenge_refusal);
         }
         self.json(request)
     }
@@ -136,15 +161,16 @@ impl super::Transport for Network {
         serde_json::from_slice(&bytes).map(Some).map_err(|_| invalid())
     }
     fn health(&self, api: &str) -> Result<Value> {
-        self.json(self.http.get(format!("{api}/v1/health")))
+        self.json(self.backend(reqwest::Method::GET, format!("{api}/v1/health")))
     }
 
     fn begin(&self, api: &str, body: &Value) -> Result<Value> {
-        let request = self.http.post(format!("{api}/v1/pair/begin")).json(body);
+        let request =
+            self.backend(reqwest::Method::POST, format!("{api}/v1/pair/begin")).json(body);
         if body.get("invite").is_none() {
             return self.json(request);
         }
-        self.json_refusing(request, invite_refusal)
+        self.json_refusing(request, |status, _| invite_refusal(status))
     }
 
     fn wait(&self, api: &str, begun: &Begun) -> Result<Waited> {
@@ -156,7 +182,8 @@ impl super::Transport for Network {
             .enable_all()
             .build()
             .map_err(|_| unavailable())?;
-        let result = runtime.block_on(wait(api, begun, Duration::from_millis(left)));
+        let result =
+            runtime.block_on(wait(api, begun, self.space.as_ref(), Duration::from_millis(left)));
         runtime.shutdown_timeout(Duration::from_secs(1));
         result
     }
@@ -172,8 +199,13 @@ fn wait_budget(expires_at: u64, now_ms: u64) -> u64 {
         .min(MAX_WAIT_MS + MAX_CLOCK_SKEW_MS)
 }
 
-async fn wait(api: &str, begun: &Begun, remaining: Duration) -> Result<Waited> {
-    let request = request(api, begun)?;
+async fn wait(
+    api: &str,
+    begun: &Begun,
+    space: Option<&cmux_build_space::BuildSpace>,
+    remaining: Duration,
+) -> Result<Waited> {
+    let request = request(api, begun, space)?;
     let config = socket_config();
     let deadline = tokio::time::Instant::now() + remaining;
     let (socket, response) = match tokio::time::timeout_at(
@@ -212,6 +244,7 @@ fn handshake_refused(error: tokio_tungstenite::tungstenite::Error) -> Result<Wai
 fn request(
     api: &str,
     begun: &Begun,
+    space: Option<&cmux_build_space::BuildSpace>,
 ) -> Result<tokio_tungstenite::tungstenite::handshake::client::Request> {
     let mut url = url::Url::parse(api).map_err(|_| invalid())?;
     url.set_scheme("wss").map_err(|_| invalid())?;
@@ -224,6 +257,7 @@ fn request(
             .map_err(|_| invalid())?;
     protocol.set_sensitive(true);
     request.headers_mut().insert("Sec-WebSocket-Protocol", protocol);
+    cmux_build_space::insert_space(request.headers_mut(), space);
     Ok(request)
 }
 
@@ -285,5 +319,20 @@ pub(super) fn invite_refusal(status: reqwest::StatusCode) -> &'static str {
         reqwest::StatusCode::NOT_FOUND => super::invite::UNKNOWN,
         reqwest::StatusCode::CONFLICT => super::invite::USED,
         _ => "server.pair.api_refused",
+    }
+}
+
+/// The challenge route's one answer for an unknown or revoked install (user-do.ts `challenge`):
+/// 403 `auth.forbidden` "challenge refused". Every other 4xx (a failed lookup, validation, a rate
+/// limit, a policy gate) says nothing about the install and stays the generic refusal.
+pub(super) fn challenge_refusal(status: reqwest::StatusCode, body: Option<&Value>) -> &'static str {
+    let field = |name: &str| body.and_then(|b| b.get(name)).and_then(Value::as_str);
+    if status == reqwest::StatusCode::FORBIDDEN
+        && field("code") == Some("auth.forbidden")
+        && field("message") == Some("challenge refused")
+    {
+        super::unpair::CHALLENGE_REFUSED
+    } else {
+        "server.pair.api_refused"
     }
 }

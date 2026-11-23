@@ -174,9 +174,6 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
             }
             return try await fallbackCreate(key)
         }
-        emptyView = EmptyWorkspaceView(
-            onNew: { [weak self] in self?.newFromEmptyState() }
-        )
         themeScope.root(contentView)
         contentView.backgroundMenu = { [weak services, weak self] in
             self.flatMap { services?.registry.makeContextMenu(for: .windowBackground, target: ActionTargetRef(kind: .workspace, id: $0.workspace.id)).themeRows(in: $0.themeScope.fullStrength) }
@@ -192,7 +189,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
             if case .agent(let view)? = pane.currentContent, view.model.newTab != nil, view.pageDrawsOverCovers { view.placeMovedChromiumPage(requiringFrame: true) }
         }
         // A Home with no pane yet stays clear until its page is in its dock (HomeDock.revealWhenDocked), never in pieces.
-        if workspace.kind == "home", layoutModel.screens.allSatisfy({ $0.layout.panes.isEmpty }) { services.launchReveal.hold(contentView, until: .home) }
+        if workspace.kind == "home", layoutModel.screens.allSatisfy({ $0.panes.isEmpty }) { services.launchReveal.hold(contentView, until: .home) }
     }
 
     func teardown() {
@@ -250,18 +247,16 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private func observeAttention() {
         let notifications = services.notifications, workspace = workspace
         let shownTab: @MainActor @Sendable (PaneModel) -> String? = { [weak self] pane in self?.panes[LayoutPaneID(pane.id)]?.stripModel.selectedID?.rawValue }
-        let marks = notifications.attentionMarks(for: workspace, shownTab: shownTab)
-        if layoutModel.attention != marks { layoutModel.attention = marks }
+        layoutModel.readsAttentionOnEntry = { [weak self] pane, click in self.map { notifications.readOnEntry(pane, click: click, in: $0) } ?? false }
+        layoutModel.setAttention(notifications.attentionMarks(for: workspace, shownTab: shownTab), readByEntry: [])
         attentionObservation?.cancel()
         attentionObservation = Task { [weak self] in
             for await marks in ObservationStream({ notifications.attentionMarks(for: workspace, shownTab: shownTab) }) {
                 guard let self else { return }
-                guard self.layoutModel.attention != marks else { continue }
-                // A ring read by going into its pane blinks out (classic's dismiss flash); one
-                // cleared any other way fades. Set first, so the change that removes it sees it.
+                guard self.layoutModel.attentionMarks != marks else { continue }
+                // A ring read by going into its pane blinks out (classic's dismiss flash); one cleared any other way fades.
                 let removed = Set(self.layoutModel.attention.keys).subtracting(marks.keys)
-                self.layoutModel.attentionReadByEntry = notifications.takeEntryReads(removed: removed, in: workspace)
-                self.layoutModel.attention = marks
+                self.layoutModel.setAttention(marks, readByEntry: notifications.takeEntryReads(removed: removed, in: workspace))
             }
         }
     }
@@ -297,8 +292,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
             }
             return
         }
+        DebugLayoutCounters.workspaceApplies &+= 1 // counted in every build (one add): `perf.layout_counters` reads it in Release
         #if DEBUG
-        DebugLayoutCounters.workspaceApplies &+= 1
         debugApplies &+= 1
         DebugLayoutCounters.note(force ? "apply(force)" : "apply", file, line)
         #endif
@@ -309,7 +304,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         if layoutModel.acceptsRowOps != appliedTree.rows { layoutModel.acceptsRowOps = appliedTree.rows } // no row op without rows-v1 (rows.md step 4)
         layoutModel.apply(screens: result.screens)
         #if DEBUG
-        DebugLayoutCounters.notePanes(layoutModel.screens.reduce(0) { $0 + $1.layout.panes.count }, of: self)
+        DebugLayoutCounters.notePanes(layoutModel.screens.reduce(0) { $0 + $1.panes.count }, of: self)
         #endif
         // The view mounts the panes in this turn: a workspace shown now
         // draws its first frame with them, not one blank frame.
@@ -353,10 +348,11 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// so the title does not flash before the tab strip and terminal land, or
     /// before the workspace closes.
     private func updateEmptyState() {
-        let isEmpty = layoutModel.screens.allSatisfy { $0.layout.panes.isEmpty }
-        let settling = workspace.key.map { emptyWorkspaceRepair.isSettling($0) } ?? false
+        let isEmpty = layoutModel.screens.allSatisfy { $0.panes.isEmpty }
+        let shows = isEmpty && !(workspace.key.map { emptyWorkspaceRepair.isSettling($0) } ?? false)
+        if shows, emptyView == nil { emptyView = EmptyWorkspaceView(onNew: { [weak self] in self?.newFromEmptyState() }) } // made the first time it shows
         emptyView?.failure = workspace.key.flatMap { emptyWorkspaceRepair.failure($0) }
-        contentView.showEmpty(isEmpty && !settling ? emptyView : nil)
+        contentView.showEmpty(shows ? emptyView : nil)
     }
 
     private func newFromEmptyState() {
@@ -391,10 +387,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// (deterministic; never dictionary order).
     var focusedPane: PaneController? {
         if let id = focus.state.pane, let controller = panes[LayoutPaneID(id)] { return controller }
-        for id in layoutModel.screens.flatMap(\.layout.panes) {
-            if let controller = panes[id] { return controller }
-        }
-        return nil
+        return layoutModel.screens.flatMap(\.panes).lazy.compactMap { self.panes[$0] }.first
     }
 
     /// The controller of the pane with daemon id `key`.

@@ -11,6 +11,13 @@
 /// (a stale source pane, a pane whose removal animation ends late) from
 /// suspending or evicting the surface its destination now shows.
 ///
+/// The owner a `present` took a key from is remembered: when the taker lets
+/// it go (`withdraw`, `removeOwner`) while that owner is still here, the
+/// owner is told the key is free (``Effects/freed``), so a pane that still
+/// selects the tab shows it again. Two panes can list one tab for a few frames
+/// (a tab moving to a new pane); when the pane that goes showed it last, the
+/// pane that stays drew nothing (the fresh-install blank Chief page, 2026-11-21).
+///
 /// A key renders while its owner is visible. A key whose owner is in the
 /// keep-alive band (an off-screen strip column within one viewport width,
 /// architecture.md 4) is paused but pinned: never evicted, so scrolling back
@@ -28,15 +35,24 @@ public struct SurfaceLedger<Key: Hashable & Sendable, Owner: Hashable & Sendable
         public var rendering: [Key: Bool] = [:]
         /// Keys whose surfaces must be destroyed now.
         public var evicted: [Key] = []
+        /// Owners that lost `key` to another presenter that has let it go
+        /// since: they may present it again if they still show its tab.
+        public var freed: [Displacement] = []
 
         public init() {}
 
-        public var isEmpty: Bool { displaced.isEmpty && rendering.isEmpty && evicted.isEmpty }
+        public var isEmpty: Bool { displaced.isEmpty && rendering.isEmpty && evicted.isEmpty && freed.isEmpty }
     }
 
+    /// `owner` and the `key` an effect concerns.
     public struct Displacement: Equatable, Sendable {
         public var key: Key
         public var owner: Owner
+
+        public init(key: Key, owner: Owner) {
+            self.key = key
+            self.owner = owner
+        }
     }
 
     private var owners: [Key: Owner] = [:]
@@ -44,6 +60,8 @@ public struct SurfaceLedger<Key: Hashable & Sendable, Owner: Hashable & Sendable
     /// owner's keys, never a scan of every presented key.
     private var ownedKeys: [Owner: Set<Key>] = [:]
     private var ownerPresence: [Owner: SurfacePresence] = [:]
+    /// The owner each key was last taken from by a `present` (``Effects/freed``).
+    private var takenFrom: [Key: Owner] = [:]
     private var retention: SurfaceRetention<Key>
     /// Keys the LRU never counts or evicts (browser pages: their memory is
     /// managed by hibernation, not by the terminal warm set).
@@ -100,6 +118,9 @@ public struct SurfaceLedger<Key: Hashable & Sendable, Owner: Hashable & Sendable
         if let previous = owners[key], previous != owner {
             effects.displaced.append(Displacement(key: key, owner: previous))
             forgetOwnerIfIdle(previous, except: key)
+            takenFrom[key] = previous
+        } else if takenFrom[key] == owner {
+            takenFrom[key] = nil
         }
         setOwner(owner, of: key)
         update(key, into: &effects)
@@ -113,6 +134,7 @@ public struct SurfaceLedger<Key: Hashable & Sendable, Owner: Hashable & Sendable
         setOwner(nil, of: key)
         update(key, into: &effects)
         forgetOwnerIfIdle(owner, except: nil)
+        free(key, into: &effects)
         return effects
     }
 
@@ -133,9 +155,11 @@ public struct SurfaceLedger<Key: Hashable & Sendable, Owner: Hashable & Sendable
     /// `owner` went away (pane torn down): withdraws everything it presents.
     public mutating func removeOwner(_ owner: Owner) -> Effects {
         var effects = Effects()
+        takenFrom = takenFrom.filter { $0.value != owner } // gone: nothing to offer it
         for key in keys(ownedBy: owner) {
             setOwner(nil, of: key)
             update(key, into: &effects)
+            free(key, into: &effects)
         }
         ownerPresence[owner] = nil
         return effects
@@ -159,6 +183,7 @@ public struct SurfaceLedger<Key: Hashable & Sendable, Owner: Hashable & Sendable
         retention.remove(key)
         unretained.remove(key)
         rendering.remove(key)
+        takenFrom[key] = nil
         guard let owner = owners[key] else { return nil }
         setOwner(nil, of: key)
         forgetOwnerIfIdle(owner, except: nil)
@@ -182,7 +207,14 @@ public struct SurfaceLedger<Key: Hashable & Sendable, Owner: Hashable & Sendable
         for evicted in retention.setVisible(key, presence != .hidden) { evict(evicted, into: &effects) }
     }
 
+    /// `key` has no owner now: the owner it was taken from may present it again.
+    private mutating func free(_ key: Key, into effects: inout Effects) {
+        guard owners[key] == nil, let previous = takenFrom.removeValue(forKey: key) else { return }
+        effects.freed.append(Displacement(key: key, owner: previous))
+    }
+
     private mutating func evict(_ key: Key, into effects: inout Effects) {
+        takenFrom[key] = nil
         rendering.remove(key)
         effects.rendering[key] = nil
         effects.evicted.append(key)

@@ -22,6 +22,18 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "workspace.archiveSettled",
+        group: GROUP,
+        title: t("WorkspaceActions", "action.autoArchive.archiveSettled", "Archive Settled Chats"),
+        keywords: &["archive", "settled", "finished", "done", "read", "chats", "threads", "tidy", "clean up", "declutter"],
+        category: "workspace",
+        symbol: "archivebox",
+        surfaces: PALETTE | CONTEXT_MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarBackground", "organize", 107).folder("group")], ..SurfacePlan::DEFAULT },
+        cli_name: "workspace archive-settled",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "workspace.restoreArchived",
         group: GROUP,
         title: t("WorkspaceActions", "action.autoArchive.restoreArchived", "Restore Archived Workspace…"),

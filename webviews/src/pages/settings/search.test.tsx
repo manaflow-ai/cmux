@@ -63,11 +63,11 @@ test("Return reveals the row in its section and focuses its control; Esc clears,
   page = await renderPage({ path: "/settings/general" });
   await changeValue(search(page), "appearance.backgroundOpacity");
   await fire(search(page), "keydown", { key: "Enter" });
-  // Personalization is the one page that draws the background rows: Return opens it on the row.
-  expect(page.history.location.pathname).toBe("/settings/personalization");
+  // Appearance draws the background rows: Return opens it on the row.
+  expect(page.history.location.pathname).toBe("/settings/appearance");
   expect(page.history.location.search).toBe("?focus=appearance.backgroundOpacity");
   expect(search(page).value).toBe("");
-  expect(page.container.querySelector('[data-section="personalization"]')).not.toBeNull();
+  expect(page.container.querySelector('[data-section="appearance"]')).not.toBeNull();
   const focused = document.activeElement as HTMLElement;
   expect(focused.closest("[data-row-key]")?.getAttribute("data-row-key")).toBe("appearance.backgroundOpacity");
 
@@ -75,7 +75,7 @@ test("Return reveals the row in its section and focuses its control; Esc clears,
   await fire(search(page), "keydown", { key: "Escape" });
   expect(search(page).value).toBe("");
   await fire(search(page), "keydown", { key: "Escape" });
-  expect((document.activeElement as HTMLElement).getAttribute("data-section-link")).toBe("personalization");
+  expect(document.activeElement?.getAttribute("data-section-link")).toBe("appearance");
 });
 
 test("Up/Down move between rows, Space toggles; dispatcher commands reset, go back and find; chords do nothing", async () => {

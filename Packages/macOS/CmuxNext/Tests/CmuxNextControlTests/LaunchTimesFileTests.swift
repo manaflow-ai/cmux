@@ -39,6 +39,35 @@ import Testing
         let byDeadline = Self.record(marks: deadline)
         #expect(byDeadline.homeRevealedBy == "deadline")
         #expect(byDeadline.homeFirstPageMs == nil)
+        #expect(record.windowUsableMs == nil && record.firstShellLiveMs == nil && record.noSnapshot == false)
+    }
+
+    /// A launch with nothing to restore (piece 8, the bare launch) records when its window took keys and its first shell went live.
+    @Test func aBareLaunchRecordsWhenItsWindowTookKeysAndItsShellWentLive() throws {
+        var marks = Self.marks
+        marks["launch.no_snapshot"] = 60
+        marks["window_usable"] = 231.04
+        marks["first_shell_live"] = 512.96
+        let record = Self.record(marks: marks)
+        #expect(record.noSnapshot == true)
+        #expect(record.windowUsableMs == 231)
+        #expect(record.firstShellLiveMs == 513)
+        let file = Self.temporaryFile()
+        defer { try? FileManager.default.removeItem(at: file.url.deletingLastPathComponent()) }
+        let line = try file.append(record)
+        #expect(line.contains(#""window_usable_ms":231"#) && line.contains(#""first_shell_live_ms":513"#) && line.contains(#""no_snapshot":true"#))
+    }
+
+    /// A line an older build wrote (no bare-launch fields) still reads back.
+    @Test func aRecordFromBeforeTheBareLaunchFieldsReadsBack() throws {
+        let file = Self.temporaryFile()
+        defer { try? FileManager.default.removeItem(at: file.url.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(at: file.url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let old = #"{"build":"200","first_launch_of_build":true,"prewarmed":false,"started_at":"2027-01-15T08:00:00Z","version":"1.0.0"}"#
+        try Data((old + "\n").utf8).write(to: file.url)
+        let records = file.records()
+        #expect(records.count == 1)
+        #expect(records.first?.noSnapshot == nil && records.first?.windowUsableMs == nil)
     }
 
     /// Home shows from its saved state before the Chief's first page (launch piece 3): the record is
@@ -61,7 +90,7 @@ import Testing
         #expect(text == line + "\n", "one line per launch")
         let json = try #require(try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
         #expect(Set(json.keys) == ["started_at", "version", "build", "commit", "pre_main_ms", "main_ms", "first_window_frame_ms",
-                                   "home_first_page_ms", "home_revealed_by", "prewarmed", "first_launch_of_build", "phases"])
+                                   "home_first_page_ms", "home_revealed_by", "no_snapshot", "prewarmed", "first_launch_of_build", "phases"])
         var expected = Self.record(prewarmed: true)
         expected.firstLaunchOfBuild = true
         #expect(file.records() == [expected])
@@ -149,7 +178,8 @@ import Testing
         defer { try? FileManager.default.removeItem(at: file.url.deletingLastPathComponent()) }
         try file.append(Self.record(build: "199"))
         let asked = Asked()
-        let recorder = LaunchTimesRecorder(file: file, work: BackgroundWork(label: "test.launch-times"),
+        let work = BackgroundWork(label: "test.launch-times")
+        let recorder = LaunchTimesRecorder(file: file, work: work,
                                            info: ["CFBundleShortVersionString": "1.0.0", "CFBundleVersion": "200"]) { _ in
             asked.count.withLock { count in count += 1; return count == 1 }
         }
@@ -170,7 +200,10 @@ import Testing
         #expect(records.last?.preMainMs == 41.3, "and every other column")
         // A late first write (the Home gate after the chat) keeps the chat's columns and is no third line.
         recorder.write(marks: Self.marks)
-        try await Task.sleep(for: .milliseconds(300))
+        // The files lane runs its best-effort items one at a time, in order: once this one ran, the late write has.
+        await withCheckedContinuation { (ran: CheckedContinuation<Void, Never>) in
+            work.post(.bestEffort, mayBlock: .files) { ran.resume() }
+        }
         #expect(file.records().count == 2 && file.records().last?.priorChatLiveMs == 1490.2)
         #expect(asked.count.withLock { $0 } == 1, "pre-warm asked once")
     }
@@ -193,6 +226,18 @@ import Testing
             "dfl.menu": 130.55, "daemon.prepare_start": 140, "daemon.prepare_end": 300.04, "daemon.socket_connected": 310,
             "daemon_connected": 320, "launch_snapshot_applied": 330, "launch_snapshot_shown": 340, "dfl.windows": 350,
             "did_finish_launching_end": 360, "cef.initialize_start": 400, "cef.ready": 900, "reveal.sidebar": 700,
+            "main.warmup_started": 42, "main.nsapp": 50, "main.run": 55, "app.did_finish_launching_entry": 56,
+            "app.launch_snapshot_awaited": 57, "cloud_env.start": 58, "cloud_env.cli_exited": 59, "cloud_env.awaited": 59.5,
+            "dfl.theme": 75, "dfl.settings": 125, "daemon.binary_resolved": 150, "dfl.daemon_cloud_updater": 325,
+            "dfl.first_window_hooks": 335, "dfl.home_history": 345, "daemon_snapshot_loaded": 365,
+            "connecting_view_shown": 366, "connecting_view_left": 367, "workspace_content_shown": 368,
+            "sidebar_rows_shown": 369, "first_window_flushed": 370, "agent_pane.launch_image_shown": 371,
+            "first_terminal_surface_created": 380, "first_terminal_content": 450, "first_terminal_content_applied": 451,
+            "first_terminal_frame": 452, "chromium_page.make_start": 410, "chromium_page.browser_created": 420,
+            "home.page_host_made": 430, "agent_pane.view_created": 600, "agent_pane.transport_open": 650,
+            "terminal_input_accepted": 640, "terminal_echo": 645,
+            "window.make_start": 341, "window.init_done": 343, "window.ordered_front": 346, "window.restore_wait_start": 361,
+            "window.restore_wait_end": 362.25, "frame.commit_start": 363, "first_key_down": 630,
         ]
         let record = Self.record(marks: Self.merged(phases))
         var expected = phases.mapValues { ($0 * 10).rounded() / 10 }

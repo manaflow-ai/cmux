@@ -1,10 +1,11 @@
+import { envForObject } from "./build-space.ts"
 import { createHash } from "node:crypto"
 import { canonicalJson, LEDGER_RETENTION_MS, type OwnerFrame, type Principal, type RejectFrame } from "@cmux/ownership"
 import { cloudOpByName, PENDING_CONNECTION_TTL_MS, type Connection, type IntegrationProvider } from "@cmux/protocol"
 import { chiefJobsEvent } from "./chief-brain-cc/jobs-upstash.ts"
-import { connectionsDomain, expiredForgets, githubRepoAllowed, lockNoticePending, lockOf, mayUse, pendingExpiries, policyOf, providerAllowed, type ConnectionsState } from "./domains/connections.ts"
+import { connectionsDomain, expiredForgets, githubInstallationOf, githubRepoAllowed, lockNoticePending, lockOf, mayUse, pendingExpiries, policyOf, providerAllowed, type ConnectionsState } from "./domains/connections.ts"
 import { decodeParams } from "./domains/common.ts"
-import type { Env } from "./env.ts"
+import type { Env, RawEnv } from "./env.ts"
 import { createFallbackTable, loadCredential, nextResealAt, resealFallbacks, storeCredential } from "./integrations/credentials.ts"
 import type { ExternalReply, ProviderEvent } from "./integrations/external.ts"
 import { runLedgered } from "./integrations/external-ledger.ts"
@@ -15,9 +16,9 @@ import { createWatchTable, nextWatchAt, recordStopFailure, watchOf } from "./int
 import { onDisconnect, onGmailPush, runWatchWork, startWatchSafely, stopWatchWith, watchSoon, type GooglePush, type WatchHost } from "./integrations/google-watches.ts"
 import { createRevocationTable, drainRevocations, nextRevocationAt, takeCredentialForRevocation } from "./integrations/revocations.ts"
 import * as ghTokens from "./integrations/github-tokens.ts"
-import { githubConnectTarget, type GithubConnectTarget } from "./integrations/github-connect.ts"
+import { createConfigurePageTable, githubConnectTarget, installationConfigureUrl, type GithubConnectTarget } from "./integrations/github-connect.ts"
 import { addListener, createListenerTable, githubChangeOf, GithubPushCoalescer, listeners, removeListener, type IntegrationChangedFrame } from "./integrations/github-push.ts"
-import { ProviderError, providerForOp, providers, scopesToRequest, type Credential, type Http } from "./integrations/providers.ts"
+import { github, githubScopesOf, ProviderError, providerForOp, providers, scopesToRequest, type Credential, type Http } from "./integrations/providers.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import type { DeliverResult, TargetItem } from "./do-outbox.ts"
 import { isAgentGatewayPrincipal, resolveConnectionPrincipal } from "./agent-gateway-principal.ts"
@@ -45,7 +46,8 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
   /** One token refresh at a time per connection (rotating refresh tokens are single use). */
   private readonly refreshing = new Map<string, Promise<Credential>>()
 
-  constructor(ctx: DurableObjectState, env: Env) {
+  constructor(ctx: DurableObjectState, raw: RawEnv) {
+    const env = envForObject(ctx, raw)
     super(ctx, env, connectionsDomain, "connections", (p) => ({
       identity: p.kind === "system" ? p.identity : (p.install ?? `user:${p.user}`),
       ...(p.kind ? { kind: p.kind } : {}),
@@ -68,6 +70,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     createApprovalTable(sql)
     ghTokens.createGithubTokenTable(sql)
     createListenerTable(sql)
+    createConfigurePageTable(sql)
   }
 
   protected read(state: ConnectionsState, op: string, _params: unknown, principal: Principal): ReadResult {
@@ -233,7 +236,14 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
 
   async githubStatus(entity: string, principal: Principal) {
     if (principal.team !== entity) return { configured: false, app_slug: null, connection: null }
-    return ghTokens.githubStatus(this.env, this.boundTo(entity) ? this.bind(entity).currentState : connectionsDomain.initial(), principal)
+    const state = this.boundTo(entity) ? this.bind(entity).currentState : connectionsDomain.initial()
+    const c = ghTokens.githubStatusConnection(state, principal)
+    const installation = c ? githubInstallationOf(c) : undefined
+    // Cached per installation (one GitHub read a day at most), so the picker's status read stays cheap.
+    const configureUrl = c?.account && installation !== undefined && github.configured(this.env)
+      ? await installationConfigureUrl(this.ctx.storage.sql, this.env, this.http, installation, c.account.name, Date.now())
+      : null
+    return ghTokens.githubStatus(this.env, state, principal, configureUrl)
   }
 
   /** integration.connect with a repo: which GitHub page to open (github-connect.ts), asked with this object's injectable HTTP. */
@@ -401,6 +411,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
       policy: { githubScope: policy.github.scope, requireOrgAdmin: policy.github.require_org_admin },
       ...(typeof params.code === "string" ? { code: params.code } : {}),
       ...(typeof params.installation_id === "string" ? { installation_id: params.installation_id } : {}),
+      ...(typeof params.setup_action === "string" ? { setup_action: params.setup_action } : {}),
       redirectUri: frame.redirect_uri,
       connection: c.id,
       state: String(params.state),
@@ -421,7 +432,14 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
         connection: c.id,
         account: approved.account,
         scopes_granted: [...approved.scopes_granted],
-        ...(approved.resources ? { resources: { repos: approved.resources.repos === null ? null : [...approved.resources.repos] } } : {})
+        ...(approved.resources
+          ? {
+              resources: {
+                repos: approved.resources.repos === null ? null : [...approved.resources.repos],
+                ...(approved.resources.linked_by_github_id !== undefined ? { linked_by_github_id: approved.resources.linked_by_github_id } : {})
+              }
+            }
+          : {})
       }, `activate:${c.id}:${sha256(canonicalJson([approved.account.key, approved.scopes_granted, approved.resources ?? null])).slice(0, 43)}`)
     const rej = res.frames.find((f): f is RejectFrame => f.t === "reject")
     // An exchange that began inside the lifetime and finished after it still activates when the
@@ -577,15 +595,18 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
   async ingest(entity: string, connection: string, event: ProviderEvent): Promise<{ status: "forwarded" | "dropped"; runs: number }> {
     const bound = this.boundRow()
     if (!bound || bound.entity !== entity) return { status: "dropped", runs: 0 }
-    const c = this.bind(entity).currentState.connections[connection]
-    if (!c || c.status !== "active" || c.account?.key !== event.account) return { status: "dropped", runs: 0 }
-    if (!providerAllowed(policyOf(this.boundEngine!.currentState), c.provider)) return { status: "dropped", runs: 0 }
+    const engine = this.bind(entity)
+    const arrived = engine.currentState.connections[connection]
+    if (!arrived || arrived.account?.key !== event.account) return { status: "dropped", runs: 0 }
+    // The App installation's own lifecycle reaches a connection in any live status, so an unsuspend
+    // restores the connection its suspension marked; every other event needs an active connection.
+    if (event.provider === "github") this.githubInstallationEvent(arrived, event)
+    const c = engine.currentState.connections[connection] ?? arrived
+    if (arrived.status !== "active" && c.status !== "active") return { status: "dropped", runs: 0 }
+    if (!providerAllowed(policyOf(engine.currentState), c.provider)) return { status: "dropped", runs: 0 }
     // GitHub events from repositories outside the connection's scope never start automations.
     const repo = (event.payload as { repository?: { full_name?: unknown } } | null)?.repository?.full_name
-    if (event.provider === "github" && typeof repo === "string" && !githubRepoAllowed(c, policyOf(this.boundEngine!.currentState), repo)) return { status: "dropped", runs: 0 }
-    if (event.provider === "github" && event.event === "installation.deleted") {
-      this.submitSystem("connection.status", { connection: c.id, status: "needs_reauth", detail: "the GitHub App was uninstalled" }, `status:${c.id}:uninstalled:${event.delivery_id}`)
-    }
+    if (event.provider === "github" && typeof repo === "string" && !githubRepoAllowed(c, policyOf(engine.currentState), repo)) return { status: "dropped", runs: 0 }
     this.pushGithubChange(c, event)
     const scheduler = this.env.SCHEDULER_DO.get(this.env.SCHEDULER_DO.idFromName(entity))
     const ev = { connection: c.id, sharing: c.sharing, created_by: c.created_by, ...event }
@@ -593,6 +614,64 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     // Chief jobs take the same events; a store failure propagates so the provider can retry the delivery.
     const chief = await chiefJobsEvent(this.env, entity, ev)
     return { status: "forwarded", runs: r.runs + chief }
+  }
+
+  /**
+   * What a GitHub App installation webhook changes on the connection linked to it (keys carry the
+   * delivery, so GitHub's redelivery is a replay):
+   * - `installation.deleted`: needs_reauth (uninstalled).
+   * - `installation.suspend`: an active connection is needs_reauth (suspended) at once, before a mint fails.
+   * - `installation.unsuspend`, or `installation.new_permissions_accepted` while the installation is not
+   *   suspended: a connection a suspension marked is active again; the granted permissions are synced.
+   * - `installation_repositories.removed`: the removed repositories leave the recorded list.
+   * - `installation_repositories.added`: under `linking_user_repos` the list is what the linking user
+   *   could reach. When the delivery's `sender` is that user (`resources.linked_by_github_id`, recorded
+   *   at link time), the added repositories join it: adding a repository to an installation takes
+   *   administering it, so the sender reaching it is proven. Any other sender, or a connection with no
+   *   recorded id (linked before it was recorded), joins nothing; only the linking user's own sign-in
+   *   can tell what they reach (they relink, or Connect opens it). Under `installation` scope the list
+   *   is not consulted.
+   */
+  private githubInstallationEvent(c: Connection, event: ProviderEvent): void {
+    if (c.status !== "active" && c.status !== "needs_reauth" && c.status !== "error") return
+    const p = (event.payload ?? {}) as {
+      installation?: { permissions?: unknown; suspended_at?: unknown }
+      repositories_removed?: unknown
+      repositories_added?: unknown
+      sender?: { id?: unknown }
+    }
+    const names = (list: unknown) =>
+      Array.isArray(list) ? list.map((r) => (r as { full_name?: unknown } | null)?.full_name).filter((n): n is string => typeof n === "string") : []
+    const key = (what: string) => `${what}:${c.id}:${event.delivery_id}`
+    switch (event.event) {
+      case "installation.deleted":
+        this.submitSystem("connection.status", { connection: c.id, status: "needs_reauth", detail: "the GitHub App was uninstalled" }, `status:${c.id}:uninstalled:${event.delivery_id}`)
+        return
+      case "installation.suspend":
+        // A connection that already needs a relink for another reason keeps that reason.
+        if (c.status === "active") this.submitSystem("connection.status", { connection: c.id, status: "needs_reauth", detail: ghTokens.GITHUB_SUSPENDED_DETAIL }, key("status:suspended"))
+        return
+      case "installation.unsuspend":
+      case "installation.new_permissions_accepted": {
+        const perms = p.installation?.permissions
+        if (perms && typeof perms === "object") this.submitSystem("connection.github.sync", { connection: c.id, scopes_granted: githubScopesOf(perms as Record<string, unknown>) }, key("github-sync"))
+        const lifted = event.event === "installation.unsuspend" || p.installation?.suspended_at === null
+        if (lifted && c.status !== "active" && c.status_detail === ghTokens.GITHUB_SUSPENDED_DETAIL) this.submitSystem("connection.status", { connection: c.id, status: "active" }, key("status:unsuspended"))
+        return
+      }
+      case "installation_repositories.removed": {
+        const removed = names(p.repositories_removed)
+        if (removed.length > 0) this.submitSystem("connection.github.sync", { connection: c.id, repos_removed: removed }, key("github-sync"))
+        return
+      }
+      case "installation_repositories.added": {
+        const linkedBy = c.resources?.linked_by_github_id
+        if (linkedBy === undefined || !Array.isArray(c.resources?.repos) || p.sender?.id !== linkedBy) return
+        const added = names(p.repositories_added)
+        if (added.length > 0) this.submitSystem("connection.github.sync", { connection: c.id, repos_added: added }, key("github-sync"))
+        return
+      }
+    }
   }
 
   /** GitHub changes for watching feed sockets (integrations/github-push.ts): coalesced per listener. */

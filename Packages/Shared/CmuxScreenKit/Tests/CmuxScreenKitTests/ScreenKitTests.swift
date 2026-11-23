@@ -10,13 +10,15 @@ struct ScreenKitTests {
         #expect(old.showStats)
         #expect(old.quality == .auto)
         #expect(old.showTrackpad, "the trackpad is up by default, also for preferences saved before it existed")
+        #expect(old.maxKbps == nil, "no bitrate cap unless one was chosen")
+        #expect(old.showCursorInStream, "the stream shows the cursor unless turned off")
         let unknownQuality = try JSONDecoder().decode(ScreenPreferences.self, from: Data(#"{"quality":"ultra"}"#.utf8))
         #expect(unknownQuality.quality == .auto)
     }
 
     @Test func preferencesRoundTrip() throws {
         let preferences = ScreenPreferences(localCursor: false, showStats: false, fitToDisplay: false, quality: .medium,
-                                            showTrackpad: false)
+                                            showTrackpad: false, maxKbps: 5_000, showCursorInStream: false)
         let decoded = try JSONDecoder().decode(ScreenPreferences.self, from: JSONEncoder().encode(preferences))
         #expect(decoded == preferences)
         #expect(decoded.showTrackpad == false, "a tucked-away trackpad stays tucked away")
@@ -43,6 +45,19 @@ struct ScreenKitTests {
         #expect(ScreenSession.attemptTimeout(elapsed: 0) == 30)
         #expect(ScreenSession.attemptTimeout(elapsed: 40) == 5)
         #expect(ScreenSession.attemptTimeout(elapsed: 44.5) == 1)
+    }
+
+    /// The Mac's locked / display-asleep state shows until it says live again (an older Mac never says: live).
+    @MainActor @Test func theSourceStateFollowsTheMac() throws {
+        let stream = try #require(VNCPairing(link: VNCPairing.generate(name: "Mac", kind: "stream").link))
+        let session = ScreenSession(title: "Mac", pairing: stream)
+        #expect(session.sourceState == .live)
+        session.receiveSourceState(.locked)
+        #expect(session.sourceState == .locked)
+        session.receiveSourceState(.asleep)
+        #expect(session.sourceState == .asleep)
+        session.receiveSourceState(.live)
+        #expect(session.sourceState == .live)
     }
 
     @MainActor @Test func sessionsKnowTheirKind() throws {

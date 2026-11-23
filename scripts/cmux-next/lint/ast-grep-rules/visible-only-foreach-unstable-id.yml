@@ -1,0 +1,56 @@
+id: visible-only-foreach-unstable-id
+language: swift
+severity: warning
+message: "ForEach identified by `\\.offset`, or by `\\.self` over a data array: rows lose identity when the data changes, so the whole list is rebuilt and redrawn. Identify rows by a stable id (Identifiable, `id: \\.id`), or `// visible-only: <reason>`"
+note: >-
+  Exempt: `\.self` over a fixed set (a literal range `0..<3`, an enum's `.allCases`, an array literal) or in a
+  Picker or Menu (options, not a drawn list).
+  Ratcheted per file by scripts/cmux-next/check-visible-only.py (visible-only-baseline.tsv).
+utils:
+  # The ForEach's first argument is a fixed, small set.
+  over-fixed-set:
+    has:
+      kind: call_suffix
+      has:
+        kind: value_arguments
+        has:
+          kind: value_argument
+          nthChild: 1
+          any:
+            - regex: '^\(?\s*\d+\s*(\.\.<|\.\.\.)\s*\d+\s*\)?$'
+            - regex: '^[\w.]*\.allCases$'
+            - has:
+                kind: array_literal
+  id-argument:
+    has:
+      kind: call_suffix
+      has:
+        kind: value_arguments
+        has:
+          kind: value_argument
+          regex: '^id\s*:\s*\\\.(self|offset)$'
+rule:
+  kind: call_expression
+  has:
+    kind: simple_identifier
+    regex: '^ForEach$'
+  any:
+    - has:
+        kind: call_suffix
+        has:
+          kind: value_arguments
+          has:
+            kind: value_argument
+            regex: '^id\s*:\s*\\\.offset$'
+    - all:
+        - matches: id-argument
+        - not:
+            matches: over-fixed-set
+        # A Picker's or Menu's options are a menu, not a drawn list.
+        - not:
+            inside:
+              kind: call_expression
+              stopBy: end
+              has:
+                kind: simple_identifier
+                regex: '^(Picker|Menu)$'

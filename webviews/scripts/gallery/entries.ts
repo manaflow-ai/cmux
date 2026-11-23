@@ -4,7 +4,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { installGalleryModulesForBun } from "../../dev-server/galleryHost";
 import type { GalleryEntry } from "../../src/gallery/format";
+
+// A gallery file may import a virtual:cmux-gallery/* module at its top (golden.gallery.ts: the looks): give
+// bun the resolver Vite has, before any of them loads.
+installGalleryModulesForBun();
 
 export const SRC = fileURLToPath(new URL("../../src", import.meta.url));
 

@@ -14,7 +14,7 @@ base's own debt, and skips a push whose Swift lines name no cmux_/acpmux_ functi
 lacks is not refused; one whose pinned source has it is. A push that only re-pins is not judged; one that re-pins
 and adds a caller for one of two awaited exports is refused for the other.
 
-Not a CI job (Lawrence 2026-10-23: no new CI gates): run it yourself after a change to the ratchet:
+Not a CI job (Lawrence 2026-10-23: no new CI gates, lifted 2026-11-18): run it yourself after a change to the ratchet:
   python3 -I scripts/cmux-next/tests/test_ffi_caller_ratchet.py
 """
 from __future__ import annotations

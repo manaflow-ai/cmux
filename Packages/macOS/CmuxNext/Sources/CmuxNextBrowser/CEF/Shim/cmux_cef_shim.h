@@ -347,6 +347,15 @@ CMUX_SHIM_EXPORT int cmux_shim_browser_resize_fence(int browser_id, unsigned int
 CMUX_SHIM_EXPORT int cmux_shim_browser_set_detached_hosting(int browser_id, int enabled);
 // The key state of a detached page (page focus without a key window).
 CMUX_SHIM_EXPORT int cmux_shim_browser_set_embedder_active(int browser_id, int active);
+// Fork API 35: draw on input. With `enabled`, each key event the browser's page
+// acknowledges asks its window's display for a BeginFrame at once, in place of
+// the next vsync's. 1 when the fork took it, 0 when it lacks the call.
+CMUX_SHIM_EXPORT int cmux_shim_browser_set_draw_on_input(int browser_id, int enabled);
+// Fork API 35: frames draw on input drew for a key on that page since the mode
+// turned on, or -1 when the fork lacks the call. A bench reads it to tell a live
+// mode from an inert one: below API 35 there is no call at all, so a toggle read
+// as on measures the same path as off (cmux#45709 shipped against a pin at API 33).
+CMUX_SHIM_EXPORT int cmux_shim_draw_on_input_key_frames(int browser_id);
 // Runs fn(context) on Chromium's UI thread from its user-input queue (highest
 // priority). Any thread.
 CMUX_SHIM_EXPORT int cmux_shim_post_user_input_task(void (*fn)(void* context), void* context);
@@ -775,6 +784,12 @@ CMUX_SHIM_EXPORT int cmux_shim_replace_passwords(const char* profile_cache_path,
 // after an automated click (plans/cmux-next/browser.md, "Secure sign-in").
 // Returns 0 when the fork lacks cmux_tab_set_password_fill (API 15).
 CMUX_SHIM_EXPORT int cmux_shim_set_password_fill(int browser_id, int enabled);
+// Refuses (refuse 1) or allows (0) every WebAuthn create and get of one tab
+// (fork API 23, cmux_tab_set_webauthn_mode): an agent-driven tab never shows
+// a Touch ID sheet, an account chooser or a phone QR code; the page gets
+// NotAllowedError. Its popups start in its mode. Returns 0 when the fork
+// lacks the call or the tab is gone.
+CMUX_SHIM_EXPORT int cmux_shim_tab_set_webauthn_mode(int browser_id, int refuse);
 // Profile (Touch ID) passkeys of profile_cache_path (fork API 18,
 // cmux_profile_passkeys_list / cmux_profile_passkey_delete; the Passwords
 // page, plans/cmux-next/passwords.md 1.4). Metadata only, never key

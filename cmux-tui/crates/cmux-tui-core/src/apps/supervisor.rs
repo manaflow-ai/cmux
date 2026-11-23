@@ -179,6 +179,8 @@ pub(super) struct Mount {
     pub reset: bool,
     /// Its op-batch rate and coalescing (`budget.rs`).
     pub budget: super::budget::MountBudget,
+    /// A widget mount's clock and meter (`widgets.rs`); `None` for every other interface.
+    pub widget: Option<super::widgets::WidgetMount>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -247,6 +249,8 @@ pub(super) struct Inner {
     pub providers: HashMap<String, u64>,
     pub provider_calls: HashMap<u64, super::provider::ProviderCall>,
     pub next_provider_request: u64,
+    /// Granted `system_calendar.events.list` answers (`system_calendar.rs`).
+    pub system_calendar: super::system_calendar::Cache,
     /// `apps-run` replay by idempotency key (`runs.rs`).
     pub run_keys: HashMap<String, super::runs::RunKey>,
     pub run_key_order: VecDeque<String>,
@@ -276,6 +280,17 @@ pub(super) struct Inner {
     pub failed: HashMap<String, String>,
     /// The local apps' folder fingerprints the catalog was last read with.
     pub local_prints: HashMap<String, u64>,
+    /// The watched folders the catalog refused at the last reload pass that
+    /// logged, with why: a refusal is logged when it is new or its reason
+    /// changed, not again on every other app's save.
+    pub local_rejected_logged: HashMap<PathBuf, String>,
+    /// The watched folders' fingerprints `catalog` was read with: a reload
+    /// pass reuses the read of each folder whose fingerprint is unchanged.
+    pub local_dir_prints: HashMap<PathBuf, u64>,
+    /// The watched folders' fingerprints at the last reload pass, whether it
+    /// applied anything or not: a pass that reads only the folders a save
+    /// names (`local_reload::Scope::Folders`) keeps these for the others.
+    pub local_seen: HashMap<PathBuf, u64>,
     /// Each local app's last good copy (`rollback.rs`), and the fingerprint
     /// last tried, so one version is copied once.
     pub last_good: HashMap<String, super::rollback::Good>,
@@ -286,6 +301,10 @@ pub(super) struct Inner {
     /// Open web panes' bridges and their calls waiting for a provider
     /// (`page_calls.rs`).
     pub pages: super::page_calls::Pages,
+    /// The widget layout and its replayed edits (`widgets.rs`).
+    pub widgets: super::widgets::WidgetState,
+    /// Extension signal sources' last values and floors (`signal_sources.rs`).
+    pub signal_sources: super::signal_sources::SignalSources,
 }
 
 /// Work to do after the lock is released. Messages to hosts are not in this
@@ -324,6 +343,12 @@ pub struct Supervisor {
     /// `integration.request` for provider `github`, answered here
     /// (`github_gateway.rs`). Unset, the call goes to the provider.
     pub(super) github: OnceLock<Arc<super::github_gateway::GitHubGateway>>,
+    /// `net.fetch {cache: "shared"}`: one cache per URL for every app
+    /// (`http_cache.rs`, the `http.json` signal source).
+    pub(super) http_cache: super::http_cache::HttpCache,
+    /// `cmux.watch` sources the daemon reads, one entry per (source, params) for every app
+    /// (`signals_cache.rs`, `supervisor_signals.rs`). Taken after `inner`, never before.
+    pub(super) signals: Mutex<super::supervisor_signals::Cache>,
     /// The App Store's Community source (`community.rs`), made on first use.
     pub(super) community: OnceLock<Arc<super::community::Community>>,
     pub(super) storage: Mutex<Option<Storage>>,
@@ -374,6 +399,7 @@ impl Supervisor {
         let local_before = super::local_reload::PrintsBefore::take(&config.sources);
         let catalog = catalog::load(&config.sources);
         let local_prints = local_before.of(&config.sources, &catalog);
+        let local_dir_prints = local_before.dirs().clone();
         let mut mirror = load_mirror(config.state_dir.as_deref());
         let safe_mode =
             super::safe_mode::initial(config.safe_mode_file.as_deref(), config.safe_mode_env);
@@ -454,6 +480,7 @@ impl Supervisor {
                 providers: HashMap::new(),
                 provider_calls: HashMap::new(),
                 next_provider_request: 0,
+                system_calendar: Default::default(),
                 run_keys: HashMap::new(),
                 run_key_order: VecDeque::new(),
                 servers: HashMap::new(),
@@ -466,15 +493,22 @@ impl Supervisor {
                 launches,
                 failed: HashMap::new(),
                 local_prints,
+                local_rejected_logged: HashMap::new(),
+                local_seen: local_dir_prints.clone(),
+                local_dir_prints,
                 last_good,
                 good_tried: HashMap::new(),
                 ladders: HashMap::new(),
                 pages: Default::default(),
+                widgets: Default::default(),
+                signal_sources: Default::default(),
             }),
             config,
             router,
             fetcher,
             github: OnceLock::new(),
+            http_cache: super::http_cache::HttpCache::default(),
+            signals: Mutex::default(),
             community: OnceLock::new(),
             storage: Mutex::new(None),
             timers: Timers::default(),
@@ -521,6 +555,7 @@ impl Supervisor {
             inner.sinks.remove(&client);
             inner.pages.client_gone(client);
             let mut provider_outs = self.provider_disconnect_locked(&mut inner, client);
+            provider_outs.extend(self.external_disconnect_locked(&mut inner, client));
             provider_outs.extend(self.cancel_client_locked(&mut inner, client));
             for set in inner.followers.values_mut() {
                 set.remove(&client);
@@ -665,7 +700,9 @@ impl Supervisor {
                 if let Some(storage) = self.storage().as_ref() {
                     let _ = storage.clear(app);
                 }
+                inner.signal_sources.forget_app(app);
                 self.remove_server_dirs(app);
+                self.remove_server_credential(app);
                 vec![]
             }
             Effect::StopHost(app) => {

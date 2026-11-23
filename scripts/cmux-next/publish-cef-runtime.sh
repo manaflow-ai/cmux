@@ -44,7 +44,8 @@ fi
 
 check="$(mktemp "${TMPDIR:-/tmp}/cef-runtime-check.XXXXXX")"
 trap 'rm -f "$check"' EXIT
-curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$check" "$url"
+curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 15 --max-time 1800 \
+  --speed-limit 1000 --speed-time 60 -o "$check" "$url"
 got_sha="$(shasum -a 256 "$check" | awk '{print $1}')"
 got_size="$(wc -c < "$check" | tr -d " ")"  # GNU and BSD alike (the publish job runs on Linux)
 if [[ "$got_sha" != "$sha" || "$got_size" != "$size" ]]; then

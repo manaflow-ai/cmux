@@ -1,3 +1,5 @@
+public import Foundation
+
 /// The agent chat handlers' rules (cmux-window-rules `chat::agent`): the tables the agent actions bind from, where
 /// New Agent Chat opens, Open File's checks, the agent chat zoom, the Memory Inspector's place and route, the model
 /// picker's catalog and an agent-opened workspace's sidebar placement. Each method answers nil when the FFI does not.
@@ -34,6 +36,7 @@ extension WindowRules {
         public var permissionCommands: [PermissionCommand]
         public var copyFiles: [CopyFile]
         public var teams: [TeamsLaunch]
+        public var editorSchemes: [String: String]?
         /// The protocol's effort names (Set Effort's suggestions).
         public var efforts: [String]
         /// The protocol's mode names (Set Mode's suggestions).
@@ -42,6 +45,18 @@ extension WindowRules {
 
     /// The tables, asked once per launch: they never change while the app runs.
     public static let chatAgentTables: ChatAgentTables? = WindowRules().call("window_chat_agent_tables", Empty(), as: ChatAgentTables.self)
+
+    /// The URL goes directly to the selected application via NSWorkspace. Editors without a
+    /// file-location scheme receive the checked file itself.
+    public static func editorLocation(for file: URL, line: Int?, bundleID: String?) -> URL {
+        guard let line, (1...10_000_000).contains(line), let bundleID,
+              let scheme = WindowRules.chatAgentTables?.editorSchemes?[bundleID.lowercased()] else { return file }
+        var location = URLComponents()
+        location.scheme = scheme
+        location.host = "file"
+        location.path = file.path + ":\(line)"
+        return location.url ?? file
+    }
 
     private struct Empty: Encodable {}
 

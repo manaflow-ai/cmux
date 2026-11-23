@@ -3,7 +3,8 @@
    control: the same glass (.acpmux-jump-latest) and look, size, rim, hover, focus and fade, with the
    arrow turned up. It stands one control and one gap above Jump to latest's place, whether that
    place shows the disc or the Needs you pill (both --ds-control-primary tall), so the pair reads as
-   one column on the composer's center line and neither ever moves for the other.
+   one column wherever jumpPlace.css stands it (the composer card's end edge by default) and neither
+   ever moves for the other.
    Token only (scripts/check-design-tokens.ts TOKEN_ONLY_FILES). */
 .acpmux-jump-latest.acpmux-jump-up {
   bottom: calc(
@@ -29,7 +30,8 @@
    scroll-to-bottom circle, the messaging apps' small chevron button) draw a quiet frosted control: the
    page frosts under it, it never bends. Every arm keeps the glass (never opaque; Plain glass only, so
    Lens and Spectrum keep the lens's clearer tint), the 32 px height (so Jump up stands one control and
-   one gap over the Needs you pill as over the disc), the center line, the fade and the hover wash.
+   one gap over the Needs you pill as over the disc), its place (jumpPlace.css), the fade and the hover
+   wash.
    - frosted (ships): the disc at the composer's glass level, the popover level (glass.css GLASS
      LEVELS: in-page glass that is not a popup).
    - labeled: the same glass as a rounded rectangle with the arrow and its words, the Needs you pill's

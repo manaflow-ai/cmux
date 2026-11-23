@@ -30,6 +30,10 @@ public final class HomeNativeTranscriptView: NSView {
     }
     let transcript: MessagesLabHomeView
     let firstRun = HomeFirstRunView()
+    /// Meet Chief on the empty Chief chat (HomeNativeTranscriptView+ChiefOnboarding.swift); hidden while none shows.
+    let chiefOnboarding = HomeChiefOnboardingCard()
+    /// A click on Meet Chief's card; the host runs it on the app's ``ChiefOnboarding``.
+    public var onChiefOnboarding: (HomeChiefOnboardingAction) -> Void = { _ in }
     var starterSent = false
     var starterIntakes = 0 { didSet { updateStarterAvailability() } }
     let me: ParticipantID
@@ -56,6 +60,9 @@ public final class HomeNativeTranscriptView: NSView {
     /// The chain of attachment preparations, in the order they arrived.
     // task-owner: replaced by the next intake; awaited by attachmentsReady
     var intake: Task<Void, Never>?
+    /// Follows `app.language` (followLanguage).
+    // task-owner: this view; cancelled by stop(), ends at the first change after the view is gone
+    var languageWatch: Task<Void, Never>?
     /// The pane's drop target state: its highlight, the current drag's answer, drops on their way.
     let drop = HomeDropState()
     private(set) var stopped = false
@@ -188,8 +195,9 @@ public final class HomeNativeTranscriptView: NSView {
 
     /// - Parameter diagrams: draws Mermaid fences as diagrams (the app's ``OndineMermaidRenderer``); nil keeps them as text.
     /// - Parameter openPanel: the app's made-ahead file picker (`AppServices.openPanel`) for the "+"; nil (tests) opens none.
+    /// - Parameter composerFocused: the message box took the keyboard, with its text view (the app's `window_usable` mark).
     public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, diagrams: (any HomeDiagramRendering)? = nil,
-                openPanel: MadeAheadOpenPanel? = nil) {
+                openPanel: MadeAheadOpenPanel? = nil, composerFocused: ((NSView) -> Void)? = nil) {
         attachmentPanel = openPanel.map { HomeAttachmentPanel(openPanel: $0) }
         HomeReduceMotion.install()
         self.me = me
@@ -201,6 +209,7 @@ public final class HomeNativeTranscriptView: NSView {
         // view holds open (https://github.com/manaflow-ai/cmux/issues/26397).
         binding = HomeStoreBinding(store: store, conversation: conversation)
         transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake(), diagrams: diagrams)
+        transcript.onComposerFocused = composerFocused
         // The running indicator's look (Debug Settings > Home), read at each of its ticks.
         transcript.turnProgressStyle = { HomeTunables.turnProgress.value.style }
         attachmentPreparer = store
@@ -208,6 +217,9 @@ public final class HomeNativeTranscriptView: NSView {
         wantsLayer = true
         addSubview(transcript)
         addSubview(firstRun)
+        chiefOnboarding.isHidden = true
+        chiefOnboarding.onAction = { [weak self] action in self?.chiefOnboardingClicked(action) }
+        addSubview(chiefOnboarding)
         noticeLabel.isHidden = true
         noticeLabel.font = Typography.caption
         noticeLabel.alignment = .center
@@ -244,6 +256,7 @@ public final class HomeNativeTranscriptView: NSView {
         followTextSize()
         followZoom()
         followBubbleStyle()
+        followLanguage()
         followChiefPet()
         followPresence()
         applyTheme()
@@ -273,6 +286,7 @@ public final class HomeNativeTranscriptView: NSView {
         stopped = true
         if let linkPreviews { linkPreviews.coordinator.unregister(linkPreviews) }
         intake?.cancel()
+        languageWatch?.cancel()
         closeAgentCard()
         voice.close()
         transcript.stop()
@@ -306,12 +320,6 @@ public final class HomeNativeTranscriptView: NSView {
     public var onNamePill: () -> Void {
         get { transcript.onNamePill }
         set { transcript.onNamePill = newValue }
-    }
-
-    /// A small control right after the header's name pill (the Chief's location chip); nil: none.
-    public var headerPillAccessory: NSView? {
-        get { transcript.headerPillAccessory }
-        set { transcript.headerPillAccessory = newValue }
     }
 
     /// The header's name pill, which the Chief's settings popover opens under.
@@ -490,6 +498,7 @@ public final class HomeNativeTranscriptView: NSView {
 
     func applyTextScale(_ scale: CGFloat) {
         firstRun.applyScale(scale)
+        chiefOnboarding.applyScale(scale)
         // The notice above the field sits outside the magnified transcript: its caption follows the chat's scale.
         // Default's caption at every density (user 2026-11-16: Compact draws the chat as Default does).
         let caption = Typography.caption
@@ -520,6 +529,7 @@ public final class HomeNativeTranscriptView: NSView {
         let top = transcript.headerHeight + pinnedSectionClearance
         let panel = CGRect(x: 0, y: top, width: bounds.width, height: max(0, transcript.fieldTop - top))
         if firstRun.frame != panel { firstRun.frame = panel }
+        layoutChiefOnboarding(in: panel)
         layoutNotice()
         layoutFind()
         followToasts()
@@ -571,8 +581,10 @@ public final class HomeNativeTranscriptView: NSView {
     }
 
     /// The first-run panel shows only in an empty Chief conversation.
-    private func updateFirstRun() {
-        firstRun.isHidden = holdsFirstRun || welcomesInChat || !(transcript.isEmpty && transcript.conversationSummary?.kind(me: me) == .chief)
+    func updateFirstRun() {
+        // Meet Chief takes the empty Chief chat's front page while it shows.
+        firstRun.isHidden = holdsFirstRun || welcomesInChat || chiefOnboarding.state != nil
+            || !(transcript.isEmpty && transcript.conversationSummary?.kind(me: me) == .chief)
     }
 
     /// The typing hold gives back what it holds while the views are still in the old window.
@@ -625,6 +637,9 @@ public final class HomeNativeTranscriptView: NSView {
             firstRun.applyColors(primary: Palette.textPrimary, secondary: Palette.textSecondary, tertiary: Palette.textTertiary, fill: Palette.elevatedBackground,
                                  hover: Palette.hoverFill, border: Palette.separator, attention: Palette.attention,
                                  danger: Palette.danger, done: Palette.highlight)
+            chiefOnboarding.applyColors(primary: Palette.textPrimary, secondary: Palette.textSecondary, tertiary: Palette.textTertiary,
+                                        fill: Palette.elevatedBackground, hover: Palette.hoverFill, border: Palette.separator,
+                                        accent: Palette.accentFill, onAccent: Palette.onAccent, lit: Palette.litGlyph, danger: Palette.danger)
             noticeLabel.textColor = Palette.textSecondary
         }
         drop.highlight.applyTheme()

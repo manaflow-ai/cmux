@@ -16,15 +16,22 @@ extension ChatController {
     }
 
     /// The field takes the keyboard with the caret at the end of the draft,
-    /// and the window becomes key. A field that already has the keyboard
+    /// then the window becomes key. A field that already has the keyboard
     /// keeps its caret (the person was typing there). The draft text does
     /// not change.
+    ///
+    /// The field first: the host's focus follows the first responder, and a
+    /// window that becomes key with no click gives the keys back to the
+    /// host's own focus target. Forward first, that target was still a
+    /// browser page in another pane, whose page window took the keys, and
+    /// the field stayed first responder of a window that was not key
+    /// (Lawrence 2026-11-19: "i just put image here, and i had to click").
     func focusComposeForTyping() {
         guard !Self.noFocus, let window, let field = demo?.compose.textView.view else { return }
+        if window.firstResponder !== field, window.makeFirstResponder(field) {
+            field.setSelectedRange(NSRange(location: (field.string as NSString).length, length: 0))
+        }
         if !window.isKeyWindow { bringWindowForward(window) }
-        guard window.firstResponder !== field else { return }
-        guard window.makeFirstResponder(field) else { return }
-        field.setSelectedRange(NSRange(location: (field.string as NSString).length, length: 0))
     }
 }
 

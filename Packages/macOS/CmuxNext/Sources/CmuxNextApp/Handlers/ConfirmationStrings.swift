@@ -3,86 +3,78 @@ import Foundation
 /// Confirmation sheet text for destructive actions (Resources/Handlers.xcstrings).
 enum ConfirmationStrings {
     static var cancel: String {
-        String(localized: "confirm.button.cancel", defaultValue: "Cancel", table: "Handlers", bundle: .module)
+        String(localized: "confirm.button.cancel", defaultValue: "Cancel", table: "Handlers", bundle: .module.inAppLanguage)
     }
 
     static var close: String {
-        String(localized: "confirm.button.close", defaultValue: "Close", table: "Handlers", bundle: .module)
-    }
-
-    static var delete: String {
-        String(localized: "confirm.button.delete", defaultValue: "Delete", table: "Handlers", bundle: .module)
-    }
-
-    static var quit: String {
-        String(localized: "confirm.button.quit", defaultValue: "Quit", table: "Handlers", bundle: .module)
+        String(localized: "confirm.button.close", defaultValue: "Close", table: "Handlers", bundle: .module.inAppLanguage)
     }
 
     static var closeIncognitoWindowTitle: String {
-        String(localized: "confirm.closeIncognitoWindow.title", defaultValue: "Close this incognito window?", table: "Handlers", bundle: .module)
+        String(localized: "confirm.closeIncognitoWindow.title", defaultValue: "Close this incognito window?", table: "Handlers", bundle: .module.inAppLanguage)
     }
 
     static func closeWorkspaceTitle(_ name: String) -> String {
-        String(localized: "confirm.closeWorkspace.title", defaultValue: "Close “\(name)”?", table: "Handlers", bundle: .module)
+        String(localized: "confirm.closeWorkspace.title", defaultValue: "Close “\(name)”?", table: "Handlers", bundle: .module.inAppLanguage)
     }
 
     /// "Close “name”?", for a tab as for a workspace.
     static func closeTitle(_ name: String) -> String { closeWorkspaceTitle(name) }
 
     static func closeTabsTitle(_ count: Int) -> String {
-        String(localized: "confirm.closeTabs.title", defaultValue: "Close \(count) tabs?", table: "Handlers", bundle: .module)
+        String(localized: "confirm.closeTabs.title", defaultValue: "Close \(count) tabs?", table: "Handlers", bundle: .module.inAppLanguage)
     }
 
     /// "Still running: vim, npm." for a tab or workspace close.
     static func stillRunning(_ programs: String) -> String {
-        String(localized: "confirm.stillRunning", defaultValue: "Still running: \(programs).", table: "Handlers", bundle: .module)
+        String(localized: "confirm.stillRunning", defaultValue: "Still running: \(programs).", table: "Handlers", bundle: .module.inAppLanguage)
     }
 
-    /// "No answer from: build logs. A program may still be running.", naming closing terminals by their tab titles.
+    /// "build logs may still be running a program.", naming closing terminals that did not answer by their tab titles.
     static func noAnswer(_ terminals: String) -> String {
-        String(localized: "confirm.noAnswer", defaultValue: "No answer from: \(terminals). A program may still be running.", table: "Handlers", bundle: .module)
+        String(localized: "confirm.noAnswer", defaultValue: "\(terminals) may still be running a program.", table: "Handlers", bundle: .module.inAppLanguage)
     }
 
     /// "Claude is still working.", naming the agent in the closing terminal.
     static func agentStillWorking(_ agent: String) -> String {
-        String(localized: "confirm.agentWorking", defaultValue: "\(agent) is still working.", table: "Handlers", bundle: .module)
+        String(localized: "confirm.agentWorking", defaultValue: "\(agent) is still working.", table: "Handlers", bundle: .module.inAppLanguage)
     }
 
     static var theAgent: String {
-        String(localized: "confirm.agent.unnamed", defaultValue: "The agent", table: "Handlers", bundle: .module)
+        String(localized: "confirm.agent.unnamed", defaultValue: "The agent", table: "Handlers", bundle: .module.inAppLanguage)
     }
 
     static func closeGroupWorkspacesTitle(_ name: String) -> String {
-        String(localized: "confirm.closeGroupWorkspaces.title", defaultValue: "Close every workspace in “\(name)”?", table: "Handlers", bundle: .module)
+        String(localized: "confirm.closeGroupWorkspaces.title", defaultValue: "Close every workspace in “\(name)”?", table: "Handlers", bundle: .module.inAppLanguage)
     }
 
     static var unnamedGroup: String {
-        String(localized: "confirm.group.unnamed", defaultValue: "Untitled", table: "Handlers", bundle: .module)
+        String(localized: "confirm.group.unnamed", defaultValue: "Untitled", table: "Handlers", bundle: .module.inAppLanguage)
     }
 
     /// A socket write of a user-only setting (`cmux settings set --confirm`).
     static func userOnlySettingTitle(_ key: String) -> String {
-        String(format: String(localized: "confirm.userOnlySetting.title", defaultValue: "Change %@?", table: "Handlers", bundle: .module), key)
+        String(format: String(localized: "confirm.userOnlySetting.title", defaultValue: "Change %@?", table: "Handlers", bundle: .module.inAppLanguage), key)
     }
 
     static func userOnlySettingBody(_ key: String, _ value: String) -> String {
         String(format: String(localized: "confirm.userOnlySetting.body",
-                              defaultValue: "A command asks to set %1$@ to %2$@. Only you can change this setting, so cmux asks you first.",
-                              table: "Handlers", bundle: .module), key, value)
+                              defaultValue: "A command wants to set %1$@ to %2$@.",
+                              table: "Handlers", bundle: .module.inAppLanguage), key, value)
     }
 
     static var userOnlySettingButton: String {
-        String(localized: "confirm.userOnlySetting.button", defaultValue: "Change", table: "Handlers", bundle: .module)
+        String(localized: "confirm.userOnlySetting.button", defaultValue: "Change", table: "Handlers", bundle: .module.inAppLanguage)
     }
 
     /// A command's Set Workspace Localhost (`cmux workspace set-remote-localhost`).
     static var remoteLocalhostTitle: String {
-        String(localized: "confirm.remoteLocalhost.title", defaultValue: "Change this workspace's localhost?", table: "Handlers", bundle: .module)
+        String(localized: "confirm.remoteLocalhost.title", defaultValue: "Change this workspace's localhost?", table: "Handlers", bundle: .module.inAppLanguage)
     }
 
     static func remoteLocalhostBody(_ workspace: String, _ choice: String) -> String {
         String(format: String(localized: "confirm.remoteLocalhost.body",
-                              defaultValue: "A command asks to set localhost for %1$@ to %2$@. Only you can change this, so cmux asks you first.",
-                              table: "Handlers", bundle: .module), workspace, choice)
+                              defaultValue: "A command wants to set localhost for %1$@ to %2$@.",
+                              table: "Handlers", bundle: .module.inAppLanguage), workspace, choice)
     }
 }

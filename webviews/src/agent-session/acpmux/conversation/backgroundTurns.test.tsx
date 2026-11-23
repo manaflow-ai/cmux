@@ -88,11 +88,23 @@ test("a running background turn is the compact line with the working spinner", (
   // Its words shimmer as a running tool row's do (Leo, 2026-11-09: "isn't highlighted all the way
   // through like other tool calls are"): the lit copy of the whole label, on a live line.
   expect(html).toContain("is-live");
+  expect(html).toContain('data-spinner-look="track"');
   expect(html).toMatch(/class="cv-row-shimmer"[^>]*>.*Scheduled check/);
   const ended = line("bg", { running: false, quiet: true, trigger: "scheduled" });
   expect(renderToStaticMarkup(<BackgroundTurnLine row={ended} expanded={false} onToggle={() => {}} />)).not.toContain(
     "cv-row-shimmer",
   );
+});
+
+test("a finished task's line, while its turn still answers, leads with the clock, never a spinner", () => {
+  const cause = { kind: "shell", status: "completed", weight: "result" as const };
+  const answering = line("bg", { running: true, trigger: "task_notification" });
+  answering.background = { ...answering.background!, cause };
+  const html = renderToStaticMarkup(<BackgroundTurnLine row={answering} expanded={false} onToggle={() => {}} />);
+  expect(html).toContain("Background task finished");
+  expect(html).not.toContain("cv-spinner");
+  expect(html).toContain('data-icon="time.waiting"');
+  expect(html).toContain("cv-row-shimmer");
 });
 
 test("rows with no background turn come back as they were", () => {

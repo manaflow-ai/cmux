@@ -165,14 +165,14 @@
 .acpmux-md code {
   padding: 1px 4px;
   border-radius: 4px;
-  background: color-mix(in srgb, var(--agent-text) 9%, transparent);
+  background: var(--ds-surface-inset);
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: var(--cv-code-size, calc(var(--text-content) * 13 / 14));
 }
 .acpmux-md pre {
   padding: 8px 10px;
   border-radius: 8px;
-  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  background: var(--ds-surface-inset);
   overflow-x: auto;
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: var(--cv-codeblock-size, calc(var(--text-content) * 12 / 14));
@@ -523,7 +523,7 @@
   text-decoration: none;
 }
 .acpmux-md-inline-chip[data-preview="text"] .acpmux-md-inline-retry:hover {
-  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  background: var(--ds-surface-hover);
 }
 .acpmux-md-inline-chip[data-preview="text"] .acpmux-md-inline-retry:focus-visible {
   outline: 1.5px solid var(--agent-text);
@@ -631,7 +631,7 @@
   content: attr(data-title);
   padding: var(--cmux-link-chip-pad-block) var(--cmux-link-chip-pad-inline);
   border-radius: 4px;
-  background: color-mix(in srgb, var(--cv-text, var(--agent-text)) 9%, transparent);
+  background: var(--ds-surface-inset);
   color: var(--cv-text, var(--agent-text));
   font-size: var(--text-content);
   line-height: var(--text-content--line-height);
