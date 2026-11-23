@@ -78,6 +78,7 @@ extension AgentChatSessionRegistry {
 
     nonisolated static func nextState(
         previous: ChatAgentState,
+        turnSettled: Bool = false,
         event: WorkstreamEvent
     ) -> ChatAgentState {
         if stateIsEnded(previous), event.hookEventName != .sessionStart {
@@ -95,6 +96,23 @@ extension AgentChatSessionRegistry {
            let toolName = event.toolName,
            toolName == "AskUserQuestion" || toolName == "ExitPlanMode" {
             return .needsInput(since: event.receivedAt)
+        }
+        // A Claude plugin or helper can call tools after the turn's Stop, and
+        // no Stop follows those calls. The hook handler keeps the built-in
+        // status idle for them (its `turnSettled` check), so they must not
+        // leave this session working until the next prompt either. Such a
+        // call can still raise a permission prompt; its result settles the
+        // session again, whether the prompt is still showing or typed input
+        // already moved the session to working.
+        if turnSettled, event.source == "claude" {
+            switch event.hookEventName {
+            case .preToolUse, .todoWrite:
+                return previous
+            case .postToolUse, .postToolUseFailure:
+                return .idle
+            default:
+                break
+            }
         }
         switch event.hookEventName {
         case .sessionStart:
@@ -123,6 +141,20 @@ extension AgentChatSessionRegistry {
             return previous
         case .sessionEnd:
             return .ended
+        }
+    }
+
+    /// Whether the session's last turn boundary is a `Stop`. Only a prompt
+    /// opens the next turn, as in the hook store: a `SessionStart` from a
+    /// resume or a compaction leaves it as is, like every other event.
+    nonisolated static func nextTurnSettled(previous: Bool, event: WorkstreamEvent) -> Bool {
+        switch event.hookEventName {
+        case .stop:
+            return true
+        case .userPromptSubmit:
+            return false
+        default:
+            return previous
         }
     }
 
