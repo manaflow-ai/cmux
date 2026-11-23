@@ -202,7 +202,8 @@ fn a_full_host_moves_its_session_to_one_with_room_else_hands_off() {
     assert_eq!(
         route(&f),
         Route::Handoff {
-            why: "vm-a is full, so it is not restarted there; no host has room".into()
+            why: "vm-a is full, so it is not restarted there; no host has room".into(),
+            after: Ending::Full,
         }
     );
 }
