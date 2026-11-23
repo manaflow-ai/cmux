@@ -163,7 +163,7 @@ frame. `scripts/measure/linux-encode-floor.sh` reruns the shipped and floor rows
 
 ## Camera usage on spare bitrate (`usage=spare`, opt-in; goal screen-share-linux-pairs cut 1)
 
-gcp-agent-lane-2 (AMD EPYC 9B45, 32 vCPU, load 15-19 on the other cores), 2026-11-23, two runs of
+A Linux lane VM (AMD EPYC 9B45, 32 vCPU, load 15-19 on the other cores), 2026-11-23, two runs of
 `scripts/measure/linux-encode-spare.sh` (4 cores, `taskset -c 0-3`, 1080p30, 10 s, 0% loss, 30 Mbps link). `spare`
 codes in camera usage while the target is at least 6 Mbps (`SPARE_KBPS`; back up at 7.5) and falls back to the shipped
 `switch` rule below it. This host is faster than the 7003 above, so read ratios, not milliseconds. PSNR-Y is of
