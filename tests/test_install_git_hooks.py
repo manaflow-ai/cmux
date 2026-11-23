@@ -86,6 +86,7 @@ class InstallGitHooksTests(unittest.TestCase):
             "scripts/webviews_bun_version.py",
             "scripts/check-webviews-bun-version.sh",
             *self.installed_sources(),
+            *self.copied_check_inputs(),
         ):
             source, target = SOURCE / relative, root / relative
             if not source.exists():
@@ -95,6 +96,18 @@ class InstallGitHooksTests(unittest.TestCase):
                 shutil.copytree(source, target)
             else:
                 shutil.copyfile(source, target)
+
+    @staticmethod
+    def copied_check_inputs():
+        """Every single-file source checks-copy-inputs names, so a new input line never leaves the fixture behind.
+
+        a37b6194810 added scripts/ci/generated_files_guard.py and ci_process_tree.py there and the stamp test read
+        a file the fixture never copied (FileNotFoundError); reading the inputs keeps the two in step. Folders
+        ("scripts/cmux-next/") stay out: their tree is copied from the list above.
+        """
+        text = (SOURCE / "scripts/git-hooks/checks-copy-inputs").read_text(encoding="utf-8")
+        sources = (line.split("->")[0].strip() for line in text.splitlines() if not line.lstrip().startswith("#"))
+        return sorted({source for source in sources if source and not source.endswith("/")})
 
     @staticmethod
     def installed_sources():
