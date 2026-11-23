@@ -505,14 +505,18 @@ async fn a_task_with_notify_tells_its_chat_once_when_it_ends() {
     let quiet = json!({"sessionId": id, "command": "echo quiet; exit 0", "notify": false});
     let quiet = r.c.request(method::MUX_BG_START, quiet).await.unwrap();
     let quiet = quiet["id"].as_str().unwrap().to_owned();
-    // The pause keeps it running past the start's answer, which reads its state (a bare `seq`
-    // can end first on a busy runner, and the answer then says it exited).
-    let loud = json!({"sessionId": id, "command": "seq 1 30; sleep 0.5; exit 3",
+    // The task holds its end until the test has read the start's answer: the answer reads the
+    // task's state when it is built, and a bare `seq 1 30` had often ended by then on a loaded
+    // runner, so the answer said "failed".
+    let go = acpmux::config::home().join("loud-may-end");
+    let command = format!("seq 1 30; until [ -e '{}' ]; do sleep 0.01; done; exit 3", go.display());
+    let loud = json!({"sessionId": id, "command": command,
         "description": "count to thirty", "notify": true});
     let task = r.c.request(method::MUX_BG_START, loud).await.unwrap();
     assert_eq!((task["status"].as_str(), task["notify"].as_bool()), (Some("running"), Some(true)));
     assert_eq!(task["summary"], "Background command running: count to thirty", "{task}");
     let loud = task["id"].as_str().unwrap().to_owned();
+    std::fs::write(&go, "").unwrap();
     r.until("the quiet task never ended", || state(&r, &id, &quiet) == "exited").await;
     r.until("the task's end never reached its chat", || ends(&r.hub, &id).len() == 1).await;
     let dir = acpmux::config::home().join("bg").join(&id);
@@ -531,6 +535,64 @@ async fn a_task_with_notify_tells_its_chat_once_when_it_ends() {
     let list = r.hub.bg_list(&r.hub.resolve(&id).unwrap());
     let statuses: Vec<_> = list["tasks"].as_array().unwrap().iter().map(|t| &t["status"]).collect();
     assert_eq!(statuses, [&json!("ok"), &json!("failed")], "{list}");
+}
+
+/// A task that dies under nobody's stop still brings its end to its chat: one SIGKILLed from
+/// outside says it was killed and by which signal, and one whose runner itself was SIGKILLed (no
+/// exit is ever written) says it was lost. The watch learns both from the runner's lock, which
+/// the kernel frees when the runner dies; nothing polls. Leo, 2026-10-24: "dont we have hooks
+/// that can listen on success/fails? you guys know how to do background processes"
+#[cfg(unix)]
+#[tokio::test]
+async fn a_task_that_dies_tells_its_chat_how_it_died() {
+    let mut r = rig(PermissionPolicy::ApproveAll).await;
+    r.hub.set_bg_runner(crate::daemon_env::bg_runner(), acpmux::bg_run::SEGMENT);
+    let id = new_session(&mut r.c, "dead-tasks").await;
+    let dir = acpmux::config::home().join("bg").join(&id);
+    let start = |description: &str| {
+        // `exec`: the record's pid is the sleep itself, so a SIGKILL to it ends the task's
+        // output pipe too.
+        json!({"sessionId": id, "command": "echo up; exec sleep 300",
+            "description": description, "notify": true})
+    };
+    let killed = r.c.request(method::MUX_BG_START, start("killed task")).await.unwrap();
+    let killed = killed["id"].as_str().unwrap().to_owned();
+    let lost = r.c.request(method::MUX_BG_START, start("lost task")).await.unwrap();
+    let lost = lost["id"].as_str().unwrap().to_owned();
+    let pid = |task: &str| acpmux::bg_run::read_record(&dir, task).map(|t| t.pid).unwrap_or(0);
+    r.until("the tasks never recorded their pids", || pid(&killed) > 0 && pid(&lost) > 0).await;
+
+    // SAFETY: kill on pids this test's tasks recorded.
+    assert_eq!(unsafe { libc::kill(pid(&killed) as i32, libc::SIGKILL) }, 0);
+    r.until("the killed task's end never reached its chat", || ends(&r.hub, &id).len() == 1).await;
+    let end = ends(&r.hub, &id).remove(0);
+    let expected = format!("Background command killed: killed task (signal {})", libc::SIGKILL);
+    assert!(end.contains(&expected), "{end}");
+
+    // The lost task's runner is its parent; kill it, then its orphaned sleep.
+    let task = pid(&lost);
+    let ppid = std::process::Command::new("ps")
+        .args(["-o", "ppid=", "-p", &task.to_string()])
+        .output()
+        .unwrap();
+    let runner: i32 = String::from_utf8_lossy(&ppid.stdout).trim().parse().unwrap();
+    assert!(runner > 1, "the task's runner was not its parent: {runner}");
+    // SAFETY: kill on the runner this test's task named as its parent, then on that task.
+    assert_eq!(unsafe { libc::kill(runner, libc::SIGKILL) }, 0);
+    r.until("the lost task's end never reached its chat", || ends(&r.hub, &id).len() == 2).await;
+    unsafe { libc::kill(task as i32, libc::SIGKILL) };
+    let end = ends(&r.hub, &id).remove(1);
+    assert!(end.contains("Background command lost: lost task"), "{end}");
+    assert!(end.contains("its runner ended without recording an exit"), "{end}");
+    for task in [&killed, &lost] {
+        r.until("a dead task's end was never marked sent", || {
+            acpmux::bg_run::notified_path(&dir, task).exists()
+        })
+        .await;
+    }
+    let list = r.hub.bg_list(&r.hub.resolve(&id).unwrap());
+    let statuses: Vec<_> = list["tasks"].as_array().unwrap().iter().map(|t| &t["status"]).collect();
+    assert_eq!(statuses, [&json!("failed"), &json!("failed")], "{list}");
 }
 
 /// A task its own agent stops brings no end to the chat: the stop's answer told that agent how it

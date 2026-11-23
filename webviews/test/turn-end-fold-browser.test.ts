@@ -418,8 +418,8 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
       await page.close();
     });
 
-    test(`${family}: at its end the shipped wipe swaps the work in place, the bottom pinned, nothing growing`, async () => {
-      const { page, samples } = await playTurn(family, false);
+    test(`${family}: at its end the wipe swaps the work in place, the bottom pinned, nothing growing`, async () => {
+      const { page, samples } = await playTurn(family, false, "no-preference", "wipe");
       const from = samples.findIndex((sample) => sample.worked);
       expect(from).toBeGreaterThan(0);
       const before = samples[from - 1]!;
