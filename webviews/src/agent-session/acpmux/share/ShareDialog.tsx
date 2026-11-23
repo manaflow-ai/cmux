@@ -174,7 +174,11 @@ function PersonRow({
         <Face person={person(row.account)} size={28} />
         <span className="share-dialog__who">
           <span className="share-dialog__name">{row.account}</span>
-          {row.joined && <span className="share-dialog__hint">{t("share.inChatNow")}</span>}
+          {row.joined ? (
+            <span className="share-dialog__hint">{t("share.inChatNow")}</span>
+          ) : (
+            row.opened === false && <span className="share-dialog__hint">{t("share.notJoined")}</span>
+          )}
         </span>
         <span className="share-dialog__role-value">{roles.find((role) => role.value === row.role)?.label}</span>
       </RowPicker>

@@ -15,6 +15,7 @@ import { useT, translate } from "../i18n";
 import { copyTextResult } from "../conversation/clipboard";
 import { ShareDialogBody } from "./ShareDialog";
 import {
+  normalAccount,
   shareClient,
   shareView,
   type GeneralAccess,
@@ -36,6 +37,10 @@ export function shareFailureText(error: unknown): string {
   if (code === "share.needs_sign_in") return translate("share.error.signIn");
   if (code === "gesture_required") return translate("share.error.gesture");
   if (code === "share.restrict_raced") return translate("share.error.restrictRaced");
+  if (code === "share.bad_request") return translate("share.error.badAccount");
+  if (code === "share.limit") return translate("share.error.limit");
+  if (code === "share.room_unreachable") return translate("share.error.offline");
+  if (code === "share.room_refused") return translate("share.error.refused");
   // Any other refusal is the daemon's or the server's English: the log keeps it, the status says
   // "That didn't finish. Try again."
   console.warn("agent pane: sharing failed", error);
@@ -115,6 +120,13 @@ export function ShareDialogHost({
         actions: [{ id: "manage", label: translate("share.manageLinks"), onSelect: () => void client.manage() }],
       });
     });
+  // Inviting someone who already has access sets their role (the daemon refuses a second invite
+  // with another role, `share.invited`), and the same role again just says they have access.
+  const invite = (account: string, role: ShareRole) => {
+    const known = view.people.find((person) => person.account === normalAccount(account));
+    if (known?.role === role) return setStatus(translate("share.error.alreadyIn", { account: known.account }));
+    void step(() => (known ? client.setRole(known.account, role) : client.invite(account, role)));
+  };
   const general = (access: GeneralAccess) =>
     void step(async () => {
       if (access === view.general) return;
@@ -134,7 +146,7 @@ export function ShareDialogHost({
           view={view}
           status={status}
           busy={busy || !loaded}
-          onInvite={(account: string, role: ShareRole) => void step(() => client.invite(account, role))}
+          onInvite={invite}
           onRole={(account: string, role: ShareRole) => void step(() => client.setRole(account, role))}
           onRemove={(account: string) => void step(() => client.remove(account))}
           onGeneral={general}

@@ -432325,128 +432325,128 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "مشاهد"
+            "state": "needs_review",
+            "value": "يمكنه العرض"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gledalac"
+            "value": "Može gledati"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Seer"
+            "value": "Kan se"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Betrachter"
+            "state": "needs_review",
+            "value": "Kann ansehen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Viewer"
+            "value": "Can view"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Lector"
+            "state": "needs_review",
+            "value": "Puede ver"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Lecteur"
+            "state": "needs_review",
+            "value": "Peut voir"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Visualizzatore"
+            "value": "Può vedere"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "閲覧者"
+            "state": "needs_review",
+            "value": "閲覧可"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "អ្នកមើល"
+            "value": "អាចមើល"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "뷰어"
+            "state": "needs_review",
+            "value": "보기 가능"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Leser"
+            "value": "Kan se"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Przeglądający"
+            "value": "Może wyświetlać"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Leitor"
+            "value": "Pode ver"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Читатель"
+            "value": "Может смотреть"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ผู้ดู"
+            "value": "ดูได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Görüntüleyen"
+            "value": "Görüntüleyebilir"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Глядач"
+            "value": "Може переглядати"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Người xem"
+            "value": "Có thể xem"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "查看者"
+            "state": "needs_review",
+            "value": "可查看"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "檢視者"
+            "state": "needs_review",
+            "value": "可檢視"
           }
         }
       }
@@ -433111,6 +433111,12 @@
         }
       }
     },
+    "share.notJoined": {"comment":"Agent pane: Share dialog: under an invited person who has not opened the chat yet","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"لم يفتحها بعد"}},"bs":{"stringUnit":{"state":"needs_review","value":"Još nije otvorio"}},"da":{"stringUnit":{"state":"needs_review","value":"Har ikke åbnet den endnu"}},"de":{"stringUnit":{"state":"needs_review","value":"Noch nicht geöffnet"}},"en":{"stringUnit":{"state":"translated","value":"Hasn't opened it yet"}},"es":{"stringUnit":{"state":"needs_review","value":"Aún no la ha abierto"}},"fr":{"stringUnit":{"state":"needs_review","value":"Pas encore ouvert"}},"it":{"stringUnit":{"state":"needs_review","value":"Non l'ha ancora aperta"}},"ja":{"stringUnit":{"state":"needs_review","value":"まだ開いていません"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនទាន់បើកនៅឡើយ"}},"ko":{"stringUnit":{"state":"needs_review","value":"아직 열지 않음"}},"nb":{"stringUnit":{"state":"needs_review","value":"Har ikke åpnet den ennå"}},"pl":{"stringUnit":{"state":"needs_review","value":"Jeszcze nie otworzono"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Ainda não abriu"}},"ru":{"stringUnit":{"state":"needs_review","value":"Ещё не открыл"}},"th":{"stringUnit":{"state":"needs_review","value":"ยังไม่ได้เปิด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Henüz açmadı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Ще не відкрив"}},"vi":{"stringUnit":{"state":"needs_review","value":"Chưa mở"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"尚未打开"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"尚未開啟"}}}},
+    "share.error.badAccount": {"comment":"Agent pane: Share dialog error: the daemon did not take the typed account","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"أدخل عنوان بريد إلكتروني أو ‎@handle."}},"bs":{"stringUnit":{"state":"needs_review","value":"Unesite e-adresu ili @handle."}},"da":{"stringUnit":{"state":"needs_review","value":"Angiv en e-mailadresse eller et @handle."}},"de":{"stringUnit":{"state":"needs_review","value":"Gib eine E-Mail-Adresse oder ein @Handle ein."}},"en":{"stringUnit":{"state":"translated","value":"Enter an email address or @handle."}},"es":{"stringUnit":{"state":"needs_review","value":"Escribe un correo electrónico o un @usuario."}},"fr":{"stringUnit":{"state":"needs_review","value":"Saisissez une adresse e-mail ou un @identifiant."}},"it":{"stringUnit":{"state":"needs_review","value":"Inserisci un indirizzo email o un @handle."}},"ja":{"stringUnit":{"state":"needs_review","value":"メールアドレスか @ハンドルを入力してください。"}},"km":{"stringUnit":{"state":"needs_review","value":"បញ្ចូលអាសយដ្ឋានអ៊ីមែល ឬ @handle។"}},"ko":{"stringUnit":{"state":"needs_review","value":"이메일 주소나 @핸들을 입력하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Skriv inn en e-postadresse eller et @handle."}},"pl":{"stringUnit":{"state":"needs_review","value":"Wpisz adres e-mail lub @handle."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Digite um e-mail ou um @usuário."}},"ru":{"stringUnit":{"state":"needs_review","value":"Введите адрес почты или @имя."}},"th":{"stringUnit":{"state":"needs_review","value":"ใส่อีเมลหรือ @handle"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bir e-posta adresi veya @kullanıcı adı girin."}},"uk":{"stringUnit":{"state":"needs_review","value":"Введіть адресу пошти або @ім'я."}},"vi":{"stringUnit":{"state":"needs_review","value":"Nhập địa chỉ email hoặc @handle."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"请输入电子邮件地址或 @用户名。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"請輸入電子郵件地址或 @使用者名稱。"}}}},
+    "share.error.limit": {"comment":"Agent pane: Share dialog error: this Mac has as many shares open as it allows","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"محادثات مشتركة كثيرة جدًا على هذا الـMac. أنهِ واحدة من الإعدادات > الروابط المشتركة."}},"bs":{"stringUnit":{"state":"needs_review","value":"Previše dijeljenih chatova na ovom Macu. Završite jedan u Postavke > Dijeljeni linkovi."}},"da":{"stringUnit":{"state":"needs_review","value":"For mange delte chats på denne Mac. Afslut en i Indstillinger > Delte links."}},"de":{"stringUnit":{"state":"needs_review","value":"Zu viele geteilte Chats auf diesem Mac. Beende einen unter Einstellungen > Geteilte Links."}},"en":{"stringUnit":{"state":"translated","value":"Too many shared chats on this Mac. End one in Settings > Shared links."}},"es":{"stringUnit":{"state":"needs_review","value":"Demasiados chats compartidos en este Mac. Termina uno en Ajustes > Enlaces compartidos."}},"fr":{"stringUnit":{"state":"needs_review","value":"Trop de discussions partagées sur ce Mac. Arrêtez-en une dans Réglages > Liens partagés."}},"it":{"stringUnit":{"state":"needs_review","value":"Troppe chat condivise su questo Mac. Chiudine una in Impostazioni > Link condivisi."}},"ja":{"stringUnit":{"state":"needs_review","value":"この Mac で共有中のチャットが多すぎます。設定 > 共有リンクで 1 つ終了してください。"}},"km":{"stringUnit":{"state":"needs_review","value":"ការជជែកដែលបានចែករំលែកច្រើនពេកនៅលើ Mac នេះ។ បញ្ចប់មួយនៅក្នុង ការកំណត់ > តំណដែលបានចែករំលែក។"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 Mac에서 공유 중인 채팅이 너무 많습니다. 설정 > 공유 링크에서 하나를 종료하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"For mange delte chatter på denne Macen. Avslutt en i Innstillinger > Delte lenker."}},"pl":{"stringUnit":{"state":"needs_review","value":"Za dużo udostępnionych czatów na tym Macu. Zakończ jeden w Ustawienia > Udostępnione linki."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Chats compartilhados demais neste Mac. Encerre um em Ajustes > Links compartilhados."}},"ru":{"stringUnit":{"state":"needs_review","value":"Слишком много общих чатов на этом Mac. Завершите один в Настройки > Общие ссылки."}},"th":{"stringUnit":{"state":"needs_review","value":"มีแชทที่แชร์อยู่มากเกินไปบน Mac นี้ ปิดหนึ่งรายการใน การตั้งค่า > ลิงก์ที่แชร์"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu Mac'te çok fazla paylaşılan sohbet var. Ayarlar > Paylaşılan bağlantılar'dan birini sonlandırın."}},"uk":{"stringUnit":{"state":"needs_review","value":"Забагато спільних чатів на цьому Mac. Завершіть один у Налаштування > Спільні посилання."}},"vi":{"stringUnit":{"state":"needs_review","value":"Có quá nhiều cuộc trò chuyện được chia sẻ trên máy Mac này. Hãy kết thúc một cuộc trong Cài đặt > Liên kết đã chia sẻ."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"这台 Mac 上共享的对话太多。请在“设置 > 共享链接”中结束一个。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"這台 Mac 上共享的對話太多。請在「設定 > 共享連結」中結束一個。"}}}},
+    "share.error.offline": {"comment":"Agent pane: Share dialog error: the share server did not answer","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تعذر الوصول إلى خادم المشاركة. تحقق من اتصالك وحاول مرة أخرى."}},"bs":{"stringUnit":{"state":"needs_review","value":"Server za dijeljenje nije dostupan. Provjerite vezu i pokušajte ponovo."}},"da":{"stringUnit":{"state":"needs_review","value":"Kunne ikke nå delingsserveren. Tjek din forbindelse, og prøv igen."}},"de":{"stringUnit":{"state":"needs_review","value":"Der Freigabeserver ist nicht erreichbar. Prüfe deine Verbindung und versuch es noch einmal."}},"en":{"stringUnit":{"state":"translated","value":"Couldn't reach the share server. Check your connection and try again."}},"es":{"stringUnit":{"state":"needs_review","value":"No se pudo conectar con el servidor para compartir. Revisa tu conexión e inténtalo de nuevo."}},"fr":{"stringUnit":{"state":"needs_review","value":"Impossible de joindre le serveur de partage. Vérifiez votre connexion et réessayez."}},"it":{"stringUnit":{"state":"needs_review","value":"Impossibile raggiungere il server di condivisione. Controlla la connessione e riprova."}},"ja":{"stringUnit":{"state":"needs_review","value":"共有サーバーに接続できません。接続を確認して、もう一度お試しください。"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនអាចភ្ជាប់ទៅម៉ាស៊ីនមេចែករំលែកបានទេ។ ពិនិត្យការតភ្ជាប់របស់អ្នក ហើយព្យាយាមម្ដងទៀត។"}},"ko":{"stringUnit":{"state":"needs_review","value":"공유 서버에 연결할 수 없습니다. 연결을 확인하고 다시 시도하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Fikk ikke kontakt med delingsserveren. Sjekk tilkoblingen og prøv igjen."}},"pl":{"stringUnit":{"state":"needs_review","value":"Nie można połączyć się z serwerem udostępniania. Sprawdź połączenie i spróbuj ponownie."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Não foi possível acessar o servidor de compartilhamento. Verifique sua conexão e tente de novo."}},"ru":{"stringUnit":{"state":"needs_review","value":"Не удалось связаться с сервером общего доступа. Проверьте подключение и повторите попытку."}},"th":{"stringUnit":{"state":"needs_review","value":"เชื่อมต่อเซิร์ฟเวอร์แชร์ไม่ได้ ตรวจสอบการเชื่อมต่อแล้วลองอีกครั้ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Paylaşım sunucusuna ulaşılamadı. Bağlantınızı kontrol edip yeniden deneyin."}},"uk":{"stringUnit":{"state":"needs_review","value":"Не вдалося зв'язатися із сервером спільного доступу. Перевірте з'єднання й спробуйте ще раз."}},"vi":{"stringUnit":{"state":"needs_review","value":"Không kết nối được máy chủ chia sẻ. Hãy kiểm tra kết nối và thử lại."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"无法连接共享服务器。请检查网络连接后重试。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"無法連線至共享伺服器。請檢查網路連線後再試一次。"}}}},
+    "share.error.refused": {"comment":"Agent pane: Share dialog error: the share server refused to open the share","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"رفض خادم المشاركة هذا الطلب. حاول لاحقًا."}},"bs":{"stringUnit":{"state":"needs_review","value":"Server za dijeljenje je ovo odbio. Pokušajte kasnije."}},"da":{"stringUnit":{"state":"needs_review","value":"Delingsserveren afviste det. Prøv igen senere."}},"de":{"stringUnit":{"state":"needs_review","value":"Der Freigabeserver hat das abgelehnt. Versuch es später noch einmal."}},"en":{"stringUnit":{"state":"translated","value":"The share server turned this down. Try again later."}},"es":{"stringUnit":{"state":"needs_review","value":"El servidor para compartir lo rechazó. Inténtalo más tarde."}},"fr":{"stringUnit":{"state":"needs_review","value":"Le serveur de partage a refusé. Réessayez plus tard."}},"it":{"stringUnit":{"state":"needs_review","value":"Il server di condivisione l'ha rifiutato. Riprova più tardi."}},"ja":{"stringUnit":{"state":"needs_review","value":"共有サーバーに拒否されました。しばらくしてからお試しください。"}},"km":{"stringUnit":{"state":"needs_review","value":"ម៉ាស៊ីនមេចែករំលែកបានបដិសេធ។ សូមព្យាយាមម្ដងទៀតពេលក្រោយ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"공유 서버가 거부했습니다. 나중에 다시 시도하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Delingsserveren avviste dette. Prøv igjen senere."}},"pl":{"stringUnit":{"state":"needs_review","value":"Serwer udostępniania odrzucił żądanie. Spróbuj później."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"O servidor de compartilhamento recusou. Tente mais tarde."}},"ru":{"stringUnit":{"state":"needs_review","value":"Сервер общего доступа отклонил запрос. Повторите позже."}},"th":{"stringUnit":{"state":"needs_review","value":"เซิร์ฟเวอร์แชร์ปฏิเสธคำขอนี้ ลองอีกครั้งภายหลัง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Paylaşım sunucusu bunu reddetti. Daha sonra yeniden deneyin."}},"uk":{"stringUnit":{"state":"needs_review","value":"Сервер спільного доступу відхилив запит. Спробуйте пізніше."}},"vi":{"stringUnit":{"state":"needs_review","value":"Máy chủ chia sẻ đã từ chối. Hãy thử lại sau."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"共享服务器拒绝了此请求。请稍后再试。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"共享伺服器拒絕了此要求。請稍後再試。"}}}},
+    "share.error.alreadyIn": {"comment":"Agent pane: Share dialog: the typed account is already in People with access, with that role. {account} is their email or @handle","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"لدى {account} حق الوصول بالفعل."}},"bs":{"stringUnit":{"state":"needs_review","value":"{account} već ima pristup."}},"da":{"stringUnit":{"state":"needs_review","value":"{account} har allerede adgang."}},"de":{"stringUnit":{"state":"needs_review","value":"{account} hat bereits Zugriff."}},"en":{"stringUnit":{"state":"translated","value":"{account} already has access."}},"es":{"stringUnit":{"state":"needs_review","value":"{account} ya tiene acceso."}},"fr":{"stringUnit":{"state":"needs_review","value":"{account} a déjà accès."}},"it":{"stringUnit":{"state":"needs_review","value":"{account} ha già accesso."}},"ja":{"stringUnit":{"state":"needs_review","value":"{account} はすでにアクセスできます。"}},"km":{"stringUnit":{"state":"needs_review","value":"{account} មានសិទ្ធិចូលរួចហើយ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"{account}님은 이미 액세스할 수 있습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"{account} har allerede tilgang."}},"pl":{"stringUnit":{"state":"needs_review","value":"{account} ma już dostęp."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{account} já tem acesso."}},"ru":{"stringUnit":{"state":"needs_review","value":"У {account} уже есть доступ."}},"th":{"stringUnit":{"state":"needs_review","value":"{account} มีสิทธิ์เข้าถึงอยู่แล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"{account} zaten erişebiliyor."}},"uk":{"stringUnit":{"state":"needs_review","value":"{account} вже має доступ."}},"vi":{"stringUnit":{"state":"needs_review","value":"{account} đã có quyền truy cập."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{account} 已有访问权限。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{account} 已有存取權限。"}}}},
     "share.inChatNow": {
       "comment": "Agent pane: Share dialog, under a person who has the chat open now",
       "extractionState": "manual",
