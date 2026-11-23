@@ -202,10 +202,12 @@ struct MarkdownBlockRow: View {
     var body: some View {
         MarkdownBlockView(block: block, margin: 20)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .contextMenu {
-                Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = message() }
-                Button("Select Text", systemImage: "selection.pin.in.out") { ChatSelectText.present(message()) }
-                Button("Share", systemImage: "square.and.arrow.up") { ChatShare.present(message()) }
+            .selectionMenu { label in
+                [
+                    SelectionMenu.action("Copy Message", "doc.on.doc") { UIPasteboard.general.string = message() },
+                    SelectionMenu.action("Select Text", "selection.pin.in.out") { ChatSelectText.present(message()) },
+                    SelectionMenu.share(message(), from: label, title: "Share Message"),
+                ]
             }
     }
 }

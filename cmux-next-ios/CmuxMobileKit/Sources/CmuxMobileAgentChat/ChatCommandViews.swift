@@ -1,6 +1,7 @@
 #if os(iOS)
 import enum CmuxMobileModel.UserFacingError
 import CmuxMobileDesign
+import CmuxMobileMarkdown
 import CmuxSpinner
 import SwiftUI
 import UIKit
@@ -142,10 +143,10 @@ struct SessionStatusSheet: View {
                                     copied = field.label
                                 } label: {
                                     LabeledContent(field.label) {
-                                        Text(copied == field.label ? String(localized: "Copied") : field.value)
+                                        SelectableText(copied == field.label ? String(localized: "Copied") : field.value,
+                                                       textStyle: .body)
                                             .multilineTextAlignment(.trailing)
                                             .lineLimit(3)
-                                            .textSelection(.enabled)
                                     }
                                 }
                                 .tint(.primary)

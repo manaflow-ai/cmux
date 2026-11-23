@@ -2,6 +2,7 @@
 import enum CmuxMobileModel.UserFacingError
 import AVFoundation
 import CmuxMobileDesign
+import CmuxMobileMarkdown
 import CmuxSpinner
 import NaturalLanguage
 import Observation
@@ -452,6 +453,15 @@ struct ChatPolishMenuButtons: View {
     let store: AgentChatStore
     let turnID: String
     let prompt: String?
+
+    @MainActor
+    var menuElements: [UIMenuElement] {
+        if let prompt {
+            return ChatPolishMenus.promptItems(turnID: turnID, text: prompt, store: store)
+        }
+        guard let turn = store.turns.first(where: { $0.id == turnID }) else { return [] }
+        return ChatPolishMenus.answerItems(turn: turn, store: store)
+    }
 
     var body: some View {
         if let turn = store.turns.first(where: { $0.id == turnID }) {

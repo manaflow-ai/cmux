@@ -4,6 +4,7 @@ import CmuxMobileDiff
 import CmuxMobileMarkdown
 import CmuxSpinner
 import SwiftUI
+import UIKit
 
 /// Opens the diff viewer (`fileID` nil = the file list).
 public struct OpenDiffAction: Sendable {
@@ -44,6 +45,19 @@ struct ToolRowView: View {
                 header
             }
             .buttonStyle(.cmuxPressFill)
+            // Keep row actions on the tappable header. Expanded output owns text selection.
+            .contextMenu {
+                if openFile.isAvailable {
+                    ForEach(Array(call.locations.prefix(5).enumerated()), id: \.offset) { _, location in
+                        Button("Open \((location.path as NSString).lastPathComponent)", systemImage: "doc.text.magnifyingglass") {
+                            openFile(location.path, line: location.line)
+                        }
+                    }
+                }
+                if let path = call.locations.first?.path {
+                    Button("Copy Path", systemImage: "doc.on.doc") { UIPasteboard.general.string = path }
+                }
+            }
             // The 44 pt target overlaps the gaps between rows (a 32 pt row in the layout).
             .padding(.vertical, -6)
             if expanded {
@@ -53,19 +67,6 @@ struct ToolRowView: View {
             }
         }
         .accessibilityElement(children: .contain)
-        // The files the call read or wrote open in the preview (long press).
-        .contextMenu {
-            if openFile.isAvailable {
-                ForEach(Array(call.locations.prefix(5).enumerated()), id: \.offset) { _, location in
-                    Button("Open \((location.path as NSString).lastPathComponent)", systemImage: "doc.text.magnifyingglass") {
-                        openFile(location.path, line: location.line)
-                    }
-                }
-            }
-            if let path = call.locations.first?.path {
-                Button("Copy Path", systemImage: "doc.on.doc") { UIPasteboard.general.string = path }
-            }
-        }
     }
 
     private var header: some View {
@@ -291,9 +292,8 @@ struct ThoughtRow: View {
             if expanded {
                 // Opened by the person: all of it. Opened because it is live: its newest
                 // lines (a line limit alone keeps the first three, which stop changing).
-                Text(choice.chosen == true ? text : DisclosureChoice.liveTail(of: text))
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                SelectableText(choice.chosen == true ? text : DisclosureChoice.liveTail(of: text),
+                               textStyle: .subheadline, color: .secondaryLabel)
                     .lineLimit(choice.chosen == true ? nil : 3)
                     // Wrapped, the tail can be more than three lines: cut its start, never its newest words.
                     .truncationMode(.head)
@@ -380,6 +380,13 @@ struct DiffSnippet: View {
                 .contentShape(.rect)
             }
             .buttonStyle(.cmuxPressFill)
+            .contextMenu {
+                Button("Open Diff", systemImage: "arrow.up.right.square") { open(file.id) }
+                if openFile.isAvailable, file.status != .deleted {
+                    Button("Open File", systemImage: "doc.text.magnifyingglass") { openFile(file.path) }
+                }
+                Button("Copy Path", systemImage: "doc.on.doc") { UIPasteboard.general.string = file.path }
+            }
             .accessibilityLabel(Text("Edited \(file.fileName), \(file.additions) additions, \(file.deletions) deletions. Open diff"))
             ScrollView(.horizontal) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -387,7 +394,9 @@ struct DiffSnippet: View {
                         HStack(alignment: .firstTextBaseline, spacing: 0) {
                             Text(line.kind == .added ? "+" : (line.kind == .removed ? "−" : " "))
                                 .frame(width: 14, alignment: .leading)
-                            Text(line.text.isEmpty ? " " : line.text)
+                            SelectableText(line.text.isEmpty ? " " : line.text,
+                                           font: .monospacedSystemFont(ofSize: codeSize, weight: .regular),
+                                           color: UIColor(color(line)), lineSpacing: 4)
                         }
                         .foregroundStyle(color(line))
                     }
@@ -419,13 +428,6 @@ struct DiffSnippet: View {
         .background(Color.cmuxMobileCodeBackground, in: .rect(cornerRadius: 20, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Color(uiColor: .separator).opacity(0.5), lineWidth: 0.5)
-        }
-        .contextMenu {
-            Button("Open Diff", systemImage: "arrow.up.right.square") { open(file.id) }
-            if openFile.isAvailable, file.status != .deleted {
-                Button("Open File", systemImage: "doc.text.magnifyingglass") { openFile(file.path) }
-            }
-            Button("Copy Path", systemImage: "doc.on.doc") { UIPasteboard.general.string = file.path }
         }
     }
 

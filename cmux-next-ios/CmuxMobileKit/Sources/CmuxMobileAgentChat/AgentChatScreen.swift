@@ -1027,10 +1027,12 @@ struct StreamingMarkdown: View {
         // blocks keep their ids: only the last block's inline markers change).
         MarkdownView(MarkdownDocument(blocks: parse.blocks(markdown, isStreaming: isStreaming)), isStreaming: isStreaming,
                      animatesBlocks: animatesBlocks, marks: findMarks)
-            .contextMenu {
-                Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = markdown }
-                Button("Select Text", systemImage: "selection.pin.in.out") { ChatSelectText.present(markdown) }
-                ShareLink(item: markdown) { Label("Share", systemImage: "square.and.arrow.up") }
+            .selectionMenu { label in
+                [
+                    SelectionMenu.action("Copy Message", "doc.on.doc") { UIPasteboard.general.string = markdown },
+                    SelectionMenu.action("Select Text", "selection.pin.in.out") { ChatSelectText.present(markdown) },
+                    SelectionMenu.share(markdown, from: label, title: "Share Message"),
+                ]
             }
     }
 }
@@ -1067,25 +1069,24 @@ struct UserBubble: View {
                 .padding(.vertical, 11)
                 .foregroundStyle(Color.cmuxMobileChatBubbleText.map(AnyShapeStyle.init) ?? AnyShapeStyle(.primary))
                 .background(Color.cmuxMobileChatBubble, in: .rect(cornerRadius: 20, style: .continuous))
-                .contentShape(.contextMenuPreview, .rect(cornerRadius: 20, style: .continuous))
-                .contextMenu {
-                    Section(AgentTurn.menuTimestamp(promptAt)) {
-                        Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = prompt }
-                        Button("Select Text", systemImage: "selection.pin.in.out") { ChatSelectText.present(prompt) }
-                        if isLast {
-                            Button("Edit and Resend", systemImage: "pencil") { editAndResend() }
-                        } else if let editEarlier {
-                            Button("Edit and Resend", systemImage: "pencil") { editEarlier() }
-                        }
-                        ShareLink(item: prompt) { Label("Share", systemImage: "square.and.arrow.up") }
-                        polish
-                    }
-                }
+        }
+        .selectionMenu { label in
+            var actions: [UIMenuElement] = [
+                SelectionMenu.action("Copy Message", "doc.on.doc") { UIPasteboard.general.string = prompt },
+                SelectionMenu.action("Select Text", "selection.pin.in.out") { ChatSelectText.present(prompt) },
+                SelectionMenu.share(prompt, from: label, title: "Share Message"),
+            ]
+            if isLast {
+                actions.insert(SelectionMenu.action("Edit and Resend", "pencil", perform: editAndResend), at: 1)
+            } else if let editEarlier {
+                actions.insert(SelectionMenu.action("Edit and Resend", "pencil", perform: editEarlier), at: 1)
+            }
+            let polishRows = polish?.menuElements ?? []
+            return [UIMenu(title: AgentTurn.menuTimestamp(promptAt), options: .displayInline, children: actions + polishRows)]
         }
         .containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in Self.maxWidth(in: width) }
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
-
     /// 80% of the column, at most 560 pt: on an unfolded foldable's wide screen 80% would
     /// run a prompt's lines across most of it. The native row measures with the same rule.
     nonisolated static func maxWidth(in column: CGFloat) -> CGFloat { min(column * 0.8, 560) }
@@ -1096,14 +1097,13 @@ extension UserBubble {
     @ViewBuilder var bubbleText: some View {
         if let split = NextStepAsk.replyQuote(prompt) {
             VStack(alignment: .leading, spacing: 6) {
-                Text(split.quote)
-                    .font(.body).lineSpacing(4).foregroundStyle(.secondary)
+                SelectableText(split.quote, color: .secondaryLabel, lineSpacing: 4)
                     .padding(.leading, 10)
                     .overlay(alignment: .leading) { Capsule().fill(.tertiary).frame(width: 2) }
-                Text(split.body).font(.body).lineSpacing(4)
+                SelectableText(split.body, lineSpacing: 4)
             }
         } else {
-            Text(prompt).font(.body).lineSpacing(4)
+            SelectableText(prompt, color: .cmuxMobileChatBubbleText, lineSpacing: 4)
         }
     }
 }
