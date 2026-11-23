@@ -371,6 +371,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "pencil",
         surfaces: PALETTE | KEYBOARD,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noTargetSurface"), ..SurfacePlan::DEFAULT },
+        cli_name: "action home-edit-chief",
         arguments: &[args::LOCAL_CHIEF],
         ..Action::DEFAULT
     },
@@ -383,6 +384,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "cpu",
         surfaces: PALETTE | KEYBOARD,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noTargetSurface"), ..SurfacePlan::DEFAULT },
+        cli_name: "action home-set-chief-model",
         arguments: &[args::LOCAL_CHIEF, args::CHIEF_MODEL],
         is_person_only: true,
         ..Action::DEFAULT
@@ -396,6 +398,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "gauge.with.dots.needle.50percent",
         surfaces: PALETTE | KEYBOARD,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noTargetSurface"), ..SurfacePlan::DEFAULT },
+        cli_name: "action home-set-chief-effort",
         arguments: &[args::LOCAL_CHIEF, args::CHIEF_EFFORT],
         is_person_only: true,
         ..Action::DEFAULT
@@ -409,6 +412,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "person.badge.plus",
         surfaces: PALETTE | KEYBOARD,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noTargetSurface"), ..SurfacePlan::DEFAULT },
+        cli_name: "action home-adopt-chief",
         arguments: &[args::ADOPT_AGENT],
         is_person_only: true,
         ..Action::DEFAULT
