@@ -97,14 +97,19 @@ const LIVE_PLACEHOLDER = ".acpmux-composer-prompt .acpmux-md-placeholder";
 /// How long the copy's prompt field (skeleton.ts) waits for the live prompt after the swap. Past it the
 /// field goes: a chat whose page drew no prompt (a question card in its place) has none to fill.
 const SKELETON_WAIT_MS = 10_000;
+/// The copy's prompt fields whose handover waits on the live prompt (`handOverSkeleton`).
+const handingOver = new WeakSet<HTMLElement>();
 
 /// Moves what the person typed in the copy's prompt field into the live prompt, as typing (the host's
 /// `insertText`, as its queued keys go in), with the caret there when the field had it. The field stays
-/// over the live prompt until that editor is up, so nothing typed meanwhile is lost.
+/// over the live prompt until that editor is up, so nothing typed meanwhile is lost. A second call while
+/// one waits on the same field does nothing, so both the copy's removal and the live composer's hole
+/// (#50067's `fitLiveComposer`, after it cuts the hole) may call it.
 export function handOverSkeleton(doc: Document = document): void {
   const field = skeletonField(doc);
   const view = doc.defaultView;
-  if (!field || !view) return;
+  if (!field || !view || handingOver.has(field)) return;
+  handingOver.add(field);
   let timer: number | undefined;
   let hidden: HTMLElement | null = null;
   const finish = () => {

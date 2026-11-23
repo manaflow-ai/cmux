@@ -103,6 +103,19 @@ test("the field waits over the live prompt until its editor is up, then hands ov
   expect(typed).toEqual(["hello"]);
 });
 
+test("a second handover while the first waits hands the text over once", () => {
+  // The live composer's hole (#50067) and the copy's removal both hand over.
+  const { win, doc, copy, typed } = page(PROMPT(EDITABLE), PROMPT(""));
+  const field = drawSkeleton(doc, copy, copyPrompt(copy)!)!;
+  field.textContent = "hello";
+  handOverSkeleton(doc);
+  handOverSkeleton(doc);
+  doc.querySelector("#root .acpmux-md-root")!.innerHTML = EDITABLE;
+  win.dispatchEvent(new win.Event(COMPOSER_READY_EVENT));
+  expect(skeletonField(doc)).toBeNull();
+  expect(typed).toEqual(["hello"]);
+});
+
 test("an empty, unfocused field goes without taking focus", () => {
   const { doc, copy, typed } = page(PROMPT(EDITABLE), '<input id="other">' + PROMPT(EDITABLE));
   const field = drawSkeleton(doc, copy, copyPrompt(copy)!)!;
