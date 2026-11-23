@@ -3,6 +3,7 @@
 // models (what each control shows and does) are in toolbar-model.ts.
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useInPlaceGlassBlur } from "./ui/glass/pageGlassBlur";
 import { useScrollEdges } from "./ui/scrollEdges";
 import "./ui/popupSurface.css";
 import type { DiffItem } from "./diff-stream";
@@ -509,6 +510,13 @@ export function FloatingToolbar({
 }) {
   const [focusIndex, setFocusIndex] = useState(0);
   const toolbarRef = useRef<HTMLDivElement | null>(null);
+  // Drawn in place, not portalled: it blurs the file list and diff under it itself (pageGlassBlur.ts).
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  useInPlaceGlassBlur(menuRef, menuOpen);
+  const setMenu = useCallback((node: HTMLDivElement | null) => {
+    menuRef.current = node;
+    focusFirstMenuItem(node);
+  }, []);
   const closeMenu = () => {
     onCloseMenu();
     document.getElementById("options-button")?.focus();
@@ -517,7 +525,7 @@ export function FloatingToolbar({
     <div id="diff-pill" className="diff-pill-anchor">
       {menuOpen ? (
         <div
-          ref={focusFirstMenuItem}
+          ref={setMenu}
           id="options-menu"
           className="toolbar-menu ui-popup ui-glass options-menu"
           role="menu"

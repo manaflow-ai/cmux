@@ -2,6 +2,9 @@
 //! type | payload`, where `length` counts the channel, type and payload
 //! bytes (5 + payload length).
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicI64, Ordering};
+
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use tokio_util::codec::{Decoder, Encoder};
 
@@ -37,12 +40,56 @@ pub struct Frame {
     pub channel: u32,
     pub kind: FrameType,
     pub payload: Bytes,
+    /// Set when the link's writer has handed this frame to its transport
+    /// (`ChannelSender::send_marked`); never on the wire.
+    pub flushed: Option<FlushMark>,
 }
 
 impl Frame {
     pub fn new(channel: u32, kind: FrameType, payload: impl Into<Bytes>) -> Self {
-        Self { channel, kind, payload: payload.into() }
+        Self { channel, kind, payload: payload.into(), flushed: None }
     }
+}
+
+/// When a frame's bytes were handed to the transport (the link writer's flush
+/// after it): wall clock, Unix epoch microseconds, 0 until then. Clones share
+/// it. Two marks are equal only when they are the same mark.
+#[derive(Clone, Default)]
+pub struct FlushMark(Arc<AtomicI64>);
+
+impl FlushMark {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Epoch microseconds of the flush, or `None` while the frame waits.
+    pub fn flushed_us(&self) -> Option<i64> {
+        Some(self.0.load(Ordering::Acquire)).filter(|us| *us > 0)
+    }
+
+    /// Marks the flush at `us` (epoch microseconds); the first one stays.
+    pub fn set(&self, us: i64) {
+        let _ = self.0.compare_exchange(0, us.max(1), Ordering::AcqRel, Ordering::Acquire);
+    }
+}
+
+impl PartialEq for FlushMark {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for FlushMark {}
+
+impl std::fmt::Debug for FlushMark {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "FlushMark({:?})", self.flushed_us())
+    }
+}
+
+/// The wall clock in Unix epoch microseconds.
+pub fn epoch_us() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_micros() as i64)
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -84,7 +131,7 @@ impl Decoder for FrameCodec {
         let raw_type = src.get_u8();
         let kind = FrameType::from_u8(raw_type).ok_or(FrameError::UnknownType(raw_type))?;
         let payload = src.split_to(length - 5).freeze();
-        Ok(Some(Frame { channel, kind, payload }))
+        Ok(Some(Frame { channel, kind, payload, flushed: None }))
     }
 }
 

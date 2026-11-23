@@ -141,6 +141,15 @@ final class FFIMacLink: TimedMacLink, @unchecked Sendable {
         do { return try await handle.probe(timeoutMs: millis) } catch let error as CmuxMobileError { throw error.linkError }
     }
 
+    func probeTimeout(floor: Duration) -> Duration {
+        let millis = UInt32(clamping: floor.components.seconds * 1000 + floor.components.attoseconds / 1_000_000_000_000_000)
+        return .milliseconds(handle.probeTimeoutMs(floorMs: millis))
+    }
+
+    func setForegroundProbe(_ on: Bool) {
+        handle.setForegroundProbe(on: on)
+    }
+
     func close() async {
         handle.close()
     }
@@ -314,6 +323,8 @@ final class StateObserver: LinkObserver, @unchecked Sendable {
                 continuation.yield(.media(state.videoMedia))
             case .disconnected(let reason):
                 continuation.yield(.disconnected(reason: reason))
+            case .suspect(let silentMillis):
+                continuation.yield(.suspect(silentMillis: silentMillis))
             }
         }
     }

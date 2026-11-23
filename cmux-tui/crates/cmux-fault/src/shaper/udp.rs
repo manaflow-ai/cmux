@@ -36,7 +36,7 @@ use tokio::net::UdpSocket;
 use tokio::sync::{mpsc, watch};
 use tokio::time::Instant;
 
-use super::{LinkProfile, QUEUE_SEGMENTS, SEGMENT, lock, lost};
+use super::{LinkProfile, QUEUE_SEGMENTS, SEGMENT, lane, lane_mut, lock, lost};
 use crate::rng::Rng;
 use crate::trace::Trace;
 
@@ -85,9 +85,9 @@ struct Air {
 }
 
 impl Air {
-    fn blocked(&self, lane: usize, at: Instant, internet: bool) -> bool {
+    fn blocked(&self, index: usize, at: Instant, internet: bool) -> bool {
         self.dark.is_some_and(|(from, until)| from <= at && at < until)
-            || self.cut[lane].is_some_and(|until| at < until)
+            || lane(&self.cut, index).is_some_and(|until| at < until)
             || (internet && self.internet_down)
     }
 
@@ -95,27 +95,27 @@ impl Air {
     fn schedule(
         &mut self,
         bytes: usize,
-        lane: usize,
+        index: usize,
         rng: &mut Rng,
         internet: bool,
     ) -> Option<Instant> {
         let now = Instant::now();
-        let down = lane == 1;
+        let down = index == 1;
         // Draw before deciding, so a fault never shifts the stream for the datagrams after it.
         let jitter = match self.profile.jitter_ms {
             0 => 0,
             most => rng.range(0, most),
         };
         let gone = lost(rng, self.profile.loss_percent);
-        let start = self.free_at[lane].max(now);
+        let start = (*lane(&self.free_at, index)).max(now);
         if start.saturating_duration_since(now)
             > self.profile.serialize(QUEUE_SEGMENTS * SEGMENT, down)
         {
             return None;
         }
         let left = start + self.profile.serialize(bytes, down);
-        self.free_at[lane] = left;
-        if gone || self.blocked(lane, left, internet) {
+        *lane_mut(&mut self.free_at, index) = left;
+        if gone || self.blocked(index, left, internet) {
             return None;
         }
         Some(left + self.profile.one_way() + Duration::from_millis(jitter))
@@ -297,7 +297,7 @@ impl UdpShaper {
     pub fn one_way_loss(&self, way: Way, duration: Duration) -> Instant {
         let until = Instant::now() + duration;
         self.trace.note(format!("fault udp one-way loss {way:?} {} ms", duration.as_millis()));
-        lock(&self.shared.air).cut[way.lane()] = Some(until);
+        *lane_mut(&mut lock(&self.shared.air).cut, way.lane()) = Some(until);
         until
     }
 
@@ -377,15 +377,15 @@ impl Drop for UdpShaper {
 /// Counts a datagram and queues it for its arrival, or counts the drop. False once the relay is
 /// shutting down.
 fn hand_over(shared: &Shared, way: Way, datagram: Vec<u8>, rng: &mut Rng, queue: &Queue) -> bool {
-    let lane = way.lane();
+    let index = way.lane();
     let counting = &shared.counting;
-    counting.datagrams[lane].fetch_add(1, Ordering::SeqCst);
-    counting.bytes[lane].fetch_add(datagram.len() as u64, Ordering::SeqCst);
-    let at = lock(&shared.air).schedule(datagram.len(), lane, rng, shared.internet);
+    lane(&counting.datagrams, index).fetch_add(1, Ordering::SeqCst);
+    lane(&counting.bytes, index).fetch_add(datagram.len() as u64, Ordering::SeqCst);
+    let at = lock(&shared.air).schedule(datagram.len(), index, rng, shared.internet);
     match at {
         Some(at) => queue.send((at, datagram)).is_ok(),
         None => {
-            counting.dropped[lane].fetch_add(1, Ordering::SeqCst);
+            lane(&counting.dropped, index).fetch_add(1, Ordering::SeqCst);
             true
         }
     }
@@ -417,7 +417,7 @@ async fn deliver(
             () = due => {
                 let Some(Reverse((_, _, datagram))) = waiting.pop() else { continue };
                 if lock(&shared.air).blocked(way.lane(), Instant::now(), shared.internet) {
-                    shared.counting.dropped[way.lane()].fetch_add(1, Ordering::SeqCst);
+                    lane(&shared.counting.dropped, way.lane()).fetch_add(1, Ordering::SeqCst);
                     continue;
                 }
                 let sent = match way {
@@ -432,7 +432,7 @@ async fn deliver(
                 };
                 // A refused send (nothing listening yet) is a lost datagram, as on the air.
                 if sent.is_err() {
-                    shared.counting.dropped[way.lane()].fetch_add(1, Ordering::SeqCst);
+                    lane(&shared.counting.dropped, way.lane()).fetch_add(1, Ordering::SeqCst);
                 }
             }
         }

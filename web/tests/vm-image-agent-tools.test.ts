@@ -320,6 +320,16 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     expect(videoToolProblems([...catalog, "install_ffmpeg", "start_recording", "screen_video"])).toEqual(["lists install_ffmpeg", "lists start_recording", "lists screen_video"]);
   });
 
+  test("probe: the record tool (#50070) passes only when a call to it was refused for want of an H.264 encoder", () => {
+    const tools = ["status", "screenshot", "record"];
+    expect(videoToolProblems(tools)).toEqual(["lists record"]);
+    expect(videoToolProblems(tools, { isError: true, text: "unsupported: this desktop has no H.264 encoder, so it cannot record the screen yet" })).toEqual([]);
+    expect(videoToolProblems(tools, { isError: true, text: "unsupported: the host has no H.264 encoder for recordings" })).toEqual([]);
+    expect(videoToolProblems(tools, { isError: false, text: '{"path":"/tmp/r.mp4"}' })).toEqual(["lists record"]);
+    expect(videoToolProblems(tools, { isError: true, text: "screen is locked" })).toEqual(["lists record"]);
+    expect(videoToolProblems([...tools, "start_recording"], { isError: true, text: "unsupported: no H.264 encoder" })).toEqual(["lists start_recording"]);
+  });
+
   test("probe: the worker check parses and reads the worker by its hidden mode, never its own pgrep line", async () => {
     const command = computerUseWorkerCommand();
     await bashSyntax(command);
