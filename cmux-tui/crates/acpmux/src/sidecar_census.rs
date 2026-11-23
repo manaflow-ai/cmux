@@ -25,7 +25,9 @@
 //!
 //! Only a child of the harness can be a server, and only when its argv is exactly the server's:
 //! its program (as configured, or what `PATH` runs for a name), or an interpreter running that
-//! program as a script, then exactly its args (`runs`). The argv is read word by word
+//! program as a script, then exactly its args (`runs`), or an interpreter running a script of its
+//! own whose argv ends with the server's program by absolute path and its args: the server after
+//! it re-executed itself (`reexecuted`). The argv is read word by word
 //! (`tree::argv`), never split from the line `ps` prints, so a server whose path has a space in it
 //! (acpmux's own, from `/Applications/cmux NIGHTLY.app`) matches, and one process's words can
 //! never pass for another's. Argv is the process's own to rewrite (`exec -a`, `process.title`), so
@@ -438,9 +440,35 @@ fn runs(who: &crate::agent_host::tree::Identity, s: &Sidecar) -> bool {
     let at = match who.argv.as_slice() {
         [first, ..] if runs_program(first) => 1,
         [first, second, ..] if runs_script(first, second) => 2,
-        _ => return false,
+        _ => return reexecuted(who, s, program),
     };
     who.argv.get(at..) == Some(s.args.as_slice())
+}
+
+/// Whether `who` is server `s` after it re-executed itself through a script of its own: an
+/// interpreter (by argv and by the executable the kernel says it runs) running a script by
+/// absolute path, whose argv then ends with the server's program by absolute path and exactly its
+/// args (`/usr/bin/python3 /opt/t/shared_proxy.py /opt/t/lane-gh mcp` for `lane-gh mcp`). The pid
+/// is the one the harness started for the server, so its argv still names it. Before, such a
+/// server read as other work and kept every idle Claude session on a lane VM up (22 of 23 idle
+/// sessions, about 4.3 GB).
+#[cfg(unix)]
+fn reexecuted(
+    who: &crate::agent_host::tree::Identity,
+    s: &Sidecar,
+    program: impl Fn(&str) -> bool,
+) -> bool {
+    let [first, script, rest @ ..] = who.argv.as_slice() else { return false };
+    let exe_is_interpreter =
+        who.exe.file_name().and_then(|n| n.to_str()).is_some_and(is_interpreter);
+    let Some(at) = rest.len().checked_sub(s.args.len() + 1) else { return false };
+    let named = &rest[at];
+    is_interpreter(first)
+        && exe_is_interpreter
+        && script.starts_with('/')
+        && named.starts_with('/')
+        && program(named)
+        && rest[at + 1..] == s.args[..]
 }
 
 /// Whether `who`'s executable is the file `w` names: the same path, or the same file once both

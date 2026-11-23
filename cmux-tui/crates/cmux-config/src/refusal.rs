@@ -85,8 +85,13 @@ impl fmt::Display for Refusal {
             Refusal::InvalidValue {
                 key, accepted: Accepted::Document { schema, reason }, ..
             } => write!(f, "{key} is not a {schema} document: {reason}"),
-            Refusal::InvalidValue { key, value, .. } => {
-                write!(f, "{key} does not accept {}", compact(value))
+            Refusal::InvalidValue { key, value, accepted, .. } => {
+                write!(f, "{key} does not accept {}", compact(value))?;
+                // A nested value says where it went wrong (`...lines[3]: tooManyLines`).
+                match accepted.first_problem() {
+                    Some(problem) => write!(f, " ({problem})"),
+                    None => Ok(()),
+                }
             }
             Refusal::Removed { key, reason } => write!(f, "{key} was removed: {reason}"),
             Refusal::InvalidParams { message } => f.write_str(message),
