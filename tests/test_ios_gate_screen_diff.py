@@ -225,5 +225,53 @@ class ScreenDiffTests(unittest.TestCase):
         self.assertEqual(self.mod.diff_images(png(pixels, 1), png(pixels, 4)).ratio, 0.0)
 
 
+class StillsArtifactTests(unittest.TestCase):
+    """The baseline comes from ios-gate-stills-*, or review-gate-path-* on runs before the split."""
+
+    def setUp(self) -> None:
+        self.mod = load()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def fetch(self, run_artifacts: dict[int, list[str]]) -> tuple[dict, list[str]]:
+        import io
+        import zipfile
+        runs = [{"id": rid, "conclusion": "success", "head_sha": "a" * 40, "html_url": ""} for rid in run_artifacts]
+        downloaded: list[str] = []
+
+        def api(url, token, deadline):
+            if "/workflows/" in url:
+                return json.dumps({"workflow_runs": runs}).encode()
+            rid = int(url.split("/runs/")[1].split("/")[0])
+            return json.dumps({"artifacts": [{"name": n, "id": n} for n in run_artifacts[rid]]}).encode()
+
+        def download(url, token, deadline, path):
+            downloaded.append(url.split("/artifacts/")[1].split("/")[0])
+            buffer = io.BytesIO()
+            with zipfile.ZipFile(buffer, "w") as archive:
+                archive.writestr("screens/iphone/a.png", b"x")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(buffer.getvalue())
+            return path
+
+        self.mod._api, self.mod._download = api, download
+        result = self.mod.fetch_baselines("o/r", "appstore", ["iphone"], Path(self.tmp.name), "t", "0")
+        return result, downloaded
+
+    def test_the_stills_artifact_is_read(self) -> None:
+        result, downloaded = self.fetch({1: ["review-gate-path-appstore-iphone", "ios-gate-stills-appstore-iphone"]})
+        self.assertEqual(downloaded, ["ios-gate-stills-appstore-iphone"])
+        self.assertIsNotNone(result["iphone"].directory)
+
+    def test_a_run_from_before_the_split_still_serves(self) -> None:
+        result, downloaded = self.fetch({1: ["review-gate-path-appstore-iphone"]})
+        self.assertEqual(downloaded, ["review-gate-path-appstore-iphone"])
+        self.assertIsNotNone(result["iphone"].directory)
+
+    def test_none_kept_names_the_stills_artifact(self) -> None:
+        result, _ = self.fetch({1: ["review-gate-lint-appstore"]})
+        self.assertIn("ios-gate-stills-appstore-iphone", result["iphone"].problem)
+
+
 if __name__ == "__main__":
     unittest.main()

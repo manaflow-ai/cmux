@@ -3759,6 +3759,169 @@ public func FfiConverterTypeProjectionStats_lower(_ value: ProjectionStats) -> R
 
 
 /**
+ * One tap's approval before it is signed: what the target reads, plus the bytes to sign.
+ */
+public struct ShareApprovalDraft: Equatable, Hashable {
+    public var target: String
+    public var targetName: String
+    public var asker: String
+    public var askerName: String
+    public var confirmedBy: String
+    /**
+     * The tap, Unix seconds.
+     */
+    public var confirmedAt: UInt64
+    public var nonce: String
+    /**
+     * What the device key signs (UTF-8): `ShareApproval::canonical`.
+     */
+    public var canonical: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(target: String, targetName: String, asker: String, askerName: String, confirmedBy: String, 
+        /**
+         * The tap, Unix seconds.
+         */confirmedAt: UInt64, nonce: String, 
+        /**
+         * What the device key signs (UTF-8): `ShareApproval::canonical`.
+         */canonical: String) {
+        self.target = target
+        self.targetName = targetName
+        self.asker = asker
+        self.askerName = askerName
+        self.confirmedBy = confirmedBy
+        self.confirmedAt = confirmedAt
+        self.nonce = nonce
+        self.canonical = canonical
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ShareApprovalDraft: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeShareApprovalDraft: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ShareApprovalDraft {
+        return
+            try ShareApprovalDraft(
+                target: FfiConverterString.read(from: &buf), 
+                targetName: FfiConverterString.read(from: &buf), 
+                asker: FfiConverterString.read(from: &buf), 
+                askerName: FfiConverterString.read(from: &buf), 
+                confirmedBy: FfiConverterString.read(from: &buf), 
+                confirmedAt: FfiConverterUInt64.read(from: &buf), 
+                nonce: FfiConverterString.read(from: &buf), 
+                canonical: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ShareApprovalDraft, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.target, into: &buf)
+        FfiConverterString.write(value.targetName, into: &buf)
+        FfiConverterString.write(value.asker, into: &buf)
+        FfiConverterString.write(value.askerName, into: &buf)
+        FfiConverterString.write(value.confirmedBy, into: &buf)
+        FfiConverterUInt64.write(value.confirmedAt, into: &buf)
+        FfiConverterString.write(value.nonce, into: &buf)
+        FfiConverterString.write(value.canonical, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeShareApprovalDraft_lift(_ buf: RustBuffer) throws -> ShareApprovalDraft {
+    return try FfiConverterTypeShareApprovalDraft.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeShareApprovalDraft_lower(_ value: ShareApprovalDraft) -> RustBuffer {
+    return FfiConverterTypeShareApprovalDraft.lower(value)
+}
+
+
+/**
+ * Who asks to share what: the Mac (its device hub id and name), this phone (its device hub
+ * id and name) and the signed-in account (device hub user id).
+ */
+public struct ShareAsk: Equatable, Hashable {
+    public var targetId: String
+    public var targetName: String
+    public var askerId: String
+    public var askerName: String
+    public var account: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(targetId: String, targetName: String, askerId: String, askerName: String, account: String) {
+        self.targetId = targetId
+        self.targetName = targetName
+        self.askerId = askerId
+        self.askerName = askerName
+        self.account = account
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ShareAsk: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeShareAsk: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ShareAsk {
+        return
+            try ShareAsk(
+                targetId: FfiConverterString.read(from: &buf), 
+                targetName: FfiConverterString.read(from: &buf), 
+                askerId: FfiConverterString.read(from: &buf), 
+                askerName: FfiConverterString.read(from: &buf), 
+                account: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ShareAsk, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.targetId, into: &buf)
+        FfiConverterString.write(value.targetName, into: &buf)
+        FfiConverterString.write(value.askerId, into: &buf)
+        FfiConverterString.write(value.askerName, into: &buf)
+        FfiConverterString.write(value.account, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeShareAsk_lift(_ buf: RustBuffer) throws -> ShareAsk {
+    return try FfiConverterTypeShareAsk.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeShareAsk_lower(_ value: ShareAsk) -> RustBuffer {
+    return FfiConverterTypeShareAsk.lower(value)
+}
+
+
+/**
  * One of the Mac's acpmux chats (`_acpmux/sessions`), as far as the pairing needs it.
  */
 public struct TerminalChatCandidate: Equatable, Hashable {
@@ -4207,6 +4370,111 @@ public func FfiConverterTypeTimingMark_lift(_ buf: RustBuffer) throws -> TimingM
 #endif
 public func FfiConverterTypeTimingMark_lower(_ value: TimingMark) -> RustBuffer {
     return FfiConverterTypeTimingMark.lower(value)
+}
+
+
+/**
+ * The window's layout at one size.
+ */
+public struct WindowLayout: Equatable, Hashable {
+    /**
+     * The shorter side reaches [`UNFOLDED_SHORT_SIDE`]: the window turns
+     * with the phone, as an iPad's does.
+     */
+    public var unfolded: Bool
+    /**
+     * A list beside its detail (Home's chats beside the open chat,
+     * Workspaces' list beside the open workspace).
+     */
+    public var twoPane: Bool
+    /**
+     * The list column's width in points; the whole width with one pane.
+     */
+    public var listWidth: Double
+    /**
+     * The detail's width in points (the window less the list and its
+     * divider); the whole width with one pane.
+     */
+    public var detailWidth: Double
+    /**
+     * Columns of the tab overview at the detail's width.
+     */
+    public var overviewColumns: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The shorter side reaches [`UNFOLDED_SHORT_SIDE`]: the window turns
+         * with the phone, as an iPad's does.
+         */unfolded: Bool, 
+        /**
+         * A list beside its detail (Home's chats beside the open chat,
+         * Workspaces' list beside the open workspace).
+         */twoPane: Bool, 
+        /**
+         * The list column's width in points; the whole width with one pane.
+         */listWidth: Double, 
+        /**
+         * The detail's width in points (the window less the list and its
+         * divider); the whole width with one pane.
+         */detailWidth: Double, 
+        /**
+         * Columns of the tab overview at the detail's width.
+         */overviewColumns: UInt32) {
+        self.unfolded = unfolded
+        self.twoPane = twoPane
+        self.listWidth = listWidth
+        self.detailWidth = detailWidth
+        self.overviewColumns = overviewColumns
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension WindowLayout: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeWindowLayout: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> WindowLayout {
+        return
+            try WindowLayout(
+                unfolded: FfiConverterBool.read(from: &buf), 
+                twoPane: FfiConverterBool.read(from: &buf), 
+                listWidth: FfiConverterDouble.read(from: &buf), 
+                detailWidth: FfiConverterDouble.read(from: &buf), 
+                overviewColumns: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: WindowLayout, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.unfolded, into: &buf)
+        FfiConverterBool.write(value.twoPane, into: &buf)
+        FfiConverterDouble.write(value.listWidth, into: &buf)
+        FfiConverterDouble.write(value.detailWidth, into: &buf)
+        FfiConverterUInt32.write(value.overviewColumns, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWindowLayout_lift(_ buf: RustBuffer) throws -> WindowLayout {
+    return try FfiConverterTypeWindowLayout.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWindowLayout_lower(_ value: WindowLayout) -> RustBuffer {
+    return FfiConverterTypeWindowLayout.lower(value)
 }
 
 // Note that we don't yet support `indirect` for enums.
@@ -5874,6 +6142,31 @@ public func linkOpenSide(url: String) -> LinkOpenSide  {
 })
 }
 /**
+ * The approval for the tap happening now, unsigned: call it only from the tap.
+ */
+public func shareApprovalDraft(ask: ShareAsk)throws  -> ShareApprovalDraft  {
+    return try  FfiConverterTypeShareApprovalDraft_lift(try rustCallWithError(FfiConverterTypeCmuxMobileError_lift) {
+    uniffi_cmux_mobile_link_ffi_fn_func_share_approval_draft(
+        FfiConverterTypeShareAsk_lower(ask),$0
+    )
+})
+}
+/**
+ * The signed approval as the JSON the target Mac admits, once `signature` (base64 raw r||s
+ * ECDSA P-256 SHA-256 of `draft.canonical`) checks against `signing_key` (base64 X9.63, this
+ * phone's key as the device hub lists it). A signature by any other key would be refused on
+ * the Mac (`share.bad_signature`), so it is refused here first.
+ */
+public func shareApprovalSigned(draft: ShareApprovalDraft, signature: String, signingKey: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeCmuxMobileError_lift) {
+    uniffi_cmux_mobile_link_ffi_fn_func_share_approval_signed(
+        FfiConverterTypeShareApprovalDraft_lower(draft),
+        FfiConverterString.lower(signature),
+        FfiConverterString.lower(signingKey),$0
+    )
+})
+}
+/**
  * The faces `facts`' tab offers.
  */
 public func terminalChatFaces(facts: TerminalChatFacts) -> TerminalChatFaces  {
@@ -5944,6 +6237,31 @@ public func terminalChatSwap(facts: TerminalChatFacts, shown: TabFace, to: TabFa
     )
 })
 }
+/**
+ * Columns of the tab overview in a page `width` points wide: as many
+ * [`OVERVIEW_MIN_CARD`]-wide cards as fit, two to four.
+ */
+public func overviewColumns(width: Double) -> UInt32  {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_overview_columns(
+        FfiConverterDouble.lower(width),$0
+    )
+})
+}
+/**
+ * The layout of a window `width` by `height` points. A size that is not
+ * finite or not positive is a compact phone's of that width (zero when
+ * unknown), so a transient zero size during a scene change never shows two
+ * panes.
+ */
+public func windowLayout(width: Double, height: Double) -> WindowLayout  {
+    return try!  FfiConverterTypeWindowLayout_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_window_layout(
+        FfiConverterDouble.lower(width),
+        FfiConverterDouble.lower(height),$0
+    )
+})
+}
 
 private enum InitializationResult {
     case ok
@@ -6005,6 +6323,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_link_open_side() != 2441) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_share_approval_draft() != 27332) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_share_approval_signed() != 12150) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_chat_faces() != 48000) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -6018,6 +6342,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_chat_swap() != 57193) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_overview_columns() != 48015) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_window_layout() != 29754) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_channelhandle_close() != 40361) {
