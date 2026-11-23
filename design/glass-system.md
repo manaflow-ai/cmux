@@ -65,7 +65,9 @@ does. Native glass (the window, sidebar, native menus, the native tooltip) is no
    (`.acpmux-minimap__card`) is a glass level on its own class and reads the same inks.
 6. **See-through pages.** Where the page can blur itself under a surface (`seeThroughBlur.ts`,
    `data-glass-over`), it does, and the surface lays no underlay. Where it cannot, the underlay is
-   40%, so a menu (80% over 40%) covers 88% of the text under it, not 93%.
+   40% in light and 57% in dark, so a menu (80% over 40%, or dark's clearer 72% over 57%) covers 88%
+   of the text under it in both, not 93%; at 40% the dark menu covered 83% and the chat read through
+   the Model menu (hq#13923).
 7. **Perf budget.** At most two backdrop-filtered surfaces on screen at once, together under about
    a quarter of the window. Never animate a blur radius (animate opacity and transform). No
    `backdrop-filter` on anything that scrolls with content. No `will-change` on a glass parent (it
@@ -88,7 +90,7 @@ PR (cmux#46104's head); after is what ships with it.
 | chip | tooltips, the find pill, chips | host contrast-fitted, floor 60% | unchanged | `blur(24px) saturate(1.6)` | unchanged |
 | scrim | behind sheets and dialogs | native `Scrim` (`--cmux-scrim`) | unchanged | none | none |
 | composer material | the one hero surface | the popover tint | the popover tint | `blur(24px) saturate(1.8)` | `blur(24px) saturate(1.6)` |
-| see-through underlay | floating glass in a see-through page that cannot blur itself | 70% (93% cover under a menu) | 40% (88%) | | |
+| see-through underlay | floating glass in a see-through page that cannot blur itself | 70% (93% cover under a menu) | 40% / 57% (88% in both) | | |
 | edge | every plain glass | hairline ring | hairline ring plus lit top hairline (60% / 24%) | | |
 
 The chrome's dark tint is 62%, not 55%: at 55% the chrome bar's title fell to 3.8:1 over a white page
@@ -188,7 +190,11 @@ All on `Glass.makeSurface`, `makeMenuPanel` (menu level plus the theme's veil: 4
 at most 90% until the theme's primary text reads at 4.5:1 and its secondary at 3:1 over the glass on the
 window, on white and on black, rule 5; `GlassMenuMaterial.veil(for:)`) or the neutral transient material.
 Icon buttons on that glass (`OverflowButton`, `PlusButton`, `TitlebarBandButton`) fit their glyphs to it
-(`NSView.glassInk`), not to the opaque page: they read 1.35-2.84:1 there (NativeControlContrastAuditTests). Group editor, tab group editor, palette and its actions menu and
+(`NSView.glassInk`), not to the opaque page: they read 1.35-2.84:1 there (NativeControlContrastAuditTests).
+A SwiftUI `cmuxPressFill` button on that glass (content marked `cmuxOnMenuGlass`) takes the theme's text fit to it
+(`GlassMenuMaterial.ink`). A web menu's own glass follows the same veil: WebTheme sends `--cmux-menu-clear`
+(`GlassMenuMaterial.webClear`), and glass.css lays the menu tint at 100% - (100% - its level tint) × it
+(test/menu-glass-veil.test.ts); on the App's glass a web menu is the native panel already. Group editor, tab group editor, palette and its actions menu and
 shortcut recorder, `GlassMenu`, web popup host and declarative popups, native tooltip, shortcut hint
 chip, hover card panel and rows, native find pill, dialog card, toasts, agent cursor tag
 (`.hudWindow`), notifications panel, Downloads, Host Pressure, icon picker, native Session Info

@@ -62,6 +62,51 @@ public nonisolated struct GlassMenuMaterial {
         return share
     }
 
+    /// The theme ink at `ink` fit to a menu's glass (``CmuxDialogButtonLook/menuCardSurfaces(_:lift:)``: the glass over the
+    /// theme's window, a white and a black page, and the opaque popup under Reduce Transparency), moved toward its pole
+    /// until it reads at `minimum` on each, or the pole that reads on most where none reads on all. A SwiftUI button on
+    /// menu glass takes it (``CmuxPressFillButtonStyle``, `cmuxOnMenuGlass(_:)`): Hot Dog Stand's text read 4.16:1 on
+    /// its glass over a black page at the 90% cap (NativeControlContrastAuditTests).
+    public static func ink(_ ink: KeyPath<ThemeTokens, ThemeRGB>, tokens: ThemeTokens,
+                           minimum: Double = CmuxDialogButtonLook.minimumContrast) -> ThemeRGB {
+        let grounds = CmuxDialogButtonLook.menuCardSurfaces(tokens)
+        return CmuxDialogButtonLook.readable(tokens[keyPath: ink].composited(over: grounds[0]), over: grounds, minimum: minimum)
+    }
+
+    /// ``ink(_:tokens:minimum:)`` in the theme scope active now (inside `performWithTheme`), else the app's.
+    @MainActor public static func ink(_ ink: KeyPath<ThemeTokens, ThemeRGB>) -> ThemeRGB {
+        Self.ink(ink, tokens: ThemeContext.active ?? ThemeScope.app.tokens)
+    }
+
+    /// The secondary ink on web glass: the theme's text at this share over the glass (webviews `--ds-glass-ink-secondary`,
+    /// design/glass-system.md rule 5).
+    static let webSecondaryInkShare = 0.68
+
+    /// The share of what a web menu's own glass lets through, beside its level tint (``TransientMaterial/webTint`` light,
+    /// ``TransientMaterial/webTintDark`` dark), that `tokens` keep: WebTheme's `--cmux-menu-clear`. It starts at the
+    /// native veil's, (1 - ``veil(for:)``) / (1 - ``veil``), and goes down in 0.02 steps, at most to the cap's 1/6, until
+    /// the page's own inks read on that glass over a white and a black page: the text at 4.5:1 and the glass secondary
+    /// ink (the text at 68%) at 3:1, each plus ``contrastHeadroom``. webviews glass.css lays a menu's own tint at
+    /// 100% - (100% - its level tint) × this; the gallery's port is webviews src/gallery/theme/overlays.ts `menuClear`.
+    public static func webClear(for tokens: ThemeTokens) -> Double {
+        let material = TransientMaterial.standard
+        let base = (tokens.isDark ? material.webTintDark : material.webTint) / 100
+        let surface = tokens.surfaceBackground.withAlpha(1)
+        let primary = tokens.textPrimary.withAlpha(1)
+        let wants = min(4.5 + contrastHeadroom, primary.contrast(with: surface) - 0.05)
+        let floor = (1 - Double(maximumVeil)) / (1 - Double(veil))
+        func reads(_ clear: Double) -> Bool {
+            [ThemeRGB(red: 1, green: 1, blue: 1), ThemeRGB(red: 0, green: 0, blue: 0)].allSatisfy { page in
+                let ground = surface.withAlpha(1 - (1 - base) * clear).composited(over: page)
+                let secondary = primary.withAlpha(webSecondaryInkShare).composited(over: ground)
+                return primary.contrast(with: ground) >= wants && secondary.contrast(with: ground) >= 3 + contrastHeadroom
+            }
+        }
+        var clear = (1 - Double(veil(for: tokens))) / (1 - Double(veil))
+        while clear > floor, !reads(clear) { clear = max(floor, clear - 0.02) }
+        return (clear * 1000).rounded() / 1000
+    }
+
     /// A menu's glass over `page`, as the audit and the button looks model it: the theme's glass tint at the menu level,
     /// then the theme surface at `veil`.
     public static func glass(_ tokens: ThemeTokens, veil: CGFloat, over page: ThemeRGB) -> ThemeRGB {
