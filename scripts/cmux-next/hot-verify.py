@@ -693,6 +693,12 @@ class Side:
         if not self.exists():
             return errors
         state = self.state()
+        # A dev server still starting behind a run (start_dev_server_behind) would point the copy at it after the
+        # `server off` below: its starting script, in its own process group, goes first.
+        starter = state.get("dev_server_starter_pid")
+        if isinstance(starter, int) and starting_dev_server(starter):
+            with contextlib.suppress(OSError):
+                os.killpg(starter, 15)
         if state.get("dev_server"):
             with contextlib.suppress(LookError, OSError, subprocess.SubprocessError):
                 env = {**os.environ, **self.env()}
@@ -712,8 +718,21 @@ class Side:
         if tree and repo:
             git(Path(repo), "worktree", "remove", "--force", tree, check=False)
         with contextlib.suppress(LookError):
-            self.remember(dev_server=False, recorder_pid=None, recorder_name=None, worktree=None)
+            self.remember(dev_server=False, dev_server_starter_pid=None, recorder_pid=None, recorder_name=None,
+                          worktree=None)
         return errors
+
+
+def starting_dev_server(pid: int) -> bool:
+    """PID is still the web-overlay.sh a run started, the leader of its own process group, so killing that group
+    stops nothing else."""
+    try:
+        if os.getpgid(pid) != pid:
+            return False
+    except OSError:
+        return False
+    done = subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True)
+    return "web-overlay.sh" in done.stdout
 
 
 def process_runs(pid: int, name: str) -> bool:
@@ -1341,6 +1360,55 @@ def web_checkout(repo: Path, head: str, scratch: Path) -> Path:
     return tree
 
 
+def tree_web_key(tree: Path) -> str | None:
+    """TREE's web source key as it is on disk, edits and untracked files included (web-bundle-key.py hashes
+    every file git sees under the bundle inputs), when CI published bundles for exactly that key; else None."""
+    script = tree / "scripts/cmux-next/web-bundle-key.py"
+    if not script.is_file():
+        return None
+    try:
+        done = subprocess.run([sys.executable, str(script), str(tree), "--source"], capture_output=True, text=True,
+                              timeout=120)
+    except (OSError, subprocess.SubprocessError) as error:
+        log(f"no web source key for {tree}: {error}")
+        return None
+    key = (done.stdout or "").strip()
+    if done.returncode != 0 or not re.fullmatch(r"[0-9a-f]{64}", key):
+        return None
+    return key if fetch_json(f"{WEB_BASE}/{key}/manifest.json") else None
+
+
+def fetch_bundles(key: str) -> Path:
+    """The published bundles of KEY, unpacked once into the cache: a key names its inputs' content, so a later
+    try of the same web takes them with no download."""
+    bundles = cache_dir() / "web-bundles" / key
+    if (bundles / ".manifest.json").is_file():
+        return bundles
+    bundles.parent.mkdir(parents=True, exist_ok=True)
+    done = subprocess.run([str(HERE / "fetch-web-bundles.sh"), "--key", key, "--out", str(bundles)],
+                          capture_output=True, text=True, timeout=APPLY_SECONDS)
+    if done.returncode != 0:
+        raise LookError(f"fetch-web-bundles.sh --key {key[:12]}: {why_failed(done.stderr, 300)}")
+    return bundles
+
+
+def start_dev_server_behind(tree: Path, side: Side, env: dict) -> int | None:
+    """A dev server of TREE, started without waiting for it: the copy already shows TREE's web from its
+    published bundles, and once the server answers it wins over them (web-overlay.sh), so later edits under
+    webviews/ hot reload as before. Its pid of the starting script, or None with no bun here."""
+    if not shutil.which("bun"):
+        return None
+    side.remember(dev_server=True)
+    logged = cache_dir() / f"dev-server-start-{side.name}.log"
+    logged.parent.mkdir(parents=True, exist_ok=True)
+    with open(logged, "w") as out:
+        started = subprocess.Popen([str(HERE / "web-overlay.sh"), "server", "--local", "--worktree", str(tree),
+                                    "--port", str(free_port())], env=env, stdin=subprocess.DEVNULL, stdout=out,
+                                   stderr=subprocess.STDOUT, start_new_session=True)
+    side.remember(dev_server_starter_pid=started.pid)
+    return started.pid
+
+
 def apply_web(repo: Path, planned: dict, src_tree: Path | None, side: Side, scratch: Path,
               settle: bool = True) -> dict:
     """The head's web into the copy: published bundles as its overlay, else a dev server of the head. web-overlay.sh
@@ -1349,19 +1417,25 @@ def apply_web(repo: Path, planned: dict, src_tree: Path | None, side: Side, scra
     10 of its 11.7-14.9 s edit_to_live were this wait, 2026-11-18)."""
     env = {**os.environ, **side.env()}
     head = planned["head"]
-    key = None if src_tree is not None else published_web_key(repo, planned)
+    # A run (no settle) of a checkout whose web, as it is on disk, CI already published (a pushed branch, an
+    # unedited clone) takes those bundles: no cold dev server stands between the command and a live copy. Its
+    # dev server still starts, behind them. A look of a checkout keeps its dev server first, as before.
+    if src_tree is None:
+        key = published_web_key(repo, planned)
+    else:
+        key = None if settle else tree_web_key(src_tree)
     if key:
-        bundles = scratch / "web-bundles"
-        done = subprocess.run([str(HERE / "fetch-web-bundles.sh"), "--key", key, "--out", str(bundles)],
-                              capture_output=True, text=True, timeout=APPLY_SECONDS)
-        if done.returncode != 0:
-            raise LookError(f"fetch-web-bundles.sh --key {key[:12]}: {why_failed(done.stderr, 300)}")
+        bundles = fetch_bundles(key)
         done = subprocess.run([str(HERE / "web-overlay.sh"), "install", str(bundles), "--commit", head], env=env,
                               capture_output=True, text=True, timeout=300)
         if done.returncode != 0:
             raise LookError(f"web-overlay.sh install: {why_failed(done.stderr, 300)}")
-        time.sleep(SETTLE_WEB)
-        return {"how": "published bundles", "key": key}
+        applied = {"how": "published bundles", "key": key}
+        if settle:
+            time.sleep(SETTLE_WEB)
+        if src_tree is not None:
+            applied["dev_server_starter_pid"] = start_dev_server_behind(src_tree, side, env)
+        return applied
     if not shutil.which("bun"):
         raise LookError("no web bundles are published for the head and no bun here serves its webviews")
     tree = src_tree
