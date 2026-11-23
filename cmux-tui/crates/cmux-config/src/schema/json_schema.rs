@@ -176,6 +176,16 @@ fn kind_schema(row: &Row) -> Value {
                 "additionalProperties": false,
             });
         }
+        Validation::Domain(DomainKind::BackdropRecents) => {
+            let listed = json!({ "type": "string", "enum": super::backdrop::selection_choices() });
+            let path = json!({ "type": "string", "pattern": "^((system|file):/|folder:/.)" });
+            return json!({
+                "type": "array",
+                "maxItems": super::backdrop::RECENTS_CAP,
+                "uniqueItems": true,
+                "items": { "anyOf": [listed, path, youtube()] },
+            });
+        }
         Validation::Domain(DomainKind::ChatRoots) => {
             return json!({ "type": "array", "items": { "type": "string", "pattern": "^/" } });
         }

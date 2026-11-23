@@ -6,8 +6,8 @@
 //! finishes a half-done start and never makes a second machine:
 //!
 //! 1. the machine: `cloud.machine.create {name, size}` at the size the person's plan gives a
-//!    Chief ([`chief_size_for`]: the included 2 vCPU / 4 GiB / 32 GiB unless the plan names an
-//!    add-on) under the idempotency key `chief-machine-<key>-create` (a same-key retry never makes
+//!    Chief (`cloud.plan.get`'s `chief_size`, [`chief_size_for`]: the included 2 vCPU / 4 GiB /
+//!    32 GiB unless the plan names a bigger one; a plan read that fails is the included size) under the idempotency key `chief-machine-<key>-create` (a same-key retry never makes
 //!    a second machine), started again when it is paused, then waited on until it runs with a host;
 //! 2. no idle pause: `cloud.machine.idle_policy.set {idle_seconds: 0}` (no early pause; the
 //!    platform's 24 h backstop pauses a machine only after a day with no activity reports, and a
@@ -69,27 +69,40 @@ impl ChiefSize {
             Self::Xl => (8, 32768, 131_072),
         }
     }
-    /// The add-on a plan's data names (`chief_m`, `chief_l`, `chief_xl`), or none.
+    /// The bigger Chief a plan names: `cloud.plan.get`'s `chief_size` (`M`, `L`, `XL`) or the
+    /// add-on spelling (`chief_m`, `chief_l`, `chief_xl`); `included` and anything else is none.
     fn add_on(name: &str) -> Option<Self> {
         match name {
-            "chief_m" => Some(Self::M),
-            "chief_l" => Some(Self::L),
-            "chief_xl" => Some(Self::Xl),
+            "M" | "chief_m" => Some(Self::M),
+            "L" | "chief_l" => Some(Self::L),
+            "XL" | "chief_xl" => Some(Self::Xl),
             _ => None,
         }
     }
 }
 
-/// The size the person's plan gives a new Chief, from the Chief add-on the plan names: the
-/// included size unless it names a bigger Chief it pays for. An add-on name this build does not
-/// know is the included size too: never a paid size the plan did not name.
-///
-/// No Cloud read names a Chief add-on yet: `cloud.plan.get` answers `plan_id`, `limits` and
-/// `usage` and no Chief size (cmux-platform Plan.ts `planView`), and add-ons are not sold, so
-/// [`run`] passes none and every Chief starts at the included size. Once the platform answers
-/// the person's Chief add-on, [`run`] passes it here and nothing else changes.
+/// The size the person's plan gives a new Chief, from the Chief size the plan names: the
+/// included size unless it names a bigger Chief it pays for. A name this build does not know
+/// (and `included`) is the included size too: never a paid size the plan did not name.
 pub fn chief_size_for(add_on: Option<&str>) -> ChiefSize {
     add_on.and_then(ChiefSize::add_on).unwrap_or(ChiefSize::Included)
+}
+
+/// The Chief size in a `cloud.plan.get` answer: its `chief_size` (cmux-platform#1685), read at
+/// the top or under `plan`.
+pub fn plan_chief_size(plan: &Value) -> ChiefSize {
+    let named =
+        plan.get("chief_size").or_else(|| plan.pointer("/plan/chief_size")).and_then(Value::as_str);
+    chief_size_for(named)
+}
+
+/// The person's Chief size, from `cloud.plan.get`. A read that fails, or a plan that names no
+/// size, is the included size: the plan read never stops a Chief from starting.
+async fn plan_size<C: Cloud>(cloud: &C) -> ChiefSize {
+    match cloud.read("cloud.plan.get", json!({})).await {
+        Ok(plan) => plan_chief_size(&plan),
+        Err(_) => ChiefSize::Included,
+    }
 }
 /// The unit the Cloud image carries (images/cmux-vm/chief) and the fallback writes.
 pub const HOST_UNIT: &str = "cmux-chief.service";
@@ -369,12 +382,35 @@ pub fn create_params(start: &Start, size: ChiefSize) -> Value {
     })
 }
 
+impl ChiefSize {
+    const ALL: [Self; 4] = [Self::Included, Self::M, Self::L, Self::Xl];
+}
+
+/// `cloud.machine.create` under the start's key. A rerun whose plan read gave another size than
+/// the first run's (the plan changed, or this read failed) is refused `idempotency.conflict`: the
+/// key was sent at one of the four sizes, so the create is sent again at the others until it
+/// replays the machine the first run made. Never a second machine.
+async fn create<C: Cloud>(cloud: &C, start: &Start, size: ChiefSize) -> Result<Value, Failure> {
+    fn conflict(made: &Result<Value, Failure>) -> bool {
+        matches!(made, Err(Failure::Http { code: Some(code), .. }) if code == "idempotency.conflict")
+    }
+    let key = format!("chief-machine-{}-create", start.key);
+    let first = cloud.op("cloud.machine.create", create_params(start, size), &key).await;
+    if !conflict(&first) {
+        return first;
+    }
+    for other in ChiefSize::ALL.into_iter().filter(|s| *s != size) {
+        let made = cloud.op("cloud.machine.create", create_params(start, other), &key).await;
+        if !conflict(&made) {
+            return made;
+        }
+    }
+    first
+}
+
 /// The machine, made at `size` or found by its key, running with a host.
 async fn machine<C: Cloud>(cloud: &C, start: &Start, size: ChiefSize) -> Result<Value, Failure> {
-    let params = create_params(start, size);
-    let made = cloud
-        .op("cloud.machine.create", params, &format!("chief-machine-{}-create", start.key))
-        .await?;
+    let made = create(cloud, start, size).await?;
     let id = id_of(&made, "/machine/id")
         .ok_or_else(|| Failure::Decoding("cloud.machine.create: no machine id".into()))?;
     let mut waited = Duration::ZERO;
@@ -459,8 +495,8 @@ async fn placed_chief<C: Cloud>(
 
 /// The whole start; see the module docs.
 pub async fn run<C: Cloud>(cloud: &C, start: &Start) -> Result<Value, Failure> {
-    // The plan names no Chief add-on yet (see chief_size_for): the included size.
-    let row = machine(cloud, start, chief_size_for(None)).await?;
+    let size = plan_size(cloud).await;
+    let row = machine(cloud, start, size).await?;
     let id = id_of(&row, "/id").unwrap_or_default();
     let idle = row.pointer("/idle_policy/idle_seconds").and_then(Value::as_i64);
     if idle != Some(0) {
