@@ -51,26 +51,24 @@ struct InstantPerfTests {
 
     @Test("home_list_first_screen")
     func homeListFirstScreen() async throws {
-        func firstScreen(_ size: InstantPerfSize) async throws -> [Double] {
+        func firstScreen(_ size: InstantPerfSize) throws -> Duration {
             let wire = HomeInboxFixture.firstWindowWire(size)
-            return try await InstantPerfReport.sample {
-                var list: MacHomeList?
-                var reply: MacHomeReply?
-                let elapsed = try ContinuousClock().measure {
-                    let read = try MacHomeReply(line: wire)
-                    reply = read
-                    list = MacHomeList(read.rows)
-                }
-                let shown = (list?.pinned.count ?? 0) + (list?.rows.count ?? 0)
-                let count = HomeInboxFixture.rowCount(size)
-                #expect(shown == min(count, MacHomeRows.firstWindow), "the first screen lost rows: \(shown)")
-                if case .window(_, _, let total) = reply {
-                    #expect(total == count, "the window does not know the list's size")
-                } else {
-                    Issue.record("not a window: \(String(describing: reply))")
-                }
-                return elapsed
+            var list: MacHomeList?
+            var reply: MacHomeReply?
+            let elapsed = try ContinuousClock().measure {
+                let read = try MacHomeReply(line: wire)
+                reply = read
+                list = MacHomeList(read.rows)
             }
+            let shown = (list?.pinned.count ?? 0) + (list?.rows.count ?? 0)
+            let count = HomeInboxFixture.rowCount(size)
+            #expect(shown == min(count, MacHomeRows.firstWindow), "the first screen lost rows: \(shown)")
+            if case .window(_, _, let total) = reply {
+                #expect(total == count, "the window does not know the list's size")
+            } else {
+                Issue.record("not a window: \(String(describing: reply))")
+            }
+            return elapsed
         }
         /// The whole list behind the first screen (one read, off the main actor in the app): reported, not timed against the target.
         func wholeList(_ size: InstantPerfSize) async throws -> Double {
@@ -79,8 +77,16 @@ struct InstantPerfTests {
                 try ContinuousClock().measure { _ = MacHomeList(try MacHomeReply(line: wire).rows) }
             })
         }
-        let small = try await firstScreen(.small)
-        let god = try await firstScreen(.god)
+        // Their runs in turn (one warm-up each), so a busy spell on a shared host slows both sides
+        // of the ratio, not only the one timed second (docs: timing on a busy host).
+        _ = try firstScreen(.small)
+        _ = try firstScreen(.god)
+        var small: [Double] = []
+        var god: [Double] = []
+        for _ in 0..<max(InstantPerfReport.defaultRuns, 1) {
+            small.append(InstantPerfReport.ms(try firstScreen(.small)))
+            god.append(InstantPerfReport.ms(try firstScreen(.god)))
+        }
         let godWhole = try await wholeList(.god)
         InstantPerfReport.record(
             "home_list_first_screen", target: 16, small: small, god: god,
