@@ -233,11 +233,14 @@ fn written_since(path: &Path, limit_ms: u64, only_with_bytes: bool) -> bool {
 /// plain read of a store that was closed makes a `-wal` file of 0 bytes and
 /// a `-shm` file in the folder, which changes the folder's time, and a
 /// second plain read writes the `-shm` file again; a read writes no byte to
-/// a `-wal` file and none to a store file. The check makes the plain read
-/// only for a store that is not at rest ([`schema_version`]). So this does
-/// not see a folder that a rename moves to a name at or before the place,
-/// when nothing wrote its stores since. The reset command makes such a
-/// rename: [`in_reset`] is for it.
+/// a `-wal` file and none to a store file. The check does not make the
+/// plain read for each store ([`schema_version`]): it makes it for a store
+/// whose file is not at rest, for a store with bytes in its `-wal` file or
+/// with a `-journal` file, for a store file that is a link, and for a store
+/// that the read that makes no file gives an error for or is not sure of.
+/// So this does not see a folder that a rename moves to a name at or before
+/// the place, when nothing wrote its stores since. The reset command makes
+/// such a rename: [`in_reset`] is for it.
 fn changed_since(session: &Path, since_ms: u64) -> bool {
     let limit_ms = since_ms.saturating_sub(FILE_TIME_MARGIN_MS);
     STORES.iter().any(|(_, file, _)| {
@@ -527,9 +530,13 @@ fn side_file(path: &Path, tail: &str) -> PathBuf {
     PathBuf::from(name)
 }
 
-/// A look at the store at `path`. It opens no file. Nil when the look cannot
-/// be sure: the store or its `-wal` is no plain file, or a name of the look
-/// gives an error other than "not there".
+/// A look at the store at `path`. It opens no file and follows no link. Nil
+/// when the look cannot be sure: the store's name or the name of its `-wal`
+/// file is there and is no plain file by itself, or a name of the look gives
+/// an error other than "not there". A link is no plain file by itself.
+/// SQLite follows a link that is a store's name and keeps the `-wal` file
+/// and the `-journal` file next to the file that the link names, and this
+/// look does not look there: so a store file that is a link gets no look.
 #[cfg(unix)]
 fn look_at(path: &Path) -> Option<StoreLook> {
     use std::os::unix::fs::MetadataExt;
@@ -543,7 +550,7 @@ fn look_at(path: &Path) -> Option<StoreLook> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
         Err(_) => return None,
     };
-    let store = std::fs::metadata(path).ok()?;
+    let store = std::fs::symlink_metadata(path).ok()?;
     store.is_file().then(|| StoreLook {
         length: store.len(),
         written: (store.mtime(), store.mtime_nsec()),
@@ -630,10 +637,29 @@ fn immutable_uri(path: &Path) -> Option<String> {
 /// case: a look or the read does not find it.
 ///
 /// The limits. A store whose file was written less than
-/// [`FILE_TIME_MARGIN_MS`] before the check, and a store whose `-wal` file
-/// holds bytes, get the plain read, which can make or write the side files.
-/// A wall clock that was set back after the last write of a store makes that
-/// store "not at rest" until the clock is past that write again.
+/// [`FILE_TIME_MARGIN_MS`] before the check, a store whose `-wal` file holds
+/// bytes, a store with a `-journal` file and a store file that is a link get
+/// the plain read, which can make or write the side files. A wall clock that
+/// was set back after the last write of a store makes that store "not at
+/// rest" until the clock is past that write again.
+///
+/// 3 more limits, each against a check that makes the plain read for each
+/// store:
+/// - An error where the plain read gave a number. When the reset renames a
+///   session folder after this read has its number, the look after finds no
+///   store, the plain read then fails at its open, and the check ends with
+///   that error ([`read_session`] drops it only for a folder that had the
+///   reset's name when the check listed it). An error is the safe side: the
+///   check gives no number that it is not sure of.
+/// - A number where the plain read gave an error. This read takes no lock
+///   and makes no `-shm` file. So it gives the number of a store that the
+///   plain read cannot read: a store that a process holds a lock on with no
+///   `-journal` file, and a store in WAL mode in a folder where no `-shm`
+///   file can be made. With no bytes in a `-wal` file and no `-journal`
+///   file, that number is the store file's own number.
+/// - The looks are `stat` calls. A file system that answers a `stat` call
+///   from a cache (a network file system) can give a look an old length of
+///   a `-wal` file or an old time, and then the answer can be an old number.
 #[cfg(unix)]
 fn version_at_rest(path: &Path) -> Option<Option<i64>> {
     let before = look_at(path)?;
