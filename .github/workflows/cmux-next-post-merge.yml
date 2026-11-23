@@ -407,7 +407,7 @@ jobs:
           ORIGIN: ${{ needs.judge.outputs.origin }}
           BRANCH: ${{ github.ref_name }}
           DISPATCH_TOKEN: ${{ github.token }}
-          # Hot swap out first, for classes .github/piece-swap.json lists (only drill ships); 0 turns it off.
+          # Hot swap out first, for classes .github/piece-swap.json lists (drill, web-ui, rust-core); 0 turns it off.
           NEXT_PIECE_SWAP: ${{ vars.NEXT_PIECE_SWAP }}
           PIECES: ${{ needs.judge.outputs.pieces }}
           PIECE: ${{ needs.judge.outputs.piece }}
