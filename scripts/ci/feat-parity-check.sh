@@ -314,8 +314,10 @@ required_base() { # BASE: fetch it when the checkout lacks it, then print the me
     git -C "$root" fetch --quiet --no-tags --unshallow "$remote" || true
   fi
   if ! have_base; then
+    # No verdict (exit 3, setup): the pool poster requeues a setup fault on the same head, where exit 1 is the
+    # change's red. The callers' `base="$(required_base ...)"` ends the step with this code (set -e).
     echo "base: cannot fetch $base (tried the commit, $requiredChecksBranch and the full history)" >&2
-    return 1
+    return 3
   fi
   git -C "$root" merge-base "$base" HEAD 2>/dev/null || echo "$base"
 }

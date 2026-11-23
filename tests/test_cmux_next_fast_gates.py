@@ -567,6 +567,16 @@ class WorkflowShape(unittest.TestCase):
         self.assertIn("check:fixed-waits", module.CHECKS)
         self.assertIn("check:effect-cleanup", module.CHECKS)
         self.assertIn("typecheck", module.CHECKS)  # #23763's TS2339 hid behind a red base
+        # The type check is its own job (ci-self-heal 0c, Leo 2026-11-19): a type error is a red of its own and
+        # never the test shard's; the same per-error base comparison runs there.
+        self.assertIn("--skip typecheck", steps[0]["run"])
+        typecheck = doc["jobs"]["webviews-typecheck"]
+        run = "\n".join(s.get("run", "") for s in typecheck["steps"])
+        self.assertIn('--base "$BASE_REF" --only typecheck', run)
+        self.assertEqual(typecheck["steps"][0]["with"]["fetch-depth"],
+                         "${{ github.event_name == 'pull_request' && '2' || '1' }}")
+        with self.assertRaises(SystemExit):
+            module.main(["--only", "not-a-check", "--no-install"])
 
     def test_no_web_check_waits_on_an_earlier_red(self):
         # #23763 (2026-10-21): the bundle build was red on the base, so `Build the web bundles` failed and every
@@ -1100,7 +1110,7 @@ class ScriptBehavior(unittest.TestCase):
         self.assertIn("not the pull request head", result.stderr)
 
     def test_a_webviews_catalog_or_protocol_spec_change_runs_the_webviews_checks_on_a_pull_request(self):
-        # check:catalog-keys and acpmux-protocol:check read the catalogs and the spec. A webviews/ change too, though
+        # check:catalog-keys and typecheck read the catalogs and the spec. A webviews/ change too, though
         # ci-web's webview suite runs them on the same merge: land-judge's merged-tree carry lands a base merge on this
         # status and not on that suite, so cmux#49052's base merge would have landed its `foldsPrompt` type error
         # (cmuxterm-hq#19108) with the type check run only inside a suite nothing waited for.

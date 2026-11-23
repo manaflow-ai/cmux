@@ -113,7 +113,7 @@ def web_needed(repo: Path, base: str, merge: str) -> bool:
 
 
 # The webviews checks' inputs: webviews/ itself, and outside it the string catalogs (check:catalog-keys) and the
-# acpmux protocol spec (acpmux-protocol:check), which ci-web's react-apps routing does not run them for.
+# acpmux protocol spec (typecheck reads its generated types), which ci-web's react-apps routing does not run them for.
 # A webviews/ change runs them here too, though ci-web's react-apps-check runs them on the same merge: that run is
 # inside the webview suite's first shard (13 to 50 min), and land-judge's merged-tree carry lands a clean base merge
 # of a passed head on this status, cmux-next/compile and web/'s typecheck, carrying the suite from the older head. So a
