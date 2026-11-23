@@ -154,3 +154,22 @@
   letter-spacing: var(--text-body--letter-spacing);
   line-height: var(--text-body--line-height);
 }
+/* A summary the person can close (wrapUpDismissed.ts): the recap card's × (RecapNote.tsx
+   .cv-recap__close) on its top right, shown while the pointer is over the card or focus is in it. */
+.acpmux-next-step.acpmux-next-step--closable {
+  position: relative;
+  padding-inline-end: calc(var(--ds-space-4, 16px) + 20px);
+}
+.acpmux-next-step--closable:focus {
+  outline: none;
+}
+.acpmux-next-step__close {
+  position: absolute;
+  top: var(--ds-space-2, 8px);
+  right: var(--ds-space-2, 8px);
+  opacity: 0;
+}
+.acpmux-next-step--closable:hover .acpmux-next-step__close,
+.acpmux-next-step--closable:focus-within .acpmux-next-step__close {
+  opacity: 1;
+}

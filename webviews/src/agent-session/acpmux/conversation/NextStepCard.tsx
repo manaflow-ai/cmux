@@ -2,6 +2,7 @@ import React, { memo, useEffect, useRef, useState, useSyncExternalStore, useLayo
 import { Keycap } from "../Keycap";
 import { useT } from "../i18n";
 import { inlineText } from "../question/inlineText";
+import { Close } from "./icons";
 import { answerPrompt, type NextStepAsk } from "./nextStepAsk";
 import {
   answerState,
@@ -44,6 +45,7 @@ export const NextStepCard = memo(function NextStepCard({
   answerKey,
   asker,
   className,
+  onDismiss,
 }: {
   ask: NextStepAsk;
   className?: string;
@@ -60,6 +62,9 @@ export const NextStepCard = memo(function NextStepCard({
   answerKey?: string;
   /// Who asked (the chat's agent, `agentName`): the sent answer quotes the ask under this name.
   asker?: string;
+  /// Closes a summary with nothing to answer (wrapUpDismissed.ts): its × on hover, and Esc while
+  /// the card has focus. Absent where nothing can close it (a read-only transcript).
+  onDismiss?: () => void;
 }) {
   const t = useT();
   // The answer on its way and whether the last one failed: the card says so and keeps its
@@ -98,8 +103,37 @@ export const NextStepCard = memo(function NextStepCard({
     return () => observer.disconnect();
   }, [ask.question, ask.detail, whole, settled]);
   const recap = ask.recap ? <p className="acpmux-next-step__recap">{inlineText(ask.recap)}</p> : null;
-  // A wrap-up with nothing to decide (wrapUp.ts): the recap alone, in the same box.
-  if (!ask.question) return recap ? <div className="acpmux-next-step acpmux-next-step--recap">{recap}</div> : null;
+  // A wrap-up with nothing to decide (wrapUp.ts): the recap alone, in the same box, with a × on its
+  // top right while the pointer is over it or it has focus (the recap card's control, RecapNote.tsx).
+  if (!ask.question) {
+    if (!recap) return null;
+    if (!onDismiss) return <div className="acpmux-next-step acpmux-next-step--recap">{recap}</div>;
+    return (
+      <div
+        className="acpmux-next-step acpmux-next-step--recap acpmux-next-step--closable"
+        role="note"
+        tabIndex={-1}
+        onKeyDown={(event) => {
+          if (event.key !== "Escape" || event.defaultPrevented) return;
+          event.preventDefault();
+          event.stopPropagation();
+          onDismiss();
+        }}
+      >
+        {recap}
+        <button
+          type="button"
+          className="cv-recap__close acpmux-next-step__close"
+          aria-label={t("awayRecap.dismiss")}
+          title={t("awayRecap.dismiss")}
+          aria-keyshortcuts="Escape"
+          onClick={onDismiss}
+        >
+          <Close />
+        </button>
+      </div>
+    );
+  }
   if (settled) {
     // An answer the card made up (Yes, Not now) reads in the pane's words.
     const made = ask.options.find((option) => option.key && option.label === shown)?.key;
