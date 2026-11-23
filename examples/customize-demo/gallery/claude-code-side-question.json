@@ -1,0 +1,15 @@
+{
+  "cmuxProfile": 1,
+  "name": "setup-manaflow-ai-claude-code-side-question",
+  "description": "Ask a question alongside the focused chat with Command-Semicolon.",
+  "created_ms": 0,
+  "settings": {},
+  "files": {
+    "keybindings.json": "[\n  {\"key\": \"cmd+semicolon\", \"command\": \"agentPane.sideQuestion\", \"when\": \"agentPaneFocused\"}\n]\n"
+  },
+  "x-setup": {
+    "id": "manaflow-ai/claude-code-side-question",
+    "name": "Claude Code side question",
+    "source": "looks/claude-code/side-question"
+  }
+}

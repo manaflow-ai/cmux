@@ -80,8 +80,11 @@ pub(crate) const HEAD_BYTES: u64 = if cfg!(test) { 4 << 10 } else { 256 << 10 };
 pub(crate) const FILE_BYTES: u64 = SESSION_BYTES + HEAD_BYTES;
 /// Bytes every copy's file keeps together, refused removals included.
 pub(crate) const TOTAL_BYTES: u64 = if cfg!(test) { 40 << 10 } else { 64 << 20 };
-/// Bytes of records held in memory, every copy together.
-const MEMORY_BYTES: u64 = if cfg!(test) { 24 << 10 } else { 16 << 20 };
+/// Bytes of records held in memory, every copy together. At 16 MB, 2,000 live copies did not
+/// fit: each fan-out round unloaded and read back about 2,000 of them from disk (17k rereads in
+/// one coord-sim fan-in run); at 64 MB that run read none back (cmux#49864). The cost is up to
+/// 48 MB more resident memory, only while that many copies are live.
+const MEMORY_BYTES: u64 = if cfg!(test) { 24 << 10 } else { 64 << 20 };
 /// Purged sessions whose generation is barred (`Store::bar`).
 const BARRED_KEYS: usize = if cfg!(test) { 8 } else { 4096 };
 /// Sessions and peers removed before the disk reads that are remembered one by one; past it,
@@ -89,6 +92,12 @@ const BARRED_KEYS: usize = if cfg!(test) { 8 } else { 4096 };
 const UNREAD_KEYS: usize = if cfg!(test) { 8 } else { 4096 };
 /// Bytes of captures sent to the store's thread and not yet taken.
 const QUEUED_BYTES: u64 = if cfg!(test) { 64 << 10 } else { 16 << 20 };
+/// Of [`QUEUED_BYTES`], what a read ahead's page may fill (`warm.rs`): past it the page alone is
+/// passed over and read again after its interval, so a read ahead never costs a peer its copies
+/// (`Op::LostPeer`). Before, every peer's round put its chats' newest pages in the queue as a
+/// forwarded page goes, a full queue cost the peer every copy, and the next round read every chat
+/// whole again: a loop on the owner's Mac with 25 peers (load 266, 2026-11-22).
+const WARM_QUEUED_BYTES: u64 = QUEUED_BYTES / 2;
 /// How long new records wait before their write, so a streaming turn writes every few seconds,
 /// not on every token.
 const FLUSH_AFTER: Duration = Duration::from_millis(if cfg!(test) { 10 } else { 2000 });
@@ -406,7 +415,12 @@ impl PeerSnapshots {
     /// Counts `cost` more in `queued` when it fits [`QUEUED_BYTES`], in one step, so callers on
     /// several threads never pass it together. Answers whether it did.
     fn reserve(&self, cost: u64) -> bool {
-        let fits = |q: u64| (q + cost <= QUEUED_BYTES).then_some(q + cost);
+        self.reserve_within(cost, QUEUED_BYTES)
+    }
+
+    /// [`Self::reserve`] within `bound`.
+    fn reserve_within(&self, cost: u64, bound: u64) -> bool {
+        let fits = |q: u64| (q + cost <= bound).then_some(q + cost);
         self.queued.fetch_update(Ordering::AcqRel, Ordering::Acquire, fits).is_ok()
     }
 
@@ -475,11 +489,26 @@ impl PeerSnapshots {
     }
 
     pub(crate) fn page(&self, (peer, mux): (&str, &str), page: Page) {
-        let row = page.row.as_ref().map_or(0, record_bytes);
-        let records = page.records.iter().map(record_bytes).sum::<u64>();
-        let opener = page.turn_opener.as_ref().map_or(0, record_bytes);
-        let cost = OP_BYTES + mux.len() as u64 + row + records + opener;
+        let cost = page_cost(mux, &page);
         self.admit(peer, cost, false, || Op::Page { key: (peer.to_owned(), mux.to_owned()), page });
+    }
+
+    /// A read ahead's page (`warm.rs`): sent as [`Self::page`] sends one while the queue holds
+    /// less than [`WARM_QUEUED_BYTES`] and no loss of the peer waits; else it alone is passed
+    /// over, and nothing of the peer goes. Answers whether it was sent: a round stops at the
+    /// first that was not, as the store is behind.
+    pub(crate) fn page_ahead(&self, (peer, mux): (&str, &str), page: Page) -> bool {
+        if self.dir.is_none() {
+            return false;
+        }
+        let cost = page_cost(mux, &page);
+        let mut dropped = self.dropped();
+        // A loss waiting stands for everything of the peer: nothing is sent behind it.
+        let sent = !dropped.peers.contains_key(peer)
+            && self.reserve_within(cost, WARM_QUEUED_BYTES)
+            && self.enqueue(cost, Op::Page { key: (peer.to_owned(), mux.to_owned()), page });
+        self.send_unsent(&mut dropped);
+        sent
     }
 
     pub(crate) fn record(&self, (peer, mux): (&str, &str), link: Link, record: Value) {
@@ -532,6 +561,14 @@ impl PeerSnapshots {
             let _ = blocking(|| rx.recv_timeout(ANSWER_WITHIN));
         }
     }
+}
+
+/// What page `page` of session `mux` costs in the queue.
+fn page_cost(mux: &str, page: &Page) -> u64 {
+    let row = page.row.as_ref().map_or(0, record_bytes);
+    let records = page.records.iter().map(record_bytes).sum::<u64>();
+    let opener = page.turn_opener.as_ref().map_or(0, record_bytes);
+    OP_BYTES + mux.len() as u64 + row + records + opener
 }
 
 /// Runs a wait called from async code without holding up the runtime's other tasks: on a worker
@@ -1331,6 +1368,7 @@ impl Store {
                 loaded.clone().filter(|(_, c)| c.disk > 0 && c.due.is_none()).map(lru).min();
             if let Some((_, key)) = unload {
                 if let Some(c) = self.copies.get_mut(&key) {
+                    crate::gauges::peer_notices().snapshot_unloads.fetch_add(1, Ordering::Relaxed);
                     c.records = None;
                     self.memory -= std::mem::take(&mut c.memory);
                 }
@@ -1413,7 +1451,10 @@ impl Store {
         }
         let read = match disk::path(&self.root, key) {
             Some(_) if c.disk > FILE_BYTES => Err(anyhow::anyhow!("past its bound")),
-            Some(path) => disk::read(&path, key),
+            Some(path) => {
+                crate::gauges::peer_notices().snapshot_reads.fetch_add(1, Ordering::Relaxed);
+                disk::read(&path, key)
+            }
             None => Err(anyhow::anyhow!("a name that cannot be kept")),
         };
         match read {
@@ -1682,7 +1723,11 @@ impl Store {
         let Some(c) = self.copies.get(key) else { return Ok(()) };
         let Some(records) = &c.records else { return Ok(()) };
         let bytes = disk::encode(&c.head, records);
-        let head = serde_json::to_vec(&c.head).map_or(u64::MAX, |h| h.len() as u64);
+        // Its head line as `encode` wrote it, not serialized again; an empty one did not serialize.
+        let head = match bytes.iter().position(|b| *b == b'\n') {
+            Some(0) | None => u64::MAX,
+            Some(len) => len as u64,
+        };
         if !disk::head_fits(head) || bytes.len() as u64 > FILE_BYTES {
             // Its head (its row) is past what a copy may hold, as a restart reads it: not kept.
             tracing::warn!(peer = %key.0, session = %key.1, "peer snapshot past its bound; not kept");
@@ -1877,11 +1922,45 @@ impl Hub {
     /// ahead (`warm.rs`) is kept here too.
     pub fn capture_peer_page(
         &self,
-        (peer, generation, link, asked): (&str, u64, u64, Option<u64>),
+        on: (&str, u64, u64, Option<u64>),
         (mux, events): (&str, bool),
         params: &Value,
         result: &Value,
     ) {
+        let (peer, generation, link, _) = on;
+        if let Some(page) = self.peer_page(on, (mux, events), params, result) {
+            self.capture_on(peer, (generation, link), || {
+                self.peer_snapshots.page((peer, mux), page);
+            });
+        }
+    }
+
+    /// [`Self::capture_peer_page`] for a read ahead (`warm.rs`, `PeerSnapshots::page_ahead`):
+    /// answers false when the store had no room for it, so the round stops.
+    pub(super) fn capture_peer_page_ahead(
+        &self,
+        on: (&str, u64, u64, Option<u64>),
+        mux: &str,
+        params: &Value,
+        result: &Value,
+    ) -> bool {
+        let (peer, generation, link, _) = on;
+        let Some(page) = self.peer_page(on, (mux, true), params, result) else { return true };
+        let mut room = true;
+        self.capture_on(peer, (generation, link), || {
+            room = self.peer_snapshots.page_ahead((peer, mux), page);
+        });
+        room
+    }
+
+    /// The page [`Self::capture_peer_page`] keeps of `result`, when it keeps one.
+    fn peer_page(
+        &self,
+        (peer, generation, link, asked): (&str, u64, u64, Option<u64>),
+        (mux, events): (&str, bool),
+        params: &Value,
+        result: &Value,
+    ) -> Option<Page> {
         // `kinds` is a name or a list of names (`EventKinds`): without `transcript`, the page
         // leaves the chat out. So does a page of one subagent's records (`subagent`).
         let transcript = |k: &Value| k.as_str() == Some("transcript");
@@ -1899,10 +1978,10 @@ impl Hub {
         let newest =
             after.is_none() && before.and_then(Value::as_u64).is_some_and(|b| b >= warm::NEWEST);
         if (before.is_some() && !newest) || leaves_out {
-            return;
+            return None;
         }
-        let Some(records) = result.get("events").and_then(Value::as_array) else { return };
-        let page = Page {
+        let records = result.get("events").and_then(Value::as_array)?;
+        Some(Page {
             link: (generation, link),
             asked,
             // An attach names it in its session, an events page beside its records (acpmux 5/8 and
@@ -1922,8 +2001,7 @@ impl Hub {
             row: self.resolve_remote(&format!("{peer}/{mux}")).map(|(_, _, row)| row),
             turn_opener: result.get("turnOpener").filter(|v| !v.is_null()).cloned(),
             records: records.clone(),
-        };
-        self.capture_on(peer, (generation, link), || self.peer_snapshots.page((peer, mux), page));
+        })
     }
 }
 

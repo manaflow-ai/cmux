@@ -350,6 +350,7 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(browser_drag_target_enter_source, "cmux_browser_drag_target_enter_source");
   CMUX_BIND(set_keychain_item, "cmux_set_keychain_item");
   CMUX_BIND(browser_set_draw_on_input, "cmux_browser_set_draw_on_input");
+  CMUX_BIND(draw_on_input_key_frames, "cmux_draw_on_input_key_frames");
 #undef CMUX_BIND
 }
 
