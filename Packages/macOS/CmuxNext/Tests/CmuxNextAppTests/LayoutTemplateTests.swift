@@ -49,8 +49,20 @@ struct LayoutTemplateTests {
         (services.registry.argumentSuggestions?("layoutTemplates") ?? []).map(\.value)
     }
 
-    @Test func everyLayoutTemplateActionIsAvailable() {
+    /// Save is always there; New Workspace from Template and Manage Layout Templates are disabled
+    /// (no toast, the menu item greyed, a CLI run told why) until a template exists.
+    @Test func templateActionsAreAvailableOnceATemplateExists() async throws {
         let services = Self.services()
+        await services.layoutTemplates.load()
+        try #require(services.layoutTemplates.templates.isEmpty, "the test's library starts with templates")
+        #expect(services.registry.unavailableReason(for: "saveLayoutTemplate") == nil)
+        for id: ActionID in ["palette.layout.open", "manageLayouts"] {
+            #expect(services.registry.unavailableReason(for: id) == "No layout templates yet. Save a workspace’s layout as a template first.",
+                    "\(id) is offered with no template")
+            let refusal = services.registry.capturingRefusal { #expect(!services.registry.perform(id), "\(id) ran with no template") }
+            #expect(refusal == nil, "\(id) refused (a toast) instead of being disabled")
+        }
+        try await services.layoutTemplates.save(name: "Two up", blueprint: Self.blueprint)
         for id in Self.ids {
             #expect(services.registry.unavailableReason(for: id) == nil, "\(id) is still greyed out")
         }
@@ -76,9 +88,10 @@ struct LayoutTemplateTests {
         let blank = ActionInvocation(target: ActionTargetRef(kind: .workspace, id: workspace),
                                      arguments: ["name": .string("  ")], origin: .cli)
         #expect(await Self.run(services, "saveLayoutTemplate", blank) == "A layout template needs a name")
+        #expect(Self.offered(services).isEmpty)
+        try await services.layoutTemplates.save(name: "Two up", blueprint: Self.blueprint)
         let unknown = ActionInvocation(arguments: ["template": .string("Nope")], origin: .cli)
         #expect(await Self.run(services, "palette.layout.open", unknown) == "No layout template named “Nope”")
-        #expect(Self.offered(services).isEmpty)
     }
 
     // MARK: The repository and the library
@@ -117,11 +130,9 @@ struct LayoutTemplateTests {
     }
 
     /// Manage Layout Templates lists one row per template (Return builds a workspace from it,
-    /// Rename and Delete are its row's actions); with none it refuses in words.
+    /// Rename and Delete are its row's actions).
     @Test func manageLayoutTemplatesListsEveryTemplate() async throws {
         let services = Self.services()
-        let refusal = services.registry.capturingRefusal { _ = services.registry.perform("manageLayouts") }
-        #expect(refusal == "No layout templates yet. Save a workspace’s layout as a template first.")
         try await services.layoutTemplates.save(name: "Two up", blueprint: Self.blueprint)
         let page = LayoutTemplateHandlers.managePage(services)
         var items: [PaletteItem] = []

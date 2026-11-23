@@ -15,11 +15,15 @@ Each of those files belongs to a family (its generator id, its OUTPUTS row's fir
 own path for a baseline file), and REGENERATE says how the family is rebuilt after a merge:
 
   here      the commands run on any host with python3 and bun (Linux CI included), from the repo
-            root. The file merges with `cmux-generated-v1` (keep this branch's copy, no conflict),
-            and `regenerate` rebuilds it from the merged inputs.
-  autofix   only the base autofix can rebuild it (a Mac runs the Swift tests that export it). It
-            keeps this branch's copy the same way; the pull request's drift check then has the
-            branch drop it, and the autofix writes the base's copy after the merge lands.
+            root. The file merges with `cmux-generated-v1` (scripts/merge-insertions.py
+            --generated: the three-way merge when it is clean, else this branch's copy, said on
+            stderr), and `regenerate` rebuilds it from the merged inputs.
+  autofix   only the base autofix can rebuild it (a Mac runs the Swift tests that export it), so
+            it never keeps one side: `cmux-export-v1` (scripts/merge-insertions.py) merges it
+            three-way, both sides' rows kept, or stops the merge on a real conflict naming the
+            file. It kept this branch's copy until 2026-11-22, which dropped every settings row
+            the base added since the branch last merged (cmux#45928, cmux#47525), and nothing
+            rebuilt them.
   line      no merge host can rebuild it (a vendored upstream snapshot, a release build's
             output). It merges by line, or by the semantic driver named, never by keeping one
             side, which would drop the other side's change with nothing to restore it.
@@ -34,6 +38,9 @@ own path for a baseline file), and REGENERATE says how the family is rebuilt aft
       unmerged, plus those both sides of the merge changed (a clean line merge of two builds is
       no build either). --merge reads MERGE_HEAD, or HEAD^2 after the merge commit. --stage adds
       the rebuilt files to the index. Prints what it ran and what the base autofix still owns.
+      Exit 1, naming the file, when a family has no REGENERATE entry, or (--merge) when a
+      generated file no command here rebuilt lacks a line either side added: a merge that kept
+      one side (an older clone whose cmux-generated-v1 driver is still `true`).
   generated_merge.py paths [--repo DIR]
       Every generated path with its family and expected driver, one per line (tab-separated).
 """
@@ -55,6 +62,8 @@ SDK_MANIFEST = ".cmux-sdk-manifest.json"
 # Written beside the manifest by the same SDK run (sync-resource-api.py), never listed in it.
 SDK_SIDECARS = {SDK_MANIFEST, ".cmux-resource-api.json"}
 GENERATED_DRIVER = "cmux-generated-v1"
+# The Mac-only exports (`autofix`): a three-way merge or a conflict, never one side.
+EXPORT_DRIVER = "cmux-export-v1"
 # The semantic drivers a `line` family may name instead of git's line merge (.gitattributes).
 LINE_DRIVERS = {"unspecified", "cmux-insertions-v1", "cmux-baseline-v1", "cmux-capabilities-v1"}
 
@@ -73,13 +82,16 @@ class Regen:
             raise ValueError("a `here` family has commands; no other family does")
         if self.where == "line" and (self.driver not in LINE_DRIVERS or not self.why):
             raise ValueError(f"a `line` family names a line or semantic driver and why ({self.driver!r})")
+        if self.where == "autofix" and self.driver == GENERATED_DRIVER:
+            raise ValueError(f"an `autofix` family has no rebuild on a merge host, so it may not keep one side "
+                             f"({GENERATED_DRIVER}); use {EXPORT_DRIVER} or a semantic driver")
 
 
 def here(*commands: tuple[str, ...]) -> Regen:
     return Regen("here", tuple(commands))
 
 
-def autofix(how: str, driver: str = GENERATED_DRIVER) -> Regen:
+def autofix(how: str, driver: str = EXPORT_DRIVER) -> Regen:
     return Regen("autofix", driver=driver, why=how)
 
 
@@ -106,7 +118,6 @@ PANE_GO = "cmux-tui/bindings/codegen/pane/generate.py"
 # OUTPUTS row's first pattern, or a baseline path. The audit fails on a family missing here.
 REGENERATE: dict[str, Regen] = {
     # generated-files.json "committed" generators.
-    "settings-sources": here((PY, "scripts/cmux-next/gen-settings-sources.py")),
     "motion-scale": here((PY, "scripts/cmux-next/gen-motion-scale.py")),
     "type-scale": here((PY, "scripts/cmux-next/gen-type-scale.py")),
     "status-glyphs": here((PY, "scripts/cmux-next/gen-status-glyphs.py")),
@@ -115,8 +126,6 @@ REGENERATE: dict[str, Regen] = {
     "chrome-styles": here((PY, "scripts/cmux-next/gen-chrome-styles.py")),
     "agent-icons": here((PY, "scripts/agent-icons/generate.py")),
     "icon-pack": here((PY, "scripts/icons/build_pack.py")),
-    "pane-protocol": here(("bun", "webviews/scripts/pane-protocol-codegen.ts")),
-    "acpmux-protocol": here(("bun", "webviews/scripts/acpmux-protocol-codegen.ts")),
     "pane-protocol-go": here(
         (PY, PANE_GO, "--write", "--ir", "cmux-tui/crates/cmux-pane-protocol/spec/pane-protocol.json",
          "--out", "cmux-tui/bindings/go-pane/examples/hello/hellopane", "--package", "hellopane",
@@ -157,8 +166,6 @@ REGENERATE: dict[str, Regen] = {
         (PY, "scripts/cmux-next/art/generate_backdrop_art.py")),
     "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt+Entries.swift": here(
         (PY, "scripts/cmux-next/art/generate_backdrop_art.py")),
-    "Packages/macOS/CmuxComputerUseHelper/Sources/CCuaDriverABI/include/cua_driver_abi.h": line(
-        "the cua driver's C ABI header, written by its Mac SDK build (build-cua-driver-sdk.sh)"),
     "Resources/markdown-viewer/ondine.min.js": line("a vendored upstream release (vendor-ondine.mjs)"),
     "THIRD_PARTY_LICENSES.md": line("written by the release build's license collector"),
     "cmux-tui/build-support/notices/REVIEW.md": line("written by pin-cmux-tui.sh when the cmux-tui pin moves"),
@@ -307,19 +314,68 @@ def audit(repo: Path) -> list[str]:
     return problems
 
 
-def merge_paths(repo: Path) -> list[str]:
-    """The paths a merge in progress (MERGE_HEAD) or just committed (HEAD^2) needs rebuilt from."""
+def merge_sides(repo: Path) -> tuple[str, str, str | None]:
+    """(ours, theirs, merge base or None) of a merge in progress (MERGE_HEAD) or just committed (HEAD^2)."""
     in_progress = git(repo, "rev-parse", "-q", "--verify", "MERGE_HEAD", check=False).strip()
     ours, theirs = ("HEAD", in_progress) if in_progress else ("HEAD^1", "HEAD^2")
     if not git(repo, "rev-parse", "-q", "--verify", theirs + "^{commit}", check=False).strip():
         raise SystemExit("no merge to regenerate after: no MERGE_HEAD and HEAD is not a merge commit")
     bases = git(repo, "merge-base", "--all", ours, theirs).split()
+    return ours, theirs, (bases[0] if bases else None)
+
+
+def both_changed(repo: Path) -> list[str]:
+    """The paths both sides of the merge changed since their merge base."""
+    ours, theirs, base = merge_sides(repo)
+    if base is None:
+        return []
+    mine = set(git(repo, "diff", "--name-only", "-z", "--no-renames", base, ours).split("\0"))
+    other = set(git(repo, "diff", "--name-only", "-z", "--no-renames", base, theirs).split("\0"))
+    return sorted(path for path in mine & other if path)
+
+
+def merge_paths(repo: Path) -> list[str]:
+    """The paths a merge in progress (MERGE_HEAD) or just committed (HEAD^2) needs rebuilt from."""
+    merge_sides(repo)
     paths = set(git(repo, "diff", "--name-only", "-z", "--diff-filter=U").split("\0"))
-    for base in bases[:1]:
-        mine = set(git(repo, "diff", "--name-only", "-z", "--no-renames", base, ours).split("\0"))
-        other = set(git(repo, "diff", "--name-only", "-z", "--no-renames", base, theirs).split("\0"))
-        paths |= mine & other
+    paths |= set(both_changed(repo))
     return sorted(path for path in paths if path)
+
+
+def blob_lines(repo: Path, rev: str, path: str) -> list[bytes] | None:
+    done = subprocess.run(["git", "-C", str(repo), "show", f"{rev}:{path}"], capture_output=True, check=False,
+                          env={**os.environ, "GIT_NO_LAZY_FETCH": "1"})
+    return done.stdout.splitlines() if done.returncode == 0 else None
+
+
+def dropped(repo: Path, catalog: Catalog, rebuilt: set[str]) -> list[str]:
+    """Generated files both sides changed, that no command here rebuilt, whose merged copy lacks a line one
+    side added: the merge kept the other side (cmux#47525's settings rows). Unmerged paths are left to git."""
+    from collections import Counter
+    ours, theirs, base = merge_sides(repo)
+    if base is None:
+        return []
+    unmerged = set(git(repo, "diff", "--name-only", "-z", "--diff-filter=U").split("\0"))
+    problems = []
+    for path in both_changed(repo):
+        family = catalog.family(path)
+        if family is None or family in rebuilt or path in unmerged or not (repo / path).is_file():
+            continue
+        result = Counter((repo / path).read_bytes().splitlines())
+        before = Counter(blob_lines(repo, base, path) or [])
+        for side, label in ((ours, "this branch"), (theirs, "the merged-in side")):
+            lines = blob_lines(repo, side, path)
+            if lines is None:
+                continue
+            counts = Counter(lines)
+            lost = [line for line, count in counts.items() if count > before[line] and result[line] < count]
+            if lost:
+                sample = lost[0].decode("utf-8", "replace").strip()[:120]
+                problems.append(f"{path}: the merge dropped {len(lost)} line(s) {label} added (first: {sample!r}); "
+                                f"family {family!r} has no rebuild here, so it must merge three-way "
+                                f"(`git merge-file` of both sides over {base[:12]}), never keep one side. "
+                                "Rerun scripts/install-git-hooks.sh if this clone's merge drivers are old.")
+    return problems
 
 
 
@@ -342,17 +398,20 @@ def web_kept(repo: Path, catalog: Catalog, paths: list[str]) -> bool:
 
 
 def plan(families: list[str]) -> tuple[list[tuple[str, ...]], list[str]]:
-    """(the commands to run, deduplicated and in order; notes on what no command here rebuilds)."""
+    """(the commands to run, deduplicated and in order; notes on what no command here rebuilds). A note that
+    starts with "error:" fails the run: a family nobody knows how to rebuild is never silently kept."""
     commands: list[tuple[str, ...]] = []
     notes: list[str] = []
     for family in families:
         entry = REGENERATE.get(family)
         if entry is None:
-            notes.append(f"{family}: no REGENERATE entry (run `generated_merge.py audit`)")
+            notes.append(f"error: {family}: generated, but REGENERATE has no entry saying how a merge rebuilds it; "
+                         "its merged copy may be one side's (run `generated_merge.py audit`)")
         elif entry.where == "here":
             commands += [command for command in entry.commands if command not in commands]
         elif entry.where == "autofix":
-            notes.append(f"{family}: the base autofix rebuilds it after landing ({entry.why})")
+            notes.append(f"{family}: merged three-way by {entry.driver}; the base autofix rebuilds it after "
+                         f"landing ({entry.why})")
         else:
             notes.append(f"{family}: merged by {entry.driver}; no merge host rebuilds it ({entry.why})")
     return commands, notes
@@ -372,7 +431,11 @@ def regenerate(repo: Path, families: list[str], *, web: bool = False, stage: boo
             print(f"error: `{' '.join(command)}` exited {done.returncode}", file=sys.stderr)
             failed = 1
     for note in notes:
-        print(note)
+        if note.startswith("error:"):
+            print(note, file=sys.stderr)
+            failed = 1
+        else:
+            print(note)
     if stage and not failed:
         # What the generators wrote: tracked files they changed and new files they added (a new protocol type),
         # never a change that was in the work tree before they ran.
@@ -433,7 +496,13 @@ def main(argv: list[str]) -> int:
             parser.error("regenerate needs --merge, --all, --paths-from or --families")
         families = families_of(catalog, paths)
         web = web or web_kept(repo, catalog, paths)
-    return regenerate(repo, families, web=web, stage=args.stage)
+    failed = regenerate(repo, families, web=web, stage=args.stage)
+    if args.merge:
+        rebuilt = {family for family in families if family in REGENERATE and REGENERATE[family].where == "here"}
+        for problem in dropped(repo, catalog, rebuilt):
+            print(f"error: {problem}", file=sys.stderr)
+            failed = 1
+    return failed
 
 
 if __name__ == "__main__":

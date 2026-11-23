@@ -238,6 +238,13 @@ public nonisolated struct LayoutScreen: Hashable, Sendable, Identifiable {
         }
     }
 
+    /// Whether `pane` is in an agent chat dock (a docked column with the ``DockRole/agentChat`` role): the daemon refuses
+    /// every new pane there but Split Down (cmux-tui `ensure_pane_column_not_agent_chat`), so a split right of the chat
+    /// opens as a new strip column right of the dock instead (#46926).
+    public func inAgentChatDock(_ pane: PaneID) -> Bool {
+        column(containing: pane)?.dock?.role == .agentChat
+    }
+
     /// The column with `id`, including the implicit one.
     public func column(id: ColumnID) -> LayoutColumn? {
         switch layout {

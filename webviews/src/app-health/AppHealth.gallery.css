@@ -1,5 +1,5 @@
 /* Gallery only: a plain slot in each treatment's place (a sidebar footer, a titlebar's trailing
-   edge, a line in content), so the indicator is seen at its size; the popover sits under it. */
+   edge, a line in content), so the indicator is seen at its size. */
 .ah-gallery {
   display: flex;
   flex-direction: column;
@@ -26,12 +26,4 @@
   flex: 1;
   color: var(--ds-color-faint);
   font-size: var(--text-detail);
-}
-.ah-gallery-popover {
-  align-self: flex-start;
-  border: 1px solid var(--ds-color-separator);
-  border-radius: var(--ds-radius-popup);
-}
-.ah-gallery-popover:empty {
-  display: none;
 }

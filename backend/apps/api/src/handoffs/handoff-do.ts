@@ -1,5 +1,6 @@
+import { envForObject } from "../build-space.ts"
 import { DurableObject } from "cloudflare:workers"
-import type { Env } from "../env.ts"
+import type { Env, RawEnv } from "../env.ts"
 
 /**
  * Cloud work mode's hand-off store (leo-workspace design/cloud-work-mode.md). A hand-off is an
@@ -121,6 +122,10 @@ const view = (r: Row): HandoffView => ({
  * MAX_WAIT_MS); no timer outlives its request.
  */
 export class HandoffDO extends DurableObject<Env> {
+  constructor(ctx: DurableObjectState, raw: RawEnv) {
+    super(ctx, envForObject(ctx, raw))
+  }
+
   private readonly waiters = new Set<() => void>()
 
   private migrated = false

@@ -39,6 +39,7 @@ function HoverDwellDemo({ curve }: DwellDemoProps) {
         rows.current.forEach((row, index) => {
           row?.setAttribute("data-dwell-hover", "");
           const stay = LANES[index]!.stay;
+          // gallery-capture: every arm's play `ran` waits for the dwell to end (data-dwell-done).
           if (Number.isFinite(stay))
             timers.push(window.setTimeout(() => row?.removeAttribute("data-dwell-hover"), stay));
         });

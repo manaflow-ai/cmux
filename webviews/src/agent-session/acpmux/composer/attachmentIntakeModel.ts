@@ -12,14 +12,14 @@ import {
   type AttachmentSource,
   type ComposerAttachment,
   type DroppedKind,
-  type LinkItem,
+  type KnownPaths,
   type SourceKind,
 } from "../attachments";
 import type { UploadCancelled, UploadProgressReport, UploadResult } from "../cloudUploads";
 import { type StringKey, type Translate, useT } from "../i18n";
 import { decoded, keptThumb, keepThumb } from "./imagePool";
 import { imageSize, MAX_DECODE_PIXELS, thumbRatio } from "./imageWork";
-import { intakeFiles, type IntakeError } from "./intakeFiles";
+import { alignPaths, intakeFiles, type IntakeError } from "./intakeFiles";
 import { pastesPlaced } from "./composerCopy";
 import { attachSources } from "./attachmentSources";
 import { retryUploadLater, UPLOAD_AUTO_RETRIES } from "./uploadRetry";
@@ -67,7 +67,7 @@ export type AttachmentIntakeOptions = {
   upload?(files: File[], cancelled?: UploadCancelled, progress?: UploadProgressReport): Promise<UploadResult>;
   /// For a chat on this Mac: where the files of the person's drop or paste are (composer/intakeFiles.ts
   /// droppedPaths), so a folder or a file no block takes goes as a link to it, tried before `upload`.
-  localPaths?(kind: DroppedKind, files: File[]): Promise<LinkItem[] | undefined>;
+  localPaths?(kind: DroppedKind, files: File[], gestureAt?: number): Promise<KnownPaths | undefined>;
   /// The chat column a file drag lifts the drop overlay over (composer/dropOverlayState.ts): over
   /// it a drop attaches; elsewhere in the pane the overlay only arms. Unset: the whole page.
   dropZone?(): Element | null;
@@ -135,6 +135,8 @@ export type PendingAttachment = {
   id: string;
   name: string;
   image: boolean;
+  /// The browser already knows the file's byte count before the host returns its path.
+  fileSize?: number;
   /// A movie (videoAttachments.ts isVideoName): its tile is the square the video's poster will
   /// fill, loading or failed, never a long strip with its name.
   video?: boolean;
@@ -266,7 +268,8 @@ export function chipRemoved(state: {
 /// Reads `given` into chips (useAttachmentIntake's `attach`); `again`, a failed chip's Retry.
 /// The chat a gesture was made in, with its options then (upload, local paths), for a gesture read
 /// after its own task: the person may have moved to another chat meanwhile.
-type GestureChat = { scope: string | undefined; options: AttachmentIntakeOptions };
+/// `gestureAt`: when the page took the gesture (`Date.now()`), for one read later than its event.
+type GestureChat = { scope: string | undefined; options: AttachmentIntakeOptions; gestureAt?: number };
 
 type Intake = (
   given: (File | MadeFile)[],
@@ -305,6 +308,30 @@ function isMadeFile(file: File | MadeFile): file is MadeFile {
 /// the page adds (the document-level drop contract, attachments.ts), with the note a refusal leaves.
 /// `attach(files, uploads, kind)` adds files another way (the + menu's chooser, which uploads like a
 /// drop, or a capture). `pending`: the files still being read, shown at once (PendingAttachment).
+/// The paths of a gesture's `files` (`paths`, by index) for the ones the twin read `kept`, by index:
+/// each kept file's own, found by identity, else by name (composer/intakeFiles.ts alignPaths). A file
+/// found neither way has none; the rest keep theirs, and the mismatch is logged with counts only.
+function keptPaths(files: readonly File[], kept: readonly File[], paths: KnownPaths | undefined) {
+  if (!paths) return undefined;
+  const all = paths.length === files.length ? paths : alignPaths(files, paths);
+  if (kept.length === files.length && kept.every((file, index) => file === files[index])) return all;
+  const used = new Set<number>();
+  let byName = 0;
+  const aligned = kept.map((file) => {
+    let at = files.findIndex((original, index) => original === file && !used.has(index));
+    if (at < 0) {
+      at = files.findIndex((original, index) => original.name === file.name && !used.has(index));
+      if (at >= 0) byName += 1;
+    }
+    if (at < 0) return undefined;
+    used.add(at);
+    return all[at];
+  });
+  if (byName || aligned.includes(undefined))
+    console.warn(`agent pane: ${kept.length} kept files; ${byName} matched their paths by name`);
+  return aligned;
+}
+
 export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   const t = useT();
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
@@ -438,7 +465,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     if (given.length === 0) return;
     // When the page took the gesture: the host answers its source only from a record made before
     // it (composer/attachmentSources.ts).
-    const gestureAt = Date.now();
+    const gestureAt = chat?.gestureAt ?? Date.now();
     const files = again === undefined ? given : given.slice(0, 1);
     // A pick in the file input too: a chat on this Mac links the picked files where they are, as it
     // does a Finder drop, instead of streaming a copy of each (an older host answers nothing).
@@ -446,32 +473,41 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     // The chat the gesture was made in, its upload and its paths, as the gesture's own task had them.
     const current = chat?.options ?? live.current.options;
     const batch = { scope: current.scope };
+    const linkImages = !current.allowImages && Boolean((dropped && current.localPaths) || (uploads && current.upload));
     // In the paste's or drop's own task, so React draws them before the next frame.
-    const shown: PendingAttachment[] = files.map((file) => ({
-      id: again ?? crypto.randomUUID(),
-      name: file.name,
-      image: isImageFile(file),
-      ...(isVideoName(file.name) ? { video: true } : {}),
-      ...(!isMadeFile(file) && (isImageFile(file) || isVideoName(file.name)) ? { sizing: true } : {}),
-      scope: batch.scope,
-    }));
+    const shown: PendingAttachment[] = files.map((file) => {
+      const video = isVideoName(file.name);
+      const image = isImageFile(file) && (video || !linkImages);
+      return {
+        id: again ?? crypto.randomUUID(),
+        name: file.name,
+        image,
+        ...(!image && !video && !isMadeFile(file) ? { fileSize: file.size } : {}),
+        ...(video ? { video: true } : {}),
+        ...(!isMadeFile(file) && (image || video) ? { sizing: true } : {}),
+        scope: batch.scope,
+      };
+    });
     // Each image's own picture, on its tile while the tile still loads.
     files.forEach((file, index) => {
-      const id = shown[index]!.id;
+      const { id, image, video, sizing } = shown[index]!;
+      if (!image && !video) return;
       // A video's shape from its header, the one read its chip takes too (intakeFiles.ts).
-      const video = Boolean(shown[index]!.sizing) && !isMadeFile(file) && isVideoName(file.name);
       // One that may show its own picture is held for it, not only for its header.
-      const waits = !video && Boolean(shown[index]!.sizing) && mayShowAtOnce(file);
+      const waits = !video && Boolean(sizing) && mayShowAtOnce(file);
       // timeout: a picture that does not come in time must not hold its tile unseen.
       const deadline = waits ? setTimeout(() => sized(id, undefined), PICTURE_WAIT_MS) : undefined;
-      if (video) void videoShapeOf(file).then((videoShape) => shaped(id, videoShape));
-      else if (shown[index]!.sizing) sizeFromHeader(file, (size) => sized(id, size, waits));
       // A capture the page makes (Attach Screenshot) has no bytes yet: its shape once it has.
-      else if (isMadeFile(file) && isImageFile(file))
-        void file.file.then(
-          (made) => sizeFromHeader(made, (size) => size && sized(id, size)),
-          () => {},
-        );
+      if (isMadeFile(file)) {
+        if (image)
+          void file.file.then(
+            (made) => sizeFromHeader(made, (size) => size && sized(id, size)),
+            () => {},
+          );
+      } else if (sizing) {
+        if (video) void videoShapeOf(file).then((videoShape) => shaped(id, videoShape));
+        else sizeFromHeader(file, (size) => sized(id, size, waits));
+      }
       void instantPreview(file).then((preview) => {
         clearTimeout(deadline);
         // No picture: the tile shows as it would have once its header answered.
@@ -661,7 +697,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         settled,
         {
           allowImages: current.allowImages,
-          ...(dropped && paths ? { localPaths: (batch: File[]) => paths(dropped, batch) } : {}),
+          ...(dropped && paths ? { localPaths: (batch: File[]) => paths(dropped, batch, gestureAt) } : {}),
           ...(uploads && current.upload ? { upload: current.upload } : {}),
           // A file not yet a chip: its tile's x. One already a chip (an image whose original still
           // uploads): the chip is gone from the strip (its x, or it was sent), so its original
@@ -942,11 +978,19 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       const once = filesOnce(files);
       if (Array.isArray(once)) return void attach(once, uploads, kind);
       const { options } = live.current;
-      const made = { scope: options.scope, options };
+      // The gesture's own time: the host answers its paths and sources from its own record, never
+      // a later drop's or paste's of files with the same names.
+      const made = { scope: options.scope, options, gestureAt: Date.now() };
+      // Ask for the whole batch's paths now, as for a gesture with no twins, not after the read.
+      const batchPaths = options.localPaths?.(kind, files, made.gestureAt).catch(() => undefined);
       setTwinReads((reads) => [...reads, made]);
-      void once.then((files) => {
+      void once.then((kept) => {
         setTwinReads((reads) => reads.filter((read) => read !== made));
-        return attach(files, uploads, kind, false, made);
+        if (!batchPaths) return attach(kept, uploads, kind, false, made);
+        return attach(kept, uploads, kind, false, {
+          ...made,
+          options: { ...options, localPaths: async () => keptPaths(files, kept, await batchPaths) },
+        });
       });
     };
     const paste = (event: ClipboardEvent) => {

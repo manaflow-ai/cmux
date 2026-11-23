@@ -52,6 +52,14 @@ pub enum Ask {
     GithubStatus(Result<(), String>),
     /// The session host's relay Register ticket (`carrier_ticket.rs`).
     CarrierTicket(Result<(), String>),
+    /// One apps route as this machine (`apps_call.rs`).
+    /// Boxed, like the other large asks: the minter's queue moves `Ask`s by value.
+    AppsCall(Box<Result<super::apps_call::AppsCall, String>>),
+    /// The process on a port, for `cmux app publish --port` (`apps_call.rs`), read under the
+    /// machine's `proc` directory.
+    AppsListener(Result<u16, String>, std::path::PathBuf),
+    /// Start, check or stop a published version as the app user (`apps_spawn.rs`).
+    AppsRun(Box<(Result<super::apps_spawn::AppsRun, String>, super::apps_spawn::RunPaths)>),
     Handoff(Result<HandoffReport, String>),
 }
 
@@ -185,6 +193,21 @@ fn run<H: Http>(
                         Ask::CarrierTicket(ask) => {
                             answer_carrier(client.as_deref_mut(), ask, now())
                         }
+                        Ask::AppsCall(ask) => answer_apps(client.as_deref_mut(), *ask, now()),
+                        Ask::AppsListener(port, proc_root) => {
+                            let peer = super::apps_call::peer_uid(&stream);
+                            super::apps_call::listener_reply(&proc_root, port, peer)
+                        }
+                        Ask::AppsRun(run) => {
+                            let (ask, paths) = *run;
+                            let peer = super::apps_call::peer_uid(&stream);
+                            super::apps_spawn::answer(
+                                &paths,
+                                ask,
+                                peer,
+                                &super::apps_spawn::SystemUsers,
+                            )
+                        }
                         Ask::Handoff(report) => {
                             answer_report(client.as_deref_mut(), report, now(), log)
                         }
@@ -270,6 +293,22 @@ pub fn answer_carrier<H: Http>(
         return github::refusal("vm.unbound", "this machine is not bound to cmux Cloud yet");
     };
     client.carrier_ticket(now_wall_ms)
+}
+
+/// One apps route, sent off the agent poll loop like the status read.
+pub fn answer_apps<H: Http>(
+    client: Option<&mut CloudClient<H>>,
+    ask: Result<super::apps_call::AppsCall, String>,
+    now_wall_ms: u64,
+) -> Value {
+    let call = match ask {
+        Ok(call) => call,
+        Err(why) => return github::refusal("request.invalid", &why),
+    };
+    let Some(client) = client else {
+        return github::refusal("vm.unbound", "this machine is not bound to cmux Cloud yet");
+    };
+    client.apps_call(&call, now_wall_ms)
 }
 
 /// The reply for one hand-off report: a refusal before a bind or for a

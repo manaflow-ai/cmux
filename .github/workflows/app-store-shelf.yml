@@ -1,0 +1,89 @@
+# The App Store shelf gate. Leo, 2026-11-16: "if i click install it means it works / stop shipping
+# these into the app store if they're fucking busted".
+#
+# Builds the shelf the way a build does (the BUNDLED first-party apps, plus AppPlatform/store from the
+# real scripts/cmux-next/sync-app-runtime.sh --store), starts a real daemon on it, installs every
+# Discover listing as the person with the page's own Install params, and fails when one shows nothing
+# after install (no pane, no web page, no native page, no placed widget tile). It runs on every change
+# that can put a package on the shelf or change what an install does, so a broken app never merges and
+# never reaches a nightly. The tests: cmux-tui/crates/cmux-tui/tests/cli/apps_store.rs
+# (every_shipped_store_listing_installs_and_has_something_to_open and its red twin
+# a_command_only_store_listing_has_nothing_to_open_after_install).
+name: App Store shelf
+
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - ".github/workflows/app-store-shelf.yml"
+      - "first-party-apps/**"
+      - "samples/apps/**"
+      - "scripts/cmux-next/sync-app-runtime.sh"
+      - "scripts/cmux-next/store-package-sign.py"
+      - "cmux-tui/crates/cmux-tui-core/src/apps/**"
+      - "cmux-tui/crates/cmux-app-host/**"
+      - "cmux-tui/crates/cmux-app-manifest/**"
+      - "cmux-tui/crates/cmux-layout-reducer/src/sidebar_bridge*"
+      - "cmux-tui/crates/cmux-tui/tests/cli/apps_store.rs"
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - ".github/workflows/app-store-shelf.yml"
+      - "first-party-apps/**"
+      - "samples/apps/**"
+      - "scripts/cmux-next/sync-app-runtime.sh"
+      - "scripts/cmux-next/store-package-sign.py"
+      - "cmux-tui/crates/cmux-tui-core/src/apps/**"
+      - "cmux-tui/crates/cmux-app-host/**"
+      - "cmux-tui/crates/cmux-app-manifest/**"
+      - "cmux-tui/crates/cmux-layout-reducer/src/sidebar_bridge*"
+      - "cmux-tui/crates/cmux-tui/tests/cli/apps_store.rs"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: app-store-shelf-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  shelf:
+    name: App Store shelf (every listing installs and shows something)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    timeout-minutes: 45
+    env:
+      GHOSTTY_ZIG_SOURCE: ghostty-next
+      CMUX_GHOSTTY_SRC: ""
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+
+      - name: Init the ghostty-next submodule (libghostty-vt for cmux-tui-core)
+        run: bash scripts/ci/init-submodule.sh ghostty-next
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Set up pinned cmux-tui Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Every Discover listing installs and shows something
+        working-directory: cmux-tui
+        run: |
+          set -o pipefail
+          cargo test --locked -p cmux-tui --test cli -- \
+            every_shipped_store_listing_installs_and_has_something_to_open \
+            a_command_only_store_listing_has_nothing_to_open_after_install \
+            a_first_party_store_app_built_into_the_store_folder_is_listed_not_installed \
+            --test-threads=1 2>&1 | tee "$RUNNER_TEMP/shelf.log"
+          # A filter that matches nothing passes with 0 tests: that judged nothing.
+          grep -Eq 'test result: ok\. 3 passed' "$RUNNER_TEMP/shelf.log" || {
+            echo "::error title=App Store shelf::expected the 3 shelf tests to run and pass"; exit 1; }

@@ -196,8 +196,9 @@ pub fn read_dir(dir: &Path) -> Result<Setup, Error> {
     }
     let text = std::fs::read_to_string(&file)
         .map_err(|error| Error::Setup(format!("{SETUP_FILE}: {error}")))?;
-    let value = jsonc::parse(&text)
+    let mut value = jsonc::parse(&text)
         .map_err(|error| Error::Setup(format!("{SETUP_FILE} is not JSON: {error}")))?;
+    crate::file_refs::resolve(&mut value, dir).map_err(Error::Setup)?;
     let manifest: Manifest = serde_json::from_value(value).map_err(|error| {
         Error::Setup(format!("{SETUP_FILE} is not a cmux setup: {}", strip_value(&error)))
     })?;

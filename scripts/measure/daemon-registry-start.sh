@@ -96,8 +96,13 @@ if [[ -n "$made_by" ]]; then
   # A depth only in a checkout that is already shallow (a CI one): never turn a full clone shallow.
   depth=""
   [[ "$(git -C "$root" rev-parse --is-shallow-repository)" != true ]] || depth=--depth=1
+  # A fleet step's checkout has no `origin` remote: a commit that it does not hold then comes
+  # from the repository's URL (as app-at-commit.sh).
+  fetch_url="${CMUX_MEASURE_FETCH_URL:-https://github.com/manaflow-ai/cmux.git}"
   git -C "$root" cat-file -e "$made_by^{commit}" 2>/dev/null \
-    || git -C "$root" fetch -q --no-tags --no-recurse-submodules $depth origin "$made_by"
+    || git -C "$root" fetch -q --no-tags --no-recurse-submodules $depth origin "$made_by" \
+    || git -C "$root" fetch -q --no-tags --no-recurse-submodules $depth "$fetch_url" "$made_by" \
+    || { echo "error: cannot fetch made_by=$made_by from origin or from $fetch_url" >&2; exit 2; }
   made_sha="$(git -C "$root" rev-parse "$made_by^{commit}")"
   made_ghostty="$(git -C "$root" rev-parse "$made_sha:ghostty-next")"
   if [[ "$made_ghostty" != "$(git -C "$root" rev-parse HEAD:ghostty-next)" ]]; then

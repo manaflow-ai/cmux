@@ -121,7 +121,7 @@ export const mockModels = {
   chatgptSignedOut,
   chatgptOff,
   chatgptPending: { ...macLogins, chatgpt: { attempt: "attempt-1", error: null } },
-  chatgptError: { ...macLogins, chatgpt: { attempt: null, error: "no_plan_scope" } },
+  chatgptError: { ...macLogins, chatgpt: { attempt: null, error: "no_chatgpt_account" } },
   member: {
     ...macLogins,
     organization: { ...macLogins.organization, canEdit: false, keys: [{ agent: "claude", set: true, last4: null }] },

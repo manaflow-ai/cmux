@@ -267,9 +267,10 @@ def keyed(group: str, key: re.Pattern) -> bool:
 
 # Groups shared across heads on purpose, each with why no fallback compile waits in it.
 SHARED_GROUP_ALLOWED = {
-    # Branch-tip only (push to feat-cmux-next, or a dispatch): each run compiles the change since
-    # the last verified commit, so a newer tip that evicts a pending one covers its commits too.
-    ("cmux-next-tip-test-compile.yml", "cmux-next-tip-test-compile"),
+    # Branch-tip only (a dispatch, or a post-merge batch call keyed by its commit and job): each run compiles the
+    # change since the last verified commit, so a newer tip that evicts a pending one covers its commits too.
+    ("cmux-next-tip-test-compile.yml",
+     "cmux-next-tip-test-compile${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || '' }}"),
 }
 
 
@@ -615,8 +616,7 @@ def cascade_placed_failures(name: str, job_id: str, jobs: dict, placer: str, key
 # (workflow, job) -> the placing job. A re-run of failed jobs keeps the placing job's outputs from the
 # attempt that ran it, so the owned read must hold only on that attempt; a later attempt would wait on
 # a Mac that may be gone or busy (main's cmux#27704).
-OWNED_PICKED = {("nightly-next-launch-smoke.yml", "smoke"): "pick",
-                ("nightly-next-cua-signed-host.yml", "signed-host"): "pick"}
+OWNED_PICKED = {("nightly-next-launch-smoke.yml", "smoke"): "pick"}
 
 
 def owned_pick_failures(name: str, job_id: str, jobs: dict, placer: str) -> list[str]:

@@ -24,7 +24,18 @@
 #                   chat-100k, tabs-N, and any of them joined with + (L4+tabs-40)
 #    scenarios=LIST chat-long-return,terminal-return,chromium-return,new-tab,close-tab (default), or all: also
 #                   webkit-return, new-workspace, switch-workspace, close-workspace, rapid-open-5, rapid-close-3,
-#                   open-while-close
+#                   open-while-close; or matrix: the settle matrix (scripts/cmux-next/tab_switch_matrix.py), trigger to
+#                   truly settled over the window, the page side and the sidebar for workspace switches cold and warm,
+#                   new workspace and chat, split, resize, tab move, unsplit, window resize, pane to a new window, a
+#                   10k-row chat and a relaunch that restores (SETTLE lines, matrix.md). The settle matrix at Leo's
+#                   scale, one command:
+#                     ... --arg=build=nightly --arg=scenarios=matrix --arg=scale=leo --arg=load=idle --arg=record=3 \
+#                       --arg=gate=0
+#    scale=NAME     leo (10,789 daemon sessions written into the app's fresh ~/.acpmux before its first launch by
+#                   cmux-tui acpmux `examples/scale_home.rs`, built here; 205 of them opened as workspaces, 206 in
+#                   all), SESSIONSxWORKSPACES, or none (default)
+#    launch_record=S  seconds recorded after each launch-restore relaunch (default 8)
+#    chat_perf=1    the settle matrix also runs the chat page's own capture (agent.chat.perf) over each step
 #    record=S       seconds recorded after each action (default 1.2); settled needs 300 ms still inside it
 #    rows=N         rows of the 100k-row chat (default 100000)
 #    turns=N        answered turns in the long chat (default 200); agents=N streaming chats (default 4)
@@ -107,9 +118,79 @@ require_submodule_refs() { # SRC DIR [PREFIX]
   done
 }
 
+# Each long step runs through tsw_step, with its own bound, and says it is alive while it runs. The controller stops a
+# step that prints nothing for 45 min (CMUX_CI_MEASURE_SILENT_MAX) and names no cause: both chat-long-return runs on
+# #47553 (base and head, two display Macs, 2026-11-19) went silent after "TSW recorder ready" while the app build
+# wrote only to build.log, and each was stopped with nothing to say which step it was. macOS has no timeout(1).
+TSW_STEP_EVERY=${TSW_STEP_EVERY:-60}
+# tsw_stop_tree PID: TERM to PID and every process under it (listed first, so none escapes by being reparented), KILL
+# to any left after 10 s.
+tsw_stop_tree() {
+  local pids=("$1") i=0 child pid left
+  while ((i < ${#pids[@]})); do
+    for child in $(pgrep -P "${pids[i]}" 2>/dev/null); do pids+=("$child"); done
+    i=$((i + 1))
+  done
+  kill -TERM "${pids[@]}" 2>/dev/null || true
+  for ((i = 0; i < 10; i++)); do
+    left=0
+    for pid in "${pids[@]}"; do kill -0 "$pid" 2>/dev/null && left=1; done
+    ((left)) || return 0
+    sleep 1
+  done
+  kill -KILL "${pids[@]}" 2>/dev/null || true
+}
+# tsw_step PREFIX NAME LIMIT LOG [--stream] -- COMMAND...: runs COMMAND with its output in LOG, shown as it comes
+# with --stream; without it, every TSW_STEP_EVERY seconds a line gives the elapsed time and LOG's last line. Past
+# LIMIT seconds it stops COMMAND and everything under it, prints "PREFIX step NAME ran past LIMIT s" with LOG's tail
+# and returns 3 (could not measure); otherwise COMMAND's own status.
+tsw_step() {
+  local prefix="$1" name="$2" limit="$3" log="$4" stream=0 follow="" rc=0
+  shift 4
+  [[ "${1:-}" == --stream ]] && { stream=1; shift; }
+  [[ "${1:-}" == -- ]] && shift
+  : >"$log"
+  "$@" >"$log" 2>&1 &
+  local pid=$! started=$SECONDS next=$((SECONDS + TSW_STEP_EVERY))
+  if [[ "$stream" == 1 ]]; then
+    tail -n +1 -f "$log" &
+    follow=$!
+  fi
+  while kill -0 "$pid" 2>/dev/null; do
+    if ((SECONDS - started >= limit)); then
+      [[ -n "$follow" ]] && { kill "$follow" 2>/dev/null; wait "$follow" 2>/dev/null || true; }
+      echo "$prefix step $name ran past $limit s: stopped. Its log's last lines:"
+      tsw_stop_tree "$pid"
+      wait "$pid" 2>/dev/null || true
+      tail -n 30 "$log"
+      return 3
+    fi
+    if [[ "$stream" == 0 ]] && ((SECONDS >= next)); then
+      echo "$prefix step $name: $((SECONDS - started)) s, last: $(tail -n 1 "$log" | cut -c1-200)"
+      next=$((SECONDS + TSW_STEP_EVERY))
+    fi
+    sleep 1
+  done
+  wait "$pid" || rc=$?
+  if [[ -n "$follow" ]]; then
+    sleep 1 # tail -f reads the last lines on its next pass
+    kill "$follow" 2>/dev/null
+    wait "$follow" 2>/dev/null || true
+  fi
+  return "$rc"
+}
+# The bounds, each well past the step's slowest pass seen and overridable: a cold Release build on a light mini takes
+# about 45 min.
+TSW_PREFLIGHT_MAX=${TSW_PREFLIGHT_MAX:-300}
+TSW_TOOLS_MAX=${TSW_TOOLS_MAX:-600}
+TSW_SEEDER_MAX=${TSW_SEEDER_MAX:-1800}
+TSW_BUILD_MAX=${TSW_BUILD_MAX:-5400}
+TSW_RUN_MAX=${TSW_RUN_MAX:-7200}
+
 # Submodules, GhosttyKit and the pinned bun a tagged build needs (a fleet step checks out no submodules).
 prepare_build() {
-  local tmp="$1"
+  local tmp
+  tmp="$(cd "$1" && pwd)" || return 3 # absolute: the bun dir goes on PATH, and the web builders cd into webviews/
   for sub in ghostty ghostty-next; do
     [ -e "$sub/.git" ] || git submodule update --init --depth 1 "$sub"
   done
@@ -131,6 +212,18 @@ prepare_build() {
   RUNNER_TEMP="$tmp" GITHUB_PATH="$tmp/bun-path" ./scripts/cmux-next/private-bun.sh
   PATH="$(tail -n 1 "$tmp/bun-path"):$PATH"
   export PATH
+}
+
+# The app build in SRC with scratch folder TMP and reload tag TAG; the rest goes to reload.sh. Run by tsw_step, in
+# its own subshell, so the cd stays there.
+tsw_build_app() { # SRC TMP TAG RELOAD-ARGS...
+  local src="$1" tmp="$2" tag="$3"
+  shift 3
+  cd "$src" && prepare_build "$tmp" && CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" --no-global-cli-links "$@"
+}
+# The settle matrix's scale seeder, from this checkout's cmux-tui (its target folder stays warm between steps).
+tsw_build_seeder() {
+  cd cmux-tui && cargo build --release --quiet -p acpmux --example scale_home
 }
 
 # The app a key=value run measures (launch-capture-probe.sh sources this file for it): build=nightly downloads DMG,
@@ -168,8 +261,9 @@ app_under_test() {
     APP_LABEL="$(git -C "$src" rev-parse HEAD)" || return 3
     local configuration=(--release)
     [[ "$config" == bench ]] && configuration=(--config bench)
-    (cd "$src" && prepare_build "$tmp" && CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" \
-      --no-global-cli-links "${configuration[@]}") >"$tmp/build.log" 2>&1 || true
+    # A failed or stopped build falls through to the app path check below, which says why.
+    tsw_step "$prefix" app-build "$TSW_BUILD_MAX" "$tmp/build.log" -- \
+      tsw_build_app "$src" "$tmp" "$tag" "${configuration[@]}" || true
     local app
     app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$tmp/build.log" | tail -n 1)"
     if [[ -z "$app" || ! -d "$app" ]]; then
@@ -185,7 +279,7 @@ app_under_test() {
 
 frames_main() {
   local build=nightly rounds=5 load=idle,cpu,agents scenarios="" gate=1 turns=200 agents=4 dmg="" config=release arg
-  local record="" rows=""
+  local record="" rows="" scale=none launch_record="" chat_perf=0
   for arg in "$@"; do
     case "$arg" in
       build=*) build="${arg#build=}" ;;
@@ -199,6 +293,9 @@ frames_main() {
       config=release|config=bench) config="${arg#config=}" ;;
       record=*) record="${arg#record=}" ;;
       rows=*) rows="${arg#rows=}" ;;
+      scale=*) scale="${arg#scale=}" ;;
+      launch_record=*) launch_record="${arg#launch_record=}" ;;
+      chat_perf=0|chat_perf=1) chat_perf="${arg#chat_perf=}" ;;
       *) echo "tab-switch: unknown argument: $arg" >&2; exit 2 ;;
     esac
   done
@@ -206,6 +303,8 @@ frames_main() {
   [[ "$turns" =~ ^[0-9]+$ && "$agents" =~ ^[0-9]+$ ]] || { echo "tab-switch: turns= and agents= take numbers" >&2; exit 2; }
   [[ -z "$record" || "$record" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "tab-switch: record= takes seconds" >&2; exit 2; }
   [[ -z "$rows" || "$rows" =~ ^[0-9]+$ ]] || { echo "tab-switch: rows= takes a number" >&2; exit 2; }
+  [[ "$scale" =~ ^(none|leo|[0-9]+x[0-9]+)$ ]] || { echo "tab-switch: scale= is none, leo or SESSIONSxWORKSPACES" >&2; exit 2; }
+  [[ -z "$launch_record" || "$launch_record" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "tab-switch: launch_record= takes seconds" >&2; exit 2; }
   [[ "$load" =~ ^[A-Za-z0-9+,-]+$ && "$scenarios" =~ ^[a-z0-9,-]*$ ]] || { echo "tab-switch: load= and scenarios= take names" >&2; exit 2; }
   [[ "$build" == nightly || "$build" == head || "$build" =~ ^[0-9a-f]{40}$ ]] || { echo "tab-switch: build= is nightly, head or a 40-hex commit" >&2; exit 2; }
   [[ "$build" == nightly ]] || require_cef_read_credentials
@@ -226,25 +325,39 @@ frames_main() {
   # Before the build, as the console user the harness records as: a Mac whose CuaDriver cannot start or has no Screen
   # Recording grant exits 3 in seconds, not after an hour-long build on an exclusive display worker (2026-11-16:
   # three display Macs built every pull request's app, then died in cua-driver's `initialize`).
-  GITHUB_WORKSPACE="$root" scripts/ci/frame-pacing/console-session.sh python3 -I "$root/scripts/cmux-next/tab_switch_capture.py" \
-    preflight || exit 3
-  swiftc -O -o "$tmp/tab-switch-tools" scripts/measure/tab-switch-frames/tools.swift 2>&1 | tail -n 40 || true
+  GITHUB_WORKSPACE="$root" tsw_step TSW preflight "$TSW_PREFLIGHT_MAX" "$tmp/preflight.log" --stream -- \
+    scripts/ci/frame-pacing/console-session.sh python3 -I "$root/scripts/cmux-next/tab_switch_capture.py" preflight || exit 3
+  tsw_step TSW tools-compile "$TSW_TOOLS_MAX" "$tmp/tools.log" -- \
+    swiftc -O -o "$tmp/tab-switch-tools" scripts/measure/tab-switch-frames/tools.swift || tail -n 40 "$tmp/tools.log"
   [ -x "$tmp/tab-switch-tools" ] || { echo "TSW the marker and decoder did not compile"; exit 3; }
+  if [[ "$scale" != none ]]; then
+    # The settle matrix's daemon home at scale is written by acpmux's own store (god_fixture::write_scale_home), so
+    # the seeder is built from this checkout's cmux-tui; its target folder stays warm between steps.
+    local account_home
+    account_home="$(dscl . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
+    PATH="${account_home:+$account_home/.cargo/bin:}$PATH" tsw_step TSW seeder-build "$TSW_SEEDER_MAX" "$tmp/seeder.log" -- \
+      tsw_build_seeder || { echo "TSW the scale seeder did not build"; tail -n 30 "$tmp/seeder.log"; exit 3; }
+    cp "${CARGO_TARGET_DIR:-$root/cmux-tui/target}/release/examples/scale_home" "$tmp/scale_home" && chmod 0755 "$tmp/scale_home"
+  fi
   app_under_test "$build" "$config" "$dmg" "$tmp" "$root" tabswitch TSW || exit 3
-  local app_args=("${APP_ARGS[@]}") label="$APP_LABEL"
+  local app_args=(${APP_ARGS[@]+"${APP_ARGS[@]}"}) label="$APP_LABEL"
   local gate_args=()
   [[ "$gate" == 0 ]] && gate_args=(--no-gate)
   local scenario_args=()
   [[ -n "$scenarios" ]] && scenario_args=(--scenarios "$scenarios")
   [[ -n "$record" ]] && scenario_args+=(--record "$record")
   [[ -n "$rows" ]] && scenario_args+=(--chat-rows "$rows")
+  [[ "$scale" != none ]] && scenario_args+=(--scale "$scale" --seeder "$tmp/scale_home")
+  [[ -n "$launch_record" ]] && scenario_args+=(--launch-record "$launch_record")
+  [[ "$chat_perf" == 1 ]] && scenario_args+=(--chat-perf)
   local rc=0
   set +e
-  GITHUB_WORKSPACE="$root" scripts/ci/frame-pacing/console-session.sh python3 -I "$root/scripts/cmux-next/bench_tab_switch.py" \
+  GITHUB_WORKSPACE="$root" tsw_step TSW bench "$TSW_RUN_MAX" "$out/run.log" --stream -- \
+    scripts/ci/frame-pacing/console-session.sh python3 -I "$root/scripts/cmux-next/bench_tab_switch.py" \
     --frames "${app_args[@]}" --build "$label" --tools "$tmp/tab-switch-tools" --rounds "$rounds" --loads "$load" \
     --chat-turns "$turns" --agents "$agents" --out "$out" ${scenario_args[@]+"${scenario_args[@]}"} \
-    ${gate_args[@]+"${gate_args[@]}"} 2>&1 | tee "$out/run.log"
-  rc=${PIPESTATUS[0]}
+    ${gate_args[@]+"${gate_args[@]}"}
+  rc=$?
   set -e
   [[ -d "$tmp/src" ]] && git worktree remove --force "$tmp/src" >/dev/null 2>&1
   rm -f "$tmp/in.dmg"

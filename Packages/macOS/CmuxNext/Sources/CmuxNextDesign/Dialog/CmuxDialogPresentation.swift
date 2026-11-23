@@ -77,15 +77,21 @@ public final class CmuxDialogPresentation {
 
     // MARK: From the drawing
 
-    /// The person changed fields: values for ids the spec has, of the kind the field takes.
+    /// The person changed fields: values for ids the spec has, of the kind the field takes. ``onEdit`` hears each
+    /// change (a host that follows the fields: a pick that fills another field, Add enabled once the host parses).
     public func edited(_ edits: [String: CmuxDialogValue]) {
+        let before = values
         for (id, value) in edits where accepts(value, for: id) { values[id] = value }
+        if values != before { onEdit?(values) }
     }
+
+    /// Told the fields' values after each change the person made.
+    public var onEdit: (([String: CmuxDialogValue]) -> Void)?
 
     /// The person pressed button `id` with these field values; false when the dialog has no such button.
     @discardableResult
     public func press(_ id: String, values edits: [String: CmuxDialogValue] = [:]) -> Bool {
-        guard spec.buttons.contains(where: { $0.id == id }) else { return false }
+        guard spec.buttons.contains(where: { $0.id == id }) || spec.fields.contains(where: { $0.actionIDs.contains(id) }) else { return false }
         edited(edits)
         onPress?(id)
         return true
@@ -163,7 +169,7 @@ public final class CmuxDialogPresentation {
                 let enabled = options.filter(\.isEnabled)
                 values[id] = .text(selected.flatMap { s in enabled.first { $0.value == s }?.value } ?? enabled.first?.value ?? "")
             case .check(let id, _, let on): values[id] = .bool(on)
-            case .preview, .code: break
+            case .preview, .code, .copyLine, .pairingCode, .progress, .note, .steps: break
             }
         }
         return values

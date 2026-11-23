@@ -211,15 +211,24 @@ class RealMapTests(unittest.TestCase):
     def setUp(self) -> None:
         self.document = resolver.load_map(REAL_MAP)
 
-    def test_the_repository_owner_routes_to_blacksmith(self) -> None:
+    def test_the_repository_owner_routes_to_the_owned_fleet(self) -> None:
+        # Leo, 2026-11-14: owned fleet first, not Blacksmith. The x86_64 Linux keys take the one owned
+        # Linux label, cmux-linux; arm64 and macOS keep Blacksmith, which nothing owned answers as a fixed label yet.
         fleet, _, labels = resolver.resolve(map_path=REAL_MAP, owner="manaflow-ai")
 
-        self.assertEqual(fleet, "blacksmith")
-        self.assertEqual(labels["linux"], "blacksmith-4vcpu-ubuntu-2404")
+        self.assertEqual(fleet, "owned")
+        for capability in ("linux", "linux_16", "linux_32"):
+            self.assertEqual(labels[capability], "cmux-linux")
         self.assertEqual(labels["macos_15"], "blacksmith-6vcpu-macos-15")
         self.assertEqual(labels["macos_26"], "blacksmith-6vcpu-macos-26")
         self.assertEqual(labels["macos_26_ios"], "blacksmith-6vcpu-macos-26")
         self.assertEqual(labels["macos_26_large"], "blacksmith-12vcpu-macos-26")
+
+    def test_blacksmith_stays_an_explicit_opt_in(self) -> None:
+        fleet, _, labels = resolver.resolve(map_path=REAL_MAP, owner="manaflow-ai", forced_fleet="blacksmith")
+
+        self.assertEqual(fleet, "blacksmith")
+        self.assertEqual(labels["linux"], "blacksmith-4vcpu-ubuntu-2404")
 
     def test_a_fork_never_lands_on_organization_only_capacity(self) -> None:
         _, _, labels = resolver.resolve(map_path=REAL_MAP, owner="some-personal-account")
@@ -332,16 +341,14 @@ class TheResolverStartsAnywhere(unittest.TestCase):
         workflow = Path(__file__).resolve().parents[1] / ".github/workflows/resolve-runners.yml"
         jobs = yaml.safe_load(workflow.read_text(encoding="utf-8"))["jobs"]
         # A fork takes GitHub-hosted Linux first. In manaflow-ai the resolver
-        # is a declared light job: GitHub-hosted Ubuntu on attempt 1, the
-        # CI_TRUSTED_RUNNER selector on a re-run, so neither a stalled Blacksmith
-        # size nor a GitHub billing block stops the graph this job starts. While
-        # RUNNER_POOLS marks GitHub-hosted saturated (the hosted-first valve), attempt 1
-        # takes the selector too.
+        # reads the CI_TRUSTED_RUNNER selector, else Blacksmith, on every attempt:
+        # it took GitHub-hosted Ubuntu on attempt 1 until 2026-11-18, when hosted
+        # runners left light jobs queued for hours (cmux#45735).
         for name, job in jobs.items():
             with self.subTest(job=name):
                 self.assertEqual(
                     workflow_jobs.runs_on_cells(job),
-                    ['${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || github.run_attempt == 1 && !contains(vars.RUNNER_POOLS, \'"hosted_saturated"\') && \'ubuntu-24.04\' || contains(fromJSON(\'["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}'],
+                    ['${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || contains(fromJSON(\'["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}'],
                 )
 
 
