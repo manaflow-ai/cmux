@@ -27,6 +27,15 @@ const FILES: Edit[] = [
     newText: `import { tries } from "../../src/net/retry";\ntest("tries", () => expect(tries).toBe(3));\n`,
   },
 ];
+/// A Markdown file and an HTML page the agent wrote (no old text: new files).
+const PLAN: Edit = {
+  path: "/Users/you/src/atlas-web/docs/retry-plan.md",
+  newText: "# Retry plan\n\n- Three tries, 250 ms apart\n- Backoff doubles\n",
+};
+const REPORT: Edit = {
+  path: "/Users/you/src/atlas-web/reports/retries.html",
+  newText: "<!doctype html>\n<title>Retries</title>\n<h1>Retries</h1>\n",
+};
 const FOURTEEN: Edit[] = [
   "src/components/conversation/EditedFilesCard.tsx",
   "src/components/conversation/turnChanges/settings.ts",
@@ -163,6 +172,25 @@ const variants: Record<string, AgentPaneVariant> = {
   narrow: {
     note: "One edited file with a long name; at the narrow width (240 px for this entry) Undo shrinks to its icon and the name ends in an ellipsis, never under a button.",
     snapshot: turn([{ ...FILES[0]!, path: "src/net/backoff/policy/jitter/exponentialWithDecorrelatedJitter.ts" }]),
+  },
+  "markdown-one": {
+    note: "One Markdown file the agent wrote: Open beside View changes shows it in cmux's Markdown page.",
+    snapshot: turn([PLAN], "Write up the retry plan"),
+  },
+  "markdown-mixed": {
+    note: "Several files, a Markdown file and an HTML page among them: only the Markdown row has Open.",
+    snapshot: turn([FILES[0]!, PLAN, REPORT, FILES[1]!], "Add retries, write up the plan and a report page"),
+  },
+  "markdown-twice": {
+    note: "A Markdown file written then edited in one turn: one row, one Open.",
+    snapshot: turn(
+      [
+        PLAN,
+        { path: PLAN.path, oldText: PLAN.newText, newText: PLAN.newText + "\n## Rollout\n\nBehind a setting.\n" },
+        FILES[1]!,
+      ],
+      "Write up the retry plan, then add the rollout",
+    ),
   },
   "three-files": {
     note: "Three edited files (one new): the rows with their counts. No row's floating copy action shows at rest.",

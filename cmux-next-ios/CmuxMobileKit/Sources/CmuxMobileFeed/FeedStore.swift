@@ -173,7 +173,12 @@ public final class FeedStore {
     /// The Feed before live data: sample items only with mock content on (DEBUG).
     static func initialItems(mockContentEnabled: Bool) -> [FeedItem] {
         #if DEBUG
-        if mockContentEnabled { return FeedStore.mockItems(now: Date()) }
+        if mockContentEnabled {
+            let now = Date()
+            // `-cmux-mobile-feed-marks`: one short row per kind of sender first, for screenshots of the avatars.
+            let marks = CommandLine.arguments.contains("-cmux-mobile-feed-marks") ? FeedStore.markSamples(now: now) : []
+            return marks + FeedStore.mockItems(now: now)
+        }
         #endif
         return []
     }
