@@ -2407,3 +2407,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_api_call_log_bootstrap.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_risk_tier_label_noise.py"
+lane = "linux-guard"

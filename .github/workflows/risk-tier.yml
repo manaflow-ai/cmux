@@ -40,8 +40,10 @@ jobs:
     # same reason. A newer event cancels an older grading run; gh-merge-green refuses a cancelled
     # check, so the newest finished run is always a real verdict.
     name: risk evidence
+    # A label the grade never reads (below) takes its own group, so it never cancels a real grade in flight: the
+    # carry step can then pass over cancelled runs, knowing a cancelled real grade always has a newer one.
     concurrency:
-      group: risk-evidence-${{ github.event.pull_request.number }}
+      group: risk-evidence-${{ github.event.pull_request.number }}${{ ((github.event.action == 'labeled' || github.event.action == 'unlabeled') && !startsWith(github.event.label.name, 'risk:')) && '-label' || '' }}
       cancel-in-progress: true
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     timeout-minutes: 8
@@ -49,11 +51,49 @@ jobs:
       contents: read
       pull-requests: write
       issues: write
+      # The carry step reads this head's earlier risk evidence check runs.
+      checks: read
     steps:
+      # A label the grade never reads carries the head's last verdict instead of grading again. The grade reads only the
+      # risk:* labels (risk:human-ok, risk:waived; the label step sets risk:low/normal/high), and cmux-bot's area:,
+      # harness:, model: and kind: labels started 547 of this workflow's 700 newest runs in the hour 18:52-19:52Z on
+      # 2026-11-22 (1,350 runs that hour). Each run spent about six GITHUB_TOKEN calls (the files pages, the pull
+      # request, its labels; comments and reviews on high) once the glaeda-route App's hour ran out (core
+      # remaining=0 in every sampled run), and the repository's GITHUB_TOKEN hour ran dry. This costs one call.
+      # The job still runs and ends with a real verdict, never a skip (a skipped newest `risk evidence` reads as a
+      # pass): it passes only when the newest other risk evidence run on this head, cancelled ones aside, passed;
+      # anything else (none yet, one in flight, a red, an unreadable list, a re-run) grades in full below.
+      # tests/test_ci_risk_tier_label_noise.py counts the calls.
+      - name: Carry the head's verdict over a label the grade never reads
+        id: carry
+        if: ${{ (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !startsWith(github.event.label.name, 'risk:') && github.run_attempt == '1' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_ID: ${{ github.run_id }}
+          LABEL_NAME: ${{ github.event.label.name }}
+        run: |
+          # One page: a head with more than 100 risk evidence runs grades in full rather than read a second.
+          verdict=$(gh api "repos/$REPO/commits/$HEAD_SHA/check-runs?check_name=risk%20evidence&filter=all&per_page=100" --jq '
+            [.check_runs[] | select(.app.slug == "github-actions")
+              | select((.details_url // "") | contains("/actions/runs/" + env.RUN_ID + "/") | not)
+              | select(.conclusion != "cancelled")]
+            | sort_by(.id) | last
+            | if . == null then "none" elif .status == "completed" then .conclusion else .status end') || verdict=unread
+          if [ "$verdict" = success ]; then
+            echo "carried=true" >> "$GITHUB_OUTPUT"
+            echo "The label \`$LABEL_NAME\` changes no grade: this head's last risk evidence verdict (success) stands." | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "the last verdict on this head is $verdict; grading in full"
+          fi
       # The tip of feat-cmux-next (the branch filter makes base.ref that branch), not base.sha: base.sha
       # is the base as of the pull request's last push, so a label or description event on an older pull
       # request would grade it with an older classifier, or find none from before #21718.
       - name: Checkout the classifier at the tip of the pull request's base branch
+        if: steps.carry.outputs.carried != 'true'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.base.ref }}
@@ -79,7 +119,7 @@ jobs:
       # Missing metadata still fetches, so event drift cannot waive the takeback check. The condition goes
       # through toJSON: an expression compares null as 0, so `deletions == null` is true for zero too.
       - name: Fetch the base's recent history
-        if: ${{ toJSON(github.event.pull_request.deletions) != '0' }}
+        if: ${{ steps.carry.outputs.carried != 'true' && toJSON(github.event.pull_request.deletions) != '0' }}
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           REPO: ${{ github.repository }}
@@ -104,7 +144,7 @@ jobs:
       # A failed mint leaves GITHUB_TOKEN, and a refused read is graded again on GITHUB_TOKEN.
       - name: Mint the glaeda-route token
         id: glaeda-token
-        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        if: steps.carry.outputs.carried != 'true' && vars.GLAEDA_ROUTE_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -133,6 +173,7 @@ jobs:
 
       - name: Grade the pull request
         id: grade
+        if: steps.carry.outputs.carried != 'true'
         env:
           READ_TOKEN: ${{ steps.glaeda-token.outputs.token }}
           GH_TOKEN: ${{ github.token }}
@@ -166,6 +207,7 @@ jobs:
       # run spent four GITHUB_TOKEN calls on 422s. The read goes on the App's budget; writes stay on
       # GITHUB_TOKEN, whose label events start no workflow (this one would re-grade itself otherwise).
       - name: Set the risk label
+        if: steps.carry.outputs.carried != 'true'
         continue-on-error: true
         env:
           READ_TOKEN: ${{ steps.glaeda-token.outputs.token }}
@@ -215,7 +257,7 @@ jobs:
       # "risk:$TIER is held before merge", so a risk:normal takeback (#50477) read as a person hold.
       # ENFORCE_FROM stays for gh-merge-green, which reads it from the base's copy.
       - name: Hold only an unowned takeback
-        if: steps.grade.outputs.ready != 'true'
+        if: steps.carry.outputs.carried != 'true' && steps.grade.outputs.ready != 'true'
         env:
           TIER: ${{ steps.grade.outputs.tier }}
           TAKES_BACK: ${{ steps.grade.outputs.takes_back }}
