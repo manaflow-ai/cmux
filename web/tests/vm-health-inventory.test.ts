@@ -90,6 +90,25 @@ describe("account listings", () => {
     expect(result.complete).toBe(false);
   });
 
+  test("VM pages are fetched in bounded batches after the count-bearing first page", async () => {
+    let active = 0;
+    let peak = 0;
+    const { inventory } = client(() => json(500, {}), {
+      vms: async (offset) => {
+        active += 1;
+        peak = Math.max(peak, active);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        active -= 1;
+        const count = offset === 0 ? 100 : Math.min(100, 401 - offset);
+        return { vms: ids("vm-", offset, Math.max(0, count)).map(vm), totalCount: 401 };
+      },
+    });
+    const result = await inventory.listAccountVms({ deadlineAtMs: Date.now() + 10_000 });
+    expect(result.vms).toHaveLength(401);
+    expect(result.complete).toBe(true);
+    expect(peak).toBe(4);
+  });
+
   test("TLS paging dedupes a rule repeated by a mid-walk create", async () => {
     const pages: Record<number, unknown> = {
       0: { rules: ids("r", 0, 100).map(rule), totalCount: 120 },

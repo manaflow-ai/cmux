@@ -15,6 +15,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "scripts" / "ci"))
 import react_doctor_gate as gate  # noqa: E402
 import receipt_input_key as rik  # noqa: E402
+import receipt_signed as signed  # noqa: E402
 
 sys.path.insert(0, str(HERE))
 import git_fixture_env  # noqa: E402
@@ -118,6 +119,54 @@ class InputsListTest(unittest.TestCase):
         for project in gate.PROJECTS:
             self.assertIn((project, "tree", project), rows, f"project {project} does not key on its own tree")
         self.assertEqual({u for u, _, _ in rows if u != "*"}, set(gate.PROJECTS), "a listed unit is not a project")
+
+
+class ControllerVectorTest(unittest.TestCase):
+    """cmuxterm-hq build-fleet/cmd/controller/input_receipt_test.go keys the same material to the same key; the
+    controller computes the key a signed receipt is stored under, so the two must never drift."""
+
+    def test_key_vector_matches_the_controller(self):
+        rows = [("*", "blob", "scripts/gate.py"), ("*", "tree", "scripts/tool"), ("app", "tree", "app"),
+                ("app", "tree", "shared"), ("site", "tree", "site")]
+        oids = {"scripts/gate.py": "1" * 40, "scripts/tool": "2" * 40, "app": "3" * 40, "site": "4" * 40}
+        old, rik.object_id = rik.object_id, lambda _rev, rel: oids.get(rel)
+        try:
+            key, _ = rik.input_key("react-doctor", ["site", "app"], rows=rows)
+        finally:
+            rik.object_id = old
+        self.assertEqual(key, "7eb85f4c009c58704d26dc87728db0639c8f0f1b71a256307d07b1a30f1c9fe5")  # gitleaks:allow (sha256 input key test vector, not a secret)
+        self.assertEqual(rik.CHECKS["react-doctor"]["command"], "python3 scripts/ci/react_doctor_gate.py")
+
+
+class SignedReceiptTest(unittest.TestCase):
+    """scripts/ci/receipt_signed.py skips only on the controller's hit for this checkout's own key."""
+
+    def run_main(self, op, answer=None, error=None):
+        def ask_fn(_op, _check, _token):
+            if error:
+                raise error
+            return answer
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            signed.main([op, "react-doctor", "--output", str(out)], env={}, token_fn=lambda _env: "t", ask_fn=ask_fn)
+            return dict(line.split("=", 1) for line in out.read_text().splitlines())
+
+    def test_hit_on_the_same_key(self):
+        key = signed.all_units_key("react-doctor")
+        self.assertEqual(self.run_main("lookup", {"hit": True, "input_key": key})["hit"], "true")
+
+    def test_no_hit_on_another_key(self):
+        self.assertEqual(self.run_main("lookup", {"hit": True, "input_key": "0" * 64})["hit"], "false")
+
+    def test_no_hit_on_a_miss_or_an_error(self):
+        self.assertEqual(self.run_main("lookup", {"hit": False, "reason": "pinned"})["hit"], "false")
+        self.assertEqual(self.run_main("lookup", error=OSError("down"))["hit"], "false")
+
+    def test_no_token_is_a_miss(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            self.assertEqual(signed.main(["lookup", "react-doctor", "--output", str(out)], env={}), 0)
+            self.assertIn("hit=false", out.read_text())
 
 
 if __name__ == "__main__":

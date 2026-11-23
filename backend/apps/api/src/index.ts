@@ -29,6 +29,7 @@ import type { PresenceKeyBody } from "./user-do.ts"
 import { handlePairBegin, handlePairWait } from "./pair-routes.ts"
 import { handlePairInviteWait } from "./pair-invite-routes.ts"
 import { handleSsoCallback, handleSsoRedeem, handleSsoStart } from "./sso-routes.ts"
+import { AUTH_HANDOFFS_PATH, AUTH_HANDOFFS_REDEEM_PATH, handleAuthHandoffMint, handleAuthHandoffRedeem } from "./auth-handoff-routes.ts"
 import { CI_SESSION_PATH, handleCiSession } from "./ci-session.ts"
 import { sweepDeps, sweepFeedText } from "./feed-sweep.ts"
 import { GITHUB_TOKEN_PATH, handleGithubToken } from "./integrations/github-token-route.ts"
@@ -38,6 +39,8 @@ export { AccountIndexDO } from "./account-index-do.ts"
 // Named entrypoint for service bindings only (the platform Worker's environment setups); no HTTP route reaches it.
 export { PlatformChief } from "./platform-chief.ts"
 export { AgentGateway } from "./agent-gateway.ts"
+// Named entrypoint for cmux-platform's joined-machine GitHub token route only (integrations/machine-github.ts).
+export { MachineGitHub } from "./integrations/machine-github.ts"
 export { ModelKeys } from "./model-keys.ts"
 export { HandoffDO } from "./handoffs/handoff-do.ts"
 export { HandoffIndexDO } from "./handoffs/index-do.ts"
@@ -49,6 +52,7 @@ export { ChiefBrainDO } from "./chief-brain/brain-do.ts"
 export { OpencodeBrainDO } from "./chief-brain-opencode/brain-do.ts"
 export { ChiefDurableDO } from "./chief-durable/durable-do.ts"
 import { CHIEF_BRAIN_PATH, handleChiefBrain } from "./chief-brain/routes.ts"
+import { LOCAL_CHIEF_COMPUTER_PATH, handleLocalChiefComputer } from "./chief-brain/local-computer-routes.ts"
 import { GATEWAY_PATH, handleModelGateway } from "./model-gateway/http.ts"
 import { FAULT_PATH, handleFault } from "./chief-fault.ts"
 import { CC_NOTES_PATH, handleCcNotes } from "./chief-brain-cc/routes.ts"
@@ -235,10 +239,13 @@ export default {
     if (HAND_PATH.test(url.pathname)) return handleHands(request, env, url.pathname)
     // The model gateway over HTTP (model-gateway/http.ts): run tokens and chief tokens, Anthropic Messages in, events out.
     if (GATEWAY_PATH.test(url.pathname)) return handleModelGateway(request, env, ctx)
+    // The computer of a Chief that runs on its owner's Mac (chief-brain/local-computer-routes.ts), keyed by the session's user.
+    const localComputer = url.pathname.match(LOCAL_CHIEF_COMPUTER_PATH)
+    if (localComputer) return handleLocalChiefComputer(request, env, localComputer[1]!, localComputer[2])
     // A chief's Durable Object brain (chief-brain/routes.ts): its owner's settings, and runs for conversation members.
     const chiefBrain = url.pathname.match(CHIEF_BRAIN_PATH)
     // A Chief that runs the opencode brain (chief-brain-opencode/) keeps its runs there.
-    const chiefBrainPath = chiefBrain?.[2]?.startsWith("machine-login") ? "machine-login" : chiefBrain?.[2] === "brain" || chiefBrain?.[2] === "github" || chiefBrain?.[2] === "memory" || chiefBrain?.[2] === "peer" ? chiefBrain[2] : "runs"
+    const chiefBrainPath = chiefBrain?.[2]?.startsWith("machine-login") ? "machine-login" : chiefBrain?.[2] === "brain" || chiefBrain?.[2] === "github" || chiefBrain?.[2] === "memory" || chiefBrain?.[2] === "peer" || chiefBrain?.[2]?.startsWith("computer") ? chiefBrain[2] : "runs"
     if (chiefBrain && chiefBrainPath === "runs" && (opencodeOn(env) || durableOn(env))) return handleOpencodeRuns(request, env, chiefBrain[1]!, chiefBrain[3], () => handleChiefBrain(request, env, chiefBrain[1]!, "runs", chiefBrain[3]))
     if (chiefBrain) return handleChiefBrain(request, env, chiefBrain[1]!, chiefBrainPath, chiefBrain[3])
     const fault = url.pathname.match(FAULT_PATH)
@@ -321,6 +328,9 @@ export default {
     const ssoCallbackPath = url.pathname.match(/^\/v1\/sso\/callback\/([^/]+)$/)
     if (ssoCallbackPath) return handleSsoCallback(request, env, ssoCallbackPath[1]!)
     if (url.pathname === "/v1/sso/redeem") return handleSsoRedeem(request, env)
+    // Sign-in hand-off to another device of the same person (auth-handoff.ts): each route checks its own credential.
+    if (url.pathname === AUTH_HANDOFFS_PATH) return handleAuthHandoffMint(request, env)
+    if (url.pathname === AUTH_HANDOFFS_REDEEM_PATH) return handleAuthHandoffRedeem(request, env)
     // A GitHub Actions job signs in as its one test account by OIDC token (ci-session.ts): no stored password.
     if (url.pathname === CI_SESSION_PATH) return handleCiSession(request, env)
     // Google push receivers: staging and development only until the backend lead reviews them for production.

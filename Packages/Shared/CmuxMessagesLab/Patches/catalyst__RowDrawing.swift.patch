@@ -562,16 +562,17 @@
          pendingLock.unlock()
          guard first else { return }
          DispatchQueue.main.async {
-@@ -1002,7 +1043,7 @@
+@@ -1002,7 +1043,8 @@
      /// holds them during each page slide, so rows slide in without text and the bench's empty-row
      /// check must find them.
      static var testHold = false
 -    private var held: [(Key, CGImage, Int)] = []
-+    private var held: [(Key, CGImage, Int, PaletteBox?)] = []
++    /// The finished bitmaps held while `testHold` is set, in the order they finished (a test may reorder them).
++    var held: [(Key, CGImage, Int, PaletteBox?)] = []
      func releaseHeld() {
          guard !held.isEmpty else { return }
          let batch = held
-@@ -1010,24 +1051,26 @@
+@@ -1010,24 +1052,26 @@
          apply(batch)
      }
  
@@ -607,7 +608,7 @@
          if let old = cache[spec] { bytes -= old.bytesPerRow * old.height } else { order.append(spec) }
          cache.updateValue(img, forKey: spec) // dictionary write
          bytes += img.bytesPerRow * img.height
-@@ -1065,8 +1108,8 @@
+@@ -1065,8 +1109,8 @@
      /// drawn at (off main, before this call); a palette or colour space change since drops them (they are drawn again
      /// when asked).
      func insert(_ items: [(RowSpec, CGImage)], scale: CGFloat = Fixture.renderScale, generation: Int = Fixture.paletteGeneration) {
@@ -618,7 +619,7 @@
      }
  
      /// Test hook (`--scroller-control`): no bitmaps rendered ahead (pager prerender, scroll
-@@ -1146,7 +1189,11 @@
+@@ -1146,7 +1190,11 @@
  enum BubbleView {
      static func drawBubble(_ ctx: CGContext, body: CGRect, lines: [String], outgoing: Bool, tail: Bool, windowY: CGFloat = 0,
                             cornersOf frame: CGSize? = nil, circularEnds: Bool = false) {
@@ -631,7 +632,7 @@
          if outgoing {
              if windowY.isNaN { return }     // filled by the row's gradient layer
              ctx.saveGState()
-@@ -1161,18 +1208,9 @@
+@@ -1161,18 +1209,9 @@
      }
  }
  
