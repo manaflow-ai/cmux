@@ -188,6 +188,9 @@ fn error_of(value: &Value) -> &Value {
 /// `--all-tools` lists each tool with its schema and annotations.
 fn mcp(daemon: &Daemon, caller: &str, calls: &[(&str, Value)]) -> (Vec<Value>, Vec<Value>) {
     let mut child = cmux(daemon, Some(caller))
+        // The person said yes to cmux's tools for the agents cmux starts (`agents.cmuxMcp` on), as
+        // acpmux tells a chat it starts; without it `serve` is the off server (mcp.rs `refusal`).
+        .env("CMUX_AGENT_TOOLS_ANSWER", "on")
         .arg("--app-socket")
         .arg(daemon.dir.join("no-app.sock"))
         .args(["mcp", "serve", "--all-tools"])
