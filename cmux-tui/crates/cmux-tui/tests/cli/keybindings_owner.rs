@@ -345,3 +345,56 @@ fn keybindings_owner_binds_a_bare_sequence_only_under_a_bare_key_page() {
         daemon.file()
     );
 }
+
+/// Row key-modes (design/key-modes.md): a user key mode owns bare keys. An entry under
+/// `keyMode == 'name'` (or `keyMode`) as an `&&` term binds a bare first stroke, in any focus
+/// but a text field; `keyMode != 'name'`, an empty name, or a text-field term is refused.
+#[test]
+fn keybindings_owner_binds_a_bare_key_under_a_user_key_mode() {
+    let (config, keybindings) = KeybindingsDaemon::files("keybindings-owner-key-mode");
+    let file = r#"[
+  {"key": "h", "command": "focusLeft", "when": "keyMode == 'pane'"},
+  {"key": "g g", "command": "markdownGoToTop", "when": "keyMode && surfaceKind == 'markdown'"},
+  {"key": "h", "command": "focusLeft", "when": "keyMode != 'pane'"},
+  {"key": "h", "command": "focusLeft", "when": "keyMode == ''"},
+  {"key": "h", "command": "focusLeft", "when": "keyMode == 'pane' && terminalFocused"},
+  {"key": "h", "command": "focusLeft", "when": "keyMode == 'pane' || browserFocused"}
+]
+"#;
+    fs::write(&keybindings, file).unwrap();
+    let daemon = KeybindingsDaemon::start("keybindings-owner-key-mode", config, keybindings);
+    let loaded: Vec<_> = daemon.entries().iter().map(|entry| entry["when"].clone()).collect();
+    assert_eq!(
+        loaded,
+        vec![
+            serde_json::json!("keyMode == 'pane'"),
+            serde_json::json!("keyMode && surfaceKind == 'markdown'"),
+        ],
+        "{loaded:?}"
+    );
+    let get = daemon.ok("keybindings.get", serde_json::json!({}), false);
+    let refused: Vec<_> = get["diagnostics"]
+        .as_array()
+        .unwrap_or_else(|| panic!("keybindings.get has no diagnostics: {get}"))
+        .iter()
+        .map(|diagnostic| {
+            assert!(
+                diagnostic["message"].as_str().is_some_and(|text| text.contains("keyMode")),
+                "{diagnostic}"
+            );
+            diagnostic["index"].as_u64().unwrap_or(u64::MAX)
+        })
+        .collect();
+    assert_eq!(refused, vec![2, 3, 4, 5], "{get}");
+
+    daemon.ok(
+        "keybindings.set",
+        serde_json::json!({"command": "focusRight", "key": "l", "when": "keyMode == 'pane'"}),
+        true,
+    );
+    assert!(
+        daemon.entries().iter().any(|entry| entry["keys"] == serde_json::json!(["l"])),
+        "{}",
+        daemon.file()
+    );
+}
