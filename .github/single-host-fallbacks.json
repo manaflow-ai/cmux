@@ -75,7 +75,7 @@
   ],
   "variables": {
     "CI_OVERFLOW_LINUX": {
-      "fallback": "unset by default, so pr-pipeline.yml's linux job runs on the cmux-linux persistent pool (many hosts, not one); an operator sets it only to another Linux pool label and deletes it to put the job back",
+      "fallback": "unset by default, so every job on the ci-v2 one-label form (pr-pipeline's linux job, the PR checks moved in hq#13994 step 8) runs on cmux-linux, the label every owned Linux pool host carries (many hosts, not one); the overflow switch sets it to an overflow label while cmux-linux starts nothing, and deletes it to put the jobs back",
       "after_minutes": 5
     },
     "CI_RELEASE_PIN_SLOT": {
@@ -202,10 +202,6 @@
       "fallback": "the route-defined owned-pool or Blacksmith fallback",
       "after_minutes": 5
     },
-    "CI_OVERFLOW_LINUX": {
-      "fallback": "cmux-linux, the owned Linux pool label the runs-on expression falls back to when the variable is unset",
-      "after_minutes": 5
-    },
     "LINUX_POOL_OVERFLOW_RUNNER": {
       "fallback": "the route-defined owned-pool or Blacksmith fallback",
       "after_minutes": 5
@@ -214,7 +210,6 @@
       "fallback": "the next member of the pool in .github/runners.json (its reconciler moves the pool when the current member starts nothing); with the variable unset, the selector's default, the pool's first member (tools/fleet-reconcilers/test_runner_pools.py)",
       "after_minutes": 5
     },
-    "CI_OVERFLOW_LINUX": {"fallback": "an override, not a host: unset sends pr-pipeline's linux job to the cmux-linux label every owned Linux pool host carries (#49280); set, the runner it names", "after_minutes": 5},
     "LINUX_RUNNER": {
       "fallback": "the route-defined owned-pool or Blacksmith fallback",
       "after_minutes": 5

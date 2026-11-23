@@ -41,6 +41,13 @@
     },
     {
       "agent": "settable",
+      "why": "Whether the app shows a toast naming files or layers that change the person's setup: a notice only, it changes nothing; on is the default.",
+      "keys": [
+        "customize.doctorNotice"
+      ]
+    },
+    {
+      "agent": "settable",
       "why": "Whether right-click menus end with Customize Menu… (looks only; the layouts stay the person's).",
       "keys": [
         "contextMenus.showCustomizeItem"
@@ -1303,6 +1310,13 @@
     },
     {
       "agent": "privacy",
+      "why": "Whether cmux reads the person's clipboard for the Chief's + menu.",
+      "keys": [
+        "home.clipboardHistory"
+      ]
+    },
+    {
+      "agent": "privacy",
       "why": "Where the person's direct messages and group chats go: an agent must not move them to another server.",
       "keys": [
         "home.server"
@@ -1377,6 +1391,13 @@
       "why": "On, Settings shows and edits Claude Code's and Codex's own settings, MCP servers, skills, commands and hooks in their own config files: only the person turns that on.",
       "keys": [
         "labs.agentCustomization"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Whether the Rex-style Hosts section is visible in the sidebar: the person decides when this preview surface appears.",
+      "keys": [
+        "labs.hostsSidebar"
       ]
     },
     {

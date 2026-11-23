@@ -73,7 +73,7 @@ const ALLOWED: &[&str] = &[
     "SSH_AUTH_SOCK",
     "SSH_PRIVATE_KEY",
     "STRIPE_API_KEY",
-    // No secret: which login a harness uses, a mode, a scheme or a switch.
+    // No secret: which login a harness uses, a mode, a scheme, a program or a switch.
     "CLAUDE_CODE_SKIP_BEDROCK_AUTH",
     "CLAUDE_CODE_SKIP_FOUNDRY_AUTH",
     "CLAUDE_CODE_SKIP_VERTEX_AUTH",
@@ -85,6 +85,8 @@ const ALLOWED: &[&str] = &[
     "CMUX_DEV_AUTH_REPLACE_SESSION",
     "CMUX_GEMINI_AUTH",
     "CMUX_GROK_AUTH",
+    // The ssh program `cmux device add` runs (acpmux cli/ssh_join.rs), like GIT_SSH.
+    "CMUX_JOIN_SSH",
     "CMUX_LINK_TOKEN_VERIFIER",
     "CMUX_RELAY_JOIN_TICKET_TTL_SECONDS",
     "CMUX_RELAY_JOIN_TIMEOUT_SECONDS",
