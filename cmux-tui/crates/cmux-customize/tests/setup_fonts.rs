@@ -8,7 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use cmux_customize::community::fonts;
-use cmux_customize::setup::{self, Receipt, Reference, SETUP_FILE};
+use cmux_customize::setup::{self, Receipt, Reference, SETUP_FILE, SetupSource};
 use cmux_customize::{Customize, Roots};
 
 const WOFF2: &[u8] = b"wOF2\0\x01\0\0rest";
@@ -79,23 +79,7 @@ fn repo(root: &Path, setup: &str, extra: &[(&str, &[u8])]) -> PathBuf {
 
 fn receipt(read: &setup::Setup, installed: &setup::Installed) -> Receipt {
     let reference = Reference::parse("github.com/alice/type-look").unwrap();
-    Receipt {
-        id: read.manifest.id.clone(),
-        name: read.manifest.name.clone(),
-        repository: reference.repository(),
-        reference,
-        commit: "a".repeat(40),
-        sha256: read.sha256.clone(),
-        version: read.manifest.version.clone(),
-        generation: installed.applied.as_ref().map(|applied| applied.generation.n),
-        before: installed.before,
-        library: installed.applied.as_ref().and_then(|applied| applied.library.clone()),
-        library_created: installed.library_created,
-        actions: read.actions().clone(),
-        prior_actions: installed.prior_actions.clone(),
-        extensions: Vec::new(),
-        installed_ms: 10,
-    }
+    Receipt::new(read, installed, SetupSource::Repo { reference }, &"a".repeat(40), Vec::new(), 10)
 }
 
 fn refusal(dir: &Path) -> String {

@@ -9,7 +9,7 @@ describe("the production journey copies the login on spare.ready, as the app's S
       const { steps, log } = runJourney({ preclaim, login: FIXTURE_LOGIN });
       expect(steps.find((step) => step.step === "create machine")?.status).toBe("pass");
       const sizes = log.filter((line) => line.startsWith("create size ")).map((line) => JSON.parse(line.slice("create size ".length)));
-      expect(sizes).toEqual([{ cpu: 4, memory_mb: 16384, disk_mb: 65536 }]);
+      expect(sizes).toEqual([{ cpu: 2, memory_mb: 4096, disk_mb: 20480 }]);
     }
   });
 
