@@ -20,13 +20,13 @@ public final class RemoteMachinesSidebarExperiment {
     private var observation: Task<Void, Never>?
     private var observerID: String?
 
-    public init(sidebar: AnyObject,
+    public init(sidebar: RemoteMachinesSidebar,
                 enabled: @escaping @MainActor @Sendable () -> Bool,
                 socketPath: @escaping @MainActor @Sendable () -> String?,
                 displayName: @escaping (String) -> String?,
                 open: @escaping (Any) -> Void,
                 currentFeed: (@MainActor @Sendable () -> AgentTurnStateFeed?)? = nil) {
-        self.sidebar = sidebar as! RemoteMachinesSidebar
+        self.sidebar = sidebar
         self.currentFeed = currentFeed ?? {
             // The launch window predates ChatsFeed.started. Its first page changes `live`,
             // waking this read after the feed is installed, without moving work before the frame.
