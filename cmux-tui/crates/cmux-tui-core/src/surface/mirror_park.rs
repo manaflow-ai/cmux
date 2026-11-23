@@ -177,7 +177,7 @@ impl PtySurface {
     /// mirror, which rebuilds it.
     fn mirror_unviewed(&self) -> bool {
         !self.dead.load(Ordering::Acquire)
-            && self.stream_progress.resource_subscription_count() == 0
+            && !self.stream_progress.has_resource_waiters()
             && self.taps.lock().map(|taps| taps.is_empty()).unwrap_or(false)
             && self.render.lock().map(|render| render.taps.is_empty()).unwrap_or(false)
     }
