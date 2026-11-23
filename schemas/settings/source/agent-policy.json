@@ -459,6 +459,7 @@
         "notifications.sources.cli.dismissal",
         "notifications.delivery.permissionRequest",
         "notifications.delivery.question",
+        "notifications.delivery.blocked",
         "notifications.delivery.taskComplete",
         "notifications.desktop",
         "notifications.sound",
@@ -851,6 +852,8 @@
         "agentPane.display.thinking.shimmerBand",
         "agentPane.display.thinking.jumpButton",
         "agentPane.display.harnessPlacement",
+        "agentPane.display.modelChipIcon",
+        "agentPane.display.queueing",
         "agentPane.display.rail.side",
         "agentPane.display.rail.show",
         "agentPane.display.rail.control",
@@ -1076,6 +1079,14 @@
       "keys": [
         "agents.chats.coldArchive",
         "agents.chats.coldArchiveAfterDays"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Whether a chat's sealed log segments are compressed on disk as it grows, and how hard: lossless (every byte reads back, nothing is removed), a local disk policy.",
+      "keys": [
+        "agents.chats.coldSegments",
+        "agents.chats.coldSegmentsLevel"
       ]
     },
     {
@@ -1870,6 +1881,13 @@
       "why": "Which of the person's own connections a thread may move to when one runs out: it adds no connection and spends nothing past a connection's own limit.",
       "keys": [
         "models.spreadUsage"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Saved prompts are the person's own words, sent to agents as prompts; an agent does not write them.",
+      "keys": [
+        "agentPane.savedPrompts"
       ]
     }
   ]
