@@ -39,6 +39,7 @@ pub mod notify_redact;
 mod notify_secfix_tests;
 pub mod notify_terminal;
 mod notify_waiting;
+pub mod paint_latency;
 pub mod pair_requests;
 pub mod pairing;
 pub mod path_probe;
@@ -52,6 +53,7 @@ pub mod sealed_notify;
 pub mod services;
 pub mod size_release;
 pub mod surface;
+pub mod tab_snapshots;
 pub mod traffic;
 
 mod side_completion;
