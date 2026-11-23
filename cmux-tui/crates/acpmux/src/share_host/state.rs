@@ -55,6 +55,8 @@ pub(crate) struct Shared {
 /// One of the device hub's records other than this device's: a machine's screen host.
 #[derive(Debug, Clone)]
 struct HubScreen {
+    /// The hub's device id: what a viewer opens (`macScreen.open --device`).
+    id: String,
     name: String,
     platform: String,
     online: bool,
@@ -157,6 +159,7 @@ impl Shared {
                     self.update_link(|link| link.sharing = shared.or(link.sharing));
                 } else if let Some(name) = field("name").filter(|n| !n.trim().is_empty()) {
                     screens.push(HubScreen {
+                        id: id.clone(),
                         name,
                         platform: platform.clone(),
                         online: flag("online").unwrap_or(false),
@@ -183,7 +186,8 @@ impl Shared {
             .filter(|s| !key.is_empty() && host_key(&s.name) == key)
             .max_by_key(|s| (s.online, s.shared));
         Some(match best {
-            Some(s) => json!({"listed": true, "platform": s.platform, "screenShared": s.shared}),
+            Some(s) => json!({"listed": true, "id": s.id, "platform": s.platform,
+                "online": s.online, "screenShared": s.shared}),
             None => json!({"listed": false}),
         })
     }
