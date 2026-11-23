@@ -126,7 +126,7 @@ impl Overlay {
         children
             .iter()
             .filter(|entry| !Self::hidden(&inner, &join(&path, &entry.name)))
-            .map(|entry| entry.clone())
+            .cloned()
             .collect::<Vec<_>>()
             .into_iter()
             .map(|entry| {

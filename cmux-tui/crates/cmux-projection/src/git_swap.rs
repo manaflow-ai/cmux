@@ -55,7 +55,9 @@ const UNSWAPPABLE: [&str; 9] = [
 
 fn git(git_dir: &Path) -> Command {
     let mut command = Command::new("git");
-    command.arg("--git-dir").arg(git_dir);
+    // `GIT_DIR`, not `--git-dir`: a `git` wrapper on PATH (a machine's own) that reads only
+    // the command line sees a plain command.
+    command.env("GIT_DIR", git_dir);
     // A private remote fails at once instead of asking for a password nobody types.
     command.env("GIT_TERMINAL_PROMPT", "0").env("GIT_ASKPASS", "true").env("SSH_ASKPASS", "true");
     command.env("GIT_SSH_COMMAND", "ssh -oBatchMode=yes");

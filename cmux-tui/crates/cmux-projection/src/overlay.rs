@@ -43,6 +43,21 @@ use crate::{Fetch, FetchError};
 
 /// The size of a chunk of a big file, and the largest file fetched whole.
 pub const CHUNK: u64 = 4 * 1024 * 1024;
+
+/// What one uncached read of a big git pack fetches at least ([`Overlay::pack_range`]).
+pub const PACK_BLOCK: u64 = 128 * 1024;
+
+/// The first cache part of a pack's blocks (chunk numbers stay far below it).
+const PACK_BLOCKS: u32 = 1 << 31;
+
+/// A git pack (`.git/objects/pack/*.pack`, the folder's own repository or a nested one).
+fn is_git_pack(path: &str) -> bool {
+    path.ends_with(".pack")
+        && path.rsplit_once('/').is_some_and(|(dir, _)| {
+            dir == ".git/objects/pack" || dir.ends_with("/.git/objects/pack")
+        })
+}
+
 /// The most files one directory readahead batch asks for.
 const BATCH_FILES: usize = 256;
 /// The most bytes one directory readahead batch asks for.
@@ -1088,6 +1103,7 @@ impl Overlay {
             return Ok(whole.get(from..to).unwrap_or_default().to_vec());
         }
         let mut out = Vec::with_capacity(len);
+        let pack = is_git_pack(&self.manifest.path_of(index));
         let mut at = offset;
         while at < end {
             let chunk = u32::try_from(at / CHUNK).map_err(|_| EIO)?;
@@ -1096,6 +1112,8 @@ impl Overlay {
             // A cached chunk gives only the asked range, not its 4 MiB per 128 KiB request.
             if let Some(bytes) = self.cached_range((index, chunk), start, (stop - start) as usize) {
                 out.extend_from_slice(&bytes);
+            } else if pack {
+                out.extend_from_slice(&self.pack_range(index, base + start, base + stop)?);
             } else {
                 let bytes = self.chunk(index, chunk, total)?;
                 let stop = (stop as usize).min(bytes.len());
@@ -1261,6 +1279,50 @@ impl Overlay {
         }
         drop(claim);
         mine
+    }
+
+    /// Bytes `from..to` of git pack `index` (inside one chunk), by [`PACK_BLOCK`]: git reads a
+    /// pack at random (an object's header, a delta chain's bases), a few KiB per object across
+    /// the whole file, so a 4 MiB chunk per touch fetched the whole pack for a few objects. Each
+    /// block is cached as part [`PACK_BLOCKS`] + its number; a chunk already cached (a pin's)
+    /// answers first.
+    fn pack_range(&self, index: u32, from: u64, to: u64) -> Result<Vec<u8>, i32> {
+        let total = self.manifest.entry(index).map_or(0, |entry| entry.size);
+        let mut out = Vec::with_capacity((to - from) as usize);
+        let mut at = from;
+        while at < to {
+            let block = at / PACK_BLOCK;
+            let base = block * PACK_BLOCK;
+            let stop = to.min(base + PACK_BLOCK);
+            let part = u32::try_from(block).ok().and_then(|block| PACK_BLOCKS.checked_add(block));
+            let key = (index, part.ok_or(EIO)?);
+            let (start, len) = (at - base, (stop - at) as usize);
+            if let Some(bytes) = self.cached_range(key, start, len) {
+                out.extend_from_slice(&bytes);
+            } else {
+                let _claim = self.claim(key);
+                let bytes = match self.cached(key) {
+                    Some(bytes) => bytes,
+                    None => {
+                        let size = PACK_BLOCK.min(total.saturating_sub(base));
+                        let bytes = self
+                            .fetch
+                            .read(index, base, u32::try_from(size).map_err(|_| EIO)?)
+                            .map_err(FetchError::errno)?;
+                        if bytes.len() as u64 != size {
+                            return Err(EIO);
+                        }
+                        self.count(size);
+                        self.store(key, &bytes);
+                        bytes
+                    }
+                };
+                let end = (start as usize + len).min(bytes.len());
+                out.extend_from_slice(bytes.get(start as usize..end).ok_or(EIO)?);
+            }
+            at = stop;
+        }
+        Ok(out)
     }
 
     /// Chunk `chunk` of big file `index` (`total` bytes): from the cache, else fetched.
