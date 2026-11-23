@@ -24,6 +24,7 @@ import { ChiefOutbox } from "./outbox";
 import { MachineSignIn } from "./MachineSignIn";
 import { machineLoginApi, type MachineLoginApi } from "./machineLogin";
 import { ChiefTranscript } from "./transcript";
+import { useConnectionQuiet } from "../ui/lasting";
 import {
   ChiefWire,
   ChiefAccessError,
@@ -179,6 +180,8 @@ function ChiefChat({
   const [transcript] = useState(() => new ChiefTranscript());
   const { rows, working } = useSyncExternalStore(transcript.subscribe, transcript.snapshot);
   const [connection, setConnection] = useState<ChiefConnection>("connecting");
+  // Connecting and reconnecting have no action, so they stay out of sight for the shared bound (ui/lasting.ts).
+  const recoveringLasting = useConnectionQuiet(connection === "connecting" || connection === "reconnecting");
   const [loginRun, setLoginRun] = useState<string>();
   const [expanded, setExpanded] = useState(() => new Set<string>());
   const [confirmed, setConfirmed] = useState(() => new Set<string>());
@@ -198,7 +201,11 @@ function ChiefChat({
       setConnection(state);
     });
     const client = new ChiefWire(
-      { identity, ticket: () => api.ticket(controller.signal), open: openSocket },
+      {
+        identity,
+        ticket: () => api.ticket(controller.signal),
+        open: openSocket,
+      },
       {
         rows: transcript.update,
         machineLogin: setLoginRun,
@@ -249,7 +256,7 @@ function ChiefChat({
               <span>{t("chiefWeb.offline")}</span>
               <button onClick={() => wire.current?.retry()}>{t("retry.action")}</button>
             </>
-          ) : connection !== "live" ? (
+          ) : connection !== "live" && recoveringLasting ? (
             <>
               <Spinner size={14} />
               <span>{connection === "connecting" ? t("guest.live.connecting") : t("guest.live.reconnecting")}</span>

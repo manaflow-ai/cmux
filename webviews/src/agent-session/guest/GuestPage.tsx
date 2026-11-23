@@ -35,6 +35,7 @@ import {
   type WhoAmIFetch,
 } from "./redeem";
 import { TypingSignal } from "./typingSignal";
+import { useConnectionQuiet } from "../../ui/lasting";
 import {
   type GuestChat,
   type GuestConnection,
@@ -374,6 +375,8 @@ export function LiveChat({
   const [chat, setChat] = useState<GuestChat>({});
   const [people, setPeople] = useState<GuestParticipant[]>([]);
   const [connection, setConnection] = useState<GuestConnection>("connecting");
+  // Connecting and reconnecting have no action, so they stay out of sight for the shared bound (ui/lasting.ts).
+  const recoveringLasting = useConnectionQuiet(connection !== "live");
   const [hasMore, setHasMore] = useState(false);
   const [expanded, setExpanded] = useState(() => new Set<string>());
   const socket = useRef<ShareSocket | undefined>(undefined);
@@ -381,7 +384,12 @@ export function LiveChat({
     () =>
       new GuestSendQueue(
         prompts,
-        (prompt) => socket.current?.send({ t: "prompt", client_id: prompt.clientId, text: prompt.text }) ?? false,
+        (prompt) =>
+          socket.current?.send({
+            t: "prompt",
+            client_id: prompt.clientId,
+            text: prompt.text,
+          }) ?? false,
       ),
     [prompts],
   );
@@ -439,7 +447,11 @@ export function LiveChat({
       client?.dispose();
     };
     const room = new ShareSocket(
-      { url: socketUrl, unresolved: () => prompts.held(), ...(openSocket ? { open: openSocket } : {}) },
+      {
+        url: socketUrl,
+        unresolved: () => prompts.held(),
+        ...(openSocket ? { open: openSocket } : {}),
+      },
       {
         snapshot: (next) => {
           setChat(next.chat);
@@ -555,7 +567,7 @@ export function LiveChat({
               </button>
             </div>
           ) : (
-            connection !== "live" && (
+            recoveringLasting && (
               <output className="guest-live__notice">
                 {t(connection === "connecting" ? "guest.live.connecting" : "guest.live.reconnecting")}
               </output>
@@ -677,7 +689,11 @@ export function GuestPage({
   const [ended, setEnded] = useState<GuestEnded | undefined>(endedAtStart);
   const join = async (name: string): Promise<RedeemError | undefined> => {
     if (!secret) return "failed";
-    const result = await redeem(shareId, { attempt_id: attempt(), secret, name });
+    const result = await redeem(shareId, {
+      attempt_id: attempt(),
+      secret,
+      name,
+    });
     if (result.ok) {
       // The redeem names the role: `talk` for a signed-in account on a talk link; an anonymous
       // guest watches (the daemon refuses its messages whatever the room says).
