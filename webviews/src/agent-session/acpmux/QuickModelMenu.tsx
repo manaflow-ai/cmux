@@ -1105,6 +1105,8 @@ export function QuickModelMenu({
           // A native menu panel cannot draw the harness strip or the More models scroll area.
           // Keep this combined surface inside the window in both directions.
           escapes={!families}
+          // The model menu's fallback list (no columns) resizes as the columns do (cmux#51745).
+          resize={{ id: "composer.modelList" }}
           // ui-allow: 1 to 9 pick a row in place and typing filters the list, as in Claude Code's model menu.
           onKeyDown={keyDown}
         >
