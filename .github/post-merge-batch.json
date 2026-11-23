@@ -407,6 +407,7 @@
         "skills/cmux-customization/references/local-app-views.md",
         "skills/cmux-customization/references/viewer-types.md",
         "skills/cmux-customization/templates/clock-weather/cmux-app.json",
+        "skills/cmux-extension-author/recipes/**",
         "skills/cmux-customization/templates/clock-weather/main.js",
         "skills/cmux-customization/templates/my-prs/cmux-app.json",
         "skills/cmux-customization/templates/my-prs/main.js",
