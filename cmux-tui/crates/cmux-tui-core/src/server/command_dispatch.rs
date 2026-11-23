@@ -705,6 +705,10 @@ fn dispatch_command(
             conversations::link_resolve(mux, client, params)
         }
         Command::ConversationInboxOp(params) => conversations::inbox_op(mux, client, params),
+        Command::ConversationScheduledList(params) => {
+            conversation_scheduled::list(mux, client, params)
+        }
+        Command::ConversationScheduledOp(params) => conversation_scheduled::op(mux, client, params),
         Command::HomeInbox(params) => conversations::home_inbox(mux, client, params),
         Command::ConversationSearch(params) => conversations::search(mux, client, params),
         Command::HistorySearch(params) => history_search::search(mux, client, params),

@@ -98,6 +98,8 @@ mod runs;
 #[cfg(unix)]
 mod safe_mode;
 #[cfg(unix)]
+mod scene_nodes;
+#[cfg(unix)]
 mod server_external;
 #[cfg(unix)]
 mod server_tmp;
@@ -109,6 +111,8 @@ mod serves;
 mod sidebar;
 #[cfg(all(test, unix))]
 mod sidebar_integration_tests;
+#[cfg(unix)]
+mod signal_sources;
 #[cfg(unix)]
 mod status_items;
 #[cfg(unix)]
