@@ -67,7 +67,7 @@ changed (cmux-wg calls it when its multipath underlay leaves the path that
 carried the session, or the peer roams). With data unacknowledged, the socket
 resends from the oldest unacknowledged byte at its next poll, as an RTO would,
 slow start included, but its RTO returns to the RTT estimate's value instead of
-doubling: the losses were the old route's. With nothing in flight it does
+doubling: the losses were the old route's. With nothing in flight it resends
 nothing.
 
 `Socket::link_repairs_losses()` is for a tunnel that starts repairing its own
@@ -81,6 +81,21 @@ the window as usual. Without it, a loss early in slow start at a 300 ms round
 trip cut the window of a stream that needed it, and the stream ran seconds
 behind for the rest of the session; a tunnel that had repair on from the start
 never saw the loss at all. The controllers derive `Clone` for the saved copy.
+
+The patch also adds black-hole fallback (RFC 4821 section 7.7, Linux's
+`tcp_mtu_probing=1`), off by default: `Socket::set_black_hole_fallback(true)`.
+smoltcp sends with DF clear and does no path MTU discovery, so an underlay path
+smaller than the tunnel MTU that drops oversized packets silently carries the
+handshake, ACKs and keystrokes and loses every full segment: a bulk transfer
+stalls for good. With fallback on, after two retransmission timeouts in a row of
+a head segment larger than a 1280 byte IP packet's (an MSS of 1240 over IPv4,
+1220 over IPv6), with no ACK of new data between them, the connection sends
+segments that size from then on, starting with the resend at hand.
+`path_changed()` lifts the limit, also with nothing in flight, since a new
+route may carry full segments. Nothing changes on the wire but the segment
+size, so any peer works. cmux-wg turns it on; its detector is
+`cmux-wg/tests/path_mtu.rs`, a 4 MiB transfer at tunnel MTU 1420 over a
+1400 byte IPv6 path that drops longer packets.
 
 The changes are in `src/socket/tcp/congestion/cubic.rs` and `src/socket/tcp.rs`,
 each marked `cmux patch`, with tests next to them. Reno's own start is unchanged;

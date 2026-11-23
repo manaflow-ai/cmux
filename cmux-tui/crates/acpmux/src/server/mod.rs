@@ -200,6 +200,9 @@ pub struct Conn {
     /// The sessions this connection's own `session/new` created here, newest last (at most
     /// [`Conn::MAX_CREATED`]): what `_acpmux/side` may tag besides a fork of the chat.
     created: StdMutex<std::collections::VecDeque<String>>,
+    /// Which hub events wake its fan-out (`interest.rs`): its attachments, its watch, its chats
+    /// activity. Changed beside `subs` and `watch_all`, never instead of them.
+    interest: interest::Interest,
     watch_all: AtomicBool,
     watch_tools: AtomicBool,
     /// The client asked, in its `initialize` (`_meta.acpmux.peerRowBatches`), to hear a burst of
@@ -492,6 +495,24 @@ impl Conn {
         self.caller.get().map(String::as_str)
     }
 
+    /// Who this connection is in the caller stats (`caller_stats.rs`): its client name, origin,
+    /// unix peer pid and the session its first `initialize` named.
+    fn stats_caller(&self) -> crate::caller_stats::Caller {
+        let pid = match self.socket_peer {
+            crate::sender_harness::SocketPeer::Pid(pid) => Some(pid),
+            _ => None,
+        };
+        let session = self.caller.get().map(|id| (id.clone(), true));
+        let session = session.or_else(|| self.unproven_caller.get().map(|id| (id.clone(), false)));
+        crate::caller_stats::Caller {
+            client: self.name.lock_or_recover().clone(),
+            origin: origin_usage_key(self.origin),
+            pid,
+            proven: session.as_ref().is_some_and(|(_, proven)| *proven),
+            session: session.map(|(id, _)| id),
+        }
+    }
+
     /// What its first `initialize` declared about its caller (`cli_caller.rs`).
     pub(super) fn declared(&self) -> Option<&crate::cli_caller::Declared> {
         self.declared.get()
@@ -695,6 +716,14 @@ impl Conn {
                         line.len(),
                     );
                 }
+                // The reply's share of its caller's bytes (`caller_stats.rs`).
+                if let (Some(m), Message::Response { .. }) = (reply_to, msg) {
+                    crate::caller_stats::global().observe_reply(
+                        &self.stats_caller(),
+                        m,
+                        line.len(),
+                    );
+                }
                 if reply_to == Some(controls::METHOD) {
                     self.controls.reply(self, msg, line);
                 } else {
@@ -757,6 +786,9 @@ impl Conn {
         }
         let what = method.map_or(crate::wire_size::What::Reply, crate::wire_size::What::ReplyTo);
         crate::wire_size::observe(what, bytes);
+        if let Some(m) = method {
+            crate::caller_stats::global().observe_reply(&self.stats_caller(), m, bytes);
+        }
         // Each client's share of the list it is sent (`list_bytes.rs`), by its name and origin.
         if matches!(method, Some(crate::rpc::method::MUX_WATCH | crate::rpc::method::MUX_SESSIONS))
         {
@@ -821,8 +853,21 @@ impl Conn {
         if subs.contains_key(session_id) {
             return false;
         }
+        self.interest.attach(session_id);
         subs.insert(session_id.to_owned(), SubOpts::default());
         true
+    }
+
+    /// Turns its watch on or off (`_acpmux/watch {enabled}`): off, the other chats' changes no
+    /// longer wake its fan-out (`interest.rs`); on, it hears from the next change.
+    pub(super) fn set_watching(&self, on: bool) {
+        if on {
+            self.interest.set_watching(true);
+            self.watch_all.store(true, Ordering::SeqCst);
+        } else {
+            self.watch_all.store(false, Ordering::SeqCst);
+            self.interest.set_watching(false);
+        }
     }
     fn label(&self) -> String {
         let n = self.name.lock_or_recover().clone();
@@ -1805,6 +1850,7 @@ async fn serve_connection_from(
         mailbox_bindings: StdMutex::new(HashMap::new()),
         controls: Default::default(),
         created: StdMutex::default(),
+        interest: interest::Interest::new(hub.fanout_router()),
         watch_all: AtomicBool::new(false),
         watch_tools: AtomicBool::new(false),
         peer_row_batches: AtomicBool::new(false),
@@ -1850,6 +1896,9 @@ async fn serve_connection_from(
     let device_ended = web_device::credential_ended(&hub, &conn);
     tokio::pin!(device_ended);
     queue_gauge::register(&conn);
+    // A peer daemon's link mirrors the list and reads it again only when it links again: its
+    // list notices are never left out (`outbound.rs`). Named again at its `initialize`.
+    conn.out.describe(format!("{} {}", origin_usage_key(origin), conn.id), origin != Origin::Peer);
     tracing::debug!(conn = %conn.id, "client connected");
 
     let mut fan = fanout::start(hub.clone(), conn.clone(), flushes);
@@ -1917,6 +1966,7 @@ async fn serve_connection_from(
             }
             continue;
         }
+        let line_bytes = line.len();
         let msg = match Message::parse(&line) {
             Ok(m) => m,
             Err(e) => {
@@ -1926,6 +1976,15 @@ async fn serve_connection_from(
         };
         match msg {
             Message::Request { id, method: m, mut params } => {
+                // Every request its caller sent, refused ones too (`caller_stats.rs`); an
+                // `initialize` once it named the client, below.
+                if m != method::INITIALIZE {
+                    crate::caller_stats::global().observe_request(
+                        &conn.stats_caller(),
+                        &m,
+                        line_bytes,
+                    );
+                }
                 // An open of a chat's view is timed from here to its reply (`gauges.attach`).
                 let attach_from = crate::gauges::opens_a_chat(&m).then(std::time::Instant::now);
                 // Once a local connection has been admitted as a trigger
@@ -1978,6 +2037,14 @@ async fn serve_connection_from(
                 conn.bind_person(&hub, &m, &mut params);
                 if m == method::INITIALIZE {
                     requests::note_initialize(&conn, params.as_ref().unwrap_or(&Value::Null));
+                }
+                // After it named the client: an `initialize` counts under that name.
+                if m == method::INITIALIZE {
+                    crate::caller_stats::global().observe_request(
+                        &conn.stats_caller(),
+                        &m,
+                        line_bytes,
+                    );
                 }
                 // Before its reply is built: the reply says whether large messages go compressed.
                 if m == method::INITIALIZE
@@ -2232,6 +2299,7 @@ async fn serve_connection_from(
         tracing::debug!(conn = %conn.id, dropped, "notification admission drops during connection");
     }
     fan.abort();
+    conn.interest.forget();
     conn.media.close_all();
     conn.remote_media.close_all();
     view::release_all(&hub, &conn);
@@ -2240,6 +2308,10 @@ async fn serve_connection_from(
     // reconnecting to a forward port its bridge already closed, which another
     // process could bind (`hub/peer_lease.rs`).
     conn.end_peer_leases(&hub);
+    // The phones the owner's peer daemon vouched for on this link end with it (fail closed).
+    if hub.pairing.unvouch(&conn.id, None, None, 0) {
+        hub.hold_policies_again().await;
+    }
     ephemeral::release_all(&hub, &conn).await;
     tracing::debug!(conn = %conn.id, "client disconnected");
 }
@@ -2269,7 +2341,9 @@ async fn refuse_unauthenticated(
     .await;
 }
 
-/// Turn a hub record into client notifications for one connection.
+/// Turn a hub record into client notifications for one connection. It is called only for the
+/// records routed to the connection (`interest.rs`): a record a watcher is sent anything for here
+/// must be one `interest::watch_hears` names.
 fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
     // The close of one peer's batch of rows (`hub/list_guard.rs` `send_remote_batch`): only a
     // watcher that asked for batches hears it, in place of the rows' `session_changed`.
@@ -2566,7 +2640,7 @@ mod cancel_prompt_tests;
 #[path = "chatgpt_import_tests.rs"]
 mod chatgpt_import_tests;
 mod client_request;
-mod computer_use_relay;
+pub(crate) mod computer_use_relay;
 #[cfg(test)]
 #[path = "connection_token_tests.rs"]
 mod connection_token_tests;
@@ -2579,6 +2653,10 @@ pub(crate) mod shutdown_drain;
 #[cfg(test)]
 #[path = "shutdown_drain_tests.rs"]
 mod shutdown_drain_tests;
+#[cfg(test)]
+#[cfg(unix)]
+#[path = "wake_held_tests.rs"]
+mod wake_held_tests;
 pub(crate) use crate::clock_text::{civil_from_days, iso};
 pub(crate) use change_kind::session_change_kind;
 mod change_kind;
@@ -2619,6 +2697,7 @@ mod goal;
 pub mod local_app;
 pub(crate) mod machine_enroll;
 pub(crate) mod machine_health;
+mod machine_join_ssh;
 #[cfg(feature = "hub-carrier")]
 mod machine_routes;
 mod machine_tunnel;
@@ -2640,6 +2719,7 @@ mod ssh_carry;
 mod task_list;
 pub use pairing::serve_connection_device;
 pub(crate) mod host_power;
+pub(crate) mod interest;
 mod move_targets;
 pub mod peer_auth;
 mod peer_forward;
@@ -2713,6 +2793,10 @@ mod list_pending_tests;
 mod list_web_page_tests;
 
 #[cfg(test)]
+#[path = "inbox_gate_tests.rs"]
+mod inbox_gate_tests;
+
+#[cfg(test)]
 #[path = "ack_latency_bench.rs"]
 mod ack_latency_bench;
 
@@ -2764,3 +2848,8 @@ mod update_cost_bench;
 #[cfg(test)]
 #[path = "chat_window_activity_tests.rs"]
 mod chat_window_activity_tests;
+
+// Which connections a hub event wakes, and what that costs at 4, 16 and 64 connections.
+#[cfg(test)]
+#[path = "fanout_interest_tests.rs"]
+mod fanout_interest_tests;
