@@ -254,6 +254,12 @@ pub struct SessionMeta {
     /// applied at spawn, not through set_model.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_request: Option<String>,
+    /// The effort a new Claude Code chat starts on, given at spawn as `--effort` instead of a
+    /// `session/set_config_option` after `initialize` (`hub/lifecycle.rs`). A start before the
+    /// harness reported its options reads it (`model_options::spawn_effort`); its reported
+    /// effort wins after that.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort_request: Option<String>,
     pub cwd: PathBuf,
     /// Folders the chat sees beside `cwd` (ACP `session/new` `additionalDirectories`, its
     /// Sources): every start of its harness gets them (`hub/additional_dirs.rs`). Absolute,
@@ -270,6 +276,11 @@ pub struct SessionMeta {
     /// Codex keeps the goal in its thread, so it is set once.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub stop_condition_sent: bool,
+    /// Read-only work in a folder the person chose not to trust (`_meta.acpmux.restricted`,
+    /// `hub/restricted.rs`): every start of its Claude Code skips the folder's settings and MCP
+    /// servers, and it keeps the review policy.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub restricted: bool,
     #[serde(default)]
     pub agent_session_id: Option<String>,
     /// Claude Code can replace its native session id when a chat is forked. Keep ids this
@@ -1494,6 +1505,30 @@ pub trait Store: Send + Sync {
     fn scan_heads(&self, id: &str, visit: &mut dyn FnMut(&RecordHead<'_>) -> bool) -> Result<()> {
         self.scan(id, 0, &mut |rec| visit(&RecordHead::parsed(&rec)))
     }
+    /// `scan_heads` of the records from `from` on, each with where its line is ([`LinePos`]) in
+    /// a store that knows: an adoption that resumes from its checkpoint
+    /// (`hub/hosts/checkpoint.rs`). `hint` is where the line of `from` was; a file store reads
+    /// from there, when that line still holds `from`, and from the segment that holds `from`
+    /// otherwise. Never more records than `scan_heads`, never fewer past `from`.
+    fn scan_heads_from(
+        &self,
+        id: &str,
+        from: u64,
+        _hint: Option<LinePos>,
+        visit: &mut dyn FnMut(&RecordHead<'_>, Option<LinePos>) -> bool,
+    ) -> Result<()> {
+        self.scan_heads(id, &mut |head| head.seq < from || visit(head, None))
+    }
+    /// The adoption checkpoint of `id` (`hub/hosts/checkpoint.rs`), as saved. None in a store
+    /// that keeps none.
+    fn adoption_checkpoint(&self, _id: &str) -> Option<Vec<u8>> {
+        None
+    }
+    /// Saves `bytes` as `id`'s adoption checkpoint, whole or not at all. A store that keeps none
+    /// drops it.
+    fn save_adoption_checkpoint(&self, _id: &str, _bytes: &[u8]) -> Result<()> {
+        Ok(())
+    }
     /// The log's messages (`session_search.rs`), oldest first. A file store reads each segment's
     /// text copy (`store/text_index.rs`) and only the bytes appended past it.
     fn text_entries(
@@ -1699,6 +1734,14 @@ pub(crate) fn newest_window_by_scan<S: Store + ?Sized>(
 mod log_line;
 pub use log_line::RecordHead;
 
+/// Where a log line is: its segment's number and the byte offset its line starts at
+/// (`Store::scan_heads_from`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LinePos {
+    pub segment: u32,
+    pub offset: u64,
+}
+
 #[cfg(test)]
 pub(crate) use log_line::PARSED_LINES;
 
@@ -1736,10 +1779,16 @@ pub(crate) use durability::{RecordClass, record_class, streamed};
 mod journal_store;
 #[cfg(test)]
 pub(crate) use journal_store::open_with_journal;
+#[cfg(test)]
+pub(crate) use journal_store::{DISK_RESERVE, set_test_free};
 mod log_sync;
+mod segment_writer;
+use segment_writer::SegmentWriter;
 pub mod open_logs;
 #[cfg(test)]
-pub(crate) use journal_store::pause_next_log_write_on_this_thread;
+pub(crate) use journal_store::{
+    hold_next_read_fence_on_this_thread, pause_next_log_write_on_this_thread,
+};
 pub(crate) use log_sync::SyncFailed;
 #[cfg(all(test, unix))]
 mod sync_model;
@@ -1753,6 +1802,15 @@ pub(crate) use memory::{COPY_FORKS, REFUSE_APPENDS};
 
 /// A chat's restore point, beside its `session.json` (`hub/restore_point.rs`).
 const RESTORE_POINT: &str = "restore-point.json";
+/// A chat's adoption checkpoint, beside its `session.json` (`hub/hosts/checkpoint.rs`).
+const ADOPTION_CHECKPOINT: &str = "adoption-checkpoint.json";
+
+/// `path`'s bytes, read in the held home (`None` when it is missing or unreadable).
+fn held_file_bytes(path: &Path) -> Option<Vec<u8>> {
+    let mut bytes = Vec::new();
+    crate::home_fs::private_state_file(path).ok()?.read_to_end(&mut bytes).ok()?;
+    Some(bytes)
+}
 
 pub struct LocalStore {
     root: PathBuf,
@@ -1800,29 +1858,6 @@ struct Writers {
 const PARKED: &str = "parked.json";
 /// The folder of a chat's held tool output bodies (`Store::keep_held`), beside its log.
 const HELD: &str = "held";
-
-struct SegmentWriter {
-    index: u32,
-    file: File,
-    written: u64,
-    used: u64,
-}
-
-impl SegmentWriter {
-    /// Closes the log, durable first as `flush` would have made it. Called under the
-    /// writers' lock, so the cache never holds more than `open_logs` and a session's
-    /// records stay in order. A failed sync is logged and noted in `failed`: its records were
-    /// written (an append is never synced on its own), so only a machine crash before the kernel
-    /// writes them back loses them, as it would any append since the last `flush`.
-    fn close(self, id: &str, failed: &std::sync::atomic::AtomicBool) {
-        if let Err(e) = log_sync::sync_segment(&self.file, false) {
-            #[cfg(test)]
-            log_sync::hold(&log_sync::HOLD_BEFORE_CLOSE_NOTE);
-            failed.store(true, std::sync::atomic::Ordering::SeqCst);
-            tracing::warn!(session = %id, "sync event log on close: {e}");
-        }
-    }
-}
 
 impl LocalStore {
     pub fn new(root: PathBuf, segment_bytes: u64) -> Result<Self> {
@@ -2020,7 +2055,7 @@ impl LocalStore {
         };
         let file = open_private_append(&path)?;
         let written = cut_torn_tail(&file, &path)?;
-        Ok(SegmentWriter { index, file, written, used: 0 })
+        Ok(SegmentWriter::new(index, file, written, 0))
     }
 }
 
@@ -2057,79 +2092,6 @@ fn note_write_budget(record: &EventRecord, bytes: usize) {
     }
     if let Some(warning) = EVENT_LOG_BUDGET.note(&record.kind, bytes, &record.msg, now_ms()) {
         tracing::warn!("{warning}");
-    }
-}
-
-impl LocalStore {
-    /// One whole serialized record (`line` ends with its newline) at the end of `id`'s log: the
-    /// body of [`Store::append`], and the journal store's write of a journaled line
-    /// (`store/journal_store.rs`). Refused once the store is sealed.
-    pub(super) fn append_line(&self, id: &str, line: &[u8]) -> Result<()> {
-        // One lock hold from the eviction to the write: the least recently written log is
-        // closed before this one opens, so no more than `open_logs` are ever open, and no other
-        // append comes between (a session's records stay in order). Its sync runs under the lock,
-        // once per eviction: only while more than `open_logs` sessions are written.
-        let _open = self.writable()?;
-        let mut writers = self.writers.lock_or_recover();
-        if !writers.open.contains_key(id)
-            && writers.open.len() >= self.open_logs
-            && let Some(oldest) =
-                writers.open.iter().min_by_key(|(_, w)| w.used).map(|(k, _)| k.clone())
-            && let Some(w) = writers.open.remove(&oldest)
-        {
-            w.close(&oldest, &self.sync_failed);
-        }
-        if !writers.open.contains_key(id) {
-            // A cut left halfway is finished before anything is appended past it.
-            self.finish_cut_locked(id, &mut writers)?;
-            let writer = self.open_writer(id)?;
-            writers.open.insert(id.to_owned(), writer);
-        }
-        writers.clock += 1;
-        let clock = writers.clock;
-        let full = writers.open.get(id).is_some_and(|w| w.written >= self.segment_bytes);
-        if full && let Some(old) = writers.open.remove(id) {
-            // The full segment closes before the next one opens (rare: once per segment).
-            let index = old.index + 1;
-            old.close(id, &self.sync_failed);
-            let path = self.dir(id).join("events").join(format!("{index:06}.ndjson"));
-            let file = open_private_append(&path)?;
-            writers
-                .open
-                .insert(id.to_owned(), SegmentWriter { index, file, written: 0, used: clock });
-        }
-        let Some(w) = writers.open.get_mut(id) else {
-            anyhow::bail!("no segment writer for session {id}");
-        };
-        w.used = clock;
-        #[cfg(debug_assertions)]
-        disk_fault::write()?;
-        #[cfg(test)]
-        let wrote = match test_write_fault::take() {
-            Some(kept) => w.file.write_all(&line[..kept.min(line.len())]).and(Err(
-                std::io::Error::new(std::io::ErrorKind::StorageFull, "no space left (a test)"),
-            )),
-            None => w.file.write_all(line),
-        };
-        #[cfg(not(test))]
-        let wrote = w.file.write_all(line);
-        if let Err(e) = wrote {
-            // A full disk (or a signal) can write part of the line before the error. Cut it back
-            // to the last whole record, or the next append is glued onto the torn bytes: the
-            // merged line reads as no record, so that record is lost and a strict read fails.
-            // If the cut fails too, the writer is closed, not dropped: its earlier appends are
-            // synced as at any close (a checkpoint's `sync_log` takes a log with no open writer
-            // as synced), and the next open cuts the tail.
-            let segment = self.dir(id).join("events").join(format!("{:06}.ndjson", w.index));
-            if cut_back(&segment, w.written).is_err()
-                && let Some(w) = writers.open.remove(id)
-            {
-                w.close(id, &self.sync_failed);
-            }
-            return Err(e.into());
-        }
-        w.written += line.len() as u64;
-        Ok(())
     }
 }
 
@@ -2342,7 +2304,7 @@ impl Store for LocalStore {
     fn flush_session(&self, id: &str) -> Result<()> {
         let writers = self.writers.lock_or_recover();
         if let Some(writer) = writers.open.get(id) {
-            log_sync::sync_segment(&writer.file, true).map_err(SyncFailed)?;
+            log_sync::sync_segment(writer.file(), true).map_err(SyncFailed)?;
         }
         let session = self.dir(id);
         sync_directory(&session.join("events"))?;
@@ -2438,6 +2400,98 @@ impl Store for LocalStore {
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
         self.scan_lines(id, after, true, None, visit)
+    }
+
+    /// Reads from `hint` when the line there holds `from` (an adoption's checkpoint: no byte
+    /// before it), else from the start of the segment that holds `from`, passing the lines
+    /// before `from` on their `seq` alone.
+    fn scan_heads_from(
+        &self,
+        id: &str,
+        from: u64,
+        hint: Option<LinePos>,
+        visit: &mut dyn FnMut(&RecordHead<'_>, Option<LinePos>) -> bool,
+    ) -> Result<()> {
+        use std::io::{Seek, SeekFrom};
+        let segments = self.segments(id)?;
+        let mut line = Vec::new();
+        let hinted = hint.and_then(|h| {
+            let (index, (_, path)) =
+                segments.iter().enumerate().find(|(_, (n, _))| *n == h.segment)?;
+            let mut reader =
+                BufReader::with_capacity(64 * 1024, crate::config::private_state_file(path).ok()?);
+            reader.seek(SeekFrom::Start(h.offset)).ok()?;
+            line.clear();
+            reader.read_until(b'\n', &mut line).ok()?;
+            (record_seq(&line) == Some(from)).then_some((index, h.offset, reader))
+        });
+        let (start, mut first) = match hinted {
+            Some((index, offset, reader)) => (index, Some((offset, reader))),
+            None => (self.segment_starts.start(id, &segments, from.saturating_sub(1))?, None),
+        };
+        for (index, path) in segments.get(start..).unwrap_or_default() {
+            let (mut pos, mut reader) = match first.take() {
+                Some((offset, reader)) => (offset, reader),
+                None => {
+                    line.clear();
+                    let file = crate::config::private_state_file(path)?;
+                    (0, BufReader::with_capacity(256 * 1024, file))
+                }
+            };
+            loop {
+                // The hinted line was read already.
+                let n =
+                    if line.is_empty() { reader.read_until(b'\n', &mut line)? } else { line.len() };
+                if n == 0 {
+                    break;
+                }
+                let at = LinePos { segment: *index, offset: pos };
+                pos += n as u64;
+                let more = if line.iter().all(u8::is_ascii_whitespace)
+                    || record_seq(&line).is_some_and(|seq| seq < from)
+                {
+                    true
+                } else {
+                    match RecordHead::read(&line) {
+                        Some(head) => visit(&head, Some(at)),
+                        None => match parse_record(&line) {
+                            Ok(rec) if rec.seq >= from => {
+                                visit(&RecordHead::parsed(&rec), Some(at))
+                            }
+                            _ => true,
+                        },
+                    }
+                };
+                line.clear();
+                if !more {
+                    return Ok(());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// None once the log was compacted since it was saved: a compaction cuts records' strings
+    /// in place (`store/compact.rs`), which a fold of them would read differently. The file's
+    /// first line is the digest of the compaction marker it was saved under.
+    fn adoption_checkpoint(&self, id: &str) -> Option<Vec<u8>> {
+        let bytes = held_file_bytes(&self.dir(id).join(ADOPTION_CHECKPOINT))?;
+        let nl = bytes.iter().position(|&b| b == b'\n')?;
+        let (head, body) = bytes.split_at(nl);
+        (head == self.compaction_digest(id).as_bytes())
+            .then(|| body.get(1..).unwrap_or_default().to_vec())
+    }
+
+    fn save_adoption_checkpoint(&self, id: &str, bytes: &[u8]) -> Result<()> {
+        let _open = self.writable()?;
+        let dir = self.dir(id);
+        // As `save_restore_point`: a chat whose folder went away gets no file of its own again.
+        let folder = crate::home_fs::symlink_metadata(&dir).is_ok_and(|m| m.file_type().is_dir());
+        anyhow::ensure!(folder, "no folder for {id}");
+        let mut file = self.compaction_digest(id).into_bytes();
+        file.push(b'\n');
+        file.extend_from_slice(bytes);
+        write_atomic(&dir.join(ADOPTION_CHECKPOINT), &file)
     }
 
     /// Reads each line's head (`RecordHead::read`) and parses only the lines the reader asks
@@ -2649,7 +2703,7 @@ impl Store for LocalStore {
 
     fn flush(&self) -> Result<()> {
         for w in self.writers.lock_or_recover().open.values() {
-            log_sync::sync_segment(&w.file, false)?;
+            log_sync::sync_segment(w.file(), false)?;
         }
         Ok(())
     }
@@ -2665,9 +2719,7 @@ impl Store for LocalStore {
 
     fn close_log(&self, id: &str) {
         let mut writers = self.writers.lock_or_recover();
-        if let Some(w) = writers.open.remove(id) {
-            w.close(id, &self.sync_failed);
-        }
+        self.close_writer_locked(id, &mut writers);
     }
 
     fn compacted_seq(&self, id: &str) -> Option<u64> {
@@ -2802,7 +2854,9 @@ impl Store for LocalStore {
 
     fn delete(&self, id: &str) -> Result<()> {
         let _open = self.writable()?;
-        self.writers.lock_or_recover().open.remove(id);
+        if let Some(w) = self.writers.lock_or_recover().open.remove(id) {
+            w.retire();
+        }
         self.kind_heads.forget(id);
         self.segment_starts.forget(id);
         self.segment_table.forget(id);

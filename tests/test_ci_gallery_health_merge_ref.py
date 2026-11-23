@@ -146,7 +146,8 @@ class GalleryHealthBaseReds(unittest.TestCase):
         self.assertEqual(workflow["jobs"]["health"]["strategy"]["matrix"]["shard"],
                          "${{ fromJSON(needs.plan.outputs.shards) }}")
         render = step("Render the gallery and judge it")
-        self.assertEqual(render["env"]["SHARDS"], "${{ strategy.job-total }}")
+        # The full split from the plan: a push's full render starts only a slice of it.
+        self.assertEqual(render["env"]["SHARDS"], "${{ needs.plan.outputs.split || strategy.job-total }}")
         self.assertIn('--shard-count "$SHARDS" --shard-index "$SHARD"', render["run"])
 
     def test_every_health_run_may_render(self) -> None:
@@ -194,7 +195,7 @@ class GalleryHealthBaseReds(unittest.TestCase):
         self.assertNotIn("needs", job, "it runs beside the shards, not before them")
         self.assertEqual(workflow["jobs"]["health"]["needs"], "plan", "the shards wait only for their plan")
         runs_on = "\n".join(workflow_jobs.runs_on_cells(job) or ["<unresolved matrix>"])
-        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", runs_on)
+        self.assertTrue(runs_on.endswith("'cmux-linux' }}"), runs_on)
         self.assertNotIn("blacksmith", runs_on)
         # It checks out what the shards check out, and restores the base by the judge step's own command.
         self.assertEqual(job["steps"][0]["with"], step("Checkout")["with"])
@@ -657,12 +658,40 @@ class GalleryHealthTime(unittest.TestCase):
                      "scripts/gallery-matrix/upload-set.ts", "webviews/package.json"):
             self.assertTrue(in_sparse(path, patterns), path)
         self.assertFalse(in_sparse("cmux-tui/Cargo.toml", patterns))
+
+    def test_the_checkout_has_every_file_webviews_imports_from_outside_it(self) -> None:
+        # Base red, 2026-11-22: Customize looks imported examples/gallery/gallery.json and globbed
+        # examples/looks/*/cmux-setup.json, the checkout had no examples/, and every shard's gallery:build
+        # failed with "Could not resolve". A relative import or glob that leaves webviews/ must be checked out.
+        patterns = sparse_patterns()
+        # A static import or re-export (not `import type`/`export type`, which the bundler erases), a dynamic
+        # import, or an import.meta.glob.
+        static = re.compile(r"""^\s*(?:import|export)(\s+type\b)?[^;"']*?\bfrom\s+["'](\.\.?/[^"']+)["']""",
+                            re.MULTILINE)
+        dynamic = re.compile(r"""(?:\bimport\s*\(\s*|import\.meta\.glob(?:<[^>]*>)?\(\s*)["'](\.\.?/[^"']+)["']""")
+        missing: set[str] = set()
+        for source in tracked("webviews/src"):
+            if not source.endswith((".ts", ".tsx")) or source.endswith((".test.ts", ".test.tsx")):
+                continue
+            text = (ROOT / source).read_text(encoding="utf-8")
+            targets = [target for erased, target in static.findall(text) if not erased] + dynamic.findall(text)
+            for target in targets:
+                resolved = os.path.normpath(os.path.join(os.path.dirname(source), target))
+                if resolved.startswith("webviews/") or resolved.startswith(".."):
+                    continue
+                if "*" in resolved:
+                    files = [p for p in tracked(resolved.split("*")[0]) if unplaced_tool.glob_regex(resolved).match(p)]
+                else:
+                    files = [resolved]
+                missing.update(f"{source} -> {path}" for path in files if not in_sparse(path, patterns))
+        self.assertEqual(sorted(missing), [], "add these to the Checkout step's sparse-checkout")
         self.assertFalse(in_sparse("Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppDelegate.swift", patterns))
 
     def test_a_shard_past_its_case_budget_fails_naming_the_shard_count(self) -> None:
         cap = step("Hold each shard within its time budget")
-        self.assertEqual(cap["env"]["SHARDS"], "${{ strategy.job-total }}")
-        self.assertIn("matrix.shard == 0", cap["if"])
+        self.assertEqual(cap["env"]["SHARDS"], "${{ needs.plan.outputs.split || strategy.job-total }}")
+        # The first shard that started: a push's slice may not hold shard 0.
+        self.assertIn("strategy.job-index == 0", cap["if"])
         self.assertIn("!cancelled()", cap["if"])
         names = [entry.get("name") for entry in steps()]
         # It counts before the base replay restores the base's webviews/ (review of #41296), goes on so the
@@ -695,6 +724,7 @@ class GalleryHealthTime(unittest.TestCase):
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
         plan = workflow["jobs"]["plan"]
         self.assertEqual(plan["outputs"]["shards"], "${{ steps.size.outputs.shards }}")
+        self.assertEqual(plan["outputs"]["split"], "${{ steps.size.outputs.split }}")
         self.assertIn("needs.plan.outputs.shards != '[]'", workflow["jobs"]["health"]["if"])
         # A fork's pull request gets no plan and so no shards, as before.
         self.assertIn("head.repo.full_name == github.repository", plan["if"])
@@ -707,12 +737,12 @@ class GalleryHealthTime(unittest.TestCase):
                 "json.dump([{}]*int(sys.argv[1]), open(sys.argv[2], 'w'))\" \"$CASES\" \"$2\"; }; shift; done\n")
             (root / "bin/bun").chmod(0o755)
 
-            def shards(cases: int, all_: str = "false", ids: str = "a") -> list[int]:
+            def shards(cases: int, all_: str = "false", ids: str = "a", **extra: str) -> list[int]:
                 out = root / "out"
                 out.write_text("")
                 env = {**os.environ, "PATH": f"{root / 'bin'}:{os.environ['PATH']}", "RUNNER_TEMP": tmp,
                        "GITHUB_OUTPUT": str(out), "CASES": str(cases), "ALL": all_, "IDS": ids,
-                       **{k: str(v) for k, v in size["env"].items() if k.startswith("MAX_")}}
+                       **{k: str(v) for k, v in size["env"].items() if k.startswith("MAX_")}, **extra}
                 done = subprocess.run(["bash", "-c", size["run"]], cwd=root, env=env, capture_output=True, text=True)
                 self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
                 values = dict(line.split("=", 1) for line in out.read_text().splitlines())
@@ -727,6 +757,25 @@ class GalleryHealthTime(unittest.TestCase):
             self.assertEqual(shards(per + 1), [0, 1])
             self.assertEqual(shards(13002, all_="true", ids=""), list(range(17)))
             self.assertEqual(len(shards(10**6, all_="true")), int(size["env"]["MAX_SHARDS"]))
+
+            # A push's full render runs a rotating slice of the full split (Leo, 2026-11-21: "cut shit now and
+            # revisit later"); consecutive runs cover every shard. `all` is the off switch.
+            self.assertEqual(size["env"]["PUSH_FULL_SHARDS"], "${{ vars.GALLERY_HEALTH_PUSH_FULL_SHARDS || '2' }}")
+            push = {"EVENT": "push", "PUSH_FULL_SHARDS": "2"}
+            self.assertEqual(shards(13002, all_="true", ids="", RUN_NUMBER="0", **push), [0, 1])
+            self.assertEqual(shards(13002, all_="true", ids="", RUN_NUMBER="8", **push), [16, 0])
+            seen = set()
+            for run_number in range(9):
+                seen.update(shards(13002, all_="true", ids="", RUN_NUMBER=str(run_number), **push))
+            self.assertEqual(seen, set(range(17)), "nine consecutive full-render pushes cover all 17 shards")
+            self.assertEqual(shards(13002, all_="true", ids="", RUN_NUMBER="3", EVENT="push",
+                                    PUSH_FULL_SHARDS="all"), list(range(17)), "the off switch")
+            self.assertEqual(shards(13002, all_="true", ids="", RUN_NUMBER="3", EVENT="workflow_dispatch",
+                                    PUSH_FULL_SHARDS="2"), list(range(17)), "a dispatch renders everything")
+            self.assertEqual(shards(5 * per, RUN_NUMBER="3", **push), list(range(5)),
+                             "a push that touched entries renders them all")
+            self.assertEqual(shards(per + 1, all_="true", ids="", RUN_NUMBER="3", **push), [0, 1],
+                             "a split no wider than the slice renders whole")
 
     def test_the_plan_checks_out_what_the_shards_do(self) -> None:
         self.assertEqual(plan_step("Checkout")["with"], step("Checkout")["with"])
