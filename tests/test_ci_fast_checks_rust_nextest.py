@@ -78,14 +78,18 @@ class InstallerIsTheOnePin(unittest.TestCase):
         )
 
     def test_no_ci_path_installs_an_unpinned_nextest(self) -> None:
-        # get.nexte.st/latest gave a check a different nextest than the gates ran, and silently
-        # changed version under them.
-        offenders = [
-            path.relative_to(ROOT).as_posix()
-            for path in sorted((ROOT / "scripts" / "ci").rglob("*"))
-            if path.is_file() and "get.nexte.st" in path.read_text(encoding="utf-8", errors="ignore")
-        ]
-        self.assertEqual([], offenders, "use scripts/ci/install-nextest.sh, not get.nexte.st/latest")
+        # The unpinned installer (nextest's "latest" redirect) gave a check a different nextest
+        # than the gates ran, and changed version under it without a commit. A comment may name
+        # the host; a command may not fetch from it.
+        host = "get." + "nexte.st"
+        offenders = []
+        for path in sorted((ROOT / "scripts" / "ci").rglob("*")):
+            if not path.is_file():
+                continue
+            for number, line in enumerate(path.read_text(encoding="utf-8", errors="ignore").splitlines(), 1):
+                if host in line and not line.lstrip().startswith("#"):
+                    offenders.append(f"{path.relative_to(ROOT).as_posix()}:{number}")
+        self.assertEqual([], offenders, "install nextest with scripts/ci/install-nextest.sh")
 
     def test_every_sharing_script_calls_the_installer(self) -> None:
         for path in SHARING_SCRIPTS:
