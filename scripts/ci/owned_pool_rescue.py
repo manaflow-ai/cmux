@@ -323,6 +323,10 @@ UNRESCUED_WORKFLOW_PATHS = {
         "feat-cmux-next only, with no copy on main to list in SIDE_WORKFLOW_PATHS yet: its phone cells take the kit "
         "lane's pick (an owned simulator mini) on attempt 1 and Blacksmith macOS 26 from attempt 2, so a stuck or "
         "refused job ends at its 60-minute timeout and a person's re-run lands on Blacksmith",
+    ".github/workflows/ios-review-gate.yml":
+        "feat-cmux-next only: its reviewer-path legs take the review-gate lane's pick in plan (an owned simulator mini) on "
+        "attempt 1 and Blacksmith macOS 26 from attempt 2, so a stuck or refused leg ends at its 120-minute timeout "
+        "and a person's re-run lands on Blacksmith",
     ".github/workflows/cloud-chat-proof.yml":
         "a manual proof that never takes an owned pool: pick-proof-runner runs e2e_runner_pool.py with --owned 0 and "
         "keeps only a Blacksmith macOS 26 label, because each proof job holds a Stack account pair; a re-run takes "
