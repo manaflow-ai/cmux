@@ -162,6 +162,10 @@ public final class DesignSettings {
             BackdropImageStore.shared.desktop.tintEnabled = wallpaperTint
         }
     }
+    /// `appearance.backgroundPlacement`: where each picture lies, by picture id; a picture with no
+    /// entry is centered and fills (today's look). Every window and pane backdrop observes it
+    /// (`WindowMaterialView.observePlacement`).
+    public var backgroundPlacements: [String: BackdropPlacement] = [:]
     /// The `ui.animations.{newTab,newWorkspace}` kinds on: new tabs by default
     /// (`AnimationKindsSetting.defaultEnabled`), new workspaces off.
     public var enabledAnimations: Set<MotionKind> = [.newTab]
@@ -326,6 +330,17 @@ public final class DesignSettings {
     /// itself follows it too (``ProcessFontSmoothing/chrome``); stock AppKit text keeps the launch's
     /// value (``ProcessFontSmoothing/current``).
     public var fontSmoothing: FontSmoothing = .auto
+    /// `experiments.*` (Settings > Experimental > Experiments, schemas/settings/source/experiments.json):
+    /// each boolean key by its name (`menuStyleV2`), only the ones turned on. ``WebTheme`` sends it to
+    /// every cmux page (`window.cmuxExperimentSettings`; webviews/src/experiments/hostSettings.ts maps
+    /// a name to its experiment's arm); native code reads ``experiment(_:)``. A change repaints, so
+    /// every page gets its theme, and with it the switches, again.
+    public var experiments: [String: Bool] = [:] {
+        didSet { if experiments != oldValue { ThemeScope.app.store.repaintAll() } }
+    }
+
+    /// Whether the `experiments.<name>` switch is on (`DesignSettings.shared.experiment("menuStyleV2")`).
+    public func experiment(_ name: String) -> Bool { experiments[name] == true }
     /// `appearance.sidebarSurface`: the sidebar on the main pane's surface,
     /// or shaded apart from it.
     public var sidebarSurface: SidebarSurface = .same

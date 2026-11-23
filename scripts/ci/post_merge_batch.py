@@ -154,16 +154,19 @@ def touches_workflows(files) -> list[str]:
 
 
 def push_token(files=(), command: str = "") -> str:
-    """The token that creates and pushes the swap-out, probe or revert branch. PUSH_TOKEN is minted with contents
-    write only; a diff that touches .github/workflows/** takes WORKFLOWS_TOKEN, minted apart with workflows write
-    (a step that may fail: the routing App had no Workflows permission and the combined mint failed every revert
-    job, run 45021631601, hq#18499). With no WORKFLOWS_TOKEN such a diff stops here with `command`."""
-    workflow_files = touches_workflows(files)
-    if not workflow_files:
-        return os.environ.get("PUSH_TOKEN") or os.environ.get("GH_TOKEN", "")
+    """The token that creates and pushes the swap-out, probe or revert branch. WORKFLOWS_TOKEN (workflows write,
+    minted apart) whenever the job has one: every such branch starts at a feat-cmux-next or drill commit, whose
+    workflow files differ from main's, and GitHub refuses a contents-only token that creates a ref there whatever
+    the diff touches ("Resource not accessible by integration (HTTP 403)" on POST git/refs: drill 9's piece probe,
+    run 45096141472, job 137440066365). PUSH_TOKEN (contents write only) is the fallback when that mint failed
+    (the routing App had no Workflows permission and the combined mint failed every revert job, run 45021631601,
+    hq#18499); then a diff that touches .github/workflows/** stops here with `command`."""
     token = os.environ.get("WORKFLOWS_TOKEN", "")
     if token:
         return token
+    workflow_files = touches_workflows(files)
+    if not workflow_files:
+        return os.environ.get("PUSH_TOKEN") or os.environ.get("GH_TOKEN", "")
     raise WorkflowsTokenMissing(
         f"This change touches workflow files ({', '.join(workflow_files)}) and the job has no workflows-write token "
         f"(the \"Mint the workflows push token\" step failed or did not run). Grant the routing App Workflows: Read and "

@@ -40,6 +40,31 @@ struct AgentPageDrawnParkingTests {
         return (view, chromium, window, host)
     }
 
+    /// A page waiting off screen is nobody's sight, so its socket leaves its chat's stream and other chats' rows out
+    /// (Leo: "Why should non visible thing even affect the renderer thread anyways?"): kept drawn after a switch, or
+    /// in any other off-screen parking (Reopen's kept chat, the New Tab spare). A page drawing its first frame before
+    /// it shows keeps its stream, and one back in its pane is seen again.
+    @Test func aPageParkedOffScreenReadsUnseenToItsSocket() async throws {
+        let (view, _, window, host) = try await chat()
+        defer { view.page?.close(); window.close() }
+        #expect(!AgentPaneFramePacer.parkedAway(view))
+        #expect(AgentPageDrawnParking.park(view))
+        #expect(AgentPaneFramePacer.parkedAway(view), "a chat kept drawn off screen still reads as seen")
+        #expect(AgentPaneFramePacer.pageHidden(view) && AgentPaneFramePacer.nobodySees(view))
+        _ = AgentPageDrawnParking.takeBack(view)
+        host.addSubview(view)
+        #expect(!AgentPaneFramePacer.parkedAway(view), "a chat back in its pane still reads as parked")
+
+        let kept = PageOffscreenParking()
+        host.addSubview(kept)
+        kept.addSubview(view)
+        #expect(AgentPaneFramePacer.parkedAway(view), "a page in an off-screen parking (Reopen, spare) reads as seen")
+        kept.identifier = AgentPaneView.paintParkingID
+        #expect(!AgentPaneFramePacer.parkedAway(view), "a page painting before it shows lost its stream")
+        host.addSubview(view)
+        kept.removeFromSuperview()
+    }
+
     /// K switches away and back: the page is never hidden to Chromium (no blank frame on return), keeps its size
     /// (0 px shift), and is away to the document only while no pane shows it.
     @Test func aChatSwitchedAwayAndBackStaysDrawnAtItsSize() async throws {
