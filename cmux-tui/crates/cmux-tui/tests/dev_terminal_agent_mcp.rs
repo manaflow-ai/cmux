@@ -142,7 +142,8 @@ fn claude_in_a_terminal_tells_its_own_servers_the_answer() {
     let _listener = UnixListener::bind(&socket).unwrap();
     for (file, expected) in [
         (r#"{"agents": {"cmuxMcp": "off"}, "mcp": {"enabled": true}}"#, "off"),
-        (r#"{"agents": {"cmuxMcp": "ask"}}"#, "off"),
+        (r#"{"agents": {"cmuxMcp": "ask"}}"#, "on"),
+        ("{}", "on"),
         (r#"{"agents": {"cmuxMcp": "on"}}"#, "on"),
     ] {
         fs::write(&settings, file).unwrap();
