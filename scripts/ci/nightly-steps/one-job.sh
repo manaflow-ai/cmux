@@ -88,6 +88,11 @@ case "${1:-}" in
     if [ "${LANGUAGE_PACKS:-false}" = true ]; then
       mkdir -p language-packs
       cp "$RUNNER_TEMP"/language-packs/*.tar.zst "$RUNNER_TEMP/language-packs/language-packs.json" language-packs/
+      # The tool packs (tool-packs.py, sign-cmux-bundle.sh 4c) sit in its tools/ when the app has them.
+      if [ -f "$RUNNER_TEMP/language-packs/tools/tool-packs.json" ]; then
+        mkdir -p language-packs/tools
+        cp "$RUNNER_TEMP"/language-packs/tools/*.tar.zst "$RUNNER_TEMP/language-packs/tools/tool-packs.json" language-packs/tools/
+      fi
     fi
     printf '%s\n' source=own "build=$NIGHTLY_BUILD" "build_sha=$BUILD_SHA" "build_short_sha=${BUILD_SHA:0:7}" \
       "tip_sha=$TIP_SHA" "behind=$BEHIND" "behind_hours=$BEHIND_HOURS" "variant_pattern=cmux-nightly-variant-*" \
