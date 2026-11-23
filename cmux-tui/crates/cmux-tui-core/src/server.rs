@@ -168,6 +168,8 @@ mod command_args;
 #[cfg(unix)]
 mod fs_wire;
 mod input_qos;
+#[cfg(unix)]
+mod projection_away;
 #[cfg(all(test, target_os = "macos"))]
 pub(crate) use input_qos::current_thread_qos as current_input_thread_qos;
 pub(crate) use input_qos::raise_this_thread as raise_input_thread_qos;
@@ -3061,6 +3063,7 @@ use journal_stream::{
     handle_journal_extension_request, prepare_session_journal_stream, start_session_journal_stream,
 };
 
+mod agent_app_control;
 mod incognito_orphans;
 mod incognito_remote;
 mod resource_connection;
@@ -3146,7 +3149,19 @@ use tree_json::{ShortIds, pane_json, tree_delta_json};
 #[cfg(test)]
 pub(crate) use tree_json::{panes_built_for_test, set_entity_check_hook_for_test};
 
+/// The live runtime of tab `id`. A parked terminal tab (`relaunch.on_show`:
+/// lazy start, `park-tabs`) starts here on its first need, and the request
+/// goes on with its new shell (`mux/terminal_respawn/lazy.rs`).
 fn get_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> {
+    // A live tab costs only the lock-free route read it always did.
+    if mux.surface(id).is_none_or(|surface| surface.is_dead()) {
+        mux.wake_lazy_tab(id);
+    }
+    get_surface_without_start(mux, id)
+}
+
+/// [`get_surface`] that never starts a parked tab (closing one).
+fn get_surface_without_start(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> {
     mux.surface(id)
         .filter(|surface| !surface.is_dead())
         .ok_or_else(|| anyhow::anyhow!("unknown surface {id}"))
