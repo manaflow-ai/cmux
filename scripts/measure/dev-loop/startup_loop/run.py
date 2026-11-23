@@ -166,6 +166,28 @@ def sweep(spans, t0, t1, order=("compile", "link", "sign", "quit")):
     return total
 
 
+def gap_census(procs, spans, t0, t1, top=8):
+    """Where the unattributed time of [t0, t1] went: each moment no span covers goes to the youngest process alive
+    then (the most specific thing running), summed by executable name, largest first."""
+    points = sorted(set([t0, t1] + [min(max(t, t0), t1) for r in procs for t in (r["start"], r["end"] or t1)]
+                        + [min(max(t, t0), t1) for _, a, b in spans for t in (a, b)]))
+    total = {}
+    for a, b in zip(points, points[1:]):
+        mid = (a + b) / 2
+        if any(s <= mid < e for _, s, e in spans):
+            continue
+        live = [r for r in procs if r["start"] <= mid and (r["end"] is None or mid < r["end"])]
+        name = (os.path.basename(max(live, key=lambda r: r["start"])["path"]) or "?") if live else "(none sampled)"
+        total[name] = total.get(name, 0.0) + (b - a)
+    return [[n, round(v, 1)] for n, v in sorted(total.items(), key=lambda kv: -kv[1])[:top]]
+
+
+def timing_summary(build_log):
+    """xcodebuild -showBuildTimingSummary rows as [task kind, tasks, seconds summed over tasks], largest first."""
+    rows = re.findall(r"^\s*(\S[^|\n]*?) \((\d+) tasks?\) \| ([\d.]+) seconds", build_log, re.M)
+    return sorted([[k, int(n), float(sec)] for k, n, sec in rows], key=lambda r: -r[2])
+
+
 def quit_span(procs, reload_pid, old_exit, not_before):
     """reload's quit: from the newest python3 descendant of reload alive when the old app exited, to that exit. Only
     one started after not_before (the end of the last sign): reload's re-exec lock is a python3 that lives throughout."""
@@ -524,14 +546,17 @@ class Loop:
                 raise RuntimeError("round %s: no quit waiter under reload.sh at the old app's exit" % label)
             spans = classify(procs) + [("quit", span[0], span[1])]
             build = sweep(spans, t0, r1)
+            gaps = gap_census(procs, spans, r0, r1)
             p, outp, request, pid = self.launch(label, 3600)
             pending = {"label": label, "t0": t0, "reload": [r0, r1], "build": build, "request": request,
-                       "build_log": build_log, "procs": len(procs)}
+                       "build_log": build_log, "procs": len(procs), "gaps": gaps}
             time.sleep(IDLE_S)
             if not alive(pid):
                 raise RuntimeError("round %s: relaunched app %d ended by itself" % (label, pid))
             old_p, old_out, old_pid = p, outp, pid
             log(label, "reload", round(r1 - r0), dict((c, round(v)) for c, v in build.items()))
+            log(label, "reload gaps (youngest live process, ms)", gaps)
+            log(label, "xcodebuild timing summary", timing_summary(build_log)[:10])
         os.kill(old_pid, signal.SIGTERM)
         if wait_exit(old_pid, 60) is None:
             raise RuntimeError("last relaunched app %d did not quit in 60 s" % old_pid)
@@ -558,7 +583,8 @@ class Loop:
             "finished_launching_ms": row.get("finished_launching"), "first_window_frame_committed_ms":
                 (row.get("marks") or {}).get("first_window_frame_committed"),
             "terminal_input_accepted_ms": (row.get("marks") or {}).get("terminal_input_accepted"),
-            "processes_sampled": pending["procs"]}})
+            "processes_sampled": pending["procs"], "reload_gaps_ms": pending["gaps"],
+            "xcodebuild_timing_summary": timing_summary(pending["build_log"])}})
         log(label, "end_to_end", round(e2e), stages)
 
     def run_floors_build(self, n):
@@ -737,6 +763,11 @@ def self_test():
     assert quit_span(procs, 10, 78, 45) == (50, 78)
     assert quit_span(procs, 10, 78, 60) is None
     assert classify(procs) == [("sign", 31, 45)]
+    assert gap_census(procs, [("sign", 31, 45), ("quit", 50, 78)], 0, 100) == [["bash", 31.0], ["python3", 27.0]]
+    summary = ("Build Timing Summary\n\nSwiftCompile (12 tasks) | 16.123 seconds\n"
+               "PhaseScriptExecution (3 tasks) | 40.5 seconds\nCodeSign (1 task) | 5.9 seconds\n")
+    assert timing_summary(summary) == [["PhaseScriptExecution", 3, 40.5], ["SwiftCompile", 12, 16.123],
+                                       ["CodeSign", 1, 5.9]], timing_summary(summary)
     app_out = "==> reload succeeded in 9s\n\nApp path:\n  /d/Build/Products/Debug/cmux DEV dlc-startup.app\n"
     assert re.findall(r"^App path:[ \t]*\n[ \t]*(\S.*\.app)[ \t]*$", app_out, re.M) == ["/d/Build/Products/Debug/cmux DEV dlc-startup.app"]
     print("self-test ok")
