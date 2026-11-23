@@ -299,13 +299,22 @@ impl MenuProblem {
         match &self.look_for {
             Look::Key(name) => line_of_key(text, name),
             Look::Value { value, after } => {
-                let start = line_of_key(text, after).unwrap_or(1);
-                let needle = format!("\"{value}\"");
-                text.lines()
+                // Only inside `after`'s block: from its key to the next line indented no deeper,
+                // so a name repeated in another menu or action is not taken for this one.
+                let start = line_of_key(text, after).unwrap_or(1).saturating_sub(1) as usize;
+                let indent = |line: &str| line.len() - line.trim_start().len();
+                let lines: Vec<&str> = text.lines().collect();
+                let depth = lines.get(start).map_or(0, |line| indent(line));
+                let end = lines
+                    .iter()
                     .enumerate()
-                    .skip(start.saturating_sub(1) as usize)
-                    .find(|(_, line)| line.contains(&needle))
-                    .map(|(n, _)| n as u32 + 1)
+                    .skip(start + 1)
+                    .find(|(_, line)| !line.trim().is_empty() && indent(line) <= depth)
+                    .map_or(lines.len(), |(n, _)| n);
+                let needle = format!("\"{value}\"");
+                (start..end)
+                    .find(|&n| lines.get(n).is_some_and(|line| line.contains(&needle)))
+                    .map(|n| n as u32 + 1)
             }
         }
     }
@@ -324,7 +333,7 @@ impl Customize {
                 problem.level,
                 &format!("menu:{}", problem.path),
                 problem.message.clone(),
-                "The rest of your settings still apply. Fix or remove this entry, or put back the last settings file whose menus all load.".to_owned(),
+                "The rest of your settings still apply. Fix or remove this entry, or put back the last settings file whose menus all load: that puts back the whole file, so other settings changed since then go back too (the current file is kept as a copy).".to_owned(),
                 match line {
                     Some(line) => format!("{}:{line}", file_name(file)),
                     None => file_name(file),
@@ -369,6 +378,39 @@ mod tests {
             ]}}}
         });
         assert_eq!(problems(&root), Vec::new());
+    }
+
+    #[test]
+    fn a_name_repeated_elsewhere_is_found_on_its_own_line() {
+        let text = r#"{
+  "actions": {
+    "a": { "command": "x", "target": "currentTerminal" },
+    "b": {
+      "command": "y",
+      "target": "elsewhere"
+    }
+  },
+  "contextMenus": {
+    "layouts": {
+      "pane": { "items": ["no.such.row"] },
+      "tab": {
+        "items": ["no.such.row"]
+      }
+    }
+  }
+}
+"#;
+        let root = jsonc::parse(text).unwrap();
+        let lines: Vec<_> =
+            problems(&root).iter().map(|p| (p.path.clone(), p.line(text))).collect();
+        assert_eq!(
+            lines,
+            [
+                ("actions.b.target".to_owned(), Some(6)),
+                ("contextMenus.layouts.pane.no.such.row".to_owned(), Some(11)),
+                ("contextMenus.layouts.tab.no.such.row".to_owned(), Some(13)),
+            ]
+        );
     }
 
     #[test]
