@@ -31,8 +31,8 @@ enum DebugPointerHover {
         guard given == nil, let badge = usageWarningPoint(params, in: window, services: services) else {
             return move(to: given, in: window, sidebar: sidebar)
         }
-        // Hovering a row moves its warning badge left of the row's hover controls: hover it, let the
-        // row lay out, then aim at where the badge is now, so the pointer rests on it (its tooltip).
+        // Hover the badge, let the row lay out, then aim again if the badge moved (it gives way to the hover
+        // controls in place now, so the first point usually holds).
         let first = move(to: badge, in: window, sidebar: nil)
         window.contentView?.layoutSubtreeIfNeeded()
         guard let settled = usageWarningPoint(params, in: window, services: services), settled != badge else { return first }

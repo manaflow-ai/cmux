@@ -346,6 +346,15 @@ def run_cargo(command: list[str], cwd: Path, env: dict[str, str]) -> tuple[int, 
         return proc.wait(), refusals
 
 
+def warnings_soft(command: list[str], repo: Path) -> list[str]:
+    """COMMAND through scripts/ci/warnings_policy.py when CI_WARNINGS=soft (pull requests: warnings never fail
+    their compile; Leo, 2026-11-19), else as written."""
+    policy = repo / "scripts/ci/warnings_policy.py"
+    if os.environ.get("CI_WARNINGS", "").strip().lower() == "soft" and policy.is_file():
+        return [sys.executable, str(policy), "run", "--", *command]
+    return command
+
+
 def stale_lock_explained(repo: Path, refusals: list[str]) -> bool:
     """True when REFUSALS hold cargo's stale-lock refusal: cargo-locks.py explain has then printed its cause and fix."""
     if not refusals:
@@ -374,7 +383,7 @@ def run(repo: Path, root: str) -> int:
         for name, command in commands:
             print(f"::group::{root}: {' '.join(command)}", flush=True)
             # From the workspace so rustup uses the nearest rust-toolchain.toml.
-            rc, refusals = run_cargo(command, repo / root, env)
+            rc, refusals = run_cargo(warnings_soft(command, repo) if name == "clippy" else command, repo / root, env)
             print("::endgroup::", flush=True)
             if rc:
                 red.append(name)
