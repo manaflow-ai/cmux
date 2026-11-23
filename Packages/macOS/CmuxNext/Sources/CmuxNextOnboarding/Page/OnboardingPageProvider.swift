@@ -61,13 +61,18 @@ final class OnboardingPageProvider: PageProvider {
     private func runSignIn(_ params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         guard let signIn, model.step == .agents else { throw PageError.unknownOp(OnboardingSignIn.op) }
         let action = try Self.string(params, "action")
-        if !OnboardingSignIn.followUps.contains(action) {
+        let agents = model.agents
+        let family = params["family"]?.stringValue ?? params["provider"]?.stringValue
+        // The start an Install's click asked for (``AgentsStepModel/signInAfterInstall``) runs once with no click of its own.
+        let asked = action == "signInStart" && family.map { agents.takeSignInAfterInstall($0) } == true
+        if !OnboardingSignIn.followUps.contains(action), !asked {
             guard context.userGesture, let event = context.gestureEvent, event != spentGesture else {
                 throw PageError(code: PageNativeOp.userOnlyCode, message: "\(action) runs only on its own click or key in the window")
             }
             spentGesture = event
         }
         guard let reply = try await signIn.run(action, params) else { throw PageError.invalidParams("unknown action") }
+        agents.inPlaceSignInAnswered(action, params: params, reply: reply)
         return reply
     }
 

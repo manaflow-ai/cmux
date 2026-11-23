@@ -106,7 +106,10 @@ public final class SetupCardHost {
 /// values: the agents from Settings' acpmux sign-ins, the account, the `cmux` on the login PATH); `run {action}`
 /// and `hide`, each on the person's own click or key only, one per gesture, as the onboarding page's gestures;
 /// `size {height}` and `focused` (back from a sign-in: the sign-ins and the PATH are read again). Every row done
-/// ends the card (``FirstRunSetup/end()``).
+/// ends the card (``FirstRunSetup/end()``). `accounts.run {action, ...}`: the in-place sign-in (``OnboardingSignIn``,
+/// the same forwarder as onboarding's Agents step and Settings > Accounts), on a host whose daemon has it: a start
+/// runs on its own click, or once on the Install click that asked for it (``AgentsStepModel/signInAfterInstall``);
+/// its wait and Cancel follow it with no click. A finish that signed in ends the agent's row with no second ask.
 @MainActor
 @Observable
 public final class SetupCardPageProvider: PageProvider {
@@ -136,6 +139,17 @@ public final class SetupCardPageProvider: PageProvider {
         self.environment = environment
         self.agents.start()
         readCLI()
+        refreshSignIns()
+    }
+
+    /// The in-place sign-in, when the host has one.
+    private var signIn: OnboardingSignIn? { agents.source?.onboardingSignIn }
+
+    /// Reads the accounts and the providers' readiness again (its rows are null until a read answers).
+    private func refreshSignIns() {
+        guard let signIn else { return }
+        // task-owner: one read of the sign-in rows; it ends with the read.
+        Task { await signIn.refresh() }
     }
 
     /// The card's own reads end; the shared agents model (``FirstRunSetup/agents(source:)``) and its install go on.
@@ -171,9 +185,18 @@ public final class SetupCardPageProvider: PageProvider {
         let account = environment.account()
         var wire: [String: JSONValue] = ["signedIn": .bool(account.signedIn)]
         if account.signedIn, let email = account.email { wire["email"] = .string(email) }
-        return ["agents": .array(rows),
+        var out: [String: JSONValue] = ["agents": .array(rows),
                 "account": .object(wire), "cli": .string(cliInstalling ? "installing" : cli ?? "missing"), "classic": .null,
                 "forChief": .bool(forChief), "look": forChief ? .null : environment.look?.wire ?? .null]
+        // The in-place sign-in (setupModel.ts `SetupState.signIn`): absent on a host without it, and the rows' Sign In
+        // stays the terminal login. `after`: the agent whose sign-in the Install click asked for, started by the card.
+        if let signIn {
+            let (accounts, readiness) = signIn.state()
+            var wire: [String: JSONValue] = ["accounts": accounts, "readiness": readiness]
+            if let after = agents.signInAfterInstall, ids.contains(after) { wire["after"] = .string(after) }
+            out["signIn"] = .object(wire)
+        }
+        return .object(out)
     }
 
     /// Every row is done: an agent signed in, the account signed in, this app's `cmux` on PATH.
@@ -196,7 +219,9 @@ public final class SetupCardPageProvider: PageProvider {
         case "cmux.setup.focused":
             agents.refresh(recheck: true)
             readCLI()
+            refreshSignIns()
             return [:]
+        case "cmux.setup.accounts.run": return try await runSignIn(params, context: context)
         default: break
         }
         guard context.userGesture, let event = context.gestureEvent, event != spentGesture else {
@@ -221,6 +246,26 @@ public final class SetupCardPageProvider: PageProvider {
         default: throw PageError.unknownOp(op)
         }
         return [:]
+    }
+
+    /// `cmux.setup.accounts.run`: the forwarder's answer, unchanged. A start needs its own click, unless it is the one
+    /// the Install click asked for (taken once); a wait or Cancel follows its start with none.
+    private func runSignIn(_ params: JSONValue, context: PageCallContext) async throws -> JSONValue {
+        guard let signIn else { throw PageError.unknownOp("cmux.setup.accounts.run") }
+        guard let action = params["action"]?.stringValue else { throw PageError.invalidParams("action is required") }
+        let family = params["family"]?.stringValue ?? params["provider"]?.stringValue
+        if !OnboardingSignIn.followUps.contains(action) {
+            let asked = action == "signInStart" && family.map { agents.takeSignInAfterInstall($0) } == true
+            if !asked {
+                guard context.userGesture, let event = context.gestureEvent, event != spentGesture else {
+                    throw PageError(code: PageNativeOp.userOnlyCode, message: "\(action) runs only on its own click or key in Home")
+                }
+                spentGesture = event
+            }
+        }
+        guard let reply = try await signIn.run(action, params) else { throw PageError.invalidParams("unknown action") }
+        agents.inPlaceSignInAnswered(action, params: params, reply: reply)
+        return reply
     }
 
     /// Hide: the Chief form leaves for this launch; the whole card ends first-run setup.
