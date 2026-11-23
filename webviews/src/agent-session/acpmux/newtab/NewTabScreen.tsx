@@ -701,7 +701,7 @@ export function NewTabScreen(props: Props) {
       setAttachments(attachmentsRef.current);
       if (!field.current?.type(next)) setText(next);
     },
-    focus: () => field.current?.focus(),
+    focus: () => focusRoute(field.current, "person", "a stashed draft came back: the new chat field"),
   });
   // WEB-SWAP: a web update's reload would lose what this page holds only in its state: a typed
   // query (the location comes back with the page) and staged attachments (pages/shared/webSwap.ts).
@@ -1106,7 +1106,7 @@ export function NewTabScreen(props: Props) {
           start + to,
         );
       } else setText(filled.text);
-      requestAnimationFrame(() => field.current?.focus());
+      requestAnimationFrame(() => focusRoute(field.current, "person", "a saved prompt was picked: the field"));
       return;
     }
     // A picked Codex skill goes as `/$name` even where a command shares its name (withSkillDollars).

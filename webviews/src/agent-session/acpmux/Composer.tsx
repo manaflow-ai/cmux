@@ -1234,45 +1234,39 @@ function ComposerFrame({
   // handle that flushes it: one read before its declaration keeps the composer uncompiled.
   const unsentDraft = useRef<UnsentDraftThrottle | undefined>(undefined);
   const restoreDraft = (restoredText: string, restoredAttachments: ComposerAttachment[], behind = false) => {
-      // A prompt coming back (refused, taken back, edited from the queue) went with a Codex skill
-      // as `/$name`: it is typed `/name` here, and send writes the `$` again. Its skills are the
-      // draft's picks; with nothing typed it is the whole draft, and they replace the old ones.
-      const picks = pickedSkillsOf(restoredText, commandsNow.current);
-      if (!(field.current?.value() ?? "").trim()) pickedSkills.current = picks;
-      else for (const name of picks) pickedSkills.current.add(name);
-      // A paste that went as a placed paste chip (markPastes) under the chip's size comes back as
-      // the text it was in the draft, remembered as a paste again; only a huge one stays a chip.
-      const restored = unmarkPastes(
-        bindMarks(withoutSkillDollars(restoredText, commandsNow.current), restoredAttachments),
-      );
-      restoredText = restored.text;
-      restoredAttachments = restored.attachments;
-      box.current?.rememberPastes(restored.pastes);
-      // The editor parses tokens synchronously; make their payload IDs known before replacing its document.
-      attachmentsRef.current = appendAttachments(attachmentsRef.current, restoredAttachments);
-      // Put back, not typed: the Enter that sent it says nothing about this change.
-      notTyped();
-      // What comes back goes first; what was typed or attached since stays after it. `behind`: it
-      // goes after what is there (prompts a folder's trust held, sent after one already given
-      // back: trustHeld.ts).
-      const typed = field.current?.value() ?? "";
-      const next = !typed.trim()
-        ? restoredText
-        : behind
-          ? `${typed}\n\n${restoredText}`
-          : `${restoredText}\n\n${typed}`;
-      // A field whose editor is still starting (the chat composer that mounts as a New Tab page
-      // leaves) takes it as its value, which becomes the editor's first content.
-      if (!field.current?.type(next)) {
-        writeText(next, next.length);
-      }
-      if (restoredAttachments.length)
-        setAttachments((current) => {
-          const others = current.filter(
-            (attachment) => !restoredAttachments.some((back) => back.id === attachment.id),
-          );
-          return behind ? [...others, ...restoredAttachments] : [...restoredAttachments, ...others];
-        });
+    // A prompt coming back (refused, taken back, edited from the queue) went with a Codex skill
+    // as `/$name`: it is typed `/name` here, and send writes the `$` again. Its skills are the
+    // draft's picks; with nothing typed it is the whole draft, and they replace the old ones.
+    const picks = pickedSkillsOf(restoredText, commandsNow.current);
+    if (!(field.current?.value() ?? "").trim()) pickedSkills.current = picks;
+    else for (const name of picks) pickedSkills.current.add(name);
+    // A paste that went as a placed paste chip (markPastes) under the chip's size comes back as
+    // the text it was in the draft, remembered as a paste again; only a huge one stays a chip.
+    const restored = unmarkPastes(
+      bindMarks(withoutSkillDollars(restoredText, commandsNow.current), restoredAttachments),
+    );
+    restoredText = restored.text;
+    restoredAttachments = restored.attachments;
+    box.current?.rememberPastes(restored.pastes);
+    // The editor parses tokens synchronously; make their payload IDs known before replacing its document.
+    attachmentsRef.current = appendAttachments(attachmentsRef.current, restoredAttachments);
+    // Put back, not typed: the Enter that sent it says nothing about this change.
+    notTyped();
+    // What comes back goes first; what was typed or attached since stays after it. `behind`: it
+    // goes after what is there (prompts a folder's trust held, sent after one already given
+    // back: trustHeld.ts).
+    const typed = field.current?.value() ?? "";
+    const next = !typed.trim() ? restoredText : behind ? `${typed}\n\n${restoredText}` : `${restoredText}\n\n${typed}`;
+    // A field whose editor is still starting (the chat composer that mounts as a New Tab page
+    // leaves) takes it as its value, which becomes the editor's first content.
+    if (!field.current?.type(next)) {
+      writeText(next, next.length);
+    }
+    if (restoredAttachments.length)
+      setAttachments((current) => {
+        const others = current.filter((attachment) => !restoredAttachments.some((back) => back.id === attachment.id));
+        return behind ? [...others, ...restoredAttachments] : [...restoredAttachments, ...others];
+      });
   };
   /// The handle's restore, the last committed render's (the handle is made once).
   const restoreNow = useRef(restoreDraft);
@@ -1314,7 +1308,7 @@ function ComposerFrame({
         stashEdited();
         restoreDraft(restoredText, restoredAttachments);
       },
-      focus: () => field.current?.focus(),
+      focus: () => focusRoute(field.current, "person", "a stashed draft came back: the composer"),
     },
     sessionId ? newChatKey : undefined,
   );
@@ -1886,13 +1880,13 @@ function ComposerFrame({
       const value = plain.value.slice(0, start) + filled.text + plain.value.slice(end);
       const [from, to] = filled.open ?? [filled.text.length, filled.text.length];
       field.current?.writeText(value, start + from, start + to);
-      field.current?.focus();
+      focusRoute(field.current, "person", "a saved prompt was picked: the composer");
       return;
     }
     const next = filled.text;
     pendingCaret.current = next.length;
     edit(next, next.length);
-    field.current?.focus();
+    focusRoute(field.current, "person", "a saved prompt was picked: the composer");
   };
   const pick = (command: SlashCommand) => {
     if (command.source === "saved") return pickSaved(command);
