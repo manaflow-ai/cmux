@@ -437,7 +437,7 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
           const original = (globalThis as any)[name].bind(globalThis);
           (globalThis as any)[name] = (fn: unknown, ...rest: unknown[]) => {
             if (typeof fn !== "function") return original(fn, ...rest);
-            const key = `${name} ${rest[0] ?? 0}ms ${site()}`;
+            const key = `${name} ${String(rest[0] ?? 0)}ms ${site()}`;
             return original(
               (...args: unknown[]) => {
                 counts[key] = (counts[key] ?? 0) + 1;
