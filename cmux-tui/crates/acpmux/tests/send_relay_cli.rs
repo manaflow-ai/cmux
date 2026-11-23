@@ -430,7 +430,7 @@ fn a_stalled_relay_listing_never_holds_or_fails_ls() {
         legs.push((mode, stall_leg(&dir, "idle", runs, 0, mode)));
         legs.push((mode, stall_leg(&dir, "cpu hogs", runs, cores * 10, mode)));
     }
-    // A kept listing (a minute old): plain `ls` reads the stalled relay for it once, by 500 ms,
+    // A kept listing (a minute old): plain `ls` reads the stalled relay for it once, by 250 ms,
     // then lists it at once while the refresh that miss started runs.
     write_kept_listing(&dir);
     if !report_only {
@@ -444,8 +444,7 @@ fn a_stalled_relay_listing_never_holds_or_fails_ls() {
         assert!(leg.failures.is_empty(), "{}", leg.failures.join("\n"));
         let bound = match mode {
             Mode::Cold => Duration::from_secs(2),
-            Mode::Local => Duration::from_millis(500),
-            Mode::Warm => Duration::from_millis(750),
+            Mode::Local | Mode::Warm => Duration::from_millis(500),
         };
         // The bound holds idle; under the hogs the numbers are reported, not asserted.
         if leg.hogs == 0 {

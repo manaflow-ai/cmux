@@ -54,9 +54,11 @@ const QUIET_AGE_MS: u64 = 60_000;
 /// earlier `ls` started has just written it.
 const FRESH_AGE_MS: u64 = 10_000;
 
-/// How long `ls` reads the relay for an older kept listing before listing the kept rows: a
-/// healthy `lane-gh sessions` answers in about 0.4 s.
-const KEPT_WAIT: Duration = Duration::from_millis(500);
+/// How long `ls` reads the relay for an older kept listing before listing the kept rows. A
+/// healthy `lane-gh sessions` takes about 0.4 s, so this call often still lists the kept rows,
+/// and the refresh it starts makes the next `ls` fresh: one call stale, not the caller's whole
+/// pause. Small enough that the call stays inside the 500 ms p99 under load (lead, 2026-11-23).
+const KEPT_WAIT: Duration = Duration::from_millis(250);
 
 /// After [`KEPT_WAIT`], how long `finish` still waits for the read the deadline killed.
 const KEPT_GRACE: Duration = Duration::from_millis(50);
