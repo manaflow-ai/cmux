@@ -41,10 +41,6 @@ const UDP_WAIT: Duration = Duration::from_millis(2000);
 /// first): it pays one TLS connection, dropped when UDP wins, so that a
 /// network that drops UDP is not held for the stagger.
 const STREAM_STAGGER: Duration = Duration::from_millis(500);
-/// UDP allocations tried, each from a fresh socket, before one fails.
-const UDP_ATTEMPTS: u32 = 3;
-/// Pause before the next UDP allocation attempt, times the attempts so far.
-const UDP_RETRY_PAUSE: Duration = Duration::from_millis(50);
 /// Bound on a stream allocation (TCP, TLS and two TURN round trips).
 const STREAM_WAIT: Duration = Duration::from_millis(4000);
 /// When the stream allocation finished first, UDP gets this much longer.
@@ -365,9 +361,14 @@ impl TurnCarrier {
         let (udp, stream) = turn_servers(&options.ice_servers);
         let udp = udp.filter(|_| !options.block_udp);
         let tried_udp = udp.is_some();
+        // UDP_WAIT hands a slow UDP allocation over to the stream one; with
+        // no stream server there is nothing to hand over to, and UDP gets
+        // the dial's own bound (on a lossy link, losing an answer or two
+        // takes it past UDP_WAIT).
+        let udp_wait = if stream.is_some() { UDP_WAIT } else { options.timeout.max(UDP_WAIT) };
         let udp = async {
             match udp {
-                Some(server) => bounded(UDP_WAIT, Self::allocate_on(server, options)).await,
+                Some(server) => bounded(udp_wait, Self::allocate_on(server, options)).await,
                 None => None,
             }
         };
@@ -421,36 +422,11 @@ impl TurnCarrier {
     /// Allocate on `server` in a task of its own: a caller that gives up (a
     /// timeout, the losing side of the UDP and TLS race) drops only the
     /// answer, and the task still finishes and releases what it opened.
-    ///
-    /// A UDP allocation that fails is tried again from a fresh socket, up to
-    /// [`UDP_ATTEMPTS`] times, while the caller still waits (its own bound
-    /// stops it). On a lossy link the server's answer to the Allocate can be
-    /// lost: the client's retransmit then meets the allocation that answer
-    /// made on the same 5-tuple, and a server without a transaction cache
-    /// answers 437 (Allocation Mismatch). A new socket is a new 5-tuple.
     async fn allocate_on(server: TurnServer, options: &DialOptions) -> Result<Self, String> {
-        let (mut tx, rx) = tokio::sync::oneshot::channel();
+        let (tx, rx) = tokio::sync::oneshot::channel();
         let options = options.clone();
         tokio::spawn(async move {
-            let mut attempt = 1;
-            let result = loop {
-                let result = Self::allocate_inner(server.clone(), &options).await;
-                let retry = result.is_err()
-                    && server.transport == TurnTransport::Udp
-                    && attempt < UDP_ATTEMPTS
-                    && !tx.is_closed();
-                if !retry {
-                    break result;
-                }
-                if let Err(error) = &result {
-                    tracing::debug!(%error, attempt, "TURN allocation over UDP failed; again from a new socket");
-                }
-                tokio::select! {
-                    () = tokio::time::sleep(UDP_RETRY_PAUSE * attempt) => {}
-                    () = tx.closed() => break result,
-                }
-                attempt += 1;
-            };
+            let result = Self::allocate_inner(server, &options).await;
             // Unwanted by now: dropping the carrier releases the allocation.
             let _ = tx.send(result);
         });
@@ -500,9 +476,9 @@ impl TurnCarrier {
             (Some(_), Some(peer)) => peer.to_string(),
             _ => server.address.clone(),
         };
-        let config = webrtc::turn::client::ClientConfig {
+        let config = || webrtc::turn::client::ClientConfig {
             stun_serv_addr: String::new(),
-            turn_serv_addr,
+            turn_serv_addr: turn_serv_addr.clone(),
             username: server.username.clone(),
             password: server.credential.clone(),
             realm: String::new(),
@@ -511,9 +487,25 @@ impl TurnCarrier {
             conn: Arc::clone(&conn),
             vnet: None,
         };
-        let client = webrtc::turn::client::Client::new(config).await.map_err(|e| e.to_string())?;
+        let mut client = webrtc::turn::client::Client::new(config()).await.map_err(|e| e.to_string())?;
         client.listen().await.map_err(|e| e.to_string())?;
-        let relay: Arc<dyn Conn + Send + Sync> = match client.allocate().await {
+        let mut allocated = client.allocate().await;
+        // The server's answer to the Allocate was lost and the retransmit met
+        // the allocation it made (437): delete that one, then allocate again
+        // from the same socket. A new socket does not help where a NAT or
+        // relay keeps one 5-tuple to the server.
+        if server.transport == TurnTransport::Udp
+            && let Err(error) = &allocated
+            && is_allocation_mismatch(&error.to_string())
+        {
+            let _ = client.close().await;
+            let released = release_allocation(&*conn, &turn_serv_addr, &server).await;
+            tracing::debug!(?released, "TURN allocation already held (437): released it, allocating again");
+            client = webrtc::turn::client::Client::new(config()).await.map_err(|e| e.to_string())?;
+            client.listen().await.map_err(|e| e.to_string())?;
+            allocated = client.allocate().await;
+        }
+        let relay: Arc<dyn Conn + Send + Sync> = match allocated {
             Ok(relay) => Arc::new(relay),
             Err(error) => {
                 let _ = client.close().await;
@@ -602,6 +594,106 @@ impl TurnCarrier {
             let _ = conn.close().await;
         });
     }
+}
+
+/// Whether a TURN client error is a 437 (Allocation Mismatch).
+fn is_allocation_mismatch(error: &str) -> bool {
+    error.contains("error 437")
+}
+
+/// Retransmission timeout of [`release_allocation`]'s requests, doubled per
+/// retransmit, and the requests sent per transaction.
+const RELEASE_RTO: Duration = Duration::from_millis(200);
+const RELEASE_SENDS: u32 = 4;
+
+/// Delete the allocation `conn` holds on `server_addr` (RFC 8656 §7: a
+/// Refresh with LIFETIME 0), whose Allocate answer this side never got: an
+/// unauthenticated Refresh for the server's nonce and realm, then the signed
+/// one. A 437 to the signed Refresh means nothing was held: also done.
+async fn release_allocation(
+    conn: &(dyn Conn + Send + Sync),
+    server_addr: &str,
+    server: &TurnServer,
+) -> Result<(), String> {
+    use webrtc::stun::attributes::{ATTR_NONCE, ATTR_REALM, ATTR_USERNAME};
+    use webrtc::stun::error_code::{CODE_ALLOC_MISMATCH, ErrorCodeAttribute};
+    use webrtc::stun::fingerprint::FINGERPRINT;
+    use webrtc::stun::integrity::MessageIntegrity;
+    use webrtc::stun::message::{
+        CLASS_ERROR_RESPONSE, CLASS_REQUEST, Getter, METHOD_REFRESH, Message, MessageType, Setter,
+    };
+    use webrtc::stun::textattrs::TextAttribute;
+    use webrtc::turn::proto::lifetime::Lifetime;
+
+    let to: SocketAddr = tokio::net::lookup_host(server_addr)
+        .await
+        .map_err(|e| e.to_string())?
+        .next()
+        .ok_or("no TURN server address")?;
+    let refresh = |extra: Vec<Box<dyn Setter>>| -> Result<Message, String> {
+        let mut setters: Vec<Box<dyn Setter>> = vec![
+            Box::new(webrtc::stun::agent::TransactionId::new()),
+            Box::new(MessageType::new(METHOD_REFRESH, CLASS_REQUEST)),
+            Box::new(Lifetime(Duration::ZERO)),
+        ];
+        setters.extend(extra);
+        setters.push(Box::new(FINGERPRINT));
+        let mut msg = Message::new();
+        msg.build(&setters).map_err(|e| e.to_string())?;
+        Ok(msg)
+    };
+    let unsigned = refresh(Vec::new())?;
+    let challenge = transact(conn, to, &unsigned).await?;
+    let realm = TextAttribute::get_from_as(&challenge, ATTR_REALM).map_err(|e| e.to_string())?;
+    let nonce = TextAttribute::get_from_as(&challenge, ATTR_NONCE).map_err(|e| e.to_string())?;
+    let integrity = MessageIntegrity::new_long_term_integrity(
+        server.username.clone(),
+        realm.text.clone(),
+        server.credential.clone(),
+    );
+    let signed = refresh(vec![
+        Box::new(TextAttribute::new(ATTR_USERNAME, server.username.clone())),
+        Box::new(realm),
+        Box::new(nonce),
+        Box::new(integrity),
+    ])?;
+    let answer = transact(conn, to, &signed).await?;
+    if answer.typ.class == CLASS_ERROR_RESPONSE {
+        let mut code = ErrorCodeAttribute::default();
+        if code.get_from(&answer).is_ok() && code.code == CODE_ALLOC_MISMATCH {
+            return Ok(());
+        }
+        return Err(format!("Refresh error response ({})", code.code.0));
+    }
+    Ok(())
+}
+
+/// Send `request` to `to` on `conn` and return the response with its
+/// transaction id, retransmitting after [`RELEASE_RTO`], doubled each time.
+async fn transact(
+    conn: &(dyn Conn + Send + Sync),
+    to: SocketAddr,
+    request: &webrtc::stun::message::Message,
+) -> Result<webrtc::stun::message::Message, String> {
+    let mut buffer = vec![0u8; 1500];
+    let mut wait = RELEASE_RTO;
+    for _ in 0..RELEASE_SENDS {
+        conn.send_to(&request.raw, to).await.map_err(|e| e.to_string())?;
+        let deadline = tokio::time::Instant::now() + wait;
+        loop {
+            let Ok(received) = tokio::time::timeout_at(deadline, conn.recv_from(&mut buffer)).await else {
+                break;
+            };
+            let (len, _) = received.map_err(|e| e.to_string())?;
+            let mut answer = webrtc::stun::message::Message::new();
+            answer.raw = buffer[..len].to_vec();
+            if answer.decode().is_ok() && answer.transaction_id == request.transaction_id {
+                return Ok(answer);
+            }
+        }
+        wait *= 2;
+    }
+    Err("TURN server did not answer".to_owned())
 }
 
 /// Returns once the STUN wait beside an allocation saw UDP look blocked;
