@@ -17,11 +17,13 @@ import { FOLD_SETTLE_MS } from "./foldAnchor";
 import { LOAD_FADE_CLASS } from "../../shared/loadFade";
 import { EXIT_EASING, exitLeadMs } from "./exitLead";
 import type { LayoutGeometry } from "../conversationGeometry";
+import { FOLD_GHOST_CLASS, SNAPSHOT_SKIP_ATTRIBUTE } from "../chatSnapshot/shared";
 
 /// The fold's state on the thread while it plays: "open" or "close" (the CSS and tests read it).
 export const TURN_FOLD_ATTR = "data-turn-fold";
-/// A drawn copy of a row a close hides, fading out where the row was (conversation.css).
-export const TURN_FOLD_GHOST = "acpmux-row--fold-ghost";
+/// A drawn copy of a row a close hides, fading out where the row was (conversation.css). A chat's
+/// snapshot leaves these out (chatSnapshot/shared.ts).
+export const TURN_FOLD_GHOST = FOLD_GHOST_CLASS;
 
 /// A row as the transcript places it: its id and top (layout px), by index.
 export type PlacedRows = {
@@ -160,6 +162,7 @@ export function ghostOf(row: HTMLElement): HTMLElement {
   for (const node of copy.querySelectorAll<HTMLElement>(".acpmux-row__message-presentation"))
     node.classList.remove("acpmux-row__message-presentation");
   copy.classList.add(TURN_FOLD_GHOST);
+  copy.setAttribute(SNAPSHOT_SKIP_ATTRIBUTE, "");
   copy.setAttribute("aria-hidden", "true");
   copy.setAttribute("inert", "");
   return copy;
