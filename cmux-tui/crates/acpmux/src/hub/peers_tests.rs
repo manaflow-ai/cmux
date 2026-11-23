@@ -1,6 +1,54 @@
 use super::*;
 use serde_json::json;
 
+#[test]
+fn live_session_count_does_not_read_closed_session_metadata() {
+    let mut cfg = crate::config::Config::default();
+    cfg.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    let session = hub.insert_test_session(
+        serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA,
+            "id": "closed",
+            "name": "closed",
+            "harness": "codex",
+            "cwd": "/tmp",
+            "status": "closed",
+            "createdAt": 1,
+            "updatedAt": 2
+        }))
+        .unwrap(),
+    );
+    let held = session.meta.lock().unwrap();
+    let (done, result) = std::sync::mpsc::channel();
+    let worker = std::thread::spawn({
+        let hub = hub.clone();
+        move || done.send(hub.live_session_count()).unwrap()
+    });
+    let observed = result.recv_timeout(std::time::Duration::from_millis(100));
+    drop(held);
+    worker.join().unwrap();
+    assert_eq!(observed.unwrap(), 0);
+
+    let idle = hub.insert_test_session(
+        serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA,
+            "id": "idle",
+            "name": "idle",
+            "harness": "codex",
+            "cwd": "/tmp",
+            "status": "idle",
+            "createdAt": 1,
+            "updatedAt": 2
+        }))
+        .unwrap(),
+    );
+    assert_eq!(hub.live_session_count(), 0);
+    hub.set_status(&idle, crate::store::SessionStatus::Ready);
+    assert_eq!(hub.live_session_count(), 1);
+}
+
 /// Reviews of #24797 at d703168 and 828f855: a reload applied the lending it read to
 /// whatever peer had the name by then, and a reload whose file read came before a
 /// `peer_add` brought back what that add took away.

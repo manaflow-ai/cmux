@@ -1163,7 +1163,16 @@ impl Peer {
                         tracing::info!(peer = %self.name, "silence budget {}s (was {}s; longest wait for an answer {}ms)", silence.as_secs(), was.as_secs(), gap.as_millis());
                     }
                     let silent = heard.as_ref().map_or(last_frame.elapsed(), |h| h.silent().min(last_frame.elapsed()));
-                    if silent >= silence {
+                    // A saturated observer can delay this task itself: give the keepalive a
+                    // bounded, load-aware window so its own scheduler does not turn a live peer
+                    // into an outage. The peer-history size never enters this calculation.
+                    let observer = crate::host_pressure::Meter::shared().last();
+                    let miss_window = crate::peer_link::load_aware_silence_budget(
+                        silence,
+                        observer.as_ref().and_then(|v| v.load1),
+                        observer.as_ref().map_or(0.0, |v| v.load_limit),
+                    );
+                    if silent >= miss_window {
                         self.with_silence(|b| b.dropped(now));
                         break Err(format!("peer stopped answering ({}s without a frame)", silent.as_secs()));
                     }
@@ -1216,8 +1225,17 @@ impl Peer {
                         }
                         Frame::Close(_) => break Err("peer closed the connection".to_owned()),
                         Frame::Pong(payload) => {
-                            if let (Some(rtt), Some(via)) = (carriers::pong_rtt(&payload), self.serving()) {
-                                self.path_pong(via, rtt);
+                            let read_to_handler = heard.as_ref().map(Heard::read_to_handler);
+                            if let Some(rtt) = carriers::pong_rtt(&payload) {
+                                tracing::debug!(
+                                    peer = %self.name,
+                                    rtt_ms = rtt.as_secs_f64() * 1000.0,
+                                    read_to_handler_ms = read_to_handler.map(|d| d.as_secs_f64() * 1000.0),
+                                    "peer keepalive pong handled",
+                                );
+                                if let Some(via) = self.serving() {
+                                    self.path_pong(via, rtt);
+                                }
                             }
                             continue;
                         }

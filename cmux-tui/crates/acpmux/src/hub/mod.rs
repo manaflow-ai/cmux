@@ -917,6 +917,9 @@ pub struct Hub {
     /// Session ids whose metadata is still live. Closed records remain in `sessions` and on
     /// disk for history, search, export and restore, but list/peer hot paths never walk them.
     pub(super) live_session_ids: StdMutex<std::collections::HashSet<String>>,
+    /// Session ids whose agent is running or waiting for a permission. This is the bounded count
+    /// reported by peer health; closed and idle records remain in `sessions` for history.
+    pub(super) agent_session_ids: StdMutex<std::collections::HashSet<String>>,
     /// Serialized summaries for closed sessions (`closed_rows.rs`). Metadata commits replace the
     /// row before the next list, so no list rebuilds closed-session projections, and a list
     /// page copies their bytes unparsed.
@@ -1508,6 +1511,7 @@ impl Hub {
             sessions: StdMutex::new(HashMap::new()),
             spoken_handle_renames: StdMutex::new(()),
             live_session_ids: StdMutex::new(std::collections::HashSet::new()),
+            agent_session_ids: StdMutex::new(std::collections::HashSet::new()),
             closed_summary_cache: StdMutex::new(Default::default()),
             chat_activity_cache: Default::default(),
             book_tee: std::sync::OnceLock::new(),
@@ -2313,16 +2317,25 @@ impl Hub {
     /// Keep the hot-path index in step with a session's status. The complete session map is
     /// intentionally retained so an explicit history/restore lookup can still load a closed chat.
     pub(super) fn update_live_session_index(&self, session: &Session) {
+        let status = session.status();
         let mut live = self.live_session_ids.lock().unwrap_or_else(|e| e.into_inner());
-        if session.status() == SessionStatus::Closed {
+        let mut agents = self.agent_session_ids.lock().unwrap_or_else(|e| e.into_inner());
+        if status == SessionStatus::Closed {
             live.remove(&session.id);
         } else {
             live.insert(session.id.clone());
+        }
+        if matches!(status, SessionStatus::Ready | SessionStatus::Running | SessionStatus::Waiting)
+        {
+            agents.insert(session.id.clone());
+        } else {
+            agents.remove(&session.id);
         }
     }
 
     pub(super) fn remove_live_session_index(&self, id: &str) {
         self.live_session_ids.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
+        self.agent_session_ids.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
         // A purged session leaves the map; a replacement may take its id.
         self.chat_activity_cache.invalidate();
     }
