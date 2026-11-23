@@ -1568,7 +1568,7 @@ print(f"MOBILEBENCH video-start t={t0:.3f} source=launch")
     for spec in ${duress_specs[@]+"${duress_specs[@]}"}; do frame_runs+=(--run "$spec"); done
     if [[ ${#frame_runs[@]} -eq 0 ]]; then frame_runs=(--run off); fi
     if ! python3 -I scripts/measure/ios_animation_frames.py --evidence "$out" --out "$out/report.json" \
-      --model "$device_name" --runtime "${runtime##*.}" "${frame_runs[@]}" | tee "$out/animation-frames.md" >> "$summary"; then
+      --model "$device_name" --runtime "${runtime##*.}" --sha "$(git rev-parse HEAD)" "${frame_runs[@]}" | tee "$out/animation-frames.md" >> "$summary"; then
       note "- Animation frame gate failed; see report.json and the per-run frame logs."
       ui_status=1
     fi
