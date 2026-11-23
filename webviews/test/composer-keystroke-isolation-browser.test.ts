@@ -264,7 +264,10 @@ await requireBrowserLane("composer-keystroke-isolation-browser.test.ts", async (
             const up = [];
             for (let at = el && el.parentElement; !inside && at && up.length < 4; at = at.parentElement)
               up.push(at.tagName.toLowerCase() + (typeof at.className === "string" && at.className ? "." + at.className.split(" ")[0] : ""));
-            return { inside, detached: !this.isConnected, label: up.length ? label + " < " + up.join(" < ") : label };
+            // The page's own key-presentation probe (keyPresentation.ts: a one-pixel, contained, fixed glyph a measuring
+            // page adds to the body for each key) is the instrument, not the app: it lays out nothing outside itself.
+            const probe = !!(el && el.hasAttribute("elementtiming"));
+            return { inside: inside || probe, detached: !this.isConnected, label: up.length ? label + " < " + up.join(" < ") : label };
           }`,
         })) as { result: { value: { inside: boolean; detached: boolean; label: string } } };
         // A node the edit added and then replaced in the same window (ProseMirror swaps a text node on
