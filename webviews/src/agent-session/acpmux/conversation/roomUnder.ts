@@ -11,8 +11,8 @@
 // - `heldRoom`: the room held while the reader is scrolled up, or kept for one they came back to;
 // - `floor`: the end a followed view keeps for a sent prompt whose queue card left;
 // - `foldRoom`: the end a collapse near the end keeps, so the offset never clamps;
-// - `newerRoom`: the room the newer history a reader scrolled far up let go of (newerReserve.ts);
-// - `sendTop`: the end that keeps a prompt sent from the latest row at the view's top (SendTopHold).
+// - `newerRoom`: the room the newer history a reader scrolled far up let go of (newerReserve.ts).
+// No room is held for a sent prompt: a send keeps the earlier chat in view above it (issue 51841).
 //
 // One release rule for the stack's holds (`rowsMoved`): a card, the tray or a notice that changed
 // gives its room back, or takes it, in the pass whose rows move anyway (they grew: a reply streaming
@@ -85,9 +85,6 @@ export type RoomUnderInput = {
   foldRoom: number;
   /// The room under the rows for newer history let go of (conversation/newerReserve.ts), 0 for none.
   newerRoom?: number;
-  /// The end that holds a sent prompt at the view's top (VirtualTranscript `SendTopHold.update`), given
-  /// this pass's `rowsHeight` (past its end the hold is outgrown and lets go); 0 for none.
-  sendTop?: (rowsHeight: number) => number;
   /// A scrollbar drag's held height, which wins while it holds.
   dragged?: number;
   bases: RoomBases;
@@ -225,7 +222,7 @@ export function roomUnder(input: RoomUnderInput): RoomUnder {
     prompt: input.prompt,
   });
   const rowsHeight = input.rowsHeight + input.over + room + (input.newerRoom ?? 0);
-  const rowsEnd = Math.max(input.floor - lifted, rowsHeight, input.sendTop?.(rowsHeight) ?? 0);
+  const rowsEnd = Math.max(input.floor - lifted, rowsHeight);
   const keptEnd = sessionSwitched ? 0 : input.foldRoom;
   const total = input.dragged ?? Math.max(rowsEnd, keptEnd);
   // Where the rows draw against where they lay out: the followed offset of this layout against the
