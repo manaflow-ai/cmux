@@ -156,10 +156,18 @@ public struct UpdateDropBack {
     }
 
     /// Starts the helper that reopens `app` once this process exits, then quits (the relaunch
-    /// hook already recorded "keep sessions"). False when the helper could not start: nothing
-    /// would reopen cmux, so it does not quit.
-    public static func relaunchAfterExit(_ app: URL) async -> Bool {
-        await relaunchHelper(app) != nil
+    /// hook already recorded "keep sessions"). `failed` runs, on the main actor, when the helper
+    /// could not start: nothing would reopen cmux, so it does not quit.
+    public static func relaunchAfterExit(_ app: URL, failed: @escaping @MainActor () -> Void = {}) {
+        // task-owner: one spawn, then the quit; ends with the app.
+        Task { @MainActor in
+            guard await relaunchHelper(app) != nil else {
+                NSLog("cmux: could not start the relaunch helper; quit cmux to finish the switch")
+                failed()
+                return
+            }
+            NSApplication.terminateFromRunLoop()
+        }
     }
 
     /// ``relaunchAfterExit(_:)``'s helper, running; nil when it could not start.
