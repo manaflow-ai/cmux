@@ -88,7 +88,7 @@ test("one line grows and shrinks in CSS pixels at every composer zoom", async ()
       });
       const notifyResize = () => {
         const entry = { target: field } as unknown as ResizeObserverEntry;
-        for (const observer of [...resizeObservers]) observer.callback([entry]);
+        for (const observer of Array.from(resizeObservers)) observer.callback([entry]);
       };
       try {
         for (const height of [68, 48, 68, 48]) {
