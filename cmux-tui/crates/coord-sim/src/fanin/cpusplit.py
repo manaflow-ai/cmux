@@ -71,21 +71,27 @@ def main():
     rows = []
     prev, prev_box = sample(), box()
     with open(OUT, "w") as out:
-        for _ in range(SECONDS):
-            time.sleep(1)
-            cur, cur_box = sample(), box()
-            idle, total = cur_box[0] - prev_box[0], cur_box[1] - prev_box[1]
-            # A role's delta can go negative when a process exits; clamp (exits are rare mid-window).
-            row = {"t": round(time.time(), 1), "box_total": total, "box_idle": idle,
-                   **{r: {"u": max(0, cur[r][0] - prev[r][0]), "s": max(0, cur[r][1] - prev[r][1]),
-                          "procs": cur[r][2]} for r in ROLES}}
-            out.write(json.dumps(row) + "\n")
-            out.flush()
-            rows.append(row)
-            prev, prev_box = cur, cur_box
-            if not any(cur[r][2] for r in ("controller", "agent")) and len(rows) > 60:
-                break  # the largest ramp has ended
-    report(rows)
+        try:
+            loop(out, rows, prev, prev_box)
+        except KeyboardInterrupt:  # ci.sh stops it with SIGINT once the ramps end
+            pass
+    # Only the seconds the largest ramp's controller ran (earlier ramps share the agent binary).
+    report([r for r in rows if r["controller"]["procs"]])
+
+
+def loop(out, rows, prev, prev_box):
+    for _ in range(SECONDS):
+        time.sleep(1)
+        cur, cur_box = sample(), box()
+        idle, total = cur_box[0] - prev_box[0], cur_box[1] - prev_box[1]
+        # A role's delta can go negative when a process exits; clamp (exits are rare mid-window).
+        row = {"t": round(time.time(), 1), "box_total": total, "box_idle": idle,
+               **{r: {"u": max(0, cur[r][0] - prev[r][0]), "s": max(0, cur[r][1] - prev[r][1]),
+                      "procs": cur[r][2]} for r in ROLES}}
+        out.write(json.dumps(row) + "\n")
+        out.flush()
+        rows.append(row)
+        prev, prev_box = cur, cur_box
 
 
 def report(rows):

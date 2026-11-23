@@ -91,10 +91,17 @@ profile() {
   echo "FANIN perf: top self:"; grep -E '^ +[0-9]' "$OUT/perf.self.txt" | head -25
 }
 [ "$PROFILE" = perf ] && { profile & PROF=$!; }
+# FANIN_CPUSPLIT=1: the box's CPU by role (controller, host daemons, agents, driver) each second of the
+# largest ramp (cpusplit.py), to tell a saturated harness box from a controller that does not scale.
+if [ "${FANIN_CPUSPLIT:-0}" = 1 ]; then
+  python3 "$ROOT/cmux-tui/crates/coord-sim/src/fanin/cpusplit.py" "$BIN" "$SIM" "${RAMPS##*,}" "$OUT/cpusplit.ndjson" $((WINDOW * 4 + 600)) \
+    > "$OUT/cpusplit.txt" 2>&1 & SPLIT=$!
+fi
 "$SIM" fanin --hosts "$HOSTS" --sessions 2000 --ramps "$RAMPS" --rate 0.333 --window-s "$WINDOW" --fanout-rounds "$ROUNDS" \
   --out "$RUN" --acpmux "$BIN" --wall-clock-cap 6000 2>&1 | tee "$OUT/fanin.log" | grep -v '^FANIN_SUMMARY'
 code=${PIPESTATUS[0]}
 [ -n "${PROF:-}" ] && wait "$PROF"
+[ -n "${SPLIT:-}" ] && { kill -INT "$SPLIT" 2>/dev/null; wait "$SPLIT"; cat "$OUT/cpusplit.txt"; }
 "$SIM" fanin teardown --out "$RUN" || true
 cp "$RUN/fanin-summary.json" "$OUT/" 2>/dev/null || true
 for d in "$RUN"/n*; do
