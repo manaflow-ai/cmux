@@ -39,12 +39,10 @@ impl AutoCloud for FakeAutoCloud {
     async fn wait(&self, id: &str, after: u64, timeout_ms: u64) -> CloudResult<SessionView> {
         let deadline = self.deadline("wait", timeout_ms)?;
         poll_fn(|cx| {
-            self.held(cx, deadline, |store, caller, due| {
-                let answer = store.owner_only(caller).and_then(|()| store.get(caller, id));
-                match answer {
-                    Ok(session) if session.version <= after && !due => None,
-                    answer => Some(answer),
-                }
+            self.held(cx, deadline, |store, caller, due| match store.waited(caller, id) {
+                // A closed chat answers at once: nothing more will change in it.
+                Ok(session) if session.version <= after && session.auto && !due => None,
+                answer => Some(answer),
             })
         })
         .await

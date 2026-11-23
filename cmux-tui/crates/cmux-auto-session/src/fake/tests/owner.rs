@@ -1,13 +1,15 @@
-//! The owner's routes: making, listing and closing chats, and who may call what.
+//! The owner's routes: making, listing and closing chats.
 
 use super::*;
 use crate::consts::LEASE_MS;
-use crate::wire::{
-    AssignmentKind, CreateRequest, EventsAppend, FirstMessage, InboxPost, Repo, State,
-};
+use crate::wire::{CreateRequest, FirstMessage, Repo, Role, State};
 
 fn repo() -> Repo {
     Repo { remote: "https://example.com/r.git".into(), branch: "main".into() }
+}
+
+fn off() -> PutRequest {
+    PutRequest { auto: false, ..put_request("mac") }
 }
 
 #[test]
@@ -20,12 +22,12 @@ fn the_first_put_makes_the_chat_this_laptops_at_epoch_one() {
     assert!(session.auto && !session.keep_in_cloud && !session.needs_run);
     assert_eq!((session.title.as_str(), session.harness.as_str()), ("Fix the build", "claude"));
     assert_eq!((session.created_at, session.lease_expires_at), (1_000, 1_000 + LEASE_MS));
-    assert_eq!(session.repo, Some(repo()));
+    assert_eq!((session.repo.clone(), session.team.clone()), (Some(repo()), None));
     assert_eq!(ready(owner.get(CHAT)), Ok(session.clone()));
 
     // A later put changes what the chat says, not who holds it.
     let renamed = PutRequest {
-        title: "Fix the tests".into(),
+        title: " Fix the tests ".into(),
         keep_in_cloud: Some(true),
         ..put_request("other")
     };
@@ -34,8 +36,11 @@ fn the_first_put_makes_the_chat_this_laptops_at_epoch_one() {
     assert_eq!((again.title.as_str(), again.keep_in_cloud), ("Fix the tests", true));
     assert_eq!(again.repo, Some(repo()));
     assert!(again.version > session.version);
+    // The same put again changes nothing a viewer could see.
+    assert_eq!(ready(owner.put(CHAT, &renamed)).map(|same| same.version), Ok(again.version));
 
-    assert_eq!(ready(owner.get("no_such_chat")).expect_err("unknown").status(), Some(404));
+    assert_eq!(status(ready(owner.get("no_such_chat"))), Some(404));
+    assert_eq!(status(ready(owner.put("no_such_chat", &off()))), Some(404));
 }
 
 #[test]
@@ -55,6 +60,11 @@ fn a_chat_started_with_no_laptop_goes_to_the_auto_machine() {
     let session = ready(owner.create(&request)).expect("made");
     assert_eq!((session.holder.clone(), session.epoch, session.state), (vm(), 1, State::Resuming));
     assert_eq!((session.title.as_str(), session.repo.clone()), ("From the phone", Some(repo())));
+    assert_eq!(
+        (session.team.as_deref(), session.inbox, session.lease_expires_at),
+        (Some(TEAM), 1, 0)
+    );
+    assert!(session.id.starts_with("as_") && session.id.len() == 23);
     assert_eq!(owner.machine_starts(), [VM]);
 
     let assignments = ready(machine.assignments(0)).expect("assignments");
@@ -66,14 +76,21 @@ fn a_chat_started_with_no_laptop_goes_to_the_auto_machine() {
     let first = messages.first().expect("the first message");
     assert_eq!((first.n, first.id.as_str(), first.text.as_str()), (1, "m1", "start here"));
 
-    let other = ready(owner.create(&request)).expect("made");
+    // The same request again (its answer was lost) reaches the chat it made.
+    let again = ready(owner.create(&request)).expect("the same chat");
+    assert_eq!((again.id.as_str(), again.inbox), (session.id.as_str(), 1));
+    assert_eq!(owner.machine_starts(), [VM]);
+    // Another first message is another chat.
+    let first_message = FirstMessage { id: "m2".into(), text: "and this".into() };
+    let other = ready(owner.create(&CreateRequest { first_message, ..request })).expect("made");
     assert_ne!(other.id, session.id);
 }
 
 #[test]
-fn the_list_pages_in_the_order_the_chats_were_made() {
+fn the_list_pages_newest_first_and_leaves_closed_chats_out() {
     let owner = FakeAutoCloud::new();
-    for id in ["c1", "c2", "c3", "c4", "c5"] {
+    for (at, id) in [(1, "c1"), (2, "c2"), (3, "c3"), (3, "c4"), (5, "c5")] {
+        owner.set_now(at);
         ready(owner.put(id, &put_request("mac"))).expect("made");
     }
     let ids = |limit, cursor: Option<&str>| {
@@ -81,70 +98,65 @@ fn the_list_pages_in_the_order_the_chats_were_made() {
         let ids: Vec<String> = page.sessions.into_iter().map(|session| session.id).collect();
         (ids.join(","), page.next_cursor)
     };
-    assert_eq!(ids(Some(2), None), ("c1,c2".to_owned(), Some("c2".to_owned())));
-    assert_eq!(ids(Some(2), Some("c2")), ("c3,c4".to_owned(), Some("c4".to_owned())));
-    assert_eq!(ids(Some(2), Some("c4")), ("c5".to_owned(), None));
-    assert_eq!(ids(None, None), ("c1,c2,c3,c4,c5".to_owned(), None));
-    assert_eq!(ready(owner.list(None, Some("nope"))).expect_err("no cursor").status(), Some(400));
+    let (first, next) = ids(Some(2), None);
+    assert_eq!(first, "c5,c4");
+    let (second, next) = ids(Some(2), next.as_deref());
+    assert_eq!(second, "c3,c2");
+    assert_eq!(ids(Some(2), next.as_deref()), ("c1".to_owned(), None));
+    assert_eq!(ids(None, None), ("c5,c4,c3,c2,c1".to_owned(), None));
+    assert_eq!(status(ready(owner.list(None, Some("nope")))), Some(400));
+
+    ready(owner.put("c3", &off())).expect("closed");
+    assert_eq!(ids(None, None).0, "c5,c4,c2,c1");
 }
 
 #[test]
-fn switching_auto_off_closes_the_chat() {
+fn switching_auto_off_closes_the_chat_and_drops_its_copy() {
     let (owner, _machine) = store();
     renew(&owner, &mac(), 1, true);
-    let off = PutRequest { auto: false, ..put_request("mac") };
-    let closed = ready(owner.put(CHAT, &off)).expect("closed");
-    assert!(!closed.auto);
+    assert_eq!(append_as(&owner, &mac(), 1, 1..=2), Ok(2));
+    assert_eq!(snapshot_as(&owner, &mac(), 1, b"the folder", 2), Ok(1));
+    let closed = ready(owner.put(CHAT, &off())).expect("closed");
+    assert_eq!((closed.auto, closed.holder.clone(), closed.epoch), (false, Holder::Parked, 2));
+    assert_eq!((closed.last_seq, closed.snapshot), (0, 0));
+    // Closing again is the same answer.
+    assert_eq!(ready(owner.put(CHAT, &off())).map(|again| again.version), Ok(closed.version));
 
-    // A closed chat takes no renewal, no write and no message.
+    // A closed chat takes no renewal, no write and no message, and a wait on it answers.
     let lease = LeaseRequest { holder: mac(), epoch: 1, needs_run: true, standby: None };
     let refused = ready(owner.lease(CHAT, &lease)).expect_err("closed");
-    assert_eq!((refused.code(), refused.status()), (Some(ErrorCode::Closed), Some(410)));
-    let events = EventsAppend { holder: mac(), epoch: 1, events: Vec::new() };
-    assert_eq!(code(ready(owner.append_events(CHAT, &events))), ErrorCode::Closed);
+    assert_eq!((refused.code(), refused.status()), (Some(ErrorCode::Closed), Some(409)));
+    assert_eq!(refused.session().map(|session| session.auto), Some(false));
+    assert_eq!(code(append_as(&owner, &mac(), 1, 3..=3)), ErrorCode::Closed);
     let message = InboxPost { id: "m1".into(), text: "hello".into() };
     assert_eq!(code(ready(owner.post_inbox(CHAT, &message))), ErrorCode::Closed);
+    assert_eq!(code(ready(owner.keep(CHAT, true))), ErrorCode::Closed);
+    assert_eq!(ready(owner.wait(CHAT, closed.version, 25_000)), Ok(closed));
 
     // Its lease never goes to a machine.
     owner.advance(2 * LEASE_MS);
-    let session = chat(&owner);
-    assert_eq!((session.holder.clone(), session.epoch, session.auto), (mac(), 1, false));
     assert!(owner.machine_starts().is_empty());
 
-    // Auto on again: the chat is this laptop's, at a new epoch.
+    // Auto on again: the chat is this laptop's, at a new epoch, with an empty copy.
     let on = ready(owner.put(CHAT, &put_request("mac"))).expect("on again");
-    assert_eq!((on.auto, on.holder.clone(), on.epoch), (true, mac(), 2));
+    assert_eq!((on.auto, on.holder.clone(), on.epoch), (true, mac(), 3));
+    assert!(ready(owner.events(CHAT, 0, None)).expect("a page").events.is_empty());
+    assert_eq!(code(ready(owner.snapshot(CHAT))), ErrorCode::NoSnapshot);
+    assert_eq!(append_as(&owner, &mac(), 3, 1..=1), Ok(1));
 }
 
 #[test]
-fn a_chat_a_machine_holds_cannot_be_closed() {
-    let (owner, _machine) = taken_over();
-    let off = PutRequest { auto: false, ..put_request("mac") };
-    let refused = ready(owner.put(CHAT, &off)).expect_err("held in the Cloud");
+fn a_chat_the_cloud_has_the_only_copy_of_cannot_be_closed() {
+    let (owner, machine) = taken_over();
+    let refused = ready(owner.put(CHAT, &off())).expect_err("held in the Cloud");
     assert_eq!((refused.code(), refused.status()), (Some(ErrorCode::HeldInCloud), Some(409)));
+
+    // Parked after a machine ran it: the Cloud copy is still the only whole one.
+    ready(machine.release(CHAT, &Fence::new(vm(), 2))).expect("released");
+    assert_eq!(code(ready(owner.put(CHAT, &off()))), ErrorCode::HeldInCloud);
     assert!(chat(&owner).auto);
-}
 
-#[test]
-fn each_caller_has_its_routes() {
-    let (owner, machine) = store();
-    // A machine that is not the owner's Auto machine is not answered.
-    let stranger = owner.as_machine("vm_other");
-    assert_eq!(ready(stranger.get(CHAT)).expect_err("not bound").status(), Some(401));
-    assert_eq!(ready(stranger.assignments(0)).expect_err("not bound").status(), Some(401));
-
-    // The Auto machine reads a chat, and the owner's routes are not its own.
-    assert_eq!(ready(machine.get(CHAT)).map(|session| session.id), Ok(CHAT.to_owned()));
-    assert_eq!(
-        ready(machine.put(CHAT, &put_request("mac"))).expect_err("owner's").status(),
-        Some(403)
-    );
-    assert_eq!(ready(machine.list(None, None)).expect_err("owner's").status(), Some(403));
-    assert_eq!(ready(machine.keep(CHAT, true)).expect_err("owner's").status(), Some(403));
-    assert_eq!(ready(machine.machine()).expect_err("owner's").status(), Some(403));
-
-    // A machine's routes are not the owner's.
-    assert_eq!(ready(owner.assignments(0)).expect_err("a machine's").status(), Some(403));
-    let ack = ready(owner.ack_assignment(CHAT, &Fence::new(mac(), 1)));
-    assert_eq!(ack.expect_err("a machine's").status(), Some(403));
+    // A laptop takes the chat first, then turns Auto off.
+    assert_eq!(stand_by(&owner, &mac(), 2).role, Role::Holder);
+    assert_eq!(ready(owner.put(CHAT, &off())).map(|closed| closed.auto), Ok(false));
 }

@@ -1,16 +1,34 @@
 //! The owner's routes: the Auto machine, a chat's Auto flag, a chat started with no laptop, the
 //! list, one chat, and keeping a chat in the Cloud.
 
-use super::store::{Caller, Chat, Store, invalid, not_found, refused};
+use super::check;
+use super::record::view_of;
+use super::rules::{self, Step};
+use super::store::{Caller, Chat, Message, Store, invalid, named};
+use crate::chunks;
 use crate::cloud::{AutoCloudError, CloudResult};
 use crate::wire::{
-    AssignmentKind, CreateRequest, ErrorCode, Holder, InboxMessage, MachineSetting, PutRequest,
-    SessionList, SessionView,
+    CreateRequest, Delivery, ErrorCode, MachineSetting, PutRequest, SessionList, SessionView,
 };
 
 /// How many chats a page of the list has when the caller names no limit, and at most.
 const LIST_DEFAULT: u32 = 50;
-const LIST_MAX: u32 = 200;
+const LIST_MAX: u32 = 100;
+
+/// Where a chat stands in the list: by when it was made, then by id.
+fn place(chat: &Chat) -> (u64, &str) {
+    (chat.rec.created_at, chat.rec.id.as_str())
+}
+
+/// A page's cursor names its last chat. The real store's is opaque too, in another encoding.
+fn cursor_of(last: &SessionView) -> String {
+    format!("{}.{}", last.created_at, last.id)
+}
+
+fn read_cursor(cursor: &str) -> Option<(u64, String)> {
+    let (at, id) = cursor.split_once('.')?;
+    Some((at.parse().ok()?, id.to_owned()))
+}
 
 impl Store {
     pub fn machine(&self, caller: &Caller) -> CloudResult<MachineSetting> {
@@ -20,108 +38,123 @@ impl Store {
         })
     }
 
-    /// Sets the Auto machine. The parked chats that waited for one go to it.
+    /// Sets the Auto machine. The chats that waited for one go to it, oldest first, and so do
+    /// the chats given to another machine that never picked them up.
     pub fn set_machine(
         &mut self,
         caller: &Caller,
         setting: &MachineSetting,
     ) -> CloudResult<MachineSetting> {
         self.owner_only(caller)?;
-        if setting.team.is_empty() || setting.machine.is_empty() {
-            return Err(invalid("team and machine are required"));
+        if !check::team(&setting.team) {
+            return Err(invalid("team: the team the machine belongs to"));
         }
-        self.team = setting.team.clone();
+        if !check::machine(&setting.machine) {
+            return Err(invalid(
+                "machine: the Cloud machine id (letters, digits, _ -, at most 64)",
+            ));
+        }
         self.machine = Some(setting.clone());
-        let now = self.now;
-        for id in self.order.clone() {
-            if self.settle(&id)
-                && let Some(chat) = self.chats.get_mut(&id)
-            {
-                chat.touch(now);
-            }
+        let mut waiting: Vec<(u64, String)> =
+            self.chats.values().map(|chat| (chat.rec.created_at, chat.rec.id.clone())).collect();
+        waiting.sort();
+        for (_, id) in waiting {
+            // The rule refuses nothing, and the chat is there: there is no error to pass on.
+            let _moved = self.apply(&id, |chat, _| {
+                Ok(match rules::machine_set(&chat.rec, setting) {
+                    Some(next) => Step::loud((), next),
+                    None => Step::same(()),
+                })
+            });
         }
-        self.wake();
         Ok(setting.clone())
     }
 
     /// Switches Auto on or off for a chat. The first call makes it, held by the caller's laptop
-    /// at epoch 1.
+    /// at epoch 1. Off closes the chat and drops its copy.
     pub fn put(
         &mut self,
         caller: &Caller,
         id: &str,
         request: &PutRequest,
     ) -> CloudResult<SessionView> {
+        named(id)?;
         self.owner_only(caller)?;
-        if id.is_empty() || request.device.is_empty() {
-            return Err(invalid("a session id and a device are required"));
-        }
-        let me = Holder::device(request.device.clone());
-        if !self.chats.contains_key(id) {
-            if !request.auto {
-                return Err(not_found());
-            }
-            let mut chat = Chat::new(id, me, self.now);
-            describe(&mut chat, request);
-            self.order.push(id.to_owned());
-            self.chats.insert(id.to_owned(), chat);
-            self.wake();
-            return self.answer(id);
-        }
-        self.change(id, |chat, now| {
-            if !request.auto {
-                if chat.auto && chat.holder.is_vm() {
-                    return Err(refused(ErrorCode::HeldInCloud, "a Cloud machine runs this chat"));
+        if !request.auto {
+            let closed = self.apply(id, |chat, _| {
+                let step = rules::close(&chat.rec)?;
+                if step.rec.is_some() {
+                    chat.drop_copy();
                 }
-                chat.auto = false;
-                chat.needs_run = false;
-                chat.blocked = None;
-                chat.standby.clear();
-                return Ok(());
-            }
-            // Auto switched on again: the chat is this laptop's, at a new epoch.
-            if !chat.auto {
-                chat.auto = true;
-                chat.hand_to(me, now);
-            }
-            describe(chat, request);
-            Ok(())
-        })
+                Ok(step)
+            });
+            return closed.map(|((), view)| view);
+        }
+        if !check::title(&request.title) {
+            return Err(invalid("title: the chat's title (at most 200 characters)"));
+        }
+        if !check::harness(&request.harness) {
+            return Err(invalid(
+                "harness: the agent the chat runs (lowercase letters, digits, _ . -, at most 32)",
+            ));
+        }
+        if !check::device(&request.device) {
+            return Err(invalid("device: this laptop's id (letters, digits, _ . -, at most 64)"));
+        }
+        if request.repo.as_ref().is_some_and(|repo| !check::repo(repo)) {
+            return Err(invalid("repo: {remote, branch}"));
+        }
+        if !self.chats.contains_key(id) {
+            // The owner's own team is not the fake's to know: the chat has none until a
+            // machine takes it.
+            let rec = rules::open_record(id, &self.owner, None, request, self.now);
+            return Ok(self.insert(Chat::new(rec)));
+        }
+        self.apply(id, |chat, now| rules::edit(&chat.rec, request, now)).map(|((), view)| view)
     }
 
     /// A chat started with no laptop: the Auto machine holds it, with a `create` assignment.
-    /// Its first message is message 1 of its inbox.
+    /// Its first message is message 1 of its inbox, and names the chat: the same request
+    /// again answers the chat the first made.
     pub fn create(&mut self, caller: &Caller, request: &CreateRequest) -> CloudResult<SessionView> {
         self.owner_only(caller)?;
-        if request.harness.is_empty() || request.first_message.id.is_empty() {
-            return Err(invalid("a harness and a first message are required"));
+        if request.title.as_deref().is_some_and(|title| !check::title(title)) {
+            return Err(invalid("title: the chat's title (at most 200 characters)"));
         }
-        let Some(auto) = self.machine.clone() else {
-            return Err(refused(ErrorCode::NoMachine, "no Auto machine is set"));
+        if !check::harness(&request.harness) {
+            return Err(invalid(
+                "harness: the agent the chat runs (lowercase letters, digits, _ . -, at most 32)",
+            ));
+        }
+        if !check::repo(&request.repo) {
+            return Err(invalid("repo: {remote, branch}, the repository and branch"));
+        }
+        let first = &request.first_message;
+        if !check::message_id(&first.id) || !check::text(&first.text) {
+            return Err(invalid("firstMessage: {id, text}, the chat's first message"));
+        }
+        let hash = chunks::name_of(format!("{}\0{}", self.owner, first.id).as_bytes());
+        let id = format!("as_{}", hash.chars().take(20).collect::<String>());
+        if let Some(seen) = self.view(&id) {
+            return Ok(seen);
+        }
+        let Some(machine) = self.machine.clone() else {
+            return Err(AutoCloudError::refused(ErrorCode::NoMachine, "no Auto machine is set"));
         };
         let now = self.now;
-        self.made = self.made.saturating_add(1);
-        let id = format!("auto-{}", self.made);
-        let mut chat = Chat::new(&id, Holder::vm(auto.machine.clone()), now);
-        chat.title = request.title.clone().unwrap_or_default();
-        chat.harness = request.harness.clone();
-        chat.repo = Some(request.repo.clone());
-        chat.assignment = Some(AssignmentKind::Create);
-        chat.inbox.push(InboxMessage {
+        let mut chat = Chat::new(rules::cloud_record(&id, &self.owner, &machine, request, now));
+        chat.inbox.push(Message {
             n: 1,
-            id: request.first_message.id.clone(),
-            text: request.first_message.text.clone(),
+            id: first.id.clone(),
+            text: Some(first.text.clone()),
+            state: Delivery::Resuming,
             at: now,
         });
-        self.starts.push(auto.machine);
-        self.order.push(id.clone());
-        self.chats.insert(id.clone(), chat);
-        self.wake();
-        self.answer(&id)
+        Ok(self.insert(chat))
     }
 
-    /// One page of the owner's chats, oldest first. The cursor is the last id of the page
-    /// before.
+    /// One page of the owner's open chats, newest first. The cursor is the `next_cursor` of
+    /// the page before.
     pub fn list(
         &self,
         caller: &Caller,
@@ -129,25 +162,37 @@ impl Store {
         cursor: Option<&str>,
     ) -> CloudResult<SessionList> {
         self.owner_only(caller)?;
+        let before = match cursor {
+            None | Some("") => None,
+            Some(cursor) => Some(
+                read_cursor(cursor)
+                    .ok_or_else(|| invalid("cursor: use the nextCursor of the previous page"))?,
+            ),
+        };
         let limit = limit.unwrap_or(LIST_DEFAULT).clamp(1, LIST_MAX);
         let limit = usize::try_from(limit).unwrap_or(usize::MAX);
-        let start = match cursor {
-            None => 0,
-            Some(cursor) => {
-                let at = self.order.iter().position(|id| id == cursor);
-                at.ok_or_else(|| invalid("no such cursor"))?.saturating_add(1)
-            }
-        };
-        let mut rest = self.order.iter().skip(start).filter_map(|id| self.chats.get(id));
+        let mut open: Vec<&Chat> = self.chats.values().filter(|chat| chat.rec.auto).collect();
+        open.sort_by(|a, b| place(b).cmp(&place(a)));
+        let mut rest = open.into_iter().filter(|chat| match &before {
+            Some((at, id)) => place(chat) < (*at, id.as_str()),
+            None => true,
+        });
         let sessions: Vec<SessionView> =
-            rest.by_ref().take(limit).map(|chat| self.view(chat)).collect();
+            rest.by_ref().take(limit).map(|chat| view_of(&chat.rec, self.now)).collect();
         let more = rest.next().is_some();
-        let next_cursor = sessions.last().filter(|_| more).map(|last| last.id.clone());
+        let next_cursor = sessions.last().filter(|_| more).map(cursor_of);
         Ok(SessionList { sessions, next_cursor })
     }
 
     pub fn get(&self, caller: &Caller, id: &str) -> CloudResult<SessionView> {
-        self.read(caller, id).map(|chat| self.view(chat))
+        self.admitted(caller, id, false).map(|chat| view_of(&chat.rec, self.now))
+    }
+
+    /// The chat as a `wait` answers it: the owner's route.
+    pub fn waited(&self, caller: &Caller, id: &str) -> CloudResult<SessionView> {
+        named(id)?;
+        self.owner_only(caller)?;
+        self.get(caller, id)
     }
 
     /// Keeps the chat in the Cloud (no handback), or stops keeping it.
@@ -157,23 +202,8 @@ impl Store {
         id: &str,
         keep_in_cloud: bool,
     ) -> CloudResult<SessionView> {
+        named(id)?;
         self.owner_only(caller)?;
-        self.change(id, |chat, _| {
-            chat.open()?;
-            chat.keep_in_cloud = keep_in_cloud;
-            Ok(())
-        })
-    }
-}
-
-/// What a `PUT` says about the chat besides its Auto flag.
-fn describe(chat: &mut Chat, request: &PutRequest) {
-    chat.title = request.title.clone();
-    chat.harness = request.harness.clone();
-    if let Some(keep_in_cloud) = request.keep_in_cloud {
-        chat.keep_in_cloud = keep_in_cloud;
-    }
-    if let Some(repo) = &request.repo {
-        chat.repo = Some(repo.clone());
+        self.apply(id, |chat, _| rules::keep(&chat.rec, keep_in_cloud)).map(|((), view)| view)
     }
 }

@@ -1,93 +1,105 @@
-//! The inbox: a device sends, the holder reads and acks.
+//! The inbox: a device sends, the holder reads and acks (the real store's `inbox.ts` and the
+//! routes that use it).
 
-use super::store::{Caller, Store, invalid, not_found, refused};
+use super::check;
+use super::record::{MAX_INBOX_PENDING, Record};
+use super::rules::{self, Refuse, Step};
+use super::store::{Caller, Message, Store, invalid, named, writer};
 use crate::cloud::CloudResult;
-use crate::wire::{
-    Delivery, ErrorCode, Fence, Holder, InboxAck, InboxMessage, InboxPost, InboxPosted, SessionView,
-};
+use crate::wire::{ErrorCode, InboxAck, InboxMessage, InboxPost, InboxPosted, SessionView};
+
+/// Acked messages keep their id this long (counted in messages), so a late repeat of one is
+/// still known.
+const KEEP_ACKED: u64 = 256;
+/// The most one read answers; cut once the texts pass the size (the first always fits).
+const PAGE_MAX: usize = 64;
+const PAGE_MAX_BYTES: usize = 1 << 20;
 
 impl Store {
-    /// Takes one message. An id the inbox has already stores nothing new. A parked chat goes to
-    /// the Auto machine (`settle`); a machine that runs the chat gets a `deliver` assignment
-    /// and a start, unless an assignment already waits for it.
+    /// Takes one message from any of the owner's devices. An id the inbox has already stores
+    /// nothing new and answers what the first answered. Who gets a new one is
+    /// `rules::deliver`.
     pub fn post_inbox(
         &mut self,
         caller: &Caller,
         id: &str,
         message: &InboxPost,
     ) -> CloudResult<InboxPosted> {
+        named(id)?;
         self.owner_only(caller)?;
-        if message.id.is_empty() {
-            return Err(invalid("a message id is required"));
+        if !check::message_id(&message.id) {
+            return Err(invalid("id: the message's id (letters, digits, _ . : -, at most 128)"));
         }
-        let chat = self.chats.get(id).ok_or_else(not_found)?;
-        chat.open()?;
-        let stored =
-            chat.inbox.iter().find(|stored| stored.id == message.id).map(|stored| stored.n);
-        let n = match stored {
-            Some(n) => n,
-            None => {
-                let n = chat.inbox_len().saturating_add(1);
-                let told = match &chat.holder {
-                    Holder::Vm(machine) if chat.assignment.is_none() => Some(machine.clone()),
-                    Holder::Vm(_) | Holder::Device(_) | Holder::Parked => None,
-                };
-                self.change(id, |chat, now| {
-                    let (id, text) = (message.id.clone(), message.text.clone());
-                    chat.inbox.push(InboxMessage { n, id, text, at: now });
-                    if told.is_some() {
-                        chat.deliver();
-                    }
-                    Ok(())
-                })?;
-                self.starts.extend(told);
-                n
+        if !check::text(&message.text) {
+            return Err(invalid("text: the message (at most 262144 characters)"));
+        }
+        let machine = self.machine.clone();
+        let (state, session) = self.apply(id, |chat, now| {
+            if !chat.rec.auto {
+                return Err(Refuse::new(ErrorCode::Closed, "Auto is off for this chat"));
             }
-        };
-        let chat = self.chats.get(id).ok_or_else(not_found)?;
-        // Where the message is now: taken, on its way to a machine, or waiting for a laptop's
-        // next renewal (or for an Auto machine to exist).
-        let state = if chat.inbox_acked >= n {
-            Delivery::Delivered
-        } else if chat.holder.is_vm() {
-            Delivery::Resuming
-        } else {
-            Delivery::Queued
-        };
-        Ok(InboxPosted { state, session: self.view(chat) })
+            if let Some(sent) = chat.inbox.iter().find(|sent| sent.id == message.id) {
+                return Ok(Step::same(sent.state));
+            }
+            if chat.rec.inbox.saturating_sub(chat.rec.inbox_acked) >= MAX_INBOX_PENDING {
+                let full = "too many messages are waiting for this chat";
+                return Err(Refuse::new(ErrorCode::TooLarge, full));
+            }
+            let counted = Record { inbox: chat.rec.inbox.saturating_add(1), ..chat.rec.clone() };
+            let (rec, state) = rules::deliver(counted, machine.as_ref(), now);
+            chat.inbox.push(Message {
+                n: rec.inbox,
+                id: message.id.clone(),
+                text: Some(message.text.clone()),
+                state,
+                at: now,
+            });
+            Ok(Step::loud(state, rec))
+        })?;
+        Ok(InboxPosted { state, session })
     }
 
-    /// The messages after number `after`, for the chat's holder: the owner while a laptop
-    /// holds it, the machine while it does.
+    /// The messages after number `after` that the holder has not acked, in order.
     pub fn inbox(&self, caller: &Caller, id: &str, after: u64) -> CloudResult<Vec<InboxMessage>> {
-        let chat = self.read(caller, id)?;
-        chat.open()?;
-        let holds = match (caller, &chat.holder) {
-            (Caller::Owner, Holder::Device(_)) => true,
-            (Caller::Machine(machine), Holder::Vm(named)) => machine == named,
-            (Caller::Owner | Caller::Machine(_), _) => false,
-        };
-        if !holds {
-            return Err(refused(ErrorCode::NotHolder, "only the chat's holder reads its inbox"));
+        let chat = self.admitted(caller, id, false)?;
+        let after = after.max(chat.rec.inbox_acked);
+        let mut messages: Vec<InboxMessage> = Vec::new();
+        let mut bytes = 0usize;
+        for message in chat.inbox.iter().filter(|message| message.n > after) {
+            let Some(text) = &message.text else { continue };
+            bytes = bytes.saturating_add(text.len());
+            if messages.len() >= PAGE_MAX || (!messages.is_empty() && bytes > PAGE_MAX_BYTES) {
+                break;
+            }
+            let (n, id, text) = (message.n, message.id.clone(), text.clone());
+            messages.push(InboxMessage { n, id, text, at: message.at });
         }
-        Ok(chat.inbox.iter().filter(|message| message.n > after).cloned().collect())
+        Ok(messages)
     }
 
-    /// The holder took every message up to `through`.
+    /// The holder took every message through `through`: their text goes, their ids stay a
+    /// while for repeats. An ack past the newest message is one of the newest.
     pub fn ack_inbox(
         &mut self,
         caller: &Caller,
         id: &str,
         ack: &InboxAck,
     ) -> CloudResult<SessionView> {
-        self.write(caller, id, &Fence::new(ack.holder.clone(), ack.epoch))?;
-        let chat = self.chats.get(id).ok_or_else(not_found)?;
-        if ack.through > chat.inbox_len() {
-            return Err(invalid("through is past the newest message"));
-        }
-        self.change(id, |chat, _| {
-            chat.inbox_acked = chat.inbox_acked.max(ack.through);
-            Ok(())
-        })
+        writer(&ack.holder)?;
+        self.admitted(caller, id, true)?;
+        let acked = self.apply(id, |chat, _| {
+            rules::fence(&chat.rec, caller, &ack.holder, ack.epoch)?;
+            let through = ack.through.min(chat.rec.inbox);
+            if through <= chat.rec.inbox_acked {
+                return Ok(Step::same(()));
+            }
+            let forgotten = through.saturating_sub(KEEP_ACKED);
+            chat.inbox.retain(|message| message.n > forgotten);
+            for message in chat.inbox.iter_mut().filter(|message| message.n <= through) {
+                message.text = None;
+            }
+            Ok(Step::loud((), Record { inbox_acked: through, ..chat.rec.clone() }))
+        });
+        acked.map(|((), view)| view)
     }
 }

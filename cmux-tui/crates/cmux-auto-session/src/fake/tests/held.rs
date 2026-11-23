@@ -50,6 +50,15 @@ fn wait_is_held_until_the_chat_changes() {
     };
     assert!(session.version > version);
     assert_eq!(session.inbox, 1);
+
+    // Storing a chunk is no change a viewer sees either.
+    let version = session.version;
+    let mut held = Box::pin(owner.wait(CHAT, version, 25_000));
+    assert!(held.as_mut().poll(&mut cx).is_pending());
+    let chunk = b"a chunk";
+    ready(owner.put_chunk(CHAT, &name_of(chunk), chunk, &Fence::new(mac(), 1))).expect("stored");
+    assert!(held.as_mut().poll(&mut cx).is_pending());
+    assert_eq!(chat(&owner).version, version);
 }
 
 #[test]
@@ -124,11 +133,12 @@ fn an_offline_caller_gets_no_answer() {
     assert!(dropped.is_transport());
 
     // Another caller has its own network, and the store never saw the laptop's calls.
-    assert!(ready(machine.get(CHAT)).is_ok());
-    assert_eq!(owner.calls(), ["set_machine", "put", "wait", "get"]);
+    assert_eq!(ready(machine.assignments(0)), Ok(Vec::new()));
+    assert_eq!(owner.calls(), ["set_machine", "put", "wait", "assignments"]);
 
-    // The store goes on without the laptop: its lease runs out.
+    // The store goes on without the laptop: its lease runs out, and the idle chat is parked.
     owner.advance(LEASE_MS);
+    assert_eq!(chat(&machine).holder, Holder::Parked);
     owner.set_offline(false);
     let answer = renew(&owner, &mac(), 1, false);
     assert_eq!((answer.session.holder.clone(), answer.session.epoch), (mac(), 3));

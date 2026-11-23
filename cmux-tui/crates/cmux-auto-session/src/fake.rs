@@ -13,40 +13,66 @@
 //! before every call, so a laptop that stopped renewing loses its chat once the test moves the
 //! clock past the lease.
 //!
-//! The rules, as `plans/cmux-next/auto-mode/DESIGN.md` gives them:
+//! The rules are the real store's (the Cloud API's `auto-sessions`), file for file: `rules.rs`
+//! is its `lease.ts`, `record.rs` its `model.ts`, `check.rs` its field checks, and the routes
+//! check what its routes check, in their order. In short:
 //!
-//! - Every holder write names a holder and an epoch. It is refused `auto.not_holder` when the
-//!   caller cannot be that holder, `auto.stale_epoch` when they are not the chat's current ones
-//!   and `auto.closed` once Auto is off.
-//! - A laptop's lease lasts 45 s from its last renewal. When it runs out, a chat that needed to
-//!   run (or has messages waiting) goes to the Auto machine with a `takeover` assignment and a
-//!   machine start; an idle one is parked. Either way the epoch grows by one. A machine's lease
-//!   does not run out.
-//! - With no Auto machine the chat is parked, blocked `no_machine`, until one is set.
-//! - A renewal answers `holder` to the chat's holder, and to a laptop that renews a parked
-//!   chat without `standby` (the epoch grows). It answers `standby` to a laptop that renews
-//!   with `standby: true` and lists it for 45 s; anyone else is `lost`.
-//! - `release` moves the chat to a laptop standing by (the one that renewed last), unless a
-//!   machine releases a chat kept in the Cloud; with none it is parked.
-//! - Events append in order from seq 1. A repeat of stored seqs is accepted; a gap is
+//! - Every holder write names a holder and an epoch. It is refused `auto.closed` once Auto is
+//!   off, `auto.not_holder` when the caller cannot be that holder or the holder is another,
+//!   and `auto.stale_epoch` when the epoch is not the chat's. A refusal about a chat carries
+//!   the chat as it is. A machine reads only a chat it holds (any other is 404); its write to
+//!   a chat it held last is `auto.stale_epoch`.
+//! - A renewal is answered a role, never `auto.stale_epoch`: `holder` (go on at the answer's
+//!   epoch; to a standby's renewal, import first), `standby`, or `lost` (stop, then renew as
+//!   standby).
+//! - A laptop's lease lasts 45 s from its last renewal. When it runs out, a chat with work
+//!   (`needsRun`, or an unacked message) goes to the Auto machine with a `takeover`
+//!   assignment and a machine start; an idle one is parked. With no Auto machine the work
+//!   waits, parked and blocked `no_machine`, until one is set. The epoch grows by one at
+//!   every change of holder and never otherwise.
+//! - A parked chat: the laptop whose lease ran out takes it back as it is with a renewal that
+//!   names the epoch it held. Any laptop takes it with a standby's renewal, unless it is kept
+//!   in the Cloud.
+//! - A machine's chat goes home at the machine's own renewal: `needsRun: false`, the inbox and
+//!   the assignment acked, the newest snapshot covering the last event, a laptop standing by
+//!   and the chat not kept in the Cloud. The machine is answered `lost`. A machine that said
+//!   all that and then stopped renewing loses the chat to a standby at the standby's renewal.
+//! - `release` gives a machine's chat to its standby laptop. Otherwise the chat is parked,
+//!   unless a message is unread: then it goes to the Auto machine, or stays with the Auto
+//!   machine that released it, with a `deliver` to pick up.
+//! - Events append in order from seq 1. A repeat of stored seqs is skipped; a hole is
 //!   `auto.seq_gap` with the store's last seq.
-//! - A chunk must hash to its name (`auto.chunk_mismatch`) and be at most 1 MiB
-//!   (`auto.too_large`). A manifest is accepted only when every chunk it names is stored
-//!   (`auto.snapshot_incomplete` names the rest), its chunks are under the cap
-//!   (`auto.too_large`) and the store has its events (`auto.seq_gap`).
-//! - A message's id is stored once. A message for a parked chat makes the Auto machine its
-//!   holder; a message for a chat a machine runs gives that machine a `deliver` assignment.
-//! - An assignment stays until the machine acks it.
+//! - A chunk must hash to its name (`auto.chunk_mismatch`) and be at most 1 MiB. A manifest is
+//!   accepted only when every chunk it names is stored (`auto.snapshot_incomplete` names the
+//!   rest) and their bytes are under the chat's limit (`auto.too_large`). It covers the chat
+//!   only through the events the store has.
+//! - A message's id is taken once, and a repeat is answered what the first was. A laptop that
+//!   holds the chat reads it (`delivered`); a parked chat goes to the Auto machine
+//!   (`resuming`) or waits for one (`queued`); a machine that runs the chat gets a `deliver`
+//!   assignment unless one already waits for it.
+//! - An assignment stays until the machine acks it, and an ack with a message still unread
+//!   leaves a `deliver`.
+//! - Turning Auto off closes the chat and drops its copy. It is refused `auto.held_in_cloud`
+//!   while the Cloud has what no laptop has.
 //!
 //! `wait` and `assignments` are held requests: they answer when there is something to answer
 //! or when the store's clock reaches their deadline, so a test releases one by changing the
 //! chat or by moving the clock.
+//!
+//! What the fake leaves out: how a machine is started (it only records that a start was asked
+//! for, in [`FakeAutoCloud::machine_starts`]), whether the owner may use a team's machines,
+//! the rate limit on new chats, and every failure of the store itself. Its list and its
+//! assignments are always current, where the real store's follow a chat's change a moment
+//! later.
 
+mod check;
 mod copy;
 mod inbox;
 mod lease;
 mod owner;
+mod record;
 mod routes;
+mod rules;
 mod store;
 
 #[cfg(test)]
@@ -92,8 +118,9 @@ impl FakeAutoCloud {
         self.as_caller(Caller::Owner)
     }
 
-    /// The same store, called as the VM install of `machine`. Its holder is `vm:<machine>`,
-    /// and the store answers it only while `machine` is the owner's Auto machine.
+    /// The same store, called as the VM install of `machine`, one of the owner's Cloud
+    /// machines (the Auto machine or another). Its holder is `vm:<machine>`, and it reaches
+    /// only the chats that machine holds.
     pub fn as_machine(&self, machine: &str) -> FakeAutoCloud {
         self.as_caller(Caller::Machine(machine.to_owned()))
     }
@@ -133,9 +160,10 @@ impl FakeAutoCloud {
         self.lock().wake();
     }
 
-    /// The most bytes a snapshot's chunks may have; the real store's is 512 MiB.
+    /// A chat's size limit; the real store's is 512 MiB. It bounds three things apart: the
+    /// chunks one snapshot names, the chunks waiting for their snapshot, and the chat's events.
     pub fn set_snapshot_max(&self, bytes: u64) {
-        self.lock().snapshot_max = bytes;
+        self.lock().chat_max = bytes;
     }
 
     /// Every machine start the store asked for, oldest first, by machine id: one for each
@@ -157,7 +185,7 @@ impl FakeAutoCloud {
     pub fn peek(&self, id: &str) -> Option<SessionView> {
         let mut store = self.lock();
         store.alarm();
-        store.answer(id).ok()
+        store.view(id)
     }
 
     fn lock(&self) -> MutexGuard<'_, Store> {

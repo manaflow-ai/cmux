@@ -1,189 +1,117 @@
-//! The fake store's records and the rules every route shares: the view, who may call, the
-//! fence, the lease alarm and the takeover.
+//! The fake store: its chats, who may reach them, and the one way a rule's decision is
+//! written (the real store's `session-do.ts`: `admitted`, `apply` and the alarm).
 
 use std::collections::BTreeMap;
 use std::task::Waker;
 
 use serde_json::Value;
 
+use super::check;
+use super::record::{Record, view_of};
+use super::rules::{Decision, Refuse, Step, next_due, tick};
 use crate::cloud::{AutoCloudError, CloudResult};
-use crate::consts::{LEASE_MS, SNAPSHOT_MAX_BYTES};
-use crate::wire::{
-    AssignmentKind, Blocked, ErrorCode, Fence, Holder, InboxMessage, MachineSetting, Manifest,
-    Repo, SessionView, State,
-};
+use crate::consts::SNAPSHOT_MAX_BYTES;
+use crate::wire::{Delivery, ErrorCode, Holder, MachineSetting, Manifest, SessionView};
 
-/// Who calls: the design's owner (a signed-in session or a person's install) or machine (a VM
-/// install, by its machine id).
+/// Chunks no snapshot named for this long are dropped when their chat is at its limit: an
+/// upload that was given up.
+const ABANDONED_MS: u64 = 24 * 3_600_000;
+
+/// Who calls: the owner (a signed-in session or a person's install) or a machine (the VM
+/// install bound to one of the owner's Cloud machines, by its machine id).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum Caller {
     Owner,
     Machine(String),
 }
 
-/// One chat as the store keeps it.
-#[derive(Clone, Debug)]
-pub(super) struct Chat {
+/// One stored event: its record, and its size as JSON.
+#[derive(Debug)]
+pub(super) struct StoredEvent {
+    pub record: Value,
+    pub bytes: u64,
+}
+
+/// One stored chunk. `kept`: the chat's snapshot names it. The others wait for the manifest
+/// that will.
+#[derive(Debug)]
+pub(super) struct Chunk {
+    pub bytes: Vec<u8>,
+    pub kept: bool,
+    pub at: u64,
+}
+
+/// One inbox message. Its text goes once the holder acked it; its id stays a while, so a late
+/// repeat of it is still known and answered what the first was.
+#[derive(Debug)]
+pub(super) struct Message {
+    pub n: u64,
     pub id: String,
-    pub title: String,
-    pub harness: String,
-    pub auto: bool,
-    pub keep_in_cloud: bool,
-    pub holder: Holder,
-    pub epoch: u64,
-    pub blocked: Option<Blocked>,
-    pub needs_run: bool,
-    /// The laptops standing by, each with when its listing runs out.
-    pub standby: BTreeMap<Holder, u64>,
-    pub repo: Option<Repo>,
-    pub version: u64,
-    pub created_at: u64,
-    pub updated_at: u64,
-    pub lease_expires_at: u64,
-    /// What the machine holder is asked to do; it stays until the machine acks it.
-    pub assignment: Option<AssignmentKind>,
-    /// The newest inbox message when a `deliver` assignment was made.
-    pub deliver_through: u64,
-    /// The machine holder acked its takeover or create.
-    pub acked: bool,
+    pub text: Option<String>,
+    pub state: Delivery,
+    pub at: u64,
+}
+
+/// One chat: its record and its rows.
+#[derive(Debug)]
+pub(super) struct Chat {
+    pub rec: Record,
     /// The events; seq is the index plus one.
-    pub events: Vec<Value>,
-    pub chunks: BTreeMap<String, Vec<u8>>,
-    pub snapshot: u64,
+    pub events: Vec<StoredEvent>,
+    pub chunks: BTreeMap<String, Chunk>,
+    /// The newest snapshot's manifest; its number is the record's `snapshot`.
     pub manifest: Option<Manifest>,
-    pub inbox: Vec<InboxMessage>,
-    pub inbox_acked: u64,
+    pub inbox: Vec<Message>,
 }
 
 impl Chat {
-    pub fn new(id: &str, holder: Holder, now: u64) -> Chat {
-        Chat {
-            id: id.to_owned(),
-            title: String::new(),
-            harness: String::new(),
-            auto: true,
-            keep_in_cloud: false,
-            holder,
-            epoch: 1,
-            blocked: None,
-            needs_run: false,
-            standby: BTreeMap::new(),
-            repo: None,
-            version: 1,
-            created_at: now,
-            updated_at: now,
-            lease_expires_at: now.saturating_add(LEASE_MS),
-            assignment: None,
-            deliver_through: 0,
-            acked: false,
-            events: Vec::new(),
-            chunks: BTreeMap::new(),
-            snapshot: 0,
-            manifest: None,
-            inbox: Vec::new(),
-            inbox_acked: 0,
+    pub fn new(rec: Record) -> Chat {
+        Chat { rec, events: Vec::new(), chunks: BTreeMap::new(), manifest: None, inbox: Vec::new() }
+    }
+
+    /// The chat closed: its events, snapshot and chunks go, and its messages' texts.
+    pub fn drop_copy(&mut self) {
+        self.events.clear();
+        self.chunks.clear();
+        self.manifest = None;
+        for message in &mut self.inbox {
+            message.text = None;
         }
     }
 
-    pub fn last_seq(&self) -> u64 {
-        self.events.len() as u64
-    }
-
-    pub fn inbox_len(&self) -> u64 {
-        self.inbox.len() as u64
-    }
-
-    pub fn inbox_pending(&self) -> bool {
-        self.inbox_len() > self.inbox_acked
-    }
-
-    /// The chat has work that somebody must run.
-    fn has_work(&self) -> bool {
-        self.needs_run || self.inbox_pending()
-    }
-
-    /// A laptop stands by and the chat is not kept in the Cloud.
-    fn handback_due(&self) -> bool {
-        self.holder.is_vm() && !self.keep_in_cloud && !self.standby.is_empty()
-    }
-
-    /// What a client shows.
-    fn state(&self) -> State {
-        match &self.holder {
-            Holder::Device(_) => State::Local,
-            Holder::Parked => State::Parked,
-            Holder::Vm(_) if !self.acked => State::Resuming,
-            Holder::Vm(_) if self.handback_due() => State::ComingBack,
-            Holder::Vm(_) => State::Cloud,
+    /// Whether `size` more bytes fit beside the chunks waiting for their snapshot. At the
+    /// limit, uploads that were given up make room first.
+    pub fn room_for_chunk(&mut self, size: u64, max: u64, now: u64) -> bool {
+        if self.waiting_bytes().saturating_add(size) <= max {
+            return true;
         }
+        let abandoned = now.saturating_sub(ABANDONED_MS);
+        self.chunks.retain(|_, chunk| chunk.kept || chunk.at >= abandoned);
+        self.waiting_bytes().saturating_add(size) <= max
     }
 
-    /// The view changed.
-    pub fn touch(&mut self, now: u64) {
-        self.version = self.version.saturating_add(1);
-        self.updated_at = now;
-    }
-
-    /// The holder changes: the epoch grows by one, and what belonged to the old holder goes.
-    pub fn hand_to(&mut self, holder: Holder, now: u64) {
-        self.standby.remove(&holder);
-        self.lease_expires_at = if holder.is_parked() { 0 } else { now.saturating_add(LEASE_MS) };
-        self.holder = holder;
-        self.epoch = self.epoch.saturating_add(1);
-        self.needs_run = false;
-        self.blocked = None;
-        self.assignment = None;
-        self.acked = false;
-    }
-
-    /// The Auto machine becomes the holder, with an assignment to import the chat.
-    fn hand_to_machine(&mut self, machine: &str, now: u64) {
-        self.hand_to(Holder::vm(machine), now);
-        self.assignment = Some(AssignmentKind::Takeover);
-    }
-
-    /// The machine holder is asked to take the inbox's messages.
-    pub fn deliver(&mut self) {
-        self.assignment = Some(AssignmentKind::Deliver);
-        self.deliver_through = self.inbox_len();
-    }
-
-    /// Nobody runs the chat, and it has work no machine can take.
-    fn park_blocked(&mut self, now: u64) {
-        let needs_run = self.needs_run;
-        if !self.holder.is_parked() {
-            self.hand_to(Holder::Parked, now);
-        }
-        // Kept, so the work goes to the Auto machine once there is one.
-        self.needs_run = needs_run;
-        self.blocked = Some(Blocked::NoMachine);
-    }
-
-    /// The write's holder and epoch are the current ones, and the chat is open.
-    pub fn fenced(&self, fence: &Fence) -> CloudResult<()> {
-        self.open()?;
-        if self.holder == fence.holder && self.epoch == fence.epoch {
-            return Ok(());
-        }
-        let message = format!(
-            "the chat is held by {} at epoch {}, not by {} at epoch {}",
-            self.holder, self.epoch, fence.holder, fence.epoch
-        );
-        Err(refused(ErrorCode::StaleEpoch, message))
-    }
-
-    /// Auto is on for the chat.
-    pub fn open(&self) -> CloudResult<()> {
-        if self.auto {
-            Ok(())
-        } else {
-            Err(refused(ErrorCode::Closed, "Auto is off for this chat"))
-        }
+    fn waiting_bytes(&self) -> u64 {
+        let waiting = self.chunks.values().filter(|chunk| !chunk.kept);
+        waiting.fold(0u64, |sum, chunk| sum.saturating_add(size_of(&chunk.bytes)))
     }
 }
 
-pub(super) fn refused(code: ErrorCode, message: impl Into<String>) -> AutoCloudError {
-    AutoCloudError::refused(code, message)
+/// A byte count as the store's sizes are kept.
+pub(super) fn size_of(bytes: &[u8]) -> u64 {
+    u64::try_from(bytes.len()).unwrap_or(u64::MAX)
+}
+
+/// A rule's refusal as the route answers it: with the chat as it is now.
+fn refused(refuse: Refuse, session: SessionView) -> AutoCloudError {
+    AutoCloudError::Http {
+        status: refuse.code.status(),
+        code: Some(refuse.code),
+        raw_code: refuse.code.as_str().to_owned(),
+        message: refuse.message,
+        session: Some(Box::new(session)),
+        last_seq: refuse.last_seq,
+        missing: refuse.missing,
+    }
 }
 
 pub(super) fn invalid(message: &str) -> AutoCloudError {
@@ -194,22 +122,39 @@ pub(super) fn not_found() -> AutoCloudError {
     AutoCloudError::http(404, "not_found", "not found")
 }
 
+/// A request body past its size limit: refused before any chat is read.
+pub(super) fn body_too_large(max: usize) -> AutoCloudError {
+    let message = format!("the request body is at most {max} bytes");
+    AutoCloudError::refused(ErrorCode::TooLarge, message)
+}
+
+/// A chat's route starts at its id: one that does not read as a chat id is no route.
+pub(super) fn named(id: &str) -> CloudResult<()> {
+    if check::chat_id(id) { Ok(()) } else { Err(not_found()) }
+}
+
+/// The holder a write names is a laptop or a machine, with an id that reads as one.
+pub(super) fn writer(holder: &Holder) -> CloudResult<()> {
+    if check::writer(holder) {
+        return Ok(());
+    }
+    Err(invalid("holder: device:<id> or vm:<machine>; epoch: the epoch the holder last saw"))
+}
+
 /// Everything one owner's store holds.
 #[derive(Debug)]
 pub(super) struct Store {
     pub now: u64,
-    pub team: String,
     pub owner: String,
     pub machine: Option<MachineSetting>,
-    /// The chats, by id, and their ids in the order they were made.
     pub chats: BTreeMap<String, Chat>,
-    pub order: Vec<String>,
     /// Every machine start the store asked for, by machine id.
     pub starts: Vec<String>,
     /// Every call that reached the store, by route name.
     pub calls: Vec<&'static str>,
-    pub snapshot_max: u64,
-    pub made: u64,
+    /// What one snapshot may name, what its chunks may take while they wait for it, and what a
+    /// chat's events may take.
+    pub chat_max: u64,
     /// The held requests to wake when something changes.
     pub wakers: Vec<Waker>,
 }
@@ -218,15 +163,12 @@ impl Store {
     pub fn new() -> Store {
         Store {
             now: 0,
-            team: "team".to_owned(),
             owner: "owner".to_owned(),
             machine: None,
             chats: BTreeMap::new(),
-            order: Vec::new(),
             starts: Vec::new(),
             calls: Vec::new(),
-            snapshot_max: SNAPSHOT_MAX_BYTES,
-            made: 0,
+            chat_max: SNAPSHOT_MAX_BYTES,
             wakers: Vec::new(),
         }
     }
@@ -238,174 +180,112 @@ impl Store {
         }
     }
 
-    /// The view every route answers.
-    pub fn view(&self, chat: &Chat) -> SessionView {
-        SessionView {
-            id: chat.id.clone(),
-            title: chat.title.clone(),
-            harness: chat.harness.clone(),
-            team: self.team.clone(),
-            owner: self.owner.clone(),
-            auto: chat.auto,
-            keep_in_cloud: chat.keep_in_cloud,
-            holder: chat.holder.clone(),
-            epoch: chat.epoch,
-            state: chat.state(),
-            blocked: chat.blocked,
-            needs_run: chat.needs_run,
-            standby: chat.standby.keys().cloned().collect(),
-            last_seq: chat.last_seq(),
-            snapshot: chat.snapshot,
-            inbox: chat.inbox_len(),
-            inbox_acked: chat.inbox_acked,
-            repo: chat.repo.clone(),
-            version: chat.version,
-            created_at: chat.created_at,
-            updated_at: chat.updated_at,
-            lease_expires_at: chat.lease_expires_at,
-        }
-    }
-
-    /// The view of the chat `id`.
-    pub fn answer(&self, id: &str) -> CloudResult<SessionView> {
-        self.chats.get(id).map(|chat| self.view(chat)).ok_or_else(not_found)
-    }
-
-    /// A chat by id, for a caller that may read it: the owner, or the owner's Auto machine.
-    pub fn read(&self, caller: &Caller, id: &str) -> CloudResult<&Chat> {
-        self.allowed(caller)?;
-        self.chats.get(id).ok_or_else(not_found)
-    }
-
-    /// The chat changed by `change`, then its view. The view's version grows. A `change` that
-    /// refuses must leave the chat as it was.
-    pub fn change(
-        &mut self,
-        id: &str,
-        change: impl FnOnce(&mut Chat, u64) -> CloudResult<()>,
-    ) -> CloudResult<SessionView> {
-        let now = self.now;
-        let chat = self.chats.get_mut(id).ok_or_else(not_found)?;
-        change(chat, now)?;
-        chat.touch(now);
-        self.settle(id);
-        self.wake();
-        self.answer(id)
-    }
-
     /// The route is the owner's.
     pub fn owner_only(&self, caller: &Caller) -> CloudResult<()> {
         match caller {
             Caller::Owner => Ok(()),
             Caller::Machine(_) => {
-                Err(AutoCloudError::http(403, "auth.forbidden", "the route is the owner's"))
+                Err(AutoCloudError::http(403, "auth.forbidden", "a Cloud machine cannot do this"))
             }
         }
     }
 
     /// The route is a machine's: the caller's machine id.
     pub fn machine_only<'a>(&self, caller: &'a Caller) -> CloudResult<&'a str> {
-        self.allowed(caller)?;
         match caller {
             Caller::Machine(machine) => Ok(machine.as_str()),
-            Caller::Owner => {
-                Err(AutoCloudError::http(403, "auth.forbidden", "the route is a machine's"))
-            }
+            Caller::Owner => Err(AutoCloudError::http(
+                401,
+                "auth.unauthenticated",
+                "the Auto machine's VM install is required",
+            )),
         }
     }
 
-    /// A machine caller is the owner's Auto machine.
-    pub fn allowed(&self, caller: &Caller) -> CloudResult<()> {
-        match caller {
-            Caller::Owner => Ok(()),
+    /// The chat, when `by` may reach it. The owner reaches every chat. A machine reaches a
+    /// chat it holds; for a write, also one it held last, so it is told `auto.stale_epoch`
+    /// rather than that the chat is gone. Any other chat is 404 to it.
+    pub fn admitted(&self, by: &Caller, id: &str, write: bool) -> CloudResult<&Chat> {
+        let chat = self.chats.get(id).ok_or_else(not_found)?;
+        let reaches = match by {
+            Caller::Owner => true,
             Caller::Machine(machine) => {
-                let bound = self.machine.as_ref().is_some_and(|auto| auto.machine == *machine);
-                if bound {
-                    Ok(())
-                } else {
-                    Err(AutoCloudError::http(
-                        401,
-                        "auth.unauthenticated",
-                        "the VM install is not bound to the Auto machine",
-                    ))
-                }
+                let holds = matches!(&chat.rec.holder, Holder::Vm(held) if held == machine);
+                holds || (write && chat.rec.machine.as_ref() == Some(machine))
             }
-        }
-    }
-
-    /// The caller may write as `holder`: the owner as one of its laptops, a machine as itself.
-    pub fn may_be(&self, caller: &Caller, holder: &Holder) -> CloudResult<()> {
-        self.allowed(caller)?;
-        let ok = match (caller, holder) {
-            (Caller::Owner, Holder::Device(_)) => true,
-            (Caller::Machine(machine), Holder::Vm(named)) => machine == named,
-            (Caller::Owner | Caller::Machine(_), _) => false,
         };
-        if ok {
-            Ok(())
-        } else {
-            Err(refused(ErrorCode::NotHolder, "the caller is not that holder"))
-        }
+        if reaches { Ok(chat) } else { Err(not_found()) }
     }
 
-    /// A holder's write: the caller may be that holder, and the fence is current.
-    pub fn write(&self, caller: &Caller, id: &str, fence: &Fence) -> CloudResult<()> {
-        self.may_be(caller, &fence.holder)?;
-        self.chats.get(id).ok_or_else(not_found)?.fenced(fence)
+    /// The chat `id` as it is now.
+    pub fn view(&self, id: &str) -> Option<SessionView> {
+        self.chats.get(id).map(|chat| view_of(&chat.rec, self.now))
     }
 
-    /// A parked chat with work gets the Auto machine as its holder, with a `takeover`
-    /// assignment, and the machine is started. With no Auto machine it stays parked, blocked
-    /// `no_machine`. Answers whether the chat changed.
-    pub fn settle(&mut self, id: &str) -> bool {
+    /// One decision and its write. `decide` reads the chat and answers the record to write, an
+    /// answer with no write, or a refusal; it changes the chat's rows (events, chunks, inbox)
+    /// itself. A write a viewer can see (`loud`) takes the next version and wakes the held
+    /// requests; a quiet one moves no version. A refusal goes out with the chat as it is.
+    pub fn apply<T>(
+        &mut self,
+        id: &str,
+        decide: impl FnOnce(&mut Chat, u64) -> Decision<T>,
+    ) -> CloudResult<(T, SessionView)> {
         let now = self.now;
-        let Some(chat) = self.chats.get_mut(id) else { return false };
-        if !chat.auto || !chat.holder.is_parked() || !chat.has_work() {
-            return false;
+        let chat = self.chats.get_mut(id).ok_or_else(not_found)?;
+        let before = (chat.rec.assignment, chat.rec.epoch);
+        let Step { out, rec, loud } = match decide(&mut *chat, now) {
+            Ok(step) => step,
+            Err(refuse) => return Err(refused(refuse, view_of(&chat.rec, now))),
+        };
+        let Some(rec) = rec else { return Ok((out, view_of(&chat.rec, now))) };
+        if !loud {
+            chat.rec = rec;
+            return Ok((out, view_of(&chat.rec, now)));
         }
-        match &self.machine {
-            Some(auto) => {
-                chat.hand_to_machine(&auto.machine, now);
-                self.starts.push(auto.machine.clone());
-                true
-            }
-            None if chat.blocked.is_none() => {
-                chat.park_blocked(now);
-                true
-            }
-            None => false,
+        chat.rec = Record { version: chat.rec.version.saturating_add(1), updated_at: now, ..rec };
+        let view = view_of(&chat.rec, now);
+        // An assignment the machine has not seen (another kind, or another epoch) starts it.
+        let after = (chat.rec.assignment, chat.rec.epoch);
+        if let (Some(_), Some(machine)) = (chat.rec.assignment, &chat.rec.machine)
+            && after != before
+        {
+            self.starts.push(machine.clone());
         }
+        self.wake();
+        Ok((out, view))
     }
 
-    /// The lease alarm, at the store's `now`. A laptop holder whose lease ran out loses the
-    /// chat: to the Auto machine when the chat needs to run or has messages waiting (blocked
-    /// `no_machine` without one), else it is parked. A standby laptop that stopped renewing is
-    /// no longer listed. A machine's lease does not run out.
+    /// A new chat. One made with an assignment starts its machine.
+    pub fn insert(&mut self, chat: Chat) -> SessionView {
+        let view = view_of(&chat.rec, self.now);
+        if let (Some(_), Some(machine)) = (chat.rec.assignment, &chat.rec.machine) {
+            self.starts.push(machine.clone());
+        }
+        self.chats.insert(chat.rec.id.clone(), chat);
+        self.wake();
+        view
+    }
+
+    /// The alarm, at the store's `now`: for every chat with something due, a laptop's lease
+    /// that ran out and standbys that stopped renewing (`rules::tick`).
     pub fn alarm(&mut self) {
         let now = self.now;
-        let Store { chats, machine, starts, .. } = self;
-        let mut changed = false;
-        for chat in chats.values_mut() {
-            let listed = chat.standby.len();
-            chat.standby.retain(|_, until| *until > now);
-            let lapsed = chat.auto && chat.holder.is_device() && chat.lease_expires_at <= now;
-            if lapsed {
-                match machine.as_ref() {
-                    Some(auto) if chat.has_work() => {
-                        chat.hand_to_machine(&auto.machine, now);
-                        starts.push(auto.machine.clone());
-                    }
-                    None if chat.has_work() => chat.park_blocked(now),
-                    Some(_) | None => chat.hand_to(Holder::Parked, now),
-                }
-            }
-            if lapsed || listed != chat.standby.len() {
-                chat.touch(now);
-                changed = true;
-            }
+        let due = |chat: &Chat| next_due(&chat.rec).is_some_and(|at| at <= now);
+        let ids: Vec<String> =
+            self.chats.iter().filter(|(_, chat)| due(chat)).map(|(id, _)| id.clone()).collect();
+        if ids.is_empty() {
+            return;
         }
-        if changed {
-            self.wake();
+        let machine = self.machine.clone();
+        for id in ids {
+            // A tick refuses nothing, and the chat is there: there is no error to pass on.
+            let _ticked = self.apply(&id, |chat, now| {
+                Ok(match tick(&chat.rec, machine.as_ref(), now) {
+                    Some(next) => Step::loud((), next),
+                    None => Step::same(()),
+                })
+            });
         }
     }
 }
