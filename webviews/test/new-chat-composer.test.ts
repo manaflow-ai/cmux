@@ -149,6 +149,46 @@ await requireBrowserLane("new-chat-composer.test.ts", async () => {
     expect(fresh.ring).toBe(started.ring);
   });
 
+  /** Runs in the page: where the composer stands in the pane, and any builder question over it. */
+  function placement() {
+    const main = document.querySelector<HTMLElement>(".acpmux-main")!;
+    const pane = main.getBoundingClientRect();
+    const form = document.querySelector(".acpmux-composer-box")!.closest("form")!.getBoundingClientRect();
+    const hero = document.querySelector(".acpmux-empty-title")?.getBoundingClientRect();
+    const stage = main.querySelector(":scope > .acpmux-stage")!.getBoundingClientRect();
+    return {
+      position: main.getAttribute("data-empty-chat-composer"),
+      /// The composer's middle, from the pane's middle, as a share of the pane's height.
+      offset: (form.top + form.height / 2 - (pane.top + pane.height / 2)) / pane.height,
+      below: pane.bottom - form.bottom,
+      /// The builder question's distance from the stage's foot; null on the plain new chat.
+      heroAbove: hero ? stage.bottom - hero.bottom : null,
+    };
+  }
+
+  // Settings' Empty Chat Message Box (agentPane.emptyChatComposerPosition): Bottom, the default,
+  // docks the composer as before; Center sits it in the pane's middle.
+  test("an empty chat's composer docks at the bottom by default", async () => {
+    const page = await open("claude");
+    const at = await page.evaluate(placement);
+    await page.close();
+    expect(at.position).toBeNull();
+    expect(at.below).toBeLessThan(40);
+    expect(at.offset).toBeGreaterThan(0.25);
+  });
+
+  for (const variant of ["centered", "centered-codex"])
+    test(`${variant}: Center sits the empty chat's composer in the pane's middle`, async () => {
+      const page = await open(variant);
+      const at = await page.evaluate(placement);
+      await page.close();
+      expect(at.position).toBe("center");
+      expect(Math.abs(at.offset)).toBeLessThan(0.12);
+      expect(at.below).toBeGreaterThan(120);
+      // The plain new chat: no "What should we build" question over the composer (EmptyState.tsx).
+      expect(at.heroAbove).toBeNull();
+    });
+
   /** Runs in the page: the strip's chips (folder, computer) and where they stand over `card`. */
   function chips(card: string) {
     const strip = document.querySelector(".acpmux-composer-strip")!;

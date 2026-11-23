@@ -586,18 +586,6 @@ mod tests {
     }
 
     #[test]
-    fn idle_after_is_optional_and_round_trips() {
-        let m = Manifest::from_value(&base()).unwrap();
-        assert_eq!(m.idle_after, DEFAULT_IDLE_AFTER_S);
-        assert_eq!(m.to_json()["idle_after"], json!(20.0));
-        let mut v = base();
-        v["idle_after"] = json!(2);
-        let m = Manifest::from_value(&v).unwrap();
-        assert_eq!(m.idle_after, 2.0);
-        assert_eq!(Manifest::from_value(&m.to_json()).unwrap(), m);
-    }
-
-    #[test]
     fn decimal_endpoints_are_in_range() {
         // 0.1 and 0.3 are not exact in f32: a default or variant value at a decimal limit is valid.
         let mut v = base();
@@ -609,6 +597,18 @@ mod tests {
         Manifest::from_value(&v).unwrap();
         v["variants"][0]["params"] = json!({ "speed": 0.31 });
         assert_eq!(Manifest::from_value(&v).unwrap_err().kind, ManifestErrorKind::OutOfRange);
+    }
+
+    #[test]
+    fn idle_after_is_optional_and_round_trips() {
+        let m = Manifest::from_value(&base()).unwrap();
+        assert_eq!(m.idle_after, DEFAULT_IDLE_AFTER_S);
+        assert_eq!(m.to_json()["idle_after"], json!(20.0));
+        let mut v = base();
+        v["idle_after"] = json!(2);
+        let m = Manifest::from_value(&v).unwrap();
+        assert_eq!(m.idle_after, 2.0);
+        assert_eq!(Manifest::from_value(&m.to_json()).unwrap(), m);
     }
 
     #[test]

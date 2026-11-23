@@ -128,6 +128,18 @@ def pointers(body: str, job: str, repo: str) -> list[str]:
 DISCOVER_DAYS = 2
 DISCOVER_PAGES = 5
 DISCOVER_COMMITS = 100
+# A run cannot test a commit made after it started, so the search starts at the oldest commit's committer date, less
+# this margin for a committer's clock running fast. Main holds about 600 receipt dispatches a day (2026-11-21): from
+# two days back every search read all five pages, about 240 GITHUB_TOKEN calls an hour from this job alone.
+DISCOVER_SKEW = datetime.timedelta(minutes=30)
+
+
+def committed_at(each: dict) -> datetime.datetime | None:
+    try:
+        stamp = datetime.datetime.fromisoformat(str(each["commit"]["committer"]["date"]).replace("Z", "+00:00"))
+    except (KeyError, TypeError, ValueError):
+        return None
+    return stamp if stamp.tzinfo else None
 
 
 def discover(fetch: Fetch, repo: str, pr: int, head: str, now: datetime.datetime | None = None) -> list[str]:
@@ -138,13 +150,21 @@ def discover(fetch: Fetch, repo: str, pr: int, head: str, now: datetime.datetime
     conclusion, canonical command, the head's tree, the merge tree), so a candidate that is no receipt is rejected
     with its reason and a missing one only means the job runs."""
     commits = [head]
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    window = now - datetime.timedelta(days=DISCOVER_DAYS)
+    since = window.strftime("%Y-%m-%d")
     try:
         listed = json.loads(fetch(f"repos/{repo}/pulls/{pr}/commits?per_page={DISCOVER_COMMITS}"))
         commits += [each.get("sha", "") for each in reversed(listed) if SHA.match(each.get("sha", ""))]
-    except (Rejected, ValueError, AttributeError):
+        dates = [committed_at(each) for each in listed if isinstance(each, dict)]
+        # Every listed commit needs a date (a dateless one could be the oldest), and a full page may hide older ones.
+        if dates and None not in dates and len(listed) < DISCOVER_COMMITS:
+            start = min(dates) - DISCOVER_SKEW
+            if start > window:
+                since = start.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except (Rejected, ValueError, AttributeError, TypeError):
         pass  # the head alone: a commit pushed after the run needs the pointer line
     wanted = set(commits)
-    since = ((now or datetime.datetime.now(datetime.timezone.utc)) - datetime.timedelta(days=DISCOVER_DAYS)).strftime("%Y-%m-%d")
     found = []
     for page in range(1, DISCOVER_PAGES + 1):
         query = (f"event=workflow_dispatch&branch={RECEIPT_WORKFLOW_BRANCH}&status=success&per_page=100&page={page}"

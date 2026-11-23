@@ -2,6 +2,201 @@
   "$comment": "HAND-EDITED source of the General section's own rows (cx-d5b5d): History, Window, Quitting, Columns (with column sizing and pane placement), the Sidebar group's workspace list rows, the Command Palette and Menus. scripts/cmux-next/gen-settings-sources.py writes the Swift descriptors and parser constants from it (its docstring is the full format, tabs.json's $comment the summary). SettingsSchema.all puts the Tabs rows (tabs.json) between window and quitting, so rows keep the export's order.",
   "lists": [
     {
+      "name": "language",
+      "section": "general",
+      "group": {
+        "key": "settings.group.language",
+        "text": "Language"
+      },
+      "rows": [
+        {
+          "key": "app.language",
+          "note": "System follows the macOS language order, as before this setting. Every other value is a locale cmux ships; cmux-config's language module lists them and resolves fallbacks. Choice titles are endonyms, never translated.",
+          "title": {
+            "key": "settings.app.language",
+            "text": "Language"
+          },
+          "help": {
+            "key": "settings.app.language.help",
+            "text": "The language of cmux's menus, pages and messages."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "system",
+              "title": {
+                "key": "settings.app.language.system",
+                "text": "System"
+              }
+            },
+            {
+              "value": "en",
+              "title": {
+                "key": null,
+                "text": "English"
+              }
+            },
+            {
+              "value": "ar",
+              "title": {
+                "key": null,
+                "text": "العربية"
+              }
+            },
+            {
+              "value": "bs",
+              "title": {
+                "key": null,
+                "text": "Bosanski"
+              }
+            },
+            {
+              "value": "da",
+              "title": {
+                "key": null,
+                "text": "Dansk"
+              }
+            },
+            {
+              "value": "de",
+              "title": {
+                "key": null,
+                "text": "Deutsch"
+              }
+            },
+            {
+              "value": "es",
+              "title": {
+                "key": null,
+                "text": "Español"
+              }
+            },
+            {
+              "value": "fr",
+              "title": {
+                "key": null,
+                "text": "Français"
+              }
+            },
+            {
+              "value": "it",
+              "title": {
+                "key": null,
+                "text": "Italiano"
+              }
+            },
+            {
+              "value": "nb",
+              "title": {
+                "key": null,
+                "text": "Norsk bokmål"
+              }
+            },
+            {
+              "value": "pl",
+              "title": {
+                "key": null,
+                "text": "Polski"
+              }
+            },
+            {
+              "value": "pt-BR",
+              "title": {
+                "key": null,
+                "text": "Português (Brasil)"
+              }
+            },
+            {
+              "value": "tr",
+              "title": {
+                "key": null,
+                "text": "Türkçe"
+              }
+            },
+            {
+              "value": "vi",
+              "title": {
+                "key": null,
+                "text": "Tiếng Việt"
+              }
+            },
+            {
+              "value": "ru",
+              "title": {
+                "key": null,
+                "text": "Русский"
+              }
+            },
+            {
+              "value": "uk",
+              "title": {
+                "key": null,
+                "text": "Українська"
+              }
+            },
+            {
+              "value": "th",
+              "title": {
+                "key": null,
+                "text": "ไทย"
+              }
+            },
+            {
+              "value": "km",
+              "title": {
+                "key": null,
+                "text": "ខ្មែរ"
+              }
+            },
+            {
+              "value": "ja",
+              "title": {
+                "key": null,
+                "text": "日本語"
+              }
+            },
+            {
+              "value": "ko",
+              "title": {
+                "key": null,
+                "text": "한국어"
+              }
+            },
+            {
+              "value": "zh-Hans",
+              "title": {
+                "key": null,
+                "text": "简体中文"
+              }
+            },
+            {
+              "value": "zh-Hant",
+              "title": {
+                "key": null,
+                "text": "繁體中文"
+              }
+            }
+          ],
+          "default": "system",
+          "keywords": [
+            "language",
+            "locale",
+            "localization",
+            "translation",
+            "Sprache",
+            "langue",
+            "idioma",
+            "lingua",
+            "言語",
+            "언어",
+            "语言",
+            "язык"
+          ],
+          "swift_owner": "AppLanguageSetting"
+        }
+      ]
+    },
+    {
       "name": "history",
       "section": "general",
       "group": {
@@ -516,6 +711,33 @@
             "exit",
             "agents",
             "terminals"
+          ],
+          "swift_owner": {
+            "type": "CmuxConfigSnapshot",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "app.warnBeforeQuitShortcut",
+          "note": "https://github.com/manaflow-ai/cmux/issues/48621: an accidental Cmd-Q quit at once. The first Cmd-Q asks \"Quit cmux?\" (Quit, Cancel, Don't ask again); pressing or holding it again quits. The Quit menu, the Dock and scripts quit at once.",
+          "title": {
+            "key": "settings.app.warnBeforeQuitShortcut",
+            "text": "Warn Before Quitting with ⌘Q"
+          },
+          "help": {
+            "key": "settings.app.warnBeforeQuitShortcut.help",
+            "text": "⌘Q asks before quitting; press it again to quit. The Quit menu item and the Dock quit at once."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "quit",
+            "cmd-q",
+            "warn",
+            "hold",
+            "accidental",
+            "confirm",
+            "exit"
           ],
           "swift_owner": {
             "type": "CmuxConfigSnapshot",

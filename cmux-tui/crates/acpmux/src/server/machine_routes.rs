@@ -31,7 +31,7 @@ pub(super) async fn dispatch(
 }
 
 async fn routes(hub: &Arc<Hub>) -> Value {
-    let machines = hub.mesh_book_machines();
+    let machines = hub.mesh_book_route_machines();
     let daemon_socket = crate::config::socket_path();
     let listed = hub.machine_routes.reconcile(hub, &daemon_socket, &machines).await;
     let carrier = hub.hub_carrier.get();
