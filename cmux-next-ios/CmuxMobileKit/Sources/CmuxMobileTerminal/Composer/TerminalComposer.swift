@@ -256,7 +256,7 @@ struct TerminalComposer: View {
                 } else {
                     Image(systemName: failed ? "exclamationmark" : "arrow.up")
                         .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(failed ? AnyShapeStyle(Color.white) : canSend ? AnyShapeStyle(Color.cmuxMobileOnAccent) : AnyShapeStyle(Color.primary.opacity(0.35)))
+                        .foregroundStyle(failed ? AnyShapeStyle(CmuxMobileTheme.standard.colors.onAccent.color) : canSend ? AnyShapeStyle(Color.cmuxMobileOnAccent) : AnyShapeStyle(Color.primary.opacity(0.35)))
                         .contentTransition(.symbolEffect(.replace))
                 }
             }
@@ -266,7 +266,7 @@ struct TerminalComposer: View {
             // glass washed it out to a pale disc (Leo, 2026-11-22: "the send
             // button is themed/coloured slightly oddly"). Empty (disabled): a
             // faint disc of the text color.
-            .cmuxMobilePressBackground(failed ? AnyShapeStyle(Color.red)
+            .cmuxMobilePressBackground(failed ? AnyShapeStyle(CmuxMobileTheme.standard.colors.danger.color)
                                        : canSend || model.isUploading ? AnyShapeStyle(Color.cmuxMobileAccent)
                                        : AnyShapeStyle(ComposerChrome.idleFill), in: Circle())
             .animation(.smooth(duration: 0.2).unlessReduceMotion, value: canSend)
@@ -464,10 +464,11 @@ struct AttachmentStrip: View {
                                 // Opaque, ringed badge (as in Messages): readable over any thumbnail.
                                 Image(systemName: "xmark")
                                     .font(.system(size: 10, weight: .bold))
-                                    .foregroundStyle(.white)
+                                    .foregroundStyle(CmuxMobileTheme.standard.colors.label.color)
                                     .frame(width: 22, height: 22)
-                                    // Glass, darkened so it reads over any thumbnail (as in Messages).
-                                    .glassEffect(.regular.tint(.black.opacity(0.5)).interactive(), in: .circle)
+                                    // The theme's floating glass (its surface at the transient veil),
+                                    // so it reads over any thumbnail and follows the Mac's theme.
+                                    .cmuxMobileFloatingGlass(in: .circle, interactive: true)
                                     .frame(width: 44, height: 44)
                                     .contentShape(.rect)
                             }
