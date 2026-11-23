@@ -539,6 +539,12 @@
 .wn-updated {
   --wn-preview-motion: 180ms; /* motion-allow: Leo's card curve (2026-11-08), the native glass's fixed twin */
   --wn-preview-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  /* The card's quiet inks, raised on the card alone so they hold 4.5:1 over a bright photograph behind
+     the glass (gallery card-shape-row-photo-*, measured in the PR body). The page tokens stay as they are. */
+  --page-text-2: color-mix(in srgb, var(--page-text) 88%, transparent);
+  --page-text-3: color-mix(in srgb, var(--page-text) 78%, transparent);
+  /* The glass behind the card a little more opaque, so a bright photo does not wash its ink out. */
+  --composer-material-tint: color-mix(in srgb, var(--composer-material-solid) 84%, transparent);
 }
 :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .wn-preview {
   transition: height var(--wn-preview-motion) var(--wn-preview-ease);

@@ -680,28 +680,33 @@ class SignerTests(unittest.TestCase):
 
 
 class FleetStepTests(unittest.TestCase):
-    def test_a_stale_ffi_pin_builds_the_mac_app_on_a_mac(self):
-        # At a head whose FFI sources are ahead of app-ffi-pin.json, `--builder auto` sent the Mac build
-        # to the Linux pool, which cannot build the FFI from source: job 9fa436759cd7bb0f72e3e928 failed
-        # "stale FFI" in 2.5 s at 0e6e7019af (2026-11-19). An up-to-date pin keeps the default builder.
-        for pin_ok, want_mac in ((False, True), (True, False)):
+    def test_a_stale_ffi_pin_keeps_the_default_builder(self):
+        # review.sh sent every head whose FFI sources were ahead of app-ffi-pin.json to `--builder mac`
+        # (#47722, after pool job 9fa436759cd7bb0f72e3e928 failed "stale FFI" at 0e6e7019af, 2026-11-19).
+        # The pool has built such heads since hq#16145/#16334/#16431 (2026-11-21): it links the newest
+        # published release with the head's FFI inputs, or cross-builds the library, or the whole
+        # xcframework when the headers changed. With FFI commits landing every half hour the pin is behind
+        # nearly always (f85c0754cb on 2026-11-23, 198 files behind), so every hand-off queued for the few
+        # Macs, for hours, and a Mac fails a head whose headers changed ("the FFI headers at 9edfda1061
+        # drop or change declarations of the pinned f85c0754", job cb3e5fa3159ea9806ae980fe). A stale pin
+        # and a fresh one submit the same build, and the pin check is not run at all.
+        for pin_ok in (False, True):
             with self.subTest(pin_ok=pin_ok), tempfile.TemporaryDirectory() as temp:
                 ci = Path(temp) / 'cmux-ci'
                 ci.write_text('#!/bin/sh\nfor a in "$@"; do echo "$a"; done > "%s/args"\necho \'{"id": "job123"}\'\n' % temp)
                 ci.chmod(0o755)
                 pin = Path(temp) / 'pin'
-                pin.write_text('#!/bin/sh\nexit %d\n' % (0 if pin_ok else 1))
+                pin.write_text('#!/bin/sh\ntouch "%s/pin-checked"\nexit %d\n' % (temp, 0 if pin_ok else 1))
                 pin.chmod(0o755)
                 r = bash(f'''source "{REVIEW}"; SLUG={TAG} SHA={SHA} STATE="{temp}" WORKSPACE=w CMUX_CI="{ci}"
 fleet_submit_mac; echo "JOB=$MAC_JOB"''', {'CMUX_CI': str(ci), 'CNX_REVIEW_FFI_PIN_CHECK': str(pin)})
                 self.assertIn('JOB=job123', r.stdout, r.stderr)
                 args = (Path(temp) / 'args').read_text().splitlines()
                 self.assertEqual(args[:2], ['build', 'cmux'])
-                if want_mac:
-                    self.assertEqual(args[args.index('--builder') + 1], 'mac')
-                    self.assertTrue(args[args.index('--reason') + 1])
-                else:
-                    self.assertNotIn('--builder', args)
+                self.assertNotIn('--builder', args)
+                self.assertNotIn('--reason', args)
+                self.assertFalse((Path(temp) / 'pin-checked').exists())
+                self.assertNotIn('builds on a Mac', r.stdout)
 
     def test_sim_step_arguments(self):
         with tempfile.TemporaryDirectory() as temp:
