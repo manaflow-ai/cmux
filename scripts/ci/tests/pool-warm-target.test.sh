@@ -95,6 +95,7 @@ checkout_again; RUNNER=blacksmith-8vcpu-ubuntu-2404-b; first=$TARGET; TARGET="";
 [[ "$TARGET" == "$first" ]] || fail "another Blacksmith runner finds the same tree"
 grep -q "hit" "$TMP/restore.log" || fail "a recorded disk is a hit"
 build; [[ $compiled == 0 && $fresh == 3 ]] || fail "disk, unchanged bytes: 0 compiled, 3 fresh; got $compiled/$fresh"
+pool record > /dev/null
 checkout_again; echo 'pub fn side() -> u32 { 8 }' > "$repo/ws/side/src/lib.rs"; TARGET=""; restore
 build; [[ $compiled == 1 ]] && grep -qE '^ +Compiling side ' "$TMP/build.log" \
   || fail "disk, a changed leaf: only it recompiles, got $compiled"
