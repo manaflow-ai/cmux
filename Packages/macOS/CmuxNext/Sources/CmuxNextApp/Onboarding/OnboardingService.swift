@@ -82,7 +82,7 @@ final class OnboardingService {
         let environment = ProcessInfo.processInfo.environment
         // Test launches never change the Mac's real default browser.
         defaultApps = environment[RecordingDefaultApps.environmentKey] == "1" ? RecordingDefaultApps() : SystemDefaultApps()
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let support = NextSupport.applicationSupportDirectory()
         importStore = ImportedDataStore(directory: support.appending(path: services.environment.launch.bundleID ?? "com.cmuxterm.app.next")
             .appending(path: "BrowserImport", directoryHint: .isDirectory))
         // Keep Cmd-T off the file system hot path. The scan is bounded and runs
