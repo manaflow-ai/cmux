@@ -39,7 +39,7 @@ jobs:
   probe:
     permissions:
       contents: write
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2_ephemeral }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2_ephemeral || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     steps:
       - name: Check out the probe target

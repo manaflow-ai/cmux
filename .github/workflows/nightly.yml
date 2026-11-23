@@ -1327,7 +1327,7 @@ jobs:
   pick-nightly-app-runner:
     needs: decide
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || fromJSON(vars.RUNNER_POOLS).linux_2_ephemeral }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || fromJSON(vars.RUNNER_POOLS).linux_2_ephemeral || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 15
     permissions:
       # The queue janitor's pool snapshot (an artifact).
@@ -1873,7 +1873,7 @@ jobs:
   pick-classic-prepare-runner:
     needs: [decide, build-nightly-app]
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || fromJSON(vars.RUNNER_POOLS).linux_2_ephemeral }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || fromJSON(vars.RUNNER_POOLS).linux_2_ephemeral || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 6
     permissions:
       contents: read
