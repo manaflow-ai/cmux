@@ -2154,6 +2154,8 @@ function shapeTurn(
       segments.length === 1 &&
       style.conclusion &&
       sentByPerson(user) &&
+      summary.status === "completed" &&
+      body.some((row) => row.kind === "assistant") &&
       steerDialogue.size === 0 &&
       work.every(isDialogue);
     if ((work.length && !dialogue) || promptOnly || holdsHeader) {
