@@ -59,12 +59,24 @@ export type ReaderRoom = { followed: boolean; left?: true; kept?: { room: number
 /// The room under the last row this pass, and what of it is kept for the reader (`heldRoom.reader`): followed,
 /// the stack's room (`followedRoom`), or more where the reader came back down to room held while they were
 /// scrolled up; scrolled up, the room held (`held`).
+/// `folding`: a turn's end fold plays from this pass (VirtualTranscript `turnEndCapture`), so the rows move
+/// anyway, from where they were drawn to where this pass places them. Followed, the room kept for the reader
+/// goes with that motion, and the newest row rests the rest gap over the stack again: kept on, a tray that
+/// left while the reader was scrolled up stayed as room under the reply once the work had folded
+/// (agent-pane-turn-end-at-latest, the tray case: 34 px over the rest gap).
 export function roomUnderRows(
   { room: held, reader }: { room: number; reader: ReaderRoom },
-  pass: { following: boolean; sessionSwitched: boolean; followedRoom: number; prompt: string | undefined },
+  pass: {
+    following: boolean;
+    sessionSwitched: boolean;
+    followedRoom: number;
+    prompt: string | undefined;
+    folding?: boolean;
+  },
 ): { room: number; kept: ReaderRoom["kept"] } {
   if (pass.sessionSwitched) return { room: pass.followedRoom, kept: undefined };
   if (!pass.following) return { room: held, kept: undefined };
+  if (pass.folding) return { room: pass.followedRoom, kept: undefined };
   const kept = !reader.followed
     ? reader.left && held > pass.followedRoom + 0.5
       ? { room: held, prompt: pass.prompt }

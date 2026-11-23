@@ -3641,7 +3641,8 @@ function TranscriptView({
       : grown;
   // Back at the latest row by the reader's own scroll, the room held while scrolled up stays under the
   // last row (`heldRoom.reader`) instead of being cut to the stack's while they look at it. A send or Jump
-  // to latest gives the stack's room before following (`takeRoom`, the send), so theirs keeps none.
+  // to latest gives the stack's room before following (`takeRoom`, the send), so theirs keeps none. A turn's
+  // end fold playing from this pass (`turnEndCapture`) moves the rows anyway: the kept room goes in its motion.
   const followedRoom = dockRoom - lifted - trayHold - cardHold - noticeHold;
   const keptPrompt = following && !sessionSwitched ? newestPromptId(rows) : undefined;
   const { room, kept: readerKept } = roomUnderRows(heldRoom.current, {
@@ -3649,6 +3650,7 @@ function TranscriptView({
     sessionSwitched,
     followedRoom,
     prompt: keptPrompt,
+    folding: turnEndCapture.current !== undefined,
   });
   // The room under the rows for the newer history a reader scrolled far up let go of (conversation/newerReserve.ts).
   const newerRoomState = useRef<NewerReserve | undefined>(undefined);
