@@ -35,6 +35,7 @@ use std::time::{Duration, Instant};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as B64;
 use clap::Args;
+use cmux_lifeline::vm::{Observed, Provisioning, Running, Status, Unallocated, Vm};
 use cmux_vm_client::raw::{Client, types};
 use serde_json::{Value, json};
 
@@ -159,6 +160,15 @@ enum Outcome {
     Interrupted,
 }
 
+type ProvisioningVm = Vm<Provisioning, String>;
+type RunningVm = Vm<Running, String>;
+
+/// The allocation remains owned outside cancellable work futures.
+enum RunVm {
+    Provisioning(ProvisioningVm),
+    Running(RunningVm),
+}
+
 pub async fn run(
     client: &Client,
     args: RunArgs,
@@ -233,27 +243,37 @@ pub async fn run(
     let mut interrupted = false;
     let created = create(client, &args, &local);
     tokio::pin!(created);
-    let vm_id = loop {
+    let vm = loop {
         tokio::select! {
             result = &mut created => break result?,
             () = &mut signal, if !interrupted => interrupted = true,
         }
     };
+    let vm_id = vm.payload().clone();
     note(stderr, &format!("vm {vm_id} created"));
     // Set once an archive may be on the guest, so every exit path below
     // (a failure or an interrupt included) removes it.
     let staged = AtomicBool::new(false);
     // From here every exit path ends the VM: a boot failure or timeout too.
-    let outcome = if interrupted {
-        Ok(Outcome::Interrupted)
+    let wait = if interrupted {
+        None
     } else {
         tokio::select! {
-            result = async {
-                wait_running(client, &vm_id).await?;
-                work(client, &vm_id, &args, archive.as_deref(), &command, &local, &staged, stdout, stderr).await
-            } => result,
-            () = &mut signal => Ok(Outcome::Interrupted),
+            result = wait_running(client, &vm) => Some(result),
+            () = &mut signal => None,
         }
+    };
+    let (outcome, vm) = match wait {
+        Some(Ok(())) => {
+            let running = vm.running();
+            let outcome = tokio::select! {
+                result = work(client, &running, &args, archive.as_deref(), &command, &local, &staged, stdout, stderr) => result,
+                () = &mut signal => Ok(Outcome::Interrupted),
+            };
+            (outcome, RunVm::Running(running))
+        }
+        Some(Err(error)) => (Err(error), RunVm::Provisioning(vm)),
+        None => (Ok(Outcome::Interrupted), RunVm::Provisioning(vm)),
     };
     if matches!(outcome, Ok(Outcome::Interrupted)) {
         note(stderr, "interrupted");
@@ -261,14 +281,19 @@ pub async fn run(
     if staged.load(Ordering::SeqCst) {
         remove_archives(client, &vm_id, args.keep, stderr).await;
     }
-    let ended = finish(client, &vm_id, args.keep).await;
+    let ended = finish(client, vm, args.keep).await;
     let p = crate::error::program();
+    let recovery = if args.keep {
+        format!("{p} pause {vm_id}")
+    } else {
+        format!("{p} delete {vm_id} --yes")
+    };
     match &ended {
         Ok(state) => note(stderr, &format!("vm {vm_id} {state}")),
         Err(error) => note(
             stderr,
             &format!(
-                "vm {vm_id} was not cleaned up: {}; run `{p} delete {vm_id} --yes`",
+                "vm {vm_id} was not cleaned up: {}; run `{recovery}`",
                 error.message()
             ),
         ),
@@ -311,7 +336,7 @@ fn idle_seconds(text: &str) -> Result<i64, String> {
     }
 }
 
-async fn create(client: &Client, args: &RunArgs, local: &Path) -> Result<String, CliError> {
+async fn create(client: &Client, args: &RunArgs, local: &Path) -> Result<ProvisioningVm, CliError> {
     let name = local
         .file_name()
         .and_then(|name| name.to_str())
@@ -338,7 +363,7 @@ async fn create(client: &Client, args: &RunArgs, local: &Path) -> Result<String,
             return match recover_creation(client, &key_text).await {
                 // The create committed and only its answer was lost: run on
                 // that VM, which every exit path below then ends.
-                Recovered::Vm(id) => Ok(id),
+                Recovered::Vm(id) => Ok(provisioning_vm(id)),
                 Recovered::Settled(what) => Err(error.with_recovery(what)),
                 Recovered::Open(what) => Err(error.with_recovery(&what)),
             };
@@ -349,18 +374,22 @@ async fn create(client: &Client, args: &RunArgs, local: &Path) -> Result<String,
         .ok()
         .and_then(|vm| vm["id"].as_str().map(str::to_owned));
     match id {
-        Some(id) => Ok(id),
+        Some(id) => Ok(provisioning_vm(id)),
         // A 2xx whose body names no VM may still have allocated one: read it
         // back by its key, as for a lost answer.
         None => {
             let error = CliError::unexpected("the create response named no VM");
             match recover_creation(client, &key_text).await {
-                Recovered::Vm(id) => Ok(id),
+                Recovered::Vm(id) => Ok(provisioning_vm(id)),
                 Recovered::Settled(what) => Err(error.with_recovery(what)),
                 Recovered::Open(what) => Err(error.with_recovery(&what)),
             }
         }
     }
+}
+
+fn provisioning_vm(id: String) -> ProvisioningVm {
+    Vm::<Unallocated, _>::new(id).provision()
 }
 
 /// A create that failed without a definite answer (the connection dropped, or
@@ -458,23 +487,23 @@ fn settled(status: &Value) -> Option<Recovered> {
     }
 }
 
-async fn wait_running(client: &Client, vm_id: &str) -> Result<(), CliError> {
+/// `wait_running` by id, for callers outside this module that hold only the id (guest.rs).
+pub(crate) async fn wait_running_id(client: &Client, vm_id: &str) -> Result<(), CliError> {
+    wait_running(client, &provisioning_vm(vm_id.to_owned())).await
+}
+
+async fn wait_running(client: &Client, vm: &ProvisioningVm) -> Result<(), CliError> {
+    let vm_id = vm.payload();
     let start = Instant::now();
     loop {
         let body = retrying(|| fetch_body(client.vms_get_vm(vm_id, None))).await?;
-        let vm: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
-        match vm["state"].as_str() {
-            Some("running") => return Ok(()),
-            Some("starting" | "unknown") => {}
-            None => {
+        let state = parse_vm_state(&body, vm_id)?;
+        match state.bind(vm_id.to_owned()) {
+            Observed::Running(_) => return Ok(()),
+            Observed::Starting(_) | Observed::Unknown(_) => {}
+            _ => {
                 return Err(
-                    CliError::unexpected("the VM API answered without the new VM's state")
-                        .for_vm(vm_id, "run"),
-                );
-            }
-            Some(other) => {
-                return Err(
-                    CliError::unexpected(format!("the new VM is {other}, not running"))
+                    CliError::unexpected(format!("the new VM is {state:?}, not running"))
                         .for_vm(vm_id, "run"),
                 );
             }
@@ -489,10 +518,28 @@ async fn wait_running(client: &Client, vm_id: &str) -> Result<(), CliError> {
     }
 }
 
+fn parse_vm_state(body: &[u8], vm_id: &str) -> Result<Status, CliError> {
+    #[derive(serde::Deserialize)]
+    struct Observation {
+        id: String,
+        state: Status,
+    }
+    let vm: Observation = serde_json::from_slice(body).map_err(|_| {
+        CliError::unexpected("the VM API answered with an invalid identity or state")
+            .for_vm(vm_id, "run")
+    })?;
+    if vm.id != vm_id {
+        return Err(
+            CliError::unexpected("the VM API answered for a different VM").for_vm(vm_id, "run"),
+        );
+    }
+    Ok(vm.state)
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn work(
     client: &Client,
-    vm_id: &str,
+    vm: &RunningVm,
     args: &RunArgs,
     archive: Option<&[u8]>,
     command: &str,
@@ -501,6 +548,7 @@ async fn work(
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<Outcome, CliError> {
+    let vm_id = vm.payload();
     if archive.is_some() {
         staged.store(true, Ordering::SeqCst);
     }
@@ -827,20 +875,61 @@ async fn pull_archive(
 }
 
 /// Ends the VM: paused when kept, else deleted. Returns what happened.
-async fn finish(client: &Client, vm_id: &str, keep: bool) -> Result<&'static str, CliError> {
-    if keep {
-        retrying(|| fetch_body(client.vms_pause_vm(vm_id, None))).await?;
-        Ok("paused")
-    } else {
-        retrying(|| crate::call(client.vms_delete_vm(vm_id, None))).await?;
-        Ok("deleted")
+async fn finish(client: &Client, vm: RunVm, keep: bool) -> Result<&'static str, CliError> {
+    if !keep {
+        let deleting = match vm {
+            RunVm::Provisioning(vm) => vm.delete(),
+            RunVm::Running(vm) => vm.delete(),
+        };
+        let vm_id = deleting.payload().clone();
+        retrying(|| crate::call(client.vms_delete_vm(&vm_id, None))).await?;
+        let _deleted = deleting.deleted();
+        return Ok("deleted");
+    }
+    // An interruption or failed boot wait may leave any provider state. Read
+    // once on this exceptional path; never delete a kept allocation or invent
+    // a running capability to send an otherwise invalid pause.
+    let running = match vm {
+        RunVm::Running(vm) => vm,
+        RunVm::Provisioning(vm) => {
+            let id = vm.payload().clone();
+            let body = retrying(|| fetch_body(client.vms_get_vm(&id, None))).await?;
+            let state = parse_vm_state(&body, &id)?;
+            match vm.uncertain().observed(state) {
+                Observed::Running(vm) => vm,
+                Observed::Paused(_) => return Ok("paused"),
+                Observed::Stopped(_) => return Ok("stopped"),
+                _ => {
+                    return Err(CliError::unexpected(format!(
+                        "kept VM remains {}; pause was not sent",
+                        state.as_str()
+                    ))
+                    .for_vm(&id, "run"));
+                }
+            }
+        }
+    };
+    pause_kept(client, running).await
+}
+
+async fn pause_kept(client: &Client, vm: RunningVm) -> Result<&'static str, CliError> {
+    let vm_id = vm.payload().clone();
+    let pausing = vm.pause();
+    let body = retrying(|| fetch_body(client.vms_pause_vm(&vm_id, None))).await?;
+    match parse_vm_state(&body, &vm_id)? {
+        Status::Paused => {
+            let _paused = pausing.paused();
+            Ok("paused")
+        }
+        Status::Pausing => Ok("pausing"),
+        _ => Err(CliError::unexpected("the VM API did not confirm a pause").for_vm(&vm_id, "run")),
     }
 }
 
-struct ExecResult {
-    code: Option<i32>,
-    stdout: Vec<u8>,
-    stderr: String,
+pub(crate) struct ExecResult {
+    pub(crate) code: Option<i32>,
+    pub(crate) stdout: Vec<u8>,
+    pub(crate) stderr: String,
 }
 
 async fn exec(
@@ -884,7 +973,7 @@ async fn exec_stdin(
     Ok(())
 }
 
-async fn send_exec(
+pub(crate) async fn send_exec(
     client: &Client,
     vm_id: &str,
     body: &types::ExecRequest,
@@ -915,7 +1004,7 @@ async fn send_exec(
 /// Retries a call the server refused for load (429, 503) with backoff. Only
 /// for calls that are safe to repeat: reads, and creates under one
 /// idempotency key.
-async fn retrying<T, F, Fut>(call: F) -> Result<T, CliError>
+pub(crate) async fn retrying<T, F, Fut>(call: F) -> Result<T, CliError>
 where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = Result<T, CliError>>,
@@ -1687,6 +1776,88 @@ fn note(stderr: &mut dyn Write, message: &str) {
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn interrupted_kept_allocations_are_reconciled_and_never_deleted() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+        for state in [
+            "running", "paused", "stopped", "starting", "unknown", "deleted", "failed",
+        ] {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/v1/vms/vm_1"))
+                .respond_with(
+                    ResponseTemplate::new(200).set_body_json(json!({"id":"vm_1", "state":state})),
+                )
+                .expect(1)
+                .mount(&server)
+                .await;
+            Mock::given(method("DELETE"))
+                .respond_with(ResponseTemplate::new(204))
+                .expect(0)
+                .mount(&server)
+                .await;
+            Mock::given(method("POST"))
+                .and(path("/v1/vms/vm_1/pause"))
+                .respond_with(
+                    ResponseTemplate::new(200)
+                        .set_body_json(json!({"id":"vm_1", "state":"paused"})),
+                )
+                .expect(if state == "running" { 1 } else { 0 })
+                .mount(&server)
+                .await;
+            let vm = RunVm::Provisioning(provisioning_vm("vm_1".to_owned()));
+            let result = finish(&Client::new(&server.uri()), vm, true).await;
+            match state {
+                "running" | "paused" => assert_eq!(result.unwrap(), "paused"),
+                "stopped" => assert_eq!(result.unwrap(), "stopped"),
+                _ => assert!(result.is_err(), "{state} is not a completed pause"),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn unkept_provisioning_is_deleted_without_a_read_or_pause() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+        let server = MockServer::start().await;
+        Mock::given(method("DELETE"))
+            .and(path("/v1/vms/vm_1"))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let vm = RunVm::Provisioning(provisioning_vm("vm_1".to_owned()));
+        assert_eq!(
+            finish(&Client::new(&server.uri()), vm, false)
+                .await
+                .unwrap(),
+            "deleted"
+        );
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn accepted_pause_is_not_reported_as_completed() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/vms/vm_1/pause"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(json!({"id":"vm_1", "state":"pausing"})),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        let vm = RunVm::Running(Vm::observed_running("vm_1".to_owned()));
+        assert_eq!(
+            finish(&Client::new(&server.uri()), vm, true).await.unwrap(),
+            "pausing"
+        );
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    }
+
     #[test]
     fn a_poll_never_waits_past_the_deadline() {
         let now = Instant::now();
@@ -1764,6 +1935,17 @@ mod tests {
         assert_eq!(settled(&json!({"state": "cancelling", "id": "vm_1"})), None);
         assert_eq!(settled(&json!({"state": "pending", "id": "vm_1"})), None);
         assert_eq!(settled(&json!({"state": "committed"})), None);
+    }
+
+    #[test]
+    fn the_run_state_boundary_rejects_unknown_wire_words() {
+        assert_eq!(
+            parse_vm_state(br#"{"id":"vm_1","state":"running"}"#, "vm_1").unwrap(),
+            Status::Running
+        );
+        assert!(parse_vm_state(br#"{"id":"vm_1","state":"runing"}"#, "vm_1").is_err());
+        assert!(parse_vm_state(br#"{}"#, "vm_1").is_err());
+        assert!(parse_vm_state(br#"{"id":"vm_2","state":"running"}"#, "vm_1").is_err());
     }
 
     #[test]

@@ -357,8 +357,10 @@ public final class AgentChatStore {
     /// Set by the composer when it took its place without motion (the chat opened on its
     /// history): the bottom stack's next height lands at once too (then cleared).
     @ObservationIgnored var placeBottomStackInstantly = false
+    #if os(iOS)
     /// The new-chat entrance (`NewChatEntrance`) plays once per chat: which parts already did.
     @ObservationIgnored var newChatEntrance = NewChatEntrance.Played()
+    #endif
     private var currentMessageID: String?
     /// Retained output belongs to the failed attempt, even when chunks carry no message ID.
     private var startsNewAttempt = false
@@ -1867,9 +1869,10 @@ private final class EarlierHistorySource: AgentSessionSource {
 
 extension AgentChatStore {
     /// What the chat's loading state says. Connecting first: a chat whose start is over but
-    /// whose Mac dropped (a task that never left the phone) waits on the link, not its agent.
+    /// whose Mac dropped (a task that never left the phone) waits on the link, not its agent,
+    /// and says so only once ``quietStatus`` shows (10 s); a reconnect inside it reads as loading.
     public var loadingText: String {
-        if summary.status == .disconnected || isOffline && !awaitsFirstPrompt {
+        if quietStatus.isShown, summary.status == .disconnected || isOffline && !awaitsFirstPrompt {
             return "Connecting to \(summary.macName)…"
         }
         return isStarting || awaitsFirstPrompt ? Self.startingText(summary) : "Loading chat…"

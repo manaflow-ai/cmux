@@ -61,15 +61,17 @@ impl Mode {
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum SettleMode {
-    /// A fixed floor, then a check for change, with a ceiling (cmux).
-    #[default]
+    /// A fixed floor, then a check for change, with a ceiling (cmux). Only
+    /// when asked for (`settle: "adaptive"`, or a batch step whose outcome
+    /// is required): it is what lets an outcome be confirmed or no_effect.
     Adaptive,
     /// Anthropic's computer-use reference tool: a fixed 2.0 s after every
     /// action but typing, then a screenshot; typing in groups of 50
     /// characters, 12 ms per key, then a screenshot at once.
     Anthropic,
-    /// OpenAI's computer tool: the actions run, then the screenshot is taken
-    /// at once.
+    /// The default. OpenAI's computer tool: the actions run, then the
+    /// screenshot is taken at once, with no wait for the screen.
+    #[default]
     Openai,
 }
 
@@ -123,6 +125,11 @@ pub struct PolicyConfig {
     /// background input to a window go on (`computerUse.whileLocked`,
     /// [`crate::locked`]); off, every call but status is refused.
     pub while_locked: bool,
+    /// `list_alerts` and `dismiss_alert` work: system alerts are read through
+    /// accessibility and put off by a known button (`computerUse.alerts`,
+    /// [`crate::alerts`]); off, both are refused. Every other tool refuses
+    /// those processes either way.
+    pub alerts: bool,
 }
 
 impl Default for PolicyConfig {
@@ -135,10 +142,11 @@ impl Default for PolicyConfig {
             allow_foreground: false,
             show_cursor: true,
             cloud_vm: false,
-            settle: SettleMode::Adaptive,
+            settle: SettleMode::Openai,
             menus: crate::menus::MenuMode::Open,
             live_preview: true,
             while_locked: false,
+            alerts: false,
         }
     }
 }
@@ -155,11 +163,12 @@ impl PolicyConfig {
             allow_foreground: true,
             show_cursor: true,
             cloud_vm: true,
-            settle: SettleMode::Adaptive,
+            settle: SettleMode::Openai,
             menus: crate::menus::MenuMode::Open,
             live_preview: true,
             // A cloud VM never locks (auto-login, lock off).
             while_locked: false,
+            alerts: false,
         }
     }
 }

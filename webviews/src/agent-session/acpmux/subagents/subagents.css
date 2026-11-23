@@ -524,7 +524,8 @@ button.cv-subagent > :last-child {
   box-sizing: border-box;
   padding: 0;
   overflow: hidden;
-  border-radius: var(--acpmux-composer-radius, 11px);
+  /* The composer's corner, so the hat and the composer under it are one outline (ask-2351b8cf41). */
+  border-radius: var(--acpmux-composer-radius, var(--grid-composer-radius));
   background: var(--ds-surface-inset);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, transparent);
   color: var(--agent-text);
@@ -561,13 +562,24 @@ button.cv-subagent > :last-child {
   background: transparent;
   box-shadow: none;
 }
+/* One line per step in the hat: the step's first line ends in an ellipsis (its tooltip holds the
+   rest), its detail shows under it muted on one line, and the mark sits on the first line's centre
+   whether a detail follows or not (Leo, 2026-11-22: ">1 line is ok IFF it's rendered and styled
+   properly"). */
 .acpmux-running-tray__plan .cv-plan__item {
-  align-items: center;
+  align-items: flex-start;
   min-height: var(--ui-row-height, 28px);
-  padding-block: 0;
+  padding-block: calc((var(--ui-row-height, var(--grid-row)) - var(--grid-icon-box)) / 2);
 }
 .acpmux-running-tray__plan .cv-plan__mark {
-  margin-top: 0;
+  margin-top: var(--grid-half-step);
+}
+.acpmux-running-tray__plan .cv-plan__title,
+.acpmux-running-tray__plan .cv-plan__detail {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* Past five lines (eight in the `tall` look, trayPanel.experiment.ts) the list scrolls in place;
@@ -639,6 +651,20 @@ button.cv-subagent > :last-child {
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
+  /* What does not fit drops whole: each kind with its separator wraps onto a second line the
+     header's height hides, so the header never ends on half a word ("53 subagents running · 5 wa";
+     Leo, 2026-11-22: "this should not be cutting off so harshly like this"). */
+  flex-wrap: wrap;
+  align-content: flex-start;
+  height: var(--acpmux-tray-head-height, var(--ui-row-height, 28px));
+}
+.acpmux-running-tray__kinds > * {
+  height: var(--acpmux-tray-head-height, var(--ui-row-height, 28px));
+}
+.acpmux-running-tray__kind-unit {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
 }
 .acpmux-running-tray__kind {
   flex: none;
@@ -2049,6 +2075,13 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray[data-tuck-look="pill"] > .acpmux-running-tray__tuck:active::before {
   background: var(--ds-color-pressed);
 }
+/* Liquid Glass off (appearance.liquidGlass): the pill stays solid when hovered and pressed, as the hat does. */
+:root[data-glass="off"] .acpmux-running-tray[data-tuck-look="pill"] > .acpmux-running-tray__tuck:hover::before {
+  background: var(--ds-surface-hover-layer), var(--glass-surface, Canvas);
+}
+:root[data-glass="off"] .acpmux-running-tray[data-tuck-look="pill"] > .acpmux-running-tray__tuck:active::before {
+  background: var(--ds-surface-pressed-layer), var(--glass-surface, Canvas);
+}
 /* `band`: the whole box lights along the edge. */
 .acpmux-running-tray[data-tuck-look="band"] > .acpmux-running-tray__tuck::before {
   width: 100%;
@@ -2132,6 +2165,10 @@ button.cv-subagent > :last-child {
   background: color-mix(in srgb, var(--glass-surface, Canvas) 30%, transparent);
   box-shadow: var(--glass-rim-shadow, inset 0 0 0 var(--cmux-hairline) var(--glass-edge)),
     0 var(--ds-space-1) var(--ds-space-2) color-mix(in srgb, var(--glass-surface, CanvasText) 12%, transparent);
+}
+/* Liquid Glass off (appearance.liquidGlass): the hover keeps the solid surface, with a light wash. */
+:root[data-glass="off"] .acpmux-tray-pull__tab:is(:hover, :has([data-popup-open])) > .acpmux-tray-pull__hat {
+  background: var(--ds-surface-hover-layer), var(--glass-surface, Canvas);
 }
 .acpmux-tray-pull__tab:focus-visible > .acpmux-tray-pull__hat {
   outline: 2px solid var(--agent-accent);
@@ -2326,7 +2363,7 @@ button.cv-subagent > :last-child {
   font-variant-numeric: tabular-nums;
 }
 @media not (prefers-reduced-transparency: reduce) {
-  :root:not([data-reduce-transparency])
+  :root:not([data-reduce-transparency], [data-glass="off"])
     .acpmux-tray-pull
     + .acpmux-composer:not(:has(> .acpmux-composer-queue, > .acpmux-composer-strip, > .acpmux-composer-strip-placeholder, > .acpmux-composer-remote-note))
     > .acpmux-composer-box::before {
@@ -2576,6 +2613,15 @@ button.cv-subagent > :last-child {
   height: var(--ds-space-2);
   cursor: ns-resize;
   touch-action: none;
+}
+/* While the rim drags, the hat follows the cursor alone: no transition eases a height, a fold or a
+   row behind it (Leo, 2026-11-22: "the dragging isn't properly relative accurate to the cursor"),
+   the resize cursor holds wherever the pointer goes, and no text selects under it. */
+.acpmux-running-tray[data-dragging],
+.acpmux-running-tray[data-dragging] * {
+  transition: none !important;
+  cursor: ns-resize !important;
+  user-select: none;
 }
 /* The height the person dragged to caps the list, never pads it (it is the list's `max-height`, as
    the default five lines are), with or without the latest-step second lines. Last in the file, so
