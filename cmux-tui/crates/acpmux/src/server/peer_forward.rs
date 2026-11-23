@@ -120,6 +120,16 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // answered here while the peer is down too.
     "_acpmux/peer_snapshot",
     "_acpmux/peer_snapshots_clear",
+    // Saved prompts are this machine's library; their `name` is a prompt's, never a session's.
+    method::MUX_PROMPTS_LIST,
+    method::MUX_PROMPTS_SAVE,
+    method::MUX_PROMPTS_DELETE,
+    // So are the stashed drafts; their `chat` is the composer's key.
+    method::MUX_STASH_LIST,
+    method::MUX_STASH_PUSH,
+    method::MUX_STASH_GET,
+    method::MUX_STASH_DROP,
+    method::MUX_STASH_MOVE,
     // A launch credential is for this daemon's own session only (`agent_credentials.rs`).
     crate::agent_credentials::UPDATE_METHOD,
     // The machine's own journal takes records only from its owner's link or its own socket
@@ -1238,6 +1248,23 @@ pub(super) fn strip_new_meta(p: &mut Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A saved prompt's `name` is never a session's: no peer gets the library's requests.
+    #[test]
+    fn saved_prompts_stay_on_this_daemon() {
+        for m in [
+            method::MUX_PROMPTS_LIST,
+            method::MUX_PROMPTS_SAVE,
+            method::MUX_PROMPTS_DELETE,
+            method::MUX_STASH_LIST,
+            method::MUX_STASH_PUSH,
+            method::MUX_STASH_GET,
+            method::MUX_STASH_DROP,
+            method::MUX_STASH_MOVE,
+        ] {
+            assert!(!names_a_session(m), "{m}");
+        }
+    }
 
     #[test]
     fn a_forwarded_start_keeps_its_name_and_asks_to_keep_a_taken_one() {
