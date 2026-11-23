@@ -201,6 +201,7 @@ name = "cmux-cloud-machine"
 version = "0.1.0"
 dependencies = [
  "cmux-cloud-wire",
+ "cmux-lifeline",
  "serde",
  "serde_json",
 ]
@@ -333,6 +334,13 @@ dependencies = [
  "cmux-window-rules",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-lifeline"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

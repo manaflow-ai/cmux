@@ -197,6 +197,7 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /webviews/
+            /cmux-tui/crates/acpmux/spec/acpmux-protocol.json
             /examples/gallery/
             /examples/looks/
             /scripts/
@@ -288,6 +289,7 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /webviews/
+            /cmux-tui/crates/acpmux/spec/acpmux-protocol.json
             /examples/gallery/
             /examples/looks/
             /scripts/
@@ -438,6 +440,7 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /webviews/
+            /cmux-tui/crates/acpmux/spec/acpmux-protocol.json
             /examples/gallery/
             /examples/looks/
             /scripts/
