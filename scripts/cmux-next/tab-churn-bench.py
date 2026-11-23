@@ -114,8 +114,17 @@ class Churn:
             return True
         self.rpc("action.run", {"action": "newTab", "args": {"focus": True, "name": "tab-churn"}, "wait": True})
         ok = self.wait(lambda: self.focused_kind() == "terminal", 30)
-        time.sleep(1)  # bench harness: the shell prompt
+        # The shell prompt: the focused terminal pane shows text.
+        if ok and not self.wait(self.focused_text, 20, step=0.1):
+            print("tab-churn: the new terminal showed no shell prompt within 20 s", flush=True)
         return ok
+
+    def focused_text(self):
+        for window in self.rpc("debug.surfaces", {"text": True}).get("windows") or []:
+            for pane in window.get("panes") or []:
+                if pane.get("focused") and pane.get("kind") == "terminal":
+                    return (pane.get("text") or (pane.get("surface") or {}).get("text") or "").strip()
+        return ""
 
     def timed(self, step, action, index, **params):
         result = self.rpc("debug.new_tab", {"action": action, "window": 0, **params}, timeout=20)
