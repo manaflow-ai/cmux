@@ -421,6 +421,16 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         return frame.width >= view.bounds.width - 1 && frame.maxY >= view.bounds.maxY - 1
     }
 
+    override func viewIsAppearing(_ animated: Bool) {
+        super.viewIsAppearing(animated)
+        // Back on screen (a tab switch, a push popped, the app reopened): the
+        // keyboard may have gone while the page was away with no hide this
+        // controller heard. A keyboard on record that nothing owns now is
+        // gone, so the dock rests at the bottom (the terminal page does the
+        // same in its viewIsAppearing).
+        keyboardTracker?.dropKeyboardWithoutOwner()
+    }
+
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         // The push has landed: warm the rows' first draws now, not under the push animation.

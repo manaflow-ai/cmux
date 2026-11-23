@@ -50,11 +50,13 @@ import CmuxMobileSupport
         window.rootViewController = nil
         window.isHidden = true
         #expect(controller.view.window == nil)
-        #expect(tracker.dropKeyboardWithoutOwner(), "the tracker drops the keyboard nothing owns")
+        // Reattaching alone (no explicit drop): the page's appearance asks the
+        // tracker to forget the keyboard nothing owns.
         window.rootViewController = controller
         window.makeKeyAndVisible()
         controller.view.layoutIfNeeded()
         let restingBottom = controller.view.safeAreaLayoutGuide.layoutFrame.maxY - ChatTranscriptController.dockGap
+        #expect(!tracker.isShown, "reappearing dropped the keyboard nothing owns")
         #expect(abs(dock.frame.maxY - restingBottom) < 1,
                 "the reconciled hide returns the dock to the resting bottom")
     }
