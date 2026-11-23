@@ -2800,7 +2800,8 @@ class RateLimitTests(unittest.TestCase):
         source = open(os.path.join(HERE, "..", "perf-cron.py")).read()
         known = set(re.findall(r'add_parser\("([a-z-]+)"', source))
         workflow = open(os.path.join(root, ".github", "workflows", "cmux-next-perf-budgets.yml")).read()
-        called = re.findall(r"python3 -I scripts/cmux-next/perf-cron\.py (\S+)", workflow)
+        # Interpreter flags may sit between (the plan runs `python3 -I -u -X faulthandler`).
+        called = re.findall(r"python3 -I(?: -[A-Za-z](?: \w+)?)* scripts/cmux-next/perf-cron\.py (\S+)", workflow)
         self.assertIn("plan", called)
         self.assertEqual([c for c in called if c not in known], [])
 
@@ -4234,6 +4235,42 @@ class StalePartFirstTests(unittest.TestCase):
         d = cron.decide(state, T0, "a" * 40, None, lambda sha: ALL, None)
         self.assertEqual(d["part"], "build")
 
+
+class BoundedPathCheckTests(unittest.TestCase):
+    """A plan's path checks end: a git that never answers (a lazy fetch in the partial clone) counts as absent after
+    PATH_CHECK_TIMEOUT_S instead of holding the plan to its job cap (run 44731310755, 74 minutes with no output)."""
+
+    def test_a_check_past_its_bound_is_absent_and_logged(self):
+        seen = {}
+
+        def hung(argv, **kw):
+            seen.update(kw)
+            raise cron.subprocess.TimeoutExpired(argv, kw.get("timeout"))
+
+        out = io.StringIO()
+        with mock.patch.object(cron.subprocess, "run", hung), contextlib.redirect_stdout(out):
+            self.assertFalse(cron.has_path("a" * 40, "webviews/bench/chat-100k-flat.bench.ts"))
+        self.assertEqual(seen["timeout"], cron.PATH_CHECK_TIMEOUT_S)
+        self.assertEqual(seen["env"]["GIT_TERMINAL_PROMPT"], "0")
+        self.assertIn("counted as absent", out.getvalue())
+
+    def test_git_answers_decide(self):
+        for code, want in ((0, True), (128, False)):
+            done = cron.subprocess.CompletedProcess([], code)
+            with mock.patch.object(cron.subprocess, "run", lambda argv, **kw: done):
+                self.assertIs(cron.has_path("a" * 40, "x"), want)
+
+    def test_every_part_check_goes_through_the_bound(self):
+        calls = []
+
+        def run(argv, **kw):
+            calls.append(kw.get("timeout"))
+            return cron.subprocess.CompletedProcess(argv, 0, stdout="--suite=launch \"--activation\" --suite=x")
+
+        with mock.patch.object(cron.subprocess, "run", run):
+            cron.supported_parts_at("a" * 40)
+        self.assertTrue(calls)
+        self.assertNotIn(None, calls)
 
 
 class UnreadPartFirstTests(unittest.TestCase):
