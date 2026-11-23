@@ -8,6 +8,7 @@
 // window's clock times read in his zone, or the minutes before the prompt he reported it in, widened back
 // to the start of the turn that was running when the window opened, so the reducer folds the window
 // with the state it had live.
+import { intl } from "../../../ui/intl";
 import type { EventRecord } from "../direct";
 
 /** Leo's clock (his "2:05PM NOV 22" is 22:05Z). */
@@ -18,16 +19,17 @@ const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "
 /** The zone's offset from UTC at `utcMs`, in ms (positive east of UTC). */
 function zoneOffsetMs(zone: string, utcMs: number): number {
   const parts = Object.fromEntries(
-    new Intl.DateTimeFormat("en-US", {
-      timeZone: zone,
-      hourCycle: "h23",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    })
+    intl
+      .DateTimeFormat("en-US", {
+        timeZone: zone,
+        hourCycle: "h23",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      })
       .formatToParts(new Date(utcMs))
       .map((part) => [part.type, part.value]),
   );
@@ -186,11 +188,13 @@ export function readOffsets(count: number): { name: string; from: number }[] {
 
 /// A time as Leo reads it: his clock, with the UTC time beside it.
 export function clockLabel(utcMs: number, zone = DEFAULT_ZONE): string {
-  const local = new Intl.DateTimeFormat("en-US", {
-    timeZone: zone,
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit",
-  }).format(new Date(utcMs));
+  const local = intl
+    .DateTimeFormat("en-US", {
+      timeZone: zone,
+      hour: "numeric",
+      minute: "2-digit",
+      second: "2-digit",
+    })
+    .format(new Date(utcMs));
   return `${local} (${new Date(utcMs).toISOString().slice(11, 19)}Z)`;
 }

@@ -134,8 +134,9 @@ if (capture) {
   const out = home(value("--out") ?? join(import.meta.dir, "..", "test", "fixtures", "chat-sim"));
   const fixture = join(out, `${name}.ndjson`);
   writeFileSync(fixture, clean.map((record) => JSON.stringify(record)).join("\n") + "\n");
-  const hostBuild = records.findLast((record) => record.kind === "host_started" && record.at <= window[1])?.msg
-    ?.hostBuild;
+  const hostBuild = [...records]
+    .reverse()
+    .find((record: EventRecord) => record.kind === "host_started" && record.at <= window[1])?.msg?.hostBuild;
   writeFileSync(
     join(out, `${name}.json`),
     JSON.stringify(
