@@ -681,7 +681,7 @@ impl Control {
 }
 
 /// The rules a request that controls a session runs under.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Control {
     /// The unix socket or the local app: no mode rule.
     #[default]
