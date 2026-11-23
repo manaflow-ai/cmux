@@ -174,11 +174,11 @@ impl Score {
         let (want, got) = (snapshot(bytes), snapshot(frames));
         // Rows aligned at the bottom: the active area is the last rows of each.
         let n = want.rows.len().max(got.rows.len());
-        let row = |s: &Snapshot, i: usize| {
+        fn row(s: &Snapshot, i: usize, n: usize) -> Option<&[Cell]> {
             (i + s.rows.len()).checked_sub(n).and_then(|i| s.rows.get(i)).map(Vec::as_slice)
-        };
+        }
         for i in 0..n {
-            let (a, b) = (row(&want, i).unwrap_or(&[]), row(&got, i).unwrap_or(&[]));
+            let (a, b) = (row(&want, i, n).unwrap_or(&[]), row(&got, i, n).unwrap_or(&[]));
             for c in 0..a.len().max(b.len()) {
                 self.cells += 1;
                 let (ka, kb) = (a.get(c).map(Key::of), b.get(c).map(Key::of));
