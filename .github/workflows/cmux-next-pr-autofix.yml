@@ -231,7 +231,7 @@ jobs:
           # cargo clippy --fix runs exactly when the clippy check (cmux-tui-spec.yml) does: its skip clause,
           # verbatim (affected-jobs.json pull_request_skip.follows; affected_jobs.py check holds them equal).
           # A feat-cmux-next pull request without full-ci skips both; its push runs the check and the base autofix.
-          AUTOFIX_GATE_CLIPPY: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+          AUTOFIX_GATE_CLIPPY: ${{ (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
         run: |
           set -euo pipefail
           # The base's copy, or the pull request's while the base has no actions area yet.
@@ -751,7 +751,7 @@ jobs:
           # cargo clippy --fix runs exactly when the clippy check (cmux-tui-spec.yml) does: its skip clause,
           # verbatim (affected-jobs.json pull_request_skip.follows; affected_jobs.py check holds them equal).
           # A feat-cmux-next pull request without full-ci skips both; its push runs the check and the base autofix.
-          AUTOFIX_GATE_CLIPPY: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+          AUTOFIX_GATE_CLIPPY: ${{ (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
         run: |
           set -euo pipefail
           if git log -1 --format=%B "${{ github.event.pull_request.head.sha }}" | grep -q '^Autofix-Run: '; then
