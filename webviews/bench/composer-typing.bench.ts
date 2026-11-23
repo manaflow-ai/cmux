@@ -43,7 +43,7 @@ import { chromium, webkit } from "./browsers";
 import { runComposerLoad } from "./composer-load";
 import { composerTypingRows } from "./composerTypingRows";
 import { perfRow } from "./perfRow";
-import { requireProductionReact, installReactWatch } from "./support/benchPage";
+import { requireProductionReact, installReactWatch, waitForPageHook, watchPageErrors } from "./support/benchPage";
 import type { Page } from "playwright";
 import { parseArms, runArms, servePane } from "./composer-arms";
 import { reportTrace, traceWindow } from "./styleInvalidationTrace";
@@ -139,10 +139,15 @@ const METRICS = [
 async function openChat(page: Page, port: number, turns: number) {
   // Before the page's own code (bench/support/benchPage.ts installReactWatch).
   await installReactWatch(page);
-  await page.goto(`http://127.0.0.1:${port}/?mock`);
+  const errors = watchPageErrors(page);
+  const response = await page.goto(`http://127.0.0.1:${port}/?mock`);
+  const status = response?.status();
+  // A 404 body loads as a page, and the wait below would then be 60 s of nothing (composer-load.ts).
+  if (status !== undefined && status >= 400)
+    throw new Error(`openChat: http://127.0.0.1:${port}/?mock answered ${status}; the pane page is not there`);
   // `servePane` builds the pane unless `--dev`; the check reads which React the page loaded
   // (bench/support/benchPage.ts).
-  await page.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, { timeout: 60_000 });
+  await waitForPageHook(page, "cmuxAcpmuxDebug", { timeout: 60_000, errors });
   // After the pane is up: react-dom rides a lazy chunk the page fetches when it mounts, so asking
   // right after `goto` read as "no react-dom on this page" (bench/support/benchPage.ts).
   await requireProductionReact(page, { dev: DEV });
