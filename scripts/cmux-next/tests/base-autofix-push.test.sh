@@ -79,6 +79,24 @@ before="$(remote_tip)"
 if STUB_ACTION_PARITY_STATUS=1 run > "$tmp/out" 2>&1; then fail "a moved candidate ignored failed parity"; fi
 [[ "$(remote_tip)" == "$before" ]] || fail "a moved candidate published despite failed parity"
 
+# A parity red the base tip has too, on a repair that writes none of parity's inputs, does not drop the repair
+# (run 45101521205 dropped a stale-lock fix for the base's own swift_parity red, 2026-11-23).
+setup
+repair="$(git -C "$tmp/bot" rev-parse HEAD)"
+STUB_ACTION_PARITY_STATUS=1 STUB_ACTION_PARITY_TIP_STATUS=1 run > "$tmp/out" 2>&1 \
+  || fail "a base-red parity dropped a repair that writes none of its inputs: $(cat "$tmp/out")"
+[[ "$(remote_tip)" == "$repair" ]] || fail "the repair did not land past the base's own parity red"
+grep -q 'fails at the base tip' "$tmp/out" || fail "the push does not say the parity red is the base's"
+# The same red refuses a repair that writes a parity input.
+setup
+(cd "$tmp/bot" && mkdir -p plans/cmux-next && echo '{}' > plans/cmux-next/action-catalog.json \
+  && git add -A && git commit -q --amend --no-edit)
+before="$(remote_tip)"
+if STUB_ACTION_PARITY_STATUS=1 STUB_ACTION_PARITY_TIP_STATUS=1 run > "$tmp/out" 2>&1; then
+  fail "a repair that writes a parity input landed on a parity red"
+fi
+[[ "$(remote_tip)" == "$before" ]] || fail "a parity-input repair moved the remote on a parity red"
+
 # Cargo receives no publication credentials; the push still gets its own Git header.
 setup
 mkdir -p "$tmp/bot/.git/hooks"
@@ -297,9 +315,10 @@ git update-ref refs/heads/feat "$moved"
 exit 1
 HOOK
 chmod +x "$tmp/remote.git/hooks/pre-receive"
-if (cd "$tmp/bot" && CMUX_BASE_AUTOFIX_PUSH_ATTEMPTS=2 timeout 60 bash "$script" "$tmp/remote.git" feat "$base") > "$tmp/out" 2>&1; then
-  fail "a refused push passed the run"
-fi
+rc=0
+(cd "$tmp/bot" && CMUX_BASE_AUTOFIX_PUSH_ATTEMPTS=2 timeout 60 bash "$script" "$tmp/remote.git" feat "$base") > "$tmp/out" 2>&1 || rc=$?
+# 75: kept moving, which base-autofix-land.sh passes (the newest push's run repairs it).
+[[ "$rc" == 75 ]] || fail "a branch that kept moving exited $rc, not 75: $(cat "$tmp/out")"
 grep -q "attempt 2 of 2" "$tmp/out" || fail "the run did not stop after its attempts: $(cat "$tmp/out")"
 grep -q "kept moving" "$tmp/out" || fail "the run does not say the branch kept moving: $(cat "$tmp/out")"
 
@@ -316,7 +335,8 @@ setup_next
 lane_commit "lane edits a doc" README.md "lane"
 moved="$(remote_tip)"
 mkdir -p "$tmp/fakebin"
-real_git="$(command -v git)"
+# The git binary, never a wrapper on PATH that would exec this fake again (tests/real_git.py).
+real_git="$(python3 "$here/../../../tests/real_git.py")" || exit 2
 printf '#!/bin/sh\n[ "$1" = log ] && [ -n "$FAIL_GIT_LOG" ] && exit 128\nexec "%s" "$@"\n' "$real_git" > "$tmp/fakebin/git"
 chmod +x "$tmp/fakebin/git"
 if (cd "$tmp/bot" && PATH="$tmp/fakebin:$PATH" FAIL_GIT_LOG=1 bash "$script" "$tmp/remote.git" feat "$base") > "$tmp/out" 2>&1; then

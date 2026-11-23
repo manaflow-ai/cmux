@@ -112,7 +112,7 @@ def web_needed(repo: Path, base: str, merge: str) -> bool:
 
 
 # Inputs of the webviews checks outside webviews/, where ci-web's react-apps routing does not run them on a pull
-# request: check:catalog-keys reads every string catalog, acpmux-protocol:check the protocol spec.
+# request: check:catalog-keys reads every string catalog, typecheck the types generated from the protocol spec.
 CHECK_INPUTS_OUTSIDE_WEBVIEWS = re.compile(r"\.xcstrings$|^cmux-tui/crates/acpmux/spec/")
 
 
@@ -333,6 +333,13 @@ def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool,
     ]
 
 
+def gate_lanes(active: list[tuple[str, list[str]]]) -> list[list[tuple[str, list[str]]]]:
+    """Group gates into lanes that run side by side; a lane's gates run one after another. Web lint and webviews
+    checks share a lane, since both may run bun install in webviews/; every other gate has its own."""
+    bun = [entry for entry in active if entry[0] in {"web lint", "webviews checks"}]
+    return [[entry] for entry in active if entry[0] not in {"web lint", "webviews checks"}] + ([bun] if bun else [])
+
+
 def run_gate(argv: list[str], repo: Path, seconds: float | None) -> int | None:
     """The gate's exit code, or None when it gave no result in SECONDS: then its whole process group is stopped (a
     gate's bun install child included), so a hung install ends as a named, stalled gate, not a cancelled job."""
@@ -376,30 +383,36 @@ def child_cpu_seconds(output: str) -> float | None:
     return sum(values)
 
 
-def run_gate_batch(entries: list[tuple[str, list[str]]], repo: Path, deadline: float | None,
+def run_gate_batch(lanes: list[list[tuple[str, list[str]]]], repo: Path, deadline: float | None,
                    log_dir: Path) -> dict[str, tuple[int | None, float, str, float | None]]:
-    """Run independent gates together, stopping all remaining groups at the shared deadline.
+    """Run gate lanes side by side, each lane's gates in order, stopping all remaining groups at the shared deadline.
 
     Gate output is captured separately and printed in declaration order after the batch. This keeps concurrent
-    annotations readable while preserving each gate's complete log. Web lint and webviews checks are deliberately
-    placed in separate batches by ``run`` because both may install webviews dependencies in the checkout.
+    annotations readable while preserving each gate's complete log. A gate whose lane reaches the deadline before
+    it starts is left out of the results (``run`` reports it as never started).
     """
-    if not entries:
+    pending = [list(lane) for lane in lanes if lane]
+    if not pending:
         return {}
     log_dir.mkdir(parents=True, exist_ok=True)
-    active: dict[str, tuple[subprocess.Popen, object, float, Path]] = {}
+    active: dict[str, tuple[subprocess.Popen, object, float, Path, list[tuple[str, list[str]]]]] = {}
     results: dict[str, tuple[int | None, float, str, float | None]] = {}
-    for name, argv in entries:
+
+    def start(lane: list[tuple[str, list[str]]]) -> None:
+        name, argv = lane.pop(0)
         slug = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-").lower() or "gate"
         path = log_dir / f"{slug}.log"
         handle = path.open("w+", encoding="utf-8")
         process = subprocess.Popen(timed_gate_argv(argv), cwd=repo, start_new_session=True, stdout=handle,
                                    stderr=subprocess.STDOUT, text=True)
-        active[name] = (process, handle, time.monotonic(), path)
+        active[name] = (process, handle, time.monotonic(), path, lane)
+
+    for lane in pending:
+        start(lane)
 
     while active:
         now = time.monotonic()
-        for name, (process, handle, started, path) in list(active.items()):
+        for name, (process, handle, started, path, lane) in list(active.items()):
             code = process.poll()
             if code is None:
                 continue
@@ -407,11 +420,13 @@ def run_gate_batch(entries: list[tuple[str, list[str]]], repo: Path, deadline: f
             output = path.read_text(encoding="utf-8", errors="replace")
             results[name] = (code, now - started, output, child_cpu_seconds(output))
             del active[name]
+            if lane and (deadline is None or deadline - time.monotonic() >= 1):
+                start(lane)
         if not active:
             break
         if deadline is not None and now >= deadline:
             stopped = time.monotonic()
-            for name, (process, handle, started, path) in list(active.items()):
+            for name, (process, handle, started, path, _lane) in list(active.items()):
                 stop_gate(process)
                 handle.close()
                 output = path.read_text(encoding="utf-8", errors="replace")
@@ -442,18 +457,13 @@ def run(args: argparse.Namespace) -> int:
             for name, argv in gates(repo, args.base, merge, holder, args.web == "true", args.checks == "true", ratchet)
             if argv is not None
         ]
-        # Web lint and webviews checks can both run bun install in webviews/. Keep those two in separate batches;
-        # every other gate reads the merge and its exported base tree, so they share the critical path safely.
-        batches = [[entry for entry in active if entry[0] != "webviews checks"],
-                   [entry for entry in active if entry[0] == "webviews checks"]]
-        active_results: dict[str, tuple[int | None, float, str, float | None]] = {}
-        max_parallel = 0
-        for batch in batches:
-            max_parallel = max(max_parallel, len(batch))
-            left = None if deadline is None else deadline - time.monotonic()
-            if left is not None and left < 1:
-                continue
-            active_results.update(run_gate_batch(batch, repo, deadline, holder / "gate-logs"))
+        # Web lint and webviews checks can both run bun install in webviews/, so webviews checks waits for web lint
+        # when both run. Every other gate reads the merge and its exported base tree and starts at once: on
+        # 2026-11-22 webviews checks (93 s) waited out crash-class rules (61 s) in a second batch, a 157 s step whose
+        # critical gate was 93 s (job 137149366688), and fast gates' p90 sat at 4.0 min against its 3.0 min budget.
+        lanes = gate_lanes(active)
+        max_parallel = len(lanes)
+        active_results = run_gate_batch(lanes, repo, deadline, holder / "gate-logs")
 
         for name, argv in gates(repo, args.base, merge, holder, args.web == "true", args.checks == "true", ratchet):
             if argv is None:

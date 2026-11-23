@@ -392,12 +392,7 @@ fn view_session(
     let answer = wait_for_answer(&mut signal, user, ticket)?;
     let peer = unhex32(&answer.key).ok_or("the host's session key is malformed")?;
     let (stun, turn) = rd_doc::servers(&ticket.ice);
-    let stun = stun
-        .iter()
-        .filter_map(|s| {
-            std::net::ToSocketAddrs::to_socket_addrs(s).ok()?.find(std::net::SocketAddr::is_ipv4)
-        })
-        .collect();
+    let (stun, stun_later) = crate::carrier::stun_servers(&stun, false);
     let turn: Vec<crate::carrier::TurnSetup> = turn
         .into_iter()
         .map(|t| crate::carrier::TurnSetup {
@@ -416,6 +411,9 @@ fn view_session(
         turn: crate::carrier::turn_servers(&turn),
         relay_only: false,
     })?;
+    if let Some(later) = stun_later {
+        net.add_stun_later(later);
+    }
     // A host that dies without a close ends this viewer instead of freezing it.
     net.set_peer_lost(Some(std::time::Duration::from_micros(cmux_rd_link::PEER_LOST_US)));
     for c in answer.candidates.iter().filter_map(|c| Candidate::from_wire(c)) {

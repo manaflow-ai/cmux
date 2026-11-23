@@ -42,6 +42,7 @@ extension BrowserToolbarButtonsView {
         weak var focused = window.firstResponder
         glass.onClose = { [weak self, weak window, weak glass] in
             pressed?.isMenuOpen = false
+            pressed?.pressTracker = nil
             if let self, self.openGlassMenu === glass { self.openGlassMenu = nil }
             guard let window, let focused, window.firstResponder !== focused else { return }
             if let view = focused as? NSView, view.window !== window { return }
@@ -49,6 +50,8 @@ extension BrowserToolbarButtonsView {
         }
         guard showGlassMenu(glass, anchor) else { return }
         pressed?.isMenuOpen = true
+        // Opened by a press still held: its drag and its release pick a row, as on an NSMenu.
+        if let pressed, pressed.holdsPress { pressed.pressTracker = { [weak glass] in glass?.trackPress($0) } }
         openGlassMenu = glass
     }
 }
