@@ -223,6 +223,7 @@ pub(super) async fn handle_notification(
     m: &str,
     mut params: Value,
 ) {
+    super::remote_guard::note_vouched_phone(hub, conn, &params);
     match m {
         method::SESSION_CANCEL => {
             // Notifications have no response channel, but they still cross
@@ -275,6 +276,7 @@ pub(super) async fn handle_notification(
                         &mut forwarded,
                         person_admitted(conn, &params),
                     );
+                    super::remote_guard::attest_owner_phone(hub, conn, &params, &mut forwarded);
                     person_stop::mark(conn, &params, &peer, &mut forwarded);
                     cancel_refused::forward(conn, peer, key, turn, forwarded).await;
                 }
@@ -524,10 +526,11 @@ async fn dispatch_brief(
         // Its session there is this caller's (a workflow's remote activity: its owning agent).
         crate::hub::merge_mux_meta(&mut params, created_by_stamp(hub, conn, &original));
         // Its chat there follows this Mac's answer to cmux's tools (`cmux_tools_answer.rs`).
-        crate::hub::cmux_tools_answer::stamp(
-            &mut params,
-            crate::hub::cmux_tools_answer::here(crate::user_settings::text().as_deref()),
+        let answer = crate::hub::cmux_tools_answer::here_for(
+            crate::user_settings::text().as_deref(),
+            &params,
         );
+        crate::hub::cmux_tools_answer::stamp(&mut params, answer);
         let mut result = match peer.request_on(method::MUX_DISPATCH, params, epoch).await {
             Ok(result) => result,
             Err(e) => {
@@ -1611,10 +1614,11 @@ async fn dispatch_request_with_identity(
                 let mut p = params.clone();
                 super::peer_forward::strip_new_meta(&mut p);
                 // The chat there follows this Mac's answer to cmux's tools (`cmux_tools_answer.rs`).
-                crate::hub::cmux_tools_answer::stamp(
-                    &mut p,
-                    crate::hub::cmux_tools_answer::here(crate::user_settings::text().as_deref()),
+                let answer = crate::hub::cmux_tools_answer::here_for(
+                    crate::user_settings::text().as_deref(),
+                    &p,
                 );
+                crate::hub::cmux_tools_answer::stamp(&mut p, answer);
                 super::remote_guard::mark_forwarded(conn.origin, conn.auth, &params, &mut p);
                 // An approved no-prompt preset's chat runs unattended there (`unattended_presets.rs`).
                 let unattended =
@@ -3101,6 +3105,9 @@ async fn dispatch_request_with_identity(
             }
             reply
         }
+        name if super::account_sign_in::METHODS.contains(&name) => {
+            heap(|| super::account_sign_in::handle(hub, conn.origin, name, &params)).await
+        }
         method::MUX_ACCOUNTS | method::MUX_ACCOUNT_SET | method::MUX_ACCOUNT_USAGE => {
             let reply = heap(|| super::accounts::handle(hub, conn.origin, m, &params)).await;
             if reply.is_ok() && super::connections::changes_connections(m) {
@@ -4239,6 +4246,11 @@ mod cloud_preparation_tests {
 pub(super) fn note_initialize(conn: &Conn, params: &Value) {
     if let Some(name) = params.pointer("/clientInfo/name").and_then(Value::as_str) {
         *conn.name.lock_or_recover() = name.to_owned();
+        let link = conn.origin == Origin::Peer || name == crate::peer::CLIENT_NAME;
+        conn.out.describe(
+            format!("{} {name} {}", super::origin_usage_key(conn.origin), conn.id),
+            !link,
+        );
     }
     // Only over a link that read this machine's peer token over ssh, never a paired device's
     // (`hub/github_owner.rs`). It counts from its `_acpmux/watch`, once the Mac's side of the
