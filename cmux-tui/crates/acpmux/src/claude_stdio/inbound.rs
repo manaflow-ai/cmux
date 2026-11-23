@@ -155,7 +155,8 @@ impl Translator {
                                 .insert(parent.unwrap_or("").to_owned(), id.to_owned());
                         }
                         if parent.is_none() {
-                            self.call_started(ev.pointer("/message/usage"));
+                            let model = ev.pointer("/message/model").and_then(Value::as_str);
+                            self.call_started(ev.pointer("/message/usage"), model).await;
                         }
                         if parent.is_none()
                             && let Some(m) = ev.pointer("/message/model").and_then(Value::as_str)
@@ -603,30 +604,17 @@ impl Translator {
                 let rid = resp.get("request_id").and_then(Value::as_str).unwrap_or("");
                 let ok = resp.get("subtype").and_then(Value::as_str) == Some("success");
                 let inner = resp.get("response").cloned().unwrap_or(Value::Null);
-                if let Some(acp) = rid.strip_prefix("init-") {
-                    let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
-                    self.pending.lock().await.remove(&id.to_string());
+                if rid.starts_with("init-") {
+                    // The hub's `initialize` was answered when it was written
+                    // (`outbound.rs`); Claude Code's own answer brings its commands.
                     if !ok {
-                        out.push(Message::err(
-                            id,
-                            RpcError::internal(
-                                resp.get("error")
-                                    .and_then(Value::as_str)
-                                    .unwrap_or("claude initialize failed"),
-                            ),
-                        ));
+                        let why = resp.get("error").and_then(Value::as_str).unwrap_or("no reason");
+                        tracing::warn!(session = %self.acp_session_id, "claude initialize failed: {why}");
                         return out;
                     }
                     if let Some(cmds) = inner.get("commands").and_then(Value::as_array) {
                         *self.slash_commands.lock().await = cmds.clone();
                     }
-                    out.push(Message::ok(id, json!({
-                        "protocolVersion": 1,
-                        "agentInfo": {"name": AGENT_NAME, "title": "Claude Code", "version": inner.get("version").cloned().unwrap_or(Value::Null), "_meta": {"acpmux": {"toolGate": cfg!(unix)}}},
-                        "agentCapabilities": {"loadSession": true, "promptCapabilities": {"image": true, "embeddedContext": true}, "sessionCapabilities": {"fork": {}, "list": {}, "close": {}}},
-                        "authMethods": [],
-                        "_meta": {"steering": {"supported": true}, "claude": {"commands": inner.get("commands"), "capabilities": inner.get("capabilities")}}
-                    })));
                     if inner.get("commands").is_some_and(Value::is_array)
                         && let Some(u) = self.commands_update(true).await
                     {
@@ -787,7 +775,7 @@ impl Translator {
                         if self.context_from_compaction.load(Ordering::SeqCst) {
                             usage.set("_meta", json!({"acpmux": {"compactionDerived": true}}));
                         }
-                        out.push(upd(prompt_cache::with_expiry(usage, self.cache.expires_at())));
+                        out.push(upd(self.cache.resend(usage)));
                     }
                 }
                 // The result of a turn acpmux already ended (a Stop Claude Code

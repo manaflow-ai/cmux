@@ -243,6 +243,7 @@ jobs:
             scripts/ci/xcode-pins.txt
             scripts/ci/frame-pacing
             scripts/cmux-next/instant-new-surfaces-bench.py
+            scripts/cmux-next/state_wait.py
             scripts/cmux-next/cmd-n-paint-e2e.py
             scripts/cmux-next/bench-startup.py
             scripts/cmux-next/bench_memory.py
