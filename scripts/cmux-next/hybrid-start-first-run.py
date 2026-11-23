@@ -320,7 +320,8 @@ def diagnose(why: str) -> None:
         f"why: {why}", f"open exit: {app.poll()}", f"open output: {launch_log.read_text()[-4000:] if launch_log.exists() else ''}",
         f"app pids: {pids}", "ps:", sh(["/bin/ps", "-axo", "pid,ppid,etime,command"]),
         "app sockets:", *[sh(["/usr/sbin/lsof", "-a", "-p", str(pid), "-U"]) for pid in pids],
-        "tmp sockets:", sh(["/bin/ls", "-la", "/tmp"]),
+        "tmp sockets:", sh(["/bin/ls", "-la", "/tmp/"]),
+        "state sockets:", sh(["/bin/ls", "-la", str(Path.home() / ".local/state/cmux") + "/"]),
         "unified log:", sh(["/usr/bin/log", "show", "--style", "compact", "--info", "--start", launched_at,
                              "--predicate", 'process CONTAINS[c] "cmux" OR subsystem CONTAINS[c] "cmux"'], timeout=120),
     ]))
@@ -329,12 +330,22 @@ def diagnose(why: str) -> None:
 
 
 def find_socket() -> str | None:
-    """The socket the launched app listens on when it is not the one asked for: from lsof on its pids."""
+    """The socket the launched app listens on when it is not the one asked for. The app binds in a
+    private `.cmuxsock.XXXXXX/s` beside its real path and renames it, so lsof names the staging
+    dir's parent; the published app ignores CMUX_NEXT_SOCKET_PATH and binds its build default
+    (`~/.local/state/cmux/cmux-debug-<tag>.sock`). Probe every socket in those directories."""
+    dirs = {Path.home() / ".local/state/cmux", Path("/tmp")}
     for pid in app_pids():
-        for path in re.findall(r"(/\S+\.sock)\b", sh(["/usr/sbin/lsof", "-a", "-p", str(pid), "-U"])):
+        for path in re.findall(r"(/\S+)", sh(["/usr/sbin/lsof", "-a", "-p", str(pid), "-U"])):
+            if path.endswith(".sock"):
+                dirs.add(Path(path).parent)
+            elif "/.cmuxsock." in path:
+                dirs.add(Path(path.split("/.cmuxsock.")[0]))
+    for folder in sorted(dirs):
+        for path in sorted(str(p) for p in folder.glob("cmux*.sock")):
             probe = subprocess.run([APP_CLI, "app", "identify", "--json"], env={**ENV, "CMUX_SOCKET_PATH": path,
                                    "CMUX_NEXT_SOCKET_PATH": path}, capture_output=True, text=True, timeout=30)
-            if probe.returncode == 0 and parsed(probe.stdout).get("pid"):
+            if probe.returncode == 0 and parsed(probe.stdout).get("pid") in app_pids():
                 return path
     return None
 
@@ -347,7 +358,7 @@ try:
         got = run(["app", "identify", "--json"], cli=APP_CLI, timeout=30)
         if got["code"] == 0 and parsed(got["out"]).get("pid"):
             break
-        if not switched and time.monotonic() > deadline - 180:
+        if not switched and time.monotonic() > deadline - 220:
             other = find_socket()
             if other:
                 switched = True
