@@ -64,6 +64,33 @@ final class TerminalUnsentKeysUITests: XCTestCase {
         XCTAssertEqual(field.value as? String, "make test", "the dropped send's text is back in the composer")
     }
 
+    /// A draft in the composer survives the app going to the background and back, and
+    /// nothing says "not sent" or warns about the draft (the tab's draft store,
+    /// `GhosttyTerminalTabContent`'s `drafts`, keeps `draftToKeep` as it changes).
+    @MainActor
+    func testADraftSurvivesTheBackgroundWithNoWarning() throws {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
+        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-demo", "ws-terminal-idle"]
+        app.launch()
+        let field = app.textViews["terminal.composer.field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 30), "composer field\n\(app.debugDescription)")
+        field.tap()
+        field.typeText("half a command")
+        attach("1-draft")
+        XCUIDevice.shared.press(.home)
+        Thread.sleep(forTimeInterval: 3)
+        app.activate()
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        Thread.sleep(forTimeInterval: 1)
+        attach("2-back")
+        XCTAssertEqual(field.value as? String, "half a command", "the draft is still in the composer")
+        XCTAssertFalse(app.descendants(matching: .any)["terminal.composer.notSent"].exists, "no not-sent row")
+        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "not sent")).firstMatch.exists,
+                       "no not-sent or draft warning")
+    }
+
     @MainActor
     private func attach(_ name: String) {
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
