@@ -244,7 +244,7 @@ pub(super) async fn watch(hub: &Hub, conn: &Conn, params: &Value) -> Result<Valu
     let on = params.get("enabled").and_then(Value::as_bool).unwrap_or(true);
     let tools = with_tools(params)?;
     conn.watch_tools.store(on && tools, Ordering::SeqCst);
-    conn.watch_all.store(on, Ordering::SeqCst);
+    conn.set_watching(on);
     // The position the reply is current to, read once the watch is on: every change after it is
     // a notice on this connection (`row_log.rs`).
     let head = hub.list_cursor().0;
