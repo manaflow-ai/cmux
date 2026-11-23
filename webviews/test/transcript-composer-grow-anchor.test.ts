@@ -48,8 +48,6 @@ await requireBrowserLane("transcript-composer-grow-anchor.test.ts", async () => 
   const open = async (width: number, scrolledUp: boolean, variant = "bottom-one-line") => {
     const page = await browser.newPage({ viewport: { width, height: 560 }, deviceScaleFactor: 1 });
     const port = (vite.httpServer!.address() as { port: number }).port;
-    if (process.env.ANCHOR_IMMEDIATE)
-      await page.addInitScript(() => ((globalThis as { __growImmediate?: boolean }).__growImmediate = true));
     if (process.env.ANCHOR_EXP)
       await page.addInitScript((value) => localStorage.setItem("cmux.experiments", value), process.env.ANCHOR_EXP);
     await page.goto(`http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant })}`);
