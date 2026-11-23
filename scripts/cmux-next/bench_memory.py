@@ -1080,28 +1080,144 @@ def heap_summary(pages: list, replies: dict) -> dict:
             "per_page": sorted(rows, key=lambda r: -r["total_mb"])[:40], "errors": errors[:5], "error_count": len(errors)}
 
 
+# --js-heap's DOM read, one per page: the page's live DOM (every node of the document and its open shadow roots)
+# and its <img> elements. A loaded image (complete, with a natural size) has been decoded at least once; its bitmap
+# at 4 bytes a pixel is the most it can hold, since Chromium may drop a hidden page's decoded copy and redecode on
+# show. CSS background images and canvases are not counted. Returns a JSON string, so one reply is one value.
+DOM_FACTS_JS = r"""(() => {
+  let nodes = 0, elements = 0, shadowRoots = 0, images = 0, loaded = 0, pixels = 0;
+  const walk = (root) => {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ALL);
+    for (let node = walker.currentNode; node; node = walker.nextNode()) {
+      nodes++;
+      if (node.nodeType !== 1) continue;
+      elements++;
+      if (node.localName === "img") {
+        images++;
+        if (node.complete && node.naturalWidth > 0) { loaded++; pixels += node.naturalWidth * node.naturalHeight; }
+      }
+      if (node.shadowRoot) { shadowRoots++; walk(node.shadowRoot); }
+    }
+  };
+  walk(document);
+  return JSON.stringify({nodes, elements, shadow_roots: shadowRoots, images, decoded_images: loaded, decoded_pixels: pixels});
+})()"""
+
+
+def devtools_json(app: App, browser, method: str, params: dict, timeout: float = 20) -> dict:
+    """One DevTools call on a cmux page, its parsed reply or {"error": ...}."""
+    reply = app.call("debug.cef_page_devtools", {"browser": browser, "method": method, "params": params}, timeout=timeout)
+    if reply.get("error") or not isinstance(reply.get("result"), str):
+        return {"error": str(reply.get("error") or "no reply")}
+    try:
+        return json.loads(reply["result"])
+    except ValueError as error:
+        return {"error": str(error)}
+
+
+def dom_facts_of(reply: dict) -> dict:
+    """A page's DOM_FACTS_JS from its `Runtime.evaluate` reply (pure), or {"error": ...}."""
+    if reply.get("error"):
+        return {"error": str(reply["error"])}
+    if reply.get("exceptionDetails"):
+        return {"error": str((reply["exceptionDetails"].get("exception") or {}).get("description") or "exception")[:120]}
+    value = (reply.get("result") or {}).get("value")
+    try:
+        facts = json.loads(value) if isinstance(value, str) else None
+    except ValueError:
+        facts = None
+    return facts if isinstance(facts, dict) else {"error": "no DOM facts in the reply"}
+
+
+def dom_summary(pages: list, facts: dict, counters: dict) -> dict:
+    """--js-heap (pure): each cmux page's live DOM nodes and decoded images, summed over pages and per hidden page.
+
+    `facts` maps a page's browser id to its DOM_FACTS_JS dict. Unlike the V8 heap, a page's DOM is its own, so pages
+    sum. `counters` maps a renderer id to its `Memory.getDOMCounters` reply: the renderer's whole count, live and
+    detached nodes alike, so a renderer whose `renderer_nodes` stays far above its pages' live nodes holds detached
+    DOM. A page whose read failed is counted under `errors`, never as 0."""
+    rows, errors = [], []
+    for page in pages:
+        if not isinstance(page, dict) or not str(page.get("origin", "")).startswith("cmux-page://"):
+            continue
+        fact = facts.get(page.get("browser")) or {}
+        if not isinstance(fact.get("nodes"), (int, float)):
+            errors.append(str(fact.get("error") or "no DOM facts")[:120])
+            continue
+        clients = sorted(int(c) for c in (page.get("renderer_clients") or []) if isinstance(c, (int, float)))
+        rows.append({"browser": page.get("browser"), "path": str(page.get("path") or "/"), "hidden": bool(page.get("hidden")),
+                     "renderer": clients[0] if clients else None, "nodes": int(fact["nodes"]),
+                     "elements": int(fact.get("elements") or 0), "images": int(fact.get("images") or 0),
+                     "decoded_images": int(fact.get("decoded_images") or 0),
+                     "decoded_mb": round(float(fact.get("decoded_pixels") or 0) * 4 / MB, 1)})
+
+    def totals(subset):
+        return {"pages": len(subset), "nodes": sum(r["nodes"] for r in subset),
+                "images": sum(r["images"] for r in subset),
+                "decoded_images": sum(r["decoded_images"] for r in subset),
+                "decoded_mb": round(sum(r["decoded_mb"] for r in subset), 1)}
+
+    out = totals(rows)
+    hidden = [r for r in rows if r["hidden"]]
+    out["hidden_pages"] = len(hidden)
+    if hidden:
+        out["per_hidden_page"] = {"nodes": round(sum(r["nodes"] for r in hidden) / len(hidden)),
+                                  "decoded_images": round(sum(r["decoded_images"] for r in hidden) / len(hidden), 1),
+                                  "decoded_mb": round(sum(r["decoded_mb"] for r in hidden) / len(hidden), 1)}
+    paths: dict = {}
+    for row in rows:
+        paths.setdefault(row["path"], []).append(row)
+    out["by_path"] = {path: totals(subset) for path, subset in sorted(paths.items(), key=lambda item: -len(item[1]))}
+    by_renderer = []
+    for renderer, reply in sorted(counters.items(), key=lambda item: str(item[0])):
+        if not isinstance(reply, dict) or not isinstance(reply.get("nodes"), (int, float)):
+            errors.append(str((reply or {}).get("error") or "no DOM counters")[:120])
+            continue
+        live = sum(r["nodes"] for r in rows if r["renderer"] == renderer)
+        by_renderer.append({"renderer": renderer, "documents": reply.get("documents"), "renderer_nodes": int(reply["nodes"]),
+                            "live_nodes": live, "listeners": reply.get("jsEventListeners")})
+    out["by_renderer"] = sorted(by_renderer, key=lambda r: -r["renderer_nodes"])[:12]
+    out["per_page"] = sorted(rows, key=lambda r: -r["nodes"])[:40]
+    out["errors"], out["error_count"] = errors[:5], len(errors)
+    return out
+
+
 def js_heaps(app: App) -> dict:
     """--js-heap: every cmux page's V8 heap (DevTools `Runtime.getHeapUsage`, which needs no domain enabled
-    and runs no script), read after the sample's window so the read is not in it. A bench or DEV build has
-    `debug.cef_pages`; an app without it gives {"error": ...}."""
+    and runs no script), its live DOM node and decoded-image count (`dom`: one `Runtime.evaluate` of DOM_FACTS_JS
+    a page, and `Memory.getDOMCounters` once a renderer), read after the sample's window so the reads are not in
+    it. A bench or DEV build has `debug.cef_pages`; an app without it gives {"error": ...}."""
     pages = (app.call("debug.cef_pages", timeout=30) or {}).get("pages")
     if not isinstance(pages, list):
         return {"error": "no debug.cef_pages (a bench or DEV build has it)"}
 
     def read(page):
-        reply = app.call("debug.cef_page_devtools", {"browser": page["browser"], "method": "Runtime.getHeapUsage",
-                                                     "params": {}}, timeout=20)
-        if reply.get("error") or not isinstance(reply.get("result"), str):
-            return page["browser"], {"error": str(reply.get("error") or "no reply")}
-        try:
-            return page["browser"], json.loads(reply["result"])
-        except ValueError as error:
-            return page["browser"], {"error": str(error)}
+        return page["browser"], devtools_json(app, page["browser"], "Runtime.getHeapUsage", {})
+
+    def read_dom(page):
+        reply = devtools_json(app, page["browser"], "Runtime.evaluate",
+                              {"expression": DOM_FACTS_JS, "returnByValue": True, "silent": True})
+        return page["browser"], dom_facts_of(reply)
 
     own = [p for p in pages if isinstance(p, dict) and "browser" in p and str(p.get("origin", "")).startswith("cmux-page://")]
+    # Memory.getDOMCounters answers for the page's whole renderer: one page per renderer asks.
+    first_of: dict = {}
+    for page in own:
+        clients = sorted(int(c) for c in (page.get("renderer_clients") or []) if isinstance(c, (int, float)))
+        if clients:
+            first_of.setdefault(clients[0], page["browser"])
+
+    def read_counters(item):
+        renderer, browser = item
+        return renderer, devtools_json(app, browser, "Memory.getDOMCounters", {})
+
     with ThreadPoolExecutor(max_workers=8) as pool:
         replies = dict(pool.map(read, own))
-    return heap_summary(own, replies)
+        facts = dict(pool.map(read_dom, own))
+        counters = dict(pool.map(read_counters, first_of.items()))
+    summary = heap_summary(own, replies)
+    summary["dom"] = dom_summary(own, facts, counters)
+    return summary
 
 
 def percentile(values: list[float], share: float) -> float | None:
@@ -1973,7 +2089,8 @@ def main():
                              "in the window (the daemon's git runs); none when the run's own check of the read fails")
     parser.add_argument("--js-heap", action="store_true",
                         help="after each sample: every cmux page's V8 heap (Runtime.getHeapUsage), summed by page path "
-                             "(`js_heap` in the sample; a bench or DEV build)")
+                             "(`js_heap` in the sample; a bench or DEV build), and each page's live DOM node and "
+                             "decoded-image count (`js_heap.dom`, with a per hidden page average)")
     parser.add_argument("--app-vm", action="store_true",
                         help="after the idle-launch sample: the app process's vmmap --summary, footprint and "
                              "heap --sortBySize (`app_vm` in the sample, APP-VM lines)")
@@ -2141,6 +2258,12 @@ def main():
             print(f"   JS heap: {heap.get('pages', 0)} cmux pages ({heap.get('hidden_pages', 0)} hidden) in "
                   f"{heap.get('renderers', 0)} renderers, used {heap.get('used_mb', 0)} MB, total {heap.get('total_mb', 0)} MB "
                   f"{json.dumps(heap.get('by_renderer') or heap.get('error'))[:600]}", flush=True)
+            dom = heap.get("dom")
+            if isinstance(dom, dict):
+                print(f"   DOM: {dom.get('nodes', 0)} nodes, {dom.get('decoded_images', 0)} decoded images "
+                      f"({dom.get('decoded_mb', 0)} MB at 4 B/px) in {dom.get('pages', 0)} cmux pages; per hidden page "
+                      f"{json.dumps(dom.get('per_hidden_page'))}; errors {dom.get('error_count', 0)} "
+                      f"{json.dumps(dom.get('by_renderer'))[:400]}", flush=True)
         if args.app_vm and label == "idle-launch":
             result["app_vm"] = app_vm(app_pid)
             if args.app_vm_stacks:
