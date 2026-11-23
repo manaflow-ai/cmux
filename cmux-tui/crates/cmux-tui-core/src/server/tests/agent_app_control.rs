@@ -2,10 +2,10 @@
 //! server/agent_app_control.rs): on `read` an agent in cmux may read the app
 //! but not change it; `change` (the default) is the behavior before it.
 
-use super::agent_app_control::{Ask, REASON, is_agent, refuse_line};
 use super::*;
 use crate::mux::settings::SettingsPaths;
 use crate::resource::ResourceOperation;
+use crate::server::agent_app_control::{Ask, LEGACY_ALLOWED, REASON, is_agent, refuse_line};
 
 struct Rig {
     mux: Arc<Mux>,
@@ -79,7 +79,7 @@ fn legacy(cmd: &str) -> String {
 
 #[test]
 fn agent_app_control_legacy_allow_list_is_sorted_and_unique() {
-    let list = super::agent_app_control::LEGACY_ALLOWED;
+    let list = LEGACY_ALLOWED;
     assert!(list.windows(2).all(|pair| pair[0] < pair[1]), "LEGACY_ALLOWED must stay sorted");
 }
 
@@ -107,7 +107,7 @@ fn agent_app_control_classifies_lines() {
 fn agent_app_control_agents_are_terminals_and_agent_chats() {
     assert!(is_agent(&crate::Actor::Terminal { id: "term_1".into() }));
     assert!(!is_agent(&crate::Actor::local_user()));
-    assert!(!is_agent(&crate::Actor::Frontend));
+    assert!(!is_agent(&crate::Actor::Frontend { install_id: "install".into() }));
 }
 
 #[test]
