@@ -823,7 +823,7 @@ async function turnState(ctx: ChaosContext, marker: string, session = ctx.sessio
   };
 }
 
-async function turnOutcome(ctx: ChaosContext, marker: string, session = ctx.session): Promise<{ ok: boolean; text: string; interrupted?: boolean }> {
+export async function turnOutcome(ctx: ChaosContext, marker: string, session = ctx.session): Promise<{ ok: boolean; text: string; interrupted?: boolean }> {
   const until = Date.now() + TURN_DEADLINE_MS;
   let last = { started: 0, running: false, status: "", detail: "" };
   while (Date.now() < until) {
@@ -913,7 +913,7 @@ export function journalNotesText(notes: JournalNotes): string {
  * (`ended`), so no record of that turn can stop the next clock. Null when that end is not verified (the turn did not
  * end, or the journal could not be read): the next felt send is then not measured.
  */
-async function feltBoundary(ctx: ChaosContext, session: string, after: number, ended: boolean): Promise<number | null> {
+export async function feltBoundary(ctx: ChaosContext, session: string, after: number, ended: boolean): Promise<number | null> {
   if (!ended) return null;
   const journal = await readJournal(ctx, "", session, after);
   return typeof journal === "string" ? null : Math.max(after, ...journal.map((e) => e.seq));
