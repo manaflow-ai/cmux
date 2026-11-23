@@ -172,8 +172,10 @@ pub fn get_json(state: &State, key: &str, asked: &Path, layer: Option<&ProjectLa
     reply
 }
 
-/// The checks of a project write of `key`: a per-project catalog key no managed layer sets, that
-/// `origin` may change (a user-only row refuses an agent here as in the user's file).
+/// The checks of a project write of `key`: a per-project catalog key no managed layer sets. An
+/// agent's write (origin `mcp`: an MCP tool, a sandboxed app, a peer) of a user-only row is
+/// refused as in the user's file; the CLI's is not, since the file is the repository's and folder
+/// trust decides whether it applies.
 fn check_key(state: &State, key: &str, origin: Origin) -> Result<(), Refusal> {
     if !is_project_key(key) {
         return Err(Refusal::InvalidParams {
@@ -184,7 +186,7 @@ fn check_key(state: &State, key: &str, origin: Origin) -> Result<(), Refusal> {
         });
     }
     if let Some(row) = state.schema().row(key)
-        && !origin.is_person()
+        && origin == Origin::Mcp
         && !row.agent_settable
     {
         return Err(Refusal::AgentRefused {

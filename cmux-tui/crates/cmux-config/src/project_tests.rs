@@ -136,6 +136,7 @@ fn a_project_write_keeps_comments_and_refuses_what_does_not_apply() {
         set_text(&plain, "", "agents.promptCache", json!("5m"), Origin::Mcp),
         Err(Refusal::AgentRefused { .. })
     ));
+    assert!(set_text(&plain, "", "agents.promptCache", json!("5m"), Origin::Cli).is_ok());
     let reset = reset_text(&plain, &text, "agents.promptCache", USER).unwrap();
     assert!(ProjectLayer::from_text(Path::new("/p"), &reset, Schema::embedded()).values.is_empty());
 }
