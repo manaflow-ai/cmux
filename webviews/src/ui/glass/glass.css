@@ -163,11 +163,29 @@
   --glass-backdrop: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation));
   /* On the App's glass (HOST GLASS, below) a popup or card lays no veil of its own: the App draws its
      whole native surface there, veil and rim included (Glass.makeHostSurface: a menu the native menu
-     panel with its 40% veil, a popover or hover card the native popovers' transient material), so the
+     panel with the theme's veil, GlassMenuMaterial.veil(for:), a popover or hover card the native popovers' transient material), so the
      web surface is the native one to the pixel (the Liquid Glass Parity playground, Lawrence
      2026-11-18). Before, the page laid the menu veil over a veil-less glass under every popup
      (cmux#37794), which matched native menus and no native popover. */
   --host-glass-fill: transparent;
+}
+/* A MENU'S OWN GLASS FOLLOWS THE THEME'S VEIL (design/glass-system.md, rule 5). A native menu raises its veil
+   per theme until the theme's text reads over its glass on its own window, white and black
+   (GlassMenuMaterial.veil(for:): 40% in most of the old numbers, up to the 90% cap); on the App's glass a web
+   menu is that native panel already (HOST GLASS, below). Where the page draws a menu's glass itself, its tint
+   lets through the same share less: WebTheme's --cmux-menu-clear, (1 - veil) / (1 - 40%), 1 where the theme
+   keeps 40%. Rose Pine Dawn's text read 2.6:1 on the 80% glass over a black page. The old numbers
+   (previous glass: --glass-menu-clear 1), the lens and glass off keep their own tints. */
+:root {
+  --glass-menu-clear: var(--cmux-menu-clear, 1);
+}
+:root:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency], [data-glass="off"])
+  .ui-popup.ui-glass[data-host-glass="menu"] {
+  --glass-tint: color-mix(
+    in srgb,
+    var(--glass-surface) calc(100% - (100% - var(--ds-transient-web-tint)) * var(--glass-menu-clear)),
+    transparent
+  );
 }
 :root[data-glass-lens]:is([data-glass="lens"], [data-glass="spectrum"]) :is(.ui-popup, .ui-card, .ui-dialog, .ui-glass-transient).ui-glass {
   --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-lens-tint), transparent);
@@ -768,7 +786,12 @@
     --glass-backdrop: var(--ds-glass-popover-blur);
   }
   :root:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency]) .ui-glass[data-glass-level="menu"] {
-    --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-menu-tint), transparent);
+    /* The theme's menu veil, as on a menu (A MENU'S OWN GLASS, above). */
+    --glass-tint: color-mix(
+      in srgb,
+      var(--glass-surface) calc(100% - (100% - var(--ds-glass-menu-tint)) * var(--glass-menu-clear)),
+      transparent
+    );
     --glass-backdrop: var(--ds-glass-menu-blur);
   }
   :root:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency]) .ui-glass[data-glass-level="chip"] {
@@ -791,6 +814,7 @@
    solid: its rules above hold the surface with !important, and the per-surface tints below stand
    down under it. Every value here is a token or a tint, never an opaque fill. */
 :root[data-glass-levels="previous"][data-glass-levels] {
+  --glass-menu-clear: 1;
   --ds-glass-chrome-tint: 60%;
   /* glass-raw-blur-allow: the chrome level's own blur before the one glass system (appearance.previousGlass) */
   --ds-glass-chrome-blur: blur(20px) saturate(1.4);
