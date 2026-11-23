@@ -2,6 +2,9 @@
 import enum CmuxMobileModel.UserFacingError
 import Observation
 import SwiftUI
+#if DEBUG
+import CmuxMobileSupport
+#endif
 import UIKit
 import WebKit
 import CmuxMobileBrowserStream
@@ -326,6 +329,9 @@ struct BrowserPage: UIViewRepresentable {
         web.frame = container.bounds
         web.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         container.addSubview(web)
+        #if DEBUG
+        WorkspaceShiftLandmark.register(web.scrollView, id: "content.browser")
+        #endif
         context.coordinator.attach(web.scrollView)
         return container
     }

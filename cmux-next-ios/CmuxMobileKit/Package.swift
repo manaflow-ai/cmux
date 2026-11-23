@@ -130,6 +130,7 @@ let package = Package(
             // The + menu's Screen Sharing: the account's Macs and the viewer.
             "CmuxMobileScreenSharing",
             .product(name: "CmuxTabsKit", package: "CmuxTabsKit"),
+            .product(name: "CmuxMobileSupport", package: "CmuxMobileSupport", condition: .when(platforms: [.iOS])),
             .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
             // Toggle Terminal and Chat: which faces a tab offers and what a tap does are Rust's.
             .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),

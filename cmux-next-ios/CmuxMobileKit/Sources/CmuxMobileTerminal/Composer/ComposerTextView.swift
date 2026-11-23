@@ -1,5 +1,8 @@
 #if os(iOS)
 import CmuxMobileDesign
+#if DEBUG
+import CmuxMobileSupport
+#endif
 import SwiftUI
 import UIKit
 
@@ -70,6 +73,9 @@ struct ComposerTextView: UIViewRepresentable {
         view.inputAssistantItem.trailingBarButtonGroups = []
         view.returnKeyType = .default
         view.accessibilityIdentifier = "terminal.composer.field"
+        #if DEBUG
+        WorkspaceShiftLandmark.register(view, id: "terminal.composer.field")
+        #endif
         view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         view.setContentHuggingPriority(.required, for: .vertical)
         context.coordinator.lastFocusRequest = focusRequest

@@ -573,6 +573,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         bottomFade.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(bottomFade)
         view.addSubview(bottomStack)
+        #if DEBUG
+        WorkspaceShiftLandmark.register(bottomStack, id: "accessory.terminal")
+        WorkspaceShiftLandmark.register(scrollView, id: "content.terminal")
+        #endif
         // The bottom soft edge follows the composer like a system toolbar.
         let edge = UIScrollEdgeElementContainerInteraction()
         edge.scrollView = scrollView
