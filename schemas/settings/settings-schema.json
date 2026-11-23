@@ -38,7 +38,8 @@
             "key" : "settings.group.quit",
             "rows" : [
               "app.quitBehavior",
-              "app.confirmQuit"
+              "app.confirmQuit",
+              "app.warnBeforeQuitShortcut"
             ],
             "title" : {
               "key" : "settings.group.quit",
@@ -84,6 +85,17 @@
             "title" : {
               "key" : "settings.group.autoArchive",
               "text" : "Auto-Archive"
+            }
+          },
+          {
+            "key" : "settings.group.storage",
+            "rows" : [
+              "worktrees.autoCleanup",
+              "worktrees.cleanBuildCaches"
+            ],
+            "title" : {
+              "key" : "settings.group.storage",
+              "text" : "Storage"
             }
           },
           {
@@ -232,6 +244,7 @@
               "appearance.fontSmoothing",
               "appearance.metrics.sidebarRowHeight",
               "appearance.borders",
+              "appearance.liquidGlass",
               "appearance.focusIndicator",
               "focus.inactiveTabStyle",
               "ui.animationSpeed",
@@ -513,6 +526,17 @@
             }
           },
           {
+            "key" : "sidebar.3",
+            "rows" : [
+              "sidebar.sections.hidden",
+              "sidebar.sections.order"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.sidebarSections",
+              "text" : "Sidebar Sections"
+            }
+          },
+          {
             "key" : "settings.group.workspaceRows",
             "rows" : [
               "sidebar.workspaceRow.icon",
@@ -536,7 +560,7 @@
             }
           },
           {
-            "key" : "sidebar.4",
+            "key" : "sidebar.5",
             "rows" : [
               "sidebar.showSpaces",
               "sidebar.spacesPosition",
@@ -555,7 +579,7 @@
             }
           },
           {
-            "key" : "sidebar.5",
+            "key" : "sidebar.6",
             "rows" : [
               "sidebar.hoverCards.enabled",
               "sidebar.hoverCards.delay",
@@ -573,7 +597,7 @@
             }
           },
           {
-            "key" : "sidebar.6",
+            "key" : "sidebar.7",
             "rows" : [
               "sidebar.hoverCards.groups.workspaceGroups",
               "sidebar.hoverCards.groups.tabGroups",
@@ -1284,6 +1308,8 @@
               "agentPane.dictationSource",
               "agentPane.dictationShortcut",
               "agentPane.spellChecking",
+              "agentPane.composerLook",
+              "agentPane.emptyChatComposerPosition",
               "agentPane.attachmentView",
               "agentPane.scrollToBottomOnSend",
               "agentPane.display.harnessPlacement",
@@ -1351,6 +1377,7 @@
           {
             "key" : "settings.group.agentChat",
             "rows" : [
+              "agentPane.display.transcriptLook",
               "agentPane.newChatsIn",
               "agentPane.sessionWorktrees",
               "agents.defaultPermissionMode",
@@ -8547,6 +8574,142 @@
       "title" : {
         "key" : "settings.app.confirmQuit",
         "text" : "Ask Before Quitting Ends Agents or Terminals"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.quit",
+        "text" : "Quitting"
+      },
+      "help" : {
+        "key" : "settings.app.warnBeforeQuitShortcut.help",
+        "text" : "⌘Q asks before quitting; press it again to quit. The Quit menu item and the Dock quit at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.warnBeforeQuitShortcut",
+      "keywords" : [
+        "quit",
+        "cmd-q",
+        "warn",
+        "hold",
+        "accidental",
+        "confirm",
+        "exit"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "app",
+        "warnBeforeQuitShortcut"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:app.warnBeforeQuitShortcut"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.app.warnBeforeQuitShortcut",
+        "text" : "Warn Before Quitting with ⌘Q"
       },
       "validation" : "portable"
     },
@@ -25468,6 +25631,274 @@
         true,
         false
       ],
+      "agent_refusal" : "destructive",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.storage",
+        "text" : "Storage"
+      },
+      "help" : {
+        "key" : "settings.worktrees.autoCleanup.help",
+        "text" : "Archive and remove worktrees agents finished with, and trim the build output of idle ones. Unpushed work is kept in git and comes back when the chat reopens."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "worktrees.autoCleanup",
+      "keywords" : [
+        "disk",
+        "storage",
+        "cleanup",
+        "worktree",
+        "cache",
+        "DerivedData",
+        "free space"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "worktrees",
+        "autoCleanup"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:worktrees.autoCleanup"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.worktrees.autoCleanup",
+        "text" : "Clean Up Agent Worktrees"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "destructive",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.storage",
+        "text" : "Storage"
+      },
+      "help" : {
+        "key" : "settings.worktrees.cleanBuildCaches.help",
+        "text" : "Also remove this Mac's build caches nobody used lately, such as Xcode DerivedData. Package caches go only when the disk is nearly full."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "worktrees.cleanBuildCaches",
+      "keywords" : [
+        "disk",
+        "storage",
+        "cleanup",
+        "worktree",
+        "cache",
+        "DerivedData",
+        "free space"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "worktrees",
+        "cleanBuildCaches"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:worktrees.cleanBuildCaches"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.worktrees.cleanBuildCaches",
+        "text" : "Clean Up Build Caches"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "userOnly",
       "agent_settable" : false,
       "consumers" : [
@@ -34700,6 +35131,169 @@
     },
     {
       "accepts" : [
+        {
+
+        },
+        {
+          "munch-scream" : "fit"
+        },
+        {
+          "desktop" : "center 0.5 0",
+          "file:/Users/Shared/Harbor.png" : "fill 0.2 0.8 1.5"
+        }
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.backgroundPlacement.help",
+        "text" : "Picture ID to fill, fit, center or stretch, with optional X Y anchor and zoom."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.backgroundPlacement",
+      "keywords" : [
+        "wallpaper",
+        "background",
+        "position",
+        "fit",
+        "fill",
+        "zoom",
+        "crop"
+      ],
+      "kind" : "string_map",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "backgroundPlacement"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "fit",
+        [
+
+        ],
+        {
+          "munch-scream" : "cover"
+        },
+        {
+          "munch-scream" : "fill 2 0"
+        },
+        {
+          "munch-scream" : "fill 0.5"
+        },
+        {
+          "munch-scream" : "fill 0.5 0.5 9"
+        },
+        {
+          "" : "fit"
+        },
+        {
+          "munch-scream" : 1
+        }
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.backgroundPlacement"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.backgroundPlacement",
+        "text" : "Background Placement"
+      },
+      "validation" : "domain:backdrop_placement"
+    },
+    {
+      "accepts" : [
         [
 
         ],
@@ -34872,169 +35466,6 @@
         "text" : "Recent Backgrounds"
       },
       "validation" : "domain:backdrop_recents"
-    },
-    {
-      "accepts" : [
-        {
-
-        },
-        {
-          "munch-scream" : "fit"
-        },
-        {
-          "desktop" : "center 0.5 0",
-          "file:/Users/Shared/Harbor.png" : "fill 0.2 0.8 1.5"
-        }
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : null,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.windowBackground",
-        "text" : "Window Background"
-      },
-      "help" : {
-        "key" : "settings.appearance.backgroundPlacement.help",
-        "text" : "Picture ID to fill, fit, center or stretch, with optional X Y anchor and zoom."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "appearance.backgroundPlacement",
-      "keywords" : [
-        "wallpaper",
-        "background",
-        "position",
-        "fit",
-        "fill",
-        "zoom",
-        "crop"
-      ],
-      "kind" : "string_map",
-      "page_hidden" : false,
-      "path" : [
-        "appearance",
-        "backgroundPlacement"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "fit",
-        [
-
-        ],
-        {
-          "munch-scream" : "cover"
-        },
-        {
-          "munch-scream" : "fill 2 0"
-        },
-        {
-          "munch-scream" : "fill 0.5"
-        },
-        {
-          "munch-scream" : "fill 0.5 0.5 9"
-        },
-        {
-          "" : "fit"
-        },
-        {
-          "munch-scream" : 1
-        }
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "options",
-          "offered" : true,
-          "operations" : [
-
-          ],
-          "reason" : null,
-          "row" : "setting:appearance.backgroundPlacement"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.appearance.backgroundPlacement",
-        "text" : "Background Placement"
-      },
-      "validation" : "domain:backdrop_placement"
     },
     {
       "accepts" : [
@@ -39154,6 +39585,144 @@
       "title" : {
         "key" : "settings.appearance.borders",
         "text" : "Borders"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.appearance.liquidGlass.help",
+        "text" : "Off draws the composer, menus, popovers and cards as solid surfaces with a plain border."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.liquidGlass",
+      "keywords" : [
+        "glass",
+        "liquid glass",
+        "blur",
+        "frost",
+        "translucent",
+        "transparency",
+        "solid",
+        "plain",
+        "material"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "liquidGlass"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.liquidGlass"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.liquidGlass",
+        "text" : "Liquid Glass"
       },
       "validation" : "portable"
     },
@@ -57162,6 +57731,324 @@
     },
     {
       "accepts" : [
+        "cmux",
+        "claude",
+        "codex",
+        "studio"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : null,
+            "text" : "cmux"
+          },
+          "value" : "cmux"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Claude"
+          },
+          "value" : "claude"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Codex"
+          },
+          "value" : "codex"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Studio"
+          },
+          "value" : "studio"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "cmux",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.transcriptLook.help",
+        "text" : "How messages, cards and spacing look."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.transcriptLook",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "look",
+        "style",
+        "preset",
+        "claude",
+        "codex",
+        "studio",
+        "bubble",
+        "density",
+        "spacing"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "transcriptLook"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.transcriptLook"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.transcriptLook",
+        "text" : "Transcript Look"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : {
+
+      },
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.transcriptTokens.help",
+        "text" : "Token values that override the transcript look."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.transcriptTokens",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "look",
+        "token",
+        "theme",
+        "bubble",
+        "radius",
+        "spacing"
+      ],
+      "kind" : "text",
+      "page_hidden" : true,
+      "path" : [
+        "agentPane",
+        "display",
+        "transcriptTokens"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : false,
+          "operations" : [
+
+          ],
+          "reason" : "an object of look tokens, edited in cmux-next.json or a theme file",
+          "row" : null
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.transcriptTokens",
+        "text" : "Transcript Look Tokens"
+      },
+      "validation" : "domain:transcript_tokens"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -73920,6 +74807,320 @@
         "text" : "Wrap Around"
       },
       "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "recents"
+        ],
+        [
+          "projects",
+          "pinned"
+        ]
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.sections.hidden.help",
+        "text" : "Sidebar sections to hide, by id. The section of the selected workspace always shows."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.sections.hidden",
+      "keywords" : [
+        "sidebar",
+        "section",
+        "hide",
+        "hidden"
+      ],
+      "kind" : "string_list",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "sections",
+        "hidden"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "recents",
+        [
+          ""
+        ],
+        [
+          "pinned",
+          "pinned"
+        ],
+        [
+          1
+        ],
+        {
+          "hidden" : [
+            "recents"
+          ]
+        }
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:sidebar.sections.hidden"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.sidebar.sections.hidden",
+        "text" : "Hidden Sections"
+      },
+      "validation" : "domain:sidebar_section_ids"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "recents"
+        ],
+        [
+          "projects",
+          "pinned"
+        ]
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.sections.order.help",
+        "text" : "Sidebar sections to show first in their part of the sidebar, in this order, by id."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.sections.order",
+      "keywords" : [
+        "sidebar",
+        "section",
+        "order",
+        "sort"
+      ],
+      "kind" : "string_list",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "sections",
+        "order"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "recents",
+        [
+          ""
+        ],
+        [
+          "pinned",
+          "pinned"
+        ],
+        [
+          1
+        ],
+        {
+          "hidden" : [
+            "recents"
+          ]
+        }
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:sidebar.sections.order"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.sidebar.sections.order",
+        "text" : "Section Order"
+      },
+      "validation" : "domain:sidebar_section_ids"
     },
     {
       "accepts" : [
@@ -102763,6 +103964,164 @@
     },
     {
       "accepts" : [
+        "standard",
+        "solid",
+        "flat"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.glass",
+            "text" : "Glass"
+          },
+          "value" : "standard"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.solid",
+            "text" : "Solid"
+          },
+          "value" : "solid"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chromeStyle.flat",
+            "text" : "Flat"
+          },
+          "value" : "flat"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "standard",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.banners",
+        "text" : "Banners and Sound"
+      },
+      "help" : {
+        "key" : "settings.notifications.toastStyle.help",
+        "text" : "How toasts and prompts draw: glass, an opaque surface, or flat with a thin edge and no shadow."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "notifications.toast.style",
+      "keywords" : [
+        "toast",
+        "theme",
+        "flat",
+        "glass"
+      ],
+      "kind" : "choice",
+      "page_hidden" : true,
+      "path" : [
+        "notifications",
+        "toast",
+        "style"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : false,
+          "operations" : [
+
+          ],
+          "reason" : "a theme hook, set in cmux.json by themes; the Toast Playground picks a style on the page",
+          "row" : null
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.notifications.toastStyle",
+        "text" : "Toast Style"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -112737,6 +114096,315 @@
       "title" : {
         "key" : "settings.agentPane.sessionWorktrees",
         "text" : "Session Worktrees"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "auto",
+        "studio"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.composerLookAuto",
+            "text" : "Automatic"
+          },
+          "value" : "auto"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Studio"
+          },
+          "value" : "studio"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "auto",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.composerLook.help",
+        "text" : "Where the mode, model and effort sit: under the box or inside it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.composerLook",
+      "keywords" : [
+        "composer",
+        "look",
+        "style",
+        "studio",
+        "message box",
+        "model",
+        "mode",
+        "effort",
+        "agent"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "composerLook"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.composerLook"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.composerLook",
+        "text" : "Composer Look"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "bottom",
+        "center"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.bottom",
+            "text" : "Bottom"
+          },
+          "value" : "bottom"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.emptyChatComposerCenter",
+            "text" : "Center"
+          },
+          "value" : "center"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "bottom",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.emptyChatComposerPosition.help",
+        "text" : "Where the message box sits in a chat with no messages yet."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.emptyChatComposerPosition",
+      "keywords" : [
+        "composer",
+        "message box",
+        "empty",
+        "new chat",
+        "center",
+        "centered",
+        "middle",
+        "bottom",
+        "position",
+        "agent"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "emptyChatComposerPosition"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.emptyChatComposerPosition"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.emptyChatComposerPosition",
+        "text" : "Empty Chat Message Box"
       },
       "validation" : "portable"
     },
