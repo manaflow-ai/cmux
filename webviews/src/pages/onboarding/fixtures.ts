@@ -13,6 +13,8 @@ import type {
   OnboardingFooter,
   OnboardingState,
 } from "./ops";
+import { agentFamily } from "../shared/signIn/ProviderReadiness";
+import type { ReadinessFixtureCase } from "../shared/signIn/galleryFixtures";
 
 function svg(body: string): string {
   return `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">${body}</svg>`)}`;
@@ -131,6 +133,27 @@ export function agentsState(kind: AgentsFixture = "mixed"): OnboardingState {
     },
     importer: null,
     computerUse: null,
+  };
+}
+
+/** The agents step as a host with the in-place sign-in sends it: the daemon's `signInReadiness`
+ * and `signInAccounts` (shared/signIn/galleryFixtures.ts READINESS), and the agents it installs. */
+export function withReadiness(state: OnboardingState, fixture: ReadinessFixtureCase): OnboardingState {
+  const installing = fixture.installing ?? [];
+  const agents = state.agents && {
+    ...state.agents,
+    rows: state.agents.rows.map((row) => {
+      const family = agentFamily(row.id);
+      return family && installing.includes(family)
+        ? { ...row, install: { state: "installing" as const, step: "download" } }
+        : row;
+    }),
+  };
+  return {
+    ...state,
+    agents,
+    signInAccounts: fixture.accounts.map((account) => ({ ...account })),
+    signInReadiness: { providers: fixture.providers.map((provider) => ({ ...provider })) },
   };
 }
 
