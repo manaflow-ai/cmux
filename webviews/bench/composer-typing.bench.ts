@@ -323,7 +323,12 @@ async function measure(
     if (!COLD) {
       for (const key of "warm") await page.keyboard.press(key);
       await page.waitForTimeout(500);
-      for (let i = 0; i < 4; i += 1) await page.keyboard.press("Backspace");
+      // Three of the four go: one letter stays, so the measured keys type into a prompt that already has
+      // words. The empty-to-typed step is a real change of the UI (Send takes Stop's slot, a suggestion goes)
+      // and renders once by design (composer/promptText.ts PromptFacts `blank`/`empty`); it is not what a key
+      // costs. Clearing the prompt here put that one render on the first measured key, hiding the per-key cost
+      // behind 1/60 of a transition (#45279, carried forward).
+      for (let i = 0; i < 3; i += 1) await page.keyboard.press("Backspace");
     }
     if (DRAFT > 0) {
       const line = "the quick brown fox jumps over the lazy dog and keeps on running past the old fence";
