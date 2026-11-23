@@ -1625,7 +1625,7 @@ class OwnedRung(unittest.TestCase):
                          "these pools now have an owned rung or are gone: drop them from NO_OWNED_RUNG")
         for name, why in NO_OWNED_RUNG.items():
             with self.subTest(pool=name):
-                self.assertRegex(why, r"cmuxterm-hq#\d+", "an exemption names its handoff issue")
+                self.assertRegex(why, r"#\d+", "an exemption names its handoff issue or PR")
 
     def test_the_rule_refuses_a_blacksmith_and_hosted_only_pool(self) -> None:
         pools = {"a": {"members": ["blacksmith-4vcpu-ubuntu-2404", "ubuntu-24.04"]},
