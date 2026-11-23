@@ -275,7 +275,7 @@ def measure(app, instance, seconds):
     pids = process_set(instance)
     first = {pid: (procs.counters(pid), procs.overhead(pid), threads(pid)) for pid in pids}
     began = time.monotonic()
-    time.sleep(seconds)  # bench: the idle window itself (nothing is sent to the app in it)
+    time.sleep(seconds)  # sleep-ok: the measured idle window itself (nothing is sent to the app in it)
     elapsed = time.monotonic() - began
     last_pids = process_set(instance)
     last = {pid: (procs.counters(pid), procs.overhead(pid), threads(pid)) for pid in last_pids}

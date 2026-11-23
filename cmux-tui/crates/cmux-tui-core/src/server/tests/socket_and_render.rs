@@ -28,6 +28,37 @@ fn default_socket_path_preserves_compatible_runtime_dir() {
     );
 }
 
+#[test]
+fn scoped_owners_of_one_session_and_base_have_distinct_sockets_and_the_unscoped_keeps_its_path() {
+    let base = Path::new("/var/folders/zz/T");
+    let unscoped = try_default_socket_path_in_base_scoped("cmux-app", base, None).unwrap();
+    assert_eq!(unscoped, platform::runtime_dir_for_base_scoped(base, None).join("cmux-app.sock"));
+    assert!(unscoped.to_string_lossy().contains("/cmux-tui-"));
+    assert!(!unscoped.to_string_lossy().contains("-0badcafe"));
+    let a = try_default_socket_path_in_base_scoped("cmux-app", base, Some("0badcafe")).unwrap();
+    let b = try_default_socket_path_in_base_scoped("cmux-app", base, Some("1badcafe")).unwrap();
+    assert_ne!(a, unscoped);
+    assert_ne!(a, b);
+    assert_eq!(a.parent().unwrap().parent(), unscoped.parent().unwrap().parent());
+    // A malformed scope is no scope.
+    let bad = try_default_socket_path_in_base_scoped("cmux-app", base, Some("../x")).unwrap();
+    assert_eq!(bad, unscoped);
+}
+
+#[cfg(unix)]
+#[test]
+fn scoped_owners_keep_distinct_sockets_when_the_base_is_too_long() {
+    let long_base = PathBuf::from("/tmp").join("x".repeat(120));
+    let a =
+        try_default_socket_path_in_base_scoped("cmux-app", &long_base, Some("0badcafe")).unwrap();
+    let b =
+        try_default_socket_path_in_base_scoped("cmux-app", &long_base, Some("1badcafe")).unwrap();
+    let none = try_default_socket_path_in_base_scoped("cmux-app", &long_base, None).unwrap();
+    assert!(unix_socket_path_fits(&a) && unix_socket_path_fits(&b) && unix_socket_path_fits(&none));
+    assert_ne!(a, b);
+    assert_ne!(a, none);
+}
+
 #[cfg(unix)]
 #[test]
 fn socket_start_lock_rejects_a_symlinked_lock_path() {
