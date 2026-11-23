@@ -106,11 +106,15 @@ final class WorkspaceEnterExitShiftUITests: XCTestCase {
     private func showListSearch(_ app: XCUIApplication, query: String, workspaceID: String) throws {
         let list = app.collectionViews["workspaces.list"]
         let field = app.searchFields.firstMatch
-        if !field.exists || !field.isHittable {
-            list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12))
+        // The drawer is tucked under the bar at launch (it exists, not hittable): pull down
+        // until it is out, as WorkspacesListUITests does.
+        for _ in 0..<4 where !(field.exists && field.isHittable) {
+            list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15))
                 .press(forDuration: 0.05, thenDragTo: list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.60)))
+            _ = field.waitForExistence(timeout: 3)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.4))
         }
-        try require(field.waitForExistence(timeout: 10) && field.isHittable, "Workspaces search field")
+        try require(field.exists && field.isHittable, "Workspaces search field\n\(app.debugDescription)")
         field.tap()
         field.typeText(query)
         try require(app.keyboards.firstMatch.waitForExistence(timeout: 10), "list search keyboard")

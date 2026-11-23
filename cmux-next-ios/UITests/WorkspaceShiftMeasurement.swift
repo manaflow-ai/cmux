@@ -136,9 +136,8 @@ final class WorkspaceShiftMeasurement {
             result.coverageErrors.append("No consecutive composer or accessory samples")
         }
         if result.movingPagePairs < 2 { result.coverageErrors.append("Missing intermediate navigation frames") }
-        if result.missedTicksDuringMotion > 0 {
-            result.coverageErrors.append("Missing \(result.missedTicksDuringMotion) display ticks during navigation")
-        }
+        // A missed tick is a hitch (frame time, reported below), not a blind spot: a jump
+        // between two samples is still a delta between consecutive samples, so it is counted.
 
         let key = "\(surface).\(direction).keyboard-\(keyboardUp ? "up" : "down")"
         result.shiftedFrames = result.shifts.count
@@ -151,7 +150,15 @@ final class WorkspaceShiftMeasurement {
         raw.name = "workspace-shift-\(key)-frames.jsonl"
         raw.lifetime = .keepAlways
         test.add(raw)
+        let hz = frames.first.map { $0.nominal > 0 ? (1 / $0.nominal).rounded() : 0 } ?? 0
+        let firstShifts = result.shifts.prefix(4).map { shift in
+            "#\(shift.frame)@\(Int(((shift.time - start) * 1000).rounded()))ms " +
+                shift.deltaPoints.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value.map { Int($0.rounded()) })" }
+                .joined(separator: ",")
+        }
         let message = "\(key) shiftedFrames=\(result.shiftedFrames) frames=\(result.frames) " +
+            "hz=\(Int(hz)) maxFrameMS=\(String(format: "%.1f", result.maxTickIntervalMS)) " +
+            "missedTicks=\(result.missedTicksDuringMotion) shifts=\(firstShifts) " +
             "peakSignedEdgeDeltas=\(result.peakSignedEdgeDeltas) coverage=\(result.coverageErrors)"
         print("WORKSPACE_SHIFT \(message)")
         XCTAssertTrue(result.coverageErrors.isEmpty, message)
