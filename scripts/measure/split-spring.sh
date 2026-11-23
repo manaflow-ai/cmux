@@ -284,7 +284,18 @@ sys.exit(0 if ok else 1)
 PY
 )"; then
     echo "split-spring: VDISPLAY ${vdisplay_hz} Hz main display ($line)"
-    sleep 2  # let WindowServer settle the new main display before the app opens on it
+    # Until a new process sees the virtual display as its main display (what the app opens on), 15 s.
+    # Only when the helper's ready line says it made the display main (main=ID).
+    vd_id="$(sed -n 's/^ready \([0-9]*\) [0-9.]* main=\1 .*/\1/p' "$vd/out" 2>/dev/null | head -1 || true)"
+    if [[ -n "$vd_id" ]]; then
+      vd_main="" vd_deadline=$((SECONDS + 15))
+      while (( SECONDS < vd_deadline )); do
+        vd_main="$("$vd/VDisplay.app/Contents/MacOS/VDisplay" probe 2>/dev/null | awk '$1 == "main" {print $2}' || true)"
+        [[ "$vd_main" == "$vd_id" ]] && break
+        sleep 0.2
+      done
+      [[ "$vd_main" == "$vd_id" ]] || echo "warning: a new process still sees display ${vd_main:-?} as main, not the virtual display $vd_id, after 15 s" >&2
+    fi
   else
     echo "split-spring: VDISPLAY-FALLBACK no ${vdisplay_hz} Hz virtual display ($line); measuring on the real display"
     stop_vdisplay
@@ -318,7 +329,16 @@ if [[ "$cpu_load" == 1 ]]; then
   for _ in $(seq "$spinners"); do "$out/spin" & spin_pids+=($!); done
   cpu_load_json="{\"spinners\": $spinners, \"threads\": $((spinners * 4)), \"ncpu\": $ncpu}"
   echo "split-spring: CPU-LOAD $spinners spinners, $((spinners * 4)) threads on $ncpu cores"
-  sleep 2  # let the scheduler fill every core before the app launches
+  # Until every spinner runs on its cores before the app launches: each has used at least 1 s of CPU (its
+  # 4 threads, a quarter second of wall time), 10 s deadline.
+  spun=0
+  for _ in $(seq 100); do
+    spun="$(ps -o time= -p "$(IFS=,; echo "${spin_pids[*]-}")" 2>/dev/null |
+      awk -F: '{ s = 0; for (i = 1; i <= NF; i++) s = s * 60 + $i; if (s >= 1) n++ } END { print n + 0 }' || true)"
+    (( ${spun:-0} >= spinners )) && break
+    sleep 0.1
+  done
+  (( ${spun:-0} >= spinners )) || echo "split-spring: CPU-LOAD only ${spun:-0} of $spinners spinners used 1 s of CPU within 10 s" >&2
 fi
 
 status=0
