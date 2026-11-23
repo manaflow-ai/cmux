@@ -146,8 +146,8 @@ jobs:
           if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
             history="$RUNNER_TEMP/webviews-base-history.json"
             cached=.webviews-test-history-cache/history.json
-            { if [ -s "$cached" ]; then cp "$cached" "$history" && echo "webview test history: the Actions cache's copy"
-              else timeout 90 python3 scripts/ci/webviews_test_history.py fetch "$history" --repo "$GITHUB_REPOSITORY" --branch "$BASE_REF" --need-read; fi &&
+            { timeout 90 python3 scripts/ci/webviews_test_history.py fetch "$history" --repo "$GITHUB_REPOSITORY" --branch "$BASE_REF" \
+                --cached "$cached" --need-read &&
               python3 scripts/ci/webviews_test_history.py known-reds "$history" --before "$(git log -1 --format=%ct HEAD^1)" \
                 --out "$RUNNER_TEMP/webviews-durations/base-reds.json"; } ||
               { rm -f "$RUNNER_TEMP/webviews-durations/base-reds.json"; echo "the base's webview reds are unread: every red file is retried"; }
@@ -1582,6 +1582,19 @@ jobs:
       # for (known) need no replay, and when it answers all of them the bun install, the base
       # bundle build and the browsers below are skipped too (replay=0). Any failure here leaves
       # replay unset, and every red file replays as before.
+      # The same Actions cache copy web-subarea-scope reads: the history's first route, with no REST request. The
+      # artifact's list was its only route here, and the repository's token pool runs dry (cmux#51403's base checks
+      # 137470886310 and 137525210651, 2026-11-23: "answered 403 (rate limit remaining 0)", 0 push runs, every one of
+      # 48 red files replayed). The newest push's key by prefix, as there.
+      - name: Restore the base's cached webview test history
+        if: ${{ steps.head.outputs.reds != '0' }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .webviews-test-history-cache/history.json
+          key: webviews-test-history-${{ github.base_ref }}-${{ github.run_id }}
+          restore-keys: webviews-test-history-${{ github.base_ref }}-
+
       - name: Restore the base's webview test history
         id: history
         if: ${{ steps.head.outputs.reds != '0' }}
@@ -1599,7 +1612,8 @@ jobs:
             echo "no head reds: the base's history is not needed"
             exit 0
           fi
-          python3 "$runner/webviews_test_history.py" fetch "$history" --repo "$GITHUB_REPOSITORY" --branch "$BASE_REF"
+          python3 "$runner/webviews_test_history.py" fetch "$history" --repo "$GITHUB_REPOSITORY" --branch "$BASE_REF" \
+            --cached .webviews-test-history-cache/history.json
           if [ -z "$reds" ]; then
             echo "head results unreadable: every red file replays"
             exit 0

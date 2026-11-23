@@ -896,6 +896,66 @@ class Fetch(unittest.TestCase):
         get, _ = self.serve(listed(item(1, "2026-11-08T10:00:00Z")), {1: artifact_zip("nope")})
         self.assertEqual(history.fetch("o/r", "feat-cmux-next", None, get=get)[::2], ([], False))
 
+    def test_a_spent_token_reads_the_actions_cache_copy_and_sends_no_request(self):
+        # cmux#51403's base checks (2026-11-23): the listing answered 403 with 0 calls left, so the history held 0 push
+        # runs and none of 48 red files was answered from it. The cache's copy is the same history, read for free.
+        pushes = runs(True, False, True, False)
+        calls = []
+
+        def spent(url, token):
+            calls.append(url)
+            return 403, {"X-RateLimit-Remaining": "0"}, b""
+        folder = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        cached = folder / "history.json"
+        cached.write_text(json.dumps({"runs": pushes}), encoding="utf-8")
+        found, said, read = history.fetch_cached_first(cached, "o/r", "feat-cmux-next", "tok", get=spent)
+        self.assertEqual((found, read), (pushes, True))
+        self.assertIn("Actions cache", said)
+        self.assertEqual(calls, [])
+        # A base check's known() answers from it: the newest push at the key is red, so the file needs no replay.
+        self.assertEqual(history.known(found, "same", {TEST: False}), ({TEST: False}, []))
+
+    def test_a_missing_or_empty_cache_copy_falls_back_to_the_artifact_and_a_refusal_names_both(self):
+        pushes = runs(True, False)
+        get, calls = self.serve(listed(item(1, "2026-11-08T10:00:00Z")), {1: artifact_zip(pushes)})
+        folder = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        empty = folder / "empty.json"
+        empty.write_text(json.dumps({"runs": []}), encoding="utf-8")
+        for cached in (None, folder / "missing.json", empty, folder):
+            calls.clear()
+            found, _, read = history.fetch_cached_first(cached, "o/r", "feat-cmux-next", "tok", get=get)
+            self.assertEqual((found, read), (pushes, True), cached)
+            self.assertEqual(len(calls), 3, cached)
+        found, said, read = history.fetch_cached_first(folder / "missing.json", "o/r", "feat-cmux-next", None,
+                                                       get=lambda url, token: (403, {"x-ratelimit-remaining": "0"}, b""))
+        self.assertEqual((found, read), ([], False))
+        self.assertEqual(said, "listing the webviews-test-history artifacts answered 403 (rate limit remaining 0); "
+                               "no Actions cache copy")
+
+    def test_the_command_reads_the_cache_copy_with_the_api_unreachable(self):
+        folder = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        cached, out = folder / "cached.json", folder / "out" / "history.json"
+        cached.write_text(json.dumps({"runs": runs(True, False, True)}), encoding="utf-8")
+        done = subprocess.run([sys.executable, str(SCRIPT), "fetch", str(out), "--repo", "o/r", "--branch", "b",
+                               "--cached", str(cached), "--need-read"], capture_output=True, text=True,
+                              env=git_fixture_env.fixture_env({"PATH": "/usr/bin:/bin", "GITHUB_API_URL": "http://127.0.0.1:9"}))
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("3 push runs (the Actions cache's copy", done.stdout)
+        self.assertEqual(len(json.loads(out.read_text())["runs"]), 3)
+
+    def test_every_pull_request_history_reader_has_the_cache_route_first(self):
+        scope, base = Workflow().job("web-subarea-scope"), Workflow().job("react-apps-base-check")
+        for job in (scope, base):
+            restore = job[job.index("webviews-test-history-${{ github.base_ref }}-${{ github.run_id }}") - 400:]
+            self.assertIn("actions/cache/restore@", restore[:400])
+            self.assertIn("path: .webviews-test-history-cache/history.json", restore[:500])
+            self.assertIn("restore-keys: webviews-test-history-${{ github.base_ref }}-\n", job)
+            self.assertIn("--cached ", job[job.index("webviews_test_history.py\" fetch" if job is base else
+                                                     "webviews_test_history.py fetch"):][:300])
+        names = re.findall(r"\n      - name: ([^\n]+)", base)
+        self.assertLess(names.index("Restore the base's cached webview test history"),
+                        names.index("Restore the base's webview test history"))
+
     def test_the_command_always_writes_a_history_and_exits_zero(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "h" / "history.json"
