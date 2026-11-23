@@ -69,6 +69,8 @@ mod chat_start;
 mod chief;
 mod chief_target;
 #[cfg(unix)]
+mod cloud_agent;
+#[cfg(unix)]
 mod cloud_api;
 #[cfg(unix)]
 mod cloud_auth_handoff_relay;
@@ -176,6 +178,8 @@ mod vm_short;
 mod vm_words;
 #[cfg(unix)]
 mod vnc;
+#[cfg(unix)]
+pub(crate) use app::spawn_daemon_updates;
 #[cfg(unix)]
 pub(crate) use auth_token::app_token;
 #[cfg(unix)]
@@ -992,6 +996,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_team_keys::run_if_requested(args))
         .or_else(|| key_broker::run_if_requested(args))
         .or_else(|| cloud_start_chat::run_if_requested(args))
+        .or_else(|| cloud_agent::run_if_requested(args))
         .or_else(|| cloud_run_account::run_if_requested(args))
         .or_else(|| cloud_retention::run_if_requested(args))
         .or_else(|| cloud_pause_all::run_if_requested(args))
@@ -1405,8 +1410,10 @@ fn scan_globals(
             index += 1;
             continue;
         }
-        // Cloud repo actions name a chat, not a daemon, with --session.
-        if command.get(..2).is_some_and(|words| words == ["cloud", "repo"])
+        // Cloud repo and chat verbs name a chat, not a daemon, with --session.
+        if command
+            .get(..2)
+            .is_some_and(|words| words == ["cloud", "repo"] || words == ["cloud", "chat"])
             && (value == "--session" || value.starts_with("--session="))
         {
             command.push(value.clone());
