@@ -1,5 +1,8 @@
 #if os(iOS)
 import CmuxMobileDesign
+#if DEBUG
+import CmuxMobileSupport
+#endif
 import SwiftUI
 import UIKit
 
@@ -42,6 +45,9 @@ struct ChatComposerField: UIViewRepresentable {
         view.smartDashesType = .no
         view.returnKeyType = .default
         view.accessibilityIdentifier = Self.accessibilityIdentifier
+        #if DEBUG
+        WorkspaceShiftLandmark.register(view, id: Self.accessibilityIdentifier)
+        #endif
         view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         view.setContentHuggingPriority(.required, for: .vertical)
         view.text = text

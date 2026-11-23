@@ -1,4 +1,7 @@
 #if os(iOS)
+#if DEBUG
+import CmuxMobileSupport
+#endif
 import SwiftUI
 import UIKit
 
@@ -128,14 +131,23 @@ struct TabsToolbar: View {
                 .allowsHitTesting(!collapsed)
                 .accessibilityHidden(true)
             backButton(layout.back)
+                #if DEBUG
+                .background { WorkspaceShiftLandmark("toolbar.back") }
+                #endif
                 .scaleEffect(collapsed ? 0.8 : 1)
                 .opacity(features.contains(.history) ? sideOpacity : 0)
                 .position(x: layout.back.midX, y: layout.back.midY)
                 .allowsHitTesting(historyState.visible)
                 .accessibilityHidden(!historyState.visible)
             capsule(layout.capsule)
+                #if DEBUG
+                .background { WorkspaceShiftLandmark("toolbar.address") }
+                #endif
                 .position(x: layout.capsule.midX, y: layout.capsule.midY)
             rightButton(layout.right)
+                #if DEBUG
+                .background { WorkspaceShiftLandmark("toolbar.tabs") }
+                #endif
                 .scaleEffect(collapsed ? 0.8 : 1)
                 .opacity(chrome.editing ? 1 : sideOpacity)
                 .position(x: layout.right.midX, y: layout.right.midY)

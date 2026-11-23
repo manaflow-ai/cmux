@@ -135,6 +135,7 @@ struct CmuxMobileApp: App {
             // `-cmux-mobile-kbd-pin-trace` for every root, not only RootView's (TerminalDemoRoot's
             // terminal for the keyboard motion bench); it starts once.
             .task { KeyboardPinTrace.startIfRequested() }
+            .task { WorkspaceShiftTrace.startIfRequested() }
             #endif
         }
     }

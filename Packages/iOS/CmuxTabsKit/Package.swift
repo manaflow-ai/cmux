@@ -12,8 +12,11 @@ let package = Package(
     products: [
         .library(name: "CmuxTabsKit", targets: ["CmuxTabsKit"]),
     ],
+    dependencies: [.package(path: "../CmuxMobileSupport")],
     targets: [
-        .target(name: "CmuxTabsKit"),
+        .target(name: "CmuxTabsKit", dependencies: [
+            .product(name: "CmuxMobileSupport", package: "CmuxMobileSupport", condition: .when(platforms: [.iOS])),
+        ]),
         .testTarget(name: "CmuxTabsKitTests", dependencies: ["CmuxTabsKit"]),
     ],
     swiftLanguageModes: [.v6]

@@ -1,5 +1,6 @@
 #if os(iOS)
 #if DEBUG
+import CmuxMobileSupport
 import CmuxMobileAgentChat
 #endif
 import CmuxMobileDesign
@@ -1096,7 +1097,14 @@ struct WorkspaceListRow: View, Equatable {
             }
         }
         // Where the row is, so the close popover can point at it.
-        .background { FrameProbe(id: ws.id) { host.rowFrames.rows[ws.id] = WeakProbe(view: $0) } }
+        .background {
+            FrameProbe(id: ws.id) { view in
+                host.rowFrames.rows[ws.id] = WeakProbe(view: view)
+                #if DEBUG
+                WorkspaceShiftLandmark.registerRow(view, workspaceID: ws.id)
+                #endif
+            }
+        }
         .accessibilityActions {
             if model.canManage {
                 if model.canArrange {

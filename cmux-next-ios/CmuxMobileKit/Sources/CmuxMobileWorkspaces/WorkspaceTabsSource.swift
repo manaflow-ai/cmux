@@ -9,6 +9,9 @@ import CmuxMobileScreenSharing
 import Observation
 import QuartzCore
 import OSLog
+#if DEBUG
+import CmuxMobileSupport
+#endif
 import SwiftUI
 import UIKit
 
@@ -2360,6 +2363,9 @@ struct WorkspaceTabPage: View {
             ScreenSharingTabPage(source: source, context: context)
         } else if let tab = source.entry(tabID)?.tab, let workspace = source.listedWorkspace {
             page(tab, workspace)
+                #if DEBUG
+                .background { WorkspaceShiftLandmark("page.\(tab.kind.rawValue)") }
+                #endif
                 .onAppear {
                     source.remember(context.safeAreaInsets, pageSize: context.pageSize)
                     source.pageAppeared(tabID)
@@ -2471,6 +2477,9 @@ struct WorkspaceTabAccessory: View {
             switch tab.kind {
             case .agent:
                 AgentChatBottomStack(store: source.chatStore(tab, workspace), surface: source.surface(tab.id))
+                    #if DEBUG
+                    .background { WorkspaceShiftLandmark("accessory.agent") }
+                    #endif
             case .terminal where source.showsChatFace(tab, in: workspace):
                 // A View Only chat takes no prompt: no key bar over it (the terminal face has it).
                 EmptyView()

@@ -6,6 +6,9 @@ import CmuxMobileModel
 import Observation
 import OSLog
 import SwiftUI
+#if DEBUG
+import CmuxMobileSupport
+#endif
 import UIKit
 
 /// The transcript's one-column layout: each row's frame is its gap plus the sum of the
@@ -601,6 +604,9 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         super.init()
         lookup.showAll = { [weak self] id in self?.showAll(id) }
         collectionView.prefetchDataSource = self
+        #if DEBUG
+        WorkspaceShiftLandmark.register(collectionView, id: "content.agent")
+        #endif
         layout.followsBottom = { [weak surface] in surface?.following ?? true }
         layout.measuresSettle = { [weak self] item in self?.measureSettles(item) ?? true }
         collectionView.backgroundColor = .clear
