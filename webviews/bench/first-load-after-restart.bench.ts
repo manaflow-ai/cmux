@@ -347,7 +347,7 @@ const [workRecords, openEnd] = (() => {
 /// The open turn's ids (OPEN=1), from its `turn_started`, for the session's `turn`.
 const openTurn = (() => {
   if (!OPEN) return null;
-  const started = workRecords.findLast((event) => event.kind === "turn_started");
+  const started = [...workRecords].reverse().find((event: EventRecord) => event.kind === "turn_started");
   const msg = (started?.msg ?? {}) as { turnId?: string; promptId?: string };
   return {
     turnId: msg.turnId ?? `turn-${TURNS}`,
