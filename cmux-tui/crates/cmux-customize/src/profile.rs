@@ -538,12 +538,18 @@ pub(crate) fn profile_findings(roots: &crate::Roots, profile: &Profile) -> Vec<F
         if cmux_config::schema::accepts(row, value, &Default::default()).is_err() {
             // The key says where to look; the refused value (which may be
             // a credential under the wrong key) stays in the file.
-            let message = if key == "workspaceColors.indicatorStyle" {
-                "the profile's value for workspaceColors.indicatorStyle is invalid; use \"dot\", \"leftRail\" or \"fill\" (legacy \"solidFill\" is accepted)".to_owned()
-            } else {
-                format!("the profile's value for {key} is not one that setting accepts")
-            };
-            findings.push(Finding::error(codes::SETTING_VALUE, at, message).key(key.clone()));
+            findings.push(
+                Finding::error(
+                    codes::SETTING_VALUE,
+                    at,
+                    if key == "workspaceColors.indicatorStyle" {
+                        "the profile's value for workspaceColors.indicatorStyle is invalid; use \"dot\", \"leftRail\" or \"fill\" (legacy \"solidFill\" is accepted)".to_owned()
+                    } else {
+                        format!("the profile's value for {key} is not one that setting accepts")
+                    },
+                )
+                .key(key.clone()),
+            );
         }
     }
     for (path, text) in &profile.files {

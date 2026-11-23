@@ -68,6 +68,7 @@ fn store_supervisor(root: &TempDir) -> Arc<Supervisor> {
                 extra: vec![],
                 local: None,
                 customize: None,
+                setups: None,
                 saved_prompts: None,
                 defaults: None,
                 setups: None,

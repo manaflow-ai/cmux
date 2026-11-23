@@ -43,6 +43,7 @@ import { t } from "./strings";
 import { readLooksAnswer, type LooksOutcome } from "./looksGallery";
 import { pageTransport, TransportError, type SettingsTransport } from "./transport";
 import { readRecipe, readSetupReply, type ResolvedWorktreeRecipe, type WorktreeRecipe } from "../../worktreeRecipe";
+import { readExtensionSettings, type ExtensionSettings } from "./extensionSettings";
 import {
   errorCode,
   newIdempotencyKey,
@@ -102,6 +103,8 @@ import {
   type AgentConfigAnswer,
   type AgentConfigRun,
   type AccountsRunReply,
+  type DoctorReport,
+  type DoctorRun,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -936,6 +939,36 @@ export class SettingsStore {
     return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
   }
 
+  /** Settings > Extensions: every installed extension whose manifest declares settings, or the
+   * host's refusal (`unavailable` when this build's host cannot reach them). */
+  async extensionSettings(): Promise<{ apps: ExtensionSettings[]; error: string | null; unavailable: boolean }> {
+    const reply = await this.request("cmux.settings.extensions.list", {});
+    if (!reply.ok)
+      return { apps: [], error: userMessage(reply.error, SETTINGS_SENTENCES), unavailable: isUnsupported(reply.error) };
+    return { apps: readExtensionSettings(reply.value), error: null, unavailable: false };
+  }
+
+  /** Changes settings of one extension (`null` resets a key): the values it now runs with, or the
+   * daemon's refusal text. The running extension hears the change at once. */
+  async setExtensionSettings(
+    app: string,
+    values: Record<string, unknown>,
+  ): Promise<{ values: Record<string, unknown> | null; error: string | null }> {
+    const reply = await this.request("cmux.settings.extensions.set", {
+      app,
+      values,
+      idempotency_key: newIdempotencyKey(),
+    });
+    if (!reply.ok) {
+      // The daemon's reason names the key and the limit in English, for the log; the row shows ours.
+      const sentences = { ...SETTINGS_SENTENCES, "cmux.apps.settings.invalid": t("settingsPage.extensions.invalid") };
+      return { values: null, error: userMessage(reply.error, sentences) };
+    }
+    const answered = (reply.value as { values?: unknown } | null)?.values;
+    const next = answered && typeof answered === "object" ? (answered as Record<string, unknown>) : null;
+    return { values: next, error: null };
+  }
+
   /** One Cloud Environments gesture, then the fresh state; the host's failure text, else null. */
   async runEnvironments(
     run: CloudEnvironmentsRun,
@@ -1001,6 +1034,28 @@ export class SettingsStore {
       return { kind: "refusal", code: reply.error.code, message: userMessage(reply.error, SETTINGS_SENTENCES) };
     }
     return readLooksAnswer(reply.value);
+  }
+
+  /** Personalization > Customization Problems: one `cmux customize doctor` verb (or `doctor-open`,
+   * which the host runs). Answers the report after it (null when the host has no CLI, did not answer
+   * one, or for `doctor-open`), the CLI's refusal in its own words (an unknown id, a fix it does not
+   * offer), else null, and a fix's one line. */
+  async customizeDoctor(
+    run: DoctorRun,
+  ): Promise<{ doctor: DoctorReport | null; refusal: string | null; said: string | null }> {
+    const reply = await this.request("cmux.settings.customize.library", run);
+    // A host that cannot run the doctor (an older build, no CLI) shows no card and no notice.
+    if (!reply.ok)
+      return {
+        doctor: null,
+        refusal: run.verb === "doctor" ? null : userMessage(reply.error, SETTINGS_SENTENCES),
+        said: null,
+      };
+    const answer = reply.value ?? {};
+    const refused = answer.code !== undefined || answer.message !== undefined;
+    const refusal = refused ? (answer.message ?? t("settingsPage.customizeDoctor.notChanged")) : null;
+    const said = answer.fixed?.said ?? (answer.recovered ? answer.recovered.said.join(" ") : null);
+    return { doctor: answer.doctor ?? null, refusal, said: said || null };
   }
 
   /** Settings > Keys: this Mac's keys and the requests waiting for the person; null when the host

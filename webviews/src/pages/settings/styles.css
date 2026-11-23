@@ -3110,6 +3110,133 @@ button.menu-disclosure {
   text-decoration: underline;
 }
 
+/* Personalization > Customization Problems and its one-line notice (CustomizeDoctorCard.tsx;
+   design/customize-doctor.md). Quiet: a small dot (the Accounts status dot's border shape) in the
+   attention color for a finding that changes what the person sees now, muted for the rest, never a
+   red slab; no transition or animation of its own (the banner is ui/Notice's, through the motion
+   gate). The chip's button is ui/Button, whose hover and press change only its fill. */
+.doctor-dot {
+  flex: none;
+  align-self: flex-start;
+  width: 0;
+  height: 0;
+  /* Centers the 6px dot on the first line of body text. */
+  --doctor-dot-offset: calc((var(--text-body--line-height) - 6px) / 2);
+  margin-top: var(--doctor-dot-offset);
+  border: 3px solid var(--muted-text);
+  border-radius: 50%;
+  opacity: 0.6;
+}
+
+.doctor-dot[data-level="warning"] {
+  border-color: var(--warning);
+  opacity: 1;
+}
+
+.doctor-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+  min-width: 0;
+}
+
+.doctor-head .group-title {
+  flex: none;
+}
+
+.doctor-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+}
+
+.doctor-finding[data-dismissed] :is(.doctor-dot, .row-title, .doctor-detail, .doctor-place) {
+  opacity: 0.55;
+}
+
+.doctor-finding > .accounts-form,
+[data-doctor-help] > .accounts-form {
+  padding-inline-start: calc(6px + var(--ds-space-3));
+}
+
+/* inline: the count and the line in the card's header. */
+.doctor-inline {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  margin: 0 0 var(--ds-space-2);
+}
+
+.doctor-count {
+  flex: none;
+  padding: 0 var(--ds-space-1);
+  border-radius: var(--ds-radius-sm);
+  background: var(--input-bg);
+  color: var(--muted-text);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  font-variant-numeric: tabular-nums;
+}
+
+.doctor-line {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* banner: ui/Notice's warning across the top of the column. */
+.doctor-banner {
+  margin: 0 0 var(--ds-space-4);
+}
+
+/* chip: the dot and the line at the bottom of the sidebar, the app-health footer's look. The
+   section list above scrolls; nothing else moves when it comes and goes. */
+/* One column: the sidebar is narrow, so the line takes two rows (what it is and the first
+   finding) and Recover… sits under it, never cutting the line to "3 customiza…". */
+.doctor-chip {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: start;
+  flex: none;
+  gap: var(--ds-space-1);
+  min-width: 0;
+}
+
+.doctor-chip-open .doctor-line {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  white-space: normal;
+}
+
+.doctor-chip-open {
+  flex: 0 1 auto;
+  justify-content: flex-start;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  max-width: 100%;
+  color: var(--muted-text);
+  font-size: var(--text-detail);
+  text-align: start;
+}
+
+.doctor-chip-open {
+  height: auto;
+  align-items: flex-start;
+}
+
+.doctor-chip-open .doctor-dot {
+  align-self: flex-start;
+  margin-top: 0.45em;
+}
+
+.doctor-chip-recover {
+  flex: none;
+}
+
 /* A font row's pictures (components/FontPreview.tsx): a tile per face choice, drawn in that face at the
    surface's size and line height, under the row; the density tiles' look. */
 .font-tiles {

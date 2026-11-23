@@ -35,25 +35,7 @@ const MINE: &str = "{\n  // my settings\n  \"appearance\": { \"accent\": \"blue\
 
 fn receipt(read: &setup::Setup, installed: &setup::Installed, name: &str) -> Receipt {
     let reference = Reference::parse(&format!("github.com/manaflow-ai/cmux-{name}-look")).unwrap();
-    Receipt {
-        id: read.manifest.id.clone(),
-        name: read.manifest.name.clone(),
-        repository: reference.repository(),
-        source: SetupSource::Repo { reference },
-        commit: "a".repeat(40),
-        sha256: read.sha256.clone(),
-        version: read.manifest.version.clone(),
-        generation: installed.applied.as_ref().map(|applied| applied.generation.n),
-        before: installed.before,
-        library: installed.applied.as_ref().and_then(|applied| applied.library.clone()),
-        library_created: installed.library_created,
-        actions: read.actions().clone(),
-        prior_actions: installed.prior_actions.clone(),
-        extensions: Vec::new(),
-        installed_ms: 10,
-        on: true,
-        layer: installed.layer.clone(),
-    }
+    Receipt::new(read, installed, SetupSource::Repo { reference }, &"a".repeat(40), Vec::new(), 10)
 }
 
 /// looks.json lists the looks on public surfaces only; every whole look under examples/looks is
@@ -153,8 +135,26 @@ fn every_look_installs_as_one_layer_and_comes_off_leaving_yours() {
             "{name}: installs with problems: {:?}",
             status.problems
         );
+        // A look's views (`customize/...`) go to a layer of its own under the setups folder, never
+        // the person's customize folder; everything else lands under config as the look names it.
+        let setups = Roots::under(home.path()).setups_dir();
+        let placed =
+            |path: &str| match (path.strip_prefix("customize/"), installed.layer.as_deref()) {
+                (Some(inner), Some(layer)) => setups.join(layer).join(inner),
+                _ => config(path),
+            };
         for (path, text) in &read.profile.files {
-            assert_eq!(&fs::read_to_string(config(path)).unwrap(), text, "{name}: {path}");
+            if path.starts_with("customize/") {
+                assert!(
+                    !config(path).exists(),
+                    "{name}: {path} went into your own customize folder"
+                );
+            }
+            if path.starts_with("customize/cmux-app") {
+                // The layer's manifest names the layer's own app id; the look's says local/customize.
+                continue;
+            }
+            assert_eq!(&fs::read_to_string(placed(path)).unwrap(), text, "{name}: {path}");
         }
         let settings: Value =
             cmux_config::jsonc::parse(&fs::read_to_string(config("cmux-next.json")).unwrap())
@@ -172,6 +172,7 @@ fn every_look_installs_as_one_layer_and_comes_off_leaving_yours() {
         assert_eq!(settings["appearance"]["accent"], json!("blue"), "{name}: yours is back");
         for path in read.profile.files.keys() {
             assert!(!config(path).exists(), "{name}: {path} outlived the remove");
+            assert!(!placed(path).exists(), "{name}: {path} outlived the remove");
         }
     }
 }

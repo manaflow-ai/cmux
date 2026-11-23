@@ -42,6 +42,7 @@ pub mod bg_run;
 pub(crate) mod bounded_child;
 pub mod build_info;
 pub mod byo_endpoint;
+pub mod caller_stats;
 pub mod capabilities;
 pub mod catalog;
 pub mod chat_fork;
@@ -186,6 +187,7 @@ pub mod mcp_gateway;
 pub mod mcp_hint;
 pub mod mesh;
 pub mod mesh_control;
+pub mod mesh_gate;
 pub mod mesh_http;
 pub mod mesh_node_key;
 pub mod mesh_relay_config;
@@ -306,7 +308,9 @@ mod single_shot_list_tests;
 #[cfg(test)]
 mod source_scan_smoke;
 pub mod sr2_cost_labels;
+pub mod ssh_config_hosts;
 pub(crate) mod ssh_forward;
+pub(crate) mod ssh_forward_owners;
 pub mod stats;
 pub(crate) mod stderr;
 pub mod store;
@@ -367,3 +371,6 @@ pub mod ws_auth;
 pub mod xhost_audit;
 
 pub mod model_catalog;
+/// The per-host model-name hot patch (`$ACPMUX_HOME/model-aliases.json`), read by
+/// `model_catalog::canonical_model`.
+pub mod model_hot_patch;

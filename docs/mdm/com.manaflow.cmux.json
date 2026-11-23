@@ -3115,7 +3115,7 @@
       "type" : "boolean"
     },
     "computerUse.settle" : {
-      "default" : "adaptive",
+      "default" : "openai",
       "description" : "What an agent waits for after each click or key press before it looks again: the screen to stop changing, a fixed 2 seconds, or nothing.",
       "enum" : [
         "adaptive",
@@ -3140,6 +3140,12 @@
       "default" : false,
       "description" : "Adds Customize Menu… to the end of every right-click menu.",
       "title" : "Show Customize Menu…",
+      "type" : "boolean"
+    },
+    "customize.doctorNotice" : {
+      "default" : true,
+      "description" : "customize.doctorNotice",
+      "title" : "Customization notices",
       "type" : "boolean"
     },
     "customize.fromTheApp" : {

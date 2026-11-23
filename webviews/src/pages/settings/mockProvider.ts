@@ -82,6 +82,9 @@ import {
   type AgentConfigState,
   type AccountsRunReply,
   type AgentSkillRow,
+  type DoctorReport,
+  type DoctorRun,
+  type LibraryAnswer,
 } from "./ops";
 import { rowsByKey, schema } from "./schema";
 import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
@@ -91,6 +94,7 @@ import { mockChannels } from "./mockChannels";
 import { mockThemeColors } from "./mockThemes";
 import { mockLibrary, runLibrary } from "./mockLibrary";
 import { mockLooks, previewLook, runLooks } from "./mockLooks";
+import { mockEmptyDoctor, runDoctor } from "./mockDoctor";
 import { mockAgentConfig, runAgentConfigMock } from "./mockAgentConfig";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 import type { WorktreeRecipe } from "../../worktreeRecipe";
@@ -123,6 +127,10 @@ export type MockOptions = {
   library?: LibraryListing;
   /** The CLI refuses every library change with this message (a preview is open). */
   libraryRefusal?: string;
+  /** `cmux customize doctor`'s report; default no findings (no card, no notice). */
+  doctor?: DoctorReport;
+  /** The CLI refuses every doctor change with this message. */
+  doctorRefusal?: string;
   /** A customization being tried on (`cmux customize try`); absent: none. */
   tryOn?: CustomizeTryOn;
   /** Settings > Appearance > Looks (`cmux setup gallery`); default the catalog, nothing installed. */
@@ -222,6 +230,31 @@ export const mockCmuxAccount: Record<"signedIn" | "signedOut" | "signingIn", Acc
   },
 };
 
+/** Settings > Extensions: one app as `apps.settings.list` answers it, with the person's changes. */
+export type MockExtensionApp = {
+  app: string;
+  name: string;
+  enabled: boolean;
+  schema: {
+    type: "object";
+    properties: Record<
+      string,
+      {
+        type: string;
+        title?: string;
+        description?: string;
+        enum?: string[];
+        default?: unknown;
+        minimum?: number;
+        maximum?: number;
+        maxLength?: number;
+        "x-cmux-devOnly"?: boolean;
+      }
+    >;
+  };
+  stored: Record<string, unknown>;
+};
+
 /** A project of the mock session host: its repository's recipe files and the saved override. */
 export type MockWorktreeProject = {
   path: string;
@@ -285,6 +318,8 @@ export class MockSettingsProvider {
     if (options.looks) this.looks = options.looks;
     if (options.looksRefusal) this.looksRefusal = options.looksRefusal;
     if (options.looksPreviewMissing) this.looksPreviewMissing = options.looksPreviewMissing;
+    if (options.doctor) this.doctor = options.doctor;
+    if (options.doctorRefusal) this.doctorRefusal = options.doctorRefusal;
     this.importable = options.importable ?? null;
     this.museumArt = options.museumArt ?? [];
     for (const background of options.workspaceBackgrounds ?? [])
@@ -648,6 +683,14 @@ export class MockSettingsProvider {
         this.revokeShare(String((params as { share_id?: unknown }).share_id ?? "")),
       "cmux.settings.environments.state": () => this.environments,
       "cmux.settings.environments.run": (params) => this.runEnvironments(params as unknown as CloudEnvironmentsRun),
+      // Settings > Extensions: the daemon's apps.settings.list / apps.settings.set.
+      "cmux.settings.extensions.list": () => {
+        if (this.extensionsUnsupported)
+          throw new ProtocolError("cmux.protocol.unknown_op", "cmux.settings.extensions.list");
+        return { apps: this.extensionApps.map((app) => ({ ...app, values: this.extensionValues(app) })) };
+      },
+      "cmux.settings.extensions.set": (params) =>
+        this.setExtensionSettings(params as { app: string; values: Record<string, unknown> }),
       // Settings > Agents > Worktree Setup: the session host's ops through the page relay.
       "cmux.settings.worktree.list": () => ({
         projects: this.worktreeProjects.map((project) => ({
@@ -1126,17 +1169,34 @@ export class MockSettingsProvider {
    * when the read began (a test's slow read that a change overtakes). */
   libraryReadHold: Promise<void> | null = null;
 
+  /** What `cmux customize doctor` reports; default nothing (the start state). */
+  doctor: DoctorReport = mockEmptyDoctor();
+  /** The CLI's refusal of every doctor change; null: changes run. */
+  doctorRefusal: string | null = null;
+  /** Every doctor verb but the read the page ran, in order (tests). */
+  readonly doctorRuns: DoctorRun[] = [];
+
+  /** `cmux --json customize doctor …` (and the host's own `doctor-open`): the report, or the CLI's
+   * error envelope. */
+  private runDoctor(run: DoctorRun) {
+    if (run.verb !== "doctor") {
+      this.doctorRuns.push(run);
+      if (this.doctorRefusal) return { code: "customize.doctor", message: this.doctorRefusal };
+    }
+    const answer = runDoctor(this.doctor, run);
+    if ("doctor" in answer && answer.doctor) this.doctor = answer.doctor;
+    return answer;
+  }
+
   /** `cmux --json customize library VERB`: the listing, or the CLI's error envelope as the host
    * answers it (a refusal is an answer, not a failed call). */
-  private runLibrary(
-    run: LibraryRun,
-  ):
-    | { library?: LibraryListing; code?: string; message?: string }
-    | Promise<{ library?: LibraryListing; code?: string; message?: string }> {
+  private runLibrary(run: LibraryRun): LibraryAnswer | Promise<LibraryAnswer> {
     if (run.verb === "list") {
       const listed = this.library;
       return this.libraryReadHold ? this.libraryReadHold.then(() => ({ library: listed })) : { library: listed };
     }
+    if (run.verb.startsWith("doctor")) return this.runDoctor(run as DoctorRun);
+    if (!("name" in run)) return { code: "customize.library", message: `unknown verb "${run.verb}"` };
     this.libraryRuns.push(run);
     if (this.libraryRefusal) return { code: "customize.library", message: this.libraryRefusal };
     const next = runLibrary(this.library, run);
@@ -1300,6 +1360,69 @@ export class MockSettingsProvider {
       run: { state: "none", output: "", output_start: "0", output_end: "0" },
     };
   }
+  /** Settings > Extensions: the installed extensions whose manifests declare settings, as
+   * `apps.settings.list` answers them; `stored` is what the person changed. */
+  extensionApps: MockExtensionApp[] = [
+    {
+      app: "acme/standup",
+      name: "Standup Notes",
+      enabled: true,
+      schema: {
+        type: "object",
+        properties: {
+          greeting: {
+            type: "string",
+            title: "Greeting",
+            description: "The first line of each note.",
+            default: "Morning!",
+            maxLength: 40,
+          },
+          compact: { type: "boolean", title: "Compact rows", default: false },
+          size: { type: "string", title: "Note size", enum: ["small", "large"], default: "small" },
+          limit: { type: "integer", title: "Notes kept", minimum: 1, maximum: 50, default: 10 },
+        },
+      },
+      stored: {},
+    },
+  ];
+  /** While true, `cmux.settings.extensions.list` is unknown (a host without the route). */
+  extensionsUnsupported = false;
+
+  private extensionValues(app: MockExtensionApp): Record<string, unknown> {
+    const values: Record<string, unknown> = {};
+    for (const [key, property] of Object.entries(app.schema.properties)) values[key] = property.default;
+    return { ...values, ...app.stored };
+  }
+
+  /** Like the daemon: every key declared, every value of its type and range, `null` resets it. */
+  private setExtensionSettings(params: { app: string; values: Record<string, unknown> }) {
+    const app = this.extensionApps.find((row) => row.app === params.app);
+    if (!app) throw new ProtocolError("cmux.apps.settings.invalid", `${params.app} declares no settings`);
+    for (const [key, value] of Object.entries(params.values)) {
+      const property = app.schema.properties[key];
+      if (!property) throw new ProtocolError("cmux.apps.settings.invalid", `${params.app} has no setting ${key}`);
+      if (value === null) continue;
+      const fits = property.enum
+        ? property.enum.includes(value as string)
+        : property.type === "boolean"
+          ? typeof value === "boolean"
+          : property.type === "string"
+            ? typeof value === "string" && value.length <= (property.maxLength ?? 4096)
+            : typeof value === "number" &&
+              (property.type !== "integer" || Number.isInteger(value)) &&
+              value >= (property.minimum ?? -Infinity) &&
+              value <= (property.maximum ?? Infinity);
+      if (!fits) throw new ProtocolError("cmux.apps.settings.invalid", `${key} is not a value it allows`);
+    }
+    const stored = { ...app.stored };
+    for (const [key, value] of Object.entries(params.values)) {
+      if (value === null) delete stored[key];
+      else stored[key] = value;
+    }
+    app.stored = stored;
+    return { app: app.app, values: this.extensionValues(app) };
+  }
+
   /** While set, `cmux.settings.worktree.read` answers only once it resolves (a slow host). */
   worktreeReadHold: Promise<void> | null = null;
   /** Settings > Agents > Worktree Setup: the session host's projects and each one's recipe files. */
@@ -1487,6 +1610,9 @@ export class MockSettingsProvider {
         return result;
       case "setSharing":
         if (state.sharing) this.setDevices({ ...state, sharing: { ...state.sharing, on: run.on } });
+        return result;
+      case "setAgentsMayShare":
+        if (state.sharing) this.setDevices({ ...state, sharing: { ...state.sharing, agentsMayShare: run.on } });
         return result;
       case "saveRelay": {
         const draft = run.relay;
@@ -2588,6 +2714,8 @@ export function mockDevicesState(): DevicesState {
       sharingSection: "Mac Screen on This Mac",
       sharingToggle: "Allow Mac Screen on this Mac",
       sharingDetail: "Your devices can see or control this Mac.",
+      agentsToggle: "My agents can turn screen sharing and control on my machines",
+      agentsDetail: "Your agents share without asking, with a notice each time.",
       openSettings: "Open System Settings",
       allowed: "Allowed",
       relaysSection: "Relays",
@@ -2679,6 +2807,7 @@ export function mockDevicesState(): DevicesState {
     sharing: {
       on: true,
       busy: false,
+      agentsMayShare: false,
       permissions: [
         {
           id: "screenRecording",

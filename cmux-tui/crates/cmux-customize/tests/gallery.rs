@@ -162,11 +162,28 @@ fn round_trip(dir: &Path, rel: &str) {
         .unwrap_or_else(|error| panic!("{rel} does not install: {error}"));
     let status = customize.status().unwrap();
     assert!(status.problems.is_empty(), "{rel} would not apply: {:?}", status.problems);
+    // A look's views (`customize/...`) go to a layer of its own under the setups folder, never
+    // the person's customize folder; everything else lands under config as the look names it.
+    let setups = Roots::under(home.path()).setups_dir();
+    let placed = |file: &str| match (file.strip_prefix("customize/"), installed.layer.as_deref()) {
+        (Some(inner), Some(layer)) => setups.join(layer).join(inner),
+        _ => home.path().join("config").join(file),
+    };
     for (file, text) in &read.profile.files {
-        let live = fs::read_to_string(home.path().join("config").join(file)).unwrap();
-        // The installer writes a JSON file in its own layout (keybindings.json pretty-printed,
-        // without the look's `//` comments), so a JSON file is the same when it parses, as JSONC,
-        // to the same value; the rest match exactly.
+        if file.starts_with("customize/") {
+            assert!(
+                !home.path().join("config").join(file).exists(),
+                "{rel}: {file} was written into the person's own customize folder"
+            );
+        }
+        let live = fs::read_to_string(placed(file)).unwrap();
+        if file.starts_with("customize/cmux-app") {
+            // The layer's manifest names the layer's own app id; the look's says local/customize.
+            continue;
+        }
+        // The installer writes a JSON file in its own layout (keybindings.json pretty-printed),
+        // so a JSON file is the same when it parses to the same value (comments and all: a look's
+        // keybindings.json may carry them); the rest match exactly.
         let parse = |text: &str| cmux_config::jsonc::parse(text).ok();
         let same_json =
             file.ends_with(".json") && parse(&live).is_some() && parse(&live) == parse(text);
@@ -190,10 +207,7 @@ fn round_trip(dir: &Path, rel: &str) {
     let found = customize.setup(&read.manifest.id).unwrap().unwrap();
     customize.remove_setup(&found, "cli", 20).unwrap();
     for file in read.profile.files.keys() {
-        assert!(
-            !home.path().join("config").join(file).exists(),
-            "{rel}: remove left {file} behind"
-        );
+        assert!(!placed(file).exists(), "{rel}: remove left {file} behind");
     }
 }
 

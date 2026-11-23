@@ -17,6 +17,17 @@ use super::{
     order, parse, preview, remove, set_on, update,
 };
 
+/// Installs `text` under its own id, as `cmux setup install TEXT` does.
+fn install(
+    customize: &Customize,
+    apps: &dyn Apps,
+    output: OutputMode,
+    text: &str,
+    yes: bool,
+) -> Result<Value, Failure> {
+    install_as(customize, apps, output, text, yes, None)
+}
+
 fn words(text: &[&str]) -> Vec<String> {
     text.iter().map(|word| (*word).to_owned()).collect()
 }

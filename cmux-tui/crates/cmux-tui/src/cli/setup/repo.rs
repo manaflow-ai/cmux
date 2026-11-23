@@ -66,8 +66,8 @@ Setups: a whole cmux customization in one git repo (theme, sidebar, shortcuts, v
 
 A setup repo has cmux-setup.json at its root; its page is cmux.com/setups/OWNER/REPO.
 Setups stack like dotfiles: each one is a layer of its own, the newest on top. Its views go to
-setups/setup-OWNER-NAME in cmux's config folder (the app local/setup-OWNER-NAME), never into your own
-customize folder, and what you change after installing stays above it. Removing one takes off
+the folder setups/setup-OWNER-NAME beside your customize folder (the app local/setup-OWNER-NAME), never into
+your own customize folder, and what you change after installing stays above it. Removing one takes off
 only its layer: the other setups and your own changes stay as they are.
 --yes skips the question (needed with --json or without a terminal). Every verb takes --json.
 
@@ -791,6 +791,13 @@ pub(super) fn card_text(card: &Value) -> String {
         };
         let replaces = if file["replaces"] == json!(true) { ", replaces yours" } else { "" };
         lines.push(format!("  file {path} ({what}{replaces})"));
+    }
+    for font in setup["fonts"].as_array().into_iter().flatten() {
+        lines.push(format!(
+            "  font {} ({}, copied into your fonts folder)",
+            font.as_str().unwrap_or_default(),
+            setup["font_license"].as_str().unwrap_or_default()
+        ));
     }
     for action in setup["actions"].as_array().into_iter().flatten() {
         let replaces = if action["replaces"] == json!(true) { " (replaces yours)" } else { "" };

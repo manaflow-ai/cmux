@@ -1105,16 +1105,100 @@ export type LibraryConflict = { kind: string; key: string; winner: string; loser
 /** The library, top first. */
 export type LibraryListing = { entries: LibraryEntry[]; conflicts: LibraryConflict[] };
 
-/** A library verb the page runs. `order` takes `position` (`top`, `bottom` or a number from 1). */
+/** A library verb the page runs. `order` takes `position` (`top`, `bottom` or a number from 1). The
+ * `doctor` verbs are `cmux customize doctor` (read), `doctor fix ID KIND`, `doctor dismiss ID`, and
+ * `doctor-open`, which the host runs itself: it reveals or opens the finding's `path`. */
 export type LibraryRun =
   | { verb: "list" }
   | { verb: "on" | "off" | "remove"; name: string }
-  | { verb: "order"; name: string; position: string };
+  | { verb: "order"; name: string; position: string }
+  | DoctorRun;
+
+/** A customize doctor verb: params are exactly `{verb, id?, fix?}`. */
+export type DoctorRun =
+  | { verb: "doctor" }
+  | { verb: "doctor-fix"; id: string; fix: DoctorFixKind }
+  | { verb: "doctor-dismiss" | "doctor-open"; id: string }
+  | { verb: "doctor-recover" };
+
+/** A fix the CLI runs (`open` has no CLI verb: the host opens the path). `restore` puts back the
+ * last version of a broken file that loaded, the broken text moved aside first; `follow-default` drops
+ * the person's value of a setting so it follows the default (a copy of the settings file is kept). */
+export type DoctorFixKind = "off" | "remove" | "restore" | "follow-default";
+
+/** The report's way back (`cmux customize doctor recover`): the layers it turns off, whether it
+ * turns the web-dev overlay off, the generation it puts back; `said` is the plan in one sentence. */
+export type DoctorRecover = {
+  layers: string[];
+  overlay: boolean;
+  generation: number | null;
+  generation_label: string | null;
+  said: string;
+};
+
+/** What `doctor recover` did; `said` is one line per change. */
+export type DoctorRecovered = {
+  turned_off: string[];
+  overlay_off: boolean;
+  restored: number | null;
+  kept_as: number | null;
+  said: string[];
+};
+
+/** What a finding is about (cmux-customize `library/doctor.rs`). */
+export type DoctorFindingKind =
+  | "layer-on"
+  | "web-dev-overlay"
+  | "broken"
+  | "ignored"
+  | "shadowed"
+  | "leftover"
+  | "unknown-key"
+  | "wrong-folder"
+  | "old-build"
+  | "override"
+  | "not-default";
+
+/** One fix of a finding; the first is the main one, and every `remove` has `confirm: true`. */
+export type DoctorFix = { kind: "open" | DoctorFixKind | (string & {}); label: string; confirm: boolean };
+
+/** One errant file, key or layer that affects the person's customizations. */
+export type DoctorFinding = {
+  id: string;
+  kind: DoctorFindingKind | (string & {});
+  /** `warning`: it changes what the person sees now; `info`: it does not. */
+  level: "warning" | "info" | (string & {});
+  title: string;
+  detail: string;
+  place: string;
+  path: string | null;
+  line: number | null;
+  fixes: DoctorFix[];
+  fingerprint: string;
+  /** Hidden until it changes: still listed (muted), out of `line` and `announce`. */
+  dismissed: boolean;
+};
+
+/** `cmux --json customize doctor`'s `doctor`: `line` is null when nothing is left to say. */
+export type DoctorReport = {
+  findings: DoctorFinding[];
+  line: string | null;
+  announce: string | null;
+  /** Null (or absent, an older CLI) when there is nothing to recover. */
+  recover?: DoctorRecover | null;
+};
+
+/** What a `doctor fix` did: `kept` is the copy a remove keeps; `said` one line in the CLI's words. */
+export type DoctorFixed = { id: string; kind: DoctorFixKind; kept: string | null; said: string };
 
 /** `cmux --json customize library …` as the host answers it: a listing (`library`), and for a
- * change what it did; a refusal is the CLI's error envelope (`code`, `message`). */
+ * change what it did; a doctor verb answers `doctor` (and a fix `fixed`); a refusal is the CLI's
+ * error envelope (`code`, `message`). */
 export type LibraryAnswer = {
   library?: LibraryListing;
+  doctor?: DoctorReport;
+  fixed?: DoctorFixed;
+  recovered?: DoctorRecovered;
   generation?: unknown;
   code?: string;
   message?: string;
@@ -1308,7 +1392,8 @@ export type DevicesState = {
   thisDevice: DevicesDevice | null;
   others: DevicesDevice[];
   /** "Allow Mac Screen on this Mac"; null until this Mac is registered. */
-  sharing: { on: boolean; busy: boolean; permissions: DevicesPermission[] } | null;
+  /** `agentsMayShare`: the account's "My agents can turn screen sharing and control on my machines" (device hub). */
+  sharing: { on: boolean; busy: boolean; permissions: DevicesPermission[]; agentsMayShare: boolean } | null;
   relays: DevicesRelay[];
   /** Newest first. */
   history: DevicesHistoryRow[];
@@ -1389,6 +1474,8 @@ export type DevicesLabels = {
   sharingSection: string;
   sharingToggle: string;
   sharingDetail: string;
+  agentsToggle: string;
+  agentsDetail: string;
   openSettings: string;
   allowed: string;
   relaysSection: string;
@@ -1451,6 +1538,7 @@ export type DevicesRun =
   | { action: "remove"; id: string }
   | { action: "setAccess"; id: string; scope: DevicesScope }
   | { action: "setSharing"; on: boolean }
+  | { action: "setAgentsMayShare"; on: boolean }
   | { action: "openPermission"; id: DevicesPermissionId }
   | { action: "saveRelay"; relay: DevicesRelayDraft }
   | { action: "checkRelay"; id?: string; relay?: DevicesRelayDraft }
@@ -2018,6 +2106,11 @@ export type SettingsOps = {
   "cmux.settings.worktree.list": [{ limit?: number }, unknown];
   "cmux.settings.worktree.read": [{ path: string }, unknown];
   "cmux.settings.worktree.save": [Mutation<{ path: string; worktree: WorktreeRecipe | null }>, unknown];
+  /** Native: Settings > Extensions, the daemon's `apps.settings.list` and (on your click or key)
+   * `apps.settings.set {app, values}` on the app's own connection. A value of `null` resets that
+   * setting; the daemon refuses one the manifest does not allow (`cmux.apps.settings.invalid`). */
+  "cmux.settings.extensions.list": [Record<string, never>, unknown];
+  "cmux.settings.extensions.set": [Mutation<{ app: string; values: Record<string, unknown> }>, unknown];
   /** Native: Settings > Devices; rejects with `cmux.page.unavailable` when the host has no device hub. */
   "cmux.settings.devices.state": [Record<string, never>, DevicesState];
   /** Native: one Devices gesture; a failure answers its localized text in `error`. */

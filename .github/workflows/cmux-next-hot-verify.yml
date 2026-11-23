@@ -128,8 +128,9 @@ jobs:
     name: plan the look
     if: ${{ vars.CI_QUOTA_HOLD != '1' && github.repository == 'manaflow-ai/cmux' && github.event_name == 'pull_request' && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'closed' || github.event.pull_request.merged) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    # 10 minutes for the plan, 20 for the dispatch's retries.
-    timeout-minutes: 30
+    # 10 minutes for the plan; the dispatch waits 65 minutes at most (GH_BUDGET_WAIT_MAX_SECONDS): a reset is at
+    # most an hour away.
+    timeout-minutes: 80
     permissions:
       contents: read
       # the merged half reads the PR's comments for a look receipt (hot-verify-receipt.py)
@@ -153,7 +154,7 @@ jobs:
       - name: Checkout the base branch's scripts
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.pull_request.base.ref }}
+          ref: refs/heads/${{ github.event.pull_request.base.ref }}
           persist-credentials: false
           filter: blob:none
           sparse-checkout: scripts
@@ -245,12 +246,33 @@ jobs:
           fi
           python3 "$tool" verdict "$RUNNER_TEMP/plan.out" | tee -a "$GITHUB_OUTPUT"
           echo "hot verify plan: $(grep '^reason=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2-)" >> "$GITHUB_STEP_SUMMARY"
+      # Run 45060092627 (2026-11-22 19:22Z): the dispatch went out on github.token alone, whose hour (one of the
+      # repository's GITHUB_TOKEN buckets, every workflow's job token) read 5000 used, 0 left, reset 19:52:36Z; the
+      # 20-minute retry ended before the reset and the PR got no look. The cmux-bot App's installation has its own
+      # hour: a rate-limited dispatch moves to it at once (gh_budget_wait.sh, GH_TOKEN_SPARE), and only when both
+      # pools refuse does it wait for a reset.
+      - name: Mint the dispatch's spare token
+        id: cmux-bot-token
+        if: ${{ steps.plan.outputs.eligible == 'true' && vars.CMUX_BOT_APP_ID != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+      # The base branch's wrapper (checked out with its scripts above).
+      - name: Wait through GitHub API rate limits in the dispatch's gh calls
+        if: ${{ steps.plan.outputs.eligible == 'true' }}
+        run: bash scripts/ci/gh_budget_wait.sh --install
       # Start the look on feat-cmux-next. Data only: the run there reads the pull request again and takes nothing
       # else from here. A dispatch that never starts ends this job red (below).
       - name: Dispatch the look
         if: ${{ steps.plan.outputs.eligible == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}
+          GH_BUDGET_WAIT_MAX_SECONDS: 3900
           PR: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.action == 'closed' && github.event.pull_request.merge_commit_sha || github.event.pull_request.head.sha }}
           KIND: ${{ github.event.action == 'closed' && 'merge' || 'head' }}
@@ -259,12 +281,11 @@ jobs:
         run: |
           set -uo pipefail
           event_at="$(date -u -d "$EVENT_AT" +%s 2>/dev/null || date -u +%s)"
-          # A dispatch that fails is a PR with no look. It used to print a line and end green, so no one saw the
-          # PRs it lost. It now retries for at most 20 minutes (a rate limit waits for its reset, read from the
-          # rate_limit endpoint, which costs no quota) and ends red if the look never started.
-          deadline=$(( $(date +%s) + 20 * 60 ))
+          # A dispatch that fails is a PR with no look, and ends this job red. gh is gh_budget_wait.sh: a rate
+          # limit moves to the spare pool at once and waits for a reset only when every pool is spent. This loop
+          # retries other failures (a 5xx), at most 3 tries, 30 s doubling.
           pause=30
-          for attempt in 1 2 3 4 5 6; do
+          for attempt in 1 2 3; do
             if gh workflow run cmux-next-hot-verify.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next \
                 -f pr="$PR" -f head="$HEAD_SHA" -f layers="$LAYERS" -f event_at="$event_at" -f kind="$KIND" 2> "$RUNNER_TEMP/dispatch.err"; then
               echo "hot verify: the look ($LAYERS) runs on feat-cmux-next for ${HEAD_SHA:0:12} (attempt $attempt)" | tee -a "$GITHUB_STEP_SUMMARY"
@@ -272,15 +293,9 @@ jobs:
             fi
             why="$(tr '\n' ' ' < "$RUNNER_TEMP/dispatch.err" | cut -c1-200)"
             echo "hot verify: attempt $attempt could not start the look: $why"
-            wait_s=$pause
-            if grep -qi "rate limit" "$RUNNER_TEMP/dispatch.err"; then
-              # Only a spent core bucket waits for its reset; a secondary rate limit keeps the short backoff.
-              remaining=1 reset=0
-              read -r remaining reset < <(gh api rate_limit --jq '"\(.resources.core.remaining) \(.resources.core.reset)"' 2>/dev/null || echo "1 0") || true
-              [[ "$remaining" == 0 && "$reset" =~ ^[0-9]+$ ]] && (( reset > $(date +%s) )) && wait_s=$(( reset - $(date +%s) + 5 ))
-            fi
-            (( $(date +%s) + wait_s < deadline )) || break
-            sleep "$wait_s"
+            # The wrapper already waited out a rate limit on every pool; another try would only wait again.
+            grep -qiE "rate limit|HTTP 429" "$RUNNER_TEMP/dispatch.err" && break
+            [[ $attempt == 3 ]] || sleep "$pause"
             pause=$(( pause * 2 ))
           done
           echo "::error title=hot verify::could not start the look on feat-cmux-next for ${HEAD_SHA:0:12}: $why"
