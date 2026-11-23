@@ -4952,3 +4952,14 @@ lan_cache_fetch.py's own bound is 5,420 s, longer than the 60-minute jobs that r
 ("LAN cache host unavailable (...: stalled)"), and the direct download then took 9 more: restores of
 1,289-1,600 s, in jobs cancelled at the 60-minute limit while still building CmuxNext. A healthy host
 serves the 3.6 GB seed in about 40 s, or 343 s when it first fills it from the bucket (wait 304 s).
+
+## note-553
+
+Above `kit-tests: iPhone surface colors` in `.github/workflows/cmux-next-ios-kit.yml`.
+
+The iPhone app's views draw the design system's content surface levels and themed floating glass,
+never a literal color or an opaque stock surface (Leo 2026-11-22, a black subagent card over his
+themed wallpaper: "THEME IT"). Fails when a file gains a hit over its row in
+scripts/cmux-next/ios-surface-colors-baseline.tsv; a needed literal says why with
+`// color-literal-allow: <reason>`. It runs in the kit job because cmux-next.yml does not run on a
+phone-only change.

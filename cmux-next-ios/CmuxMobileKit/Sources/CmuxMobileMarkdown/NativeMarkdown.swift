@@ -599,7 +599,7 @@ final class NativeCodeCardView: UIView, UIScrollViewDelegate {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        backgroundColor = .cmuxMobileCodeBackground
+        backgroundColor = CmuxMobileContentSurface.fill(.card)
         layer.cornerRadius = 16
         layer.cornerCurve = .continuous
         clipsToBounds = true
@@ -612,7 +612,7 @@ final class NativeCodeCardView: UIView, UIScrollViewDelegate {
         addSubview(scroll)
         fade.startPoint = CGPoint(x: 0, y: 0.5)
         fade.endPoint = CGPoint(x: 1, y: 0.5)
-        fade.colors = [UIColor.black.cgColor, UIColor.black.cgColor, UIColor.clear.cgColor]
+        fade.colors = [UIColor.black.cgColor, UIColor.black.cgColor, UIColor.clear.cgColor] // color-literal-allow: mask alpha
     }
 
     @available(*, unavailable)
