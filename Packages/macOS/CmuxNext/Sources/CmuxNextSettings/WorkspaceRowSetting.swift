@@ -54,7 +54,8 @@ public nonisolated struct WorkspaceRowSetting: Sendable {
             if !change.isEmpty { overrides[kind] = change }
         }
         return WorkspaceRowPreferences(base: WorkspaceRowElements(shown: shown, secondLineOrder: order), overrides: overrides,
-                                       statusPlacement: placement(root, &diagnostics))
+                                       statusPlacement: placement(root, &diagnostics),
+                                       layouts: WorkspaceRowLayoutResolver().parse(root, diagnostics: &diagnostics))
     }
 
     /// `statusPlacement`: its default when absent or invalid (with a diagnostic).

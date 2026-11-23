@@ -233155,128 +233155,128 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "معرّف إضافة ترسم صفحة علامة التبويب الجديدة، مثل \"local/showcase-newtab\". إذا لم يُضبط: صفحة cmux الخاصة."
+            "state": "translated",
+            "value": "إضافة ترسم فوق مربع الكتابة في صفحة علامة التبويب الجديدة، بمعرّفها، مثل \"local/showcase-newtab\". يبقى مربع الكتابة دائمًا. لا تستخدمها صفحة علامة التبويب الجديدة الأصلية."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ID proširenja koje crta novu karticu, npr. \"local/showcase-newtab\". Bez vrijednosti: cmuxova vlastita."
+            "state": "translated",
+            "value": "Proširenje koje crta preko polja za pisanje na stranici nove kartice, po svom ID-u, npr. \"local/showcase-newtab\". Polje za pisanje uvijek ostaje. Izvorna stranica nove kartice ga ne koristi."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Et udvidelses-id, der tegner Ny fane, fx \"local/showcase-newtab\". Uden værdi: cmux' egen."
+            "state": "translated",
+            "value": "En udvidelse, der tegner over skrivefeltet på siden Ny fane, angivet med sit id, fx \"local/showcase-newtab\". Skrivefeltet bliver altid. Den indbyggede side Ny fane bruger den ikke."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Eine Erweiterungs-ID, die „Neuer Tab“ zeichnet, etwa \"local/showcase-newtab\". Ohne Wert: die eigene Seite von cmux."
+            "state": "translated",
+            "value": "Eine Erweiterung, die über dem Eingabefeld der Seite „Neuer Tab“ zeichnet, angegeben mit ihrer ID, etwa \"local/showcase-newtab\". Das Eingabefeld bleibt immer erhalten. Die native Seite „Neuer Tab“ verwendet sie nicht."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "An extension id that draws New Tab, such as \"local/showcase-newtab\". Unset: cmux's own."
+            "value": "An extension that draws over the New Tab composer, by its id, such as \"local/showcase-newtab\". The composer always stays. Not used by the native New Tab page."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Un id de extensión que dibuja Nueva pestaña, como \"local/showcase-newtab\". Sin valor: la propia de cmux."
+            "state": "translated",
+            "value": "Una extensión que dibuja sobre el redactor de Nueva pestaña, indicada por su id, como \"local/showcase-newtab\". El redactor siempre permanece. La página Nueva pestaña nativa no la usa."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Un identifiant d’extension qui dessine Nouvel onglet, comme \"local/showcase-newtab\". Sans valeur : la page de cmux."
+            "state": "translated",
+            "value": "Une extension qui dessine par-dessus la zone de saisie de Nouvel onglet, désignée par son identifiant, par exemple \"local/showcase-newtab\". La zone de saisie reste toujours. La page Nouvel onglet native ne l’utilise pas."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "L'id di un'estensione che disegna Nuova scheda, ad esempio \"local/showcase-newtab\". Se non impostato: la pagina di cmux."
+            "state": "translated",
+            "value": "Un'estensione che disegna sopra il compositore di Nuova scheda, indicata dal suo id, ad esempio \"local/showcase-newtab\". Il compositore resta sempre. La pagina Nuova scheda nativa non la usa."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "新規タブを描く拡張機能の ID（例: \"local/showcase-newtab\"）。未設定: cmux 自身のページ。"
+            "state": "translated",
+            "value": "新規タブの入力欄の上に描画する拡張機能を ID で指定します（例: \"local/showcase-newtab\"）。入力欄は常に残ります。ネイティブの新規タブページでは使われません。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ID ផ្នែកបន្ថែមដែលគូរផ្ទាំងថ្មី ដូចជា \"local/showcase-newtab\"។ មិនកំណត់៖ ទំព័ររបស់ cmux ផ្ទាល់។"
+            "state": "translated",
+            "value": "ផ្នែកបន្ថែមដែលគូរពីលើប្រអប់សរសេរនៃផ្ទាំងថ្មី តាម ID របស់វា ដូចជា \"local/showcase-newtab\"។ ប្រអប់សរសេរនៅតែមានជានិច្ច។ ទំព័រផ្ទាំងថ្មីដើមមិនប្រើវាទេ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "새 탭을 그리는 확장 프로그램 ID입니다(예: \"local/showcase-newtab\"). 설정하지 않으면 cmux 자체 페이지를 씁니다."
+            "state": "translated",
+            "value": "새 탭 입력창 위에 그리는 확장 프로그램을 ID로 지정합니다(예: \"local/showcase-newtab\"). 입력창은 항상 유지됩니다. 기본 새 탭 페이지에서는 사용하지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "En utvidelses-ID som tegner Ny fane, for eksempel \"local/showcase-newtab\". Uten verdi: cmux sin egen."
+            "state": "translated",
+            "value": "En utvidelse som tegner over skrivefeltet på siden Ny fane, angitt med ID-en sin, for eksempel \"local/showcase-newtab\". Skrivefeltet blir alltid værende. Den innebygde siden Ny fane bruker den ikke."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Identyfikator rozszerzenia, które rysuje nową kartę, np. \"local/showcase-newtab\". Bez wartości: strona cmux."
+            "state": "translated",
+            "value": "Rozszerzenie, które rysuje nad polem tworzenia nowej karty, wskazane przez swój identyfikator, np. \"local/showcase-newtab\". Pole tworzenia zawsze zostaje. Natywna strona nowej karty go nie używa."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "O id de uma extensão que desenha a Nova aba, como \"local/showcase-newtab\". Sem valor: a do próprio cmux."
+            "state": "translated",
+            "value": "Uma extensão que desenha sobre o editor da Nova aba, indicada pelo seu id, como \"local/showcase-newtab\". O editor sempre permanece. A página Nova aba nativa não a usa."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ID расширения, которое рисует новую вкладку, например \"local/showcase-newtab\". Если не задано — своя страница cmux."
+            "state": "translated",
+            "value": "Расширение, которое рисует поверх поля ввода новой вкладки, по его ID, например \"local/showcase-newtab\". Поле ввода всегда остаётся. Встроенная страница новой вкладки его не использует."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ID ส่วนขยายที่วาดหน้าแท็บใหม่ เช่น \"local/showcase-newtab\" หากไม่ได้ตั้งค่า: ใช้หน้าของ cmux เอง"
+            "state": "translated",
+            "value": "ส่วนขยายที่วาดทับช่องเขียนของแท็บใหม่ ระบุด้วย ID เช่น \"local/showcase-newtab\" ช่องเขียนจะยังคงอยู่เสมอ หน้าแท็บใหม่แบบเนทีฟไม่ใช้ค่านี้"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Yeni Sekme'yi çizen uzantı kimliği, örneğin \"local/showcase-newtab\". Ayarlanmazsa: cmux'un kendi sayfası."
+            "state": "translated",
+            "value": "Yeni Sekme yazma alanının üzerine çizen uzantı, kimliğiyle, örneğin \"local/showcase-newtab\". Yazma alanı her zaman kalır. Yerel Yeni Sekme sayfası bunu kullanmaz."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ID розширення, що малює нову вкладку, наприклад \"local/showcase-newtab\". Якщо не задано — власна сторінка cmux."
+            "state": "translated",
+            "value": "Розширення, яке малює поверх поля вводу нової вкладки, за його ID, наприклад \"local/showcase-newtab\". Поле вводу завжди залишається. Вбудована сторінка нової вкладки його не використовує."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Id của tiện ích mở rộng vẽ Tab mới, ví dụ \"local/showcase-newtab\". Chưa đặt: trang của cmux."
+            "state": "translated",
+            "value": "Một tiện ích mở rộng vẽ lên trên ô soạn của Tab mới, theo id của nó, ví dụ \"local/showcase-newtab\". Ô soạn luôn được giữ lại. Trang Tab mới gốc không dùng nó."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "绘制新标签页的扩展 ID，例如 \"local/showcase-newtab\"。未设置：使用 cmux 自己的页面。"
+            "state": "translated",
+            "value": "按 ID 指定一个扩展，绘制在新标签页输入框之上，例如 \"local/showcase-newtab\"。输入框始终保留。原生新标签页页面不使用它。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "繪製新分頁的擴充功能 ID，例如 \"local/showcase-newtab\"。未設定：cmux 自己的頁面。"
+            "state": "translated",
+            "value": "以 ID 指定一個擴充功能，繪製在新分頁輸入框之上，例如 \"local/showcase-newtab\"。輸入框一律保留。原生新分頁頁面不會使用它。"
           }
         }
       }
@@ -233287,127 +233287,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "صفحة علامة تبويب جديدة من إضافة"
+            "value": "إضافة فوق مربع الكتابة في علامة تبويب جديدة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stranica nove kartice iz proširenja"
+            "value": "Proširenje preko polja za pisanje nove kartice"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "En udvidelses side Ny fane"
+            "value": "En udvidelse over skrivefeltet i Ny fane"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die Seite „Neuer Tab“ einer Erweiterung"
+            "value": "Eine Erweiterung über dem Eingabefeld von „Neuer Tab“"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "An extension's New Tab page"
+            "value": "An extension over the New Tab composer"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La página Nueva pestaña de una extensión"
+            "value": "Una extensión sobre el redactor de Nueva pestaña"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La page Nouvel onglet d’une extension"
+            "value": "Une extension sur la zone de saisie de Nouvel onglet"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "La pagina Nuova scheda di un'estensione"
+            "value": "Un'estensione sopra il compositore di Nuova scheda"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "拡張機能の新規タブページ"
+            "value": "新規タブの入力欄上の拡張機能"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ទំព័រផ្ទាំងថ្មីរបស់ផ្នែកបន្ថែម"
+            "value": "ផ្នែកបន្ថែមលើប្រអប់សរសេរនៃផ្ទាំងថ្មី"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "확장 프로그램의 새 탭 페이지"
+            "value": "새 탭 입력창 위의 확장 프로그램"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "En utvidelses side for ny fane"
+            "value": "En utvidelse over skrivefeltet i Ny fane"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Strona nowej karty z rozszerzenia"
+            "value": "Rozszerzenie nad polem nowej karty"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "A página Nova aba de uma extensão"
+            "value": "Uma extensão sobre o editor da Nova aba"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Страница новой вкладки из расширения"
+            "value": "Расширение поверх поля ввода новой вкладки"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "หน้าแท็บใหม่จากส่วนขยาย"
+            "value": "ส่วนขยายเหนือช่องเขียนของแท็บใหม่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bir uzantının Yeni Sekme sayfası"
+            "value": "Yeni Sekme yazma alanı üzerinde bir uzantı"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Сторінка нової вкладки з розширення"
+            "value": "Розширення поверх поля вводу нової вкладки"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Trang Tab mới của một tiện ích mở rộng"
+            "value": "Một tiện ích mở rộng trên ô soạn của Tab mới"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "扩展的新标签页页面"
+            "value": "新标签页输入框上的扩展"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "擴充功能的新分頁頁面"
+            "value": "新分頁輸入框上的擴充功能"
           }
         }
       }
