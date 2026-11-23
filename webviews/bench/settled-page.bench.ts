@@ -193,12 +193,30 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
     case "_acpmux/attach": {
       const limit = Number(params.limit ?? 400);
       const events = chat.events.slice(-limit);
-      return { session: chat.session, lastSeq: lastSeq(chat), events, hasMore: events.length < chat.events.length };
+      // As acpmux's attach (server/requests/turn_opener.rs): a page that starts inside a turn carries that turn's prompt.
+      const first = events[0];
+      const turnOpener =
+        first && first.kind !== "user_message" && events.length < chat.events.length
+          ? (chat.events.findLast((event) => event.kind === "user_message" && Number(event.seq) < Number(first.seq)) ??
+            null)
+          : null;
+      return {
+        session: chat.session,
+        lastSeq: lastSeq(chat),
+        events,
+        hasMore: events.length < chat.events.length,
+        turnOpener,
+      };
     }
     case "_acpmux/events": {
       if (params.beforeSeq !== undefined) {
         const before = Number(params.beforeSeq);
-        const older = chat.events.filter((event) => Number(event.seq) < before);
+        // acpmux reads only the kinds asked: a read without "transcript" (the turn opener's, the prompt index's) is
+        // those records alone. With it, every record here is a transcript one.
+        const kinds = Array.isArray(params.kinds) ? (params.kinds as string[]) : undefined;
+        const asked = (event: { kind?: unknown }) =>
+          !kinds || kinds.includes("transcript") || kinds.includes(String(event.kind));
+        const older = chat.events.filter((event) => Number(event.seq) < before && asked(event));
         const page = older.slice(-Number(params.limit ?? 400));
         return { events: page, hasMore: page.length < older.length, lastSeq: lastSeq(chat) };
       }
