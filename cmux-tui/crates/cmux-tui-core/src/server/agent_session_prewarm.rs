@@ -64,8 +64,8 @@ pub(in crate::server::agent_session_attach) fn prewarm(
     params: StartParams,
     writer: &MessageWriter,
 ) -> bool {
-    if !params.valid() {
-        return refuse(writer, id, Refusal::BadRequest);
+    if let Some(field) = params.invalid_field() {
+        return super::super::bad_field::refuse_field(writer, id, Some(field));
     }
     if let Err(refusal) = mux.agent_host_gate(client, vm_word(&params.vm_kind)) {
         return refuse(writer, id, refusal);
@@ -89,7 +89,7 @@ pub(in crate::server::agent_session_attach) fn prewarm(
         params.surface,
     )
     .or_else(|| params.cwd.clone()) else {
-        return refuse(writer, id, Refusal::BadRequest);
+        return super::super::bad_field::refuse_field(writer, id, Some("cwd"));
     };
     if let Err(refusal) = super::super::agent_session_trust::home_rule(&cwd, params.home_confirmed)
     {

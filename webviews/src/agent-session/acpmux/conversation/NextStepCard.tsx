@@ -1,4 +1,4 @@
-import React, { memo, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import React, { memo, useEffect, useRef, useState, useSyncExternalStore, useLayoutEffect } from "react";
 import { Keycap } from "../Keycap";
 import { useT } from "../i18n";
 import { inlineText } from "../question/inlineText";
@@ -6,10 +6,10 @@ import { answerPrompt, type NextStepAsk } from "./nextStepAsk";
 import {
   answerState,
   claimAnswer,
+  givenAnswer,
   setAnswerState,
   subscribeAnswers,
   type AnswerState,
-  givenAnswer,
 } from "./waitingAskStore";
 import "./NextStepCard.css";
 
