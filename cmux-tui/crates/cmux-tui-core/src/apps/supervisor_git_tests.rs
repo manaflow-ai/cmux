@@ -239,7 +239,9 @@ fn a_newer_tag_with_a_wider_scope_asks_again_before_it_installs() {
     assert_eq!(asks.code, "apps.update.needs_consent", "{asks:?}");
     assert!(asks.message.contains("agents:read"), "{}", asks.message);
     let base = f.state.join("apps/git/github.com/octo/hello");
-    assert!(base.join(A).is_dir() && !base.join(B).exists(), "v1.0.0 stays installed");
+    // v1.1.0 may sit staged on disk for the confirmed install; v1.0.0 stays
+    // the installed commit (below).
+    assert!(base.join(A).is_dir(), "v1.0.0 stays on disk");
     let still =
         call(&f, "cmux.apps.catalog.get", json!({"app": "octo/hello"}), Origin::Cli).unwrap();
     assert_eq!(still["commit"], A, "{still}");

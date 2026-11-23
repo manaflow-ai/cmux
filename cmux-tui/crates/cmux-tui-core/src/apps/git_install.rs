@@ -158,13 +158,20 @@ impl Supervisor {
             ("apps.update", _) => {
                 let grant_optional =
                     args.get("grant_optional").and_then(Value::as_bool).unwrap_or(false);
-                self.git_update(
+                match self.git_update(
                     client,
                     app.as_deref().unwrap_or_default(),
                     grant_optional,
                     &key()?,
                     origin,
-                )
+                ) {
+                    // Not installed from git: a community (registry) app's
+                    // update, or `apps.update.none` (community.rs).
+                    Err(error) if error.code == "apps.git.not_git" => {
+                        self.store_call_base(client, op, args, origin)
+                    }
+                    result => result,
+                }
             }
             ("apps.uninstall", _) => {
                 let result = self.store_call_base(client, op, args, origin)?;
