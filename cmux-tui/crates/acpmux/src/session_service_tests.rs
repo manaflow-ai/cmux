@@ -15,7 +15,7 @@ fn status(signed_in: &str, answered: bool) -> Value {
 #[test]
 fn off_by_default_and_the_first_refusal_is_the_one_ask() {
     // A machine signing in made: nothing granted, nothing answered.
-    match decide(&status("none", false), ME) {
+    match decide(&status("none", false), ME, false) {
         Decision::Refuse { refusal, ask } => {
             assert_eq!(refusal.reason, CONSENT_REQUIRED);
             assert!(ask, "the first refusal asks the person on that machine");
@@ -23,7 +23,7 @@ fn off_by_default_and_the_first_refusal_is_the_one_ask() {
         Decision::Admit => panic!("signing in alone admitted a workspace"),
     }
     // Control from elsewhere is another grant: it does not open workspaces for the account.
-    assert_ne!(decide(&status("none", false), ME), Decision::Admit);
+    assert_ne!(decide(&status("none", false), ME, false), Decision::Admit);
     // An ask already pending is not recorded again.
     let mut pending = status("none", false);
     pending["lastRefusal"] = json!({"surface": "signedInMachines"});
@@ -32,14 +32,14 @@ fn off_by_default_and_the_first_refusal_is_the_one_ask() {
 
 #[test]
 fn after_not_now_no_new_ask_and_after_allow_admitted() {
-    match decide(&status("none", true), ME) {
+    match decide(&status("none", true), ME, false) {
         Decision::Refuse { refusal, ask } => {
             assert_eq!(refusal.reason, CONSENT_DECLINED);
             assert!(!ask, "asked once");
         }
         Decision::Admit => panic!("Not now admitted"),
     }
-    assert_eq!(decide(&status("granted", true), ME), Decision::Admit);
+    assert_eq!(decide(&status("granted", true), ME, false), Decision::Admit);
 }
 
 #[test]
