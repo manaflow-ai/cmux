@@ -83,14 +83,14 @@
         },
         {
           "key": "diagnostics.shareInstallCounts",
-          "note": "Leo 2026-11-05: \"Like just an option in settings, like, Hey, you can do this to improve CMux\". Whether this Mac and the person's Cloud machines send cmux the registry names and counts of packages agents' shell calls install (acpmux install_share.rs; cmux-platform /v1/install-counts), so the Cloud image bake pre-downloads the common ones. Off by default; a Cloud machine asks the platform for the person's choice. Never prompts, commands, paths, project names or identity. Agents may not change it (privacy).",
+          "note": "Leo 2026-11-05: \"Like just an option in settings, like, Hey, you can do this to improve CMux\". Whether this Mac and the person's Cloud machines send cmux the registry names and counts of packages agents' shell calls install (acpmux install_share.rs; cmux-platform /v1/install-counts), so the Cloud image bake pre-downloads the common ones. Off by default; a Cloud machine asks the platform for the person's choice, and the platform reports it to the person's Cloud machines as `usage_sharing` on the status report reply (cmux-platform installcounts/SharingReply.ts), which also gates their image additions list (cmux-host cloud/additions.rs). The row's help is its consent text: the settings page shows it with Turn On and Cancel before writing true (webviews settings/components/ConsentPrompt.tsx). Never prompts, commands, paths, project names or identity. Agents may not change it (privacy).",
           "title": {
             "key": "settings.diagnostics.shareInstallCounts",
             "text": "Share Package Installs to Improve cmux"
           },
           "help": {
             "key": "settings.diagnostics.shareInstallCounts.help",
-            "text": "Sends cmux how often agents install each package, by registry name (like react or numpy), from this Mac and your Cloud machines, so new Cloud machines come with the common ones already downloaded. Never prompts, commands, file or project names, or anything that identifies you. Turning it off drops what was not sent yet."
+            "text": "Sends cmux the names of packages agents install and of tools you add to your Cloud machines, so new Cloud machines come with the common ones already downloaded. Names and counts only, never prompts, commands, file or project names, or anything that identifies you. Turning it off deletes your tool list."
           },
           "summary": {
             "key": "settings.diagnostics.shareInstallCounts.summary",
