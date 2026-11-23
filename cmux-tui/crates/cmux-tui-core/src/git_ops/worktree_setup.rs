@@ -9,6 +9,15 @@
 //! `git.worktree.setup` reads them while it runs and after; they go with the
 //! worktree. A setup that fails keeps the worktree as it is.
 //!
+//! A command from the repository's own files waits for the person: the
+//! worktree's setup is `awaiting_approval` (nothing copied, nothing run)
+//! until `git.worktree.setup.run` brings the fingerprint of the recipe the
+//! person read ([`approvals`]); a recipe approved before runs at once, as
+//! before. A teardown from the repository's files runs only for a recipe
+//! approved so. `git.worktree.setup.run` also runs a setup that failed,
+//! timed out or was interrupted again; it never starts a second one while
+//! one runs.
+//!
 //! Setup and teardown run in the user's login shell (`$SHELL -l -c`), in a
 //! session of their own with stdin closed, with the inherited environment
 //! less git's own variables, and:
@@ -93,6 +102,10 @@ pub(super) struct Status {
     pub pid: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub include: Option<Report>,
+    /// While `awaiting_approval`: the fingerprint of the recipe the person
+    /// is asked about ([`approvals`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approval: Option<String>,
     pub started_ms: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub finished_ms: Option<u64>,
@@ -161,22 +174,74 @@ impl Place {
 }
 
 /// Starts a new worktree's setup and answers what `git.worktree.create`
-/// reports of it. Nothing starts twice for one worktree.
-pub(super) fn start(place: Place, recipe: Recipe) -> Value {
+/// reports of it. Nothing starts twice for one worktree. `consent`: the
+/// fingerprint of the repository's commands in the recipe
+/// ([`super::worktree_recipe::Resolved::consent`]); unless the person
+/// approved it, the setup waits for them (`awaiting_approval`).
+pub(super) fn start(place: Place, recipe: Recipe, consent: Option<String>) -> Value {
+    begin(place, recipe, consent, false).unwrap_or_else(|state| json!({"state": state}))
+}
+
+/// Why `git.worktree.setup.run` starts nothing.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum NotRun {
+    /// A setup runs there now (`copying` or `running`).
+    Running(String),
+}
+
+/// `git.worktree.setup.run`: the setup of a worktree whose last setup waits
+/// for the person, ended (failed, timed out, interrupted, succeeded) or never
+/// started, from the start. The person's answer is kept first by the caller.
+pub(super) fn rerun(place: Place, recipe: Recipe) -> Result<Value, NotRun> {
+    begin(place, recipe, None, true).map_err(NotRun::Running)
+}
+
+fn begin(
+    place: Place,
+    recipe: Recipe,
+    consent: Option<String>,
+    again: bool,
+) -> Result<Value, String> {
     let allocated = ports::allocate(&place.shared, &place.root);
     let port = allocated.unwrap_or_default();
     if recipe.is_empty() {
-        return json!({"state": "none", "port": port});
+        return Ok(json!({"state": "none", "port": port}));
     }
     // The run's lock comes first: of two session hosts starting the same
     // worktree, only the one holding it reads no status and starts.
     let lock = hold(&place.own);
-    if lock.is_none() && held(&place.own) {
+    let live_here =
+        running().lock().unwrap_or_else(PoisonError::into_inner).contains_key(&place.root);
+    if (lock.is_none() && held(&place.own)) || (again && live_here) {
         let state = read_status(&place.own).map_or_else(|| "copying".into(), |status| status.state);
-        return json!({"state": state, "port": port});
+        if again {
+            return Err(state);
+        }
+        return Ok(json!({"state": state, "port": port}));
     }
-    if let Some(status) = read_status(&place.own) {
-        return json!({"state": status.state, "port": status.port});
+    if let Some(status) = read_status(&place.own)
+        && !again
+    {
+        return Ok(json!({"state": status.state, "port": status.port}));
+    }
+    if let Some(fingerprint) =
+        consent.filter(|fingerprint| !approvals::approved(&place.shared, fingerprint))
+    {
+        let status = Status {
+            state: "awaiting_approval".into(),
+            port,
+            setup: recipe.setup,
+            approval: Some(fingerprint.clone()),
+            started_ms: now_ms(),
+            ..Status::default()
+        };
+        if write_status(&place.own, &status).is_err() {
+            return Ok(json!({"state": "none", "port": port}));
+        }
+        return Ok(json!({"state": "awaiting_approval", "port": port, "approval": fingerprint}));
+    }
+    if again && let Some(mut log) = open_log(&place.own) {
+        let _ = writeln!(log, "--- Setup started again ---");
     }
     let mut status = Status {
         state: "copying".into(),
@@ -192,10 +257,10 @@ pub(super) fn start(place: Place, recipe: Recipe) -> Value {
             let _ = writeln!(log, "Setup did not start: {}", why.text());
         }
         finish(&mut status, &place.own, "failed", None);
-        return json!({"state": "failed", "port": port});
+        return Ok(json!({"state": "failed", "port": port}));
     }
     if write_status(&place.own, &status).is_err() {
-        return json!({"state": "none", "port": port});
+        return Ok(json!({"state": "none", "port": port}));
     }
     let handle = Arc::new(Run::default());
     running()
@@ -222,9 +287,9 @@ pub(super) fn start(place: Place, recipe: Recipe) -> Value {
         }
         let mut status = read_status(&own).unwrap_or_default();
         finish(&mut status, &own, "failed", None);
-        return json!({"state": "failed", "port": port});
+        return Ok(json!({"state": "failed", "port": port}));
     }
-    json!({"state": state, "port": port})
+    Ok(json!({"state": state, "port": port}))
 }
 
 fn run(place: &Place, recipe: &Recipe, status: &mut Status, handle: &Run, lock: Option<File>) {
@@ -429,9 +494,18 @@ fn exited(_pid: u32) -> bool {
 
 /// Runs a worktree's teardown before it is removed, after stopping a setup
 /// still running there. Answers what `git.worktree.remove` reports of it.
-pub(super) fn teardown(place: &Place, teardown: Option<&str>) -> Option<Value> {
+/// `consent`: as for [`start`]; a teardown from the repository's files that
+/// the person never approved does not run, and the reply says so.
+pub(super) fn teardown(
+    place: &Place,
+    teardown: Option<&str>,
+    consent: Option<&str>,
+) -> Option<Value> {
     stop(place);
     let script = teardown?;
+    if consent.is_some_and(|fingerprint| !approvals::approved(&place.shared, fingerprint)) {
+        return Some(json!({"state": "not_approved", "output": ""}));
+    }
     let log = open_log(&place.own)?;
     let start = log.metadata().map_or(0, |metadata| metadata.len());
     let _ = writeln!(&log, "$ {script}");
@@ -565,9 +639,18 @@ pub(super) fn dispatch(
     let project = main.clone().unwrap_or_else(|| target.common_dir().to_path_buf());
     let recipe = super::worktree_recipe::resolve(mux, main.as_deref(), &project);
     let root = &resolved(&target.repository.root);
+    let mut recipe_value = recipe.value();
+    if let Some(fingerprint) = recipe.consent() {
+        let approved = approvals::approved(&OwnFolder::open(target.common_dir()), &fingerprint);
+        put(
+            &mut recipe_value,
+            "approval",
+            json!({"fingerprint": fingerprint, "approved": approved}),
+        );
+    }
     let mut value = json!({
         "root": root.to_string_lossy(),
-        "recipe": recipe.value(),
+        "recipe": recipe_value,
     });
     if let Some(main) = &main {
         put(&mut value, "main_root", json!(main.to_string_lossy()));
@@ -581,6 +664,65 @@ pub(super) fn dispatch(
     };
     put(&mut value, "run", run);
     Ok(value)
+}
+
+/// `git.worktree.setup.run`: runs the setup of the linked worktree a
+/// request names from its start, after the person read its recipe.
+/// `approve`, the fingerprint of the recipe they read (the `approval` of a
+/// `git.worktree.setup` read), keeps their yes first; a recipe that changed
+/// since is refused with `recipe_changed`, one never approved with
+/// `approval_required`, and a setup that runs now with `setup_running`.
+pub(super) fn dispatch_run(
+    mux: &Arc<crate::Mux>,
+    request: &crate::resource_router::ParsedResourceRequest,
+) -> Result<Value, crate::resource::ResourceError> {
+    use super::checkpoint::ledger;
+    use super::mutation::refused;
+    const OPERATION: &str = "git.worktree.setup.run";
+    let key = super::mutation::key(request);
+    let target = super::mutation::Target::resolve(mux, request, OPERATION)?;
+    let fingerprint = target.fingerprint(request);
+    target.exclusive(OPERATION, || {
+        if let Some(replayed) = ledger::prior(mux, &key, OPERATION, &fingerprint)? {
+            return Ok(replayed);
+        }
+        let main = cmux_git::main_root(target.common_dir()).map(Path::to_path_buf);
+        let root = resolved(&target.repository.root);
+        if main.as_deref().is_none_or(|main| same_folder(main, &root)) {
+            let message = "the main checkout is set up by its user: name a worktree cmux made";
+            return Err(refused(OPERATION, "not_a_worktree", message, Value::Null));
+        }
+        let project = main.clone().unwrap_or_else(|| target.common_dir().to_path_buf());
+        let resolved_recipe = super::worktree_recipe::resolve(mux, main.as_deref(), &project);
+        let place = Place::new(root, main, target.git_dir(), target.common_dir());
+        if let Some(consent) = resolved_recipe.consent()
+            && !approvals::approved(&place.shared, &consent)
+        {
+            let extra = json!({"fingerprint": consent});
+            match request.fields.get("approve").and_then(Value::as_str) {
+                Some(answer) if answer == consent => {
+                    if let Err(error) = approvals::approve(&place.shared, &consent) {
+                        let message = format!("the answer could not be kept: {error}");
+                        return Err(refused(OPERATION, "store_failed", message, extra));
+                    }
+                }
+                Some(_) => {
+                    let message = "the recipe changed after it was read: read it again";
+                    return Err(refused(OPERATION, "recipe_changed", message, extra));
+                }
+                None => {
+                    let message =
+                        "the repository's setup runs once the person approves it (approve)";
+                    return Err(refused(OPERATION, "approval_required", message, extra));
+                }
+            }
+        }
+        let value = rerun(place, resolved_recipe.recipe).map_err(|NotRun::Running(state)| {
+            let message = "a setup runs in this worktree now";
+            refused(OPERATION, "setup_running", message, json!({"state": state}))
+        })?;
+        ledger::commit(mux, &key, OPERATION, &fingerprint, &value, false, &request.actor)
+    })
 }
 
 fn same_folder(left: &Path, right: &Path) -> bool {
@@ -819,6 +961,9 @@ fn now_ms() -> u64 {
 /// folder. A folder that is gone gives its block back on the next
 /// allocation.
 mod ports;
+
+/// The repository recipes the person approved ([`Status::approval`]).
+pub(super) mod approvals;
 
 /// A git folder that cmux keeps files in, open: each file is reached by its
 /// name in the open folder.

@@ -25,9 +25,11 @@ mod ls_leads;
 mod ls_pages;
 mod ls_tools;
 pub use ls::LsArgs;
+mod move_end;
 mod parent;
 mod send_async;
-mod session_move;
+pub(crate) mod session_move;
+pub(crate) use session_move::move_auto;
 mod standard;
 pub(crate) mod transfer;
 

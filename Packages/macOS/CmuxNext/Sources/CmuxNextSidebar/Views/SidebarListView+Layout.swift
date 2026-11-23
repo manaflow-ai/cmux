@@ -169,8 +169,8 @@ extension SidebarListViewComponents {
     /// How far left of its members' x `row` starts: a group header's reach over its rail (`SidebarStyle.groupLineX`)
     /// and the line layout's overhang past it (`groupHeaderOverhang`), never past the list's edge; 0 for other rows.
     func railReach(for row: SidebarRow) -> CGFloat {
-        // A plain folder draws no rail: its header keeps the rows' own frame.
-        guard case .group = row.key, !indent.indentsTopLevel else { return 0 }
+        // A plain folder draws no rail, nor does a card (its block wraps the rows): the header keeps the rows' own frame.
+        guard case .group = row.key, !indent.indentsTopLevel, !model.groupHeaderDetails.background.drawsCard else { return 0 }
         let membersX = inset + indentOffset(for: row)
         return membersX - SidebarStyle.groupBarX(membersMinX: membersX)
     }
@@ -223,6 +223,7 @@ extension SidebarListViewComponents {
         suppressHoverEffects = true
         defer { suppressHoverEffects = previousHoverSuppression }
         defer { updateHover() }
+        defer { reportGooeySelection() } // after the rows took their frames: the flare follows the selected row
         let old = displayed
         displayed = layout
         spliceBase = nil // a reload sets it again for its own full layout
@@ -516,7 +517,9 @@ extension SidebarListViewComponents {
             view.standingGroup = row.standsForGroup ? row.group.map(standingGroupAccess) : nil
         case let (.item(id), view as SidebarItemListRowView):
             guard let item = listItems[id] else { return }
-            view.configure(item, favicon: item.iconAddress.flatMap { model.itemFavicon?($0) }, row: row)
+            // A built-in (the Chief) keeps its band look here: its picture, status and badge.
+            let info = item.ref.builtIn == nil ? nil : model.resolvedItemInfo[LayoutItemID(item.id)]
+            view.configure(item, favicon: item.iconAddress.flatMap { model.itemFavicon?($0) }, info: info, row: row)
         case let (.block(id), view as SidebarBlockRowView):
             guard let content = blockContent(id, includeGap: true) else { return }
             view.region.activeItem = activeTopItem
@@ -553,7 +556,6 @@ extension SidebarListViewComponents {
         case let (.section(id), view as SectionHeaderRowView):
             guard let section = sections[id] else { return }
             view.configure(section, row: row)
-        case let (.emptySection(id), view as EmptySectionRowView): view.configure(pinned: id == .pinned || id == .custom(SidebarDocStore.pinnedSection))
         case let (.emptyGroup(id), view as EmptyGroupRowView): view.configure(groupID: id, groupName: groups[id]?.name ?? model.group(id)?.name ?? "")
         case let (.folder(_, folder), view as FolderHeaderRowView): view.configure(folder: folder)
         case let (.status, view as StatusHeaderRowView): view.configure(row)
@@ -579,7 +581,9 @@ extension SidebarListViewComponents {
         let width = Self.rowsWidth(in: scroll)
         if frame.width != width { setFrameSize(NSSize(width: width, height: frame.height)) }
         // The pool parks two realization rects of rows: a space switch's leaving and returning pages.
-        rowPool.limit = SidebarRowViewPool.limit(forHeight: realizationRect().height, rowHeight: metrics.rowHeight)
+        let rowHeight = poolRowHeight ?? metrics.rowHeight
+        poolRowHeight = rowHeight
+        rowPool.limit = SidebarRowViewPool.limit(forHeight: realizationRect().height, rowHeight: rowHeight)
         updateDocumentHeight()
         revealFirstViewport()
         realizeVisibleRows()
@@ -639,6 +643,7 @@ extension SidebarListViewComponents {
         guard !isShiftingViewport else { return }
         SidebarPerfCounters.add(.scrollRealizes)
         groupEditing.followScroll()
+        defer { reportGooeySelection() } // a scroll moves the selected row under the window's shade
         let realize = realizationRect()
         for index in displayed.rowIndices(from: realize.minY, to: realize.maxY) {
             let row = displayed.rows[index]
