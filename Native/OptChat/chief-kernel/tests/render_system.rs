@@ -214,8 +214,8 @@ fn a_cloud_mode_needs_a_known_offered_list() {
 #[test]
 fn the_cloud_base_names_no_tool_it_does_not_offer() {
     let text = cloud(&["zoom", "date", "send", "reply", "stop"]).unwrap();
-    let before_compactions = text.split("# Compactions").next().unwrap();
-    let before_compactions = &flat(before_compactions);
+    let before_instructions = text.split("# Instructions").next().unwrap();
+    let before_instructions = &flat(before_instructions);
     for absent in [
         "sleep(",
         "subagent",
@@ -227,8 +227,8 @@ fn the_cloud_base_names_no_tool_it_does_not_offer() {
         "tell the",
     ] {
         assert!(
-            !before_compactions.contains(absent),
-            "{absent:?} named but not offered:\n{before_compactions}"
+            !before_instructions.contains(absent),
+            "{absent:?} named but not offered:\n{before_instructions}"
         );
     }
     for present in [
