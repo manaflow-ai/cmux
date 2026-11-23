@@ -31,6 +31,21 @@ out="${FAST_CHECKS_OUT:-$work}"
 mkdir -p "$out"
 fetch_url="$(git remote get-url origin 2>/dev/null || echo https://github.com/manaflow-ai/cmux.git)"
 echo "STEPS-MACHINE host=$(hostname) os=$(uname -sr) cores=$(getconf _NPROCESSORS_ONLN) yardstick=$(git rev-parse HEAD) load=\"$(cut -d' ' -f1-3 /proc/loadavg)\""
+# A bare runner (the cmux-ci test runner has no Zig: ghostty-vt-sys's `zig build` hit ENOENT, job
+# 118101e834ec461bb966788c62f66d23): install the pinned Zig exactly as terminal-scroll-stress-linux.sh does (#50961).
+[ -f "$root/ghostty-next/build.zig" ] || [ -n "${CMUX_GHOSTTY_SRC:-}" ] || git -C "$root" submodule update --init --depth 1 ghostty-next
+if ! command -v zig >/dev/null && [ -z "${ZIG:-}${CMUX_ZIG:-}" ]; then
+  # The pinned Zig is ghostty-next's. A runner without passwordless sudo gets it under RUNNER_TEMP, published only
+  # through GITHUB_ENV: read CMUX_ZIG back from a file of our own (as infinite-items-linux.sh does).
+  zig_env="$(mktemp)"
+  (cd "$root" && GHOSTTY_ZIG_SOURCE=ghostty-next GITHUB_ENV="$zig_env" GITHUB_PATH=/dev/null ./scripts/install-zig-ci.sh) >&2
+  zig_line="$(grep '^CMUX_ZIG=' "$zig_env" | tail -n 1 || true)"
+  rm -f "$zig_env"
+  [ -z "$zig_line" ] || export "$zig_line"
+  # ghostty-vt-sys runs a bare `zig`: put the job-local one on PATH.
+  [ -z "${CMUX_ZIG:-}" ] || export PATH="$(dirname "$CMUX_ZIG"):$PATH"
+fi
+echo "STEPS-ZIG ${CMUX_ZIG:-$(command -v zig || echo none)}"
 
 yardstick=(
   cmux-tui/crates/cmux-fault/src/shaper.rs
