@@ -150,7 +150,12 @@ struct TabsScreen<Source: TabsDataSource>: View {
                            noBack: activeTab?.features.contains(.history) != true)
     }
 
-    var body: some View {
+    // Two parts: one modifier chain this long is more than the compiler
+    // type-checks in reasonable time (an iOS build failed on it).
+    var body: some View { observingState(screen) }
+
+    /// The screen: the grid, the page, the toolbar and the notices.
+    @ViewBuilder private var screen: some View {
         let layout = toolbarLayout
         ZStack(alignment: .topLeading) {
             overview
@@ -254,6 +259,12 @@ struct TabsScreen<Source: TabsDataSource>: View {
         .frame(width: size.width, height: size.height, alignment: .topLeading)
         .coordinateSpace(.named(TabsScreenSpace.name))
         .gesture(ZoomPinchGesture { handlePinch($0) })
+    }
+
+    /// What the screen follows: its size, the zoom's phase, the scene, the
+    /// active tab and the tab list.
+    private func observingState(_ content: some View) -> some View {
+        content
         .onChange(of: size.width, initial: true) { _, w in zoomDriver.span = Double(w - overviewLayout.cardWidth) }
         .onChange(of: GridShape(width: size.width, columns: overviewColumns)) { old, _ in keepGridPlace(from: old) }
         .onChange(of: overviewVisible) { _, visible in source.overviewVisibilityChanged(visible) }
