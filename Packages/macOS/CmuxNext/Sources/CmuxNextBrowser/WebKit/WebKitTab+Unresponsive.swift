@@ -63,6 +63,7 @@ extension WebKitTab: BrowserHangAnswering {
         if let webProcessIsResponsiveOverride { return webProcessIsResponsiveOverride() }
         // crash-allow: WebKit SPI, read only after webView.responds(to:) (no unknown-key exception).
         guard webView.responds(to: NSSelectorFromString("_webProcessIsResponsive")) else { return true }
+        // crash-allow: KVC read of the WebKit SPI key just checked with responds(to:) (no undefined-key exception).
         return (webView.value(forKey: "_webProcessIsResponsive") as? Bool) ?? true
     }
 }
