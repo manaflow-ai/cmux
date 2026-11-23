@@ -70,21 +70,25 @@ impl Hub {
         last
     }
 
-    /// `last_host_seq` from whole records only.
+    /// `last_host_seq` from whole records only: the largest `hostSeq` of the records that follow
+    /// the log's last `host_started` of `incarnation` and come before the next `host_started`.
+    /// Read back from the end, so it costs the records since that start, not the whole log
+    /// (`last_host_seq_parsed_forward` in the tests is the same fold from the start).
     pub(super) fn last_host_seq_parsed(&self, session: &Session, incarnation: &str) -> u64 {
+        // The largest `hostSeq` of the records read since (newer than) the start last passed.
+        let mut segment = 0;
         let mut last = 0;
-        let mut current = false;
-        let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+        let _ = self.store.scan_back(&session.id, 0, u64::MAX, &|_, _| false, &mut |e| {
             if e.dir == "mux" && e.kind == "host_started" {
-                current = e.msg.get("incarnation").and_then(Value::as_str) == Some(incarnation);
-                if current {
-                    last = 0;
+                if e.msg.get("incarnation").and_then(Value::as_str) == Some(incarnation) {
+                    last = segment;
+                    return false;
                 }
-            } else if current
-                && host_seq_matches(&e, incarnation)
+                segment = 0;
+            } else if host_seq_matches(&e, incarnation)
                 && let Some(h) = e.host_seq
             {
-                last = last.max(h);
+                segment = segment.max(h);
             }
             true
         });

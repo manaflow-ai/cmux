@@ -47,10 +47,10 @@ impl Hub {
             session.meta.lock().unwrap_or_else(|e| e.into_inner()).agent_behind_seq.take()?;
         self.save_meta(session);
         let mut transcript = TranscriptBuilder::new(max_chars);
-        let read = self.store.scan(&session.id, after, &mut |e| {
-            if KINDS.contains(&e.kind.as_str()) {
-                transcript.read(&e);
-            }
+        // Only the records past the mark, and of those only the transcript's kinds are parsed:
+        // the agent output's tool updates and the mux's own records are passed on their heads.
+        let read = self.store.scan_kinds_after(&session.id, after, KINDS, &mut |e| {
+            transcript.read(&e);
             true
         });
         read.ok()?;
