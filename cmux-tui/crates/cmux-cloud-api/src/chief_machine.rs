@@ -83,6 +83,22 @@ impl ChiefSize {
             _ => None,
         }
     }
+    /// A size the person names: `included` or a bigger Chief ([`Self::add_on`]'s spellings).
+    pub fn named(name: &str) -> Option<Self> {
+        match name {
+            "included" => Some(Self::Included),
+            other => Self::add_on(other),
+        }
+    }
+    /// The size's name, as [`Self::named`] reads it.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Included => "included",
+            Self::M => "M",
+            Self::L => "L",
+            Self::Xl => "XL",
+        }
+    }
 }
 
 /// The size the person's plan gives a new Chief, from the Chief size the plan names: the
@@ -102,7 +118,7 @@ pub fn plan_chief_size(plan: &Value) -> ChiefSize {
 
 /// The person's Chief size, from `cloud.plan.get`. A read that fails, or a plan that names no
 /// size, is the included size: the plan read never stops a Chief from starting.
-async fn plan_size<C: Cloud>(cloud: &C) -> ChiefSize {
+pub(crate) async fn plan_size<C: Cloud>(cloud: &C) -> ChiefSize {
     match cloud.read("cloud.plan.get", json!({})).await {
         Ok(plan) => plan_chief_size(&plan),
         Err(_) => ChiefSize::Included,
