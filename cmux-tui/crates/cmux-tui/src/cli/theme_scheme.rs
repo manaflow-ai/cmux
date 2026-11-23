@@ -56,7 +56,7 @@ Formats: ghostty, base16, iterm2, windows-terminal.";
 /// Most bytes of an image `from-image` reads (a 4K PNG wallpaper fits).
 const MAX_IMAGE_BYTES: u64 = 64 * 1024 * 1024;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 enum Request {
     Import {
         file: PathBuf,
