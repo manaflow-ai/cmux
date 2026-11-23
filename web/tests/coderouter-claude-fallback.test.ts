@@ -9,6 +9,7 @@ import {
 import {
   claudeFallbackConfig,
   createClaudeFallbackSpend,
+  createFallbackPlanReader,
   fallbackCapCents,
   fallbackModelAllowed,
   FALLBACK_ACCOUNT_ENV,
@@ -81,6 +82,8 @@ type SetupOptions = {
   /** Cents every team used today; null = the ledger cannot answer. */
   today?: number | null;
   plan?: string | null;
+  /** Drives the real cached plan reader instead of a fixed plan. */
+  planReader?: ReturnType<typeof createFallbackPlanReader>;
 };
 
 function setup(options: SetupOptions = {}) {
@@ -93,7 +96,8 @@ function setup(options: SetupOptions = {}) {
   const todayCents = mock(async () => (options.today === undefined ? 0 : options.today));
   const loadAccount = mock(async (id: string) => store.rows.get(id) ?? null);
   const teamHasAnyAccount = mock(async (teamId: string) => [...store.rows.values()].some((row) => row.teamId === teamId));
-  const planId = mock(async () => (options.plan === undefined ? "next_intro" : options.plan));
+  const planId = mock(options.planReader ??
+    (async () => ({ kind: "plan" as const, planId: options.plan === undefined ? "next_intro" : options.plan })));
   let config: ClaudeFallbackConfig = options.config ?? { kind: "off" };
   const service = createClaudeUpstreamService({
     store,
@@ -272,6 +276,109 @@ describe("house route selection", () => {
     expect((await service.select(NEWCOMER, { ...pick(), excludedAccountIds: [fallbackId] })).kind).toBe("exhausted");
     store.rows.set(fallbackId, { ...store.rows.get(fallbackId)!, state: "disabled" });
     expect(await service.hasActive(NEWCOMER, vmAccess)).toBe(false);
+  });
+});
+
+describe("house route plan from the sign-in record", () => {
+  const VM = "00000000-0000-4000-8000-00000000f00d";
+  const BUYER = "buyer-user";
+  const machine = { kind: "vm" as const, vmId: VM, poolId: "pool-1" };
+  const DAY = 24 * 60 * 60 * 1000;
+  const future = new Date(T0.getTime() + 7 * DAY).toISOString();
+  const past = new Date(T0.getTime() - 1).toISOString();
+  type Readers = { metadata?: unknown; vmUser?: string | null; failVm?: boolean; failUser?: boolean; clock?: () => number };
+  function reader(readers: Readers = {}) {
+    const readVmUser = mock(async (caller: { teamId: string; vmId: string }) => {
+      if (readers.failVm) throw new Error("db down");
+      return caller.teamId === NEWCOMER && caller.vmId === VM ? (readers.vmUser === undefined ? BUYER : readers.vmUser) : null;
+    });
+    const readUserMetadata = mock(async (userId: string) => {
+      if (readers.failUser) throw new Error("stack down");
+      return userId === BUYER ? readers.metadata : null;
+    });
+    const read = createFallbackPlanReader({ readVmUser, readUserMetadata, now: readers.clock ?? (() => T0.getTime()) });
+    return { read, readVmUser, readUserMetadata };
+  }
+  const meta = (plan: unknown, endsAt?: unknown) => ({
+    cmuxPlan: "free",
+    cmuxNextPlan: plan,
+    cmuxNextPlanStartedAt: T0.toISOString(),
+    ...(endsAt === undefined ? {} : { cmuxNextPlanEndsAt: endsAt }),
+  });
+  const select = (service: { select: (teamId: string, input: never) => Promise<unknown> }) =>
+    service.select(NEWCOMER, { access: machine, stickyKey: VM, model: sonnet } as never);
+
+  test("next_intro with an end ahead: cap 500", async () => {
+    const { read, readUserMetadata } = reader({ metadata: meta("next_intro", future) });
+    const { service } = await withFallbackAccount({ planReader: read, spent: 10 });
+    expect(await select(service)).toMatchObject({ kind: "selected", included: { spentCents: 10, capCents: 500 } });
+    expect(readUserMetadata).toHaveBeenCalledWith(BUYER);
+  });
+
+  test("next_taste with an end ahead: cap 50", async () => {
+    const { read } = reader({ metadata: meta("next_taste", future) });
+    const { service } = await withFallbackAccount({ planReader: read, spent: 10 });
+    expect(await select(service)).toMatchObject({ kind: "selected", included: { spentCents: 10, capCents: 50 } });
+  });
+
+  test("an end that has passed, a missing or unparseable end, or no plan: cap 0, today's answer", async () => {
+    for (const metadata of [meta("next_intro", past), meta("next_intro"), meta("next_intro", "not a date"), meta("next_intro", 12), meta(undefined, future), {}, null]) {
+      const { read } = reader({ metadata });
+      const { service, teamCents } = await withFallbackAccount({ planReader: read });
+      expect(await select(service)).toEqual({ kind: "none" });
+      expect(teamCents).not.toHaveBeenCalled();
+    }
+    // Not the team's machine, or a machine with no creator: no record is read.
+    for (const vmUser of [null, ""]) {
+      const { read, readUserMetadata } = reader({ metadata: meta("next_intro", future), vmUser });
+      const { service } = await withFallbackAccount({ planReader: read });
+      expect(await select(service)).toEqual({ kind: "none" });
+      expect(readUserMetadata).not.toHaveBeenCalled();
+    }
+  });
+
+  test("a read that fails refuses (fail closed, 503) and is not cached", async () => {
+    for (const failure of [{ failVm: true }, { failUser: true }]) {
+      const readers = reader({ metadata: meta("next_intro", future), ...failure });
+      const { service, teamCents } = await withFallbackAccount({ planReader: readers.read });
+      expect(await select(service)).toEqual({ kind: "fallback_unavailable" });
+      expect(teamCents).not.toHaveBeenCalled();
+      await select(service);
+      expect(readers.readVmUser).toHaveBeenCalledTimes(2);
+    }
+  });
+
+  test("env unset: the plan reader runs no read", async () => {
+    const { read, readVmUser, readUserMetadata } = reader({ metadata: meta("next_intro", future) });
+    const { service, setConfig } = await withFallbackAccount({ planReader: read });
+    setConfig({ kind: "off" });
+    expect(await select(service)).toEqual({ kind: "none" });
+    expect(await service.hasActive(NEWCOMER, machine)).toBe(false);
+    expect(readVmUser).not.toHaveBeenCalled();
+    expect(readUserMetadata).not.toHaveBeenCalled();
+  });
+
+  test("one read per machine per 60 s window, never past the pass's own end", async () => {
+    let clock = T0.getTime();
+    const endsAt = new Date(T0.getTime() + 30_000).toISOString();
+    const { read, readVmUser, readUserMetadata } = reader({ metadata: meta("next_intro", endsAt), clock: () => clock });
+    const caller = { teamId: NEWCOMER, vmId: VM };
+    expect(await Promise.all([read(caller), read(caller)])).toEqual([
+      { kind: "plan", planId: "next_intro" },
+      { kind: "plan", planId: "next_intro" },
+    ]);
+    clock += 29_999;
+    expect(await read(caller)).toEqual({ kind: "plan", planId: "next_intro" });
+    clock += 1;
+    expect(await read(caller)).toEqual({ kind: "plan", planId: null });
+    expect(readVmUser).toHaveBeenCalledTimes(1);
+    expect(readUserMetadata).toHaveBeenCalledTimes(1);
+    clock += 30_000;
+    expect(await read(caller)).toEqual({ kind: "plan", planId: null });
+    expect(readVmUser).toHaveBeenCalledTimes(2);
+    // A caller that is not a Cloud machine has no plan and reads nothing.
+    expect(await read({ teamId: NEWCOMER, vmId: null })).toEqual({ kind: "plan", planId: null });
+    expect(readVmUser).toHaveBeenCalledTimes(2);
   });
 });
 

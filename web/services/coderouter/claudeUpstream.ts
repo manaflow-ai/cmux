@@ -4,7 +4,7 @@ import {
   claudeFallbackConfig,
   decideClaudeFallback,
   defaultClaudeFallbackSpend,
-  fallbackPlanIdForCaller,
+  fallbackPlanForCaller,
   loadClaudeAccountRowById,
   teamHasAnyClaudeAccount,
   type ClaudeFallbackDependencies,
@@ -794,7 +794,7 @@ const defaultService = createClaudeUpstreamService({
   fallback: {
     config: () => claudeFallbackConfig(),
     teamHasAnyAccount: teamHasAnyClaudeAccount,
-    planId: fallbackPlanIdForCaller,
+    planId: fallbackPlanForCaller,
     loadAccount: async (accountId, signal) => {
       const row = await loadClaudeAccountRowById(accountId, signal);
       return row ? rowFromDb(row) : null;
