@@ -134,6 +134,9 @@ extension SettingsSchema {
         "agents.cmuxMcp": .userOnly,
         // How long Claude Code chats keep their prompt cache: it moves the person's model bill.
         "agents.promptCache": .userOnly,
+        // What the person's agents sound like and whether their commits and pull requests credit the agent: the person's own choice about their agents' output and their public history.
+        "agents.claudeOutputStyle": .userOnly, "agents.codexPersonality": .userOnly,
+        "agents.commitAttribution": .userOnly,
         // Computer Use: what agents may do with the person's apps. An agent must never widen (or even change) its own access, so every computerUse.* key is the person's alone.
         "computerUse.mode": .userOnly, "computerUse.deniedApps": .userOnly, "computerUse.allowOwnMachines": .userOnly,
         "computerUse.pauseOnTakeover": .userOnly, "computerUse.allowForeground": .userOnly,

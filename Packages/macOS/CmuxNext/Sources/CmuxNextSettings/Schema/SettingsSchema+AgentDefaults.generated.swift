@@ -10,6 +10,18 @@ extension AgentDefaultsSettingsSchema {
     nonisolated static let promptCachePath = ["agents", "promptCache"]
     nonisolated static let promptCacheDefault = "1h"
     nonisolated static let promptCacheValues = ["1h", "5m"]
+    /// `agents.claudeOutputStyle`: Claude Code's outputStyle for the chats cmux starts; acpmux puts it in the launch's one --settings at each Claude Code start (cmux-tui/crates/acpmux/src/agent_launch_choices.rs). agent (the default) passes nothing, so Claude Code's own settings decide; a --settings of the profile's that names outputStyle keeps its value.
+    nonisolated static let claudeOutputStylePath = ["agents", "claudeOutputStyle"]
+    nonisolated static let claudeOutputStyleDefault = "agent"
+    nonisolated static let claudeOutputStyleValues = ["agent", "default", "Explanatory", "Learning"]
+    /// `agents.codexPersonality`: Codex's personality config for the chats cmux starts; acpmux passes it as -c personality="..." at each codex app-server start (cmux-tui/crates/acpmux/src/agent_launch_choices.rs). The values are the ones codex accepts (codex 0.171: none, friendly, pragmatic). agent (the default) passes nothing, so Codex's own config decides; a -c personality of the profile's keeps its value.
+    nonisolated static let codexPersonalityPath = ["agents", "codexPersonality"]
+    nonisolated static let codexPersonalityDefault = "agent"
+    nonisolated static let codexPersonalityValues = ["agent", "pragmatic", "friendly", "none"]
+    /// `agents.commitAttribution`: strip gives Claude Code attribution {commit: "", pr: ""} in the launch's one --settings at each Claude Code start (cmux-tui/crates/acpmux/src/agent_launch_choices.rs), so its commits and pull requests carry no co-author line. Claude Code only: Codex has no config for its attribution (codex 0.171 follows the ChatGPT workspace's policy). agent (the default) passes nothing; a --settings of the profile's that names attribution or includeCoAuthoredBy keeps its value.
+    nonisolated static let commitAttributionPath = ["agents", "commitAttribution"]
+    nonisolated static let commitAttributionDefault = "agent"
+    nonisolated static let commitAttributionValues = ["agent", "strip"]
     /// `agents.modelRouter.model`: The model the cmux model router profile (cmux) starts new chats on; acpmux reads it when it builds that profile (cmux-tui/crates/acpmux/src/config/discover.rs add_cmux_router). The choices are the router's DeepSeek models, default first (user 2026-10-28: DeepSeek only, the 10/17 build with images by default); CMUX_ROUTER_MODELS in acpmux and the backend allowlist (INFERENCE_MODEL_ALLOWLIST) hold the same list.
     nonisolated static let modelRouterModelPath = ["agents", "modelRouter", "model"]
     nonisolated static let modelRouterModelDefault = "deepseek/deepseek-v4.1-flash-1017"
@@ -55,6 +67,49 @@ nonisolated enum AgentDefaultsSettingsSchema {
                 ]),
                 default: .string(AgentDefaultsSettingsSchema.promptCacheDefault),
                 keywords: ["prompt cache", "cache", "ttl", "claude", "cost", "tokens", "1 hour", "5 minutes"]
+            ),
+            SettingDescriptor(
+                AgentDefaultsSettingsSchema.claudeOutputStylePath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agents.claudeOutputStyle", "Claude Code Response Style"),
+                help: SettingsText.keyed("settings.agents.claudeOutputStyle.help", "The output style new Claude Code chats use. Agent’s Own keeps Claude Code’s setting."),
+                kind: .choice([
+                    SettingChoice("agent", SettingsText.keyed("settings.choice.agentOwnSetting", "Agent’s Own")),
+                    SettingChoice("default", SettingsText.keyed("settings.choice.claudeOutputStyleDefault", "Default")),
+                    SettingChoice("Explanatory", SettingsText.keyed("settings.choice.claudeOutputStyleExplanatory", "Explanatory")),
+                    SettingChoice("Learning", SettingsText.keyed("settings.choice.claudeOutputStyleLearning", "Learning")),
+                ]),
+                default: .string(AgentDefaultsSettingsSchema.claudeOutputStyleDefault),
+                keywords: ["output style", "response style", "style", "personality", "explanatory", "learning", "claude", "new chat"]
+            ),
+            SettingDescriptor(
+                AgentDefaultsSettingsSchema.codexPersonalityPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agents.codexPersonality", "Codex Personality"),
+                help: SettingsText.keyed("settings.agents.codexPersonality.help", "The personality new Codex chats use. Agent’s Own keeps Codex’s setting."),
+                kind: .choice([
+                    SettingChoice("agent", SettingsText.keyed("settings.choice.agentOwnSetting", "Agent’s Own")),
+                    SettingChoice("pragmatic", SettingsText.keyed("settings.choice.codexPersonalityPragmatic", "Pragmatic")),
+                    SettingChoice("friendly", SettingsText.keyed("settings.choice.codexPersonalityFriendly", "Friendly")),
+                    SettingChoice("none", SettingsText.keyed("settings.choice.codexPersonalityNone", "None")),
+                ]),
+                default: .string(AgentDefaultsSettingsSchema.codexPersonalityDefault),
+                keywords: ["personality", "response style", "style", "tone", "friendly", "pragmatic", "codex", "new chat"]
+            ),
+            SettingDescriptor(
+                AgentDefaultsSettingsSchema.commitAttributionPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agents.commitAttribution", "Co-Author Line on Commits and PRs"),
+                help: SettingsText.keyed("settings.agents.commitAttribution.help", "Remove leaves Claude Code’s co-author line and footer off commits and pull requests. Codex has no such setting."),
+                kind: .choice([
+                    SettingChoice("agent", SettingsText.keyed("settings.choice.agentOwnSetting", "Agent’s Own")),
+                    SettingChoice("strip", SettingsText.keyed("settings.choice.commitAttributionStrip", "Remove")),
+                ]),
+                default: .string(AgentDefaultsSettingsSchema.commitAttributionDefault),
+                keywords: ["attribution", "co-author", "co-authored-by", "commit", "pull request", "pr", "credit", "claude", "git"]
             ),
             SettingDescriptor(
                 AgentDefaultsSettingsSchema.modelRouterModelPath,
