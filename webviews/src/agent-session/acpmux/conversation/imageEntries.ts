@@ -319,7 +319,8 @@ export type StableImage = {
   width?: number;
   height?: number;
   /// "loading" while a sent image is read, "missing" when acpmux has none to read.
-  status: "loading" | "ready" | "missing";
+  /// `failed`: a read still unanswered past IMAGE_READ_MS; its slot says it failed (a late answer still draws).
+  status: "loading" | "ready" | "missing" | "failed";
   /// The first time this image draws in the pane: fade it in then only, never on a remount.
   fresh: boolean;
   /// Decoded ahead or drawn before: draw it with `decoding="sync"` so it paints in its first frame.
@@ -327,6 +328,11 @@ export type StableImage = {
   /// The <img>'s onLoad: keeps its natural size and that it drew.
   onLoad(event: { currentTarget: HTMLImageElement }): void;
 };
+
+/// How long a sent image's slot waits for its read before it says the image failed: no slot waits
+/// forever (Leo, 2026-11-22, on tiles that only spun: "WHAT THE FUCK IS THIS SITUATION MAN WITH THESE
+/// ATTACHMENTS!?").
+export const IMAGE_READ_MS = 15_000;
 
 /// One chat image that never blinks or reshapes on a re-render: the same `src` every render (a sent
 /// image is read and decoded once, shared by every bubble that shows it), its size before it decodes
@@ -342,6 +348,8 @@ export function useStableImage(source: StableImageSource, meta?: { width?: numbe
   const canRead = read !== undefined;
   const [loaded, setLoaded] = useState<{ id: string; entry?: ImageEntry }>();
   const [, measured] = useReducer((count: number) => count + 1, 0);
+  /// The id whose read passed IMAGE_READ_MS unanswered: its slot stops waiting and says so.
+  const [late, setLate] = useState<string>();
   // The entry this image drew from stays with it: the cache may forget the image (other images
   // pushed it out) while the bubble is still on screen, and the effect below reads only on mount
   // or a new id, so the bubble must never depend on the cache still holding what it shows.
@@ -373,8 +381,12 @@ export function useStableImage(source: StableImageSource, meta?: { width?: numbe
       // A read can fail after a reconnect or a session switch: the slot goes, never a stale image.
       () => live && setLoaded((before) => (before?.id === id && before.entry ? before : { id })),
     );
+    // timeout: a read never answered (acpmux gone quiet, a host that dropped the call) ends the wait
+    // once; the watch above stays, so the image still draws if it comes. Cleared with the slot.
+    const timer = setTimeout(() => live && setLate(id), IMAGE_READ_MS);
     return () => {
       live = false;
+      clearTimeout(timer);
       stop();
     };
   }, [id, canRead]);
@@ -388,7 +400,8 @@ export function useStableImage(source: StableImageSource, meta?: { width?: numbe
     (meta?.width && meta.height ? { width: meta.width, height: meta.height } : undefined) ??
     entry?.size ??
     (src !== undefined ? knownImageSize(src) : undefined);
-  const status = src !== undefined ? "ready" : id !== undefined && canRead && loaded?.id !== id ? "loading" : "missing";
+  const waiting = id !== undefined && canRead && loaded?.id !== id;
+  const status = src !== undefined ? "ready" : waiting ? (late === id ? "failed" : "loading") : "missing";
   const onLoad = (event: { currentTarget: HTMLImageElement }) => {
     const { naturalWidth: width, naturalHeight: height, currentSrc } = event.currentTarget;
     const drawnSrc = src ?? currentSrc;
