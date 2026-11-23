@@ -1513,6 +1513,60 @@
           ]
         },
         {
+          "key": "agentPane.display.modelChipIcon",
+          "note": "Whether the composer's model chip draws its provider's logo left of the model's name (webviews modelChipIcon.ts, cmux#38053). The chip's right-click writes it; the agent pages' storage ends with the launch, so the pick lives here.",
+          "title": {
+            "key": "settings.agentPane.display.modelChipIcon",
+            "text": "Model Logo in Composer"
+          },
+          "help": {
+            "key": "settings.agentPane.display.modelChipIcon.help",
+            "text": "Shows the provider's logo next to the model's name in the message box. Right-click the model to turn it off or on."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "composer",
+            "model",
+            "chip",
+            "logo",
+            "icon",
+            "provider",
+            "picker"
+          ]
+        },
+        {
+          "key": "agentPane.display.queueing",
+          "note": "Whether a prompt sent while a turn runs waits in the queue (webviews queueing.ts; Leo, 2026-10-21, after ChatGPT's and Codex's \"Turn off queueing\"). A queued row's menu and the composer's button row write it; the agent pages' storage ends with the launch, so the pick lives here.",
+          "title": {
+            "key": "settings.agentPane.display.queueing",
+            "text": "Queue Prompts During a Turn"
+          },
+          "help": {
+            "key": "settings.agentPane.display.queueing.help",
+            "text": "On, Send and ⌘Return queue a prompt sent while a turn runs, and Return steers it into the turn. Off, every send steers, so nothing waits."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "composer",
+            "queue",
+            "queueing",
+            "steer",
+            "send",
+            "turn",
+            "prompt",
+            "wait"
+          ]
+        },
+        {
           "key": "agentPane.display.rail.side",
           "name": "railSide",
           "title": {
