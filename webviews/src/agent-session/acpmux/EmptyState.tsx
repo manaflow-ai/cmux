@@ -1,11 +1,6 @@
 import { useLayoutEffect, useRef } from "react";
 import type { Project } from "./ProjectChooser";
-import {
-  NEW_CHAT_ENTRANCE,
-  claimNewChatEntrance,
-  playNewChatEntrance,
-  type NewChatEntrance,
-} from "./newChatEntrance";
+import { NEW_CHAT_ENTRANCE, claimNewChatEntrance, playNewChatEntrance, type NewChatEntrance } from "./newChatEntrance";
 import { TourOffer, type TourOfferActions } from "./repoTour/TourOffer";
 /// A new chat's folder choices and what a pick does (cx-9g0w). The composer's folder chip draws them;
 /// the chat view's empty state names no folder and asks nothing.

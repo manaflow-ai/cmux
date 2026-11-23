@@ -24,10 +24,7 @@ const loadEmptyState = () =>
           <EmptyState {...props} />
           <div className="acpmux-dock">
             <div className="acpmux-composer">
-              <div
-                className="acpmux-composer-box"
-                style={{ padding: "12px 16px" }}
-              >
+              <div className="acpmux-composer-box" style={{ padding: "12px 16px" }}>
                 <textarea
                   aria-label="Message"
                   placeholder="Ask anything"
