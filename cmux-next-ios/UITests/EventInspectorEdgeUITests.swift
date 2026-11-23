@@ -30,6 +30,8 @@ final class EventInspectorEdgeUITests: XCTestCase {
         }
         if let live { app.launchEnvironment["CMUX_MOBILE_LIST_LIVE_HZ"] = "\(live)" }
         if giant { app.launchEnvironment["CMUX_MOBILE_LIST_GIANT"] = "1" }
+        // The rig's frame-interval windows (the burst's summary, `list.burst.frames`).
+        app.launchEnvironment["CMUX_MOBILE_FRAMELOG"] = "1"
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-no-restore"]
         app.launch()
         XCTAssertTrue(app.navigationBars["Event Inspector"].waitForExistence(timeout: 40), "the inspector opens\n\(app.debugDescription)")
@@ -142,6 +144,29 @@ final class EventInspectorEdgeUITests: XCTestCase {
         XCTAssertTrue(newest.waitForExistence(timeout: 10) && pill.waitForNonExistence(timeout: 10),
                       "the pill lands the burst and shows the newest record\n\(app.debugDescription)")
         edgeShot(app, "burst-3-newest")
+    }
+
+    /// EVT-7 at the top (the common path: the inspector opens there): a reader at the top when
+    /// 2000 records arrive in a burst sees them land live, once a frame, with no pill. The rig's
+    /// frame-interval summary of the burst window (worst frame, hitch ms/s, main-thread CPU) is
+    /// attached; no timing is asserted on an unleased host (ListPerfProfileUITests measures it
+    /// under a lease).
+    @MainActor
+    func testABurstAtTheTopStaysSmooth() {
+        let (app, _) = launch(count: 500, edge: "burst")
+        defer { app.terminate() }
+        let probe = app.staticTexts["list.burst.frames"].firstMatch
+        XCTAssertTrue(probe.waitForExistence(timeout: 10), "the rig's burst probe\n\(app.debugDescription)")
+        edgeShot(app, "burst-top-1-before")
+        let done = NSPredicate(format: "label BEGINSWITH %@", "inspector-burst ")
+        XCTAssertEqual(XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: done, object: probe)], timeout: 40), .completed,
+                       "the burst window ends ('\(probe.label)')")
+        let summary = probe.label
+        print("CMUX_INSPECTOR_BURST_TOP \(summary)")
+        edgeNote(summary, "burst-top-frames")
+        XCTAssertFalse(app.buttons["chat.inspector.newEvents"].exists, "at the top nothing is held: no pill")
+        XCTAssertTrue(seqRow(app, 2500).waitForExistence(timeout: 10), "the newest record shows at the top\n\(app.debugDescription)")
+        edgeShot(app, "burst-top-2-after")
     }
 
     /// EVT-15, landscape.
