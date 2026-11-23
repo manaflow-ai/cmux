@@ -38,6 +38,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::SESSION_LIST,
     method::MUX_STATUS,
     method::MUX_PERF,
+    method::MUX_CALLERS,
     method::MUX_SESSIONS,
     method::MUX_USAGE,
     method::MUX_WEB_MODES,
@@ -1229,6 +1230,18 @@ pub(super) fn strip_new_meta(p: &mut Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_forwarded_start_keeps_its_name_and_asks_to_keep_a_taken_one() {
+        let mut p = json!({"_meta": {"acpmux": {
+            "peer": "far-host", "name": "slam-09", "harness": "codex",
+            "ifNameTaken": crate::hub::SUFFIX_TAKEN_NAME,
+        }}});
+        strip_new_meta(&mut p);
+        assert_eq!(p["_meta"]["acpmux"]["name"], "slam-09");
+        assert_eq!(p["_meta"]["acpmux"]["ifNameTaken"], "suffix");
+        assert!(p["_meta"]["acpmux"].get("peer").is_none());
+    }
 
     #[test]
     fn a_peer_hold_attach_is_refused_before_forwarding() {
