@@ -4,6 +4,7 @@ import CmuxNextAppCore
 import CmuxNextAppTry
 import CmuxNextCompat
 import CmuxNextErrorJournal
+import CmuxNextHangReports
 import CmuxNextSettings
 import CmuxNextTerminal
 import os
@@ -45,6 +46,8 @@ enum SettingsHandlers {
         for (id, link) in links { registry.bindEffect(id, effect: { _ in openEffect(link.url, context) }) }
         registry.bindEffect("help.revealLogs", effect: { _ in revealLogs(context) })
         registry.bindEffect("help.copyLogs", effect: { _ in copyLogs(context) })
+        registry.bindEffect("help.copyVersionInfo", effect: { _ in context.copy(BuildInfoReport.current().versionText()); return .done })
+        registry.bindEffect("help.copyDebugInfo", effect: { _ in context.copy(BuildInfoReport.current(logs: logsDirectory(context)).debugText()); return .done })
         HangReportsHandlers.bind(into: registry, context: context)
         registry.bind("help.documentation", run: { invocation in try context.open(documentationURL(topic: invocation["topic"]?.stringValue)) })
         registry.bind("app.shareCmux", run: { [weak services = context.services] _ in services.map(ShareCmuxPresenter.present) })
@@ -102,12 +105,7 @@ enum SettingsHandlers {
 
     /// The build, the system and the journal's problems of the last 3 days, as text on the clipboard (ErrorJournalReport).
     private static func copyLogs(_ context: AppActionContext) -> ActionEffect {
-        let info = Bundle.main.infoDictionary ?? [:]
-        let header = [
-            "cmux \(info["CFBundleShortVersionString"] as? String ?? "?") (\(info["CFBundleVersion"] as? String ?? "?")) \(Bundle.main.bundleIdentifier ?? "?")",
-            "macOS \(ProcessInfo.processInfo.operatingSystemVersionString)",
-            "Logs: \(logsDirectory(context).path)",
-        ]
+        let header = BuildInfoReport.current(logs: logsDirectory(context)).header
         guard let errors = context.services.errorJournal else {
             context.copy(ErrorJournalReport(header: header, entries: []).text())
             return .done
