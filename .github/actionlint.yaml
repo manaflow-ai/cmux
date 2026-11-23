@@ -13,7 +13,7 @@ self-hosted-runner:
     # self-hosted minis carry that label, and GitHub prefers a matching
     # self-hosted runner. See check_no_self_hosted_fleet_runners.
     # Linux: Blacksmith through RUNNER_POOLS and LINUX_RUNNER today; the capability
-    # map (.github/runners.json `owned`) names the GCP pool, cmux-fleet-linux-x64.
+    # map (.github/runners.json `owned`) names cmux-linux.
     - blacksmith-4vcpu-ubuntu-2404
     - blacksmith-4vcpu-ubuntu-2404-arm
     - blacksmith-8vcpu-ubuntu-2404

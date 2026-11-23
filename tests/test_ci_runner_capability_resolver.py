@@ -212,13 +212,13 @@ class RealMapTests(unittest.TestCase):
         self.document = resolver.load_map(REAL_MAP)
 
     def test_the_repository_owner_routes_to_the_owned_fleet(self) -> None:
-        # Leo, 2026-11-14: owned fleet first, not Blacksmith. The x86_64 Linux keys take the GCP Linux
-        # pool; arm64 and macOS keep Blacksmith, which nothing owned answers as a fixed label yet.
+        # Leo, 2026-11-14: owned fleet first, not Blacksmith. The x86_64 Linux keys take the one owned
+        # Linux label, cmux-linux; arm64 and macOS keep Blacksmith, which nothing owned answers as a fixed label yet.
         fleet, _, labels = resolver.resolve(map_path=REAL_MAP, owner="manaflow-ai")
 
         self.assertEqual(fleet, "owned")
         for capability in ("linux", "linux_16", "linux_32"):
-            self.assertEqual(labels[capability], "cmux-fleet-linux-x64")
+            self.assertEqual(labels[capability], "cmux-linux")
         self.assertEqual(labels["macos_15"], "blacksmith-6vcpu-macos-15")
         self.assertEqual(labels["macos_26"], "blacksmith-6vcpu-macos-26")
         self.assertEqual(labels["macos_26_ios"], "blacksmith-6vcpu-macos-26")
