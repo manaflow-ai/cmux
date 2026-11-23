@@ -76,6 +76,8 @@ pub(super) fn codex_retry(err: &Value) -> Value {
         .or_else(|| Some(message).filter(|m| !m.is_empty() && !m.starts_with("Reconnecting")));
     if let Some(d) = detail {
         out.insert("error".into(), json!(d));
+    } else if err.pointer("/codexErrorInfo/serverOverloaded").is_some() {
+        out.insert("error".into(), json!("Selected model is at capacity"));
     }
     Value::Object(out)
 }
