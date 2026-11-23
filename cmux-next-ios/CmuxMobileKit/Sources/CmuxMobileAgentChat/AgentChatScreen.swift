@@ -1064,9 +1064,9 @@ struct UserBubble: View {
     let attachments: [AgentAttachment]
     let promptAt: Date
     let isLast: Bool
-    let editAndResend: () -> Void
+    let editAndResend: @MainActor () -> Void
     /// Edit and Resend of an earlier prompt (a fork before it), when the chat offers it.
-    var editEarlier: (() -> Void)?
+    var editEarlier: (@MainActor () -> Void)?
     /// Bookmark and Read Aloud.
     var polishActions: (() -> [UIMenuElement])?
 
