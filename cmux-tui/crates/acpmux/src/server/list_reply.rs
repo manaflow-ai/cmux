@@ -245,7 +245,7 @@ pub(super) async fn watch(hub: &Hub, conn: &Conn, params: &Value) -> Result<Valu
     let on = params.get("enabled").and_then(Value::as_bool).unwrap_or(true);
     let tools = with_tools(params)?;
     conn.watch_tools.store(on && tools, Ordering::SeqCst);
-    conn.watch_all.store(on, Ordering::SeqCst);
+    conn.set_watching(on);
     // A client watching again may have lost row notices (a host left them out): each chat's next
     // row goes whole, a base it can patch (`session_patch.rs`).
     if on {
