@@ -90,6 +90,20 @@ fn each_app_look_alike_carries_its_theme_its_chat_stylesheet_and_its_settings() 
     }
 }
 
+/// Leo, 2026-11-22: "should we tuck it in a bit more like claude code? hm. well, we'd better at
+/// least do this for our claude code customization repo". The Claude Code look starts the
+/// transcript's rows on the composer's + column, derived from the composer's lead token.
+#[test]
+fn the_claude_code_look_tucks_the_transcript_to_the_composers_plus() {
+    let profile = find("claude-code-app").expect("no claude-code-app recipe").profile().unwrap();
+    let chat = profile.files.get("agent-pane/theme.css").expect("no chat stylesheet");
+    assert!(chat.contains(":root .acpmux-row"), "the rows keep the composer's edge");
+    assert!(
+        chat.contains("var(--grid-composer-lead-center)"),
+        "the tuck is not derived from the composer's + column"
+    );
+}
+
 #[test]
 fn every_shortcut_a_recipe_binds_is_an_action_cmux_has() {
     for recipe in RECIPES {
@@ -215,4 +229,29 @@ fn every_lamina_recipe_carries_a_theme_file_the_reader_takes_whole_and_a_squarer
         assert!(chat.contains(".ui-notice"), "{name}: the toast");
         assert_eq!(find(name).unwrap().parts(), ["settings", "themes", "styles"], "{name}");
     }
+}
+
+/// c-07be086806, Leo: "we know you can change colours. im saying the big stuff". The layout and
+/// behaviour looks are recipes too, and none of them sets a color or a theme. The leader keys all
+/// start with Command-J, cmux's own leader, so none takes a key a terminal or a chat types.
+#[test]
+fn the_layout_and_behaviour_looks_change_layout_and_keys_not_colors() {
+    for name in ["review-desk", "bottom-deck", "workspace-tabs", "leader"] {
+        let recipe = find(name).unwrap_or_else(|| panic!("no {name} recipe"));
+        let profile = recipe.profile().unwrap();
+        for key in profile.settings.keys() {
+            assert!(
+                !key.starts_with("appearance.") && !key.contains("color") && !key.contains("Color"),
+                "{name} sets {key}, a look key"
+            );
+        }
+    }
+    let leader = find("leader").unwrap().profile().unwrap();
+    let parsed = cmux_config::keybindings::parse(&leader.files["keybindings.json"]);
+    assert!(parsed.entries.len() >= 20, "{} leader keys", parsed.entries.len());
+    for entry in &parsed.entries {
+        assert_eq!(entry.keys[0], "cmd+j", "{} does not start with the leader", entry.command);
+        assert!(entry.keys.len() >= 2, "{} is the bare leader", entry.command);
+    }
+    assert_eq!(find("review-desk").unwrap().parts(), ["settings", "keybindings"]);
 }
