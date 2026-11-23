@@ -40,6 +40,43 @@ public final class CloudStartGate {
         return hold
     }
 
+    /// ``hold(_:until:bound:clock:)``, taken once the start knows its machine and before it connects, then a wait of at
+    /// most `within` while `running` (an update of the machine that already ran when the start came; one that begins
+    /// later finds the start here and answers busy). A hold taken after the connect came too late: the update could pass
+    /// its check while the start connected and read its model route, then restart the daemon under the copy.
+    public func holdBeforeConnect<C: Clock>(_ machineID: String, until timeline: CloudSendTimeline?, within: Duration, clock: C,
+                                            running: @escaping @Sendable () async -> Bool) async -> Hold where C.Duration == Duration {
+        let hold = self.hold(machineID, until: timeline, clock: clock)
+        _ = await CloudWait.bounded(within, clock: clock, running)
+        return hold
+    }
+
+    /// A composer start's hold of its machine, taken once the start knows the machine (``take(_:in:until:within:running:)``,
+    /// in `CloudStartChat.machine(for:)`) and ended by the start on a failure, else by the chat's first token or the bound.
+    @MainActor
+    public final class Holding {
+        public private(set) var hold: Hold?
+
+        public init() {}
+
+        /// ``CloudStartGate/holdBeforeConnect(_:until:within:clock:running:)`` of the start's machine; once per start.
+        public func take(_ machineID: String, in gate: CloudStartGate, until timeline: CloudSendTimeline?, within: Duration,
+                         running: @escaping @Sendable () async -> Bool) async {
+            guard hold == nil else { return }
+            hold = await gate.holdBeforeConnect(machineID, until: timeline, within: within, clock: ContinuousClock(), running: running)
+        }
+
+        /// The hold taken, or one of `machineID` taken now.
+        public func keep(_ machineID: String, in gate: CloudStartGate, until timeline: CloudSendTimeline?) -> Hold {
+            if let hold { return hold }
+            let made = gate.hold(machineID, until: timeline)
+            hold = made
+            return made
+        }
+
+        public func end() { hold?.end() }
+    }
+
     /// One start's hold of its machine (``hold(_:bound:clock:)``); ending it twice leaves once.
     @MainActor
     public final class Hold {

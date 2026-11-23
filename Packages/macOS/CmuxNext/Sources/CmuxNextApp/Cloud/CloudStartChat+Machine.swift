@@ -56,7 +56,7 @@ extension CloudStartChat {
     /// for the chat (`pick`) and pinned to the send before anything runs there. `workspace`: the Mac
     /// workspace the send began in. `direct`: its create may go straight to the Cloud API as the person (``CloudMoveCLI/StartChatPlan/ownCreate(personsOwnRun:relayOnly:)``).
     func machine(for start: AgentPaneCloudStart, account: [String?], workspace: String?, connection: String?, cli: CloudMoveCLI, invocation: ActionInvocation,
-                 direct: Bool = true, pick: () async -> CloudWorkPick?) async throws -> (CloudMachineSession, CloudMoveCLI.StartChatPlan) {
+                 direct: Bool = true, holding: CloudStartGate.Holding? = nil, pick: () async -> CloudWorkPick?) async throws -> (CloudMachineSession, CloudMoveCLI.StartChatPlan) {
         let machines = services.machines, cloud = services.cloud
         await CloudWait.firstList(loaded: { cloud.hasLoadedCurrentMachines }, signedIn: { cloud.isSignedIn }) { _ = await cloud.refresh() } // Rust's `list_wait`; the card shows the machine step meanwhile
         try await importKeptSends(cli)
@@ -105,11 +105,11 @@ extension CloudStartChat {
                 throw failure
             } catch is CloudPersonCreate.Unavailable where direct && !plan.createSent && !Task.isCancelled { // the direct route refused before the op ran: the ledger gives the start a new key, which the relay takes
                 _ = try Self.checked(await cli.startChatCreateRefused(key: start.key, account: CloudStartCore().accountText(account), createKey: plan.createKey))
-                return try await machine(for: start, account: account, workspace: workspace, connection: connection, cli: cli, invocation: invocation, direct: false, pick: pick)
+                return try await machine(for: start, account: account, workspace: workspace, connection: connection, cli: cli, invocation: invocation, direct: false, holding: holding, pick: pick)
             }
             invocation.arguments["machine"] = .string(created.machineID)
         }
-        let id = invocation.arguments["machine"]?.stringValue, text = CloudStartCore().accountText(account)
+        let id = invocation.arguments["machine"]?.stringValue, text = CloudStartCore().accountText(account); if let holding, let id { await holding.take(id, in: cloud.startGate, until: timeline, within: CloudStartSession.connectWait) { [policy = services.daemonUpdates.policy, target = CloudMachineUpdateTarget.id(id)] in await policy.turnRunning(target) } } // held before the connect and the route read, past an update of it that already runs (cmux#45953)
         return try await cli.releasing(made: plan.madeForStart ? id : nil, key: start.key, account: text, sameAccount: { account == cloud.account }, delete: { try await cloud.deleteMachine($0) }) { // a failed pin, attach or route deletes a machine made for this start
             // The pin (unpinned, a retry could open the chat elsewhere) is this Mac's own record: it runs beside the link's connect, which
             // runs nothing on the machine, and both end before anything does (cmux#45953). A failed pin still ends the start here.

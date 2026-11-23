@@ -34,6 +34,22 @@ struct CloudStartGateHoldTests {
         #expect(!gate.contains("vm_b"))
     }
 
+    /// A composer start holds its machine before it connects and only then waits out an update of it that already runs,
+    /// so an update that begins meanwhile finds the start in the gate (cmux#45953 review: the hold came after the connect).
+    @Test func theHoldIsInTheGateBeforeTheStartWaitsOutARunningUpdate() async {
+        let gate = CloudStartGate(), heldDuringWait = OSAllocatedUnfairLock(initialState: false)
+        let hold = await gate.holdBeforeConnect("vm_d", until: nil, within: .seconds(180), clock: ManualClock()) {
+            let held = await gate.contains("vm_d")
+            heldDuringWait.withLock { $0 = held }
+            return true
+        }
+        #expect(heldDuringWait.withLock { $0 })
+        #expect(!hold.ended)
+        #expect(gate.contains("vm_d"))
+        hold.end()
+        #expect(!gate.contains("vm_d"))
+    }
+
     /// The send's first token ends the hold (``CloudSendTimeline/whenFinished(_:)``); a body added after the end runs at once.
     @Test func theFirstTokenEndsTheHold() async {
         let gate = CloudStartGate(), timeline = CloudSendTimeline()

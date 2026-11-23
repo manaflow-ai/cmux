@@ -26,7 +26,7 @@ extension CloudStartChat {
                 // No chat a start opened: the page does what a pick did before.
                 return AgentPaneReply.failure(code: "not_a_cloud_start", message: "not_a_cloud_start")
             }
-            return await CloudStartChat(services: services).repick(repick, started: started, key: scoped.key, machine: scoped.machine, tab: tab)
+            return await CloudStartChat(services: services, timeline: CloudSendTimeline()).repick(repick, started: started, key: scoped.key, machine: scoped.machine, tab: tab) // its own timeline: the first token on the picked machine ends its hold, not the 300 s bound (cmux#45953)
         }
     }
 
