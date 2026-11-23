@@ -11,6 +11,8 @@
 // transcript stays in sight beside and between them, as it does beside the composer card (Leo,
 // 2026-11-17: "this needs your input dismiss row erases things behind it").
 import { useLayoutEffect, type RefObject } from "react";
+import { experimentArm } from "../../../experiments/experiment";
+import { dockBand } from "../dockBand.experiment";
 import { besideMask } from "./besideStack";
 
 const VARIABLES = ["--acpmux-beside-images", "--acpmux-beside-sizes", "--acpmux-beside-positions"] as const;
@@ -31,6 +33,8 @@ export function useBesideStack(
   useLayoutEffect(() => {
     const view = scroller.current;
     if (!dock || !view) return;
+    // Read once per stack: an arm changes with a reload (the gallery's arm, the debug key).
+    const arm = experimentArm(dockBand);
     const surfaces = () =>
       dock.querySelectorAll<HTMLElement>(`:scope > .acpmux-running-tray, .acpmux-composer-box, :scope > ${ASK_CARD}`);
     const paint = () => {
@@ -63,10 +67,22 @@ export function useBesideStack(
                 radiusLeft: Number.parseFloat(style.borderTopLeftRadius) || 0,
                 radiusRight: Number.parseFloat(style.borderTopRightRadius) || 0,
                 ...(asks && { clearTo: stackBottom - box.top }),
+                card: surface.classList.contains("acpmux-composer-box"),
               };
             })
         : [];
-      const mask = besideMask(placed, box.width);
+      // The rows run under the card only where its glass frosts them (a see-through window, Lens,
+      // Spectrum). An opaque window's card blurs nothing (composerStates.css `--glass-backdrop: none`)
+      // and Reduce Transparency draws it solid: under them the rows read sharp through the prompt, so
+      // the band stays as it ships (test/agent-pane-dock-band.test.ts).
+      const card = dock.querySelector<HTMLElement>(".acpmux-composer-box");
+      const frosts = (() => {
+        if (arm === "shipped" || !card) return false;
+        const style = getComputedStyle(card);
+        const blur = style.backdropFilter || style.getPropertyValue("-webkit-backdrop-filter");
+        return !!blur && blur !== "none";
+      })();
+      const mask = besideMask(placed, box.width, frosts ? { arm, height: box.height } : undefined);
       const values = [mask?.images, mask?.sizes, mask?.positions];
       VARIABLES.forEach((name, at) => {
         const value = values[at];
