@@ -13,6 +13,7 @@ import table from "./generated/strings.json";
 import { MockAppsProvider } from "./mockProvider";
 import { AppsStore } from "./store";
 import { CommunityStore } from "./community";
+import { NewTabChoice, NewTabChoiceProvider } from "./UseAsNewTab";
 import { languageDirection, UiProvider } from "../../ui/UiProvider";
 import "../shared/pageBase.css";
 import "./styles.css";
@@ -47,12 +48,15 @@ export function mountAppsPage(
     store.applyRoute(window.location.hash);
     community.applyRoute(window.location.hash);
   });
+  const newTabChoice = new NewTabChoice(client);
   renderLocalized(
     createRoot(root),
     table,
     (strings) => (
       <UiProvider container={root} dir={languageDirection(strings.language)}>
-        <AppsPage store={store} strings={strings} community={community} />
+        <NewTabChoiceProvider value={newTabChoice}>
+          <AppsPage store={store} strings={strings} community={community} />
+        </NewTabChoiceProvider>
       </UiProvider>
     ),
     (strings) => strings.t("store.window.title"),
