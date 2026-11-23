@@ -60,25 +60,23 @@ extension CloudHandlers {
             try CloudBringBack(services: services).start(invocation, context: context, toMachine: true)
         }
         bindSSHMove(into: registry, context: context)
-        // The chat's place controls (cloud/auto/evacuate): Swift calls and draws, Rust decides (``CloudPlaceFlows``, ``CloudPlaceRun``).
-        // The page runs them on the chat's tab (`action.run`); an agent never moves a chat this way.
-        let place = CloudPlaceRun(services: services)
-        for id in [CloudPlaceRun.set, CloudPlaceRun.retry, CloudPlaceRun.evacuate] {
-            bind(id, registry, reason: reason) { invocation in
-                guard !CloudMoveAsks.isAgent(invocation) else { throw ActionFailure(message: CloudMoveAskStrings.bringBackIsPersons) }
+        // The chat's place controls (cloud/auto/evacuate): Swift calls and draws, Rust decides (``CloudPlaceDriver``).
+        // The page runs them on the chat's tab (`action.run`); an agent never moves a chat this way. Auto starts with them.
+        let place = services.cloud.placeDriver ?? CloudPlaceDriver(place: services.cloud.place, host: CloudPlaceApp(services: services))
+        if services.cloud.placeDriver == nil { services.cloud.placeDriver = place; place.start() }
+        for id in [CloudPlaceApp.set, CloudPlaceApp.retry, CloudPlaceApp.evacuate, CloudPlaceApp.cancel] {
+            bind(id, registry, reason: id == CloudPlaceApp.cancel ? { nil } : reason) { invocation in
+                guard id == CloudPlaceApp.cancel || !CloudMoveAsks.isAgent(invocation) else { throw ActionFailure(message: CloudMoveAskStrings.bringBackIsPersons) }
+                let tab = context.daemonTab(invocation)?.0.id
                 switch id {
-                case CloudPlaceRun.set: try place.setMode(invocation, context: context)
-                case CloudPlaceRun.retry: place.retryMove(invocation, context: context)
-                default: place.evacuate(invocation)
+                case CloudPlaceApp.set:
+                    guard let mode = invocation["mode"]?.stringValue, ["local", "cloud", "auto"].contains(mode) else { throw ActionFailure(message: "mode must be local, cloud or auto") }
+                    if let tab { place.setMode(mode, tab: tab) }
+                case CloudPlaceApp.retry: if let tab { place.retry(tab: tab) }
+                case CloudPlaceApp.cancel: place.cancel(tab: tab, session: invocation["session"]?.stringValue)
+                default: place.evacuate(sessions: invocation["sessions"]?.stringValue.map { $0.split(separator: ",").map(String.init) })
                 }
             }
-        }
-        bind(CloudPlaceRun.cancel, registry, reason: { nil }) { invocation in place.cancelMove(invocation, context: context) }
-        // Auto reads this computer's sleep, battery, memory, disk and idle time and asks Rust about each Auto chat.
-        if services.cloud.autoMonitor == nil {
-            let monitor = CloudAutoMonitor(services: services)
-            services.cloud.autoMonitor = monitor
-            monitor.start()
         }
         // A chat that cannot move now (no first message yet) shows its rows disabled with why, and every run refuses with it.
         let refusal: @MainActor (ActionInvocation) -> String? = { CloudMove(services: services).refusal($0, context: context) }

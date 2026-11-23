@@ -349,7 +349,7 @@ struct CloudMove {
             guard let session = machines.session(id) else { throw Failure(message: CloudMoveStrings.noSuchMachine(id), retry: .move(machineID: id)) }
             return try await Self.connected(session, invocation)
         }
-        if invocation["newMachine"]?.boolValue != true, let live = others.first(where: { $0.daemon.connection != nil }) ?? others.first { // newMachine: the chat's own VM (``CloudPlaceRun``)
+        if invocation["newMachine"]?.boolValue != true, let live = others.first(where: { $0.daemon.connection != nil }) ?? others.first { // newMachine: the chat's own VM (``CloudPlaceDriver``)
             return try await Self.connected(live, invocation)
         }
         let created = try await services.cloud.createMachine(name: nil, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession,
