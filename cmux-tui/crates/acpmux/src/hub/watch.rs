@@ -401,17 +401,21 @@ impl Hub {
         // died (or before a metadata write failed). Reuse its exact boundary
         // instead of inserting a second historical-page marker.
         let mut recorded = false;
-        if let Err(error) = self.store.scan_kinds(&session.id, &["native_history"], &mut |event| {
-            if event.dir == "mux"
-                && event.msg.get("before").and_then(Value::as_u64) == Some(start)
-                && event.msg.get("mark").and_then(Value::as_str) == Some(mark.as_str())
-            {
-                recorded = true;
-                false
-            } else {
-                true
-            }
-        }) {
+        // An unindexed kind: the whole log, off the runtime's workers (`qos::off_worker`).
+        let scanned = crate::qos::off_worker(|| {
+            self.store.scan_kinds(&session.id, &["native_history"], &mut |event| {
+                if event.dir == "mux"
+                    && event.msg.get("before").and_then(Value::as_u64) == Some(start)
+                    && event.msg.get("mark").and_then(Value::as_str) == Some(mark.as_str())
+                {
+                    recorded = true;
+                    false
+                } else {
+                    true
+                }
+            })
+        });
+        if let Err(error) = scanned {
             tracing::warn!(session = %session.id, "read native history seed failed: {error}");
             return false;
         }

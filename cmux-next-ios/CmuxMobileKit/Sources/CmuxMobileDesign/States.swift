@@ -254,13 +254,15 @@ private struct BannerHost: View {
     let state: ConnectionBannerState?
     let retry: (() -> Void)?
     @State private var dismissed: ConnectionBannerState?
+    /// When the link went down (any chip state), kept across a change of state while down.
+    @State private var downSince: Date?
 
     var body: some View {
         ZStack {
             if let state, state != dismissed {
                 Group {
                     if let chip = state.chip {
-                        ConnectionChip(chip, retry: state.offersRetry ? retry.map { action -> @MainActor () async -> Void in { action() } } : nil)
+                        ConnectionChip(chip, downSince: downSince ?? ConnectionChip.justDropped, retry: state.offersRetry ? retry.map { action -> @MainActor () async -> Void in { action() } } : nil)
                     } else {
                         ConnectionBanner(state, retry: retry)
                     }
@@ -277,6 +279,9 @@ private struct BannerHost: View {
         .frame(maxWidth: .infinity)
         .animation(theme.motion.snappy.animation.unlessReduceMotion, value: state)
         .onChange(of: state) { _, new in dismissed = BannerDismissal.remembered(dismissed, after: new) }
+        .onChange(of: state?.chip != nil, initial: true) { _, down in
+            downSince = ConnectionChip.nextDownSince(downSince, down: down, now: Date())
+        }
     }
 }
 
