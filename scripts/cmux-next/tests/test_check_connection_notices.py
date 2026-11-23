@@ -322,6 +322,48 @@ class NativeShapes(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("a literal grace under the bound (QuietHold(", out)
 
+    def test_a_chip_that_draws_only_the_content_handed_to_it_is_not_a_drawing(self):
+        """cmux-next-ios ConnectionChip (#49316): its Kind words show only for a state a caller hands it; the
+        caller's sentence is judged where it is said. A view that says the same words of its own still fails."""
+        chip = ("public struct ConnectionChip: View {\n"
+                "    public enum Kind { case connecting\n"
+                "        public var word: String {\n"
+                "            switch self { case .connecting: String(localized: \"Connecting\") }\n"
+                "        }\n"
+                "    }\n"
+                "    public struct Content { public var kind: Kind; public var sentence: String }\n"
+                "    let content: Content\n"
+                "    public init(_ content: Content) { self.content = content }\n"
+                "    public var body: some View { Text(verbatim: content.kind.word) }\n"
+                "}\n")
+        tree = Tree(self)
+        tree.write(f"{IOS}/ConnectionChip.swift", chip)
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+        own = chip.replace("public var body: some View { Text(verbatim: content.kind.word) }",
+                           "public var body: some View { Text(\"Connecting…\") }")
+        tree.write(f"{IOS}/ConnectionChip.swift", own)
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn("ConnectionChip shows a connection state", out)
+
+    def test_a_row_model_whose_action_is_connect_carries_an_action(self):
+        """HomeChiefConnection (#51244): 'Not connected' with `action` returning .connect, the row's Connect link."""
+        row = ("public struct HomeChiefConnection {{\n"
+               "    public var status: String {{ \"Not connected\" }}\n"
+               "    public var action: Action? {{\n"
+               "        {ret}\n"
+               "    }}\n"
+               "}}\n")
+        tree = Tree(self)
+        tree.write(f"{MAC}/HomeChiefConnection.swift", row.format(ret="return .connect"))
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+        tree.write(f"{MAC}/HomeChiefConnection.swift", row.format(ret="return nil"))
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn("HomeChiefConnection shows a connection state", out)
+
     def test_a_mac_connection_chip_is_a_gate(self):
         """CmuxNextDesign's connectionChip / connectionLasting hold the state for NoticeTiming.connectionQuiet."""
         view = ("struct RemotePathBadgeView: View {\n"

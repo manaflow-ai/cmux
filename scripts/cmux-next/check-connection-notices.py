@@ -21,13 +21,15 @@ owns those words).
 Each hit belongs to a unit: the top-level declaration it sits in (a TS function or const, a Swift type with its
 extensions in the same file). A unit that only holds words for another to draw (a TS helper, label map or strings
 map, a Swift `…Strings`/`…Text`/`…Copy` type) passes its hits on to the units that use them (`L.disconnected`,
-`RemoteStrings.placeholderReconnecting`, `stateText(…)`), so the check lands where the words are drawn. A unit passes
-when it
+`RemoteStrings.placeholderReconnecting`, `stateText(…)`), so the check lands where the words are drawn. A Swift view
+that draws only a state handed to it (`ConnectionChip`: its words sit in a nested `Kind` its init takes) shows nothing
+of its own; the state's sentence is judged where a caller says it. A unit passes when it
   bound   names a time gate: the shared bound (CONNECTION_QUIET_MS / useConnectionQuiet on the web,
           NoticeTiming.connectionQuiet on the Mac, QuietStatusGate on iOS; schemas/notice-timing/notice-timing.json,
           each copy checked against it) or an existing hold built on one (TIME_GATES). A gate helper given a literal
           grace under the bound (`useLasting(down, 500)`) does not count: name the shared bound instead;
-  action  carries a person action: a button, a click or tap handler, an action closure (PERSON_ACTIONS);
+  action  carries a person action: a button, a click or tap handler, an action closure (PERSON_ACTIONS), or a
+          row model's `var action` that returns `.connect` / `.reconnect` (its row draws that link);
   listed  is in the allowlist (scripts/cmux-next/connection-notices-allowlist.tsv: unit, surface, owner, reason).
 The allowlist only shrinks: with --base REV a row the list at REV lacks fails (a unit that moved to another file
 under the same name keeps its row), and a row whose unit no longer shows an unbounded connection state (fixed,
@@ -131,6 +133,13 @@ PERSON_ACTIONS = re.compile(
     r"|\bButton\s*\(|\bNSButton\b|\.onTapGesture\b|\baddAction\b|#selector\(|\bUIAction\b|\.swipeActions\b"  # Swift
     r"|\baction:\s*\{|\bactions:\s*\[|\baction:\s*\.)"
 )
+# A model's own action toward the link: `var action: Action? { … return .connect }` (a row the drawing renders with
+# its Connect or Reconnect link), so its connection words come with the one thing to do about them.
+CONNECT_ACTION_MEMBER = re.compile(r"\bvar\s+\w*[aA]ction\s*:")
+CONNECT_ACTION_VALUE = re.compile(r"\breturn\s+\.(?:re)?connect\b")
+# A nested Swift type and an init that takes one: a presenter that draws only the Content handed to it.
+SWIFT_NESTED_TYPE = re.compile(r"^\s+(?:(?:public|private|fileprivate|internal|package)\s+)*(?:enum|struct)\s+(\w+)")
+SWIFT_INIT_PARAMS = re.compile(r"\binit\s*\(([^)]*)")
 # Lines that are not UI text: logs, errors, assertions.
 NOT_UI_LINE = re.compile(
     r"\b(log(?:ger)?\.\w+|Logger|os_log|NSLog|print|debugPrint|console\.\w+|fatalError|precondition\w*|assert\w*"
@@ -318,6 +327,33 @@ def units_of(path: str, source: str) -> list[tuple[str, int, int]]:
     return spans
 
 
+def is_presenter(unit: Unit) -> bool:
+    """A Swift view whose every connection word sits in a nested type its init takes (`ConnectionChip`: `Kind.word`
+    says "Connecting", `init(_ content: Content)`). It shows nothing of its own: it draws the state a caller hands it,
+    and that state's own words (the chip's `sentence:`, a store's `connectionLine`) are judged where they are said,
+    with that unit's gate (QuietStatusGate) or action. Its vocabulary is not a second drawing."""
+    if not unit.path.endswith(".swift") or not unit.hits or not unit.lines:
+        return False
+    if not re.search(rf"\b(?:struct|class)\s+{re.escape(unit.name)}\s*:[^{{]*\bView\b", unit.lines[0]):
+        return False
+    spans: dict[str, tuple[int, int]] = {}
+    for i, line in enumerate(unit.lines):
+        m = SWIFT_NESTED_TYPE.match(line)
+        if not m:
+            continue
+        depth, opened, end = 0, False, len(unit.lines) - 1
+        for j in range(i, len(unit.lines)):
+            depth += unit.lines[j].count("{") - unit.lines[j].count("}")
+            opened = opened or "{" in unit.lines[j]
+            if opened and depth <= 0:
+                end = j
+                break
+        spans.setdefault(m.group(1), (i, end))
+    taken = {name for m in SWIFT_INIT_PARAMS.finditer("\n".join(unit.lines)) for name in spans
+             if re.search(rf":\s*{name}\b", m.group(1))}
+    return bool(taken) and all(any(a <= h.index <= b for a, b in spans.values()) for h in unit.hits)
+
+
 def is_provider(unit: Unit) -> bool:
     """A unit that only says the words, for another unit to draw: a TS helper, map or label table (anything but a
     PascalCase component in a .tsx file), or a Swift strings type (`RemoteViewStrings`, `HomeText`)."""
@@ -384,7 +420,10 @@ def scan(tree: Tree) -> list[Unit]:
     for unit in units.values():
         text = "\n".join(unit.lines)
         unit.gated = bool(TIME_GATES.search(text))
-        unit.acted = bool(PERSON_ACTIONS.search(text))
+        unit.acted = bool(PERSON_ACTIONS.search(text)) or bool(
+            CONNECT_ACTION_MEMBER.search(text) and CONNECT_ACTION_VALUE.search(text))
+        if is_presenter(unit):
+            unit.hits = []  # its words show only for a state a caller hands it; that state is judged where it is said
         unit.literal_grace = [m.group(0) for m in LITERAL_GRACE.finditer(text)
                               if int(m.group(2).replace("_", "")) < bound]
         unit.literal_grace += [m.group(0) + ")" for m in SWIFT_LITERAL_GRACE.finditer(text)
