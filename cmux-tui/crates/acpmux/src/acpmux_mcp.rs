@@ -25,6 +25,8 @@
 //! A remote-origin session gets no tools at all (`agent_tools::left_out`). An app outside
 //! acpmux (Claude desktop, Claude Code, Codex) linked with `acpmux desktop link` runs it in guest
 //! mode (`acpmux_mcp_guest.rs`): the tools that need no session, plus `machines` and `new`.
+//! A session's own chat gets `machines`, `machine_start`, `new` and `fork` too
+//! (`acpmux_mcp_start.rs`): it starts machines and chats from the chat, as its CLI would.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -85,6 +87,8 @@ pub(crate) use pr::pr_state;
 mod send;
 #[path = "acpmux_mcp_send_status.rs"]
 mod send_status;
+#[path = "acpmux_mcp_start.rs"]
+mod start;
 #[path = "acpmux_mcp_watch.rs"]
 mod watch;
 #[path = "acpmux_mcp_who_else.rs"]
@@ -105,6 +109,7 @@ pub(crate) fn tools() -> Value {
         list.extend(goal::tools());
         list.extend(watch::tools());
         list.push(send_status::tool());
+        list.extend(start::tools());
     }
     all
 }
@@ -399,6 +404,9 @@ fn served_with(
                 }
                 if name == "search" {
                     return search_tool(&daemon, &session, &args).await;
+                }
+                if start::TOOLS.contains(&name) {
+                    return start::call(&daemon, name, &args).await;
                 }
                 if name == "machine_info" {
                     return machine_info(&daemon, &session).await;

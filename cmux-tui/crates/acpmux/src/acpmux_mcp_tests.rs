@@ -90,7 +90,11 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
             "watch_add",
             "watch_ls",
             "watch_rm",
-            "send_status"
+            "send_status",
+            "machines",
+            "machine_start",
+            "new",
+            "fork"
         ]
     );
     let send = tools[0]["description"].as_str().unwrap();
