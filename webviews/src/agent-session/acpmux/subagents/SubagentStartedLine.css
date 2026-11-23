@@ -21,9 +21,32 @@
 .cv-subagent-started .cv-agent-activity__sentence {
   max-width: 100%;
 }
+/* Three or more starting at once (startedLineCrowd.experiment.ts): one icon each, then the count. The
+   first icon is the row's own, in the icon column; the rest lead the words, a step apart. */
+.cv-subagent-started__face {
+  display: inline-flex;
+  flex: none;
+  line-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  border-radius: 999px;
+}
+.cv-subagent-started__face:disabled {
+  cursor: default;
+}
+.cv-subagent-started__faces {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1, 4px);
+  margin-inline-end: var(--ds-space-2, 8px);
+  vertical-align: middle;
+}
 .cv-subagent-started__more {
   flex: none;
-  color: var(--cv-activity-text);
+  color: var(--agent-muted);
   cursor: default;
   white-space: nowrap;
 }
