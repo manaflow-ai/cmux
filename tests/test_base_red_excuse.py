@@ -3888,6 +3888,14 @@ class CancelledWebShardPerFile(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "is cancelled: it has no verdict to compare with the base"):
             self.judge(self.gh(cut_short_log((FOOTER, "PASS"), (CAPSULES, "PASS"))))
 
+    def test_a_red_file_that_only_timed_out_on_the_base_is_its_own(self):
+        # Review of #39840, F1: the base's TIMEOUT says nothing of how the file fares, so it matches no head red.
+        gh = self.gh(cut_short_log((CAPSULES, "FAIL")))
+        gh.logs[5] = web_log(timeouts=[CAPSULES])
+        with self.assertRaisesRegex(excuse.Refused, re.escape(f"1 red file(s) pass or do not run on feat-cmux-next "
+                                                              f"run 40: {CAPSULES}")):
+            self.judge(gh)
+
     def test_a_file_that_timed_out_on_the_head_is_its_own(self):
         with self.assertRaisesRegex(excuse.Refused, "timed out \\(a cut-short file is never a base red\\)"):
             self.judge(self.gh(cut_short_log((CAPSULES, "FAIL"), (FOOTER, "TIMEOUT"))))
@@ -4549,6 +4557,68 @@ class StatusGitHub(FakeGitHub):
             if route.endswith(f"commits/{sha}/status?per_page=100"):
                 return {"statuses": copy.deepcopy(statuses)}
         return super().json(route, paginate=paginate)
+
+
+class PoolStatusRed(unittest.TestCase):
+    """cmux#49885 at 8b11f0c2 (2026-11-22): 'clippy (changed cmux-tui packages)' was a failed commit status of the
+    controller's required-checks pool while the Actions job of that name was skipped by path routing. The classifier
+    read only the Actions twin and refused "is skipped: it has no verdict to compare with the base; re-run it", and a
+    re-run of a skipped job comes back skipped. The pool's red is named as the pool's, with the controller's rerun."""
+    NAME = "clippy (changed cmux-tui packages)"
+    CONTROLLER = "http://100.89.225.106:18765"
+
+    def setUp(self):
+        self.gh = StatusGitHub()
+        self.gh.head_status = {
+            "context": self.NAME, "state": "failure",
+            "description": f"failed on the cmux pool (exit 1); rerun: POST /v1/required-checks/rerun?head={HEAD}; "
+                           "on cmux-linux-pool-1…",
+            "target_url": f"{self.CONTROLLER}/v1/required-checks?head={HEAD}"}
+        self.twin = [{"id": 137206491874, "name": self.NAME, "status": "completed", "conclusion": "skipped",
+                      "app": {"slug": "github-actions"},
+                      "details_url": f"https://github.com/{REPO}/actions/runs/10/job/137206491874"}]
+        self.gh.jobs[137206491874] = dict(failed_job(137206491874, 10, HEAD, name=self.NAME), conclusion="skipped")
+        original = self.gh.json
+
+        def json(route, *, paginate=False):
+            if route.endswith(f"commits/{HEAD}/check-runs?filter=all&per_page=100"):
+                return [{"check_runs": copy.deepcopy(self.twin)}]
+            return original(route, paginate=paginate)
+        self.gh.json = json
+
+    def judge(self):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[self.NAME])
+
+    def assertPoolRed(self):
+        with self.assertRaises(excuse.Refused) as got:
+            self.judge()
+        said = str(got.exception)
+        self.assertIn(f"'{self.NAME}': pool status red at {HEAD[:12]}", said)
+        self.assertIn(f"rerun it through the controller (POST {self.CONTROLLER}/v1/required-checks/rerun?head={HEAD})",
+                      said)
+        self.assertNotIn("is skipped", said)
+        self.assertNotIn("re-run it", said)
+
+    def test_49885_a_pool_red_whose_actions_twin_was_skipped_names_the_controller_rerun(self):
+        self.assertPoolRed()
+
+    def test_a_pool_red_with_no_actions_twin_names_the_controller_rerun(self):
+        self.twin = []
+        self.assertPoolRed()
+
+    def test_a_pool_status_for_another_head_or_a_green_one_is_judged_as_before(self):
+        self.gh.head_status["description"] = self.gh.head_status["description"].replace(HEAD, "c" * 40)
+        with self.assertRaisesRegex(excuse.Refused, "is skipped: it has no verdict to compare with the base"):
+            self.judge()
+        self.assertIsNone(excuse.pool_status_refusal(HEAD, self.NAME, dict(self.gh.head_status, state="success")))
+        self.assertIsNone(excuse.pool_status_refusal(HEAD, self.NAME, {"state": "failure", "description": "Build failed"}))
+
+    def test_a_failed_actions_twin_is_still_judged_as_its_job(self):
+        # A twin that ran and failed is a verdict of its own: compared with the base as before, not the pool's.
+        self.twin[0]["conclusion"] = "failure"
+        with unittest.mock.patch.object(excuse, "job_for", side_effect=excuse.Refused("judged as its job")):
+            with self.assertRaisesRegex(excuse.Refused, "judged as its job"):
+                self.judge()
 
 
 class CompileStatusGitHub(StatusGitHub):
@@ -5424,6 +5494,20 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
         (COMPILE_STATUS_POSTER): a lane's or a person's look-alike, or another App's, leaves the head uncompiled."""
         for creator in (self.LANE, {**excuse.COMPILE_STATUS_POSTER, "id": 1}, {**excuse.COMPILE_STATUS_POSTER,
                         "login": "cmux-bot"}, {**excuse.COMPILE_STATUS_POSTER, "type": "User"}, None):
+            with self.subTest(creator=creator):
+                self.gh.statuses = [{**self.FALLBACK, "creator": creator}]
+                with self.assertRaisesRegex(excuse.Refused, "no compile verdict.*nothing else compiled"):
+                    self.judge()
+
+    def test_the_controllers_own_compile_status_is_a_pass_and_its_look_alikes_are_not(self):
+        """The build fleet's controller posts cmux-next/compile itself as the manaflow-checks App
+        (COMPILE_STATUS_CONTROLLER_POSTER) on the pull request heads it compiles. Its success passes the head like
+        cmux-bot's; its GraphQL-style login, another id or a User of that name do not."""
+        controller = excuse.COMPILE_STATUS_CONTROLLER_POSTER
+        self.gh.statuses = [{**self.FALLBACK, "creator": dict(controller)}]
+        self.assertIn("cmux-next/compile status", "\n".join(self.judge()))
+        for creator in ({**controller, "login": "manaflow-checks"}, {**controller, "id": 1},
+                        {**controller, "type": "User"}):
             with self.subTest(creator=creator):
                 self.gh.statuses = [{**self.FALLBACK, "creator": creator}]
                 with self.assertRaisesRegex(excuse.Refused, "no compile verdict.*nothing else compiled"):
