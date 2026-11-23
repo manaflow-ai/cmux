@@ -1663,6 +1663,15 @@
       ]
     },
     {
+      "agent": "settable",
+      "why": "Where a new Screen Sharing session's quality, frame rate and bitrate start; the toolbar still changes each session.",
+      "keys": [
+        "remoteDesktop.quality",
+        "remoteDesktop.maxFps",
+        "remoteDesktop.maxBitrateMbps"
+      ]
+    },
+    {
       "agent": "userOnly",
       "why": "Ultra spends up to 150 Mbps on every Screen Sharing session this Mac views; only the person picks it.",
       "keys": [

@@ -1,12 +1,14 @@
 public import CmuxNextActions
 import CmuxNextCompat
 public import CmuxNextSettings
+public import CmuxScreenKit
 import Foundation
 
 extension MacScreenPages {
     /// Keyboard > Mac Screen > Send System Shortcuts to the Remote Mac drives the
     /// system shortcut tap; the toolbar's menu item writes the same setting.
     /// cmux Remote > Screen Sharing Profile sets what each Mac Screen session's offer asks for.
+    /// cmux Remote > Screen Sharing Quality, Frame Rate Limit and Bitrate Limit set where a new session starts.
     /// DEV builds: Settings > Development > Relay Only drives every Mac Screen session.
     /// `refuse` reports a refused write (an automation run changing a user-only setting).
     public func follow(_ settings: SettingsController, refuse: @escaping @MainActor (String) -> Void) {
@@ -36,6 +38,13 @@ extension MacScreenPages {
                 self?.encodeProfile = Self.encodeProfile(profile)
             }
         }
+        // task-owner: app-lifetime settings observation, made once at launch (AppDelegate); event-driven, holds the pages weakly
+        Task { [weak self] in
+            for await defaults in ObservationStream({ settings.snapshot.remoteDesktop }) {
+                self?.defaultPreferences = Self.preferences(defaults)
+                self?.maxFpsCap = defaults.maxFps
+            }
+        }
         // task-owner: app-lifetime settings observation, made once at launch (AppDelegate); event-driven, holds nothing
         Task {
             for await on in ObservationStream({ settings.snapshot.macScreen.shareWithoutAsking }) {
@@ -59,6 +68,21 @@ extension MacScreenPages {
         case .balanced: nil
         case .ultra: profile.rawValue
         }
+    }
+
+    /// The toolbar picks a new session starts at from the `remoteDesktop.*` defaults: the quality preset as the
+    /// toolbar's quality (Sharp Text is the display's full size, Smooth Motion 1920 wide at the display's rate,
+    /// Low Bandwidth 1280 wide) and the bitrate limit as Customize's bitrate cap (`a=cmux-rd-max-kbps`).
+    public nonisolated static func preferences(_ defaults: RemoteDesktopDefaults) -> ScreenPreferences {
+        var preferences = ScreenPreferences()
+        preferences.quality = switch defaults.quality {
+        case .auto: .auto
+        case .sharpText: .high
+        case .smoothMotion: .smooth
+        case .lowBandwidth: .low
+        }
+        preferences.maxKbps = defaults.maxKbps
+        return preferences
     }
 
     /// Who is changing Send System Shortcuts to the Remote Mac from Mac
