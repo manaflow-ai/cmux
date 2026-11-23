@@ -4,6 +4,7 @@
 // OnboardingModel and answers `state`, pushes `changed` with the whole state after every model
 // change, and runs each gesture on the model. Text the page shows is its own (Localizable.xcstrings
 // next to this file); the host sends values, never sentences.
+import type { AccountFamily, AccountRowWire, AccountRunParams, AccountRunReply } from "../shared/signIn/accountSignIn";
 
 /** The one tool a window shows; it never changes for a window. */
 /** `makeItYours` is a new person's one setup screen: how they work, the density and a background (cmux#48416). */
@@ -230,6 +231,24 @@ export interface MakeItYoursState {
   loaded: boolean;
 }
 
+// MARK: Sign-in (logins done right)
+
+/** Where one provider stands, as the daemon decides it: the page never re-derives installed or
+ * ready, it only lays its own moments over this (installing from `agents`, a sign-in in progress
+ * from the shared controller, shared/signIn/useAccountSignIn.ts). */
+export interface SignInReadinessProvider {
+  family: AccountFamily;
+  state: "notInstalled" | "signInRequired" | "ready";
+  /** Ready: the signed-in account. */
+  account?: string;
+  /** The provider's account label, when the daemon has one. */
+  label?: string;
+}
+
+export interface SignInReadiness {
+  providers: SignInReadinessProvider[];
+}
+
 // MARK: The page
 
 export interface OnboardingState {
@@ -240,6 +259,12 @@ export interface OnboardingState {
   computerUse: ComputerUseState | null;
   /** Make cmux Yours' state; null on the other steps (absent from older hosts). */
   makeItYours?: MakeItYoursState | null;
+  /** The in-place sign-in's accounts, the same rows Settings reads (`accounts.signInAccounts`);
+   * absent from older hosts. */
+  signInAccounts?: AccountRowWire[] | null;
+  /** Each provider's readiness (GitHub, ChatGPT, Claude); absent from older hosts, and then the
+   * agents step is as it was. */
+  signInReadiness?: SignInReadiness | null;
 }
 
 /** Ops the page calls: [params, result]. Every gesture answers `{}` and the change comes back on
@@ -256,6 +281,9 @@ export interface OnboardingOps {
   "cmux.onboarding.back": [Record<string, never>, unknown];
   "cmux.onboarding.agents.signIn": [{ id: string }, unknown];
   "cmux.onboarding.agents.install": [{ id: string }, unknown];
+  /** One in-place sign-in gesture: the same actions (ACCOUNT_ACTIONS) and replies as
+   * `cmux.settings.accounts.run`. Unlike the other gestures it answers with the daemon's reply. */
+  "cmux.onboarding.accounts.run": [AccountRunParams, AccountRunReply];
   "cmux.onboarding.import.toggleProfile": [{ id: string }, unknown];
   "cmux.onboarding.import.toggleKind": [{ kind: ImportDataKind }, unknown];
   "cmux.onboarding.import.toggleKeepInSync": [Record<string, never>, unknown];
@@ -287,6 +315,7 @@ export const OPS = {
   back: "cmux.onboarding.back",
   signIn: "cmux.onboarding.agents.signIn",
   install: "cmux.onboarding.agents.install",
+  accountsRun: "cmux.onboarding.accounts.run",
   toggleProfile: "cmux.onboarding.import.toggleProfile",
   toggleKind: "cmux.onboarding.import.toggleKind",
   toggleKeepInSync: "cmux.onboarding.import.toggleKeepInSync",

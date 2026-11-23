@@ -10,11 +10,13 @@ import { DialogButton } from "../../ui/DialogButton";
 import { StableLabel } from "../../ui/StableLabel";
 import type { Strings } from "../shared/i18n";
 import { AgentsStep, DEFAULT_AGENTS_LOOK, type AgentsLook } from "./AgentsStep";
+import type { ProviderReadinessProps } from "../shared/signIn/ProviderReadiness";
 import { ComputerUseStep } from "./ComputerUseStep";
 import { ImportSources, ImportStep } from "./ImportStep";
 import { DEFAULT_MAKE_IT_YOURS_LOOK, MakeItYoursStep, type MakeItYoursLook } from "./MakeItYoursStep";
 import { OPS, type OnboardingFooter, type OnboardingState, type OnboardingStep } from "./ops";
 import { OnboardingContext, useOnboarding } from "./parts";
+import { useOnboardingReadiness } from "./signInReadiness";
 import type { OnboardingStore } from "./store";
 import { keyIntent, primaryLabel, primaryLabels, skipLabel, skipLabels, windowTitle } from "./text";
 
@@ -67,10 +69,12 @@ function Scaffold({
   state,
   agentsLook,
   makeItYoursLook,
+  readiness,
 }: {
   state: OnboardingState;
   agentsLook: AgentsLook;
   makeItYoursLook: MakeItYoursLook;
+  readiness?: ProviderReadinessProps;
 }) {
   const { strings } = useOnboarding();
   const agents = state.step === "agents";
@@ -91,7 +95,7 @@ function Scaffold({
       </header>
       <div className="onb-body">
         {agents ? (
-          <AgentsStep agents={state.agents} look={agentsLook} />
+          <AgentsStep agents={state.agents} look={agentsLook} readiness={readiness} />
         ) : make ? (
           <MakeItYoursStep choices={state.makeItYours} look={makeItYoursLook} />
         ) : state.importer != null ? (
@@ -115,6 +119,8 @@ export function OnboardingPage({
   makeItYoursLook?: MakeItYoursLook;
 }) {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
+  // The agents step's in-place sign-in, from the host's `signInReadiness` (none: as before).
+  const readiness = useOnboardingReadiness(store, state);
   useEffect(() => {
     document.title = windowTitle(strings, state);
   }, [strings, state]);
@@ -146,7 +152,7 @@ export function OnboardingPage({
             <ComputerUseStep computerUse={state.computerUse} />
           ) : null
         ) : (
-          <Scaffold state={state} agentsLook={agentsLook} makeItYoursLook={makeItYoursLook} />
+          <Scaffold state={state} agentsLook={agentsLook} makeItYoursLook={makeItYoursLook} readiness={readiness} />
         )}
       </div>
     </OnboardingContext.Provider>

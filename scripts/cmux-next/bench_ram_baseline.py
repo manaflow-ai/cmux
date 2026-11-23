@@ -126,7 +126,9 @@ def peer_idle(bundle: str, settle: float, samples: int) -> dict:
                              stdin=subprocess.DEVNULL, start_new_session=True)
     result = {"bundle": bundle, "version": info.get("CFBundleShortVersionString"), "signed_in": False}
     try:
-        time.sleep(settle)  # bench: let the fresh app go idle
+        # sleep-ok: the measured condition: every app is sampled the same --settle seconds after launch, the
+        # same age bench_memory.py --settle gives cmux, so the footprints compare like for like
+        time.sleep(settle)
         if child.poll() is not None:
             log.flush()
             with open(os.path.join(scratch, "app.log"), errors="replace") as handle:
