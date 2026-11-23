@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45147590486",
+  "recorded_at": "2026-11-23T09:52:40Z",
+  "reason": "image inputs changed in b51a5acc755a279f609c8924741861c3ba0fcff1..d601762bb0603b6945feacb917e089fcb22c8afb",
+  "dry_run": false,
+  "cmux_tui": "45ed727f30d1a623ba43d98d634b84b838a713db",
+  "fixes": [
+    {
+      "sha": "d601762bb0603b6945feacb917e089fcb22c8afb",
+      "mergedAt": "2026-11-23T09:30:00Z",
+      "subject": "cmux-rd linux-host: cmux's own virtual display in DISPLAY is no desktop, so a re-run join keeps the host serving (0.2.9) (#50463)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-23T09:52:40Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
