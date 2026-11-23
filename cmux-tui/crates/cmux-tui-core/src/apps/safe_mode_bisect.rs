@@ -79,7 +79,7 @@ impl Bisect {
     /// The first half (rounded up) of the suspects runs; none once one is left.
     fn next_trial(&mut self) {
         self.trial = if self.suspects.len() > 1 {
-            self.suspects[..self.suspects.len().div_ceil(2)].to_vec()
+            self.suspects.iter().take(self.suspects.len().div_ceil(2)).cloned().collect()
         } else {
             Vec::new()
         };
@@ -107,8 +107,8 @@ impl Bisect {
             "held": held,
             "steps": self.steps,
         });
-        if let Some(found) = self.found() {
-            out["found"] = json!(found);
+        if let (Some(found), Some(map)) = (self.found(), out.as_object_mut()) {
+            map.insert("found".into(), json!(found));
         }
         out
     }
@@ -155,8 +155,8 @@ fn suspects_locked(inner: &Inner) -> Vec<String> {
 /// `{on, reason?, ..., bisect?}`: the safe mode answer with the bisect beside it.
 pub(super) fn answer_locked(inner: &Inner) -> Value {
     let mut out = flag_json(inner.safe_mode.as_ref());
-    if let Some(bisect) = &inner.bisect {
-        out["bisect"] = bisect.json();
+    if let (Some(bisect), Some(map)) = (&inner.bisect, out.as_object_mut()) {
+        map.insert("bisect".into(), bisect.json());
     }
     out
 }
@@ -220,9 +220,9 @@ impl Supervisor {
                         ));
                     };
                     if step == "good" {
-                        bisect.good()
+                        bisect.good();
                     } else {
-                        bisect.bad()
+                        bisect.bad();
                     }
                     Some(bisect)
                 }
