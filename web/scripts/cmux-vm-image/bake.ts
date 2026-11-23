@@ -732,13 +732,29 @@ export const APT_FETCH_ATTEMPTS = 3;
  * what is still missing. A .deb no mirror serves fails every run and still fails the bake.
  */
 export async function fetchAptBatch(L: Pick<StepLog, "step" | "log">, vm: Vm, label: string, command: string, attempts = APT_FETCH_ATTEMPTS): Promise<void> {
+  await stepAgain(L, vm, label, command, attempts, "the .debs it verified");
+}
+
+/**
+ * Runs of one store program's install before the bake fails. GitHub release downloads into the bake machine ran at
+ * about 100 KB/s a connection on 2026-11-23 (image rolls 45109809346 and 45113664312: store-codex, 109 MB, status
+ * 124 at 300 s twice), so codex needs about four 5-minute runs; programInstallCommand resumes the download.
+ */
+export const STORE_FETCH_ATTEMPTS = 6;
+
+/** One store program's install, run again when it fails, continuing its partial download (programInstallCommand). */
+export async function installStoreProgram(L: Pick<StepLog, "step" | "log">, vm: Vm, label: string, command: string, attempts = STORE_FETCH_ATTEMPTS): Promise<void> {
+  await stepAgain(L, vm, label, command, attempts, "the part it downloaded");
+}
+
+async function stepAgain(L: Pick<StepLog, "step" | "log">, vm: Vm, label: string, command: string, attempts: number, kept: string): Promise<void> {
   for (let attempt = 1; ; attempt++) {
     try {
       await L.step(vm, attempt === 1 ? label : `${label}-try-${attempt}`, command);
       return;
     } catch (error) {
       if (attempt >= attempts) throw error;
-      L.log(`${label} failed (try ${attempt} of ${attempts}); running it again, keeping the .debs it verified`);
+      L.log(`${label} failed (try ${attempt} of ${attempts}); running it again, keeping ${kept}`);
     }
   }
 }
@@ -790,7 +806,7 @@ async function installApt(ctx: Ctx): Promise<void> {
 
 async function installStore(ctx: Ctx): Promise<void> {
   const { vm, L, lock } = ctx;
-  await parallelSteps(bakedPrograms(lock).map((p) => () => L.step(vm, `store-${p.name}`, programInstallCommand(p))));
+  await parallelSteps(bakedPrograms(lock).map((p) => () => installStoreProgram(L, vm, `store-${p.name}`, programInstallCommand(p))));
   await L.step(vm, "store-profile", `${profileCommand(lock)} && chown -R root:root /opt/cmux`);
   await writeGuestFile(vm, "/etc/profile.d/00-cmux-store.sh", storeProfileScript(), 0o644);
   await writeGuestFile(vm, "/etc/profile.d/cmux-coderouter.sh", coderouterProfileScript(), 0o644);
@@ -1223,7 +1239,7 @@ async function overlaySteps(ctx: Ctx, layer: "agents" | "app"): Promise<void> {
   const { vm, L, lock } = ctx;
   const programs = bakedPrograms(lock).filter((p) => isAppProgram(p.name) === (layer === "app"));
   await L.step(vm, `${layer}-prepare`, overlayPrepareCommand(programs.flatMap((p) => Object.keys(p.bin))));
-  await parallelSteps(programs.map((p) => () => L.step(vm, `store-${p.name}`, cachedInstallCommand(storeEntry(p.sha256), programInstallCommand(p), p.name))));
+  await parallelSteps(programs.map((p) => () => installStoreProgram(L, vm, `store-${p.name}`, cachedInstallCommand(storeEntry(p.sha256), programInstallCommand(p), p.name))));
   await L.step(vm, "store-profile", `${profileCommand(lock)} && chown -R root:root /opt/cmux`);
   await L.step(vm, `${layer}-prune`, overlayPruneCommand());
   if (layer === "agents") {
