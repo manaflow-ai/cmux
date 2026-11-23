@@ -154,17 +154,12 @@ function weatherStandIn(name: string): readonly [string, string] | undefined {
 }
 
 /** `value`'s glyph in `icons` and the SF name its layer paint keys on (sceneSymbolRendering.ts). */
-export function resolveSceneSymbol(
-  icons: IconPack["icons"],
-  value: string,
-): { name: string; paintAs: string } {
+export function resolveSceneSymbol(icons: IconPack["icons"], value: string): { name: string; paintAs: string } {
   if (Object.hasOwn(icons, value)) return { name: value, paintAs: value };
   const mapped = SCENE_SF_SYMBOLS[value];
-  if (mapped && Object.hasOwn(icons, mapped))
-    return { name: mapped, paintAs: value };
+  if (mapped && Object.hasOwn(icons, mapped)) return { name: mapped, paintAs: value };
   const standIn = weatherStandIn(value);
-  if (standIn && Object.hasOwn(icons, standIn[0]))
-    return { name: standIn[0], paintAs: standIn[1] };
+  if (standIn && Object.hasOwn(icons, standIn[0])) return { name: standIn[0], paintAs: standIn[1] };
   return { name: SCENE_FALLBACK_ICON, paintAs: value };
 }
 
@@ -209,10 +204,7 @@ export function SceneSymbol({
   const { pack } = useIcons();
   const value = sceneText(symbol);
   const { name, paintAs } = resolveSceneSymbol(pack.icons, value);
-  const layerPaint =
-    name === SCENE_FALLBACK_ICON
-      ? undefined
-      : symbolLayerPaint(paintAs, rendering, palette);
+  const layerPaint = name === SCENE_FALLBACK_ICON ? undefined : symbolLayerPaint(paintAs, rendering, palette);
   return (
     <Icon
       name={name}
