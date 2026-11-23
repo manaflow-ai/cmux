@@ -124,7 +124,10 @@ else
   models_code="$(call GET /v1/models)"
   if [ "$models_code" = 200 ]; then
     s3_model="$(jq -r '[.data[]?.id] | map(select(test("^[A-Za-z0-9._:/-]+$"))) | .[0] // empty' "$tmp/resp.json" 2>/dev/null)"
-    jq -n --arg m "${s3_model:-gpt-5}" '{model: $m, input: "Reply with exactly the word pong.", max_output_tokens: 32}' >"$tmp/req.json"
+    # One tool offered, as an agent's turn offers its tools: the model stub answers a request with none as a side
+    # request ("Stub side reply."), and a turn with its nonce.
+    jq -n --arg m "${s3_model:-gpt-5}" '{model: $m, input: "Reply with exactly the word pong.", max_output_tokens: 32,
+      tools: [{type: "function", name: "noop", description: "does nothing", parameters: {type: "object", properties: {}}}]}' >"$tmp/req.json"
     resp_code="$(call POST /v1/responses "$tmp/req.json")"
     text="$(jq -r '[.output[]?.content[]?.text? // empty] | join(" ")' "$tmp/resp.json" 2>/dev/null | plain)"
     if [ "$resp_code" = 200 ] && [ -n "$text" ] && [ -n "$nonce" ] && [[ "$text" != *"$nonce"* ]]; then
