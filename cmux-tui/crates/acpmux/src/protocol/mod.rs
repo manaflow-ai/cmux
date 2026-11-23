@@ -418,6 +418,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_COMPUTER_USE_CALL, Request),
         untyped(method::MUX_COMPUTER_USE_MACHINES, Request),
         untyped(method::MUX_COMPUTER_USE_STATE, Request),
+        untyped(method::MUX_KEYS_MINT, Request),
         untyped(method::MUX_PERSON_PROVE, Request),
         untyped(method::MUX_PERSON_HOLDS, Request),
         // The person's phones and their chats (`hub/approvers.rs`, `hub/person.rs`).
@@ -587,6 +588,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_TURN_ATTESTATION, Request),
         // Notifications.
         notification::<events::SessionEvent>(method::MUX_EVENT),
+        notification::<events::ChunkDelta>(method::MUX_CHUNK),
         notification::<MessageEvent>(method::MUX_MESSAGE),
         notification::<SessionChanged>(method::MUX_SESSION_CHANGED),
         notification::<SessionPatch>(method::MUX_SESSION_PATCH),
