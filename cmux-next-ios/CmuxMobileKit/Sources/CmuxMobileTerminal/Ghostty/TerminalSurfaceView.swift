@@ -64,8 +64,8 @@ final class TerminalSurfaceView: UIView {
     private(set) var draws = 0
     /// The last row given to `scroll(toRow:)`.
     private var pinnedRow: Int?
-    /// The font size the surface was built with or last set to (Settings → Terminal).
-    private var fontSize = CmuxMobilePreferences.terminalFontSize()
+    /// The font size the surface was built with or last set to (``wantedFontSize``).
+    private(set) var fontSize = Double(CmuxMobilePreferences.terminalFontSize())
     private var defaultsObserver: (any NSObjectProtocol)?
     /// Predictive local echo (`TerminalSurfacePrediction`), made with the surface.
     private(set) var prediction: TerminalSurfacePrediction?
@@ -157,7 +157,7 @@ final class TerminalSurfaceView: UIView {
         config.platform = ghostty_platform_u(ios: ghostty_platform_ios_s(uiview: Unmanaged.passUnretained(self).toOpaque()))
         config.userdata = Unmanaged.passUnretained(box).toOpaque()
         config.scale_factor = Double(renderScale)
-        fontSize = CmuxMobilePreferences.terminalFontSize()
+        fontSize = wantedFontSize()
         config.font_size = Float(fontSize)
         config.io_mode = GHOSTTY_SURFACE_IO_MANUAL_MIRROR
         config.io_write_userdata = Unmanaged.passUnretained(box).toOpaque()
@@ -281,9 +281,14 @@ final class TerminalSurfaceView: UIView {
             backgroundColor = seeThrough ? .clear : theme.backgroundColor
             prediction?.setColors(background: theme.backgroundColor, foreground: theme.foregroundColor)
             onHostTheme?(theme)
+            // The Mac's terminal font size came with it: resize first (which applies the theme).
+            if surface != nil, wantedFontSize() != fontSize {
+                applyFontSize()
+                return
+            }
         }
         guard theme != surfaceTheme || seeThrough != surfaceSeeThrough, let surface, let app,
-              let config = app.themedConfig(theme, fontSize: Double(fontSize), seeThrough: seeThrough) else { return }
+              let config = app.themedConfig(theme, fontSize: fontSize, seeThrough: seeThrough) else { return }
         surfaceTheme = theme
         surfaceSeeThrough = seeThrough
         let ref = SurfaceRef(surface)
@@ -304,8 +309,15 @@ final class TerminalSurfaceView: UIView {
         }
     }
 
+    /// The size the terminals draw at: the Mac's (`look.terminal_font.size`) while its theme shows
+    /// (Match Mac theme, the default), else the phone's own Settings → Terminal size.
+    func wantedFontSize() -> Double {
+        CmuxMobileTerminalThemes.shared.theme(for: themeMacID)?.fontSize
+            ?? Double(CmuxMobilePreferences.terminalFontSize())
+    }
+
     private func applyFontSize() {
-        let size = CmuxMobilePreferences.terminalFontSize()
+        let size = wantedFontSize()
         guard let surface, size != fontSize else { return }
         fontSize = size
         viewportEpoch += 1

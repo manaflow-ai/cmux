@@ -104,25 +104,113 @@ public struct CmuxMobileMacAppearance: Codable, Equatable, Sendable {
 
     public var chat: Chat?
 
-    private enum CodingKeys: String, CodingKey {
-        case theme, wallpaper, terminal, chat
+    /// The rest of the Mac's look (`look`, PROTOCOL.md; hostd `appearance.rs` `sanitize_look` checks
+    /// every field): the window style, the tuning (hue, saturation, glass transparency), the sidebar
+    /// surface, the terminals' font and the sidebar's group colors. Every field optional; nil from
+    /// a Mac that sends none. The phone draws the font on its terminals
+    /// (``CmuxMobileTerminalTheme``) and the tuning through ``window`` (ask-a6804c4472).
+    public struct Look: Codable, Equatable, Sendable {
+        public struct TerminalFont: Codable, Equatable, Sendable {
+            /// The family the Mac's terminals draw in.
+            public var family: String?
+            /// Their size in points (4...96).
+            public var size: Double?
+
+            public init(family: String? = nil, size: Double? = nil) {
+                self.family = family
+                self.size = size
+            }
+        }
+
+        public struct Groups: Codable, Equatable, Sendable {
+            /// `sidebar.groupPalette`.
+            public var palette: String?
+            /// `sidebar.groupGradient`.
+            public var gradient: String?
+
+            public init(palette: String? = nil, gradient: String? = nil) {
+                self.palette = palette
+                self.gradient = gradient
+            }
+        }
+
+        /// `appearance.chromeStyle` (`default`, `card`, `two-tone`, ...).
+        public var chromeStyle: String?
+        /// `appearance.hue`, 0...1 (0.5 keeps the theme's).
+        public var hue: Double?
+        /// `appearance.saturation`, 0...2 (1 keeps the theme's).
+        public var saturation: Double?
+        /// `appearance.glassTransparency`, 0...1.
+        public var glassTransparency: Double?
+        /// `appearance.sidebarSurface` (`same` | `separate`).
+        public var sidebarSurface: String?
+        public var terminalFont: TerminalFont?
+        /// `home.bubbleColors.*`; the chat draws them from hostd's ``Chat/bubbles``.
+        public var chat: Chat.Bubbles?
+        public var groups: Groups?
+
+        public init(chromeStyle: String? = nil, hue: Double? = nil, saturation: Double? = nil,
+                    glassTransparency: Double? = nil, sidebarSurface: String? = nil,
+                    terminalFont: TerminalFont? = nil, chat: Chat.Bubbles? = nil, groups: Groups? = nil) {
+            self.chromeStyle = chromeStyle
+            self.hue = hue
+            self.saturation = saturation
+            self.glassTransparency = glassTransparency
+            self.sidebarSurface = sidebarSurface
+            self.terminalFont = terminalFont
+            self.chat = chat
+            self.groups = groups
+        }
     }
 
-    /// `chat` is read on its own: a malformed one is dropped (the stock chat), and the theme, the
-    /// accent and the terminal theme of the same frame still apply.
+    public var look: Look?
+
+    /// The tint the Mac's window lays over its picture after its tuning, as hostd resolves it
+    /// (`appearance.rs` `window_tint`: alpha `tint * (1 - glass_transparency)`, the colors turned by
+    /// the hue and scaled by the saturation). Nil when the Mac shows no picture or no tuning: the
+    /// wallpaper's own tint and the plain colors show then.
+    public struct Window: Codable, Equatable, Sendable {
+        /// The tint's alpha over the picture, 0...1.
+        public var tintOpacity: Double
+        /// The chrome's tint color, `#rrggbb`.
+        public var background: String
+        /// The terminals' tint color, `#rrggbb`.
+        public var terminalBackground: String?
+
+        public init(tintOpacity: Double, background: String, terminalBackground: String? = nil) {
+            self.tintOpacity = tintOpacity
+            self.background = background
+            self.terminalBackground = terminalBackground
+        }
+    }
+
+    public var window: Window?
+
+    private enum CodingKeys: String, CodingKey {
+        case theme, wallpaper, terminal, chat, look, window
+    }
+
+    /// `chat`, `look` and `window` are each read on their own: a malformed one is dropped (the
+    /// phone's default), and the theme, the accent and the terminal theme of the same frame still
+    /// apply.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         theme = try container.decode(Theme.self, forKey: .theme)
         wallpaper = try container.decodeIfPresent(Wallpaper.self, forKey: .wallpaper)
         terminal = try container.decodeIfPresent([String].self, forKey: .terminal)
         chat = try? container.decodeIfPresent(Chat.self, forKey: .chat)
+        look = try? container.decodeIfPresent(Look.self, forKey: .look)
+        window = try? container.decodeIfPresent(Window.self, forKey: .window)
     }
 
-    public init(theme: Theme, wallpaper: Wallpaper? = nil, terminal: [String]? = nil, chat: Chat? = nil) {
+    public init(theme: Theme, wallpaper: Wallpaper? = nil, terminal: [String]? = nil, chat: Chat? = nil,
+                look: Look? = nil, window: Window? = nil) {
         self.theme = theme
         self.wallpaper = wallpaper
         self.terminal = terminal
         self.chat = chat
+        self.look = look
+        self.window = window
     }
 
     /// The picture the chat shows: the frame's wallpaper when its `chat` names it.
@@ -380,11 +468,23 @@ public final class CmuxMobileMacTheme: @unchecked Sendable {
     }
 
     /// The Mac's wallpaper behind the sidebar and Home, with the tint the Mac lays over it: nil while
-    /// Match Mac theme is off, when the Mac shows none, or before its picture is on this phone.
+    /// Match Mac theme is off, when the Mac shows none, or before its picture is on this phone. The
+    /// tint is the one the Mac draws after its glass transparency (hostd's `window`), else the
+    /// wallpaper's own.
     public var wallpaper: (image: UIImage, tint: Double)? {
         guard matchesMac, let wallpaper = appearance?.wallpaper, chatPictureID == wallpaper.id,
               let chatPicture else { return nil }
-        return (chatPicture, wallpaper.tintOpacity)
+        return (chatPicture, appearance?.window?.tintOpacity ?? wallpaper.tintOpacity)
+    }
+
+    /// The tint's color over the wallpaper after the Mac's hue and saturation (hostd's `window`):
+    /// the chrome's, or with `terminal` the terminals'. Nil while ``wallpaper`` is nil or the Mac
+    /// sends no tuning: the caller's own background is the tint then.
+    public func wallpaperTint(terminal: Bool) -> UIColor? {
+        guard wallpaper != nil, let window = appearance?.window else { return nil }
+        let hex = terminal ? window.terminalBackground : window.background
+        guard let hex, let rgb = CmuxMobileTerminalTheme.rgb(hex) else { return nil }
+        return UIColor(red: rgb.0, green: rgb.1, blue: rgb.2, alpha: 1)
     }
 
     /// Whether `appearance`'s picture (the Mac's wallpaper, which the chat may also show) must be

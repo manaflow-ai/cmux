@@ -126,7 +126,9 @@ final class CmuxMobileGhosttyApp {
     static func themedConfig(_ theme: CmuxMobileTerminalTheme, fontSize: Double, seeThrough: Bool = false,
                              base: ghostty_config_t) -> ghostty_config_t? {
         guard let themed = ghostty_config_clone(base) else { return nil }
-        let text = theme.configText(seeThrough: seeThrough) + "font-size = \(fontSize)\n"
+        // The Mac's font family when this phone has it, else the stock font.
+        let text = theme.configText(seeThrough: seeThrough, fontFamily: theme.installedFontFamily)
+            + "font-size = \(fontSize)\n"
         text.withCString { ghostty_config_load_string(themed, $0, UInt(text.utf8.count), "cmux-mac-terminal-theme") }
         ghostty_config_finalize(themed)
         return themed

@@ -942,7 +942,18 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   number out of range, not `#rrggbb`, a family with a control character, `#`, `=` or `"`, or
   over 120 characters) while the rest and the theme still serve; a nested object with
   nothing valid is left out, and with nothing valid at all the frame has no `look`, the same
-  bytes an older Mac sends. The phone does not draw these yet. Since 2026-11-17 a frame
+  bytes an older Mac sends. Since 2026-11-23 (ask-a6804c4472) the phone draws them while
+  Match Mac theme is on: its terminals take `terminal_font` (the family when installed on the
+  phone, else the stock font; the size over the phone's own Settings > Terminal size), and
+  the tint over the wallpaper takes the tuning through `window` (below). `chrome_style`,
+  `sidebar_surface` and `groups` have no matching phone surface and are decoded only. With a
+  `wallpaper` and a tuning off its identity (hue 0.5, saturation 1, glass 0), a frame also
+  carries `"window": {"tint_opacity", "background", "terminal_background"?}`, resolved by
+  hostd (`appearance.rs` `window_tint`): the tint the Mac's window lays over its picture after
+  `AppearanceTuning` (`WindowMaterialView`), alpha `tint_opacity * (1 - glass_transparency)`
+  and the theme's (and terminal theme's) background turned by `hue - 0.5` of a turn with its
+  HSB saturation scaled by `saturation`; the phone paints these as they are, and `chat`'s
+  `background` and `background_opacity` over a picture take the same tint. Since 2026-11-17 a frame
   may also carry `"chat"`, what the phone's agent chat shows, resolved by hostd
   (`appearance.rs` `chat_look`): `{"background", "foreground", "background_opacity",
   "wallpaper"?: the `wallpaper` id, "bubbles"?: look's `chat` colors}`. `background_opacity`

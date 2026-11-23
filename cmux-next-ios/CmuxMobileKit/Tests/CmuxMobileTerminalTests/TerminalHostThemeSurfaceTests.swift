@@ -250,6 +250,54 @@ import UIKit
         Attachment.record(png, named: "terminal-over-wallpaper-mocha-glass.png")
     }
 
+    /// The Mac's glass transparency as the phone draws it (ask-a6804c4472, "the transparency"): the
+    /// same white picture under the same terminal background, once at the wallpaper's tint and once
+    /// at the tint hostd resolves after `glass_transparency` 0.5 (`window`). The page's ground lets
+    /// twice the picture through, as the Mac's window does (`tint * (1 - glassTransparency)`).
+    @Test func theMacsGlassTransparencyThinsTheGround() async throws {
+        let picture = UIGraphicsImageRenderer(size: CGSize(width: 16, height: 16)).pngData { context in
+            UIColor.white.setFill(); context.fill(CGRect(x: 0, y: 0, width: 16, height: 16))
+        }
+        func groundRed(_ window: CmuxMobileMacAppearance.Window?) async throws -> (tint: Double, red: Int) {
+            let defaults = try #require(UserDefaults(suiteName: "TerminalHostThemeSurfaceTests.\(UUID().uuidString)"))
+            let theme = CmuxMobileMacTheme(defaults: defaults, cache: CmuxMobileMacAppearanceCache(
+                folder: FileManager.default.temporaryDirectory.appendingPathComponent("glass-\(UUID().uuidString)", isDirectory: true)))
+            let appearance = CmuxMobileMacAppearance(
+                theme: .init(background: "#000000", foreground: "#ffffff", palette: (0..<8).map { _ in "#000000" }),
+                wallpaper: .init(id: "white", bytes: picture.count, tintOpacity: 0.8),
+                look: window == nil ? nil : .init(glassTransparency: 0.5), window: window)
+            theme.apply(appearance, chatWallpaper: picture)
+            await theme.settled()
+            let wallpaper = try #require(theme.wallpaper)
+            let ground = TerminalGroundView(page: nil)
+            ground.frame = CGRect(x: 0, y: 0, width: 16, height: 16)
+            ground.show(wallpaper, background: theme.wallpaperTint(terminal: true) ?? .black)
+            ground.layoutIfNeeded()
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1
+            format.opaque = true
+            let image = UIGraphicsImageRenderer(size: ground.bounds.size, format: format).image { context in
+                ground.layer.render(in: context.cgContext)
+            }
+            Attachment.record(try #require(image.pngData()),
+                              named: "ground-glass-\(window == nil ? "0" : "0.5").png")
+            var pixel = [UInt8](repeating: 0, count: 4)
+            let cg = try #require(image.cgImage)
+            let context = try #require(CGContext(data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                                                 space: CGColorSpaceCreateDeviceRGB(),
+                                                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.draw(cg, in: CGRect(x: -8, y: -8, width: cg.width, height: cg.height))
+            return (wallpaper.tint, Int(pixel[0]))
+        }
+        let solid = try await groundRed(nil)
+        let glass = try await groundRed(.init(tintOpacity: 0.4, background: "#000000", terminalBackground: "#000000"))
+        #expect(solid.tint == 0.8)
+        #expect(glass.tint == 0.4)
+        // Black at 0.8 over white lets 20% through; at 0.4, 60%.
+        #expect(abs(solid.red - 51) <= 6)
+        #expect(abs(glass.red - 153) <= 6)
+    }
+
     /// The Mac's bundled van Gogh, read from the Mac package in this checkout (the simulator runs on
     /// the Mac that built the tests and sees its disk).
     static func starryNight() -> Data? {

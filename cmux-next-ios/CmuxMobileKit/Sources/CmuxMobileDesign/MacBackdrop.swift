@@ -22,6 +22,12 @@ public struct CmuxMobileBackdrop: View {
         CmuxMobileMacTheme.shared.wallpaper == nil ? CmuxMobileTheme.standard.colors.bg.color : .clear
     }
 
+    /// The tint's color: `bg` turned by the Mac's hue and saturation (hostd's `window`) when the
+    /// Mac tunes it, else `bg`.
+    private func tint(over bg: Color) -> Color {
+        macTheme.wallpaperTint(terminal: background != nil).map { Color(uiColor: $0) } ?? bg
+    }
+
     public var body: some View {
         let bg = background ?? CmuxMobileTheme.standard.colors.bg.color
         if let wallpaper = macTheme.wallpaper {
@@ -31,7 +37,7 @@ public struct CmuxMobileBackdrop: View {
                     .scaledToFill()
                     .frame(width: proxy.size.width, height: proxy.size.height)
                     .clipped()
-                    .overlay(bg.opacity(wallpaper.tint))
+                    .overlay(tint(over: bg).opacity(wallpaper.tint))
             }
             .accessibilityHidden(true)
         } else {

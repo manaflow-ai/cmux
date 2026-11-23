@@ -132,7 +132,7 @@ final class TerminalSurfacePrediction {
             overlay.hide()
             return
         }
-        overlay.show(layout, cursorCell: cursor.cell, fontSize: CGFloat(CmuxMobilePreferences.terminalFontSize()))
+        overlay.show(layout, cursorCell: cursor.cell, fontSize: CGFloat(view.fontSize))
         armExpiry(now: now)
     }
 

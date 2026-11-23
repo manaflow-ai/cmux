@@ -25,6 +25,12 @@ public struct CmuxMobileTerminalTheme: Equatable, Sendable {
     /// `#rrggbb` of the background and foreground lines.
     public let background: String
     public let foreground: String
+    /// The family the Mac's terminals draw in (`look.terminal_font.family`); nil keeps the phone's
+    /// stock font. Drawn only when installed on this phone (``installedFontFamily``).
+    public var fontFamily: String?
+    /// The size the Mac's terminals draw at, in points (`look.terminal_font.size`); nil keeps the
+    /// phone's own Settings > Terminal size.
+    public var fontSize: Double?
 
     /// The theme of `lines`, keeping only well-formed theme lines; nil without a background and a
     /// foreground color.
@@ -43,18 +49,22 @@ public struct CmuxMobileTerminalTheme: Equatable, Sendable {
     /// The terminal theme of `appearance`: its Mac's terminal lines, else (a Mac that predates
     /// them) the colors its chrome derives from, which are its terminal theme unless it names an
     /// app theme. Nil when neither is usable.
+    /// The Mac's terminal font (`look.terminal_font`) rides along: its terminals' family and size.
     public init?(appearance: CmuxMobileMacAppearance) {
         if let lines = appearance.terminal, let theme = Self(lines: lines) {
             self = theme
-            return
+        } else {
+            let theme = appearance.theme
+            var lines = ["background = \(theme.background)", "foreground = \(theme.foreground)"]
+            lines += theme.palette.enumerated().map { "palette = \($0.offset)=\($0.element)" }
+            if let cursor = theme.cursor { lines.append("cursor-color = \(cursor)") }
+            if let selection = theme.selectionBackground { lines.append("selection-background = \(selection)") }
+            if let selection = theme.selectionForeground { lines.append("selection-foreground = \(selection)") }
+            guard let derived = Self(lines: lines) else { return nil }
+            self = derived
         }
-        let theme = appearance.theme
-        var lines = ["background = \(theme.background)", "foreground = \(theme.foreground)"]
-        lines += theme.palette.enumerated().map { "palette = \($0.offset)=\($0.element)" }
-        if let cursor = theme.cursor { lines.append("cursor-color = \(cursor)") }
-        if let selection = theme.selectionBackground { lines.append("selection-background = \(selection)") }
-        if let selection = theme.selectionForeground { lines.append("selection-foreground = \(selection)") }
-        self.init(lines: lines)
+        fontFamily = appearance.look?.terminalFont?.family
+        fontSize = appearance.look?.terminalFont?.size
     }
 
     /// The Ghostty config text that gives a terminal this theme: every theme key (and `theme`, so
@@ -69,6 +79,14 @@ public struct CmuxMobileTerminalTheme: Equatable, Sendable {
     public func configText(seeThrough: Bool) -> String {
         let ground = seeThrough ? ["background-opacity = 0"] : []
         return (["theme ="] + Self.keys.map { "\($0) =" } + lines + ground).joined(separator: "\n") + "\n"
+    }
+
+    /// ``configText(seeThrough:)`` and the terminal font's family: `font-family` reset (the phone's
+    /// stock font), then `fontFamily` when given. hostd keeps the family free of `"`, `#`, `=` and
+    /// control characters, so it is one quoted value.
+    public func configText(seeThrough: Bool, fontFamily: String?) -> String {
+        let font = ["font-family ="] + (fontFamily.map { ["font-family = \"\($0)\""] } ?? [])
+        return configText(seeThrough: seeThrough) + font.joined(separator: "\n") + "\n"
     }
 
     /// Whether the background is dark (relative luminance below one half).
@@ -119,6 +137,18 @@ extension CmuxMobileTerminalTheme {
     public var foregroundColor: UIColor { Self.color(foreground) }
     /// The look of the terminal page's own chrome (keys, glass, keyboard).
     public var interfaceStyle: UIUserInterfaceStyle { isDark ? .dark : .light }
+
+    /// ``fontFamily`` when this phone has it (a family the Mac installed may be missing on iOS),
+    /// else nil: the stock font draws.
+    public var installedFontFamily: String? {
+        guard let fontFamily, Self.isInstalled(fontFamily) else { return nil }
+        return fontFamily
+    }
+
+    /// Whether `family` is a font family on this phone (bundled or system).
+    public static func isInstalled(_ family: String) -> Bool {
+        UIFont.familyNames.contains(family) || UIFont(name: family, size: 12) != nil
+    }
 
     static func color(_ hex: String) -> UIColor {
         let rgb = rgb(hex) ?? (0, 0, 0)

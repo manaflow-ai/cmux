@@ -505,8 +505,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let base = terminalBackground
         let seeThrough = wallpaper != nil
         surface.seeThrough = seeThrough
+        // Over the picture the tint is the Mac's, turned by its hue and saturation (hostd's `window`).
+        let tint = wallpaper == nil ? base : (CmuxMobileMacTheme.shared.wallpaperTint(terminal: true) ?? base)
         for ground in [pageGround, backingGround, coverGround, headerGround, fadeGround, scrimGround] {
-            ground.show(wallpaper, background: base)
+            ground.show(wallpaper, background: tint)
         }
         // Over the picture the chrome's own colors would hide it: the grounds under them paint instead.
         pageGround.isHidden = !seeThrough
