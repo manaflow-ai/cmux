@@ -44,6 +44,7 @@ export const CATEGORY_CARDS = [
   "contextMenus",
   "sharedLinks",
   "customizeLibrary",
+  "customizeChecklist",
   "tailnet",
   "models",
   "keys",

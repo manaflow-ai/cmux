@@ -83,13 +83,6 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
-        "board",
-        &[
-            ("The local branch board (Labs > Show Preview Features)", "acpmux board"),
-            ("The same board as JSON", "acpmux board --json"),
-        ],
-    ),
-    (
         "gc",
         &[
             ("What acpmux would end as orphaned, and what it refuses and why", "acpmux gc"),
@@ -190,6 +183,42 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     ("race stats", &[("Wins per model in this chat", "acpmux race stats")]),
     ("group ls", &[("List sidebar groups as JSON", "acpmux group ls --json")]),
     ("group move", &[("Put a session in the Leads group", "acpmux group move coord Leads")]),
+    (
+        "account",
+        &[
+            ("List every account and which is the default", "acpmux account list"),
+            ("Add a second ChatGPT account", "acpmux account sign-in --family codex"),
+            ("Make it the Codex default", "acpmux account switch codex-2"),
+        ],
+    ),
+    (
+        "account sign-in",
+        &[
+            ("Sign an account in again", "acpmux account sign-in --account codex-2"),
+            (
+                "Add a Claude account with a name",
+                "acpmux account sign-in --family claude --name Work",
+            ),
+            ("Add a GitHub account through gh", "acpmux account sign-in --family github"),
+        ],
+    ),
+    (
+        "account sign-out",
+        &[("Sign an account out; it stays listed", "acpmux account sign-out codex-2")],
+    ),
+    (
+        "account switch",
+        &[("Make a GitHub account gh's active one", "acpmux account switch github:alice")],
+    ),
+    ("account remove", &[("Remove an account's route", "acpmux account remove claude-2")]),
+    ("account list", &[("Every account as JSON", "acpmux --json account list")]),
+    (
+        "account readiness",
+        &[
+            ("Which of GitHub, Codex and Claude still need a sign-in", "acpmux account readiness"),
+            ("The same as JSON, for a script", "acpmux --json account readiness"),
+        ],
+    ),
     (
         "group tidy",
         &[
@@ -506,6 +535,45 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     ),
     ("share-host on", &[("Turn sharing this Mac's screen on", "acpmux share-host on")]),
     ("share-host off", &[("Turn sharing this Mac's screen off", "acpmux share-host off")]),
+    (
+        "share-host screens",
+        &[
+            ("List the live shares this machine hosts or views", "acpmux share-host screens"),
+            ("Read them as JSON", "acpmux share-host screens --json"),
+        ],
+    ),
+    (
+        "share-host start",
+        &[
+            ("Share this machine's screen to your iPhone", "acpmux share-host start --to iphone"),
+            (
+                "Share it view-only to another device, by id prefix",
+                "acpmux share-host start --to 3f2a --view-only",
+            ),
+        ],
+    ),
+    ("share-host stop", &[("End a share by its session id prefix", "acpmux share-host stop 7c1e")]),
+    (
+        "share-host move",
+        &[
+            ("Hand a live share to another viewer", "acpmux share-host move 7c1e --to macbook"),
+            (
+                "Show the viewer another host's screen",
+                "acpmux share-host move 7c1e --host mac-mini",
+            ),
+        ],
+    ),
+    (
+        "share-host link",
+        &[
+            ("Print the view-only link to this Mac's screen", "acpmux share-host link"),
+            (
+                "Link a run's virtual display, labeled with the run's name",
+                "acpmux share-host link --display 5 --name ui-check",
+            ),
+            ("Ask for full control instead of view-only", "acpmux share-host link --control"),
+        ],
+    ),
     ("router", &[("Start the local CodeRouter", "acpmux router serve")]),
     ("router serve", &[("Start the local router listeners", "acpmux router serve")]),
 ];

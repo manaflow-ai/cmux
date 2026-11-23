@@ -8,9 +8,12 @@
 // pair, so the page's calls cross the real envelope (call/ok/err/sub/ev).
 import { runMockAgentKeys } from "./mockAgentKeys";
 import { mockModels, runMockModels } from "./mockModels";
+import { mockAllotments, runMockAllotment } from "./mockAllotments";
 import { createMockPair } from "../../protocol/adapters/mock";
 import { updatable } from "./harnesses";
 import { MockTeams } from "./mockTeams";
+import { ACCOUNT_ACTIONS } from "../shared/signIn/accountSignIn";
+import { MockAccountSignIn } from "../shared/signIn/mockSignIn";
 import { mockContextMenus, setMockMenuLayout } from "./mockMenus";
 import { recentAfterPick } from "./fontPickerModel";
 import { ProtocolError, ProtocolErrorCode } from "../../protocol/errors";
@@ -73,6 +76,9 @@ import {
   type AgentMcpState,
   type AgentHooksRun,
   type AgentHooksState,
+  type AccountsRunReply,
+  type AllotmentSet,
+  type AllotmentView,
 } from "./ops";
 import { rowsByKey, schema } from "./schema";
 import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
@@ -684,6 +690,21 @@ export class MockSettingsProvider {
         this.worktreeReadHold
           ? this.worktreeReadHold.then(() => this.readWorktree(params as { path: string }))
           : this.readWorktree(params as { path: string }),
+      "cmux.settings.cloud.allotment.get": () => {
+        if (!this.allotment) throw new ProtocolError("cmux.settings.unavailable", "this host has no Compute part");
+        return this.allotment;
+      },
+      "cmux.settings.cloud.allotment.set": (params) => {
+        const run = params as AllotmentSet;
+        this.allotmentRuns.push(run);
+        if (!this.allotment) throw new ProtocolError("cmux.settings.unavailable", "this host has no Compute part");
+        if (run.action !== undefined && run.action !== "down" && run.action !== "hold" && run.action !== "up")
+          throw new ProtocolError("cmux.settings.invalid", "action must be down, hold or up");
+        if (run.action === undefined && run.auto === undefined)
+          throw new ProtocolError("cmux.settings.invalid", "a set names an action or auto");
+        this.allotment = runMockAllotment(this.allotment, run);
+        return this.allotment;
+      },
       "cmux.settings.models.state": () => {
         if (!this.models) throw new ProtocolError("cmux.settings.unavailable", "this host has no Models part");
         return this.models;
@@ -954,6 +975,8 @@ export class MockSettingsProvider {
       "cmux.settings.harnesses.run",
       "cmux.settings.models.state",
       "cmux.settings.models.run",
+      "cmux.settings.cloud.allotment.get",
+      "cmux.settings.cloud.allotment.set",
       "cmux.settings.devices.state",
       "cmux.settings.devices.run",
       "cmux.settings.environments.state",
@@ -1044,6 +1067,11 @@ export class MockSettingsProvider {
     provide("cmux.settings.channels.machines.changed", (ctx) => this.track(this.machinesChanged, ctx));
     provide("cmux.settings.channels.switch.changed", (ctx) => this.track(this.switchChanged, ctx));
   }
+
+  /** Settings > Team > Compute as the backend serves it (mockAllotments.ts); null is a host without it. */
+  allotment: AllotmentView | null = structuredClone(mockAllotments.proposalUp);
+  /** Compute gestures the page sent, in order. */
+  readonly allotmentRuns: AllotmentSet[] = [];
 
   /** Settings > Models as the app serves it (mockModels.ts); null is a host without the part. */
   models: ModelsState | null = structuredClone(mockModels.macLogins);
@@ -1654,10 +1682,10 @@ export class MockSettingsProvider {
     loaded: true,
     applying: false,
     failed: false,
-    choice: "ask",
+    choice: "on",
     rows: [
-      { id: "claude", name: "Claude Code", state: "ready" },
-      { id: "codex", name: "Codex", state: "ready" },
+      { id: "claude", name: "Claude Code", state: "terminals" },
+      { id: "codex", name: "Codex", state: "terminals" },
     ],
     manual: [
       "claude mcp add --scope user cmux -- '/Applications/cmux NEXT.app/Contents/Resources/bin/cmux' mcp serve",
@@ -1937,6 +1965,11 @@ export class MockSettingsProvider {
   /** Like the host's account gestures: a listed account only, and Add account for Codex and Claude (a
    * login folder under ~/.cmux/accounts, signed out until its sign-in runs, or an API key). */
   private runAccount(run: HarnessesRun): Record<string, never> {
+    // Like the host: GitHub's terminal sign-in is gh's own `gh auth login`, needing no account list.
+    if (run.action === "accountAdd" && run.family === "github" && run.way === "new") {
+      this.harnessRuns.push(run);
+      return {};
+    }
     const accounts = this.harnesses.accounts;
     if (!accounts) throw new ProtocolError("cmux.settings.invalid", "this daemon lists no accounts");
     if (run.action === "accountAdd") {
@@ -2201,8 +2234,9 @@ export class MockSettingsProvider {
   }
 
   /** What the app's AccountsModel does to the state (enough for the page's tests). */
-  private runAccounts(run: AccountsRun): { error?: string } {
+  private runAccounts(run: AccountsRun): AccountsRunReply | Promise<AccountsRunReply> {
     this.accountRuns.push(run);
+    if ((Object.values(ACCOUNT_ACTIONS) as string[]).includes(run.action)) return this.signIn.run(run);
     const rows = (edit: (row: AccountsRow) => AccountsRow) => ({
       ...this.accounts,
       groups: this.accounts.groups.map((group) => ({ ...group, rows: group.rows.map(edit) })),
@@ -2258,6 +2292,37 @@ export class MockSettingsProvider {
     }
     for (const ctx of this.accountsChanged) ctx.emit(this.accountsState());
     return error ? { error } : {};
+  }
+
+  /** The in-place sign-in (shared/signIn/mockSignIn.ts) as the daemon answers it, on
+   * `accounts.signInAccounts`; onboarding's mock runs the same one. */
+  readonly signIn = new MockAccountSignIn({
+    rows: () => this.accounts.signInAccounts ?? [],
+    set: (next) => {
+      this.accounts = { ...this.accounts, signInAccounts: next };
+      for (const ctx of this.accountsChanged) ctx.emit(this.accountsState());
+    },
+  });
+  /** A sign-in's finish waits for this when set (tests and the gallery hold the code on screen). */
+  get signInHold(): Promise<void> | null {
+    return this.signIn.hold;
+  }
+  set signInHold(hold: Promise<void> | null) {
+    this.signIn.hold = hold;
+  }
+  /** The next sign-in start is refused with this reason (`not_installed`, `shared_machine`, ...). */
+  get signInRefusal(): string | null {
+    return this.signIn.refusal;
+  }
+  set signInRefusal(reason: string | null) {
+    this.signIn.refusal = reason;
+  }
+  /** How long a started sign-in's code lasts (tests shorten it to see the expiry). */
+  get signInExpiresInMs(): number {
+    return this.signIn.expiresInMs;
+  }
+  set signInExpiresInMs(ms: number) {
+    this.signIn.expiresInMs = ms;
   }
 
   /** Replaces the host lists and sends `cmux.settings.host.changed`. */

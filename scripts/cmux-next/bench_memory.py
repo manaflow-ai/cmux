@@ -279,11 +279,26 @@ def process_table():
 def in_bundle(cmd: str, bundle: str) -> str | None:
     """`cmd` relative to the bundle, or None. The app runs from the real
     path (/private/tmp/...) while its daemons keep the path it handed them
-    (/tmp/...), so both spellings count."""
-    for root in (bundle, bundle.removeprefix("/private")):
+    (/tmp/...), so every spelling counts, whichever one the caller passed."""
+    for root in bundle_roots(bundle):
         if cmd.startswith(root + "/"):
             return cmd[len(root):]
     return None
+
+
+def bundle_roots(bundle: str) -> tuple[str, ...]:
+    """Every spelling of `bundle` a process command line can carry: as given, its realpath, and
+    each without /private (xbench --app /tmp/X.app ran from /private/tmp/X.app and end_bundle
+    missed it)."""
+    given = bundle.rstrip("/")
+    real = os.path.realpath(given)
+    return tuple(dict.fromkeys((given, real, given.removeprefix("/private"), real.removeprefix("/private"))))
+
+
+def is_app_process(cmd: str, bundle: str) -> bool:
+    """Whether `cmd` is the bundle's own app (its Contents/MacOS binary), not its clone cleanup helper."""
+    rel = in_bundle(cmd, bundle)
+    return rel is not None and rel.startswith("/Contents/MacOS/") and not is_clone_cleanup(cmd)
 
 
 def kind_of(cmd: str, bundle: str) -> str:
@@ -1271,8 +1286,7 @@ def end_bundle(bundle: str):
     bundle ran before the launch (`launch`), so every one is this run's.
     Chromium's clone cleanup helper is ended last, and only when it is still
     there after CLONE_CLEANUP_WAIT_S."""
-    binary_dir = os.path.join(bundle, "Contents/MacOS")
-    apps = {pid for pid, _, cmd in process_table() if cmd.startswith(binary_dir + "/") and not is_clone_cleanup(cmd)}
+    apps = {pid for pid, _, cmd in process_table() if is_app_process(cmd, bundle)}
     bundle_pids(bundle)  # notes the daemons before they go, for their terminal hosts
     end_processes(apps)
     cleanups = {pid for pid, _, cmd in process_table() if in_bundle(cmd, bundle) is not None and is_clone_cleanup(cmd)}
@@ -1866,8 +1880,7 @@ def relaunch_restored(bundle: str, config: dict, extra: dict, socket_path: str, 
     if not before["ok"]:
         raise SystemExit(f"bench-memory --relaunch-restored: the opened terminal workspace {workspace} is not shown "
                          f"before the quit: {json.dumps(before)}")
-    binary_dir = os.path.join(bundle, "Contents/MacOS")
-    apps = {p for p, _, cmd in process_table() if cmd.startswith(binary_dir + "/") and not is_clone_cleanup(cmd)}
+    apps = {p for p, _, cmd in process_table() if is_app_process(cmd, bundle)}
     quit_reply = app.action("quitKeepSessions", wait=False)
     left = still_running(apps, 20)
     info["quit"] = {"reply": quit_reply, "sigterm": sorted(left)}
@@ -2014,6 +2027,10 @@ def main():
         parser.error("--diff-tab takes one --workspaces count, --measure seconds and no --tabs")
     if args.diff_scroll and not args.diff_tab:
         parser.error("--diff-scroll needs --diff-tab")
+    if args.release_hidden_chats > 0 and args.socket:
+        # It turns agents.hiddenChats.discard on through settings.set, which writes the app's cmux.json: an attached
+        # app is the person's own, and it would keep discarding their hidden chats after the run.
+        parser.error("--release-hidden-chats needs an app that this run launches (no --socket)")
     if args.diff_tab and args.socket:
         # An attached app would keep the tab open on a repository that this run removes.
         parser.error("--diff-tab needs an app that this run launches (no --socket)")
