@@ -1641,6 +1641,13 @@
     },
     {
       "agent": "userOnly",
+      "why": "It decides whether an agent may start viewing the person's own screens without their click; an agent never loosens it.",
+      "keys": [
+        "macScreen.onlyPersonStartsViewing"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "It is the person's standing yes to Share This Mac; an agent that could set it would approve its own share request. cmux Remote: the person's call.",
       "keys": [
         "macScreen.shareWithoutAsking"
