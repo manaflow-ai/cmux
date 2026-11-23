@@ -1,10 +1,10 @@
 // What the composer's @ picker lists (MentionMenu.tsx), as Codex's @ does: the plugins (computer use,
-// browser use), another installed harness to ask, then folders and files of the chat's folder once the
-// word is specific. No chats (Lucas 2026-11-21): a chat is found in the sidebar and All chats. Files
-// come from the host's search (`file.search`, fileSearchModel.ts) with its ranking and matched
-// letters; folders are matched here as the path picker's fuzzy filter ranks a name (viewer-empty/fuzzy.ts).
-// Installed extensions add their own items (`cmux.composer.mention/1`, composer/extensionMentions.ts):
-// after the plugins and harnesses, or first when the word names their prefix (`@pr`).
+// browser use), another installed harness to ask, installed extensions' own items
+// (`cmux.composer.mention/1`, composer/extensionMentions.ts; first when the word names their prefix,
+// `@pr`), then folders and files of the chat's folder once the word is specific. No chats (Lucas
+// 2026-11-21): a chat is found in the sidebar and All chats. Files come from the host's search
+// (`file.search`, fileSearchModel.ts) with its ranking and matched letters; folders are matched here
+// as the path picker's fuzzy filter ranks a name (viewer-empty/fuzzy.ts).
 import { fuzzyScore } from "../../viewer-empty/fuzzy";
 import { matchRuns, type FileMatch, type Run } from "./fileSearchModel";
 import { mentionText } from "./mentionMenuModel";
@@ -309,13 +309,13 @@ export function mentionItems({
 
 /// The row Return or Tab picks: the one the person moved to (by key, so it stays put when the
 /// files land around it), else the first. While the files for the word are still on their way, the
-/// first row that is not an extension's item (a quick `@app⏎` means the file), unless the word named
-/// its provider (`@pr`, `providerAsked`), else the first: a listed row is always chosen, so Return
-/// never falls through to send. -1: no rows.
+/// first row that is not an extension's item, unless the word named its provider (`@pr`,
+/// `providerAsked`), else the first: a listed row is always chosen, so Return never falls through to
+/// send. -1: no rows.
 export function mentionSelection(
   items: readonly MentionItem[],
   activeKey: string | undefined,
-  pending: boolean,
+  pending = false,
   providerAsked = false,
 ) {
   const chosen = activeKey === undefined ? -1 : items.findIndex((item) => item.key === activeKey);

@@ -6,7 +6,7 @@ import { BoltIcon } from "./BoltIcon";
 import { COMPOSER_LABELS } from "./composerModel";
 import { useT } from "./i18n";
 import { Icon } from "./icons/Icon";
-import { isFastCommand, shownName, type SlashCommand, type SlashMatch } from "./slashCommands";
+import { shownName, type SlashCommand, type SlashMatch, isFastCommand } from "./slashCommands";
 import {
   SLASH_MAX_VIEWPORT_PX,
   SLASH_ROW_PX,
@@ -17,9 +17,10 @@ import {
 
 /**
  * The composer's `/` list, the one New Tab's box and the agent chat's composer both open: one line
- * per command: its name (its typed letters bold) and, dim at its end, where it comes from (cmux, a
- * skill, a prompt, an extension) when the list holds more than one source. The highlighted row also
- * shows its arguments and what it does; every other row says what it does to a screen reader only.
+ * per command: its name (its typed letters bold), what it does in the quiet second tone, and, dim at
+ * its end, where it comes from (cmux, a skill, a prompt, an extension) when the list holds more than
+ * one source. The highlighted row also shows its arguments (Leo 2026-11-22, bringing descriptions
+ * back on every row: "when you do /, it's ... lonely when you see a field of empty" names).
  * At most 8 rows show before it scrolls (styles.css, slashViewport.ts). Its layer (backdropLayer.tsx
  * ComposerListLayer) stands it beside the box on the side with room, in the box's corners; in the
  * host's native panel past the window's edge, where a pane is too short for a few rows, a row reads
@@ -140,10 +141,9 @@ export function SlashMenu({
       rowClassName="acpmux-slash-row"
       empty={<div className="acpmux-slash-empty">{empty}</div>}
       window={virtual ? view : undefined}
-      itemAttributes={(match, index) => ({
+      itemAttributes={(_, index) => ({
         "aria-posinset": String(index + 1),
         "aria-setsize": String(matches.length),
-        "aria-description": index === active ? undefined : describe(match) || undefined,
       })}
       onScroll={
         virtual
@@ -196,12 +196,12 @@ export function SlashMenu({
                 <span className="acpmux-slash-hint">{match.command.hint}</span>
               </>
             )}
-            {tagged && !match.command.label && sourceTag(match) && (
+            {!match.command.label && tagged && sourceTag(match) && (
               <span className="acpmux-slash-source" data-popup-skip>
                 {sourceTag(match)}
               </span>
             )}
-            {highlighted && (
+            {describe(match) && (
               <span className="acpmux-slash-description" data-popup-detail>
                 {describe(match)}
               </span>

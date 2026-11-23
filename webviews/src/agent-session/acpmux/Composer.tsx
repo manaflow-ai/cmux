@@ -101,6 +101,7 @@ import {
 } from "./slashCommands";
 import { commandWaitsForTurn } from "./cliOnlyCommands";
 import { localCommand, type LocalCommand } from "./localCommands";
+import { HelpSheet } from "./HelpSheet";
 import { SlashMenu } from "./SlashMenu";
 import {
   cachePersistedDraft,
@@ -642,6 +643,9 @@ function ComposerFrame({
   const draftActionsVersion = useDraftActionsVersion();
   /// Where the open Search files palette draws (the composer form's parent); null while closed.
   const [findingFiles, setFindingFiles] = useState<HTMLElement | null>(null);
+  // `/help`'s sheet (HelpSheet.tsx), where the `/` list draws.
+  const [helpOpen, setHelpOpen] = useState(false);
+  useEffect(() => setHelpOpen(false), [sessionId]);
   const openFileSearch = () => setFindingFiles(form.current?.parentElement ?? null);
   // A new folder (another chat) closes the palette, so no row from the last one stays pickable.
   useEffect(() => setFindingFiles(null), [searchFiles]);
@@ -1711,6 +1715,15 @@ function ComposerFrame({
           needsOriginal,
         );
         if (holdForOriginals(waits, again, kept, bindSide)) return false;
+      }
+      if (owned.action === "help") {
+        // The sheet reads the `/` list's commands; nothing goes to the harness.
+        setAttachError(undefined);
+        plusDraft.current = undefined;
+        edit("", 0);
+        sentAt.current = Date.now();
+        setHelpOpen(true);
+        return true;
       }
       if (owned.name === "import") {
         if (importSandboxed) {
@@ -3084,6 +3097,21 @@ function ComposerFrame({
             />
             {/* Anchored to the field, like the picker menus, so a queue above it never pushes the menu up.
                 Drawn out of the box's glass, so their own glass frosts the transcript (backdropLayer.tsx). */}
+            {helpOpen && !open && (
+              <ComposerListLayer>
+                <HelpSheet
+                  commands={commands}
+                  onInsert={(command) => {
+                    setHelpOpen(false);
+                    pickFromPlus(command);
+                  }}
+                  onClose={() => {
+                    setHelpOpen(false);
+                    focusRoute(field.current, "person", "/help closed: the composer");
+                  }}
+                />
+              </ComposerListLayer>
+            )}
             {open && (
               <ComposerListLayer>
                 <SlashMenu
