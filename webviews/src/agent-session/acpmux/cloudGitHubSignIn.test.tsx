@@ -87,7 +87,7 @@ test("each step names the chat; the start opens the device page once", async () 
   expect(start).toEqual({ ok: true, value: { signIn: STARTED } });
   expect(opened).toEqual([GITHUB_DEVICE_PAGE]);
   const finish = await transport.run({ action: "signInFinish", loginId: "login_gh" });
-  expect(finish).toEqual({ ok: true, value: { finished: { signedIn: true } } });
+  expect(finish as unknown).toEqual({ ok: true, value: { finished: { signedIn: true } } });
   await transport.run({ action: "signInCancel", loginId: "login_gh" });
   expect(calls).toEqual([
     { method: "start", args: ["github", "s1"] },
