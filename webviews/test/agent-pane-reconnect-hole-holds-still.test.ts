@@ -150,7 +150,7 @@ function pagingDaemon(
   return { state, open, drop };
 }
 
-type Frame = { ids: string[]; texts: string[]; turnStartedAtMs?: number; working?: boolean };
+type Frame = { ids: string[]; texts: string[]; turnStartedAtMs?: number; working?: boolean; reads: number };
 
 /// Connects as App.tsx does, and keeps every frame the pane is handed.
 async function page(daemon: ReturnType<typeof pagingDaemon>) {
@@ -175,6 +175,7 @@ async function page(daemon: ReturnType<typeof pagingDaemon>) {
           texts: rows.map((row: any) => String(row.text)),
           turnStartedAtMs: snapshot.turnStartedAtMs,
           working: snapshot.isWorking,
+          reads: daemon.state.reads,
         });
       },
       () => {
@@ -196,6 +197,11 @@ async function page(daemon: ReturnType<typeof pagingDaemon>) {
     reconnected: async () => {
       await lost;
       for (let n = 0; n < 20; n += 1) await tick();
+    },
+    /// Waits, at most `ms`, until the last frame shows `text`.
+    shows: async (text: string, ms: number) => {
+      for (const until = Date.now() + ms; Date.now() < until && !frames.at(-1)?.texts.includes(text); )
+        await new Promise((resolve) => setTimeout(resolve, 20));
     },
     close: () => client?.close(),
   };
@@ -230,16 +236,30 @@ for (const ignoresAfterSeq of [false, true]) {
     const shown = JSON.stringify(pane.last().ids);
     daemon.drop();
     await pane.reconnected();
+    // The hole is read after the open: wait for all of it.
+    await pane.shows("afternoon prompt 0", 10_000);
     const after = pane.frames.slice(before);
     pane.close();
-    // Detector: the rows above the newest turn are one set of rows, never swapped for another; and no
-    // frame stops on a stretch of the hole, without the newest turn, while the rest is read.
-    expect(aboveNewest(after, "newest prompt")).toHaveLength(1);
+    // Detector: the newest turn is drawn without waiting on the hole's reads (the first frame that
+    // shows it came before most of them were answered); no frame stops on a stretch of the hole without
+    // the newest turn; the rows above the newest turn change at most once, when the whole hole is in;
+    // and no frame shows part of the hole.
+    const first = after.find((frame) => frame.texts.includes("newest prompt"));
+    expect(first).toBeDefined();
+    expect(first!.reads).toBeLessThan(2);
     for (const frame of after) if (JSON.stringify(frame.ids) !== shown) expect(frame.texts).toContain("newest prompt");
-    // The hole is not read forward: the page alone is the chat, and older history comes on scroll-up.
-    expect(daemon.state.reads).toBe(0);
-    expect(pane.last().texts).not.toContain("morning prompt 0");
-    expect(pane.last().texts.at(-2)).toBe("newest prompt");
+    expect(aboveNewest(after, "newest prompt").length).toBeLessThanOrEqual(2);
+    for (const frame of after) {
+      const has0 = frame.texts.includes("afternoon prompt 0");
+      const hasMiddle = frame.texts.includes(`afternoon reply ${READS_WIDE / 2}`);
+      expect(has0).toBe(hasMiddle);
+    }
+    // Nothing dropped: the held rows, the whole hole, the newest turn, in order.
+    const texts = pane.last().texts;
+    expect(texts[0]).toBe("morning prompt 0");
+    expect(texts).toContain("afternoon prompt 0");
+    expect(texts).toContain(`afternoon reply ${READS_WIDE - 1}`);
+    expect(texts.at(-2)).toBe("newest prompt");
     // The running turn's clock is the newest turn's, in every frame that shows it.
     for (const frame of after)
       if (frame.texts.includes("newest prompt") && frame.turnStartedAtMs !== undefined)
