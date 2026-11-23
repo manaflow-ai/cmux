@@ -375,7 +375,10 @@ export function useInlineAttachments(options: Options) {
       if (before !== shape) changed = dom;
     }
     shapes.current = next;
-    changed?.dispatchEvent(new CustomEvent(TILE_SHAPE_EVENT, { bubbles: true }));
+    // The tile's own window's CustomEvent: an event from another realm (a test DOM beside the
+    // runtime's global) is refused by dispatchEvent.
+    const TileEvent = changed?.ownerDocument.defaultView?.CustomEvent ?? CustomEvent;
+    changed?.dispatchEvent(new TileEvent(TILE_SHAPE_EVENT, { bubbles: true }));
   }, [views, options.pending, options.attachments]);
 
   const chips = [...views].map(([id, dom]) =>
