@@ -64,7 +64,7 @@ sleep 10
   while :; do
     r=0
     for task in /proc/[0-9]*/task/[0-9]*/stat; do
-      read -r line <"$task" 2>/dev/null || continue
+      read -r line 2>/dev/null <"$task" || continue
       rest="${line##*) }"
       [ "${rest:0:1}" = "R" ] || continue
       pid="${task#/proc/}"; pid="${pid%%/*}"
