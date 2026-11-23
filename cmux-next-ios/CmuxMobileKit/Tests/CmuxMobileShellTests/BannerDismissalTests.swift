@@ -39,8 +39,20 @@ import Testing
     }
 
     @Test func theSameStateAfterTheConnectionHeldIsANewDrop() {
-        let dismissal = Self.run(Self.reconnecting, [(5, nil), (5 + BannerDismissal.flapWindow, Self.reconnecting)])
+        let window = BannerDismissal.window(for: Self.reconnecting)
+        let dismissal = Self.run(Self.reconnecting, [(5, nil), (5 + window, Self.reconnecting)])
         #expect(dismissal == nil, "held for the whole window: a real new drop shows")
+        #expect(Self.run(.offline, [(5, nil), (5 + BannerDismissal.flapWindow, .offline)]) == nil)
+    }
+
+    /// Review F1: "Reconnecting" shows only after the 10 s quiet wait, so a link that held 50 s
+    /// and then dropped brings the banner back 60 s after its return. That is a flap inside the
+    /// window, and stays hidden.
+    @Test func theQuietWaitDoesNotCountAsTimeTheConnectionHeld() {
+        let quiet = TimeInterval(QuietStatusGate.threshold.components.seconds)
+        let heldFor = BannerDismissal.flapWindow - quiet
+        let dismissal = Self.run(Self.reconnecting, [(5, nil), (5 + heldFor + quiet, Self.reconnecting)])
+        #expect(dismissal?.state == Self.reconnecting, "held \(heldFor) s, under the window: still dismissed")
     }
 
     @Test func anotherStateEndsTheDismissal() {

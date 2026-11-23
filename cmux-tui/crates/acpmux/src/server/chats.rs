@@ -42,6 +42,10 @@
 //! - `_acpmux/chat_fork {harness, agentSessionId, cwd?}`: a terminal chat's fork, made by its
 //!   harness's ACP agent (`chat_fork.rs`): `{harness, agentSessionId}` of the new session.
 //! - `_acpmux/chat_roots`: the roots, refused roots with reasons, watcher errors.
+//! - `_acpmux/chats_warm {chat?}`: `cmux chats warm`: every cold log segment of the chat, or of
+//!   every chat, back to a plain `.ndjson` (`hub/cold_segments.rs`). Refused while
+//!   `agents.chats.coldSegments` is on. `{chats, segments, rawBytes, compressedBytes, left,
+//!   skipped}`: `left` names each segment that stays cold and why (nothing is removed).
 //! - `_acpmux/chat_roots_record {harness, transcriptPath}`: a hook reports
 //!   a transcript; its store root joins the index (recorded roots file).
 //! - `_acpmux/chat_settings {enabled, discovery, roots, managedRoots,
@@ -290,6 +294,25 @@ pub(super) async fn route(
         }
         // The chats whose prompts or answers hold the words (`chats/search.rs`).
         "_acpmux/chats_search" => search::handle(hub, service, &params).await,
+        "_acpmux/chats_warm" => {
+            // A `chat` that is there but not a string names no chat: refused, never every chat
+            // (#43562 review F2).
+            let chat = match params.get("chat") {
+                None | Some(Value::Null) => None,
+                Some(Value::String(chat)) => Some(chat.clone()),
+                Some(other) => {
+                    return Err(RpcError::invalid_params(format!(
+                        "chat must be a chat id, not {other}"
+                    )));
+                }
+            };
+            let hub = hub.clone();
+            blocking(move || {
+                hub.warm_cold_segments(chat.as_deref())
+                    .map_err(|e| RpcError::invalid_params(format!("{e:#}")))
+            })
+            .await
+        }
         "_acpmux/chat_roots" => match service {
             Some(service) => blocking(move || Ok(service.roots_view())).await,
             None => Ok(json!({"ready": false, "roots": [], "refused": []})),

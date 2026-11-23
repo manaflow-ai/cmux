@@ -247,6 +247,9 @@ public final class CloudMachinesModel {
         /// The machines listed when it was asked: one more means a new machine was made.
         var knownIDs: Set<String>
         var since: Date
+        /// A held Take Snapshot: the machine's snapshots when it was asked; done once a new one is
+        /// listed (a snapshot changes none of the machine's settings).
+        var knownSnapshots: Set<String>? = nil
     }
 
     /// The `awaitingApproval` key of a machine being made.
@@ -266,6 +269,10 @@ public final class CloudMachinesModel {
         let now = now()
         let next = awaitingApproval.filter { id, held in
             guard now.timeIntervalSince(held.since) < Self.approvalShownFor else { return false }
+            if let known = held.knownSnapshots {
+                guard machine(id) != nil else { return false }
+                return Set(snapshots(of: id).map(\.id)).isSubset(of: known)
+            }
             if let before = held.before { return machine(id)?.settings == before }
             return ids.isSubset(of: held.knownIDs)
         }
@@ -319,10 +326,10 @@ public final class CloudMachinesModel {
                 cursor = ((try? JSONSerialization.jsonObject(with: page)) as? [String: Any])?["next_cursor"] as? String
             } while cursor != nil && rows.count < 1000
             machines = rows
-            settleHeldActions()
             // A plan or snapshot read that fails keeps the list (the page hides what it lacks).
             plan = (try? await planned).flatMap(CloudMachinePlan.parse) ?? plan
             if let value = try? await saved { snapshots = CloudMachineSnapshot.list(value) }
+            settleHeldActions()
             phase = .loaded
         } catch is CancellationError {
             phase = before
@@ -407,7 +414,7 @@ public final class CloudMachinesModel {
         var params: [String: any Sendable] = ["machine": machine.id]
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty { params["name"] = String(trimmed.prefix(80)) }
-        await act(machine.id) { try await $0.mutate("cloud.snapshot.create", params: params, key: "snapshot-\(machine.id)-\(self.newKey())") }
+        await act(machine.id, watchesSnapshots: true) { try await $0.mutate("cloud.snapshot.create", params: params, key: "snapshot-\(machine.id)-\(self.newKey())") }
     }
 
     /// A new machine booted from a ready snapshot or archive.
@@ -425,7 +432,7 @@ public final class CloudMachinesModel {
 
     /// Runs one op: the change shows at once (`optimistic`), the list is read again after, and a
     /// refusal puts the row back and says why. An approval the service holds is a note, not a failure.
-    private func act(_ id: String, optimistic: ((inout CloudMachine) -> Void)? = nil, rollback: (() -> Void)? = nil,
+    private func act(_ id: String, watchesSnapshots: Bool = false, optimistic: ((inout CloudMachine) -> Void)? = nil, rollback: (() -> Void)? = nil,
                      _ work: @MainActor (AccountCloud) async throws -> Data) async {
         guard busyID == nil, let account = account() else {
             rollback?()
@@ -440,7 +447,8 @@ public final class CloudMachinesModel {
         busyID = id
         if awaitingApproval[id] != nil { awaitingApproval[id] = nil }
         // As it was before the optimistic change, which a read rolls back while it is held.
-        let held = HeldAction(before: old.first { $0.id == id }?.settings, knownIDs: Set(old.map(\.id)), since: now())
+        let held = HeldAction(before: old.first { $0.id == id }?.settings, knownIDs: Set(old.map(\.id)), since: now(),
+                              knownSnapshots: watchesSnapshots ? Set(snapshots(of: id).map(\.id)) : nil)
         defer { busyID = nil }
         do {
             let value = try await work(account)

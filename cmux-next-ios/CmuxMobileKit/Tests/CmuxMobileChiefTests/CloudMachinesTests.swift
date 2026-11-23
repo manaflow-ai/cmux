@@ -155,6 +155,26 @@ extension AccountCloudTests {
         #expect(!model.isAwaitingApproval(paused.id), "an approval never decided stops saying so")
     }
 
+    /// Review finding 2: a snapshot changes none of the machine's settings, so a held Take Snapshot
+    /// is done when a new snapshot of that machine is listed, not after 15 min.
+    @Test func aHeldSnapshotIsDoneWhenTheNewSnapshotIsListed() async throws {
+        var answers = Machines.reads
+        answers["cloud.snapshot.create"] = (409, #"{"error":{"code":"approval.pending","message":"waiting"}}"#)
+        Service.reset(answers)
+        let model = Machines.model()
+        await model.load()
+        let machine = try #require(model.machine("vm_aaaaaaaaaaaaaaaaaaaa"))
+        await model.takeSnapshot(machine, name: "")
+        #expect(model.isAwaitingApproval(machine.id))
+        await model.load()
+        #expect(model.isAwaitingApproval(machine.id), "no new snapshot yet: still waiting")
+        answers["cloud.snapshot.list"] = (200, Machines.snapshots.replacingOccurrences(of: #"{"value":{"snapshots":["#,
+            with: #"{"value":{"snapshots":[{"id":"snap_cccccccccccccccccccc","machine":"vm_aaaaaaaaaaaaaaaaaaaa","name":null,"size_mb":2048,"status":"ready","created_at":9500,"revision":"3"},"#))
+        Service.reset(answers)
+        await model.load()
+        #expect(!model.isAwaitingApproval(machine.id), "approved: the new snapshot is listed")
+    }
+
     @Test func cloudMachinesSignedOutSaysSo() async {
         let model = CloudMachinesModel { nil }
         await model.load()

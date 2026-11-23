@@ -254,13 +254,15 @@ private struct BannerHost: View {
     let state: ConnectionBannerState?
     let retry: (() -> Void)?
     @State private var dismissal: BannerDismissal?
+    /// When the link went down (any chip state), kept across a change of state while down.
+    @State private var downSince: Date?
 
     var body: some View {
         ZStack {
             if let state, state != dismissal?.state {
                 Group {
                     if let chip = state.chip {
-                        ConnectionChip(chip, retry: state.offersRetry ? retry.map { action -> @MainActor () async -> Void in { action() } } : nil)
+                        ConnectionChip(chip, downSince: downSince ?? ConnectionChip.justDropped, retry: state.offersRetry ? retry.map { action -> @MainActor () async -> Void in { action() } } : nil)
                     } else {
                         ConnectionBanner(state, retry: retry)
                     }
@@ -277,6 +279,9 @@ private struct BannerHost: View {
         .frame(maxWidth: .infinity)
         .animation(theme.motion.snappy.animation.unlessReduceMotion, value: state)
         .onChange(of: state) { _, new in dismissal = BannerDismissal.remembered(dismissal, after: new, at: .now) }
+        .onChange(of: state?.chip != nil, initial: true) { _, down in
+            downSince = ConnectionChip.nextDownSince(downSince, down: down, now: Date())
+        }
     }
 }
 
@@ -293,6 +298,15 @@ struct BannerDismissal: Equatable {
     /// How long the connection must hold before the same banner counts as a new drop.
     static let flapWindow: TimeInterval = 60
 
+    /// The window as seen from the banner's return: a held state ("Reconnecting") comes back only
+    /// after the quiet wait, so the drop it reports began that much earlier (review F1: without
+    /// this, a connection that held 50 s read as one that held 60 s).
+    static func window(for state: ConnectionBannerState) -> TimeInterval {
+        guard state.showsSpinner else { return flapWindow }
+        let quiet = QuietStatusGate.threshold.components
+        return flapWindow + TimeInterval(quiet.seconds) + TimeInterval(quiet.attoseconds) / 1e18
+    }
+
     static func remembered(_ dismissal: BannerDismissal?, after state: ConnectionBannerState?, at now: Date) -> BannerDismissal? {
         guard var dismissal else { return nil }
         guard let state else {
@@ -301,7 +315,7 @@ struct BannerDismissal: Equatable {
             return dismissal
         }
         guard state == dismissal.state else { return nil }
-        if let cleared = dismissal.clearedAt, now.timeIntervalSince(cleared) >= flapWindow { return nil }
+        if let cleared = dismissal.clearedAt, now.timeIntervalSince(cleared) >= window(for: state) { return nil }
         dismissal.clearedAt = nil
         return dismissal
     }
