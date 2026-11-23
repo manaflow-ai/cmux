@@ -25,9 +25,9 @@ import { holdUntilSettled } from "./conversation/unsettledHeights";
 import { endOffscreenMotion } from "./conversation/offscreenMotion";
 import {
   layoutConversation,
-  layoutGeometry,
   type PlacedLayout,
   type RowHeights,
+  layoutGeometry,
   placedFromEstimate,
   placedWithOrigin,
   placeRowsIndexed,
@@ -103,11 +103,11 @@ import { noteReaderScroll, readerScroll } from "./summary/heldWhileScrolling";
 import { keepTabOnScreen } from "../../ui/tabReach";
 import { useRowRepositories } from "./conversation/useRowRepositories";
 import {
-  type ReferenceScope,
-  type ReferenceScopeCache,
   newReferenceScopeCache,
   referenceScopes,
   turnOpener,
+  type ReferenceScope,
+  type ReferenceScopeCache,
 } from "./conversation/bareReferences";
 import { stopReadingAloud } from "./conversation/readAloud";
 import { heightFoldInFlight, heightFoldPlaying, settleFoldsIn } from "./conversation/fold";
@@ -176,10 +176,10 @@ import {
   readUnread,
   subscribeUnread,
   unreadPending,
-  noteUnreadNews,
   noteUnreadCount,
+  noteUnreadNews,
 } from "./conversation/unreadState";
-import { sinceNews, sinceCount } from "./conversation/sinceNews";
+import { sinceCount, sinceNews } from "./conversation/sinceNews";
 import {
   jumpUpShown,
   jumpUpTarget,
@@ -192,7 +192,7 @@ import {
 import { jumpUpButton } from "./jumpUp.experiment";
 import { experimentArm } from "../../experiments/experiment";
 import { MOTION_MS, MOTION_SEND_CURVE, MOTION_SEND_MS } from "../../motion/scale.generated";
-import { followShownScrollerFade, SHOWN_INK_PROPERTIES } from "../../scrollers";
+import { SHOWN_INK_PROPERTIES, followShownScrollerFade } from "../../scrollers";
 import { thumbMotion } from "./conversation/thumbMotion.experiment";
 import { editableTarget, wheelScrollsDown } from "./conversation/wheelChain";
 import { heightLeftAbove, type NewerReserve, newerReserve, rowsReplaced } from "./conversation/newerReserve";
@@ -1174,6 +1174,7 @@ function TranscriptView({
       });
       return;
     }
+    if (ref.current && followedFrameDrawn(ref.current, frame.atLatest)) return;
     // A frame that brings the offset the last commit drew, following as it drew, changes nothing
     // that commit shows: a followed reply's growth pins the view to its new end, and the render that
     // measured the growth already drew there (`projectedTop`). Its scroll event then drew the whole
@@ -1181,7 +1182,6 @@ function TranscriptView({
     // (test/agent-pane-stream-renders.test.ts).
     const drew = drewScroll.current;
     if (drew && Math.abs(frame.top - drew.top) <= 0.5 && drew.following === followingRef.current) return;
-    if (ref.current && followedFrameDrawn(ref.current, frame.atLatest)) return;
     // Counted for the test that a followed stream forces none (agent-pane-follow-stream-no-flush.test.ts).
     acpmuxPerf.render("transcript:scroll-flush");
     acpmuxPerf.timed("flush.scroll", () => {
