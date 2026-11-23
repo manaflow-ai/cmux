@@ -1,0 +1,139 @@
+name: iOS App Review readiness
+
+# Finds every iOS App Store release blocker we can see before App Review does,
+# on every push to main, instead of one blocker per rejection. The run's
+# conclusion is the readiness answer.
+#
+# The App Store app is the cmux NEXT iPhone app (cmux-next-ios, com.cmux.app,
+# built from feat-cmux-next), so its gate is feat-cmux-next's
+# ios-review-gate.yml (cmux-next-ios/AppStoreReview/APP-REVIEW-GATE.md): the
+# guideline lint, and the reviewer-path walk on iPhone, iPad and iPhone Duo
+# with the agent reviewer pass. This job dispatches that workflow on
+# feat-cmux-next for the feat-cmux-next head and takes its run's conclusion,
+# as ios-reliability-matrix.yml starts the matrix. It holds no secret: the
+# gate runs as feat-cmux-next's own run with feat-cmux-next's own rules, and
+# main's release key never reaches a workflow defined on another branch.
+# `asc validate --strict` needs that key, so it stays in the production
+# submission (ios-app-store.yml), which calls the gate with it.
+#
+# No paths filter. One waiter at a time: a newer main push cancels the older
+# push run still waiting, and the newer run carries the verdict for the newest
+# feat-cmux-next (the gate judges feat-cmux-next's head, not the main commit,
+# so an older main push's wait answers the same question later). Until
+# 2026-11-21 every main push held its own runner for up to 6 h polling the same
+# gate run: 28 waiters on 11-20 held 168 runner-hours and all timed out with no
+# verdict (CI 10x, T1; Leo, 2026-11-21 03:45Z: "clearly we need to be hitting a
+# 10x improvement in not running useless jobs"). A dispatch keeps its own group.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.event_name == 'push' && 'ios-app-review-readiness-push' || format('ios-app-review-readiness-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
+
+permissions: {}
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
+jobs:
+  review-gate:
+    name: NEXT App Review gate
+    if: github.repository == 'manaflow-ai/cmux'
+    permissions:
+      actions: write # dispatch and read ios-review-gate.yml
+      contents: read
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    # Gate runs have taken up to about 2 hours (the reviewer-path jobs and their
+    # macOS queue), and a followed successor waits behind the run holding the
+    # gate's group first, so up to about 4; past this the push run is red with
+    # no verdict. 360 is the job ceiling.
+    timeout-minutes: 360
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Find or dispatch the gate for the feat-cmux-next head
+        id: dispatch
+        run: |
+          set -euo pipefail
+          # One refused read must not turn the push run red with no verdict (run
+          # 43618862433): each call gets 5 tries a minute apart. A dispatch whose
+          # reply was lost and is sent again makes at most one extra gate run.
+          # gh api prints a refused call's error body to stdout, so only the
+          # successful try's output is passed on.
+          ghr() {
+            local out
+            for try in 1 2 3 4 5; do
+              out="$(gh api "$@")" && { printf '%s\n' "$out"; return 0; }
+              echo "::warning::gh api $1 failed (try $try of 5)" >&2
+              [[ $try -lt 5 ]] && sleep 60
+            done
+            return 1
+          }
+          sha="$(ghr "repos/$GITHUB_REPOSITORY/commits/feat-cmux-next" --jq .sha)"
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::could not resolve feat-cmux-next: $sha" >&2; exit 1; }
+          # A main push does not change the code the gate judges, so pushes while
+          # feat-cmux-next stays put share one gate run: the newest not-cancelled
+          # one this workflow dispatched for that SHA (github-actions[bot], lane
+          # appstore). A new dispatch per push would also let the gate's
+          # concurrency group cancel a queued one, a red with no blocker found.
+          # The repository's run list, matched on each run's workflow path: the
+          # gate's file exists only on feat-cmux-next, not in this branch's
+          # .github/workflows.
+          run_id="$(ghr "repos/$GITHUB_REPOSITORY/actions/runs?event=workflow_dispatch&branch=feat-cmux-next&head_sha=$sha&per_page=100" \
+            --jq '[.workflow_runs[] | select(.path == ".github/workflows/ios-review-gate.yml" and .actor.login == "github-actions[bot]" and .conclusion != "cancelled")][0].id // empty')"
+          if [[ -z "$run_id" ]]; then
+            # return_run_details: the reply names the run this dispatch made, so a
+            # concurrent dispatch is never mistaken for it. No inputs.ref: the gate
+            # judges its own head, which is the run's head_sha, the key the lookup
+            # above reuses it by, even when feat-cmux-next moved since $sha.
+            run_id="$(ghr -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/ios-review-gate.yml/dispatches" \
+              -f ref=feat-cmux-next -f "inputs[lane]=appstore" -f "inputs[agent_pass]=true" \
+              -F return_run_details=true --jq .workflow_run_id)"
+          fi
+          [[ "$run_id" =~ ^[0-9]+$ ]] || { echo "::error::no gate run for $sha: $run_id" >&2; exit 1; }
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "App Review gate for feat-cmux-next $sha: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$run_id" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # The verdict is the gate run's own conclusion, and nothing else. A read
+      # GitHub refuses (the installation's rate limit answered HTTP 403 in run
+      # 43618862433 while the gate ran on) is retried, never taken as the
+      # verdict; the job's timeout bounds the wait.
+      #
+      # Every dispatch shares the gate's one concurrency group, so a newer
+      # dispatch (feat-cmux-next moved) replaces a queued one, which ends
+      # cancelled with no job run (gate run 43622919851, readiness run
+      # 43622910673). A cancelled run was superseded: the wait follows the
+      # newest live gate run this workflow dispatched after it, and carries
+      # that run's verdict on the newer feat-cmux-next.
+      - name: Wait for the gate's verdict
+        env:
+          RUN_ID: ${{ steps.dispatch.outputs.run_id }}
+        run: |
+          set -uo pipefail
+          run_id="$RUN_ID"
+          while :; do
+            url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$run_id"
+            state="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" --jq '.status + " " + (.conclusion // "")')" \
+              || { echo "::warning::could not read $url; retrying in 2 min"; sleep 120; continue; }
+            if [[ "$state" == "completed cancelled" ]]; then
+              next="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?event=workflow_dispatch&branch=feat-cmux-next&per_page=50" \
+                --jq "[.workflow_runs[] | select(.path == \".github/workflows/ios-review-gate.yml\" and .actor.login == \"github-actions[bot]\" and .conclusion != \"cancelled\" and .id > $run_id)][0].id // empty")" \
+                || { echo "::warning::could not list the gate's runs; retrying in 2 min"; sleep 120; continue; }
+              if [[ "$next" =~ ^[0-9]+$ ]]; then
+                echo "Gate run $url was cancelled for a newer dispatch; following run $next"
+                run_id="$next"
+                continue
+              fi
+            fi
+            case "$state" in
+              "completed success") echo "The App Review gate passed: $url"; exit 0 ;;
+              completed*) echo "::error::the App Review gate concluded ${state#completed }: $url"; exit 1 ;;
+            esac
+            sleep 120
+          done

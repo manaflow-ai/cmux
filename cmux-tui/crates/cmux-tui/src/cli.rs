@@ -4,10 +4,18 @@
 //! is deliberately isolated in `cli/wire.rs`, so public commands cannot
 //! accidentally fall back to the private command protocol.
 
+mod agent_list;
+mod agent_names;
+mod agent_start;
+mod agent_vocabulary;
+mod attention;
 mod command;
 mod lifecycle;
+mod pane_identify;
+mod pane_move;
 mod raw;
 mod shorthand;
+mod skill;
 mod wire;
 
 use std::borrow::Cow;
@@ -31,6 +39,7 @@ const PUBLIC_SCOPES: &[&str] = &[
     "browser",
     "notification",
     "agent",
+    "attention",
     "sidebar",
     "pairing",
     "projection",
@@ -229,6 +238,17 @@ fn write_stdout(text: &str) {
 }
 
 pub fn run(args: &[String], startup_usage: &str) -> i32 {
+    // `terminal alpha write …`: an agent name or a unique tab name becomes
+    // its id before any command reads the words (agent_names.rs).
+    let named_args;
+    let args = match agent_names::rewrite_args(args) {
+        Ok(Some(rewritten)) => {
+            named_args = rewritten;
+            named_args.as_slice()
+        }
+        Ok(None) => args,
+        Err(code) => return code,
+    };
     match parse(args) {
         Ok(ParsedCommand::Help(scope)) => {
             if scope.as_deref() == Some("start") {
@@ -248,6 +268,12 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
                 command::run_provider_authority(global, authority)
             }
             CommandPlan::RawCommand(command) => raw::run(global, command),
+            CommandPlan::Attention(plan) => attention::run(global, plan),
+            CommandPlan::AgentList(plan) => agent_list::run(global, *plan),
+            CommandPlan::PaneMove(request) => pane_move::run(global, *request),
+            CommandPlan::Identify => pane_identify::run(&global),
+            CommandPlan::SkillShow => skill::run(&global),
+            CommandPlan::Agent(command) => agent_start::run(&global, &command),
         },
         Err(failure) => {
             let message = if matches!(failure.output, OutputMode::Quiet | OutputMode::Human) {
@@ -302,7 +328,10 @@ fn parse_command(
     if command_args[0] == "help" {
         return match command_args.get(1) {
             None => Ok(ParsedCommand::Help(None)),
-            Some(scope) if matches!(scope.as_str(), "start" | "shorthands") => {
+            Some(scope)
+                if matches!(scope.as_str(), "start" | "shorthands")
+                    || LOCAL_COMMANDS.contains(&scope.as_str()) =>
+            {
                 Ok(ParsedCommand::Help(Some(scope.clone())))
             }
             Some(scope) if PUBLIC_SCOPES.contains(&shorthand::scope(scope)) => {
@@ -310,6 +339,9 @@ fn parse_command(
             }
             Some(scope) => Err(unknown_scope(scope)),
         };
+    }
+    if let Some(parsed) = parse_local_command(&global, &command_args)? {
+        return Ok(parsed);
     }
     if has_help_option(&command_args) {
         return Ok(ParsedCommand::Help(help_topic(&command_args)));
@@ -324,6 +356,46 @@ fn parse_command(
     }
     let plan = command::parse(&command_args)?;
     Ok(ParsedCommand::Command { global, plan })
+}
+
+/// Commands this CLI answers itself, beside the resource scopes.
+const LOCAL_COMMANDS: &[&str] = &["identify", "skill"];
+
+/// `identify` and `skill [show]`, with `--help` as their own help topic;
+/// `None` for every other command.
+fn parse_local_command(
+    global: &GlobalArgs,
+    command_args: &[String],
+) -> Result<Option<ParsedCommand>, UsageError> {
+    let Some((first, rest)) = command_args.split_first() else { return Ok(None) };
+    let help = || rest.iter().any(|word| matches!(word.as_str(), "-h" | "--help"));
+    // `agent start|resume`, `terminal <t> resume` and `terminal <t> wait`
+    // read their own options (and `-- ARGS`); `--help` shows the catalog's.
+    if !has_help_option(command_args)
+        && let Some(command) = agent_start::parse(command_args)
+    {
+        let command = command?;
+        return Ok(Some(ParsedCommand::Command {
+            global: global.clone(),
+            plan: CommandPlan::Agent(Box::new(command)),
+        }));
+    }
+    let plan = match first.as_str() {
+        "identify" if help() => return Ok(Some(ParsedCommand::Help(Some("identify".into())))),
+        "identify" if rest.is_empty() => CommandPlan::Identify,
+        "identify" => {
+            let message = crate::localization::catalog().pane_cli.identify_arguments;
+            return Err(UsageError::new(message.replace("{words}", &rest.join(" "))));
+        }
+        "skill" if help() => return Ok(Some(ParsedCommand::Help(Some("skill".into())))),
+        "skill" if rest.is_empty() || rest == ["show"] => CommandPlan::SkillShow,
+        "skill" => {
+            let message = crate::localization::catalog().pane_cli.skill_arguments;
+            return Err(UsageError::new(message.replace("{words}", &rest.join(" "))));
+        }
+        _ => return Ok(None),
+    };
+    Ok(Some(ParsedCommand::Command { global: global.clone(), plan }))
 }
 
 /// Help topic prefix for one action, followed by its catalog path.
@@ -513,7 +585,7 @@ fn set_output_mode(
 fn print_scope_help(scope: Option<&str>) {
     let text = scope
         .map(scope_help)
-        .unwrap_or_else(|| Cow::Owned(root_help(&crate::localization::catalog().local_server)));
+        .unwrap_or_else(|| Cow::Owned(root_help(crate::localization::catalog())));
     write_stdout(&text);
 }
 
@@ -550,12 +622,15 @@ fn scope_help_for(
         "browser" => Cow::Borrowed(BROWSER_HELP),
         "notification" => Cow::Borrowed(NOTIFICATION_HELP),
         "agent" => Cow::Borrowed(AGENT_HELP),
+        "attention" => Cow::Borrowed(ATTENTION_HELP),
         "sidebar" => Cow::Borrowed(SIDEBAR_HELP),
         "pairing" => Cow::Borrowed(PAIRING_HELP),
         "projection" => Cow::Borrowed(PROJECTION_HELP),
         "provider" => Cow::Borrowed(PROVIDER_HELP),
         "raw" => Cow::Borrowed(RAW_HELP),
-        _ => return Cow::Owned(root_help(&catalog.local_server)),
+        "identify" => Cow::Borrowed(catalog.pane_cli.identify_help),
+        "skill" => Cow::Borrowed(catalog.pane_cli.skill_help),
+        _ => return Cow::Owned(root_help(catalog)),
     };
     if scope == "server" || !PUBLIC_SCOPES.contains(&scope) {
         return help;
@@ -608,7 +683,8 @@ const ROOT_HELP_SCOPES_SUFFIX: &str = "  machine       Inspect the local machine
   terminal      Read, write, and attach to terminals
   browser       Navigate and attach to browsers
   notification  List and create notifications
-  agent         List and report agent state
+  agent         Start, resume, list and report agents
+  attention     Find the tabs that need you
   sidebar       Manage sidebar views and local plugins
   pairing       Resolve pairing requests
   projection    Read and update frontend projections
@@ -619,10 +695,14 @@ Run `cmux <scope> --help` for scope-specific paths, and add --help to an
 action for its options.
 ";
 
-fn root_help(messages: &crate::localization::LocalServerMessages) -> String {
+fn root_help(catalog: &crate::localization::Catalog) -> String {
+    let messages = &catalog.local_server;
     format!(
-        "{ROOT_HELP_PROCESS_PREFIX}{}\n{ROOT_HELP_PROCESS_SUFFIX}{}\n{ROOT_HELP_GLOBALS}{}\n{ROOT_HELP_SCOPES_SUFFIX}",
-        messages.root_remote_usage, messages.root_server_usage, messages.root_server_scope,
+        "{ROOT_HELP_PROCESS_PREFIX}{}\n{ROOT_HELP_PROCESS_SUFFIX}{}\n{ROOT_HELP_GLOBALS}{}\n{ROOT_HELP_SCOPES_SUFFIX}{}",
+        messages.root_remote_usage,
+        messages.root_server_usage,
+        messages.root_server_scope,
+        catalog.pane_cli.root_agent_commands,
     )
 }
 
@@ -699,12 +779,16 @@ USAGE
 const SCREEN_HELP: &str = "\
 USAGE
   cmux screen list
-  cmux screen create [--correlation-key <value>]
+  cmux screen create [--workspace <selector>] [--name <value>] [--focus]
+    [--correlation-key <value>]
   cmux screen <selector> show|rename|focus|close
   cmux screen <selector> layout export
   cmux screen <selector> layout undo [--confirm-close]
     [--confirmation-token <value>]
   cmux screen <selector> pane ...
+
+create adds the screen to the current workspace (or --workspace) and keeps
+the focus where it is unless --focus is given.
 ";
 
 const PANE_HELP: &str = "\
@@ -722,7 +806,21 @@ USAGE
   cmux pane <selector> split ratio set --split <id> --ratio <value>
   cmux pane <selector> viewport width set --columns <value>
   cmux pane <selector> run [--on-exit <close|keep>] [--correlation-key <value>] -- <argv...>
+  cmux pane <selector> move --to-pane <selector> [--split right|down|left|up] [--focus]
+  cmux pane <selector> move --to-tab <selector> [--focus]
+  cmux pane <selector> move --to-workspace <selector> [--name <value>] [--focus]
+  cmux pane <selector> move --new-screen|--new-tab [--name <value>] [--focus]
   cmux pane <selector> tab ...
+
+move moves the whole pane, all its tabs in order (tmux join-pane and
+break-pane): --to-pane puts them at the end of that pane, or with --split
+into a new pane split off it; --to-tab puts them after that tab in its pane;
+--to-workspace into a new screen in that workspace; --new-screen (--new-tab is
+the same) into a new screen in the pane's own workspace. The emptied pane
+closes. The focus stays where it is unless --focus is given (when the moved
+pane had the focus, the focus goes with it). --json prints pane, moved_tabs,
+destination {workspace, screen, pane, index}, created and focused_pane. A
+failed step is not resumed: details.made names what already moved.
 ";
 
 const TAB_HELP: &str = "\
@@ -742,18 +840,29 @@ USAGE
   cmux terminal <selector> keys <key...>
   cmux terminal <selector> mouse <kind> [OPTIONS]
   cmux terminal <selector> focus <in|out>
-  cmux terminal <selector> screen read
+  cmux terminal <selector> screen read [--details]
   cmux terminal <selector> screen wait --pattern <regex> [--timeout-ms <n>]
   cmux terminal <selector> state read
   cmux terminal <selector> history read|clear
   cmux terminal <selector> output read [--after <offset>] [--max-bytes <n>]
   cmux terminal <selector> copy|process show [OPTIONS]
   cmux terminal <selector> process wait [--timeout-ms <n>]
+  cmux terminal <selector> wait --until ready [--timeout <duration>]
+  cmux terminal <selector> resume [OPTIONS] [-- ARGS...]
   cmux terminal <selector> viewport scroll --delta-rows <n>
   cmux terminal <selector> move|project|attach|close [OPTIONS]
 
 screen wait prints its result either way and exits 1 when the timeout
-passes without a match.
+passes without a match. --pattern is a regular expression matched line by
+line: ^ and $ match at the start and end of each line, as in grep, so
+--pattern '^BENCH_OK$' matches a line that is only BENCH_OK. Start the
+pattern with (?-m) to match the whole text instead.
+
+screen read prints the screen's text; --details (or --json) prints the
+whole record. wait --until ready waits until the terminal's agent can take
+a message: exit 0 ready, 4 blocked on a startup dialog, 1 exited, 124
+timeout. resume starts an agent that exited again with its harness session
+(as cmux agent resume does).
 ";
 
 const BROWSER_HELP: &str = "\
@@ -773,7 +882,12 @@ USAGE
 
 const AGENT_HELP: &str = "\
 USAGE
-  cmux agent list [OPTIONS]
+  cmux agent start <name> [OPTIONS] [-- ARGS...]
+  cmux agent resume <name> [OPTIONS] [-- ARGS...]
+  cmux agent list [--state working|blocked|done|idle|unknown|ended]
+                  [--terminal <id>]
+                  (done: idle with an unread notification; ended: the session
+                  ended, which --state done selected before)
   cmux agent report --terminal <selector> --state <value> --source <value>
   cmux agent hook install|uninstall|status [provider...]
   cmux agent hook emit --source <agent> --event <native-event> [--terminal <id>]
@@ -781,6 +895,26 @@ USAGE
   cmux agent plugin install <git-url> [--name <value>] [--force]
   cmux agent plugin use|update|remove <name-or-id>
   cmux agent plugin use --builtin
+
+agent start runs a coding agent (--cmd, else $CMUX_AGENT_COMMAND, else
+claude) in a new tab named <name> and waits until it can take a message:
+exit 0 ready, 4 blocked on a startup dialog (cmux never answers it), 1
+exited, 124 timeout. The name then selects that terminal, tab or pane.
+agent resume starts the exited agent <name> again with its harness session.
+";
+
+const ATTENTION_HELP: &str = "\
+USAGE
+  cmux attention next [--after <tab_id>] [--focus]
+  cmux attention list
+
+next answers the tab the person should go to next, as JSON {target,
+queue_length, focused}: tabs whose agent waits on them (blocked) first, then
+unread error and warning notifications, then other unread ones, each oldest
+first. target is the entry after the focused tab (or after --after), wrapping
+to the first, or null. It moves focus only with --focus. list answers the
+whole queue as {queue}. The TUI key `Ctrl-b a` (next-attention) visits the
+same order; `Ctrl-b A` lists it.
 ";
 
 const SIDEBAR_HELP: &str = "\
@@ -949,6 +1083,28 @@ mod tests {
         );
     }
 
+    /// `pane <p> move --new-screen --help` prints the pane move help:
+    /// `--new-screen` takes no value, so it does not swallow `--help`, and
+    /// `--json` after it is the output mode.
+    #[test]
+    fn w4j_pane_move_help_is_the_pane_move_help() {
+        for args in [
+            &["pane", "current", "move", "--new-screen", "--help"][..],
+            &["pane", "move", "--new-tab", "--help"],
+            &["pane", "pane_1", "move", "--to-pane", "x", "--focus", "--help"],
+        ] {
+            let Ok(ParsedCommand::Help(Some(topic))) = parse(&strings(args)) else {
+                panic!("{args:?} is not help");
+            };
+            assert_eq!(topic, "action:pane <selector> move", "{args:?}");
+            let help = scope_help_for(&topic, crate::localization::catalog());
+            assert!(help.contains("--to-pane"), "{help}");
+        }
+        let (global, _) =
+            parse_globals(&strings(&["pane", "move", "--new-screen", "--json"])).unwrap();
+        assert_eq!(global.output, OutputMode::Json);
+    }
+
     #[test]
     fn server_stats_help_routes_to_the_stats_topic() {
         let ParsedCommand::Help(Some(topic)) =
@@ -983,7 +1139,7 @@ mod tests {
 
     #[test]
     fn startup_help_is_explicitly_discoverable() {
-        let help = root_help(&crate::localization::catalog_for_locale("en_US.UTF-8").local_server);
+        let help = root_help(crate::localization::catalog_for_locale("en_US.UTF-8"));
         assert!(help.contains("cmux help start"));
         assert!(help.starts_with("cmux - "));
         assert!(!help.contains("cmux-tui"));

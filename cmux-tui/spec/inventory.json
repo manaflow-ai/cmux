@@ -139,6 +139,7 @@
   },
   "commands": {
     "control": [
+      "ack-tab-notifications",
       "apply-layout",
       "clear-history",
       "clear-window-title",
@@ -856,6 +857,42 @@
       "route": "frontend viewport adapter; scroll-surface for shared local viewport"
     },
     {
+      "variant": "ScrollPageUp",
+      "key": "scroll-page-up",
+      "classification": "presentation-only",
+      "route": "frontend viewport adapter"
+    },
+    {
+      "variant": "ScrollPageDown",
+      "key": "scroll-page-down",
+      "classification": "presentation-only",
+      "route": "frontend viewport adapter"
+    },
+    {
+      "variant": "ScrollHalfPageUp",
+      "key": "scroll-half-page-up",
+      "classification": "presentation-only",
+      "route": "frontend viewport adapter"
+    },
+    {
+      "variant": "ScrollHalfPageDown",
+      "key": "scroll-half-page-down",
+      "classification": "presentation-only",
+      "route": "frontend viewport adapter"
+    },
+    {
+      "variant": "CopyMode",
+      "key": "copy-mode",
+      "classification": "presentation-only",
+      "route": "frontend copy mode over the terminal mirror"
+    },
+    {
+      "variant": "SearchScrollback",
+      "key": "search-scrollback",
+      "classification": "presentation-only",
+      "route": "frontend copy mode over the terminal mirror"
+    },
+    {
       "variant": "ClearHistory",
       "key": "clear-history",
       "classification": "direct",
@@ -890,6 +927,18 @@
       "key": "show-shortcuts",
       "classification": "presentation-only",
       "route": "frontend shortcut overlay"
+    },
+    {
+      "variant": "NextAttention",
+      "key": "next-attention",
+      "classification": "presentation-only",
+      "route": "frontend attention queue + client focus"
+    },
+    {
+      "variant": "AttentionList",
+      "key": "attention-list",
+      "classification": "presentation-only",
+      "route": "frontend attention list overlay"
     },
     {
       "variant": "Detach",
@@ -1099,6 +1148,11 @@
       "variant": "ShowShortcuts",
       "classification": "presentation-only",
       "route": "frontend shortcut overlay"
+    },
+    {
+      "variant": "FocusAttention",
+      "classification": "presentation-only",
+      "route": "frontend attention list + client focus"
     },
     {
       "variant": "SetClientSizing",

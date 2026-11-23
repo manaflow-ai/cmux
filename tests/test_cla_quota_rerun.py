@@ -277,6 +277,19 @@ class Tests(unittest.TestCase):
         self.sweep(fake)
         self.assertEqual(fake.posts, [])
 
+    def test_a_rerun_that_failed_again_backs_off_before_the_next(self):
+        # 2026-11-13: the workflow token's rate_limit read showed 4133 of 5000 left while CLA
+        # Assistant was refused for the installation budget, so each failed re-run started a pass
+        # that re-ran it at once: #42487 went from attempt 1 to MAX_ATTEMPT in 8 minutes, all red,
+        # and stayed red after the reset with no attempt left.
+        head = "a" * 40
+        for attempt, age, due in ((1, 0, True), (2, 0, False), (2, 2, True), (5, 5, False), (5, 9, True),
+                                  (12, 15, False), (12, 31, True)):
+            updated = (NOW - dt.timedelta(minutes=age)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            fake = FakeGitHub([run(1, head, attempt=attempt, updated=updated)], [], {1: LIMITED_LOG})
+            self.sweep(fake)
+            self.assertEqual(fake.posts, [rerun_path(1)] if due else [], (attempt, age))
+
     def test_a_head_rerun_since_is_not_replayed(self):
         head = "a" * 40
         fake = FakeGitHub([run(1, head), run(6, head, conclusion="success")],

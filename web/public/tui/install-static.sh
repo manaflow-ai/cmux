@@ -1,7 +1,114 @@
 #!/bin/sh
+# The whole script is one `{ ... }` group: sh reads it to the closing brace
+# before it runs any line, so a download cut short (curl | sh) is a syntax
+# error that runs nothing, never half an install.
+{
 set -eu
 
-base_url="${CMUX_DOWNLOAD_BASE_URL:-https://files.cmux.com/cmux-tui/latest}"
+# cmux server (https://cmux.com/docs/next/server): `--server` also runs
+# `cmux server install`, which keeps this machine's cmux session running as a
+# service (systemd user unit with linger on Linux, a LaunchAgent on macOS), so
+# your cmux reaches it over SSH after logouts and reboots:
+#   curl -fsSL https://cmux.com/tui/install.sh | sh -s -- --server
+# `--server` installs the current cmux NIGHTLY build unless `--commit <sha>` (a
+# published cmux build) or CMUX_DOWNLOAD_BASE_URL picks another. `--nightly`
+# picks that build without the service; `--channel nightly` is the same, and
+# `--channel stable` picks the latest stable build. `--user` runs
+# `cmux server install --user`: the service starts at login and stops at
+# logout, and linger is left as it is. `--dry-run` prints what would happen
+# and changes nothing.
+want_server=""
+want_nightly=""
+want_stable=""
+server_user=""
+dry_run=""
+pinned_commit=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --server) want_server=1; shift ;;
+    --nightly) want_nightly=1; shift ;;
+    --user) want_server=1; server_user=1; shift ;;
+    --channel | --channel=*)
+      if [ "$1" = "--channel" ]; then
+        if [ "$#" -lt 2 ]; then
+          echo "cmux: --channel needs stable or nightly" >&2
+          exit 2
+        fi
+        channel="$2"
+        shift 2
+      else
+        channel="${1#--channel=}"
+        shift
+      fi
+      case "$channel" in
+        stable) want_stable=1 ;;
+        nightly) want_nightly=1 ;;
+        *)
+          echo "cmux: --channel takes stable or nightly" >&2
+          exit 2
+          ;;
+      esac
+      ;;
+    --dry-run) dry_run=1; shift ;;
+    --commit)
+      if [ "$#" -lt 2 ]; then
+        echo "cmux: --commit needs a 40-character commit" >&2
+        exit 2
+      fi
+      pinned_commit="$2"
+      shift 2
+      ;;
+    --commit=*) pinned_commit="${1#--commit=}"; shift ;;
+    *)
+      echo "cmux: unknown argument $1 (pass --server, --user, --channel stable|nightly, --nightly, --commit <sha> or --dry-run)" >&2
+      exit 2
+      ;;
+  esac
+done
+
+if [ -n "$want_stable" ] && { [ -n "$want_nightly" ] || [ -n "$pinned_commit" ]; }; then
+  echo "cmux: --channel stable does not go with --nightly or --commit" >&2
+  exit 2
+fi
+
+case "$pinned_commit" in
+  "") ;;
+  *[!0-9a-f]*)
+    echo "cmux: --commit takes a 40-character lowercase hex commit" >&2
+    exit 2
+    ;;
+esac
+if [ -n "$pinned_commit" ] && [ "${#pinned_commit}" -ne 40 ]; then
+  echo "cmux: --commit takes a 40-character lowercase hex commit" >&2
+  exit 2
+fi
+
+if ! command -v curl >/dev/null 2>&1; then
+  echo "cmux: curl is required" >&2
+  exit 1
+fi
+
+files_base="https://files.cmux.com/cmux-tui"
+if [ -n "${CMUX_DOWNLOAD_BASE_URL:-}" ]; then
+  base_url="$CMUX_DOWNLOAD_BASE_URL"
+elif [ -n "$pinned_commit" ]; then
+  base_url="$files_base/$pinned_commit"
+elif [ -z "$want_stable" ] && { [ -n "$want_server" ] || [ -n "$want_nightly" ]; }; then
+  # The cmux server verbs ship in cmux NIGHTLY builds: install the build the
+  # current NIGHTLY app runs (the first cmux:sourceCommit of its update feed).
+  feed_url="${CMUX_NIGHTLY_FEED_URL:-https://files-next.cmux.com/nightly-next/appcast-arm64.xml}"
+  nightly_commit="$(
+    curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL "$feed_url" |
+      sed -n 's/.*<cmux:sourceCommit[^>]*>\([0-9a-f]\{40\}\)<.*/\1/p' | head -n 1
+  )" || nightly_commit=""
+  if [ "${#nightly_commit}" -ne 40 ]; then
+    echo "cmux: could not read the current cmux NIGHTLY build from $feed_url; pass --commit <sha>" >&2
+    exit 1
+  fi
+  base_url="$files_base/$nightly_commit"
+else
+  base_url="https://files.cmux.com/cmux-tui/latest"
+fi
 base_url="${base_url%/}"
 install_root="${CMUX_INSTALL:-$HOME/.cmux}"
 bin_dir="$install_root/bin"
@@ -20,15 +127,23 @@ case "$os-$arch" in
     ;;
 esac
 
-if ! command -v curl >/dev/null 2>&1; then
-  echo "cmux: curl is required" >&2
-  exit 1
+if [ -n "$server_user" ]; then
+  set -- --user
+else
+  set --
+fi
+if [ -n "$dry_run" ]; then
+  echo "Would download $base_url/manifest.json and $artifact, check its SHA-256, and install it to $bin_dir/cmux"
+  if [ -n "$want_server" ]; then
+    echo "Would run: $bin_dir/cmux server install $*"
+  fi
+  exit 0
 fi
 
 tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/cmux-install.XXXXXX")"
 trap 'rm -rf "$tmp_dir"' EXIT HUP INT TERM
 
-curl --proto '=https' --tlsv1.2 -fsSL "$base_url/manifest.json" \
+curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL "$base_url/manifest.json" \
   -o "$tmp_dir/manifest.json"
 checksum="$(
   sed -n "s/.*\"$artifact\"[[:space:]]*:[[:space:]]*\"\\([0-9a-f][0-9a-f]*\\)\".*/\\1/p" \
@@ -53,7 +168,7 @@ case "$artifact_base_url" in
   */latest) artifact_base_url="${artifact_base_url%/latest}/$commit" ;;
 esac
 
-curl --proto '=https' --tlsv1.2 -fsSL "$artifact_base_url/$artifact" \
+curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL "$artifact_base_url/$artifact" \
   -o "$tmp_dir/cmux"
 
 if command -v shasum >/dev/null 2>&1; then
@@ -98,7 +213,16 @@ esac
 
 echo "Installed cmux to $bin_dir/cmux"
 
-curl --proto '=https' --tlsv1.2 -fsS --max-time 2 \
+# cmux server: keep this machine's cmux session running as a service.
+if [ -n "$want_server" ]; then
+  if ! "$bin_dir/cmux" server install "$@"; then
+    echo "cmux: installed, but the cmux server service is not set up; fix the error above, then run: $bin_dir/cmux server install $*" >&2
+    exit 1
+  fi
+fi
+
+curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsS --max-time 2 \
   -H 'content-type: application/json' \
   -d "{\"product\":\"tui\",\"platform\":\"$os-$arch\",\"method\":\"curl\"}" \
   https://cmux.com/api/install-events >/dev/null 2>&1 || true
+}

@@ -23,6 +23,9 @@ on:
       - "scripts/lint-namespace-types-baseline.txt"
       - "scripts/swift_source_mask.py"
       - "scripts/tests/test_ios_package_conventions.py"
+      - "scripts/lint_ios_theme_tokens.py"
+      - "scripts/lint-ios-theme-tokens-baseline.txt"
+      - "scripts/tests/test_lint_ios_theme_tokens.py"
       - "scripts/ci/ios_runner_pool.py"
       - "scripts/ci/select_ios_simulator.py"
       - ".github/workflows/test-ios.yml"
@@ -34,7 +37,7 @@ on:
         required: false
         default: ""
       test_filter:
-        description: "UI test target/class or target/class/method, for example cmuxUITests/cmuxUITests/testSignInPairingAndWorkspaceShell"
+        description: "UI test target, target/class or target/class/method, for example cmuxUITests/cmuxUITests/testSignInPairingAndWorkspaceShell; cmuxUITests alone runs every UI test"
         required: false
         default: ""
       swift_package:
@@ -100,6 +103,8 @@ permissions:
 # A called workflow does not inherit the caller's workflow-level env, so the
 # R2 cache URL must be declared here or every R2 restore reports a miss.
 env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
   CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
 
 
@@ -127,7 +132,7 @@ jobs:
     # owned Mac leaves queued or refuses is re-run by ci-owned-pool-rescue.yml
     # (its sweeper), and every re-run attempt takes retry_runs_on (Blacksmith).
     # scripts/ci/ios_runner_pool.py has the rules.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     # Reads the queue janitor's pool snapshot and the runs created since it
     # (see ios_runner_pool.py for the API budget).
@@ -141,8 +146,14 @@ jobs:
       retry_label: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || steps.pool.outputs.retry_label }}
       # runs-on as JSON: a label, or an owned pool label with glaeda-ios-sim.
       runs_on: ${{ steps.pool.outputs.runs_on }}
+      # ios-simulator-build's own: glaeda's sim-first label alone when an owned run sees one of those runners
+      # idle (glaeda#2057 admits the build there), else runs_on (ios_runner_pool.py, Build placement).
+      build_runs_on: ${{ steps.pool.outputs.build_runs_on }}
       # mobile-core-package needs no simulator: the pool label alone.
       package_runs_on: ${{ steps.pool.outputs.package_runs_on }}
+      # The ios-simulator matrix: runs_on, or a simulator mini's sim-first label
+      # alone when the pool's simulator runners are full (ios_runner_pool.py).
+      sim_runs_on: ${{ steps.pool.outputs.sim_runs_on }}
       retry_runs_on: ${{ steps.pool.outputs.retry_runs_on }}
     steps:
       # The helper comes from this workflow's revision, not the tested one,
@@ -202,6 +213,7 @@ jobs:
           FORK_PULL_REQUEST: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
           RUNNER_VARIABLE: ${{ vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS }}
           IOS_OWNED: ${{ vars.CI_IOS_OWNED }}
+          CI_BLACKSMITH_MACOS: ${{ vars.CI_BLACKSMITH_MACOS }}
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
           OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
           PR_XCODE_APP: ${{ (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
@@ -278,7 +290,7 @@ jobs:
           retention-days: 1
 
   detect-ios-changes:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     outputs:
       should_run: ${{ steps.detect.outputs.should_run }}
@@ -372,8 +384,12 @@ jobs:
           # 128 if that fetch fails. It also hides a file moved out of ios/
           # behind its new path; without it both paths are listed, so the
           # greps below stay conservative.
-          git diff --name-only --no-renames "$BASE_MERGE_BASE" "$HEAD_SHA" > /tmp/changed-files.txt
-          if grep -Eq '^(ios/|Packages/Shared/|Packages/iOS/|Sources/Mobile/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$|scripts/ci/ios_runner_pool\.py$|scripts/ci/select_ios_simulator\.py$|\.github/workflows/test-ios\.yml$)' /tmp/changed-files.txt; then
+          # $RUNNER_TEMP, not a fixed /tmp name: a pool VM runs several runner
+          # users over one /tmp, and a file another user's job left there
+          # denies this write ("/tmp/changed-files.txt: Permission denied").
+          changed_files="$RUNNER_TEMP/changed-files.txt"
+          git diff --name-only --no-renames "$BASE_MERGE_BASE" "$HEAD_SHA" > "$changed_files"
+          if grep -Eq '^(ios/|Packages/Shared/|Packages/iOS/|Sources/Mobile/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$|scripts/ci/ios_runner_pool\.py$|scripts/ci/select_ios_simulator\.py$|\.github/workflows/test-ios\.yml$)' "$changed_files"; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
           else
             echo "No iOS-owned files changed; skipping iOS tests."
@@ -381,7 +397,7 @@ jobs:
           fi
           # The conventions lint (free-function ban, namespace-type rule, ...)
           # covers every package, so it runs for any Packages/ change too.
-          if grep -Eq '^(ios/|Packages/|Sources/Mobile/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$|scripts/lint-ios-package-conventions-baseline\.txt$|scripts/lint-namespace-types-baseline\.txt$)' /tmp/changed-files.txt; then
+          if grep -Eq '^(ios/|Packages/|Sources/Mobile/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$|scripts/lint-ios-package-conventions-baseline\.txt$|scripts/lint-namespace-types-baseline\.txt$|scripts/lint_ios_theme_tokens\.py$|scripts/lint-ios-theme-tokens-baseline\.txt$|scripts/tests/test_lint_ios_theme_tokens\.py$)' "$changed_files"; then
             echo "should_lint=true" >> "$GITHUB_OUTPUT"
           else
             echo "No package-owned files changed; skipping conventions lint."
@@ -391,7 +407,8 @@ jobs:
   package-conventions-lint:
     needs: detect-ios-changes
     if: ${{ needs.detect-ios-changes.outputs.should_lint == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # A dispatch may name any commit, a fork's included (inputs.ref), and this job runs its scripts: off the persistent pool.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.event_name == 'workflow_dispatch' && inputs.ref != '' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
       - name: Checkout
@@ -404,10 +421,13 @@ jobs:
       - name: Lint iOS package conventions
         run: |
           python3 scripts/tests/test_ios_package_conventions.py
+          python3 scripts/tests/test_lint_ios_theme_tokens.py
           # Mechanical enforcement of the modular-refactor conventions over the
           # iOS line (no singletons / Combine / locks / timer hacks / KVO /
           # namespace-enums) plus the repo-wide namespace-type rule (no
-          # all-static "namespace" types in any package). Exits non-zero on any
+          # all-static "namespace" types in any package) and the theme-token
+          # rule (no literal colors or font sizes in view code,
+          # docs/ios-theme-tokens.md). Exits non-zero on any
           # unjustified ERROR; sanctioned exceptions carry a lint:allow /
           # TRANSITIONAL / carve-out marker, and pre-existing debt is
           # grandfathered in the lint baseline files under scripts/.
@@ -665,7 +685,7 @@ jobs:
               || (needs.package-conventions-lint.result == 'skipped'
                   && needs.detect-ios-changes.outputs.should_lint == 'false'))
           && inputs.swift_package == '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.build_runs_on || needs.runner.outputs.runs_on) }}
     # No secret and no environment here: the pick above can be a reused owned
     # Mac, or whatever MACOS_RUNNER_TESTS names. The R2 restore reads the
     # public URL; the seed_cache preflight that checks the R2 write keys runs
@@ -939,7 +959,7 @@ jobs:
           fi
           # The build action emits every scheme plan unless one is named.
           # Match ordinary test's default plan and keep the product unambiguous.
-          if [[ "${TEST_FILTER:-}" == cmuxUITests/* ]]; then
+          if [[ "${TEST_FILTER:-}" == cmuxUITests || "${TEST_FILTER:-}" == cmuxUITests/* ]]; then
             XCODEBUILD_ARGS+=(-testPlan cmux-ui)
           else
             XCODEBUILD_ARGS+=(-testPlan cmux)
@@ -980,7 +1000,7 @@ jobs:
 
       - name: Stage and stamp iOS test product
         env:
-          CMUX_IOS_TEST_PLAN: ${{ startsWith(inputs.test_filter, 'cmuxUITests/') && 'cmux-ui' || 'cmux-ios-default' }}
+          CMUX_IOS_TEST_PLAN: ${{ (inputs.test_filter == 'cmuxUITests' || startsWith(inputs.test_filter, 'cmuxUITests/')) && 'cmux-ui' || 'cmux-ios-default' }}
           CMUX_IOS_TEST_FILTER: ${{ inputs.test_filter }}
           CMUX_IOS_VERSION: ${{ inputs.ios_version }}
         run: |
@@ -1084,7 +1104,7 @@ jobs:
     # build job (after a successful build). The pattern of #27622.
     needs: [ios-simulator-build]
     if: ${{ !cancelled() && needs.ios-simulator-build.result == 'success' && inputs.seed_cache && github.ref == 'refs/heads/main' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     timeout-minutes: 5
     permissions:
@@ -1119,11 +1139,13 @@ jobs:
           && needs.ios-simulator-build.result == 'success'
           && needs.detect-ios-changes.outputs.should_run == 'true' && inputs.swift_package == '' }}
     # Runtime-only consumers share the producer's exact Build/Products tree.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.sim_runs_on || needs.runner.outputs.runs_on) }}
     # The 2026-09-25..30 mini sample has p99 14.1m and max 15.9m. The per-step
     # watchdogs remain the first line of defense; this 25-minute job cap bounds
-    # setup or teardown that makes no test progress.
-    timeout-minutes: 25
+    # setup or teardown that makes no test progress. The whole UI target
+    # (test_filter cmuxUITests, the nightly) runs about 170 UI tests, so it
+    # gets the room its own xcodebuild bound below needs.
+    timeout-minutes: ${{ inputs.test_filter == 'cmuxUITests' && 150 || 25 }}
     env:
       # An owned Mac's label (glaeda-<class>-xcode-<version>) names the
       # pull-request lane's Xcode pin, so take that Xcode there, as
@@ -1252,7 +1274,7 @@ jobs:
         env:
           EXPECTED_SHA256: ${{ needs.ios-simulator-build.outputs.archive_sha256 }}
           EXPECTED_BYTES: ${{ needs.ios-simulator-build.outputs.archive_bytes }}
-          CMUX_IOS_TEST_PLAN: ${{ startsWith(inputs.test_filter, 'cmuxUITests/') && 'cmux-ui' || 'cmux-ios-default' }}
+          CMUX_IOS_TEST_PLAN: ${{ (inputs.test_filter == 'cmuxUITests' || startsWith(inputs.test_filter, 'cmuxUITests/')) && 'cmux-ui' || 'cmux-ios-default' }}
           CMUX_IOS_TEST_FILTER: ${{ inputs.test_filter }}
           CMUX_IOS_VERSION: ${{ inputs.ios_version }}
         run: |
@@ -1285,7 +1307,8 @@ jobs:
           # Bounds one xcodebuild invocation. Generous against the ~2 minutes
           # the non-UI suite actually takes, and well under the job's 35-minute
           # ceiling so a wedge still leaves room for the steps after this one.
-          XCODEBUILD_TIMEOUT_SECONDS: "900"
+          # The whole UI target takes two hours at most, inside its 150-minute cap.
+          XCODEBUILD_TIMEOUT_SECONDS: ${{ inputs.test_filter == 'cmuxUITests' && '7200' || '900' }}
         run: |
           set -euo pipefail
           started_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
@@ -1323,7 +1346,7 @@ jobs:
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID"
           )
           if [ -n "${TEST_FILTER:-}" ]; then
-            if [[ "$TEST_FILTER" != cmuxUITests/* ]]; then
+            if [[ "$TEST_FILTER" != cmuxUITests && "$TEST_FILTER" != cmuxUITests/* ]]; then
               # Keep focused package assertions bounded on virtualized iOS
               # runners; failed sysdiagnose collection can otherwise take 10m.
               XCODEBUILD_ARGS+=(
@@ -1448,7 +1471,7 @@ jobs:
     # Preserve the aggregate verdict after a failed suite, but do not allocate
     # a Blacksmith runner after the workflow has been cancelled.
     if: ${{ !cancelled() }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
       - name: Check iOS test routing

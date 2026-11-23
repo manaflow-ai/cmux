@@ -22,22 +22,30 @@ import {
 import { changelogStore } from "./lib/changelog-store";
 import { isDocsZoneDeployment } from "./lib/docs-channel";
 import { keepServedDocsEntries, releaseDocsUrls } from "./lib/release-docs-sitemap";
+import { loadAllListings } from "./extensions/_lib/registry";
+import { extensionSitemapEntries } from "./extensions/_lib/sitemap-entries";
 
 /**
  * The served sitemap. A docs zone lists the docs it was built with. The main
  * site rewrites /docs to the release docs zone, which is built from the latest
  * release tag, so it lists only the docs that zone's own sitemap lists. If that
  * sitemap cannot be read, the main site falls back to every authored entry.
+ * The main site also lists every approved extension and setup page from the
+ * registry (the index pages even when the registry cannot be read).
  */
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const entries = sitemapEntries();
-  if (isDocsZoneDeployment()) return entries;
-  try {
-    return keepServedDocsEntries(entries, new Set(await releaseDocsUrls()));
-  } catch (error) {
-    console.error("sitemap.release_docs_unavailable", error);
-    return entries;
-  }
+  if (isDocsZoneDeployment()) return sitemapEntries();
+  // The registry and the release docs sitemap are read at once; each read is bounded by its timeout.
+  const [extensions, setups, servedDocs] = await Promise.all([
+    loadAllListings("extension"),
+    loadAllListings("setup"),
+    releaseDocsUrls().catch((error: unknown) => {
+      console.error("sitemap.release_docs_unavailable", error);
+      return null;
+    }),
+  ]);
+  const entries = [...sitemapEntries(), ...extensionSitemapEntries(extensions, setups)];
+  return servedDocs ? keepServedDocsEntries(entries, new Set(servedDocs)) : entries;
 }
 
 /** Builds localized sitemap entries, excluding unreleased download pages. */
@@ -135,7 +143,7 @@ export function sitemapEntries(): MetadataRoute.Sitemap {
     { path: "/community", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.5 },
     { path: "/wall-of-love", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.5 },
     { path: "/nightly", lastModified: "2026-03-18", changeFrequency: "weekly" as const, priority: 0.6 },
-    { path: "/next", lastModified: "2026-10-30", changeFrequency: "weekly" as const, priority: 0.6 },
+    { path: "/next", lastModified: "2026-11-09", changeFrequency: "weekly" as const, priority: 0.6 },
     { path: "/assets", lastModified: "2026-06-03", changeFrequency: "monthly" as const, priority: 0.5 },
     { path: "/art", lastModified: "2026-10-12", changeFrequency: "monthly" as const, priority: 0.5 },
     // SEO landing/guide pages: localized, not in the main nav.
@@ -164,8 +172,8 @@ export function sitemapEntries(): MetadataRoute.Sitemap {
     { path: "/agents/aider", lastModified: "2026-06-23", changeFrequency: "monthly" as const, priority: 0.6 },
     { path: "/agents/amp", lastModified: "2026-06-23", changeFrequency: "monthly" as const, priority: 0.6 },
     { path: "/agents/cursor-cli", lastModified: "2026-06-23", changeFrequency: "monthly" as const, priority: 0.6 },
-    { path: "/privacy-policy", lastModified: "2026-07-10", changeFrequency: "yearly" as const, priority: 0.3 },
-    { path: "/terms-of-service", lastModified: "2026-03-18", changeFrequency: "yearly" as const, priority: 0.3 },
+    { path: "/privacy-policy", lastModified: "2026-11-17", changeFrequency: "yearly" as const, priority: 0.3 },
+    { path: "/terms-of-service", lastModified: "2026-11-17", changeFrequency: "yearly" as const, priority: 0.3 },
     { path: "/eula", lastModified: "2026-03-18", changeFrequency: "yearly" as const, priority: 0.3 },
   ];
 

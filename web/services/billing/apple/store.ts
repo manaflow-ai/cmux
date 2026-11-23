@@ -5,21 +5,25 @@
 // `appAccountToken` (planAppleSubscriptionWrite).
 
 import { randomUUID } from "node:crypto";
-import { and, asc, eq, inArray, isNull, lt, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lt, or, sql, type SQL } from "drizzle-orm";
 
 import { cloudDb } from "../../../db/client";
 import {
   appleAccountTokens,
+  appleNotificationHistoryCursors,
   appleNotifications,
   appleSubscriptions,
   appleTransactions,
 } from "../../../db/schema";
+import { planTierRank } from "../planTier";
+import { appleStatusGrantsAt } from "./entitlement";
 import type { AppleSubscriptionState, AppleTransactionRow } from "./state";
 
 type Db = ReturnType<typeof cloudDb>;
 
 export type AppleSubscriptionRow = typeof appleSubscriptions.$inferSelect;
 export type AppleNotificationRow = typeof appleNotifications.$inferSelect;
+export type AppleNotificationHistoryCursor = Omit<typeof appleNotificationHistoryCursors.$inferSelect, "updatedAt">;
 
 export class AppleOwnershipError extends Error {
   constructor(readonly originalTransactionId: string) {
@@ -60,10 +64,32 @@ export type AppleSubscriptionWritePlan =
   | { readonly kind: "write"; readonly userId: string; readonly transferredFrom: string | null }
   | { readonly kind: "stale" };
 
-/** A different transaction purchased after the stored one: an upgrade, resubscribe, or renewal. */
+/**
+ * A different transaction that replaces the stored one: an upgrade,
+ * resubscribe, or renewal. Apple's current status names the current
+ * transaction outright; otherwise the later `purchaseDate` decides.
+ */
 function isNewerTransaction(state: AppleSubscriptionState, previous: OwnedSubscription): boolean {
-  if (state.lastTransactionId === previous.lastTransactionId || !state.purchaseDate) return false;
+  if (state.lastTransactionId === previous.lastTransactionId) return false;
+  if (replacesEarlyRenewal(state, previous)) return true;
+  if (!state.purchaseDate) return false;
   return !previous.purchaseDate || state.purchaseDate.getTime() > previous.purchaseDate.getTime();
+}
+
+/**
+ * Apple's current status names a different transaction while the stored one
+ * is an early renewal whose period had not started when Apple signed that
+ * status: an upgrade bought after Apple charged the next period early.
+ * Only then does Apple's status win over purchase-date order.
+ */
+function replacesEarlyRenewal(
+  state: Pick<AppleSubscriptionState, "fromAppleStatus" | "lastTransactionId" | "stateSignedAt">,
+  previous: Pick<AppleSubscriptionRow, "lastTransactionId" | "purchaseDate">,
+): boolean {
+  return state.fromAppleStatus === true &&
+    state.lastTransactionId !== previous.lastTransactionId &&
+    previous.purchaseDate !== null &&
+    previous.purchaseDate.getTime() > state.stateSignedAt.getTime();
 }
 
 /**
@@ -89,6 +115,12 @@ export function isOlderAppleTransaction(
  * same Apple ID buys again (upgrade or resubscribe) from another cmux
  * account, the subscription moves to that account. A token-less transaction,
  * an unknown token, or an older transaction never moves it.
+ *
+ * Apple dates a renewal from the start of its period, so an upgrade bought
+ * after Apple charged the next period early has the earlier `purchaseDate`
+ * yet is current. Apple's current status names it (replacesEarlyRenewal),
+ * and a transaction Apple marked upgraded never replaces another. The
+ * signed-date check applies to every write.
  */
 export function planAppleSubscriptionWrite(
   previous: OwnedSubscription | null,
@@ -105,7 +137,8 @@ export function planAppleSubscriptionWrite(
   // The row describes the latest transaction: an older signed date or an
   // older transaction (a refund of a past period) leaves it alone.
   const fresh = previous.stateSignedAt.getTime() <= state.stateSignedAt.getTime() &&
-    !isOlderAppleTransaction(state, previous);
+    !(state.upgraded === true && state.lastTransactionId !== previous.lastTransactionId) &&
+    (replacesEarlyRenewal(state, previous) || !isOlderAppleTransaction(state, previous));
   const moves = fresh &&
     claim.tokenOwner !== null &&
     claim.tokenOwner !== previous.userId &&
@@ -118,9 +151,95 @@ export function planAppleSubscriptionWrite(
   return { kind: "write", userId: owner, transferredFrom: moves ? previous.userId : null };
 }
 
-export type AppleLapsedSubscription = {
-  readonly originalTransactionId: string;
-  readonly userId: string;
+/** The paid higher plan a row keeps after an early renewal into a lower one (schema: `carried_*`). */
+export type AppleCarriedPlan = Pick<AppleSubscriptionRow, "carriedPlanId" | "carriedUntil" | "carriedTransactionId">;
+
+export const NO_CARRIED_PLAN: AppleCarriedPlan = { carriedPlanId: null, carriedUntil: null, carriedTransactionId: null };
+
+type CarrySource = Pick<
+  AppleSubscriptionRow,
+  | "planId"
+  | "status"
+  | "expiresAt"
+  | "gracePeriodExpiresAt"
+  | "lastTransactionId"
+  | "revokedAt"
+  | "carriedPlanId"
+  | "carriedUntil"
+  | "carriedTransactionId"
+>;
+
+/**
+ * Apple charges a renewal up to a day before the period ends and dates it
+ * from the next period's start. When that renewal is into a lower plan (a
+ * downgrade), writing it would end the paid higher plan early, so the row
+ * keeps the previous period's plan until the earlier of its expiry and the
+ * renewal's start. Only while the new period has not started; a later
+ * transaction (an upgrade, a refund write of another period) ends it.
+ */
+export function carriedPlanFor(
+  previous: CarrySource | null,
+  state: Pick<AppleSubscriptionState, "planId" | "status" | "purchaseDate" | "lastTransactionId">,
+  now: Date,
+): AppleCarriedPlan {
+  if (!previous || !state.purchaseDate || state.purchaseDate.getTime() <= now.getTime()) return NO_CARRIED_PLAN;
+  if (state.status !== "active") return NO_CARRIED_PLAN;
+  if (previous.lastTransactionId === state.lastTransactionId) {
+    // The same renewal again (a re-check, a duplicate): keep a carry still running.
+    return previous.carriedPlanId && previous.carriedUntil && previous.carriedUntil.getTime() > now.getTime()
+      ? { carriedPlanId: previous.carriedPlanId, carriedUntil: previous.carriedUntil, carriedTransactionId: previous.carriedTransactionId }
+      : NO_CARRIED_PLAN;
+  }
+  if (planTierRank(previous.planId) <= planTierRank(state.planId)) return NO_CARRIED_PLAN;
+  if (previous.revokedAt || !previous.expiresAt || !appleStatusGrantsAt(previous, now)) return NO_CARRIED_PLAN;
+  const until = Math.min(previous.expiresAt.getTime(), state.purchaseDate.getTime());
+  if (until <= now.getTime()) return NO_CARRIED_PLAN;
+  return { carriedPlanId: previous.planId, carriedUntil: new Date(until), carriedTransactionId: previous.lastTransactionId };
+}
+
+/** A row whose carried plan has ended, for the cron to re-derive its owner's plan. */
+export type AppleEndedCarry = Pick<AppleSubscriptionRow, "originalTransactionId" | "userId">;
+
+export type AppleLapsedSubscription = Pick<
+  AppleSubscriptionRow,
+  | "originalTransactionId"
+  | "userId"
+  | "bundleId"
+  | "environment"
+  | "expiresAt"
+  | "gracePeriodExpiresAt"
+  | "appleCheckedAt"
+>;
+
+/** Failed applications before a notification is dead-lettered (about 3 days of retries). */
+export const APPLE_NOTIFICATION_MAX_ATTEMPTS = 12;
+const RETRY_BASE_SECONDS = 300;
+const RETRY_MAX_SECONDS = 12 * 60 * 60;
+
+/**
+ * Delay before the next retry once `attemptCount` applications have failed:
+ * 5 minutes, doubling, at most 12 hours. The database store computes the
+ * same value in SQL.
+ */
+export function appleNotificationRetryDelayMs(attemptCount: number): number {
+  const exponent = Math.max(0, attemptCount - 1);
+  return Math.min(RETRY_BASE_SECONDS * 2 ** exponent, RETRY_MAX_SECONDS) * 1000;
+}
+
+export type AppleNotificationFailure = {
+  readonly attemptCount: number;
+  readonly deadLettered: boolean;
+};
+
+/** Rows the renewal re-check asks Apple about (see `renewalCheckCandidates`). */
+export type AppleRenewalCheckQuery = {
+  /** Access must end after this... */
+  readonly accessEndsAfter: Date;
+  /** ...and no later than this. */
+  readonly accessEndsBy: Date;
+  /** Skip rows Apple answered for at or after this time. */
+  readonly checkedBefore: Date;
+  readonly limit: number;
 };
 
 /** Statuses that can grant access; their rows are what the lapse sweep watches. */
@@ -159,18 +278,40 @@ export type AppleIapStore = {
   recordTransaction(row: AppleTransactionRow): Promise<void>;
   /** Inserts the ledger row; false when the notification UUID already exists. */
   insertNotification(row: AppleNotificationInsert): Promise<{ inserted: boolean; row: AppleNotificationRow }>;
+  notification(notificationUuid: string): Promise<AppleNotificationRow | null>;
   markNotificationProcessed(notificationUuid: string, processedAt: Date): Promise<void>;
-  markNotificationFailed(notificationUuid: string, error: string): Promise<void>;
+  /**
+   * Records a failed application: counts the attempt, schedules the next one
+   * (`appleNotificationRetryDelayMs`), and dead-letters the row once
+   * APPLE_NOTIFICATION_MAX_ATTEMPTS attempts failed.
+   */
+  markNotificationFailed(notificationUuid: string, error: string, now: Date): Promise<AppleNotificationFailure>;
   /** Closes a notification that can never apply, keeping the reason. */
   markNotificationSkipped(notificationUuid: string, reason: string, processedAt: Date): Promise<void>;
-  /** Ledger rows still owed an entitlement application (failed or never run), oldest first. */
-  pendingNotifications(limit: number): Promise<AppleNotificationRow[]>;
+  /**
+   * Ledger rows still owed an entitlement application (failed or never run)
+   * that are due (`next_attempt_at` null or past) and not dead-lettered,
+   * earliest due first.
+   */
+  pendingNotifications(limit: number, now: Date): Promise<AppleNotificationRow[]>;
   /**
    * Rows still in an access-granting status whose access ended (the later of
-   * `expires_at` and `grace_period_expires_at` is past) after their last
-   * write, oldest lapse first.
+   * `expires_at` and `grace_period_expires_at`) before `endedBefore` and
+   * after their last write, oldest lapse first. The sweep passes a cutoff an
+   * hour before now, so a late renewal has time to arrive.
    */
-  lapsedSubscriptions(now: Date, limit: number): Promise<AppleLapsedSubscription[]>;
+  lapsedSubscriptions(endedBefore: Date, limit: number): Promise<AppleLapsedSubscription[]>;
+  /**
+   * `active` and `grace_period` rows whose access ends inside the query's
+   * window and that Apple has not answered for since `checkedBefore`, soonest
+   * end first. Auto-renew off is included: the notification that turned it
+   * back on may be the one that was missed.
+   */
+  renewalCheckCandidates(query: AppleRenewalCheckQuery): Promise<AppleSubscriptionRow[]>;
+  /** Records that Apple answered a status lookup for the subscription. Leaves `updated_at` alone. */
+  markAppleChecked(originalTransactionId: string, checkedAt: Date): Promise<void>;
+  notificationHistoryCursor(bundleId: string, environment: string): Promise<AppleNotificationHistoryCursor | null>;
+  saveNotificationHistoryCursor(cursor: AppleNotificationHistoryCursor): Promise<void>;
   /**
    * Records that a lapse was applied, so the row does not match again:
    * `active` becomes `expired`, `grace_period` becomes `billing_retry` (Apple
@@ -178,6 +319,10 @@ export type AppleIapStore = {
    * written since it was listed is left alone.
    */
   markLapseSwept(originalTransactionIds: readonly string[], now: Date): Promise<void>;
+  /** Rows whose carried plan ended at or before `endedBy`, earliest first. */
+  endedCarries(endedBy: Date, limit: number): Promise<AppleEndedCarry[]>;
+  /** Clears carried plans that ended at or before `endedBy`. Leaves `updated_at` alone. */
+  clearEndedCarries(originalTransactionIds: readonly string[], endedBy: Date): Promise<void>;
 };
 
 /** `greatest` skips nulls, so a row with neither date never lapses. */
@@ -268,7 +413,10 @@ async function writeSubscriptionState(
       .limit(1);
     const plan = planAppleSubscriptionWrite(previous ?? null, state, claim);
     if (plan.kind === "stale") return { applied: false, previous: previous!, current: previous!, transferredFrom: null };
-    const values = subscriptionValues(state, plan.userId, new Date());
+    const now = new Date();
+    // A paid plan carries over only for the account that paid it.
+    const carry = plan.transferredFrom ? NO_CARRIED_PLAN : carriedPlanFor(previous ?? null, state, now);
+    const values = { ...subscriptionValues(state, plan.userId, now), ...carry };
     const [current] = previous
       ? await tx.update(appleSubscriptions)
         .set(values)
@@ -349,37 +497,141 @@ export function databaseAppleIapStore(db: () => Db = cloudDb): AppleIapStore {
     writeSubscriptionState: (state, claim) => writeSubscriptionState(db(), state, claim),
     recordTransaction: (row) => recordTransaction(db(), row),
     insertNotification: (row) => insertNotification(db(), row),
+    async notification(notificationUuid) {
+      const [row] = await db()
+        .select()
+        .from(appleNotifications)
+        .where(eq(appleNotifications.notificationUuid, notificationUuid))
+        .limit(1);
+      return row ?? null;
+    },
     async markNotificationProcessed(notificationUuid, processedAt) {
       await db().update(appleNotifications)
         .set({ processedAt, error: null })
         .where(eq(appleNotifications.notificationUuid, notificationUuid));
     },
-    async markNotificationFailed(notificationUuid, error) {
-      await db().update(appleNotifications)
-        .set({ error: error.slice(0, 1000) })
-        .where(eq(appleNotifications.notificationUuid, notificationUuid));
+    async markNotificationFailed(notificationUuid, error, now) {
+      // Right-hand sides read the row's values before this update.
+      const [row] = await db().update(appleNotifications)
+        .set({
+          error: error.slice(0, 1000),
+          attemptCount: sql`${appleNotifications.attemptCount} + 1`,
+          nextAttemptAt: sql`${now.toISOString()}::timestamptz + least(
+            ${RETRY_BASE_SECONDS} * power(2, ${appleNotifications.attemptCount}), ${RETRY_MAX_SECONDS}
+          ) * interval '1 second'`,
+          deadLetteredAt: sql`case when ${appleNotifications.attemptCount} + 1 >= ${APPLE_NOTIFICATION_MAX_ATTEMPTS}
+            then coalesce(${appleNotifications.deadLetteredAt}, ${now.toISOString()}::timestamptz)
+            else ${appleNotifications.deadLetteredAt} end`,
+        })
+        .where(eq(appleNotifications.notificationUuid, notificationUuid))
+        .returning({ attemptCount: appleNotifications.attemptCount, deadLetteredAt: appleNotifications.deadLetteredAt });
+      return { attemptCount: row?.attemptCount ?? 0, deadLettered: Boolean(row?.deadLetteredAt) };
     },
     async markNotificationSkipped(notificationUuid, reason, processedAt) {
       await db().update(appleNotifications)
         .set({ processedAt, error: `skipped: ${reason}`.slice(0, 1000) })
         .where(eq(appleNotifications.notificationUuid, notificationUuid));
     },
-    async pendingNotifications(limit) {
+    async pendingNotifications(limit, now) {
       return await db()
         .select()
         .from(appleNotifications)
-        .where(isNull(appleNotifications.processedAt))
-        .orderBy(asc(appleNotifications.receivedAt))
+        .where(and(
+          isNull(appleNotifications.processedAt),
+          isNull(appleNotifications.deadLetteredAt),
+          or(isNull(appleNotifications.nextAttemptAt), sql`${appleNotifications.nextAttemptAt} <= ${now.toISOString()}::timestamptz`),
+        ))
+        .orderBy(sql`coalesce(${appleNotifications.nextAttemptAt}, ${appleNotifications.receivedAt})`, asc(appleNotifications.receivedAt))
         .limit(limit);
     },
-    async lapsedSubscriptions(now, limit) {
+    async lapsedSubscriptions(endedBefore, limit) {
       return await db()
-        .select({ originalTransactionId: appleSubscriptions.originalTransactionId, userId: appleSubscriptions.userId })
+        .select({
+          originalTransactionId: appleSubscriptions.originalTransactionId,
+          userId: appleSubscriptions.userId,
+          bundleId: appleSubscriptions.bundleId,
+          environment: appleSubscriptions.environment,
+          expiresAt: appleSubscriptions.expiresAt,
+          gracePeriodExpiresAt: appleSubscriptions.gracePeriodExpiresAt,
+          appleCheckedAt: appleSubscriptions.appleCheckedAt,
+        })
         .from(appleSubscriptions)
-        .where(and(inArray(appleSubscriptions.status, [...APPLE_GRANTING_STATUSES]), lapsedSince(now)))
+        .where(and(inArray(appleSubscriptions.status, [...APPLE_GRANTING_STATUSES]), lapsedSince(endedBefore)))
         .orderBy(asc(ACCESS_ENDS_AT), asc(appleSubscriptions.originalTransactionId))
         .limit(limit);
     },
+    async renewalCheckCandidates({ accessEndsAfter, accessEndsBy, checkedBefore, limit }) {
+      return await db()
+        .select()
+        .from(appleSubscriptions)
+        .where(and(
+          inArray(appleSubscriptions.status, ["active", "grace_period"]),
+          sql`${ACCESS_ENDS_AT} > ${accessEndsAfter.toISOString()}::timestamptz`,
+          sql`${ACCESS_ENDS_AT} <= ${accessEndsBy.toISOString()}::timestamptz`,
+          or(isNull(appleSubscriptions.appleCheckedAt), lt(appleSubscriptions.appleCheckedAt, checkedBefore)),
+        ))
+        .orderBy(asc(ACCESS_ENDS_AT), asc(appleSubscriptions.originalTransactionId))
+        .limit(limit);
+    },
+    async markAppleChecked(originalTransactionId, checkedAt) {
+      await db().update(appleSubscriptions)
+        .set({ appleCheckedAt: checkedAt })
+        .where(eq(appleSubscriptions.originalTransactionId, originalTransactionId));
+    },
+    async notificationHistoryCursor(bundleId, environment) {
+      const [row] = await db()
+        .select({
+          bundleId: appleNotificationHistoryCursors.bundleId,
+          environment: appleNotificationHistoryCursors.environment,
+          nextStartAt: appleNotificationHistoryCursors.nextStartAt,
+          windowStartAt: appleNotificationHistoryCursors.windowStartAt,
+          windowEndAt: appleNotificationHistoryCursors.windowEndAt,
+          paginationToken: appleNotificationHistoryCursors.paginationToken,
+          retryableRuns: appleNotificationHistoryCursors.retryableRuns,
+        })
+        .from(appleNotificationHistoryCursors)
+        .where(and(
+          eq(appleNotificationHistoryCursors.bundleId, bundleId),
+          eq(appleNotificationHistoryCursors.environment, environment),
+        ))
+        .limit(1);
+      return row ?? null;
+    },
+    async saveNotificationHistoryCursor(cursor) {
+      const values = { ...cursor, updatedAt: new Date() };
+      await db().insert(appleNotificationHistoryCursors)
+        .values(values)
+        .onConflictDoUpdate({
+          target: [appleNotificationHistoryCursors.bundleId, appleNotificationHistoryCursors.environment],
+          set: {
+            nextStartAt: values.nextStartAt,
+            windowStartAt: values.windowStartAt,
+            windowEndAt: values.windowEndAt,
+            paginationToken: values.paginationToken,
+            retryableRuns: values.retryableRuns,
+            updatedAt: values.updatedAt,
+          },
+        });
+    },
+
+    async endedCarries(endedBy, limit) {
+      return await db()
+        .select({ originalTransactionId: appleSubscriptions.originalTransactionId, userId: appleSubscriptions.userId })
+        .from(appleSubscriptions)
+        .where(sql`${appleSubscriptions.carriedUntil} <= ${endedBy.toISOString()}::timestamptz`)
+        .orderBy(asc(appleSubscriptions.carriedUntil), asc(appleSubscriptions.originalTransactionId))
+        .limit(limit);
+    },
+    async clearEndedCarries(originalTransactionIds, endedBy) {
+      if (originalTransactionIds.length === 0) return;
+      await db().update(appleSubscriptions)
+        .set({ carriedPlanId: null, carriedUntil: null, carriedTransactionId: null })
+        .where(and(
+          inArray(appleSubscriptions.originalTransactionId, [...originalTransactionIds]),
+          sql`${appleSubscriptions.carriedUntil} <= ${endedBy.toISOString()}::timestamptz`,
+        ));
+    },
+
     async markLapseSwept(originalTransactionIds, now) {
       if (originalTransactionIds.length === 0) return;
       await db().update(appleSubscriptions)

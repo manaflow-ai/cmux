@@ -37,7 +37,8 @@ text = WORKFLOW.read_text()
 schedule = re.findall(r'^    - cron: "([^"]+)"$', text, re.MULTILINE)
 check(schedule == ["11,41 * * * *"], f"the dispatcher must tick every 30 minutes off the hour, got {schedule}")
 check("cancel-in-progress: false" in text, "a tick must never cancel another")
-check("timeout-minutes: 10" in text, "a tick is one short job")
+# 10 minutes of work plus the GitHub API wait cap (GH_BUDGET_WAIT_MAX_SECONDS 900), still under the 30-minute tick.
+check("timeout-minutes: 25" in text, "a tick is one short job")
 check("statuses:" not in text, "the dispatcher takes no statuses grant")
 check("--event pull_request" in text and "tip/scripts/ci/cmux_next_route.py" in text,
       "the change filter must be cmux-next's own router on the tip, not a second path list")

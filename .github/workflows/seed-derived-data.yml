@@ -35,12 +35,14 @@ permissions:
 # r2-cache.sh restores through the public URL and refuses to save without it,
 # so without this env every restore missed and every save wrote nothing.
 env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
   CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
 
 
 jobs:
   decide:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       actions: read
@@ -268,9 +270,9 @@ jobs:
       # run nothing else as this user (cmux15; not mini-6, whose dev-build
       # worker builds PR code as cmux). The same per-root layout owned
       # admission uses (seed_caches). It starts with 185 GiB free, and once
-      # the cache exists it stays on so prune_local keeps the disk at its
-      # floor (seed_derived_data.LOCAL_KEEP_MIN_FREE_BYTES, and each root's
-      # newest two).
+      # the cache exists it stays on: prune_local keeps each root's newest
+      # seed and any a job used lately (seed_derived_data.LOCAL_KEEP,
+      # LOCAL_USED_SECONDS), whatever the disk holds.
       - name: Keep seeds on a trusted Mac
         if: matrix.pool == vars.CI_SEED_TRUSTED_POOL && contains(format(' {0} ', vars.CI_SEED_KEEP_LOCAL_RUNNERS), format(' {0} ', runner.name))
         continue-on-error: true

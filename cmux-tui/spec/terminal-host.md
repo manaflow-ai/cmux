@@ -439,11 +439,17 @@ tap. A host `Snapshot` preserves renderable terminal state across daemon
 replacement, and the exit sidecar preserves the final process outcome, but the
 host does not currently retain an acknowledged raw-output spool. Bytes emitted
 while no daemon tap exists can therefore be recovered visually from a snapshot
-but cannot be reconstructed as exact historical `terminal.output` records. The
-mux commits a replacement checkpoint after it applies such a reconnect snapshot
-and before it accepts the new live boundary. Restoration starts from that
-durable terminal state, but consumers must not claim byte-exact output history
-across an unplanned no-tap interval until a durable host spool exists.
+but cannot be reconstructed as exact historical `terminal.output` records.
+After the mux applies such a reconnect snapshot, and before it accepts output
+from the new live boundary, it appends a required `terminal.output.gap` record
+with reason `host_reconnect` to that terminal's journal lane. This is O(1) per
+reconnect, so the mux reads the new stream at once. A journal retention worker
+then commits one checkpoint that covers every terminal that reconnected since
+the last one: at most one per 30 s interval, after a reconnect wave settles for
+one second (terminals that ended are skipped). A restore from an older
+checkpoint reports the gap as unsupported until that checkpoint exists.
+Consumers must not claim byte-exact output history across an unplanned no-tap
+interval until a durable host spool exists.
 
 ## Version compatibility
 

@@ -46,7 +46,9 @@ REQUIRED_NAMES = _required_status_checks.REQUIRED_CHECKS
 # may not edit. BRIDGE reports them for a merge group without running anything, so it
 # must stay exactly this document: any other job, step, trigger or permission
 # would run with those names' authority. The no-op bridge uses the standard
-# Blacksmith expression because it has no token, checkout, or candidate code.
+# Blacksmith expression because it has no token, checkout, or candidate code, led by cmux-linux, the persistent
+# pool: it needs no one-job VM, and on 2026-11-21 the gate JIT label queued its jobs for hours while that pool
+# sat idle (tests/test_ci_required_gate_label.py POOL_JOBS).
 BRIDGE = WORKFLOWS / "merge-group-policy-checks.yml"
 BRIDGED_CHECKS = {
     "cla-assistant": "CLA Assistant",
@@ -63,7 +65,7 @@ def expected_bridge() -> dict:
         "jobs": {
             job_id: {
                 "name": name,
-                "runs-on": "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}",
+                "runs-on": "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_GATE_SKIP_FLEET != '1' && 'cmux-linux' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}",
                 "timeout-minutes": 5,
                 "steps": [{"run": 'echo "Passed on every pull request in this merge group."'}],
             }
