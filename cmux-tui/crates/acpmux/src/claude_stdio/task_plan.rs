@@ -8,6 +8,15 @@
 //! one checklist (the agent pane pins it under the running turn). A call is
 //! applied on its result, not its input, so a create gets the id Claude gave
 //! it and a refused update changes nothing.
+//!
+//! Claude Code keeps its tasks for the whole session, so a task nobody touched
+//! for turns would ride along in every later plan (a coordinator's 100 old
+//! ops notes under its one new step). Each task remembers the turn that last
+//! created or changed it, and the plan draws only the tasks touched in this
+//! turn or the one before it: an untouched task ages out of the drawn list
+//! (Claude still holds it, and an update brings it back; Leo, 2026-11-22:
+//! "we need to figure out how to do better plans and have them expired";
+//! design/chat-plan-lifecycle.md).
 
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -18,6 +27,8 @@ struct Task {
     id: String,
     subject: String,
     status: &'static str,
+    /// The turn (`TaskPlan::turn`) that last created or changed it.
+    turn: u64,
 }
 
 /// A call waiting on its result.
@@ -32,6 +43,8 @@ enum Call {
 pub struct TaskPlan {
     calls: HashMap<String, Call>,
     tasks: Vec<Task>,
+    /// The turns the session started, counted here (`begin_turn`).
+    turn: u64,
 }
 
 /// Claude's status as ACP names it; nil for one the list does not show.
@@ -57,6 +70,17 @@ impl TaskPlan {
     /// Whether `name` is one of the task tools this list follows.
     pub fn follows(name: &str) -> bool {
         matches!(name, "TaskCreate" | "TaskUpdate")
+    }
+
+    /// A new turn's prompt (not a steer into the running one): tasks touched
+    /// before the turn before this one age out of the drawn plan.
+    pub fn begin_turn(&mut self) {
+        self.turn += 1;
+    }
+
+    /// Whether `task` is still drawn: created or changed this turn or the one before.
+    fn drawn(&self, task: &Task) -> bool {
+        task.turn + 1 >= self.turn
     }
 
     /// A task tool call as it is made: held until its result.
@@ -101,13 +125,22 @@ impl TaskPlan {
                 // Claude Code resets its list once every task in it is done, and the next
                 // create starts a new one: the finished list goes here too, so it never
                 // heads the next plan as old done steps (design/chat-plan-lifecycle.md).
-                if self.tasks.iter().all(|task| task.status == "completed") {
-                    self.tasks.clear();
+                // Only the drawn tasks count: an aged-out one left pending never keeps a
+                // finished plan from clearing. It stays held (an update brings it back);
+                // an aged-out finished one goes with the rest.
+                if self
+                    .tasks
+                    .iter()
+                    .filter(|task| self.drawn(task))
+                    .all(|task| task.status == "completed")
+                {
+                    let turn = self.turn;
+                    self.tasks.retain(|task| task.turn + 1 < turn && task.status != "completed");
                 }
                 if self.tasks.iter().any(|task| task.id == id) {
                     return None;
                 }
-                self.tasks.push(Task { id, subject, status: "pending" });
+                self.tasks.push(Task { id, subject, status: "pending", turn: self.turn });
             }
             Call::Update { id, status, subject, delete } => {
                 let at = self.tasks.iter().position(|task| task.id == id)?;
@@ -125,6 +158,7 @@ impl TaskPlan {
                     if *task == before {
                         return None;
                     }
+                    task.turn = self.turn;
                 }
             }
         }
@@ -136,6 +170,7 @@ impl TaskPlan {
         let entries: Vec<Value> = self
             .tasks
             .iter()
+            .filter(|task| self.drawn(task))
             .map(|task| json!({"content": task.subject, "status": task.status, "priority": "medium"}))
             .collect();
         json!({"sessionUpdate": "plan", "entries": entries})
