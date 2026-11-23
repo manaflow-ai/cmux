@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { JOURNEY_ONLY_STEPS, publicError, publicMachineFacts, spareFields, spareNotice } from "./cloud-journey";
+import { COLD_CREATE_SIZE, COLD_CREATE_STEP, sizeReadingProblem, JOURNEY_ONLY_STEPS, publicError, publicMachineFacts, spareFields, spareNotice } from "./cloud-journey";
 import { runJourney } from "./cloud-journey-fake";
 
 const journeyOnly = (name: string) => (JOURNEY_ONLY_STEPS as readonly string[]).includes(name);
@@ -87,5 +87,37 @@ describe("a failed step after create reads the machine's facts before anything i
     // probe.json is public: no machine id, host or token.
     const text = JSON.stringify(probe);
     for (const leak of ["vm_01JFIXTURE7Q", "host-fixture", "fake-access", "fake-install-token"]) expect(text).not.toContain(leak);
+  });
+});
+
+describe("the cold create cell reads a person's own create at its asked size (cmux-platform#1513)", () => {
+  test("sizeReadingProblem: the guest's reading at the asked size, a little under for kernel and filesystem", () => {
+    expect(sizeReadingProblem("journey-ok\nx86_64\ncpu=4 mem_mib=16203 disk_mib=64328\n", { cpu: 4, memory_mb: 16384, disk_mb: 65536 })).toBeNull();
+    expect(sizeReadingProblem("cpu=4 mem_mib=7900 disk_mib=32000", COLD_CREATE_SIZE)).toBeNull();
+    expect(sizeReadingProblem("cpu=2 mem_mib=3900 disk_mib=16000", COLD_CREATE_SIZE)).toBe("booted at another size than asked: cpu 2 (asked 4), mem_mib 3900 (asked 8192), disk_mib 16000 (asked 32768)");
+    expect(sizeReadingProblem("cpu=4 mem_mib=16203 disk_mib=64328", COLD_CREATE_SIZE)).toContain("mem_mib 16203 (asked 8192)");
+    expect(sizeReadingProblem("journey-ok\nx86_64\n", COLD_CREATE_SIZE)).toStartWith("no cpu=, mem_mib= and disk_mib= reading");
+  });
+
+  test("off by default in the fake; on, it creates at the asked size, reads it on the guest, and deletes only its own machine", () => {
+    const off = runJourney({ spare: "report", exec: "ok" });
+    expect(off.steps.find((s) => s.step === COLD_CREATE_STEP)?.status).toBe("skip");
+    const { steps, log, probe } = runJourney({ spare: "report", exec: "ok", cold: "cpu=4 mem_mib=7900 disk_mib=32000" });
+    const cold = steps.find((s) => s.step === COLD_CREATE_STEP);
+    expect(cold?.status).toBe("pass");
+    expect(cold?.detail).toContain("asked 4/8192/32768: cpu=4 mem_mib=7900 disk_mib=32000 listed size=4/8192/32768");
+    expect(log).toContain(`create cold size ${JSON.stringify(COLD_CREATE_SIZE)}`);
+    expect(log.indexOf("delete cold")).toBeGreaterThan(log.indexOf("exec cold"));
+    expect(steps.findIndex((s) => s.step === COLD_CREATE_STEP)).toBeGreaterThan(steps.findIndex((s) => s.step === "first exec"));
+    expect(probe.outcome).toBe("ok");
+  });
+
+  test("a cold machine at the image's size fails the cell, and the checks after it still run", () => {
+    const { steps, log } = runJourney({ spare: "report", exec: "ok", cold: "cpu=2 mem_mib=3900 disk_mib=16000" });
+    const cold = steps.find((s) => s.step === COLD_CREATE_STEP);
+    expect(cold?.status).toBe("fail");
+    expect(cold?.detail).toContain("booted at another size than asked: cpu 2 (asked 4)");
+    expect(log).toContain("delete cold");
+    expect(steps.find((s) => s.step === "machine facts")?.status).not.toBe("fail");
   });
 });
