@@ -237,14 +237,9 @@ final class PagedListCollectionView: UICollectionView {
     /// VoiceOver's three-finger scroll down at the top refreshes, as it does with `UIRefreshControl`.
     var accessibilityRefresh: (() -> Bool)?
 
-    /// A VoiceOver page scroll moved the list (no finger, no fling).
-    var accessibilityScrolled: (() -> Void)?
-
     override func accessibilityScroll(_ direction: UIAccessibilityScrollDirection) -> Bool {
         if direction == .up, accessibilityRefresh?() == true { return true }
-        let scrolled = super.accessibilityScroll(direction)
-        if scrolled { accessibilityScrolled?() }
-        return scrolled
+        return super.accessibilityScroll(direction)
     }
 
     /// Inside a layout pass: an offset move now is the layout's or UIKit's own (a self-sized row's
@@ -485,7 +480,6 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
             self.probe?.slid?(frames)
         }
         newest.jump = { [weak self] in self?.jumpToNewest() }
-        collectionView.accessibilityScrolled = { [weak self] in self?.scrollEndedByCode() }
         collectionView.willLayout = { [weak self] in self?.willLayout() }
         collectionView.didLayout = { [weak self] in self?.didLayout() }
         collectionView.registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { [weak self] (_: PagedListCollectionView, _: UITraitCollection) in
@@ -1313,35 +1307,16 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         // Only the person's moves decide whether the list follows its newest row: the list's own
         // slide or a correction under a resting finger is not them leaving it.
         if personMoves {
-            deriveFollowing()
+            let wasFollowing = followsNewest
+            // At the end of the rows shown is the newest row only when the list holds it: a windowed
+            // list's newer-edge spinner is not followed (its rows come from disk, not live).
+            followsNewest = distanceToNewest - heldHeight <= 4 && newerEdge == .end
+            if !followsNewest { heldHeight = 0 }
+            if followsNewest, !wasFollowing { newest.arrived = 0 }
             if onReading != nil, let id = readingRowID() { report(id) }
         }
         updateAway()
         readAheadIfNear()
-    }
-
-    /// Whether the list follows its newest row, from where the reader is now.
-    private func deriveFollowing() {
-        let wasFollowing = followsNewest
-        // At the end of the rows shown is the newest row only when the list holds it: a windowed
-        // list's newer-edge spinner is not followed (its rows come from disk, not live).
-        followsNewest = distanceToNewest - heldHeight <= 4 && newerEdge == .end
-        if !followsNewest { heldHeight = 0 }
-        if followsNewest, !wasFollowing { newest.arrived = 0 }
-    }
-
-    /// A scroll made with no finger and no fling ended (a VoiceOver page scroll, an animated set of
-    /// the offset): it decides following as the person's own scroll does, and the reader's place is
-    /// taken where it ended. Without it a list scrolled a page away from its newest row by VoiceOver
-    /// still followed it, and the next row to arrive took the reader back there. Not the list's own
-    /// moves (the spring's slide, a correction) or the status bar's scroll to top, which decide
-    /// following themselves.
-    func scrollEndedByCode() {
-        guard loaded, !spring.isRunning, !scrollingToTop, !collectionView.isTracking, !collectionView.isDecelerating else { return }
-        deriveFollowing()
-        if onReading != nil, let id = readingRowID() { report(id) }
-        updateAway()
-        takePlace()
     }
 
     /// The row under the reader's top edge, by a hit test (cheap enough for every scroll step).
@@ -1426,9 +1401,8 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     }
 
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
-        let toTop = scrollingToTop
         scrollingToTop = false
-        if toTop { takePlace() } else { scrollEndedByCode() }
+        takePlace()
     }
 
     // MARK: Swipe actions
