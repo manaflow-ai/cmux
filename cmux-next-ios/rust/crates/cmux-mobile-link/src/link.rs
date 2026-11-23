@@ -1534,8 +1534,10 @@ async fn foreground_probe(link: Link) {
                 probe = ForegroundProbe::default();
                 continue;
             }
-            if probe.confirming() {
-                // A confirm is out: its verdict comes first.
+            if probe != ForegroundProbe::Idle {
+                // The last probe's resend or confirm is still out (a long
+                // round trip stretches them past the beat): its verdict
+                // comes first, or a slow path would never reach a miss.
                 continue;
             }
             let nonce = inner.next_nonce.fetch_add(1, Ordering::Relaxed);
@@ -1578,10 +1580,6 @@ enum ProbeStep {
 impl ForegroundProbe {
     fn sent(at: Instant, nonce: u64) -> Self {
         ForegroundProbe::Sent { at, nonce }
-    }
-
-    fn confirming(&self) -> bool {
-        matches!(self, ForegroundProbe::Confirming { .. })
     }
 
     /// When the next step is due; `wait` is the resend wait now.
@@ -2998,7 +2996,7 @@ mod tests {
         let mut probe = ForegroundProbe::sent(start, 7);
         assert_eq!(probe.step(before, due, wait), ProbeStep::Resend(7));
         assert_eq!(probe.step(before, resend_due, wait), ProbeStep::Confirm);
-        assert!(probe.confirming());
+        assert!(matches!(probe, ForegroundProbe::Confirming { .. }));
         let confirm_due = probe.due(wait).unwrap();
         assert_eq!(confirm_due, resend_due + wait.max(FOREGROUND_CONFIRM));
         assert_eq!(probe.step(before, confirm_due, wait), ProbeStep::Suspect(start));
