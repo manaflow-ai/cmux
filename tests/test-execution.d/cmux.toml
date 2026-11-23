@@ -379,6 +379,10 @@ path = "tests/test_cmux_tui_branch_inputs.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_tui_tree_request_rerun.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_tui_daemon_tests_gate.py"
 lane = "linux-guard"
 
@@ -386,6 +390,11 @@ lane = "linux-guard"
 path = "tests/test_cmux_tui_election_budget.py"
 lane = "manual"
 reason = "Run by hand: python3 tests/test_cmux_tui_election_budget.py. It stayed manual under the 2026-10-23 no-new-CI rule (since lifted), and it asserts wall-clock bounds of tree-preflight's fallback owner election, so run it on an idle machine."
+
+[[test]]
+path = "tests/test_cmux_tui_feat_latest_wins.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 tests/test_cmux_tui_feat_latest_wins.py yourself after changing tree-preflight's concurrency group, supersede-feat-runs or scripts/ci/cmux_tui_feat_supersede.py."
 
 [[test]]
 path = "tests/test_cmux_tui_feat_publish_order.py"

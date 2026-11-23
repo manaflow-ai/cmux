@@ -289,6 +289,8 @@ struct Viewer {
     /// Linux `--present :N`: every decoded frame drawn in a window on that X display.
     #[cfg(target_os = "linux")]
     presenter: Option<crate::present::Presenter>,
+    /// The conversion the stream's last SPS asks for (untagged until the first SPS).
+    color: cmux_encode::color::Yuv,
     present_errors: u64,
     /// Every frame's stage times (D8), from the host's `FrameTimes` and this viewer.
     ledger: StageLedger,
@@ -459,6 +461,9 @@ impl Viewer {
                     }
                     let t1;
                     // A block, so the decoder's borrowed picture ends before saw_marker.
+                    if let Some(vui) = cmux_encode::color::sps_vui(&frame.body.access_unit) {
+                        self.color = vui.yuv();
+                    }
                     if let Err(why) = self.h264_gate.check(&frame.body.access_unit) {
                         self.decode_errors += 1;
                         if !std::mem::replace(&mut self.h264_gate_said, true) {
@@ -476,7 +481,7 @@ impl Viewer {
                                 {
                                     self.last_shown_ns = 0;
                                     if let Some(p) = self.presenter.as_mut() {
-                                        if p.show(&yuv).is_err() {
+                                        if p.show(&yuv, self.color).is_err() {
                                             self.present_errors += 1;
                                         } else {
                                             self.last_shown_ns = now_ns();
@@ -505,8 +510,23 @@ impl Viewer {
                                 // converts every frame: use --snapshot for pictures, not timing.
                                 if self.want_snapshot {
                                     let (w, h) = yuv.dimensions();
-                                    let mut rgb = vec![0u8; w * h * 3];
-                                    yuv.write_rgb8(&mut rgb);
+                                    // The stream's own matrix and range (openh264's
+                                    // write_rgb8 is BT.601 whatever the stream says).
+                                    let mut bgrx = vec![0u8; w * h * 4];
+                                    cmux_encode::color::i420_to_bgrx(
+                                        yuv.y(),
+                                        yuv.u(),
+                                        yuv.v(),
+                                        yuv.strides(),
+                                        w,
+                                        h,
+                                        self.color,
+                                        &mut bgrx,
+                                    );
+                                    let rgb: Vec<u8> = bgrx
+                                        .chunks_exact(4)
+                                        .flat_map(|p| [p[2], p[1], p[0]])
+                                        .collect();
                                     self.snapshot = Some((w, h, rgb));
                                 }
                                 read_marker(scale, yuv.y(), yuv.strides().0, self.marker_origin)
@@ -1010,6 +1030,7 @@ pub fn run(opts: &Opts) -> Res<()> {
         scaled_stream: None,
         #[cfg(target_os = "linux")]
         presenter: opts.get("present").map(crate::present::Presenter::open).transpose()?,
+        color: cmux_encode::color::UNTAGGED.yuv(),
         present_errors: 0,
         ledger: StageLedger::new(),
         clock: None,
@@ -1225,6 +1246,9 @@ pub fn run(opts: &Opts) -> Res<()> {
     Ok(())
 }
 
+/// The fine bucket of [`run_passive`]'s `series_100ms`.
+const FINE_NS: u64 = 100_000_000;
+
 /// `--input none --duration-s N`: sends no input and only receives for N seconds, reporting
 /// the bytes, frames and newest host stats of every second against the wall clock (Unix ms),
 /// so a script can cut the run into the phases a workload on the host logged on the same clock
@@ -1270,8 +1294,19 @@ fn run_passive(opts: &Opts, v: &mut Viewer, addr: SocketAddr, carrier: &str) -> 
     let mut bucket_start = t_begin;
     let mut decoded = v.decoded_frames;
     let mut next = t_begin + 1_000_000_000;
+    // Every 100 ms: [ms since the window began, bytes received in it, newest host target kbps],
+    // so the time to a rate reads below the 1 s buckets (the host's stats come as often as
+    // its `--stats-every-ms`).
+    let mut fine = Vec::new();
+    let (mut fine_bytes, mut next_fine) = (v.bytes, t_begin + FINE_NS);
     while now_ns() - t_begin < duration_ns && v.ended.is_none() {
-        v.pump(next.saturating_sub(now_ns()).max(1_000_000))?;
+        v.pump(next.min(next_fine).saturating_sub(now_ns()).max(1_000_000))?;
+        if now_ns() >= next_fine {
+            let kbps = v.stats.last().and_then(|s| s.get("kbps")).cloned();
+            fine.push(json!([(now_ns() - t_begin) / 1_000_000, v.bytes - fine_bytes, kbps]));
+            fine_bytes = v.bytes;
+            next_fine += FINE_NS;
+        }
         if now_ns() < next {
             continue;
         }
@@ -1312,6 +1347,7 @@ fn run_passive(opts: &Opts, v: &mut Viewer, addr: SocketAddr, carrier: &str) -> 
         "marker_changes": v.marker_changes - marker_changes_start,
         "marker_fps": (v.marker_changes - marker_changes_start) as f64 / secs.max(f64::EPSILON),
         "series": series,
+        "series_100ms": fine,
         "marker_log": v.marker_log.as_ref(),
         "decode_errors": v.decode_errors,
         "present_errors": v.present_errors,

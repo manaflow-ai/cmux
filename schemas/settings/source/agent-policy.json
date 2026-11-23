@@ -41,6 +41,13 @@
     },
     {
       "agent": "settable",
+      "why": "Whether the app shows a toast naming files or layers that change the person's setup: a notice only, it changes nothing; on is the default.",
+      "keys": [
+        "customize.doctorNotice"
+      ]
+    },
+    {
+      "agent": "settable",
       "why": "Whether right-click menus end with Customize Menu… (looks only; the layouts stay the person's).",
       "keys": [
         "contextMenus.showCustomizeItem"
@@ -501,6 +508,7 @@
       "keys": [
         "experiments.glassToolbarGroups",
         "experiments.composerV2",
+        "experiments.hoverLook",
         "experiments.agentBadges",
         "experiments.agentBadgesBeam",
         "experiments.menuStyleV2",
@@ -705,6 +713,9 @@
         "sidebar.workspaceRow.log",
         "sidebar.workspaceRow.notification",
         "sidebar.workspaceRow.secondLineOrder",
+        "sidebar.workspaceRow.lines",
+        "sidebar.workspaceRow.linesByKind",
+        "sidebar.workspaceRow.linesByAgent",
         "sidebar.workspaceRow.terminal.icon",
         "sidebar.workspaceRow.terminal.directory",
         "sidebar.workspaceRow.terminal.branch",
@@ -1299,6 +1310,13 @@
       "why": "Whether attached photos and videos send their location.",
       "keys": [
         "home.attachments.keepLocation"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "why": "Whether cmux reads the person's clipboard for the Chief's + menu.",
+      "keys": [
+        "home.clipboardHistory"
       ]
     },
     {

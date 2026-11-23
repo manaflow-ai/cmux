@@ -376,5 +376,12 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
       return Array.isArray(value) && value.every((item) => typeof item === "string" && item.length > 0)
         ? null
         : "expected a list of non-empty strings";
+    case "json":
+      // The top-level type only, as the app: the daemon checks the shape and the row's domain
+      // (the sidebar row reducer's bounds) and its refusal says where (`accepted.problems`).
+      if (row.shape?.type === "object") {
+        return typeof value === "object" && value !== null && !Array.isArray(value) ? null : "expected an object";
+      }
+      return Array.isArray(value) ? null : "expected a list";
   }
 }
