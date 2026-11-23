@@ -43,6 +43,9 @@ export { ModelKeys } from "./model-keys.ts"
 export { HandoffDO } from "./handoffs/handoff-do.ts"
 export { HandoffIndexDO } from "./handoffs/index-do.ts"
 import { handleHandoffs, HANDOFFS_PATH } from "./handoffs/routes.ts"
+export { AutoSessionDO } from "./auto-sessions/session-do.ts"
+export { AutoSessionIndexDO } from "./auto-sessions/index-do.ts"
+import { AUTO_SESSIONS_PATH, handleAutoSessions } from "./auto-sessions/routes.ts"
 export { AddressDO } from "./address-do.ts"
 export { ConversationDO } from "./conversation-do.ts"
 export { MuxDO } from "./mux-do.ts"
@@ -267,6 +270,9 @@ export default {
     // Cloud work mode's hand-offs (handoffs/routes.ts): the owner's sessions on cloud machines, and their machines' reports.
     const handoff = url.pathname.match(HANDOFFS_PATH)
     if (handoff) return handleHandoffs(request, env, handoff)
+    // Auto mode (auto-sessions/routes.ts): chats that move to the owner's Cloud machine when the laptop goes away, and back.
+    const autoSession = url.pathname.match(AUTO_SESSIONS_PATH)
+    if (autoSession) return handleAutoSessions(request, env, autoSession)
     if (url.pathname === "/v1/presence-key" && request.method === "POST") return handlePresenceKey(request, env)
     if (url.pathname.startsWith("/v1/inference/")) return inference(url.pathname, request, env, ctx)
     // The live model catalog (models-catalog/route.ts): public reads, internal publish and kill switch.
