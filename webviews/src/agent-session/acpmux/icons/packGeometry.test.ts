@@ -19,10 +19,16 @@ const OFF_CENTER: Record<string, string> = {
   "media.play": "SPEC: a play triangle sits right of its box",
   "disclosure.collapsed": "SPEC: the collapsed chevron sits 1 right",
   "terminal.new": "optical.py V_TOLERANCE: a bottom-right plus badge may sit a little low",
-  "agent.bot": "drawn before this check: antenna above the head",
-  "composer.steer": "drawn before this check",
-  "message.delivered": "drawn before this check: the double check's tail",
   "status.progress": "drawn before this check: 0.504 left, at the rasteriser's rounding edge",
+};
+
+// design/icons/SPEC.md "Line style": every Line drawing strokes at 1.5 on the 24 grid. A 16-unit glyph pasted in
+// under a scale(1.5) wrapper at 1.25 drew 1.875, a quarter heavier than its neighbours (the transcript and
+// permission-mode batches until 2026-11-22), and a matrix() optical trim thinned task.status.triage to 1.30.
+const STROKE = 1.5;
+const OTHER_STROKE: Record<string, string> = {
+  "status.progress": "the 3.5 stroke is the pie's fill, drawn as a thick arc",
+  "task.status.backlog": "a dotted ring: 1.75 round dots read as dots at 13 px",
 };
 
 const vendored = new Set(
@@ -55,8 +61,21 @@ describe("icon pack geometry", () => {
     expect(off).toEqual([]);
   });
 
+  test("every Line stroke draws at the pack's 1.5, or is a named exception", () => {
+    const off: string[] = [];
+    for (const name of Object.keys(pack.icons)) {
+      if (vendored.has(name) || Object.hasOwn(OTHER_STROKE, name)) continue;
+      const widths = new Set(
+        pack.icons[name].line.filter((layer) => layer.op === "stroke").map((layer) => layer.w ?? STROKE),
+      );
+      for (const width of widths) if (Math.abs(width - STROKE) > 1e-6) off.push(`${name} (${width})`);
+    }
+    expect(off).toEqual([]);
+  });
+
   test("every named exception still exists", () => {
-    for (const name of Object.keys(OFF_CENTER)) expect(Object.hasOwn(pack.icons, name)).toBe(true);
+    for (const name of [...Object.keys(OFF_CENTER), ...Object.keys(OTHER_STROKE)])
+      expect(Object.hasOwn(pack.icons, name)).toBe(true);
   });
 
   // Leo, 2026-11-07: "Why is the puzzle icon so damn big?" #37608 fitted the browser toolbar's puzzle to

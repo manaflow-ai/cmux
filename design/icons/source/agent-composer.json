@@ -292,10 +292,16 @@
   {
    "name": "composer.steer",
    "meaning": "Steer: send a queued message into the running turn now (the queued row's Steer, as ChatGPT and Codex draw it).",
-   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5.5 4.5v6a3.5 3.5 0 0 0 3.5 3.5h9.5M14.5 10l4 4-4 4'/></svg>",
-   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M5.5 4.5v6a3.5 3.5 0 0 0 3.5 3.5h9.5M14.5 10l4 4-4 4'/></svg>",
-   "alts": [],
-   "note": "Arrow only, a turn to the right (↪); the button supplies its Steer label.",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5.5 5.25v6a3.5 3.5 0 0 0 3.5 3.5h9.5M14.5 10.75l4 4-4 4'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M5.5 5.25v6a3.5 3.5 0 0 0 3.5 3.5h9.5M14.5 10.75l4 4-4 4'/></svg>",
+   "alts": [
+    {
+     "label": "Before (ink 0.75 above centre)",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5.5 4.5v6a3.5 3.5 0 0 0 3.5 3.5h9.5M14.5 10l4 4-4 4'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M5.5 4.5v6a3.5 3.5 0 0 0 3.5 3.5h9.5M14.5 10l4 4-4 4'/></svg>"
+    }
+   ],
+   "note": "Arrow only, a turn to the right (↪); the button supplies its Steer label. Moved 0.75 down 2026-11-22 so its ink box centres on 12,12 (SPEC centering).",
    "replaces": []
   },
   {
@@ -872,10 +878,16 @@
   {
    "name": "task.status.triage",
    "meaning": "Task status: triage (dashed ring).",
-   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.5' stroke-dasharray='3.2 3.475' transform='matrix(0.868 0 0 0.868 1.588 1.588) rotate(-90 12 12)'/></svg>",
-   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.5' stroke-dasharray='3.2 3.475' transform='matrix(0.868 0 0 0.868 1.588 1.588) rotate(-90 12 12)'/></svg>",
-   "alts": [],
-   "note": "",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='7.378' stroke-dasharray='2.78 3.015' transform='rotate(-90 12 12)'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='7.378' stroke-dasharray='2.78 3.015' transform='rotate(-90 12 12)'/></svg>",
+   "alts": [
+    {
+     "label": "Before (ring scaled by matrix(0.868), 1.30 effective stroke)",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.5' stroke-dasharray='3.2 3.475' transform='matrix(0.868 0 0 0.868 1.588 1.588) rotate(-90 12 12)'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.5' stroke-dasharray='3.2 3.475' transform='matrix(0.868 0 0 0.868 1.588 1.588) rotate(-90 12 12)'/></svg>"
+    }
+   ],
+   "note": " 2026-11-22: the optical trim was a wrapping matrix that thinned the dashes to 1.30; the trim now lives in the radius and dash lengths, so the dashes draw 1.5 like task.status.todo.",
    "replaces": [
     "SwiftUI Circle dashed"
    ]

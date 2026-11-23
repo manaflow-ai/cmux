@@ -1,0 +1,49 @@
+/* The icon hill-climb backlog (IconHillClimbGallery.tsx). Colors come from the scheme's system colors so
+   light and dark sit on the platform's own canvas; spacing, radii and surfaces are design-system tokens. */
+.icon-hillclimb {
+  display: grid;
+  gap: var(--ds-space-4, 16px);
+  padding: var(--ds-space-4, 16px);
+  background: Canvas;
+  color: CanvasText;
+  --ds-surface-ink: CanvasText;
+  font-size: var(--text-caption);
+}
+.icon-hillclimb[data-scheme="light"] { color-scheme: light; }
+.icon-hillclimb[data-scheme="dark"] { color-scheme: dark; }
+.icon-hillclimb-item header { display: grid; gap: var(--ds-space-1, 4px); }
+.icon-hillclimb-item p { margin: 0; opacity: 0.7; max-width: 72ch; }
+.icon-hillclimb-candidates {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--ds-space-2, 8px);
+  margin-top: var(--ds-space-2, 8px);
+}
+.icon-hillclimb-candidates figure {
+  margin: 0;
+  display: grid;
+  gap: var(--ds-space-2, 8px);
+  padding: var(--ds-space-2, 8px);
+  border-radius: var(--ds-radius-lg, 8px);
+  background: color-mix(in srgb, CanvasText 4%, transparent);
+  border: 1px solid color-mix(in srgb, CanvasText 10%, transparent);
+}
+.icon-hillclimb-candidates figure[data-current] { border-style: dashed; }
+.icon-hillclimb-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2, 8px);
+  font-size: var(--text-body);
+  line-height: 20px;
+}
+.icon-hillclimb-sizes { display: flex; align-items: center; gap: var(--ds-space-3, 12px); }
+.icon-hillclimb-button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--ds-radius-control, 8px);
+  background: color-mix(in srgb, CanvasText 8%, transparent);
+}
+.icon-hillclimb figcaption { display: grid; font-weight: 600; }
+.icon-hillclimb figcaption small { font-weight: 400; opacity: 0.6; }
