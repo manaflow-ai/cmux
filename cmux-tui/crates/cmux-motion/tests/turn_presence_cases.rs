@@ -27,7 +27,7 @@ fn the_shared_corpus_holds() {
             let at = step["at"].as_u64().expect("at");
             match step["running"].as_bool() {
                 Some(running) => {
-                    model.set(running, at, step["immediate"].as_bool().unwrap_or(false))
+                    model.set(running, at, step["immediate"].as_bool().unwrap_or(false));
                 }
                 None => model.advance(at),
             }
