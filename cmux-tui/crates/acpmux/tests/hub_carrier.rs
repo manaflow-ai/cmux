@@ -1258,7 +1258,7 @@ impl acpmux::hub_carrier::SessionGate for TestSessionGate {
     ) -> Result<std::path::PathBuf, acpmux::hub_carrier::ServiceRefusal> {
         use acpmux::session_service::{Decision, decide, session_socket};
         let consent = self.consent.lock().unwrap().clone();
-        match decide(&consent, Some("user-1")) {
+        match decide(&consent, Some("user-1"), false) {
             Decision::Admit => session_socket(Some(&self.socket)),
             Decision::Refuse { refusal, ask } => {
                 if ask {
