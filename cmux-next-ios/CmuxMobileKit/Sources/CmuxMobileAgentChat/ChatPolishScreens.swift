@@ -270,8 +270,8 @@ struct EventInspectorScreen: View {
                                 .accessibilityIdentifier("chat.inspector.row")
                             }
                         } header: {
-                            Text(summary(shown: rows.count, total: total, dropped: journal.dropped, filtering: memo.isFiltering))
-                                .accessibilityIdentifier("chat.inspector.count")
+                            // Its own view: a filter starting redraws the header, not the list.
+                            EventInspectorCount(memo: memo, shown: rows.count, total: total, dropped: journal.dropped)
                         }
                     }
                     .overlay {
@@ -319,7 +319,7 @@ struct EventInspectorScreen: View {
                                     copied = true
                                 }
                                 // While a new filter runs the rows are the last filter's: copy waits for it.
-                                .disabled(rows.isEmpty || memo.isFiltering)
+                                .modifier(DisabledWhileFiltering(memo: memo, empty: rows.isEmpty))
                                 Button("Clear", systemImage: "trash", role: .destructive) { journal.clear() }
                                     .disabled(total == 0)
                             } label: {
@@ -347,11 +347,35 @@ struct EventInspectorScreen: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    private func summary(shown: Int, total: Int, dropped: Int, filtering: Bool) -> String {
+}
+
+/// The inspector's count header ("N events", "N of M events", dropped, "Filtering…"). It reads
+/// whether a filter runs itself, so a filter starting redraws only this line.
+private struct EventInspectorCount: View {
+    let memo: EventInspectorRows
+    let shown: Int
+    let total: Int
+    let dropped: Int
+
+    var body: some View {
+        Text(summary).accessibilityIdentifier("chat.inspector.count")
+    }
+
+    private var summary: String {
         var text = shown == total ? String(localized: "\(total) events") : String(localized: "\(shown) of \(total) events")
         if dropped > 0 { text += " · " + String(localized: "\(dropped) older dropped") }
-        if filtering { text += " · " + String(localized: "mobile.agentChat.inspector.filtering", defaultValue: "Filtering…", bundle: .module) }
+        if memo.isFiltering { text += " · " + String(localized: "mobile.agentChat.inspector.filtering", defaultValue: "Filtering…", bundle: .module) }
         return text
+    }
+}
+
+/// Copy as JSON Lines waits while a filter runs (its rows are the last query's until it lands).
+private struct DisabledWhileFiltering: ViewModifier {
+    let memo: EventInspectorRows
+    let empty: Bool
+
+    func body(content: Content) -> some View {
+        content.disabled(empty || memo.isFiltering)
     }
 }
 

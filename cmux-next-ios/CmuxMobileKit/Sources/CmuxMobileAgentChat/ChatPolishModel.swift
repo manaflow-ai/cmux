@@ -324,6 +324,10 @@ final class EventInspectorRows {
     @ObservationIgnored private(set) var stubbed = 0
     /// Bumped when a hold ends: the screen draws the held records.
     private var released = 0
+    /// Bumped when a query's rows land (at once, or when its off-main filter does): the one
+    /// change the list hears of per keystroke. Starting an off-main filter changes nothing the
+    /// list draws (its rows stay the shown query's until then).
+    private var landed = 0
     /// Held records (the pill's count; read after `rows`, which brings it up to date).
     var heldCount: Int { held.count - heldHead }
     /// The newest held record's id (where the pill scrolls to).
@@ -385,6 +389,7 @@ final class EventInspectorRows {
             dropHeld()
             shownQuery = query
             shownQueries.append(query)
+            landed &+= 1
             return
         }
         // Off the main thread: the records can be megabytes. Until it lands, the rows shown are
@@ -435,12 +440,14 @@ final class EventInspectorRows {
             sync(journal)
         }
         shownQueries.append(query)
+        landed &+= 1
     }
 
     /// The rows matching the query, brought up to the journal (what changed since the last read).
     func rows(_ journal: AgentEventJournal) -> ArraySlice<AgentInspectorEvent> {
-        // A new query (set after this read, from the screen's onChange) and a landed filter redraw.
-        _ = (query, shownQuery, isFiltering, released)
+        // A query's rows landing and a hold's end redraw the list; a filter starting does not
+        // (the "Filtering…" header reads `isFiltering` on its own).
+        _ = (landed, released)
         sync(journal)
         return matched[head...]
     }

@@ -113,10 +113,13 @@ import UIKit
         window.rootViewController = host
         window.isHidden = false
         ChatTranscriptSourceTests.settle(window)
-        // Until the off-main layouts have landed (no more for a few passes).
+        // Until the off-main layouts have landed: the first ones come, then none for a few passes
+        // (they run at utility priority, so they can take seconds on a loaded simulator).
+        let deadline = Date().addingTimeInterval(20)
+        while host.list.layoutsMadeOffMain == 0, Date() < deadline { ChatTranscriptSourceTests.settle(window) }
         var made = -1
         var still = 0
-        for _ in 0..<200 where still < 4 {
+        while still < 6, Date() < deadline {
             ChatTranscriptSourceTests.settle(window)
             if host.list.layoutsMadeOffMain == made { still += 1 } else { still = 0 }
             made = host.list.layoutsMadeOffMain
@@ -133,7 +136,7 @@ import UIKit
         let rows = host.list.layout.items.count
         let landed = host.list.layoutsMadeOffMain
         #expect(rows > 1000)
-        #expect(landed > 0, "the off-main layouts landed")
+        #expect(landed > 0, "the off-main layouts landed (\(landed) in 20 s; \(host.list.layoutsMadeNow) made on the main thread)")
         let bar = rows + landed + 8
         #expect(host.list.rowsWeighed <= bar,
                 "opening weighed \(host.list.rowsWeighed) rows (\(String(format: "%.1f", Double(host.list.rowsWeighed) / Double(max(rows, 1))))× its \(rows) rows; bar \(bar) = rows + \(landed) landed + 8)")
