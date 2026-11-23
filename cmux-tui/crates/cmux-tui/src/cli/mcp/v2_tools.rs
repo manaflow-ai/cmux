@@ -196,6 +196,7 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("cloud.machine.chat_access", CLOUD_API_REASON),
     ("cloud.machine.io", CLOUD_API_REASON),
     ("cloud.machine.share_chat", CLOUD_API_REASON),
+    ("cloud.machine.chief_start", CLOUD_API_REASON),
     ("cloud.owner.acpmux_keyed_start", CLOUD_API_REASON),
     ("cloud.owner.acpmux_person_holds", CLOUD_API_REASON),
     ("cloud.owner.fork_run", CLOUD_API_REASON),

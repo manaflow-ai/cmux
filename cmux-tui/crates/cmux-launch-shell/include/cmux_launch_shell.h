@@ -67,6 +67,43 @@ uint8_t cmux_launch_shell_input_disposition(uint8_t kind, size_t held);
  * drags and scrolls only when stage 0 showed the saved image and there was no mismatch. */
 bool cmux_launch_shell_replays(uint8_t kind, bool showed_image, bool mismatch);
 
+/* The relaunch cover (src/relaunch_cover.rs, src/relaunch_cover_ffi.rs): an update's relaunch, or
+ * a quit that keeps sessions, shows each window's last picture at its saved frame until its live
+ * content is ready. Plans and steps cross as JSON; free every returned string with
+ * cmux_relaunch_cover_string_free. */
+typedef struct CmuxRelaunchCoverReveal CmuxRelaunchCoverReveal;
+
+void cmux_relaunch_cover_string_free(char *s);
+
+/* Writes the manifest (JSON, CoverManifest) into dir atomically, after the pictures. False when
+ * it is not well formed or the write failed. */
+bool cmux_relaunch_cover_write(const char *dir, const char *manifest_json);
+
+/* Takes the manifest in dir (removed whatever it held) and returns the plan as JSON (reason,
+ * failed_window, windows front first). restoring_json: JSON array of the window ids this launch
+ * opens. NULL only for a null or non-UTF-8 argument. */
+char *cmux_relaunch_cover_take_plan(const char *dir, uint64_t now_ms, uint64_t max_age_ms,
+                                    const CmuxLaunchShellDisplay *displays, size_t display_count,
+                                    const char *restoring_json);
+
+/* Removes the pictures the plan named, once every cover is gone. */
+void cmux_relaunch_cover_clear(const char *dir, const char *plan_json);
+
+/* style: 0 instant, 1 crossfade (120 ms), 2 progressive (each surface, 80 ms). NULL unless the
+ * plan shows. */
+CmuxRelaunchCoverReveal *cmux_relaunch_cover_reveal_new(const char *plan_json, uint8_t style,
+                                                        uint64_t opened_ms);
+void cmux_relaunch_cover_reveal_free(CmuxRelaunchCoverReveal *reveal);
+/* Each returns a JSON array of steps: {"step":"surface","window","surface","fade_ms"} or
+ * {"step":"window","window","fade_ms"}. */
+char *cmux_relaunch_cover_reveal_start(CmuxRelaunchCoverReveal *reveal);
+char *cmux_relaunch_cover_reveal_surface_ready(CmuxRelaunchCoverReveal *reveal, const char *window,
+                                               const char *surface, uint64_t now_ms);
+char *cmux_relaunch_cover_reveal_mismatch(CmuxRelaunchCoverReveal *reveal, const char *window);
+/* next_deadline_ms: when to call again, 0 when every cover is gone. */
+char *cmux_relaunch_cover_reveal_tick(CmuxRelaunchCoverReveal *reveal, uint64_t now_ms,
+                                      uint64_t *next_deadline_ms);
+
 #ifdef __cplusplus
 }
 #endif
