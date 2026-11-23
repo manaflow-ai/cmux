@@ -51,7 +51,13 @@ extension AgentPaneView {
         view.marksLoading = { [weak cover] in cover?.showsPicture == false }
         drawCoverPicture(picture, in: cover)
         view.isHidden = false
-        addSubview(view, positioned: .above, relativeTo: nil)
+        if let swap = webSwapCover {
+            // A web update's own picture holds the chat (`AgentPaneView+WebSwapCover`): this one waits under it, and
+            // holds the chat past that picture's bound when the new document is slow to paint.
+            addSubview(view, positioned: .below, relativeTo: swap)
+        } else {
+            addSubview(view, positioned: .above, relativeTo: nil)
+        }
         view.showMarkLater()
         if pageDrawsOverCovers {
             // Chromium draws in its own window over any cover: the page waits outside the window.

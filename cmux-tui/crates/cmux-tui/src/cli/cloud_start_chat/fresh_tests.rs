@@ -252,3 +252,129 @@ fn a_named_machine_is_never_replaced_or_deleted() {
     assert_eq!(fake.ran.len(), 2, "no delete and no second start: {:?}", fake.ran);
     assert!(fake.said.is_empty());
 }
+
+fn agent_refused(code: &str) -> Ran {
+    Ran {
+        code: 1,
+        stderr: json!({"code": "unavailable", "message": format!(
+            "Machine `chat-fresh` started but its agent didn't ({code}). Run `cmux cloud start-session --target machine:vm-failed --agent codex` again."
+        )}).to_string(),
+        ..Ran::default()
+    }
+}
+
+#[test]
+fn a_refused_codex_start_deletes_its_new_machine_without_retrying() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        agent_refused("agent_session.bad_request"),
+        listed_stuck("vm-failed"),
+        ok(json!({"deleted": true})),
+    ]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &request(&["--agent", "codex"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(exit, 1);
+    assert_eq!(error["code"], "unavailable");
+    assert_eq!(error["details"]["cleanup"]["machine_id"], "vm-failed");
+    assert_eq!(error["details"]["cleanup"]["deleted"], true);
+    assert_eq!(fake.ran[3], kill("vm-failed"));
+    assert_eq!(starts(&fake), 1, "a bad request is not a reason to create another machine");
+    let message = error["message"].as_str().unwrap();
+    assert!(message.contains("agent_session.bad_request") && message.contains("was deleted"));
+    assert!(!message.contains("start-session --target"), "no retry on the deleted machine");
+    assert!(
+        error["details"]["app"]["message"].as_str().unwrap().contains("start-session --target")
+    );
+}
+
+#[test]
+fn a_refused_start_never_deletes_an_existing_named_or_targeted_machine() {
+    for args in [&["--name", "dev"][..], &["--target", "machine:vm-existing"]] {
+        let mut fake = Fake::new(vec![signed_in(), agent_refused("agent_session.bad_request")]);
+        let Outcome::Failed { error, .. } = run(&mut fake, &request(args)) else {
+            panic!("{:?}", fake.ran)
+        };
+        assert!(error["details"]["cleanup"].is_null());
+        assert_eq!(fake.ran.len(), 2, "no delete: {:?}", fake.ran);
+    }
+}
+
+#[test]
+fn a_refused_start_deletes_the_machine_it_just_created_in_an_environment() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        made(),
+        agent_refused("agent_session.bad_request"),
+        ok(json!({"deleted": true})),
+    ]);
+    let Outcome::Failed { error, .. } =
+        run(&mut fake, &request(&["--agent", "codex", "--environment", "env_1"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(fake.ran[3], kill("vm-1"));
+    assert_eq!(error["details"]["cleanup"]["machine_id"], "vm-1");
+    assert_eq!(error["details"]["cleanup"]["deleted"], true);
+    assert_eq!(starts(&fake), 1);
+}
+
+#[test]
+fn cleanup_crossing_the_deadline_keeps_the_refusal_and_deletion_receipt() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        agent_refused("agent_session.bad_request"),
+        listed_stuck("vm-failed"),
+        ok(json!({"deleted": true})),
+    ]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &request(&["--timeout", "15"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(exit, 1);
+    assert_eq!(error["code"], "unavailable");
+    assert_eq!(error["details"]["cleanup"]["deleted"], true);
+    assert_eq!(fake.ran[3], kill("vm-failed"));
+    assert!(error["details"]["again"].is_null(), "no pending retry on a deleted machine");
+}
+
+#[test]
+fn a_refused_start_reports_failed_cleanup_and_keeps_the_original_refusal() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        agent_refused("agent_session.harness_missing"),
+        listed_stuck("vm-failed"),
+        Ran { code: 1, stderr: "delete unavailable".to_owned(), ..Ran::default() },
+    ]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &request(&["--agent", "codex"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["details"]["cleanup"]["deleted"], false);
+    let message = error["message"].as_str().unwrap();
+    assert!(message.contains("agent_session.harness_missing"));
+    assert!(message.contains("kill-machine --target machine:vm-failed --confirm"));
+    assert_eq!(starts(&fake), 1);
+}
+
+#[test]
+fn a_refused_start_does_not_call_an_unloaded_machine_list_cleaned_up() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        agent_refused("agent_session.bad_request"),
+        ok(json!({"loaded": false, "machines": []})),
+    ]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &request(&[])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["details"]["cleanup"]["deleted"], false);
+    assert_eq!(fake.ran.len(), 3, "no guessed delete");
+}
+
+#[test]
+fn a_lost_start_reply_never_deletes_a_machine_that_may_have_a_running_agent() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        Ran { code: 1, stderr: "app connection closed".to_owned(), ..Ran::default() },
+    ]);
+    assert!(matches!(run(&mut fake, &request(&[])), Outcome::Failed { .. }));
+    assert_eq!(fake.ran.len(), 2);
+}
