@@ -34,7 +34,7 @@ use super::*;
 pub(in crate::hub) mod revive;
 
 /// The refusal of a prompt for session `name` whose folder `cwd` is gone: `session.folder_missing`,
-/// naming the folder in its message and data. Always retryable: a folder can come back (put back
+/// naming the folder in its message and data. Retryable: a folder can come back (put back
 /// by hand, a worktree recreated), so a sender's outbox keeps the message and sends it again
 /// (`server/outbox.rs` `next`); a retry while it is still gone costs one stat (`gone`).
 pub(crate) fn folder_missing(name: &str, cwd: &std::path::Path, what: &str) -> RpcError {
@@ -459,7 +459,8 @@ impl Hub {
     /// refusal naming the folder when it is still gone (a worktree removed by hand, a probe
     /// folder under /tmp). The refusal is retryable, so an outbox delivery (`server/outbox.rs`)
     /// keeps the message and sends it again once the folder is back; while it stays gone, each
-    /// retry is one stat (`gone`): no archive read, no git, no harness. A harness started in a
+    /// retry is one stat (`gone`): no archive read, no git, no harness. Only acpmux's own temporary
+    /// folder, which never comes back, is refused for good. A harness started in a
     /// missing folder failed the turn after it was taken, as `spawn harness process: No such
     /// file or directory`.
     async fn folder_ready(&self, session: &Arc<Session>) -> Result<(), RpcError> {
@@ -479,6 +480,26 @@ impl Hub {
             Ok(m) if m.is_dir() => return Ok(()),
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Ok(()),
             _ => {}
+        }
+        // A folder in acpmux's own session temp folders never comes back (`session_tmp::holds`):
+        // the refusal is final, so an outbox or relayed delivery is refused once, its sender told
+        // why, instead of being tried again every minute forever. Any other folder may come back
+        // (a worktree removed by hand and made again), so its refusal stays retryable.
+        if meta.worktree.is_none() && crate::agent::session_tmp::holds(&meta.cwd) {
+            return Err(RpcError::internal(format!(
+                "session.folder_missing: the folder of {} ({}) was a temporary folder and is gone \
+                 for good, so its agent cannot start again; start a new chat, or archive this one \
+                 (`acpmux archive {}`)",
+                meta.name,
+                meta.cwd.display(),
+                meta.name,
+            ))
+            .with_data(json!({
+                "reason": "session.folder_missing",
+                "folder": meta.cwd,
+                "retryable": false,
+                "temporary": true,
+            })));
         }
         let what = "no longer exists; it was moved or removed (or a file took its place), so its \
                     agent cannot start until it is back";

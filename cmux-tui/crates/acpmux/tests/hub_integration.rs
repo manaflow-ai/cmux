@@ -60,6 +60,9 @@ mod log_retention;
 mod mcp_connect;
 #[path = "hub_integration/outbox_folder_missing.rs"]
 mod outbox_folder_missing;
+#[cfg(unix)]
+#[path = "hub_integration/paused_fs.rs"]
+mod paused_fs;
 #[path = "hub_integration/permission_display.rs"]
 mod permission_display;
 #[path = "hub_integration/permission_groups.rs"]
