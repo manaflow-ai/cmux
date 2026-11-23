@@ -104,7 +104,7 @@ public enum CloudStrings {
     public static func upgradeDetail(_ reason: CloudUpgradeReason) -> String {
         switch reason {
         case .freePlan, .server:
-            String(localized: "cloud.upgrade.detail.free", defaultValue: "Your plan has no Cloud machines. The Go is $10 a month and includes machines; Pro is $50 a month.", table: "Cloud", bundle: .localizedModule)
+            String(localized: "cloud.upgrade.detail.free", defaultValue: "Your plan has no Cloud machines. Go is $10 a month and includes machines; Pro is $50 a month.", table: "Cloud", bundle: .localizedModule)
         case .atLimit, .pool:
             String(localized: "cloud.upgrade.detail.limit", defaultValue: "All the running Cloud machines your plan allows are in use. Upgrade (Pro is $50 a month) or delete one.", table: "Cloud", bundle: .localizedModule)
         }
