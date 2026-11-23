@@ -184,11 +184,11 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
         outer.addArrangedSubview(body)
         body.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
 
-        let titleFont = Typography.system(.default, size: TypeScale.title, weight: TypeScale.emphasis)
+        let titleFont = Typography.dialogTitle
         let title = label(spec.title, font: titleFont, role: .primary, width: contentWidth)
         body.addArrangedSubview(title)
         if let origin = spec.origin {
-            body.addArrangedSubview(label(CmuxDialogStrings.from(origin), font: Typography.caption, role: .secondary, width: contentWidth))
+            body.addArrangedSubview(label(CmuxDialogStrings.from(origin), font: Typography.cardBody, role: .secondary, width: contentWidth))
         }
         if !spec.lines.isEmpty {
             let lines = linesView(width: contentWidth)
@@ -203,7 +203,7 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
             for view in fieldViews(field, width: contentWidth) { body.addArrangedSubview(view) }
         }
         if let error = spec.error {
-            let line = label(error, font: Typography.caption, role: .danger, width: contentWidth)
+            let line = label(error, font: Typography.cardBody, role: .danger, width: contentWidth)
             line.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.error")
             body.addArrangedSubview(line)
         }
@@ -276,7 +276,7 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
 
     /// The lines; a long message (an import preview) scrolls in a box of bounded height, so the buttons stay on screen.
     private func linesView(width: CGFloat) -> NSView {
-        let lines = NSStackView(views: spec.lines.map { label($0, font: Typography.body, role: .secondary, width: width) })
+        let lines = NSStackView(views: spec.lines.map { label($0, font: Typography.cardMessage, role: .secondary, width: width) })
         lines.orientation = .vertical
         lines.alignment = .leading
         lines.spacing = Metrics.space2
@@ -297,7 +297,7 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
             lines.topAnchor.constraint(equalTo: clip.topAnchor),
             lines.widthAnchor.constraint(equalToConstant: width),
             scroll.widthAnchor.constraint(equalToConstant: width),
-            scroll.heightAnchor.constraint(lessThanOrEqualToConstant: Self.cutHeight(Typography.body, spacing: lines.spacing)),
+            scroll.heightAnchor.constraint(lessThanOrEqualToConstant: Self.cutHeight(Typography.cardMessage, spacing: lines.spacing)),
             fit,
         ])
         return scroll
@@ -392,7 +392,7 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
         switch field {
         case .text(let id, let caption, let initial, let placeholder, let secure):
             let input: NSTextField = secure ? ThemedSecureTextField(string: initial) : ThemedTextField(string: initial)
-            input.font = Typography.body
+            input.font = Typography.cardMessage
             input.placeholderString = placeholder
             input.delegate = self
             input.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.field.\(id)")
@@ -420,7 +420,7 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
             return captioned(caption, popup, width: width)
         case .check(let id, let title, _):
             let check = ThemedCheckbox(checkboxWithTitle: title, target: self, action: #selector(controlChanged(_:)))
-            check.font = Typography.body
+            check.font = Typography.cardMessage
             check.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.field.\(id)")
             register(check, id: id)
             return [check]
@@ -443,7 +443,7 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
 
     func captioned(_ caption: String?, _ view: NSView, width: CGFloat) -> [NSView] {
         guard let caption else { return [view] }
-        return [label(caption, font: Typography.caption, role: .secondary, width: width), view]
+        return [label(caption, font: Typography.cardBody, role: .secondary, width: width), view]
     }
 }
 

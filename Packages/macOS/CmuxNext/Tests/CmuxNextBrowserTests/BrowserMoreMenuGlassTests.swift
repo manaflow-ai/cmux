@@ -97,4 +97,88 @@ import Testing
         fixture.buttons.openGlass(fixture.menu, from: .overflow)
         #expect(!glass.isShown, "a second press on More left its menu open")
     }
+
+    /// The menu buttons open on the press; Downloads' popup does not follow a held press, so it opens
+    /// on the release as before; the toggles never open on the press.
+    @Test func menuButtonsOpenOnThePressAndDownloadsOnTheRelease() throws {
+        for button in BrowserToolbarButton.allCases {
+            let expected = [.media, .profile, .theme, .overflow].contains(button)
+            #expect(button.followsPress == expected, "\(button) followsPress")
+        }
+        let fixture = Fixture()
+        defer { fixture.window.close() }
+        #expect(try #require(fixture.more).opensOnPress)
+    }
+
+    private final class RowTarget: NSObject {
+        var ran: [String] = []
+        @objc func run(_ sender: NSMenuItem) { ran.append(sender.title) }
+    }
+
+    private static func mouse(_ type: NSEvent.EventType, at point: NSPoint, in window: NSWindow) throws -> NSEvent {
+        try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0,
+                                        windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
+                                        pressure: type == .leftMouseUp ? 0 : 1))
+    }
+
+    /// Press More and hold, drag onto a row, release: the row runs (Leo: "so he click and hold on the
+    /// context menu start and then it goes over and then release should go"). The press opens the menu
+    /// (not its release), and More hands the press's drag and release to it.
+    @Test(.enabled("a glass menu needs a screen to show") { !NSScreen.screens.isEmpty })
+    func pressHoldDragOntoARowAndReleaseRunsIt() throws {
+        let fixture = Fixture()
+        defer { fixture.window.close() }
+        fixture.window.orderFront(nil)
+        let target = RowTarget()
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        for title in ["Find…", "Print…"] {
+            menu.addItem(withTitle: title, action: #selector(RowTarget.run(_:)), keyEquivalent: "").target = target
+        }
+        var presses = 0
+        fixture.buttons.onPress = { [buttons = fixture.buttons] button in
+            guard button == .overflow else { return }
+            presses += 1
+            buttons.openGlass(menu, from: .overflow)
+        }
+        let more = try #require(fixture.more)
+        let window = fixture.window
+        let onMore = more.convert(NSPoint(x: more.bounds.midX, y: more.bounds.midY), to: nil)
+        more.mouseDown(with: try Self.mouse(.leftMouseDown, at: onMore, in: window))
+        #expect(presses == 1, "the press did not open the menu: More waits for its release")
+        let glass = try #require(fixture.buttons.shownGlassMenu)
+        defer {
+            glass.close()
+            glass.host.panel.close()
+        }
+        #expect(more.holdsPress)
+        let row = try #require(glass.list.view(at: 1))
+        let rowRect = try #require(row.window).convertToScreen(row.convert(row.bounds, to: nil))
+        let onRow = window.convertPoint(fromScreen: NSPoint(x: rowRect.midX, y: rowRect.midY))
+        more.mouseDragged(with: try Self.mouse(.leftMouseDragged, at: onRow, in: window))
+        #expect(glass.isShown)
+        more.mouseUp(with: try Self.mouse(.leftMouseUp, at: onRow, in: window))
+        #expect(!glass.isShown, "releasing on Print… left the menu open")
+        Self.turnRunLoop()
+        #expect(target.ran == ["Print…"])
+        #expect(!more.holdsPress)
+    }
+
+    /// A quick click on More (press and release on it) opens the menu and leaves it open.
+    @Test(.enabled("a glass menu needs a screen to show") { !NSScreen.screens.isEmpty })
+    func aClickOnMoreLeavesTheMenuOpen() throws {
+        let fixture = Fixture()
+        defer { fixture.window.close() }
+        fixture.window.orderFront(nil)
+        fixture.buttons.onPress = { [buttons = fixture.buttons, menu = fixture.menu] button in
+            if button == .overflow { buttons.openGlass(menu, from: .overflow) }
+        }
+        let more = try #require(fixture.more)
+        let onMore = more.convert(NSPoint(x: more.bounds.midX, y: more.bounds.midY), to: nil)
+        more.mouseDown(with: try Self.mouse(.leftMouseDown, at: onMore, in: fixture.window))
+        more.mouseUp(with: try Self.mouse(.leftMouseUp, at: onMore, in: fixture.window))
+        let glass = try #require(fixture.buttons.shownGlassMenu, "a click on More closed its menu")
+        glass.close()
+        glass.host.panel.close()
+    }
 }
