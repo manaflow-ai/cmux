@@ -169,13 +169,14 @@ extension CloudHandlers {
 }
 
 /// What a chat carries into a move, read from the app's own state for the reducer's `Cargo`.
-/// Not read yet (no Swift source for them): the queue (0), the branch (nil) and the dirty file count (0).
+/// Not read (no Swift source for them, so left out): the queued prompts and the dirty file count.
 extension CloudPlaceFlows.Cargo {
     @MainActor static func read(tab: TabModel, session: String, services: AppServices) -> CloudPlaceFlows.Cargo {
         var cargo = Self()
         if let ref = tab.agentSession { cargo.turnRunning = AgentTurnStateStore.shared.state(for: ref) == .working }
-        // Move to Cloud and Bring Back Local freeze the chat and carry a running turn to where it lands (``CloudMove``'s agent move).
-        cargo.continuesTurn = true
+        // Both moves run the agent move with a FrozenSync, which carries a running turn to where it lands; no turn, no carry.
+        cargo.continuesTurn = cargo.turnRunning
+        cargo.branch = tab.gitBranch
         let tabs = services.agentTabs
         cargo.hasDraft = tabs.unsentDrafts.hasDraft(tabs.resolve(tab.id), machine: tabs.daemonListing(tab)?.machineID)
         return cargo

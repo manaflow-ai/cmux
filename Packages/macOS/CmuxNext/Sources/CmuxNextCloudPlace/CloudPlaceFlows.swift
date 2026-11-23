@@ -52,13 +52,17 @@ public final class CloudPlaceFlows {
         public init() {}
         public var turnRunning = false
         public var continuesTurn = false
-        public var queued = 0
+        /// Nil when the app has no reader for it: the key is left out, never sent as 0.
+        public var queued: Int?
         public var hasDraft = false
         public var branch: String?
-        public var dirtyFiles = 0
+        /// Nil when the app has no reader for it: the key is left out, never sent as 0.
+        public var dirtyFiles: Int?
 
         var json: [String: Any] {
-            var cargo: [String: Any] = ["turnRunning": turnRunning, "continuesTurn": continuesTurn, "queued": queued, "hasDraft": hasDraft, "dirtyFiles": dirtyFiles]
+            var cargo: [String: Any] = ["turnRunning": turnRunning, "continuesTurn": continuesTurn, "hasDraft": hasDraft]
+            if let queued { cargo["queued"] = queued }
+            if let dirtyFiles { cargo["dirtyFiles"] = dirtyFiles }
             if let branch { cargo["branch"] = branch }
             return cargo
         }
