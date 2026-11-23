@@ -259,12 +259,9 @@ struct ChatComposer: View {
                 // keyboard's Return sends, Shift-Return starts a new line.
                 ChatComposerField(text: $text, placeholder: placeholder, isFocused: focus, onSend: sendFromKeyboard,
                                   onPasteAttachments: pasteAttachments,
-<<<<<<< HEAD
                                   stripReserve: ComposerHeightCap.stripReserve(hasAttachments: !attachments.isEmpty),
-                                  fieldRef: fieldRef)
-=======
+                                  fieldRef: fieldRef,
                                   onLineChange: { store.lineMotionPending = true })
->>>>>>> origin/feat-cmux-next
                     .padding(.horizontal, 16)
                     .padding(.top, 14)
                     .padding(.bottom, 6)
