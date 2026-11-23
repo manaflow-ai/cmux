@@ -896,7 +896,7 @@ impl Mux {
             let screen = &mut state.workspaces[workspace].screens[screen_index];
             let before = screen.layout_snapshot();
             let mut old_splits = HashSet::new();
-            crate::mux::resource_content::collect_screen_split_ids(screen, &mut old_splits);
+            collect_screen_split_ids(screen, &mut old_splits);
             if let Some(height) = row_height {
                 anyhow::ensure!(
                     screen.insert_layout_row_below(

@@ -255,7 +255,7 @@ impl Mux {
         );
         let screen_id = screen.id;
         let mut new_splits = HashSet::new();
-        crate::mux::resource_content::collect_screen_split_ids(screen, &mut new_splits);
+        collect_screen_split_ids(screen, &mut new_splits);
         let mut located = HashMap::new();
         index_node(&screen.root, workspace_index, screen_index, screen_id, &mut located);
         let panes = screen.root.pane_ids_vec();

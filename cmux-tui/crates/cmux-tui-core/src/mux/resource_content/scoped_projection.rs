@@ -407,6 +407,7 @@ impl Mux {
     /// The scoped read and walk of [`Self::resource_effect_projection_scoped_rows_locked`], with
     /// no fall back and no cross-check: a walk that met a resource that crossed its scope is
     /// the error [`ScopeEscaped`].
+    #[allow(clippy::too_many_arguments)]
     fn scoped_rows_walk(
         &self,
         registry: &WorkspaceRegistry,
