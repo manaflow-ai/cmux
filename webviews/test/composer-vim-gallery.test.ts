@@ -6,6 +6,7 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
@@ -37,7 +38,7 @@ await requireBrowserLane("composer-vim-gallery.test.ts", async () => {
       await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry, { variant: "insert" })}`);
       await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
       const tag = page.locator(".acpmux-vim-mode");
-      const prompt = page.locator(".acpmux-composer-prompt [contenteditable='true']");
+      const prompt = page.locator(COMPOSER_EDITOR);
       const text = async () => (await prompt.innerText()).trim();
       expect(await tag.getAttribute("data-vim-mode")).toBe("insert");
       await prompt.click();
