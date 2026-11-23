@@ -153,8 +153,8 @@ struct RemoteMachinesSidebarTests {
     /// The user 2026-10-26: "CMUX performance lead, CMUX community lead, and CMUX and chief 2-week/fast iteration
     /// are the ones I actually manually drag up there. Everything that is [a subagent] I did not put there." The top
     /// band holds Home and what the person put there; remote machine groups
-    /// are transient rows anchored after the durable top items.
-    @Test func remoteChatsDrawAfterTheDurableTopItems() {
+    /// are transient rows anchored after Home and before pinned items when the experiment supplies them.
+    @Test func remoteChatsDrawAfterHomeBeforePinnedItems() {
         // A remote model holds the chats, as one would in the running app.
         let remote = RemoteMachinesSidebar(lanes: AgentLaneStore())
         let prompt = "You are a subagent of Chief, an AI agent that works for one user"
@@ -171,8 +171,8 @@ struct RemoteMachinesSidebarTests {
                                     items: [LayoutItem(id: LayoutItemID("itm_home"), ref: .app("cmux/home"))]
                                         + pinned.map { LayoutItem(id: LayoutItemID($0), ref: .app("example/\($0)")) })
         let ids = model.placingTransientItems(in: [section]).flatMap(\.items).map(\.id.rawValue)
-        #expect(ids == ["itm_home", LayoutItemID(LayoutItemID.transientPrefix + "remote:machine:cmux-lawrence"),
-                        LayoutItemID(LayoutItemID.transientPrefix + "remote:machine:chief-subagents-2")] + pinned,
+        #expect(ids == ["itm_home", LayoutItemID.transientPrefix + "remote:machine:cmux-lawrence",
+                        LayoutItemID.transientPrefix + "remote:machine:chief-subagents-2"] + pinned,
                   "the top band drew \(ids)")
         #expect(model.transientTopItems.contains { $0.item.id.rawValue.hasPrefix(LayoutItemID.transientPrefix + "remote:") })
     }
