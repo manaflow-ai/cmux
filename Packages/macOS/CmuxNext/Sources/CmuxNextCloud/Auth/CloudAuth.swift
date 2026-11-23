@@ -35,7 +35,7 @@ public final class CloudAuth {
     @ObservationIgnored public var machineIO: CloudMachineIO?
 
     /// Sets ``machineIO`` to `io` and answers it.
-    public func runningPersonCalls(on io: CloudMachineIO) -> CloudMachineIO {
+    public func runningPersonCalls(on io: CloudMachineIO?) -> CloudMachineIO? {
         machineIO = io
         return io
     }
