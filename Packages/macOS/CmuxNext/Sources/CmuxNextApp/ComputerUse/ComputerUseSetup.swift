@@ -78,6 +78,13 @@ final class ComputerUseSetup {
     /// The host bundle the grants belong to (the running copy, else the embedded one).
     /// Nil when this build has none.
     private(set) var helperAppURL: URL?
+    /// A read of the host that answered is in flight (the person came back from System Settings, a trust change): the
+    /// card keeps its last grants meanwhile, but nothing may act on them, since a grant revoked there reads false only
+    /// once the host answers again (review round 3 of #48024). ``actionablePhase`` says `starting` until then.
+    private(set) var rechecking = false
+    /// ``phase`` for a caller that acts on readiness (the agent chats' `@computer-use`): `starting` while a recheck is
+    /// in flight, never a `ready` from before it.
+    var actionablePhase: Phase { rechecking ? .starting : phase }
 
     /// cmux Remote's Computer Use worker (the App's setup only): the card's engine, worker and saved approvals.
     @ObservationIgnored var remote: CmuxRemoteComputerUseState?
@@ -272,8 +279,9 @@ final class ComputerUseSetup {
         // On, and the daemon is starting cmux Remote.
         case .off: settle(.starting, running: nil)
         case .running, .screenSharing:
-            // Until this host answers, the grants are being read, not off.
-            if phase != .ready || answeredBy != inputs.helper { settle(.starting, running: nil) }
+            // Until this host answers, the grants are being read, not off. The host that answered keeps its grants on
+            // the card, but is not ready to act on until this read answers.
+            if phase != .ready || answeredBy != inputs.helper { settle(.starting, running: nil) } else { rechecking = true }
             readGrants(host: inputs.helper, generation: generation)
         }
     }
@@ -282,6 +290,7 @@ final class ComputerUseSetup {
     /// is the embedded one.
     private func settle(_ phase: Phase, running: URL?) {
         self.phase = phase
+        rechecking = false
         if phase != .ready { permissions = .none }
         resolve(running: running)
     }
@@ -300,6 +309,7 @@ final class ComputerUseSetup {
                     phase = .ready
                     permissions = granted
                     answeredBy = host
+                    rechecking = false
                     if granted.accessibility, granted.screenRecording { restartsAfterGrant = false }
                     resolve(running: helper)
                     return

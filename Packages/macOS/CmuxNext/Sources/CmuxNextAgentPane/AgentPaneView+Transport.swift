@@ -193,9 +193,9 @@ extension AgentPaneView {
         if !model.hostTouch.marked { model.hostTouch.mark(by: event) } // `showsForInput` above: a parked page has the pane's frame too, and gets no input
         // Repeats belong to the original press, whose DOM proof may still be redeeming.
         // A new page event revokes it, even when posted input cannot grant a fresh witness.
-        model.transport.gestures.recordQuestionReturn(false)
+        model.transport.gestures.pageInput()
         guard AgentPanePersonInput.isPerson(event, sources: eventSources) else { return recordPosted(event) }
-        model.transport.gestures.record(click: event.type != .keyDown)
+        model.transport.gestures.record(click: event.type != .keyDown, press: event.type != .keyDown || Self.isReturnKey(event))
         if event.type == .keyDown { model.transport.gestures.recordQuestionReturn(Self.isReturnKey(event)) }
     }
 
@@ -218,9 +218,9 @@ extension AgentPaneView {
         // one that still shows, with its Chromium page at the same rect, and must not take the outgoing page's input.
         guard showsForInput, let window, Self.chromiumAgentPane(under: eventWindow, in: window) === self else { return }
         if !model.hostTouch.marked { model.hostTouch.mark(by: event) }
-        model.transport.gestures.recordQuestionReturn(false)
+        model.transport.gestures.pageInput()
         guard AgentPanePersonInput.isPerson(event, sources: eventSources) else { return recordPosted(event) }
-        model.transport.gestures.record(click: event.type != .keyDown)
+        model.transport.gestures.record(click: event.type != .keyDown, press: event.type != .keyDown || Self.isReturnKey(event))
         if event.type == .keyDown { model.transport.gestures.recordQuestionReturn(Self.isReturnKey(event)) }
     }
 

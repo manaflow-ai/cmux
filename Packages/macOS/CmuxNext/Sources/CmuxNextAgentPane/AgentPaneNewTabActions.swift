@@ -219,12 +219,60 @@ public final class AgentPaneNewTabActions {
 }
 
 extension AgentPaneOmnibar.Action {
-    /// Whether a New Tab page may list the palette action `id` (``AgentPaneOmnibar/actions``) and run it (`app.action`):
-    /// never a Computer Use action (Set Up, Restart, the two grants, Stop, Focus, the saved approvals, cmux Remote's
-    /// restart). `app.action` runs a listed row as the person's own pick with no gesture, and those turn Computer Use on,
-    /// start a grant or restart its helper. Set Up keeps its own gesture-gated route (`action.run`,
-    /// ``AgentPaneModel/setupActions``). By id, so a new Computer Use action is left out with no edit.
-    public static func pageMayRun(_ id: String) -> Bool { !id.lowercased().contains("computeruse") }
+    /// Why a page never lists or runs a palette action: each one is a step only the person takes in the app's own UI.
+    public enum PersonOnly: String, Sendable, CaseIterable {
+        /// It asks for or grants a permission: an OS grant (Accessibility, Screen Recording, notifications), a site's or
+        /// an extension's, or an agent's.
+        case grantsPermission
+        /// It turns Computer Use or cmux Remote control on.
+        case turnsControlOn
+        /// It restarts or rechecks the Computer Use or Screen Sharing helper.
+        case restartsHelper
+        /// It edits who may act: Computer Use's saved approvals, a device's access to this Mac.
+        case editsApprovals
+        /// It drives a running Computer Use session (Stop, Focus).
+        case drivesSession
+    }
+
+    /// The palette actions a New Tab page never lists (``AgentPaneOmnibar/actions``) and never runs (`app.action`), by id
+    /// (review round 3 of #48024, P0: the substring rule missed `remote.allowAccessibility` and
+    /// `remote.allowScreenRecording`, which reach the helper's OS permission request). `app.action` runs a listed row as
+    /// the person's own pick with no gesture, so none of these may be a row. Set Up keeps its own gesture-gated route
+    /// (`action.run`, ``AgentPaneModel/setupActions``). `AgentPaneComputerUseStateTests` holds every action of the
+    /// Computer Use feature and of the cmux Remote and Computer Use approval catalogs classified, here or as page-safe.
+    public static let personOnly: [String: PersonOnly] = [
+        "palette.computerUse.accessibility": .grantsPermission,
+        "palette.computerUse.screenRecording": .grantsPermission,
+        "remote.allowAccessibility": .grantsPermission,
+        "remote.allowScreenRecording": .grantsPermission,
+        "notifications.allowDesktop": .grantsPermission,
+        "browser.prompt.allow": .grantsPermission,
+        "browser.pageInfo.setPermission": .grantsPermission,
+        "browser.extension.siteAccess": .grantsPermission,
+        "agentPane.permission.allowOnce": .grantsPermission,
+        "agentPane.permission.allowChat": .grantsPermission,
+        "palette.computerUse.setup": .turnsControlOn,
+        "macScreen.shareThisMac": .turnsControlOn,
+        "palette.computerUse.restart": .restartsHelper,
+        "remote.restartComputerUse": .restartsHelper,
+        "remote.restartScreenSharing": .restartsHelper,
+        "remote.refreshPermissions": .restartsHelper,
+        "computerUse.approval.set": .editsApprovals,
+        "computerUse.approval.forget": .editsApprovals,
+        "macScreen.deviceAccess": .editsApprovals,
+        "macScreen.revokeViewer": .editsApprovals,
+        "computerUseStop": .drivesSession,
+        "computerUseFocus": .drivesSession,
+        "computerUseFocusCallingTerminal": .drivesSession,
+    ]
+
+    /// Whether a New Tab page may list the palette action `id` and run it (`app.action`): not one of ``personOnly``,
+    /// under its own id or a legacy alias of one (``ActionCatalog/legacyAliases``). Checked where the list is read and
+    /// again where `app.action` runs.
+    public static func pageMayRun(_ id: String) -> Bool {
+        let canonical = ActionCatalog.legacyAliases[ActionID(rawValue: id)]?.rawValue ?? id
+        return personOnly[id] == nil && personOnly[canonical] == nil
+    }
 
     /// A Commands palette row as the bar lists it.
     public init(paletteEntry entry: PaletteCommandEntry) {

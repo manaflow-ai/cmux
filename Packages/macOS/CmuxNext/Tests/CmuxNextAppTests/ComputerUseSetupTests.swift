@@ -124,6 +124,27 @@ struct ComputerUseSetupTests {
         #expect(setup.stepPermissions.helperFailed)
     }
 
+    /// Review round 3 of #48024 (P1): the person revokes a grant in System Settings and comes back. The same helper (same
+    /// pid) is read again; until it answers, nothing acts on the old ready (the chats' `@computer-use` sees starting),
+    /// while the card keeps its last grants. The answer then says what is missing.
+    @Test func aRecheckOfTheSameHelperIsNotReadyUntilItAnswers() async {
+        let reader = Reader()
+        await reader.answer()
+        let notifications = NotificationCenter()
+        let setup = make(InputBox(), reader, notifications: notifications)
+        setup.start()
+        await wait(setup, for: .ready)
+        #expect(setup.actionablePhase == .ready)
+        await reader.setResult(.answered(ComputerUsePermissions(accessibility: false, screenRecording: true), helper: nil))
+        notifications.post(name: NSApplication.didBecomeActiveNotification, object: nil)
+        #expect(setup.rechecking, "the read after the return from System Settings did not start")
+        #expect(setup.actionablePhase == .starting, "the same helper stayed ready while its grants were read again")
+        #expect(setup.phase == .ready && setup.permissions.accessibility, "the card lost its last grants during the read")
+        for await value in ObservationStream({ setup.rechecking }) where !value { break }
+        #expect(setup.actionablePhase == .ready)
+        #expect(!setup.permissions.accessibility, "the revoked grant did not read false")
+    }
+
     @Test func restartShowsProgressThenReadsTheRestartedHelper() async throws {
         let reader = Reader()
         let box = InputBox()

@@ -63,6 +63,10 @@ public nonisolated enum AgentPaneComputerUseState: String, Sendable, Equatable {
 /// the App's setup, so the page never asks and never decides on a stale answer. One per app, made with
 /// ``AgentPaneShared`` at the composition root and handed to each pane's model. Not an AgentPaneView
 /// extension: that type is at its size limit.
+///
+/// Each pane's transport follows it too (``follow(_:)``): its local acpmux connection hears the state
+/// (`_acpmux/computer_use_state`) once the connection is up and on every change, so acpmux holds a prompt that names
+/// `@computer-use` while it is not ready; and its prompt journal replays the prompts it held once Computer Use is ready.
 @MainActor
 public final class AgentPaneComputerUse {
     /// Follows `read` (the App's Computer Use Setup) for the app's life; nil (tests) follows nothing.
@@ -74,6 +78,8 @@ public final class AgentPaneComputerUse {
     public private(set) var state: AgentPaneComputerUseState?
     /// The pages told so far, held weakly, for the pushes on a change.
     private let views = NSHashTable<AgentPaneView>.weakObjects()
+    /// The pane transports that tell their daemon the state and replay held prompts once it is ready, held weakly.
+    private let transports = NSHashTable<AgentPaneTransport>.weakObjects()
     /// Follows the App's setup for the app's life once a view brought its reader (idempotent).
     private var following: Task<Void, Never>?
 
@@ -90,11 +96,23 @@ public final class AgentPaneComputerUse {
         }
     }
 
-    /// Takes `next` and pushes it to every page told so far, a change only.
+    /// Takes `next` and pushes it to every page and every pane connection told so far, a change only. Ready replays
+    /// each transport's held prompts, after its daemon heard the state.
     func set(_ next: AgentPaneComputerUseState?) {
         guard next != state else { return }
         state = next
         for view in views.allObjects { send(to: view) }
+        for transport in transports.allObjects {
+            transport.tellComputerUseState()
+            if next == .ready { transport.replayHeldPrompts() }
+        }
+    }
+
+    /// `transport` follows the state from now on (``AgentPaneTransport/computerUse``).
+    func follow(_ transport: AgentPaneTransport) {
+        transports.add(transport)
+        transport.computerUse = self
+        transport.tellComputerUseState()
     }
 
     /// The state, read now, as a page host event; `view` then also gets every change.
@@ -118,9 +136,11 @@ public final class AgentPaneComputerUse {
     /// send: true when it must not open a chat. A prompt that names `@computer-use` (``AgentPaneComputerUseState/isNamed(in:)``)
     /// while Computer Use is known and not ready runs Set Up Computer Use as the person's own run from this submit (the
     /// chat it would open could not: its first gesture is gone with the closed page), or, when the organization turned
-    /// it off, refuses with `refusal`. The caller keeps the page and its typed text. Unknown (nil) or ready lets it go.
-    public func holdsSubmit(_ prompt: String, registry: ActionRegistry, refusal: String) -> Bool {
-        guard let state, state != .ready, AgentPaneComputerUseState.isNamed(in: prompt) else { return false }
+    /// it off, refuses with `refusal`. The caller keeps the page and its typed text. Unknown (nil) or ready lets it go,
+    /// and so does a page whose chat starts on another machine (`startsRemote`, ``AgentPaneNewTab/startsRemote``): this
+    /// Mac's setup is not that machine's.
+    public func holdsSubmit(_ prompt: String, startsRemote: Bool = false, registry: ActionRegistry, refusal: String) -> Bool {
+        guard !startsRemote, let state, state != .ready, AgentPaneComputerUseState.isNamed(in: prompt) else { return false }
         if state == .disabled {
             registry.refuse(refusal)
         } else {

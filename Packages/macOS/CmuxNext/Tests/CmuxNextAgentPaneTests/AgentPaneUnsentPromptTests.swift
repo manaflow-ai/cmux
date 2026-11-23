@@ -254,6 +254,59 @@ struct AgentPaneUnsentPromptTests {
         #expect(Self.mux(frame)?["resend"] as? Bool == true, "a prompt sent again must say so, so acpmux runs it at most once")
     }
 
+    /// Review round 3 of #48024 (P1): a prompt that names `@computer-use`, admitted before the app ended, is not replayed
+    /// while Computer Use is known and not ready: it stays in the journal, the daemon hears the state first, and the
+    /// prompt goes once Computer Use is ready. A prompt with no mention is replayed at once, as before.
+    @Test func aLeftOverComputerUsePromptWaitsInTheJournalUntilComputerUseIsReady() async throws {
+        let url = Self.journalURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let first = AcpmuxStandInServer()
+        try await first.start()
+        defer { first.stop() }
+        first.hold("session/prompt")
+        let run1 = try await Self.pane(first, journal: AgentPanePromptJournal(url: url))
+        let named = #"{"jsonrpc":"2.0","id":1,"method":"session/prompt","params":{"sessionId":"s-1","prompt":[{"type":"text","text":"open Notes with @computer-use"}],"_meta":{"acpmux":{"promptId":"p-cu"}}}}"#
+        #expect(await run1.transport.send(connection: run1.id, frames: [named, Self.prompt(id: 2, promptId: "p-plain")]) == nil)
+        #expect(await first.wait { _ in Self.prompts(first, peer: 0).count == 2 })
+
+        // The relaunch, with Computer Use turned off meanwhile.
+        let daemon = AcpmuxStandInServer()
+        try await daemon.start()
+        defer { daemon.stop() }
+        daemon.hold("session/prompt")
+        let journal = AgentPanePromptJournal(url: url)
+        let follower = AgentPaneComputerUse(read: nil)
+        follower.set(.needsSetup)
+        let inbox = AgentPaneRelayedAllowTests.PageInbox()
+        let transport = AgentPaneTransport()
+        (transport.promptJournal, transport.webModes) = (journal, { _, _, _ in nil })
+        transport.deliver = { event, done in inbox.deliver(event.frames); done() }
+        transport.sessions.add("s-1")
+        follower.follow(transport)
+        let id = try await transport.open(AcpmuxConnection(url: daemon.url, dashboardToken: "t", localAppToken: nil, socketPath: Self.daemon))
+        #expect(await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#]) == nil)
+        let pane = Pane(server: daemon, transport: transport, inbox: inbox, id: id)
+        await Self.barrier(pane, id: 3)
+        let ids = { Self.prompts(daemon, peer: 0).compactMap { Self.mux($0)?["promptId"] as? String } }
+        #expect(ids() == ["p-plain"], "the @computer-use prompt went while Computer Use was not set up")
+        await journal.settle()
+        #expect(journal.entries().map(\.promptId).contains("p-cu"), "the held prompt left the journal")
+        let states = {
+            (daemon.peers.first?.frames ?? []).filter { $0.contains("_acpmux/computer_use_state") }
+        }
+        #expect(states().count == 1 && states().first?.contains(#""state":"needs_setup""#) == true, "the daemon never heard the state")
+
+        // Computer Use is ready: the daemon hears it, then the held prompt goes once, as a resend.
+        follower.set(.ready)
+        #expect(await daemon.wait { _ in Self.prompts(daemon, peer: 0).count == 2 }, "the held prompt never went once ready")
+        #expect(ids() == ["p-plain", "p-cu"])
+        #expect(Self.prompts(daemon, peer: 0).last.flatMap(Self.mux)?["resend"] as? Bool == true)
+        #expect(states().last?.contains(#""state":"ready""#) == true)
+        let frames = daemon.peers.first?.frames ?? []
+        let readyAt = frames.firstIndex { $0.contains(#""state":"ready""#) }, promptAt = frames.firstIndex { $0.contains("p-cu") }
+        #expect((readyAt ?? .max) < (promptAt ?? .min), "the prompt went before the daemon heard ready")
+    }
+
     /// A prompt acpmux acknowledged (`_acpmux/prompt_accepted`) is in its session log: the
     /// relaunch never sends it, even when its turn was still running as the app ended.
     @Test func anAcknowledgedPromptIsNotSentAgain() async throws {

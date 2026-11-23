@@ -417,8 +417,9 @@ public final class AgentPaneModel {
     /// The chat's live preview card (``AgentPaneComputerUsePreview``), and the App's answer to a click on it (its session).
     @ObservationIgnored public internal(set) var computerUsePreview: AgentPaneComputerUsePreview?
     @ObservationIgnored public var onComputerUsePreview: (@MainActor (_ session: String, _ action: AgentPaneComputerUsePreview.Action) -> Void)?
-    /// Computer Use's state for this pane's page (``AgentPaneComputerUse``, the App's one); nil (tests): none.
-    @ObservationIgnored var computerUse: AgentPaneComputerUse?
+    /// Computer Use's state for this pane's page (``AgentPaneComputerUse``, the App's one); nil (tests): none. Its
+    /// transport's prompt journal follows it too (``AgentPaneTransport/computerUse``).
+    @ObservationIgnored var computerUse: AgentPaneComputerUse? { didSet { computerUse?.follow(transport) } }
     /// The App's upload for this chat (a chat moved to a Cloud machine), nil when it takes none (``AgentPaneUpload``).
     @ObservationIgnored public var onUpload: (@MainActor () -> AgentPaneUploader?)?
     @ObservationIgnored public var onUploadStage: (@MainActor () -> AgentPaneUploadStager?)?
@@ -905,7 +906,7 @@ public final class AgentPaneModel {
             }
         case .paneAction, .moveToMachine, .diffTurn, .diffPatch, .preview, .setQuickActions, .tabState, .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sessionInfo, .sessionInfoOverlays, .sessionInfoPinch, .hostGlass, .toastAvoidance, .toast, .copyText, .sideChat, .subagentPane, .subagentShown, .processTerminal, .chatTab, .offerOpen, .asksOpen, .asksAnswer, .newChatHere: return await respondToHeader(request)
         case .appAction(let id):
-            // A row the page lists, never a Computer Use action (``AgentPaneOmnibar/Action/pageMayRun(_:)``).
+            // A row the page lists, never a person-only action (``AgentPaneOmnibar/Action/pageMayRun(_:)``): checked again here.
             guard AgentPaneOmnibar.Action.pageMayRun(id), let shown = newTab?.omnibar.actions.first(where: { $0.id == id }), let onAppAction else { return Self.unsupported("app.action") }
             onAppAction(id, shown.title)
             return AgentPaneReply.success()

@@ -204,8 +204,9 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     }
 
     /// The left-over prompts for `daemon`, now held by connection `owner`, which sends each again.
-    /// Expired ones are dropped. Call off the main thread.
-    func claimLeftovers(daemon: String, owner: UUID) -> [Entry] {
+    /// Expired ones are dropped. One that `holds` keeps stays left over, unclaimed and on disk, for a later
+    /// claim. Call off the main thread.
+    func claimLeftovers(daemon: String, owner: UUID, holds: (Entry) -> Bool = { _ in false }) -> [Entry] {
         var claimed: [Entry] = []
         change { state in
             guard !state.ended.contains(owner) else { return false }
@@ -214,7 +215,7 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
             state.entries.removeAll { $0.at < cutoff }
             for entry in state.entries where entry.daemon == daemon {
                 let key = Self.key(entry.daemon, entry.promptId)
-                guard state.holders[key] == nil else { continue }
+                guard state.holders[key] == nil, !holds(entry) else { continue }
                 state.holders[key] = .resend(owner)
                 claimed.append(entry)
             }

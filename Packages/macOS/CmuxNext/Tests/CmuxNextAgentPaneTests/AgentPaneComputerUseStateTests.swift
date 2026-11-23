@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextActions
+@testable import CmuxNextActions
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -98,18 +98,18 @@ struct AgentPaneComputerUseStateTests {
         let setUp = { await model.respond(to: .runAction(AgentPaneComputerUseState.setupAction))["ok"] as? Bool == true }
         #expect(!(await setUp()))
         #expect(ran.isEmpty, "no gesture, no onboarding step")
-        // Return in the composer: a key counts, not only a click.
-        model.transport.gestures.record()
+        // Return in the composer: the key that sent counts, not only a click.
+        model.transport.gestures.record(press: true)
         #expect(await setUp())
         #expect(ran == ["palette.computerUse.setup"])
         #expect(!(await setUp()), "one key press opened Set Up twice")
-        // A key press older than the answer window still leaves the generic credit, but Set Up does not take it.
-        model.transport.gestures.record()
+        // A Return older than the answer window still leaves the generic credit, but Set Up does not take it.
+        model.transport.gestures.record(press: true)
         clock.now += AgentPaneUserGestures.answerWindow + 0.5
         #expect(model.transport.gestures.isAvailable, "setup: the generic credit should still hold")
         #expect(!(await setUp()), "a deferred request spent an old key press")
         // A click from just now whose grant another frame spent opens nothing.
-        model.transport.gestures.record(click: true)
+        model.transport.gestures.record(click: true, press: true)
         #expect(model.transport.gestures.consume())
         #expect(!(await setUp()), "a spent click opened Set Up")
         #expect(ran == ["palette.computerUse.setup"])
@@ -121,12 +121,84 @@ struct AgentPaneComputerUseStateTests {
         #expect(ran == ["palette.computerUse.setup"])
     }
 
+    /// Review round 3 of #48024 (bind setup to the initiating physical event): Set Up takes only a Return press or a
+    /// mouse click, and only while it is the pane's last input. Another key, a native choice or posted input after it
+    /// ends it; a later click is a gesture of its own.
+    @Test func setUpTakesOnlyTheLastReturnOrClick() async {
+        final class Clock { var now: TimeInterval = 100 }
+        let clock = Clock()
+        let model = AgentPaneModel(host: NoHost(), transport: AgentPaneTransport(gestures: AgentPaneUserGestures(now: { clock.now })))
+        var ran = 0
+        model.onRunAction = { _, _ in ran += 1; return .ran }
+        let gestures = model.transport.gestures
+        let setUp = { await model.respond(to: .runAction(AgentPaneComputerUseState.setupAction))["ok"] as? Bool == true }
+        // Another key (a letter, Space, Tab): no Set Up.
+        gestures.record()
+        #expect(!(await setUp()), "a key that is not Return opened Set Up")
+        // Return, then another key before the request: the Return is no longer the person's last input.
+        gestures.record(press: true)
+        gestures.record()
+        #expect(!(await setUp()), "a key typed after the Return let Set Up through")
+        // Return, then input another process posted on the page.
+        gestures.record(press: true)
+        gestures.pageInput()
+        #expect(!(await setUp()), "posted input after the Return let Set Up through")
+        // Return, then a click: the click is the last input, and it opens Set Up once.
+        gestures.record(press: true)
+        gestures.pageInput()
+        gestures.record(click: true, press: true)
+        #expect(await setUp())
+        #expect(!(await setUp()))
+        #expect(ran == 1)
+    }
+
+    /// Review round 3 of #48024 (P1): a native New Tab page on an SSH or Cloud machine starts its chat there, so this
+    /// Mac's Computer Use Setup neither holds nor opens for it; the page's first frame says so (`startsRemote`).
+    @Test func aNewTabPageOnAnotherMachineNeitherHoldsForNorSaysThisMacsSetup() throws {
+        let registry = ActionRegistry.standard()
+        registry.context = ActionContext(rawValue: .max)
+        var runs = 0
+        let bound = registry.bind(ActionID(rawValue: AgentPaneComputerUseState.setupAction), invoke: { _ in runs += 1 })
+        #expect(bound)
+        let follower = AgentPaneComputerUse(read: nil)
+        follower.set(.needsSetup)
+        #expect(!follower.holdsSubmit("open Notes with @computer-use", startsRemote: true, registry: registry, refusal: "off"))
+        #expect(runs == 0, "a remote page opened this Mac's setup")
+        #expect(follower.holdsSubmit("open Notes with @computer-use", registry: registry, refusal: "off"))
+
+        let remote = AgentPaneNewTab(kind: .agent).warmedOnThisMac(false)
+        let local = AgentPaneNewTab(kind: .agent).warmedOnThisMac()
+        #expect(remote.startsRemote == true && local.startsRemote == nil)
+        // The field reaches the page's initial render: the page's own part of the context.
+        #expect(remote.ownTree?["startsRemote"] as? Bool == true)
+        #expect(local.ownTree?["startsRemote"] == nil)
+    }
+
+    /// Review round 3 of #48024 (task: acpmux holds `@computer-use` prompts): the host tells its local connection's acpmux
+    /// the state as `_acpmux/computer_use_state {state}`, null while unknown.
+    @Test func theDaemonHearsTheStateAsItsRawValueOrNull() throws {
+        func params(_ state: AgentPaneComputerUseState?) throws -> [String: Any] {
+            let text = try #require(AgentPaneTransport.computerUseStateFrame(state, id: 7))
+            let frame = try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
+            #expect(frame["method"] as? String == "_acpmux/computer_use_state")
+            #expect(frame["id"] as? Int == 7)
+            return try #require(frame["params"] as? [String: Any])
+        }
+        #expect(try params(.needsSetup)["state"] as? String == "needs_setup")
+        #expect(try params(.ready)["state"] as? String == "ready")
+        #expect(try params(.disabled)["state"] as? String == "disabled")
+        #expect(try params(nil)["state"] is NSNull)
+    }
+
     /// Review round 2 of #48024 (P0): New Tab's `app.action` runs a listed palette row as the person's pick with no
     /// gesture. No Computer Use action is listed for a page or run from one, even when a page names it.
     @Test func aNewTabPageNeitherListsNorRunsAComputerUseAction() async {
+        // Review round 3 (P0): cmux Remote's own grant rows reach the same OS permission request; no substring names them.
         let computerUse = ["palette.computerUse.setup", "palette.computerUse.restart", "palette.computerUse.accessibility",
                            "palette.computerUse.screenRecording", "computerUse.approval.set", "computerUse.approval.forget",
-                           "computerUseStop", "computerUseFocus", "remote.restartComputerUse"]
+                           "computerUseStop", "computerUseFocus", "remote.restartComputerUse",
+                           "remote.allowAccessibility", "remote.allowScreenRecording", "remote.restartScreenSharing",
+                           "macScreen.shareThisMac", "macScreen.deviceAccess"]
         for id in computerUse { #expect(!AgentPaneOmnibar.Action.pageMayRun(id), "\(id)") }
         #expect(AgentPaneOmnibar.Action.pageMayRun("newTab.page"))
         let listed = (computerUse + ["newTab.page"]).map { AgentPaneOmnibar.Action(id: $0, title: $0) }
@@ -138,6 +210,26 @@ struct AgentPaneComputerUseStateTests {
             #expect(ok == (action.id == "newTab.page"), "\(action.id)")
         }
         #expect(ran == ["newTab.page"])
+    }
+
+    /// Review round 3 of #48024 (P0): the page-run rule is an explicit list, so a new action of Computer Use or cmux Remote
+    /// fails here until someone classifies it: person-only (``AgentPaneOmnibar/Action/personOnly``) or page-safe below.
+    @Test func everyComputerUseAndRemoteControlActionIsClassifiedForPages() {
+        // Reviewed: these neither grant, turn control on, restart a helper, edit approvals nor drive a session.
+        let pageSafe: Set<String> = ["remote.showStatus", "remote.setQuality", "remote.stopScreenSession", "machine.viewScreen",
+                                     "macScreen.stopSharingThisMac"]
+        let groups = ["CmuxRemoteActionCatalog", "ComputerUseApprovalActionCatalog"]
+        let ids = groups.flatMap { ActionCatalog.descriptors(inGroup: $0) }.map(\.id.rawValue)
+            + ActionCatalog.all.filter { ActionFeature.feature(of: $0) == .computerUse }.map(\.id.rawValue)
+        #expect(ids.contains("remote.allowAccessibility") && ids.contains("palette.computerUse.setup"), "setup: the catalog groups moved")
+        for id in Set(ids) {
+            let personOnly = AgentPaneOmnibar.Action.personOnly[id] != nil
+            #expect(personOnly != pageSafe.contains(id), "\(id): classify it as person-only or page-safe")
+            #expect(AgentPaneOmnibar.Action.pageMayRun(id) == !personOnly, "\(id)")
+        }
+        // Every person-only id is a real catalog action: a renamed one is not left unguarded under its new id.
+        let catalog = Set(ActionCatalog.all.map(\.id.rawValue))
+        for id in AgentPaneOmnibar.Action.personOnly.keys { #expect(catalog.contains(id), "\(id) is no catalog action") }
     }
 
     @Test func aPromptNamesComputerUseOnlyAsAWholeWordOutsideCode() {
