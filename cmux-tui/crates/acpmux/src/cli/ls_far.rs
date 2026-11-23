@@ -213,7 +213,11 @@ impl FarRead {
 /// `1.5s`, `2s`.
 fn seconds(d: Duration) -> String {
     let ms = d.as_millis();
-    if ms % 1000 == 0 { format!("{}s", ms / 1000) } else { format!("{:.1}s", d.as_secs_f64()) }
+    if ms.is_multiple_of(1000) {
+        format!("{}s", ms / 1000)
+    } else {
+        format!("{:.1}s", d.as_secs_f64())
+    }
 }
 
 fn timed_out(e: &anyhow::Error) -> bool {
