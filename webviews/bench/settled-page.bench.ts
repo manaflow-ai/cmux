@@ -94,10 +94,16 @@ function printProfile(label: string, profile: CpuProfile) {
   };
   const self = new Map<string, number>();
   const total = new Map<string, number>();
+  // The window starts at the switch's first busy sample, not the profile's start: the first time delta carries the
+  // profiler's own start offset, which alone ran past the window and left the report empty.
+  const idle = (id: number) => ["(idle)", "(program)"].includes(byId.get(id)!.callFrame.functionName);
   let t = 0;
+  let from: number | undefined;
   for (let i = 0; i < profile.samples.length; i += 1) {
     t += profile.timeDeltas[i]! / 1000;
-    if (t > 150) break;
+    if (from === undefined && !idle(profile.samples[i]!)) from = t;
+    if (from === undefined) continue;
+    if (t - from > 150) break;
     const dt = (profile.timeDeltas[i + 1] ?? 100) / 1000;
     const leaf = profile.samples[i]!;
     self.set(name(leaf), (self.get(name(leaf)) ?? 0) + dt);
