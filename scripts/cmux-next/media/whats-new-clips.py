@@ -37,6 +37,8 @@ A clip's spec is release-notes/next/clips/ID.json:
   (or the stills), plus the frame before, so the clip opens on the state before the feature acts.
 - `crop` is the part of the window that matters, as fractions of its width and height
   (x, y, w, h). Never the whole window: the panel shows a clip a few hundred points wide.
+- `menus: true` records the app's open native menus as well (tour.py's `menus`): a popup menu is its own
+  window, which a recording of the main window alone leaves out. Only for a clip of a menu.
 - `hold` (default HOLD seconds) keeps the last frame up before the loop starts over, and `lead`
   (default LEAD) the first one, so the eye finds the starting state.
 
@@ -109,7 +111,7 @@ URL_PREFIX = f"https://raw.githubusercontent.com/{REPO}/{BRANCH}/whats-new/"
 CLIP_LINE = re.compile(r"^clip:\s*(?P<url>\S+)\s*\|\s*(?P<sha256>[0-9a-f]{64})\s*$", re.M)
 ID = re.compile(r"[a-z0-9][a-z0-9-]{0,79}")
 SPEC_KEYS = {"caption", "frameInterval", "settings", "launch_args", "steps", "crop", "hold", "lead", "app", "env",
-             "appearance", "harnessFixture"}
+             "appearance", "harnessFixture", "menus"}
 # What a clip records: the Mac app (a tour.py tour on the media Mac) or the iPhone app (a fleet simulator step).
 APPS = ("mac", "iphone")
 # An iPhone step: nothing taps the simulator's screen, so a step waits while the demo driver moves the app,
@@ -211,6 +213,8 @@ def spec_problems(spec: Any) -> list[str]:
         out += iphone_problems(spec)
     elif "env" in spec or "appearance" in spec:
         out.append("env, appearance: an iPhone spec's (\"app\": \"iphone\")")
+    if not isinstance(spec.get("menus", False), bool) or (spec.get("menus") and app != "mac"):
+        out.append("menus: true or false, a Mac clip's")
     # The acpmux harnesses the tour's daemon starts with (tour.py `harnessFixture`; {repo} is the checkout).
     fixture = spec.get("harnessFixture")
     if fixture is not None and not (app == "mac" and isinstance(fixture, dict) and set(fixture) <= {"harnesses", "health"}
@@ -520,7 +524,7 @@ def tour_from_spec(spec: dict, title: str) -> dict:
     steps = [{**{k: v for k, v in step.items() if k not in CAPTURE_ONLY_STEP_KEYS}, "shot": False}
              for step in spec["steps"]]
     tour = {"title": title, "steps": steps}
-    for key in ("settings", "launch_args", "harnessFixture"):
+    for key in ("settings", "launch_args", "harnessFixture", "menus"):
         if key in spec:
             tour[key] = spec[key]
     return tour

@@ -105,10 +105,10 @@ const RECIPES: Recipe[] = [
   },
   {
     name: "claude-code-app",
-    title: "Like the Claude Code desktop app",
+    title: "Like the Claude desktop app",
     group: "App looks",
-    line: "A warm dark page, your chats by project in the sidebar, the clay accent, tool rows with their line counts.",
-    ask: "make cmux look and work like the Claude Code desktop app",
+    line: "A #191919 page, a warm sidebar of sessions by project, a one-line composer, your prompt in a #252525 pill.",
+    ask: "make cmux look and work like the Claude desktop app's Code tab",
   },
 ];
 
