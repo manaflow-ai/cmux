@@ -52,13 +52,19 @@ pub(crate) fn down_ssh_peers(peers: &[Value]) -> Vec<(String, String)> {
 }
 
 /// Every down ssh peer's rows read over ssh, in parallel: (the peers that answered, their rows).
-/// A peer that failed is said on stderr unless `quiet`.
-pub(crate) async fn rows(peers: &[Value], quiet: bool) -> (Vec<String>, Vec<Value>) {
+/// A peer that failed is said on stderr unless `quiet`. Each read ends at [`LS_DEADLINE`] or the
+/// caller's `by`, whichever is sooner.
+pub(crate) async fn rows(
+    peers: &[Value],
+    quiet: bool,
+    by: Option<Instant>,
+) -> (Vec<String>, Vec<Value>) {
     let down = down_ssh_peers(peers);
     if down.is_empty() {
         return (Vec::new(), Vec::new());
     }
-    let deadline = Instant::now() + LS_DEADLINE;
+    let own = Instant::now() + LS_DEADLINE;
+    let deadline = by.map_or(own, |by| by.min(own));
     let reads = down.into_iter().map(|(name, destination)| async move {
         let read = tokio::task::spawn_blocking({
             let destination = destination.clone();
