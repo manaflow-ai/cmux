@@ -43,7 +43,7 @@ final class WindowLaunchImages {
                      NSWindow.didDeminiaturizeNotification, NSWindow.didChangeScreenNotification,
                      NSWindow.didChangeBackingPropertiesNotification] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.windowsChanged() }
+                MainActor.assumeIsolated { self?.windowsChanged() } // main-proof: observer on queue: .main
             })
         }
         for (name, event) in [(NSWindow.willStartLiveResizeNotification, UInt32(4)), (NSWindow.didEndLiveResizeNotification, 5),
@@ -51,7 +51,7 @@ final class WindowLaunchImages {
                               (NSWindow.willExitFullScreenNotification, 4), (NSWindow.didExitFullScreenNotification, 5)] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
                 let window = note.object as? NSWindow
-                MainActor.assumeIsolated { self?.transition(window, event: event) }
+                MainActor.assumeIsolated { self?.resizePhase(window, event: event) } // main-proof: observer on queue: .main
             })
         }
     }
@@ -93,7 +93,7 @@ final class WindowLaunchImages {
         arm()
     }
 
-    private func transition(_ window: NSWindow?, event: UInt32) {
+    private func resizePhase(_ window: NSWindow?, event: UInt32) {
         guard let window, let id = windows.first(where: { $0.window === window })?.id, let schedule = schedules[id] else { return }
         _ = cmux_launch_image_schedule_note(schedule, event, Self.nowMs)
         if event == 5 { _ = cmux_launch_image_schedule_note(schedule, 1, Self.nowMs) }
@@ -153,7 +153,7 @@ final class WindowLaunchImages {
         let expected = (width: Int((window.frame.width * scale).rounded()), height: Int((window.frame.height * scale).rounded()))
         let live = windows.map(\.id)
         let published = try? await work.run(.userVisible, mayBlock: .files) { () -> Published? in
-            guard let image = Self.windowImage(number), abs(image.width - expected.width) <= 1, abs(image.height - expected.height) <= 1,
+            guard let image = NSWindow.windowServerImage(of: Int(number)), abs(image.width - expected.width) <= 1, abs(image.height - expected.height) <= 1,
                   let png = image.unfilteredPNGData() else { return nil }
             try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             var out = CmuxLaunchImage()
@@ -185,13 +185,4 @@ final class WindowLaunchImages {
         }
     }
 
-    /// This process's own window (no Screen Recording grant needed). `CGWindowListCreateImage` is
-    /// marked unavailable in the macOS 15 SDK, so it is resolved at run time, as the debug capture does.
-    nonisolated private static func windowImage(_ id: CGWindowID) -> CGImage? {
-        typealias Capture = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
-        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return nil }
-        let capture = unsafeBitCast(symbol, to: Capture.self)
-        let options = CGWindowImageOption([.boundsIgnoreFraming, .bestResolution]).rawValue
-        return capture(.null, CGWindowListOption.optionIncludingWindow.rawValue, id, options)?.takeRetainedValue()
-    }
 }
