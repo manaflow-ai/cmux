@@ -119,7 +119,15 @@ impl Hub {
             throwaway,
             require_asking,
             credential,
+            create_key,
         } = req;
+        // A create sent again after a restart cut its reply: the session the first one made
+        // answers it, on this daemon or the one before (`create_key.rs`).
+        if let Some(key) = create_key.as_deref()
+            && let Some(made) = self.created_with_key(key).await
+        {
+            return Ok(made);
+        }
         // The proven agent session that asked for this one, as it is now; never for a remote
         // chat, and never one a remote connection started (`remote_origin`).
         let starter = starter
@@ -396,6 +404,12 @@ impl Hub {
             if caller_selected_id {
                 refuse_stored_fixed_id(self.store.as_ref(), &id)?;
             }
+            // Two creates with one key at once get one session.
+            if let Some(made) =
+                create_key.as_deref().and_then(|key| super::create_key::made_in(&sessions, key))
+            {
+                return Ok(made);
+            }
             // Checked again under the insert lock: two concurrent adopts of
             // one id get one session.
             if let Some(a) = adopt.as_ref().filter(|_| fork_from.is_none())
@@ -434,6 +448,7 @@ impl Hub {
             };
             meta.wait_start = wait_start;
             meta.throwaway = throwaway;
+            meta.create_key = create_key;
             let session = self.make_session(meta);
             *session.codex_answer_asked.lock().unwrap_or_else(|e| e.into_inner()) = asked;
             session.person.store(person, Ordering::SeqCst);
@@ -1249,9 +1264,11 @@ impl Hub {
         // Cleared only once the fork has started; a failed start retries it.
         let fork_from = session.fork_from.lock().unwrap().clone();
         // Resume a Claude conversation only from a store that has it: one
-        // that never finished a turn may not be stored at all, and one that
+        // that never finished a turn may not be stored at all, one that
         // another profile ran lives in that profile's store (a failover onto
-        // a fallback with its own CLAUDE_CONFIG_DIR). Else a fresh one starts
+        // a fallback with its own CLAUDE_CONFIG_DIR), and a transcript can be
+        // gone from its own profile's store (the compactor deletes one it
+        // folded; a store can be pruned or deleted). Else a fresh one starts
         // with the restored transcript, never a turn failed on `--resume`.
         if is_claude
             && fork_from.is_none()
