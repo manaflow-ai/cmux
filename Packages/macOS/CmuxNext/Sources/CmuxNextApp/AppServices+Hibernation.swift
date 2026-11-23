@@ -5,7 +5,6 @@ import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextResources
 import CmuxNextSettings
-import Foundation
 
 // Browser hibernation and the memory-budgeted warm sets
 // (plans/cmux-next/tab-lifecycle.md).
@@ -27,7 +26,7 @@ extension AppServices {
         hibernation.workspaceTabs = { [weak self] workspace, window in self?.windows.controller(for: window)?.shownTabsIfSelected(workspace) ?? [] }
         hibernation.agentPages = AgentPageHibernation(services: self)
         // Off by default: the bench turns it on to compare (CEFChatRendererRecycle).
-        if CEFChatRendererRecycle.isEnabled(ProcessInfo.processInfo.environment) {
+        if CEFChatRendererRecycle.isEnabledHere {
             hibernation.agentPages?.startRendererRecycle(services: self)
         }
         hibernation.follow(settings)
