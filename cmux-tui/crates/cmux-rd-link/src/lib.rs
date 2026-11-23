@@ -28,6 +28,7 @@ pub mod dlink;
 #[cfg(feature = "net")]
 pub mod net;
 pub mod turn;
+pub mod wake;
 
 use control::{ControlReceiver, ControlSender};
 use replay::ReplayWindow;
@@ -50,8 +51,23 @@ pub const TAG_PUNCH: u8 = 0xD4;
 pub const SEAL_OVERHEAD: usize = 1 + 8 + 1 + 16;
 /// Largest handshake message (two keys, payloads and tags fit well inside).
 const MAX_HANDSHAKE: usize = 256;
-/// Resend the last handshake message this often until the peer answers.
+/// The first resend of a handshake message that got no answer. A wired or
+/// Wi-Fi LAN answers in well under a millisecond and a tailnet or WAN path in
+/// tens, so a lost message 1, 2 or 3 costs this much instead of a full
+/// [`HANDSHAKE_RETRY_US`]: each later resend of the same message waits twice as
+/// long as the one before, up to that cap. Handshake messages are under 200
+/// bytes, so the extra resends on a slow path cost nothing that matters.
+pub const HANDSHAKE_FIRST_RETRY_US: u64 = 50_000;
+/// The longest gap between resends of the last handshake message while the
+/// peer does not answer ([`HANDSHAKE_FIRST_RETRY_US`] doubling up to it).
 pub const HANDSHAKE_RETRY_US: u64 = 250_000;
+
+/// The gap before resend number `resends + 1` of one handshake message.
+pub fn handshake_retry_us(resends: u32) -> u64 {
+    HANDSHAKE_FIRST_RETRY_US
+        .checked_shl(resends)
+        .map_or(HANDSHAKE_RETRY_US, |us| us.min(HANDSHAKE_RETRY_US))
+}
 /// Give up on a handshake after this long from first contact: in an endpoint, the first
 /// route to the peer; in a bare link, the initiator's start (it dials at once), or the moment
 /// a responder first has the peer (a route from signaling, or a valid message 1).
@@ -203,6 +219,8 @@ pub struct Link {
     contact_us: Option<u64>,
     /// The last handshake message this side sent, resent until answered.
     last_handshake: Option<(Vec<u8>, u64)>,
+    /// Resends of `last_handshake` so far: the next waits [`handshake_retry_us`] of it.
+    handshake_resends: u32,
     send_nonce: u64,
     replay: ReplayWindow,
     control_out: ControlSender,
@@ -244,6 +262,7 @@ impl Link {
             started_us: now_us,
             contact_us: (role == Role::Initiator).then_some(now_us),
             last_handshake: None,
+            handshake_resends: 0,
             send_nonce: 0,
             replay: ReplayWindow::default(),
             control_out: ControlSender::default(),
@@ -294,6 +313,7 @@ impl Link {
         packet.extend_from_slice(&buf);
         self.out.push_back(packet.clone());
         self.last_handshake = Some((packet, now_us));
+        self.handshake_resends = 0;
         Ok(())
     }
 
@@ -541,18 +561,41 @@ impl Link {
             }
         }
         let mut retry = false;
+        let gap = handshake_retry_us(self.handshake_resends);
         if let Some((_, sent)) = &mut self.last_handshake
-            && now_us.saturating_sub(*sent) >= HANDSHAKE_RETRY_US
+            && now_us.saturating_sub(*sent) >= gap
         {
             *sent = now_us;
+            self.handshake_resends = self.handshake_resends.saturating_add(1);
             retry = true;
         }
         Ok(retry)
     }
 
+    /// Moves a due handshake retry on without sending it or checking the timeout: an
+    /// endpoint with no route yet has nowhere to send it, and its first route gets the
+    /// queued message at once.
+    pub(crate) fn defer_handshake_retry(&mut self, now_us: u64) {
+        if let Some((_, sent)) = &mut self.last_handshake
+            && now_us.saturating_sub(*sent) >= HANDSHAKE_RETRY_US
+        {
+            *sent = now_us;
+        }
+    }
+
+    /// This side's last handshake message while the handshake runs, for a
+    /// route learned after it went out (resending it is what a retry does).
+    pub(crate) fn handshake_in_flight(&self) -> Option<&[u8]> {
+        match self.state {
+            State::Handshake(_) => self.last_handshake.as_ref().map(|(packet, _)| &packet[..]),
+            _ => None,
+        }
+    }
+
     /// When the caller should call [`Link::poll_transmit`] next without input.
     pub fn next_deadline_us(&self) -> Option<u64> {
-        let handshake = self.last_handshake.as_ref().map(|(_, sent)| sent + HANDSHAKE_RETRY_US);
+        let gap = handshake_retry_us(self.handshake_resends);
+        let handshake = self.last_handshake.as_ref().map(|(_, sent)| sent + gap);
         let control =
             if self.is_established() { self.control_out.next_deadline_us() } else { None };
         let lost = self

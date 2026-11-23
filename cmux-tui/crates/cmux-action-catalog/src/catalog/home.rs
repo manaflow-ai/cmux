@@ -315,6 +315,20 @@ pub static ACTIONS: &[Action] = &[
         waits_for_result: true,
         ..Action::DEFAULT
     },
+    // Set My Picture: the person's own conversation picture (`user_local`), as
+    // `cmux avatar set me FILE` (`participant.avatar.set`); the app asks for the image.
+    Action {
+        id: "home.setMyAvatar",
+        group: GROUP,
+        title: t("HomeActions", "action.home.setMyAvatar", "Set My Picture…"),
+        keywords: &["avatar", "picture", "photo", "profile", "image", "me", "channels", "conversation"],
+        category: "window",
+        symbol: "person.crop.circle",
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "avatar set",
+        waits_for_result: true,
+        ..Action::DEFAULT
+    },
     Action {
         id: "home.archiveChief",
         group: GROUP,
