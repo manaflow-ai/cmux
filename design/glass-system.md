@@ -184,8 +184,8 @@ at most 90% until the theme's primary text reads at 4.5:1 and its secondary at 3
 window, on white and on black, rule 5; `GlassMenuMaterial.veil(for:)`) or the neutral transient material.
 Icon buttons on that glass (`OverflowButton`, `PlusButton`, `TitlebarBandButton`) fit their glyphs to it
 (`NSView.glassInk`), not to the opaque page: they read 1.35-2.84:1 there (NativeControlContrastAuditTests).
-A SwiftUI `cmuxPressFill` button on that glass (content marked `cmuxOnMenuGlass`) takes the theme's text fit to it
-(`GlassMenuMaterial.ink`). A web menu's own glass follows the same veil: WebTheme sends `--cmux-menu-clear`
+A SwiftUI `cmuxPressFill` button on a menu panel takes the theme's text fit to its glass (`GlassMenuMaterial.ink`): it
+finds the panel in the view tree (`MenuGlassProbeView`), so the content a panel hosts sets no mark. A web menu's own glass follows the same veil: WebTheme sends `--cmux-menu-clear`
 (`GlassMenuMaterial.webClear`), and glass.css lays the menu tint at 100% - (100% - its level tint) × it
 (test/menu-glass-veil.test.ts); on the App's glass a web menu is the native panel already. Group editor, tab group editor, palette and its actions menu and
 shortcut recorder, `GlassMenu`, web popup host and declarative popups, native tooltip, shortcut hint
