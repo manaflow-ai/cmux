@@ -89,6 +89,32 @@ struct CloudApprovalsPrepareTests {
         #expect(await slow.value) // the owner's preparation was not cancelled
     }
 
+    /// A start gave up on a preparation still reading status: that preparation restarts nothing after (the chat is on it).
+    @Test func aPreparationAStartGaveUpOnDoesNotRestart() async {
+        let machine = "cloud-approvals-gaveup-\(UUID().uuidString)"
+        let restarts = Counter()
+        let owner = Task { await RemoteApprovalPreparations.shared.prepare(machine: machine, daemonSaidSafe: false, held: false,
+            idle: { try? await Task.sleep(for: .seconds(1)); return true }, restart: { await restarts.increment(); return true }) }
+        try? await Task.sleep(for: .milliseconds(100))
+        let joined = await RemoteApprovalPreparations.shared.prepare(machine: machine, daemonSaidSafe: false, held: false, joinBudget: .milliseconds(200),
+                                                                     idle: { true }, restart: { true })
+        #expect(!joined)
+        #expect(await owner.value == false)
+        #expect(await restarts.read() == 0)
+    }
+
+    /// A start that joins a preparation already in its keyed restart waits it out: a chat started then would die with the daemon.
+    @Test func aStartWaitsOutARestartThatBegan() async {
+        let machine = "cloud-approvals-restarting-\(UUID().uuidString)"
+        let owner = Task { await RemoteApprovalPreparations.shared.prepare(machine: machine, daemonSaidSafe: true, held: false,
+            idle: { true }, restart: { try? await Task.sleep(for: .seconds(1)); return true }) }
+        try? await Task.sleep(for: .milliseconds(100))
+        let joined = await RemoteApprovalPreparations.shared.prepare(machine: machine, daemonSaidSafe: true, held: false, joinBudget: .milliseconds(200),
+                                                                     idle: { true }, restart: { true })
+        #expect(joined)
+        #expect(await owner.value)
+    }
+
     @Test func aStatusReadPastItsBudgetGivesNoAnswer() async {
         let idle: Bool? = await RemoteApprovalPreparations.bounded(.milliseconds(100)) { try? await Task.sleep(for: .seconds(5)); return true }
         #expect(idle == nil)

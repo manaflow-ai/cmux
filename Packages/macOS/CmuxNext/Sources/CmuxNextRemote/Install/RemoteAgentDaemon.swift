@@ -152,6 +152,17 @@ public actor RemoteApprovalPreparations {
     /// retry in the start step; Leo's budget is <30 s from start to response.
     public static let startWait: Duration = .seconds(5)
     private var busyUntil: [String: ContinuousClock.Instant] = [:]
+    /// Machines whose preparation is in its keyed restart (a start that joins it waits it out), and machines a start gave up
+    /// waiting on (their preparation restarts nothing after that: the start's chat may be on the daemon by then).
+    private var restarting: Set<String> = [], gaveUp: Set<String> = []
+
+    /// Called by a preparation right before its keyed restart: false when a start gave up on it (no restart then), else the
+    /// restart is marked begun.
+    func mayRestart(_ machine: String) -> Bool {
+        guard !gaveUp.contains(machine) else { return false }
+        restarting.insert(machine)
+        return true
+    }
 
     /// `joinBudget` (a Cloud start): a caller that finds another's preparation running waits at most that long for it, then
     /// answers false (its chat starts unkeyed); the preparation itself keeps running for its owner.
@@ -159,13 +170,21 @@ public actor RemoteApprovalPreparations {
         if keepBusy, let until = busyUntil[machine], ContinuousClock.now < until { return false }
         if let task = running[machine] {
             guard let joinBudget else { return await task.value }
-            return await Self.value(of: task, within: joinBudget) ?? false
+            if let answer = await Self.value(of: task, within: joinBudget) { return answer }
+            // Its restart already began: the daemon is going down under it, so a chat started now would die with it. Wait it out.
+            if restarting.contains(machine), running[machine] == task { return await task.value }
+            // Not restarting yet: it never will (`mayRestart`), so this chat starts on the daemon as it is.
+            if running[machine] == task { gaveUp.insert(machine) }
+            return false
         }
         // task-owner: the machine's one preparation; every caller awaits it
+        gaveUp.remove(machine)
         let task = Task { await work() }
         running[machine] = task
         let bound = await task.value
         running[machine] = nil
+        restarting.remove(machine)
+        gaveUp.remove(machine)
         if keepBusy || bound { busyUntil[machine] = bound ? nil : ContinuousClock.now.advanced(by: .seconds(60)) }
         return bound
     }
@@ -176,7 +195,8 @@ public actor RemoteApprovalPreparations {
     /// shows the normal restart notice.
     public func prepare(machine: String, daemonSaidSafe: Bool, held: Bool, joinBudget: Duration? = nil, idle: @escaping @Sendable () async -> Bool,
                         restart: @escaping @Sendable () async -> Bool) async -> Bool {
-        let keyed = Self.timed("approvals.key", restart), idleNow = Self.timed("approvals.status", idle)
+        let keyed = Self.timed("approvals.key") { [self] in await mayRestart(machine) ? await restart() : false }
+        let idleNow = Self.timed("approvals.status", idle)
         if daemonSaidSafe { return await run(machine: machine, keepBusy: false, joinBudget: joinBudget, keyed) }
         if held { return true }
         return await run(machine: machine, keepBusy: true, joinBudget: joinBudget) {
