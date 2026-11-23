@@ -25,6 +25,7 @@ pub mod ends;
 pub mod identity;
 pub mod intent;
 pub mod record;
+pub mod route;
 pub mod supervisor;
 pub mod swap;
 
