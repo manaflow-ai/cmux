@@ -805,7 +805,7 @@ async fn a_move_ends_once_its_chats_are_listed_reachable_where_they_went() {
     };
     let rows = |parts: Vec<Vec<Value>>| json!({"rows": parts.concat()});
     // s2 is listed reachable at the second ask, s1 at the fourth.
-    let replies = vec![
+    let replies = [
         rows(vec![]),
         rows(vec![row("s1", true, "reconnecting"), row("s2", false, "connected")]),
         rows(vec![row("s1", false, "reconnecting")]),
