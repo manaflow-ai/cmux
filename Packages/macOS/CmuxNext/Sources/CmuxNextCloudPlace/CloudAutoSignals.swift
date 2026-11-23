@@ -45,6 +45,9 @@ public final class CloudAutoSignals {
     private var pressure: DispatchSourceMemoryPressure?
     private var power: CFRunLoopSource?
     private var started = false
+    /// The home volume's free bytes as last read (off the main thread); the next read is under way.
+    private var diskFree: UInt64?
+    private var diskRead = false
     private let handler: @MainActor (Event) -> Void
 
     /// `handler` runs on the main actor for each event, after `sleeping` and `memory` hold the new value.
@@ -99,6 +102,17 @@ public final class CloudAutoSignals {
         return CloudMoveCore().call("place_auto", Request(mode: "auto", chat: chat, signals: signals), as: Answer.self)
     }
 
+    private func refreshDisk() {
+        guard !diskRead else { return }
+        diskRead = true
+        // task-owner: one read of the home volume; it records the answer and ends.
+        Task {
+            let free = await Task.detached { try? FileManager.default.homeDirectoryForCurrentUser.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]).volumeAvailableCapacityForImportantUsage }.value
+            diskFree = free.map { UInt64(max(0, $0)) }
+            diskRead = false
+        }
+    }
+
     /// This computer now.
     public func signals() -> Signals {
         var onBattery = false, percent: Int?
@@ -112,11 +126,10 @@ public final class CloudAutoSignals {
                 }
             }
         }
-        let free = try? FileManager.default.homeDirectoryForCurrentUser.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
-            .volumeAvailableCapacityForImportantUsage
+        refreshDisk()
         // kCGAnyInputEventType: every kind of input.
         let idle = CGEventType(rawValue: ~0).map { CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: $0) } ?? .nan
-        return Signals(sleeping: sleeping, onBattery: onBattery, batteryPercent: percent, memory: memory, diskFreeBytes: free.map { UInt64(max(0, $0)) },
+        return Signals(sleeping: sleeping, onBattery: onBattery, batteryPercent: percent, memory: memory, diskFreeBytes: diskFree,
                        idleMs: idle.isFinite && idle >= 0 ? UInt64(idle * 1000) : nil)
     }
 }
