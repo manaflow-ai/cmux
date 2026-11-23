@@ -60,6 +60,11 @@ enum Command {
         #[serde(default)]
         words: Vec<String>,
     },
+    /// `cmux mcp serve`'s `tools/list`: every installed extension op whose
+    /// catalog offers it to agents (apps/mcp_tools.rs), read on each list so
+    /// an install or a saved app shows with no restart.
+    #[serde(rename = "apps-mcp-tools")]
+    McpTools,
     #[serde(rename = "apps-place")]
     Place {
         contribution: String,
@@ -544,6 +549,7 @@ pub(super) fn try_handle(
         Command::ReloadLocal { folders } => Ok(supervisor.reload_local_apps_named(folders)),
         Command::Capabilities { op, brief } => capabilities(op.as_deref(), brief),
         Command::Cli { name, words } => supervisor.cli_resolve(&name, &words),
+        Command::McpTools => Ok(supervisor.mcp_tools()),
         Command::Place { contribution, region } => supervisor.place_sidebar(&contribution, region),
         // Answered on its own thread above.
         Command::Reload { .. } => Err(crate::apps::ApiError::new(
@@ -574,13 +580,14 @@ pub(super) fn try_handle(
                 hidden_access,
                 sandboxed,
                 grant: grant.map(|g| (g.scope, g.granted)),
+                settings: None,
                 grant_optional: false,
             },
         ),
         Command::Store { op, args } => supervisor.store_call(client, &op, args, origin),
         Command::SafeMode { op, args } => supervisor.safe_mode_call(&op, args, origin),
         Command::Mount { app, interface, mount_id, context } => {
-            supervisor.mount(client, &mount_id, &app, &interface, context)
+            supervisor.mount_as(client, &mount_id, &app, &interface, context, origin)
         }
         Command::Unmount { mount_id } => supervisor.unmount(client, &mount_id),
         Command::Dispatch { mount_id, node, event, payload } => {

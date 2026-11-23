@@ -8,8 +8,11 @@ nonisolated enum BackdropShaderSource {
     /// Bumped whenever a shader's look changes: the posters' file names carry it.
     static let version = 2
 
-    /// The uniforms every fragment reads; ``BackdropShaderUniforms`` is its Swift twin.
-    static let source = #"""
+    /// The Metal source: the shared helpers and the first five shaders, then the calm ones
+    /// (``calmSource``). ``BackdropShaderUniforms`` is the Swift twin of the uniforms every fragment reads.
+    static let source = baseSource + calmSource
+
+    private static let baseSource = #"""
     #include <metal_stdlib>
     using namespace metal;
 

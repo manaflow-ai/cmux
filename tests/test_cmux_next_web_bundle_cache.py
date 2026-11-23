@@ -10,7 +10,6 @@ import re
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
-from blacksmith_linux_sizes import size_label  # noqa: E402
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
 WEB_CACHE_KEY = "cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}"
 CONSUMERS = ("swift-test", "daemon-test", "generated-files")
@@ -99,8 +98,9 @@ def check_dev_release_compile(workflow: str) -> None:
     assert "ref: ${{ inputs.same_tree_sha || '' }}" in producer, \
         "web-bundles must build the commit a same-tree DEV run compiles"
     assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'" in producer
-    # Its Blacksmith size is the one .github/runners.json linux_sizes measured for it.
-    assert size_label("cmux-next.yml", "web-bundles") in producer
+    # It takes the one Linux label (scripts/ci/one_linux_label.py), no size.
+    assert "|| 'cmux-linux' }}" in producer
+    assert not re.search(r"blacksmith-\d+vcpu-ubuntu-2404(?!-)|RUNNER_POOLS\)\.linux_\d", producer)
 
     job = job_block(workflow, "cmux-scheme-compile")
     source_key = step_block(job, "Source key of the web bundles")

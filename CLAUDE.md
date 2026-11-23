@@ -27,6 +27,10 @@ deletes the clone; off a Mac it prints the fleet route, `cmux-ci hot-verify N --
 Full loop: the [cmux-hot-loop skill](skills/cmux-hot-loop/SKILL.md) and
 [docs/cmux-next/hot-reload.md](docs/cmux-next/hot-reload.md#the-loop).
 
+A signed-in build to drive is a copy of a signed-in app, not an "authenticated dev build": `cmux app try <PR|sha>`
+in your NIGHTLY (production account), `cmux-ci run ... --sign-in agent` for an agent step, `--for-person` on a
+Swift build handed to a person. Table: [cmux-hot-loop, Signed in](skills/cmux-hot-loop/SKILL.md#signed-in-without-an-authenticated-dev-build).
+
 ## Every session
 
 - **Agents never compile or test on the person's Mac.** No local `swift build`/`swift test`, `xcodebuild`,
@@ -93,6 +97,13 @@ Read these before working in their scope; nested files may not load automaticall
   [skills/cmux-backend/SKILL.md](skills/cmux-backend/SKILL.md) first.
 - `web/` or any cmux Cloud database work: [web/AGENTS.md](web/AGENTS.md).
 - `cmux-tui/`: [cmux-tui/AGENTS.md](cmux-tui/AGENTS.md).
+- `Packages/macOS/`, `App/`, `Native/` (the Mac app's Swift): [Packages/macOS/AGENTS.md](Packages/macOS/AGENTS.md)
+  (where a change goes, what a lane VM can check, the common reds).
+- `backend/`, `workers/`, `services/`: [backend/AGENTS.md](backend/AGENTS.md) (test one file, the migration and
+  catalog reds).
+- `scripts/`, `tests/`, `ci/`: [scripts/AGENTS.md](scripts/AGENTS.md); `.github/workflows/`:
+  [.github/AGENTS.md](.github/AGENTS.md) (find and run one script's tests, add a workflow).
+- `webviews/`: [webviews/README.md](webviews/README.md).
 - `cmux-next-ios/`: [cmux-next-ios/CLAUDE.md](cmux-next-ios/CLAUDE.md) and
   [cmux-next-ios/SECURITY.md](cmux-next-ios/SECURITY.md).
 
