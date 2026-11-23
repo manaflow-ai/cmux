@@ -35,6 +35,7 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
     /// conversation only), made on its first open (``HomeChiefSettingsCard``), never by a switch.
     private let card = HomeChiefSettingsCard()
     private var petRows: ChiefPetSettingsRows?  // the pet's rows in the popover's Appearance section, made with it
+    private var chatLookRows: HomeChiefChatLookRows?  // Bubble Style and Chat Colors in the same section, made with it
     /// The Chief whose character the popover offers and the header wears (nil: the default Chief).
     private var petChief: String? { didSet { if petChief != oldValue { petRows?.chief = petChief; followChosenPicture() } } }
     private(set) var isChief = false { didSet { if isChief != oldValue { watchHeaderPanels(); watchNeedsYou(); watchSetupCard() } } }
@@ -400,6 +401,9 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
         petRows.onRefusal = { [settingsView] in settingsView.showNote($0) }  // why an upload was refused
         petRows.install(in: self, addRow: { [settingsView] in settingsView.addAppearanceRow($0, control: $1) },
                         open: { [weak self] in self?.openProfile(.settings) ?? false })
+        chatLookRows = HomeChiefChatLookRows(settings: { [weak services] in services?.settings }, openColors: { [weak self, weak services] in self?.card.close()
+            _ = services?.registry.perform("home.chatColors", invocation: ActionInvocation(arguments: ["conversation": .string(conversation)], origin: .user)) })
+        chatLookRows?.install(addRow: { [settingsView] in settingsView.addAppearanceRow($0, control: $1) })
         // Each Chief's tile reads its own brain home: this re-reads them, so only the
         // Chief whose picture changed draws differently (cx-327wl).
         settingsView.onAvatar = { [weak self, weak service] in self?.loadAvatar(); service?.refreshChiefAvatars() }
