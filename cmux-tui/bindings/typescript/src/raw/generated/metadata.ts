@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR ffc0b1b7351cda59bddb10182639ee4319f9f34e938db7a1d2abd99731d58afd. */
+/* cmux-tui mux protocol 12, IR 081be245bda63b920737caa97b159caa63f4e863b159dc7bdeb4b56b34b4f740. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "ffc0b1b7351cda59bddb10182639ee4319f9f34e938db7a1d2abd99731d58afd" as const;
+export const SDK_IR_SHA256 = "081be245bda63b920737caa97b159caa63f4e863b159dc7bdeb4b56b34b4f740" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2484,6 +2484,17 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": []
+  },
+  "process-census": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "process-census-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only; read-only, never journaled.",
+      "Hosts are classified from records, leases and session guards, never from process arguments. See spec/commands.md."
+    ]
   },
   "process-info": {
     "authority": "control",
@@ -26626,6 +26637,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "PingResult"
+    }
+  },
+  "process-census": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
     }
   },
   "process-info": {
