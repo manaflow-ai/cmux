@@ -99,6 +99,8 @@ import { cloudModePickFor as cloudModeFor, useCloudModePick } from "./cloudModeP
 import { rememberStartedProject } from "./newtab/startedProject";
 import { shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { TaskGoalStrip } from "./TaskGoalStrip";
+import { ApprovedPlanBand } from "./ApprovedPlanBand";
+import { approvedPlanPlace } from "./approvedPlan.experiment";
 import { hatPlanOf } from "./chatTaskList";
 import { goalHatPlace } from "./goalHat.experiment";
 import { jumpLatestPlace } from "./jumpPlace.experiment";
@@ -2086,6 +2088,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const subagentTray = useSubagentTray();
   const trayPlacement = useSubagentTrayPlacement();
   const [goalHatPlaceArm] = useState(() => experimentArm(goalHatPlace));
+  const [approvedPlanArm] = useState(() => experimentArm(approvedPlanPlace));
   // The agent dot grid on the home (dotGrid/agentDotGrid.experiment.ts): off unless opted in.
   const [dotGridArm] = useState(agentDotGridArm);
   const doneLines = useRef<DoneLineCache>(new Map());
@@ -9123,6 +9126,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       />
     ) : null;
   const goalAtFoot = goalNode !== null && goalHatPlaceArm === "foot";
+  // The plan the person approved stays in sight while the agent builds it (ApprovedPlanBand.tsx), a
+  // row of the hat under the goal. Leo: "plan pane that stays during the build".
+  const approvedPlanNode =
+    !showNewTab && composerSnapshot.summary?.approvedPlan ? (
+      <ApprovedPlanBand
+        key={`approved-plan:${composerSnapshot.summary.sessionId}`}
+        chat={composerSnapshot.summary.sessionId}
+        plan={composerSnapshot.summary.approvedPlan}
+        initiallyOpen={approvedPlanArm === "open"}
+      />
+    ) : null;
   // The dock draws the composer (a draft a refusal put back stays in reach even once the tab's run
   // shows), and with it the composer card's quiet row: the dock's `data-foot` (bottomStack.css).
   const dockFoot = (!sandboxHoldsChat || sandboxDraftMoved) && !viewedSandbox && (readOnlySubagent || !reviewing);
@@ -9207,6 +9221,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     hideManaged,
     goalAtFoot,
     goalNode,
+    approvedPlanNode,
+    approvedPlanAtFoot: approvedPlanArm === "foot",
     hatQuestionList,
     NO_HAT_QUESTIONS,
     hatQuestionActions,
