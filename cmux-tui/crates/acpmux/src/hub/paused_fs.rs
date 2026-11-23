@@ -129,7 +129,7 @@ impl Hub {
                 std::io::Error::from(std::io::ErrorKind::NotFound),
             )),
             Routed::Answered(ReadOutcome::NeedsMachine(_)) | Routed::NeedsMachine(_) => {
-                self.wake_for(session, &machine).await.map(|()| None)
+                self.wake_machine_for(session, &machine).await.map(|()| None)
             }
         }
     }
@@ -151,12 +151,14 @@ impl Hub {
         match routed {
             Routed::NotPaused => Ok(false),
             Routed::Answered(_) => Ok(true),
-            Routed::NeedsMachine(_) => self.wake_for(session, &machine).await.map(|()| false),
+            Routed::NeedsMachine(_) => {
+                self.wake_machine_for(session, &machine).await.map(|()| false)
+            }
         }
     }
 
     /// Resumes `machine` for a call only it can answer; a conflict of that flush answers the call.
-    async fn wake_for(&self, session: &Session, machine: &str) -> Result<(), RpcError> {
+    async fn wake_machine_for(&self, session: &Session, machine: &str) -> Result<(), RpcError> {
         self.wake_paused_machine(machine).await.map_err(|e| io_rpc("resume the machine", e))?;
         self.journal_notices(session)
     }
