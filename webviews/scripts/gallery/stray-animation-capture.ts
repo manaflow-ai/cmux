@@ -13,6 +13,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { chromium } from "playwright";
 import { createServer } from "vite";
+import type { AnimationSeen } from "../../src/agent-session/acpmux/conversation/strayAnimation.gallery";
 import { galleryFrame, warmGalleryFrame } from "../../test/support/galleryFrame";
 
 const ENTRY = "agent-pane.stray-animation";
@@ -98,7 +99,7 @@ try {
             ms: number;
             scrollTop: number;
             folding: boolean;
-            animations: ReturnType<NonNullable<typeof report.sample>>;
+            animations: AnimationSeen[];
           }[] = [];
           const started = performance.now();
           report.end!();
@@ -161,10 +162,12 @@ try {
         offscreenAnimationFrames: watched.frames.filter((frame) => frame.animations.some((each) => !each.inView))
           .length,
         offscreenAnimations: offscreen.length,
-        offscreenNames: [...new Set(offscreen.map((each) => each.name))].sort(),
+        offscreenNames: [...new Set(offscreen.map((each) => each.name))].sort((left, right) =>
+          left.localeCompare(right),
+        ),
         offscreenSample: offscreen.slice(0, 12),
         inViewAnimations: inView.length,
-        inViewNames: [...new Set(inView.map((each) => each.name))].sort(),
+        inViewNames: [...new Set(inView.map((each) => each.name))].sort((left, right) => left.localeCompare(right)),
         // The reader's own offset while the fold ran: a jump here is the fold moving his view.
         scrollMin: Math.min(...scrolls),
         scrollMax: Math.max(...scrolls),
