@@ -55,6 +55,7 @@ public actor DeviceHubClient {
     public init(baseURL: URL, identity: DeviceIdentity, tokens: any DeviceHubAccountTokenProvider,
                 session: URLSession = DeviceHubClient.transport, now: @escaping @Sendable () -> Date = { Date() }) {
         self.baseURL = baseURL
+        // carve-out: `signer` and `setIdentity` are nonisolated and synchronous, so the signer sits behind a lock.
         signerBox = Mutex(DeviceRequestSigner(identity: identity, now: now))
         self.tokens = tokens
         self.session = session
