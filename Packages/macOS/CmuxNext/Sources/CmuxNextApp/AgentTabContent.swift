@@ -49,6 +49,7 @@ struct AgentTabContent {
             if target == .tab { return pane.services.linkOpener.openFile(url, from: pane) }
             return pane.services.registry.openAgentFile(path: url.path, target: target, pane: pane.paneKey, machineID: machine, line: line)
         }
+        view.model.onEditorsList = { [weak pane] in pane?.services.editorCatalog.pageList() ?? ["default": NSNull(), "others": [Any]()] }
         view.model.onOpenMachineFile = { [weak pane] path in guard let pane, case let tabs = pane.services.agentTabs, tabs.remoteMachineID(of: chat, machine: machine) != nil, let daemon = tabs.daemon(for: tabs.resolvedKey(tabs.tabKey(chat, machine: machine))), !daemon.isLocal, case let link = pane.services.agentGit.link(for: daemon), await !link.reachesThroughLink(path) else { return false }
             if (try? await link.stat(path))?.isFolder == true { pane.services.viewers.fileTrees.openBeside(folder: URL(fileURLWithPath: path, isDirectory: true), chat: chat, target: nil, link: link, machine: daemon); return true }
             return pane.services.linkOpener.openFile(URL(fileURLWithPath: path, isDirectory: false), on: daemon, from: pane, noFollow: true) }

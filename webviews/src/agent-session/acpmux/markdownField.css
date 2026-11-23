@@ -129,6 +129,22 @@
   word-break: break-word;
   caret-color: var(--cmux-caret, var(--agent-text));
 }
+/* The field's text before its editor exists (MarkdownField.tsx `standIn`). The editor is made a task
+   or more after the field mounts; before this the field drew at its padding alone until then and grew
+   a line (or a whole draft) when the editor came, moving the composer's top on a chat's first load
+   (https://github.com/manaflow-ai/cmux/issues/48498). The editor's box: one line at the least, the
+   text wrapped as the editor wraps it. */
+.acpmux-md-standin {
+  min-height: var(--text-content--line-height);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  user-select: none;
+}
+.acpmux-md-standin[hidden] {
+  display: none;
+}
 .acpmux-md > * {
   margin: 0;
 }
