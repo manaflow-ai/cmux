@@ -47,7 +47,7 @@ jobs:
   check:
     name: The builder run's gate said YES on this IPA
     if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/rc/cnx-ios-builder'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -119,7 +119,7 @@ jobs:
     name: ${{ inputs.confirm == 'SUBMIT' && 'Submit for App Review' || 'Preview the App Review submission' }}
     needs: check
     if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/rc/cnx-ios-builder' && needs.check.result == 'success'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 20
     environment: release
     env:
@@ -133,7 +133,10 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          sparse-checkout: cmux-next-ios/scripts
+          # The review notes the submit writes first (asc_review_package.py --config TestFlight).
+          sparse-checkout: |
+            cmux-next-ios/scripts
+            cmux-next-ios/AppStoreReview
 
       - name: Install asc
         run: brew list asc >/dev/null 2>&1 || brew install asc
@@ -154,5 +157,5 @@ jobs:
           mode=--dry-run
           [ "$CONFIRM" != SUBMIT ] || mode=--confirm-submit
           cmux-next-ios/scripts/asc_submit_review.sh submit --app "$ASC_APP_ID" --version "$VERSION" \
-            --build-number "$BUILD_NUMBER" "$mode"
+            --build-number "$BUILD_NUMBER" --config TestFlight "$mode"
           echo "cmux INTERNAL $VERSION ($BUILD_NUMBER), builder run $BUILD_RUN: $CONFIRM done" >> "$GITHUB_STEP_SUMMARY"
