@@ -161,11 +161,33 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             struct Request {
                 #[serde(default)]
                 cloud: Value,
+                /// acpmux's home on this Mac, whose `place-verdict.json` says whether it is busy.
+                #[serde(default, rename = "acpmuxHome")]
+                acpmux_home: Option<String>,
+                /// Your own connected machines (SSH, paired servers), for busy overflow.
+                #[serde(default, rename = "ownMachines")]
+                own_machines: Vec<placement::busy::OwnMachine>,
                 #[serde(flatten)]
                 facts: placement::Facts,
             }
-            let request: Request = read(request)?;
+            let mut request: Request = read(request)?;
             let options = placement::Options::from_settings(&request.cloud);
+            // Read only when the person turned busy overflow on: off, Cmd-N reads no file.
+            if options.when_busy != placement::WhenBusy::Stay {
+                request.facts.busy = request.acpmux_home.as_deref().and_then(|home| {
+                    let path = std::path::Path::new(home).join(placement::busy::FILE);
+                    let cache = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
+                    let now_ms = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .ok()?
+                        .as_millis();
+                    placement::busy::from_cache(
+                        &cache,
+                        u64::try_from(now_ms).ok()?,
+                        &request.own_machines,
+                    )
+                });
+            }
             to_value(placement::decide(&options, &request.facts))?
         }
         b"cloud_move_new_workspace_machine" => {

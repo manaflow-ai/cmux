@@ -230,20 +230,31 @@ public nonisolated struct CloudNewWorkspacePlan: Sendable, Equatable {
 public nonisolated struct CloudNewWorkspacePlacement: Sendable, Equatable {
     /// The options as cmux.json's `cloud` object names them.
     public struct Options: Sendable, Equatable, Encodable {
-        public var newWorkspacesInCloud: Bool, workspacePins: [String: String], autoMachineCap: Int
-        public init(newWorkspacesInCloud: Bool, workspacePins: [String: String] = [:], autoMachineCap: Int = 0) {
+        public var newWorkspacesInCloud: Bool, workspacePins: [String: String], autoMachineCap: Int, whenThisMacIsBusy: String
+        public init(newWorkspacesInCloud: Bool, workspacePins: [String: String] = [:], autoMachineCap: Int = 0, whenThisMacIsBusy: String = "stay") {
             (self.newWorkspacesInCloud, self.workspacePins, self.autoMachineCap) = (newWorkspacesInCloud, workspacePins, autoMachineCap)
+            self.whenThisMacIsBusy = whenThisMacIsBusy
         }
     }
 
-    /// What the app knows on New Workspace's turn.
+    /// One of the person's own connected machines (SSH, paired server): its app machine id and the names acpmux may
+    /// call it (label, ssh host), so Rust can match placement's pick to it (`moves::placement::busy`).
+    public struct OwnMachine: Sendable, Equatable, Encodable {
+        public var id: String, names: [String]
+        public init(id: String, names: [String]) { (self.id, self.names) = (id, names) }
+    }
+
+    /// What the app knows on New Workspace's turn. `acpmuxHome` and `ownMachines` are for busy overflow
+    /// (`cloud.whenThisMacIsBusy`): Rust reads acpmux's cached placement verdict there, only when it is on.
     public struct Facts: Sendable, Equatable, Encodable {
         public var byPerson: Bool, namesMachineOrCommand: Bool, cwd: String?, runningMachines: Int
         public var unavailableReason: String?, signedIn: Bool, hasWindow: Bool
+        public var acpmuxHome: String?, ownMachines: [OwnMachine]
         public init(byPerson: Bool, namesMachineOrCommand: Bool, cwd: String?, runningMachines: Int,
-                    unavailableReason: String?, signedIn: Bool, hasWindow: Bool) {
+                    unavailableReason: String?, signedIn: Bool, hasWindow: Bool, acpmuxHome: String? = nil, ownMachines: [OwnMachine] = []) {
             (self.byPerson, self.namesMachineOrCommand, self.cwd, self.runningMachines) = (byPerson, namesMachineOrCommand, cwd, max(0, runningMachines))
             (self.unavailableReason, self.signedIn, self.hasWindow) = (unavailableReason, signedIn, hasWindow)
+            (self.acpmuxHome, self.ownMachines) = (acpmuxHome, ownMachines)
         }
     }
 

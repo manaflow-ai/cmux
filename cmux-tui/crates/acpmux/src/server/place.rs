@@ -35,7 +35,32 @@ pub(super) async fn place(hub: &Hub, params: &Value) -> Value {
     }
     let verdict = crate::placement::place(&candidates, registry.as_ref(), work);
     let verdict = with_outdated(crate::placement::with_down(verdict, &down), &outdated);
+    // A plain agent verdict weighs this machine as it is: New Workspace's busy overflow reads it.
+    if work == Work::Agent && !off_interactive && !outdated_ok {
+        remember(&crate::config::home(), &verdict, crate::store::now_ms());
+    }
     crate::shadow_admission::with_shadow("place", verdict, &candidates)
+}
+
+/// The file under acpmux's home that holds the last plain verdict (cmux-cloud-start-core
+/// `moves::placement::busy::FILE`, which reads it).
+const VERDICT_FILE: &str = "place-verdict.json";
+
+/// Keep `verdict`'s pick and this machine's over-budget reason, read at `at` (ms), in
+/// `<home>/place-verdict.json` (`{"at", "verdict": {pick, local, overloaded, room, localOver}}`):
+/// the app's New Workspace reads it on Cmd-N's turn with no request (cmux-cloud-start-core
+/// `moves::placement::busy`, hq docs/design/auto-placement.md 4.1). A failed write only logs.
+fn remember(home: &std::path::Path, verdict: &Value, at: u64) {
+    let field = |key: &str| verdict.get(key).cloned().unwrap_or(Value::Null);
+    let cached = json!({"at": at, "verdict": {
+        "pick": field("pick"), "local": field("local"), "overloaded": field("overloaded"),
+        "room": field("room"), "localOver": field("localOver"),
+    }});
+    if let Err(error) =
+        crate::config::write_atomic(&home.join(VERDICT_FILE), cached.to_string().as_bytes())
+    {
+        tracing::debug!(%error, "could not keep the placement verdict");
+    }
 }
 
 /// `verdict` with each host `outdated` names marked `outdated: true` and its `refresh` command.
@@ -281,6 +306,21 @@ pub(super) fn brief_work(brief: &str) -> Work {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn remember_keeps_the_pick_and_this_machines_over_budget_reason() {
+        let home = tempfile::tempdir().unwrap();
+        let verdict = serde_json::json!({"pick": "gcp-3", "local": false, "overloaded": false,
+            "room": 5.0, "localOver": "over its budget (load1 29.8 >= 15)", "why": "w", "hosts": []});
+        super::remember(home.path(), &verdict, 42);
+        let text = std::fs::read_to_string(home.path().join(super::VERDICT_FILE)).unwrap();
+        let cached: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(
+            cached,
+            serde_json::json!({"at": 42, "verdict": {"pick": "gcp-3", "local": false,
+            "overloaded": false, "room": 5.0, "localOver": "over its budget (load1 29.8 >= 15)"}})
+        );
+    }
+
     use super::*;
 
     fn here(health: Value) -> [Candidate; 1] {

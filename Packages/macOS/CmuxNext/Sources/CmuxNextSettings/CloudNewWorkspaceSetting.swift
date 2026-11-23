@@ -39,6 +39,12 @@ public nonisolated struct CloudNewWorkspaceSetting: Sendable {
         max(0, root.value(at: Self.machineCapPath)?.intValue ?? Int(Self.machineCapDefault))
     }
 
+    /// `cloud.whenThisMacIsBusy`: where a New Workspace that would open here goes while this Mac is over its
+    /// budget (`stay`, `ownMachine`, `ownMachineOrCloud`); a missing or unknown value stays. Rust decides (`moves::placement`).
+    public func whenBusy(in root: JSONValue) -> String {
+        root.value(at: Self.whenBusyPath)?.stringValue.flatMap { Self.whenBusyValues.contains($0) ? $0 : nil } ?? Self.whenBusyDefault
+    }
+
     /// What a new Cloud workspace starts with; a missing or unknown value inherits.
     public func folder(in root: JSONValue) -> CloudWorkspaceFolder {
         root.value(at: Self.folderPath)?.stringValue.flatMap(CloudWorkspaceFolder.init(rawValue:)) ?? Self.folderDefault

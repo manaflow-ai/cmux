@@ -1000,7 +1000,8 @@
         "cloud.newWorkspacesInCloud",
         "cloud.newWorkspaceFolder",
         "cloud.workspacePins",
-        "cloud.autoMachineCap"
+        "cloud.autoMachineCap",
+        "cloud.whenThisMacIsBusy"
       ]
     },
     {

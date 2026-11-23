@@ -185,3 +185,150 @@ fn where_cloud_cannot_make_the_machine_the_workspace_opens_here_and_says_why() {
         json!({"kind": "signedOut"})
     );
 }
+
+fn busy(machine: Option<&str>) -> Facts {
+    Facts {
+        busy: Some(Busy {
+            over: "over its budget (load1 29.8 >= 15)".into(),
+            machine: machine.map(Into::into),
+        }),
+        ..person("/w/app")
+    }
+}
+
+fn when_busy(value: &str) -> Options {
+    Options::from_settings(&json!({"whenThisMacIsBusy": value}))
+}
+
+#[test]
+fn when_busy_reads_its_three_values_and_stays_for_anything_else() {
+    assert_eq!(when_busy("ownMachine").when_busy, WhenBusy::OwnMachine);
+    assert_eq!(when_busy("ownMachineOrCloud").when_busy, WhenBusy::OwnMachineOrCloud);
+    for other in ["stay", "cloud", "", "OWNMACHINE"] {
+        assert_eq!(when_busy(other).when_busy, WhenBusy::Stay, "{other}");
+    }
+    assert_eq!(Options::default().when_busy, WhenBusy::Stay);
+}
+
+#[test]
+fn off_by_default_a_busy_mac_keeps_its_new_workspace() {
+    for facts in [busy(Some("ssh-gcp-3")), busy(None)] {
+        let placement = decide(&Options::default(), &facts);
+        assert_eq!(placement.target, Target::ThisMac);
+        assert_eq!(placement.why, "Run New Workspaces in Cloud is off");
+    }
+}
+
+#[test]
+fn a_busy_mac_sends_its_new_workspace_to_your_machine_with_room() {
+    for options in [when_busy("ownMachine"), when_busy("ownMachineOrCloud")] {
+        let placement = decide(&options, &busy(Some("ssh-gcp-3")));
+        assert_eq!(placement.target, Target::Machine("ssh-gcp-3".into()));
+        assert_eq!(placement.refusal, None);
+        assert!(
+            placement.why.starts_with("this Mac is busy (over its budget"),
+            "{}",
+            placement.why
+        );
+    }
+    // Not busy: here, whatever the setting.
+    assert_eq!(decide(&when_busy("ownMachineOrCloud"), &person("/w/app")).target, Target::ThisMac);
+}
+
+#[test]
+fn with_no_machine_with_room_cloud_takes_it_only_when_allowed_and_cloud_can() {
+    let placement = decide(&when_busy("ownMachine"), &busy(None));
+    assert_eq!(placement.target, Target::ThisMac);
+    assert_eq!(placement.refusal, None);
+    assert_eq!(
+        decide(&when_busy("ownMachineOrCloud"), &busy(None)).target,
+        Target::NewCloudMachine
+    );
+    // Cloud's own refusals and the cap still hold, and say why.
+    let signed_out = Facts { signed_in: false, ..busy(None) };
+    assert_eq!(
+        decide(&when_busy("ownMachineOrCloud"), &signed_out).refusal,
+        Some(Refusal::SignedOut)
+    );
+    let capped = Options { machine_cap: Some(1), ..when_busy("ownMachineOrCloud") };
+    let at_cap = Facts { running_machines: 1, ..busy(None) };
+    assert_eq!(decide(&capped, &at_cap).refusal, Some(Refusal::MachineCap { running: 1, cap: 1 }));
+}
+
+#[test]
+fn a_pin_the_toggle_and_a_named_run_win_over_busy() {
+    let options = Options::from_settings(&json!({
+        "whenThisMacIsBusy": "ownMachineOrCloud", "workspacePins": {"/w/app": "thisMac"}}));
+    assert_eq!(decide(&options, &busy(Some("ssh-gcp-3"))).target, Target::ThisMac);
+    let on = Options { in_cloud: true, ..when_busy("ownMachine") };
+    assert_eq!(decide(&on, &busy(Some("ssh-gcp-3"))).target, Target::NewCloudMachine);
+    let script = Facts { by_person: false, ..busy(Some("ssh-gcp-3")) };
+    assert_eq!(decide(&when_busy("ownMachine"), &script).target, Target::ThisMac);
+}
+
+mod cached_verdict {
+    use super::super::busy::{MAX_AGE_MS, OwnMachine, from_cache};
+    use super::*;
+
+    const NOW: u64 = 1_000_000_000;
+
+    fn mine() -> Vec<OwnMachine> {
+        vec![
+            OwnMachine {
+                id: "ssh-a".into(),
+                names: vec!["Lab box".into(), "leo@lab.tail.ts.net:2222".into()],
+            },
+            OwnMachine { id: "server-b".into(), names: vec!["gcp-3".into()] },
+        ]
+    }
+
+    fn cache(at: u64, verdict: Value) -> Value {
+        json!({"at": at, "verdict": verdict})
+    }
+
+    fn over(pick: &str) -> Value {
+        json!({"pick": pick, "local": false, "overloaded": false, "room": 5.0,
+               "localOver": "over its budget (load1 29.8 >= 15)"})
+    }
+
+    #[test]
+    fn a_fresh_over_budget_verdict_names_your_machine_by_label_or_ssh_host() {
+        let busy = from_cache(&cache(NOW - 1_000, over("gcp-3")), NOW, &mine()).unwrap();
+        assert_eq!(busy.over, "over its budget (load1 29.8 >= 15)");
+        assert_eq!(busy.machine.as_deref(), Some("server-b"));
+        let by_host = from_cache(&cache(NOW, over("LAB")), NOW, &mine()).unwrap();
+        assert_eq!(by_host.machine.as_deref(), Some("ssh-a"));
+    }
+
+    #[test]
+    fn busy_with_no_own_machine_when_the_pick_is_unknown_full_overloaded_or_here() {
+        let cases = [
+            over("fleet-only-host"),
+            json!({"pick": "gcp-3", "local": false, "overloaded": true, "room": 0.0, "localOver": "x"}),
+            json!({"pick": "gcp-3", "local": false, "overloaded": false, "room": 0.5, "localOver": "x"}),
+            json!({"pick": "gcp-3", "local": false, "overloaded": false, "room": null, "localOver": "x"}),
+            json!({"pick": "gcp-3", "local": true, "overloaded": false, "room": 3, "localOver": "x"}),
+            json!({"pick": null, "localOver": "x"}),
+        ];
+        for verdict in cases {
+            let busy = from_cache(&cache(NOW, verdict.clone()), NOW, &mine());
+            assert_eq!(busy.map(|b| b.machine), Some(None), "{verdict}");
+        }
+    }
+
+    #[test]
+    fn not_busy_stale_future_or_malformed_says_nothing() {
+        let room = json!({"pick": "gcp-3", "local": false, "room": 5, "localOver": null});
+        assert_eq!(from_cache(&cache(NOW, room), NOW, &mine()), None);
+        let blank = json!({"pick": "gcp-3", "localOver": "  "});
+        assert_eq!(from_cache(&cache(NOW, blank), NOW, &mine()), None);
+        assert_eq!(from_cache(&cache(NOW - MAX_AGE_MS - 1, over("gcp-3")), NOW, &mine()), None);
+        assert!(from_cache(&cache(NOW - MAX_AGE_MS, over("gcp-3")), NOW, &mine()).is_some());
+        assert_eq!(from_cache(&cache(NOW + MAX_AGE_MS + 1, over("gcp-3")), NOW, &mine()), None);
+        for bad in
+            [json!(null), json!({"verdict": over("gcp-3")}), json!({"at": "x"}), json!({"at": NOW})]
+        {
+            assert_eq!(from_cache(&bad, NOW, &mine()), None, "{bad}");
+        }
+    }
+}

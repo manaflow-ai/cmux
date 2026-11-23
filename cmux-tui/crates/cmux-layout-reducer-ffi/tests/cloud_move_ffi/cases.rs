@@ -217,6 +217,25 @@ fn the_rest_answer_in_the_shapes_the_app_reads() {
         json!({"kind": "thisMac"}),
         "no cloud options: the toggle's default, this Mac"
     );
+    // Busy overflow reads acpmux's cached verdict, and only when the person turned it on.
+    let home = std::env::temp_dir().join(format!("cmux-busy-overflow-{}", std::process::id()));
+    std::fs::create_dir_all(&home).unwrap();
+    let now =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()
+            as u64;
+    std::fs::write(home.join("place-verdict.json"), json!({"at": now, "verdict": {"pick": "gcp-3",
+        "local": false, "overloaded": false, "room": 4.0, "localOver": "over its budget (load1 30 >= 15)"}})
+        .to_string()).unwrap();
+    let busy = |when: &str| {
+        ok(
+            c"cloud_move_new_workspace_placement",
+            json!({"cloud": {"whenThisMacIsBusy": when}, "byPerson": true, "signedIn": true,
+                "hasWindow": true, "acpmuxHome": home, "ownMachines": [{"id": "ssh-gcp3", "names": ["gcp-3"]}]}),
+        )
+    };
+    assert_eq!(busy("ownMachine")["target"], json!({"kind": "machine", "id": "ssh-gcp3"}));
+    assert_eq!(busy("stay")["target"], json!({"kind": "thisMac"}), "off by default");
+    std::fs::remove_dir_all(&home).unwrap();
     assert_eq!(
         ok(
             c"cloud_move_copy_step",

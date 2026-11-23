@@ -673,6 +673,58 @@
           ]
         },
         {
+          "key": "cloud.whenThisMacIsBusy",
+          "name": "whenBusy",
+          "note": "When this Mac is over its budget (acpmux's cached placement verdict), where a New Workspace that would open here goes: stay, ownMachine (your machine with room) or ownMachineOrCloud (else a new Cloud machine). Off (stay) by default (cmux-cloud-start-core moves/placement.rs).",
+          "title": {
+            "key": "settings.cloud.whenThisMacIsBusy",
+            "text": "When This Mac Is Busy"
+          },
+          "help": {
+            "key": "settings.cloud.whenThisMacIsBusy.help",
+            "text": "Where a new workspace opens while this Mac is overloaded."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "stay",
+              "title": {
+                "key": "settings.choice.cloudBusyStay",
+                "text": "This Mac"
+              },
+              "note": "New workspaces open here, busy or not."
+            },
+            {
+              "value": "ownMachine",
+              "title": {
+                "key": "settings.choice.cloudBusyOwnMachine",
+                "text": "Your Machine With Room"
+              },
+              "note": "A connected machine of yours that placement says has room; none: this Mac."
+            },
+            {
+              "value": "ownMachineOrCloud",
+              "title": {
+                "key": "settings.choice.cloudBusyOwnMachineOrCloud",
+                "text": "Your Machine, Else Cloud"
+              },
+              "note": "A machine of yours with room, else a new Cloud machine."
+            }
+          ],
+          "default": "stay",
+          "keywords": [
+            "cloud",
+            "vm",
+            "machine",
+            "busy",
+            "load",
+            "overflow",
+            "auto",
+            "placement",
+            "remote"
+          ]
+        },
+        {
           "key": "cloud.agentsStartWithoutAsking",
           "title": {
             "key": "settings.cloud.agentsStartWithoutAsking",

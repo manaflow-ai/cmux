@@ -10,6 +10,10 @@
 //! 2. A pin (`cloud.workspacePins`): the deepest pinned folder at or above the workspace's folder
 //!    decides, `thisMac`, `cloud` or `machine:<id>`, whatever the toggle says.
 //! 3. The toggle (`cloud.newWorkspacesInCloud`): on prefers Cloud, off prefers this Mac.
+//! 4. Busy overflow (`cloud.whenThisMacIsBusy`, `stay` by default): when the toggle keeps the
+//!    workspace here and this Mac's cached placement verdict says it is over its budget
+//!    ([`busy`]), your own machine with room takes it, else (with `ownMachineOrCloud`) a new
+//!    Cloud machine does (hq `docs/design/auto-placement.md` 4.1, remote-spin-up 2.3).
 //!
 //! A new Cloud machine is one workspace's alone, small and paused when idle (`folder.rs`
 //! `new_workspace_machine`; the server sizes it and pauses it). Before one is made, Cloud must be
@@ -18,6 +22,9 @@
 //! machines running now. Otherwise the workspace opens on this Mac and says why. A pin to a
 //! machine that already runs makes nothing new, so neither applies to it.
 
+pub mod busy;
+
+pub use busy::Busy;
 use serde::Serialize;
 use serde_json::Value;
 
@@ -25,6 +32,30 @@ use serde_json::Value;
 pub const IN_CLOUD: &str = "newWorkspacesInCloud";
 pub const PINS: &str = "workspacePins";
 pub const MACHINE_CAP: &str = "autoMachineCap";
+pub const WHEN_BUSY: &str = "whenThisMacIsBusy";
+
+/// What a New Workspace the toggle keeps here does when this Mac is over its budget.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum WhenBusy {
+    /// Stays on this Mac (the default, remote-spin-up section 7).
+    #[default]
+    Stay,
+    /// Goes to your own machine with room; with none, stays here.
+    OwnMachine,
+    /// Goes to your own machine with room, else to a new Cloud machine.
+    OwnMachineOrCloud,
+}
+
+impl WhenBusy {
+    /// `stay`, `ownMachine` or `ownMachineOrCloud`; anything else stays.
+    pub fn parse(text: &str) -> Self {
+        match text.trim() {
+            "ownMachine" => Self::OwnMachine,
+            "ownMachineOrCloud" => Self::OwnMachineOrCloud,
+            _ => Self::Stay,
+        }
+    }
+}
 
 /// Where a pin sends a workspace.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -59,6 +90,7 @@ pub struct Options {
     pub pins: Vec<(String, Pin)>,
     /// At most this many Cloud machines running before new ones stop; none: the plan's limit.
     pub machine_cap: Option<u32>,
+    pub when_busy: WhenBusy,
 }
 
 impl Options {
@@ -83,6 +115,10 @@ impl Options {
             in_cloud: cloud.get(IN_CLOUD).and_then(Value::as_bool).unwrap_or(false),
             pins,
             machine_cap,
+            when_busy: cloud
+                .get(WHEN_BUSY)
+                .and_then(Value::as_str)
+                .map_or_else(WhenBusy::default, WhenBusy::parse),
         }
     }
 
@@ -116,6 +152,9 @@ pub struct Facts {
     pub signed_in: bool,
     /// A window is open to show the new machine's progress.
     pub has_window: bool,
+    /// This Mac's cached `_acpmux/place` verdict when it says this Mac is over its budget
+    /// ([`busy::from_cache`]); none when it has room, or the verdict is missing or stale.
+    pub busy: Option<Busy>,
 }
 
 /// Where the workspace goes.
@@ -177,7 +216,26 @@ pub fn decide(options: &Options, facts: &Facts) -> Placement {
         }
         Some((folder, Pin::Cloud)) => format!("{folder} is pinned to Cloud"),
         None if options.in_cloud => "Run New Workspaces in Cloud is on".to_owned(),
-        None => return placed(Target::ThisMac, "Run New Workspaces in Cloud is off"),
+        None => match (options.when_busy, &facts.busy) {
+            (WhenBusy::Stay, _) | (_, None) => {
+                return placed(Target::ThisMac, "Run New Workspaces in Cloud is off");
+            }
+            (_, Some(Busy { over, machine: Some(id) })) => {
+                return placed(
+                    Target::Machine(id.clone()),
+                    format!("this Mac is busy ({over}); {id} has room"),
+                );
+            }
+            (WhenBusy::OwnMachine, Some(Busy { over, machine: None })) => {
+                return placed(
+                    Target::ThisMac,
+                    format!("this Mac is busy ({over}), but none of your machines has room"),
+                );
+            }
+            (WhenBusy::OwnMachineOrCloud, Some(Busy { over, machine: None })) => {
+                format!("this Mac is busy ({over}) and none of your machines has room")
+            }
+        },
     };
     // A machine costs money, so one is asked for only where Cloud can make it and a window shows
     // its progress, Cancel and Retry (`folder::route`); otherwise here, and the person is told.
