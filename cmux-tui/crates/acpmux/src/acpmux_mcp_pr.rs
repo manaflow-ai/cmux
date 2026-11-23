@@ -172,7 +172,8 @@ pub(crate) async fn run_gh(args: &[String], cwd: Option<PathBuf>) -> Result<Vec<
 /// `gh`, else where it is usually installed: an app started from Finder (the daemon the app
 /// starts, which answers `_acpmux/pr_state`) has no Homebrew folder on its PATH.
 fn gh_program() -> PathBuf {
-    let on_path = std::env::var_os("PATH").is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join("gh").is_file()));
+    let on_path = std::env::var_os("PATH")
+        .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join("gh").is_file()));
     if on_path {
         return PathBuf::from("gh");
     }

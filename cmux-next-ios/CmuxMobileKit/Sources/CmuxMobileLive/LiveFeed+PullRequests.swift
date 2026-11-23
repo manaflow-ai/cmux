@@ -81,7 +81,11 @@ extension LiveFeed {
         let now = ContinuousClock.now
         switch result {
         case .success(let answer):
-            guard let read = Self.pullSummary(answer, url: url) else { return }
+            guard let read = Self.pullSummary(answer, url: url) else {
+                // An answer this build cannot read: wait as for a failure, never ask again at once.
+                backOff(url, now: now)
+                return
+            }
             let summary = pullCache[url].map { $0.summary.merged(with: read) } ?? read
             pullCache[url] = PullEntry(summary: summary, next: now + Self.pullFreshness, failures: 0)
             applyPullState(summary)
@@ -93,11 +97,16 @@ extension LiveFeed {
                 pullQueue = []
                 return
             }
-            let failures = (pullCache[url]?.failures ?? 0) + 1
-            let wait = Self.pullFreshness * (1 << min(failures, 4))
-            let summary = pullCache[url]?.summary ?? PullRequestSummary(url: url, number: 0)
-            pullCache[url] = PullEntry(summary: summary, next: now + wait, failures: failures)
+            backOff(url, now: now)
         }
+    }
+
+    /// The next read of `url` waits twice as long as the last failed one did (at most 16 times).
+    private func backOff(_ url: URL, now: ContinuousClock.Instant) {
+        let failures = (pullCache[url]?.failures ?? 0) + 1
+        let wait = Self.pullFreshness * (1 << min(failures, 4))
+        let summary = pullCache[url]?.summary ?? PullRequestSummary(url: url, number: 0)
+        pullCache[url] = PullEntry(summary: summary, next: now + wait, failures: failures)
     }
 
     /// Every card of that pull request takes its state, and the workspace rows read it again.

@@ -1294,7 +1294,9 @@ async fn dispatch_request_with_identity(
         method::MUX_WHO_ELSE => {
             hub.who_else(&params, conn.origin == Origin::Local, conn.origin == Origin::Peer).await
         }
-        method::MUX_PR_STATE => super::pr_state::handle(hub, &params).await,
+        method::MUX_PR_STATE => {
+            super::pr_state::handle(hub, &params, conn.origin == Origin::Local).await
+        }
         // Counts this machine's own sends only: a peer's note would mix another daemon's callers.
         method::MUX_SEND_FANOUT if conn.origin == Origin::Local => {
             Ok(crate::send_fanout::handle(conn.caller(), &params, crate::store::now_ms()))

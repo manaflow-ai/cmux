@@ -1665,10 +1665,9 @@ struct StatusLine: View {
     static func summary(_ workspace: Workspace, status: WorkspaceStatus, macName: String?) -> Summary {
         let tab = newsTab(workspace, status: status)
         let activity = tab?.activity
-        // What it did, in its own words. A tab's title is the chat's first prompt unless the person
-        // named the tab, so only a name the person gave stands in for them.
-        let named = tab?.hasCustomName == true ? tab?.task : nil
-        let said = activity?.lastLine ?? named
+        // What it did, in its own words; the tab's task (its name, else the chat's title) only
+        // while the Mac has not said what it did.
+        let said = activity?.lastLine ?? tab?.task
         switch status {
         case .needsYou:
             let ask: String = switch tab?.waitingFor {

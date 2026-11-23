@@ -121,7 +121,8 @@ public struct ChatActivity: Hashable, Sendable, Codable {
     /// A dev build tag a reply names: "tag `feed-threads`", "Tag Opener http://127.0.0.1:17320/<tag>",
     /// "dev build <tag>", "--tag <tag>".
     public static func devBuildTag(in text: String) -> String? {
-        guard text.contains("17320") || text.range(of: "tag", options: .caseInsensitive) != nil else { return nil }
+        guard text.contains("17320") || text.range(of: "tag", options: .caseInsensitive) != nil
+            || text.range(of: "dev build", options: .caseInsensitive) != nil else { return nil }
         for regex in devBuildPatterns {
             guard let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
                   let range = Range(match.range(at: 1), in: text) else { continue }

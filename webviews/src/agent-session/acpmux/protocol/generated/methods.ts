@@ -193,6 +193,7 @@ export interface AcpmuxRequests {
   "_acpmux/tasks": { params: unknown; result: unknown };
   "_acpmux/resolve": { params: ResolveParams; result: unknown };
   "_acpmux/who_else": { params: unknown; result: unknown };
+  "_acpmux/pr_state": { params: unknown; result: unknown };
   "_acpmux/send_fanout": { params: unknown; result: unknown };
   "_acpmux/media_open": { params: unknown; result: unknown };
   "_acpmux/media_range": { params: unknown; result: unknown };
@@ -598,6 +599,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/tasks", kind: "request", acp: false, typed: false },
   { name: "_acpmux/resolve", kind: "request", acp: false, typed: true },
   { name: "_acpmux/who_else", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/pr_state", kind: "request", acp: false, typed: false },
   { name: "_acpmux/send_fanout", kind: "request", acp: false, typed: false },
   { name: "_acpmux/media_open", kind: "request", acp: false, typed: false },
   { name: "_acpmux/media_range", kind: "request", acp: false, typed: false },

@@ -156,7 +156,7 @@ public struct FeedItem: Identifiable, Hashable, Sendable, Codable {
     /// The decision the card waits on, when one does: the ask open, or a pull request ready to merge.
     public var decision: Decision? {
         if needsYou { return .answer }
-        guard !opensTerminal || kind == .response || kind == .finished, let pull = pullRequest, pull.canMerge,
+        guard kind == .response || kind == .finished, let pull = pullRequest, pull.canMerge,
               pull.checks == .passing else { return nil }
         return .merge(pull)
     }
@@ -304,6 +304,9 @@ public final class FeedStore {
     @ObservationIgnored private var spilledIDs: Set<String> = []
     /// Spilled events the source withdrew (`remove`): they do not come back.
     @ObservationIgnored private var removedWhileSpilled: Set<String> = []
+    /// Id prefixes of sessions whose cards left the Feed (`withdraw`): a spilled page never brings
+    /// one back.
+    @ObservationIgnored private var withdrawnPrefixes: Set<String> = []
     /// Mark All as Read covered every event up to then, the spilled ones too.
     @ObservationIgnored private var allReadThrough: Date?
     public private(set) var isLoadingOlder = false
@@ -390,6 +393,7 @@ public final class FeedStore {
         olderOnDisk = 0
         spilledIDs = []
         removedWhileSpilled = []
+        withdrawnPrefixes = []
         allReadThrough = nil
     }
 
@@ -420,7 +424,7 @@ public final class FeedStore {
             spilledIDs.subtract(page.map(\.id))
             // A newer copy already in memory (the Mac re-reported it) wins; one the source
             // withdrew stays gone; what the person read while it was on disk comes back read.
-            let back = page.filter { itemIndex[$0.id] == nil && !removedWhileSpilled.contains($0.id) }.map { item in
+            let back = page.filter { itemIndex[$0.id] == nil && !removedWhileSpilled.contains($0.id) && !isWithdrawn($0.id) }.map { item in
                 var item = item
                 if readSet.contains(item.id) || allReadThrough.map({ item.createdAt <= $0 }) == true { item.isRead = true }
                 return item
@@ -770,6 +774,18 @@ public final class FeedStore {
     }
 
     /// Drops every event `matches` picks (a session the Feed no longer shows, such as the Chief's own).
+    /// Every card whose id starts with one of `idPrefixes` (of the Mac `macID`) leaves, in memory
+    /// and in the spill: a session whose cards the Feed no longer shows (#51332).
+    public func withdraw(idPrefixes: Set<String>, macID: String?) {
+        guard !idPrefixes.isEmpty else { return }
+        if spill != nil { withdrawnPrefixes.formUnion(idPrefixes) }
+        removeAll { item in item.macID == macID && idPrefixes.contains { item.id.hasPrefix($0) } }
+    }
+
+    private func isWithdrawn(_ id: String) -> Bool {
+        !withdrawnPrefixes.isEmpty && withdrawnPrefixes.contains { id.hasPrefix($0) }
+    }
+
     public func removeAll(where matches: (FeedItem) -> Bool) {
         guard items.contains(where: matches) else { return }
         let gone = Set(items.filter(matches).map(\.id))

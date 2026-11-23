@@ -47,6 +47,8 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::MUX_TASKS, Run(json!({"all": true}))),
         // A topic passes the query check for any caller; `peers: false` asks no peer (network).
         (method::MUX_WHO_ELSE, Run(json!({"topic": "lso", "peers": false}))),
+        // Runs `gh pr view` in the chat's folder: the hermetic hub has no gh and no repository.
+        (method::MUX_PR_STATE, Skip("runs gh; the hermetic hub has no GitHub login")),
         (method::MUX_RESOLVE, Run(json!({"query": "$S"}))),
         (method::INITIALIZE, Run(json!({"protocolVersion": 1}))),
         (method::AUTHENTICATE, Run(json!({}))),

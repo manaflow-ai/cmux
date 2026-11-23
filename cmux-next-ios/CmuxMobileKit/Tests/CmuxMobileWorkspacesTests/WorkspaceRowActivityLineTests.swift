@@ -7,6 +7,7 @@ import Testing
 /// A workspace row's second line says what its chat did or is doing (manaflow-ai/cmux#51332).
 /// Before, every row read "Done · Claude-sr2: Fix https://github.com/manaflow-ai/…": the harness
 /// profile and the chat's first prompt, under a "Done" that said nothing.
+@MainActor
 @Suite struct WorkspaceRowActivityLineTests {
     static let pull = URL(string: "https://github.com/manaflow-ai/cmux/pull/51400")!
 
@@ -53,7 +54,8 @@ import Testing
         #expect(line(working, .working) == "Working · Reading the build log")
         let waiting = Self.workspace(nil, waiting: .permission, status: .waiting)
         #expect(line(waiting, .needsYou).hasPrefix("Needs you · Asking permission"))
-        #expect(!line(waiting, .needsYou).contains("Claude"))
+        #expect(!line(waiting, .needsYou).contains("Claude-sr2"))
+        #expect(!line(waiting, .needsYou).contains("Claude is"))
     }
 
     @Test func anIdleRowWithoutNewsShowsItsPlace() {

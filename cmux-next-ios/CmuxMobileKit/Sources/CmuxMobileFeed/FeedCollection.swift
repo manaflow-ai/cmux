@@ -340,7 +340,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         applyScheduled = false
         guard let next = pending, width > 0, collectionView != nil else { return }
         // The thread line follows the order: a row's neighbors decide it.
-        threads = Dictionary(zip(next.map(\.id), FeedThread.positions(next.map(\.threadKey))), uniquingKeysWith: { first, _ in first })
+        threads = Dictionary(zip(next.map(\.id), FeedThread.positions(next.map { $0.needsYou ? "ask:" + $0.id : $0.threadKey })), uniquingKeysWith: { first, _ in first })
         // A pending question's card shows its saved draft (a relaunch keeps a partly answered question
         // where the person left it); a question answered or cancelled keeps no card state or draft.
         for item in next {

@@ -138,10 +138,7 @@ public final class LiveFeed: FeedActions {
         // Cards an older build made for the Chief's own sessions leave the Feed.
         let hidden = Set(sessions.filter { !Self.showsTurns(of: $0) }.map(\.id))
         if !hidden.isEmpty {
-            store.removeAll { item in
-                guard item.macID == macID, item.id.hasPrefix("turn-") else { return false }
-                return hidden.contains { item.id.hasPrefix("turn-\($0)-") }
-            }
+            store.withdraw(idPrefixes: Set(hidden.map { "turn-\($0)-" }), macID: macID)
         }
         let turns = sessions.compactMap { session -> (FeedItem, AcpmuxSession)? in
             guard Self.showsTurns(of: session) else { return nil }
@@ -165,7 +162,7 @@ public final class LiveFeed: FeedActions {
     /// own turns (the Chief tab shows those), so the Feed is the person's work (#51332). Their
     /// asks still reach the Feed when a person must answer them (a Chief turn's question).
     static func showsTurns(of session: AcpmuxSession) -> Bool {
-        !session.isChiefCompactor && !session.isChiefTurn
+        !session.isChiefCompactor && !session.isChiefTurn && HarnessName.family(session.harness) != "chief"
     }
 
     /// How many of the newest turn cards read their whole reply on a read of the Mac.

@@ -11,8 +11,8 @@ import Testing
 /// happened in one line and carries its pull request's state.
 @MainActor
 @Suite struct FeedThreadsQualityTests {
-    static func session(_ fields: String) throws -> AcpmuxSession {
-        let line = #"{"sessionId":"s1","harness":"claude-sr2","cwd":"/tmp/w","status":"ready","pendingPermissions":0,"lastSeq":3,"lastTurn":{"status":"completed","turnId":"t1"},"#
+    static func session(_ fields: String, harness: String = "claude-sr2") throws -> AcpmuxSession {
+        let line = #"{"sessionId":"s1","harness":""# + harness + #"","cwd":"/tmp/w","status":"ready","pendingPermissions":0,"lastSeq":3,"lastTurn":{"status":"completed","turnId":"t1"},"#
             + fields + "}"
         return try #require(AcpmuxSession(try JSONDecoder().decode(JSONValue.self, from: Data(line.utf8))))
     }
@@ -108,6 +108,12 @@ import Testing
         #expect(item.pullRequest?.number == 51400)
         #expect(item.devBuild == "feed-threads")
         #expect(item.headline == "PR #51400 open")
+        #expect(ChatActivity.devBuildTag(in: "Dev build `feed-threads` is up.") == "feed-threads")
+    }
+
+    @Test func aChiefHarnessTurnStaysOut() throws {
+        let chief = try Self.session(#""name":"home","preview":"Done.""#, harness: "chief")
+        #expect(!LiveFeed.showsTurns(of: chief))
     }
 
     @Test func thePrStateAnswerReadsAsChecksAndMergeability() throws {
@@ -139,8 +145,12 @@ import Testing
         #expect(item.decision == nil)
         item.pullRequest?.state = .merged
         #expect(item.headline == "Merged PR #9")
+        item.pullRequest?.state = .open
+        item.pullRequest?.checks = .passing
         item.kind = .failed
         #expect(item.headline == "Failed")
+        // A failed turn's pull request is not offered for merging.
+        #expect(item.decision == nil)
         item.tabTitle = "Fix login"
         #expect(item.title == "cmux › Fix login")
         #if os(iOS)
