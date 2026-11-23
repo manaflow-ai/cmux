@@ -235,6 +235,10 @@ export type FollowChase = {
   /// the same clock, and moves at most what is left of ARRIVAL_FRAME_LINES (`alongsideMove`). Kept
   /// until replaced; animations that ended move nothing.
   alongside(animations: ReadonlySet<Animation> | undefined): void;
+  /// `rested` runs each time the chase comes to rest from a move (home, or `stop`), never while it
+  /// is held: the transcript reads and places its mounted rows then (VirtualTranscript.tsx
+  /// `settleMotion`). It may run inside a commit, so it must not render there.
+  onRest(rested: (() => void) | undefined): void;
 };
 
 /// The send motion's length (ms, `--agent-motion-send`), at the host's `scale` when it sets none.
@@ -346,6 +350,10 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
   /// The `steady` arm: the drift's state, and what `shift` drew back since its last frame (px).
   let steady: SteadyState = { x: 0, speed: 0, rate: 0 };
   let inflow = 0;
+  /// What runs when the chase comes to rest (`onRest`), and whether it drew the thread off home
+  /// since it last rested.
+  let rested: (() => void) | undefined;
+  let drawnOff = false;
   let frame: number | undefined;
   /// When the pending `frame` was asked for (performance.now ms).
   let askedAt = 0;
@@ -403,12 +411,14 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
     } else {
       thread.style.willChange = "translate";
       thread.style.translate = `0 ${x}px`;
+      drawnOff = true;
     }
     // The live line held at the bottom moves against the thread in the same frame (pinnedLiveLine.ts).
     drawPinned(thread, x);
   };
   const stop = () => {
     cancelRecheck();
+    const moving = drawnOff || frame !== undefined || x !== 0;
     if (frame !== undefined) thread?.ownerDocument.defaultView?.cancelAnimationFrame(frame);
     frame = undefined;
     last = undefined;
@@ -424,6 +434,8 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
     steady = { x: 0, speed: 0, rate: 0 };
     inflow = 0;
     draw();
+    drawnOff = false;
+    if (moving) rested?.();
   };
   const step = (now: number) => {
     frame = undefined;
@@ -598,6 +610,9 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
     resume,
     alongside(animations) {
       along = animations;
+    },
+    onRest(next) {
+      rested = next;
     },
     carry(node, px) {
       if (!(Math.abs(px) >= 0.01)) return;

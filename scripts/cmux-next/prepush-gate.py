@@ -4503,6 +4503,7 @@ SCRATCH_SWEEP_AGE_SECONDS = 2 * GATE_LIMIT_MAX_SECONDS
 SCRATCH_SWEEP_AGE_NO_PROC_SECONDS = 6 * GATE_LIMIT_MAX_SECONDS
 SCRATCH_SWEEP_OFF = "CMUX_NEXT_PREPUSH_SCRATCH_SWEEP"  # "0" turns the start-up sweep off; delete on finish stays
 _LIVE_SCRATCH: list[str] = []
+_SCRATCH_PID = os.getpid()  # the gate's own pid: a forked child never removes its scratch
 
 
 def _process_start(pid: int) -> str | None:
@@ -4569,7 +4570,12 @@ def scratch_dir(prefix: str = SCRATCH_PREFIX):
 
 
 def remove_live_scratch() -> None:
-    """Remove every scratch dir this run still has (a signal handler's or the watchdog's last step)."""
+    """Remove every scratch dir this run still has (a signal handler's or the watchdog's last step). Only the process
+    that made them removes them: a forked child (the crash ratchet's scan pool, which `Pool.terminate` ends with
+    SIGTERM) inherits this list and the handler, and once deleted the gate's base and head trees mid-scan, so every
+    Rust push big enough for the pool died with FileNotFoundError."""
+    if os.getpid() != _SCRATCH_PID:
+        return
     for path in list(_LIVE_SCRATCH):
         try:
             _remove_scratch(path)
