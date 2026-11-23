@@ -133,7 +133,13 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: API Worker tests (workerd), shard ${{ matrix.shard }} of 6
         working-directory: backend/apps/api
-        run: bun run test --shard=${{ matrix.shard }}/6
+        # --maxWorkers=4: the pool packs up to 4 runners on a 16 vCPU VM, but each job sees all 16 CPUs, so vitest
+        # started 15 workers (15 workerd, each loading the whole Worker) per job: 60 on 16 CPUs. Every file's import
+        # then took 40 to 100 s and cases of 0.5 s ran past their 20 s bound, in a different shard each run (runs
+        # 45159322542, 45166603179, 45168037835, 45172851459). Measured on this shard (2/6) pinned to 4 CPUs
+        # (taskset), 2026-11-23: 15 workers: 416 s, import 4078 s, tests 1649 s, 2 files failed (hook timeouts);
+        # 4 workers: 451 s, import 1153 s, tests 554 s, 228/228 passed. Same wall time, a third of the CPU wasted.
+        run: bun run test --shard=${{ matrix.shard }}/6 --maxWorkers=4
 
   test:
     # Runs after the API Worker shards whatever they end with, and fails on a red shard (its last step), so the
