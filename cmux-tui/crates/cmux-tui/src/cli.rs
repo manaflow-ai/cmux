@@ -88,6 +88,8 @@ mod cloud_environment;
 mod cloud_hands;
 mod cloud_help;
 #[cfg(unix)]
+mod cloud_journey;
+#[cfg(unix)]
 mod cloud_machine_auth;
 #[cfg(unix)]
 mod cloud_machine_io;
@@ -1032,6 +1034,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| auth_token::whoami_if_requested(args))
         .or_else(|| live_code::run_if_requested(args))
         .or_else(|| sandbox_run::run_if_requested(args))
+        .or_else(|| cloud_journey::run_if_requested(args))
         .or_else(|| vm::run_if_requested(args))
         .or_else(|| vnc::run_if_requested(args))
         .or_else(|| cloud_environment::run_if_requested(args))

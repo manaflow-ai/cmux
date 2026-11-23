@@ -85,6 +85,44 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
     return b.turnEnd().build();
   },
 
+  // Leo, 2026-11-22 08:29Z (ST-02, his screenshot 1159): "this one seems to have an unnecessary gap due to being a
+  // recieved message. these aren't categorized properly under our tool call formatting." Another agent's message
+  // opens a turn that sends one and replies; the reader opens its "Worked for" (the message its first entry, then
+  // "Sent to"). A notice opens the next turn, which receives a message mid-turn and sends between its calls. The
+  // received and "Sent to" rows are activity rows: each stands the gap a tool row stands in its place, every step.
+  "received-sent-as-activity": () => {
+    const b = sim(
+      "received-sent-as-activity",
+      "Another agent's message opens a turn that sends one and replies; a notice opens the next, which receives a message mid-turn and sends one.",
+    );
+    b.prompt("Map all chat stream edge cases with your helper.");
+    b.think("Starting the helper.");
+    b.tool("acpmux send map-edge-cases 'Map all chat stream edge cases.'", { ms: 500 });
+    b.turnEnd();
+    b.wait(20_000).incoming("chat-scenarios: no lane of mine holds it; it's yours.", {
+      kind: "agent_message",
+      fromName: "claude-sr2-coord",
+    });
+    b.tool("acpmux send map-edge-cases 'claude-sr2-coord says chat-scenarios is ours; carry on.'", { ms: 500 });
+    b.say("Got it, thanks. My helper owns chat-scenarios, covering the stream edge cases as well as the oddities.");
+    b.turnEnd();
+    // 1159: the reader opens that turn's "Worked for": the message that opened it is its first entry, then "Sent to".
+    b.reader({ open: "worked-user-12" });
+    b.wait(20_000).incoming("Prioritize visible cmux under load finished", {
+      kind: "notice",
+      fromName: "visible-under-load",
+      title: "Prioritize visible cmux under load finished",
+    });
+    b.tool("acpmux send visible-under-load 'Keep going; send me the numbers.'", { ms: 500 });
+    b.tool("rg -n 'under load' docs", { ms: 400 });
+    b.message("The numbers: p95 frame 9 ms under load.", { fromName: "visible-under-load" });
+    b.tool("acpmux send visible-under-load 'Thanks, land it.'", { ms: 500 });
+    b.tool("git status --short", { ms: 300 });
+    b.say("Both helpers have their next steps.");
+    b.turnEnd();
+    return b.reader({ open: "worked-user-24" }).build();
+  },
+
   "background-task": () => {
     const b = sim(
       "background-task",
