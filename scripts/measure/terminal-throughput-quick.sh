@@ -59,17 +59,20 @@ fi
 export SIDE_INSTANCE_BUDGET_WAIT_S="${SIDE_INSTANCE_BUDGET_WAIT_S:-60}"
 
 out="$(mktemp -d "${TMPDIR:-/tmp}/tt-quick.XXXXXX")"
+# The report outlives the run (the summary names it); the bench's scratch goes at exit unless the run failed.
+report="$(mktemp "${TMPDIR:-/tmp}/tt-quick-report.XXXXXX")"
+trap '[[ "${rc:-1}" == 0 ]] && rm -rf "$out"' EXIT
 started=$SECONDS
 set +e
 /usr/bin/python3 -I "$here/../cmux-next/terminal-throughput-bench.py" --installed "$next" \
-  ${ghostty_args[@]+"${ghostty_args[@]}"} --out "$out" --json "$out/report.json" \
+  ${ghostty_args[@]+"${ghostty_args[@]}"} --out "$out" --json "$report" \
   --interrupt-runs 0 --timeout 60 ${pass[@]+"${pass[@]}"}
 rc=$?
 set -e
-if [[ -n "$artifact" && -f "$out/report.json" ]]; then
-  mkdir -p "$here/../../artifacts" && cp "$out/report.json" "$here/../../artifacts/terminal-throughput-quick.json"
+if [[ -n "$artifact" && -s "$report" ]]; then
+  mkdir -p "$here/../../artifacts" && cp "$report" "$here/../../artifacts/terminal-throughput-quick.json"
 fi
-/usr/bin/python3 -I - "$out/report.json" "$((SECONDS - started))" "$here/../cmux-next" <<'PY'
+/usr/bin/python3 -I - "$report" "$((SECONDS - started))" "$here/../cmux-next" <<'PY'
 import json, sys
 path, seconds = sys.argv[1], sys.argv[2]
 sys.path.insert(0, sys.argv[3])
