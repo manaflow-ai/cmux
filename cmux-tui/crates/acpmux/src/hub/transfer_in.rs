@@ -176,10 +176,13 @@ impl Hub {
         }
         // A move committed before `moved_to` was recorded: its log says so.
         let mut moved = false;
-        let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
-            // The daemon's own records only: an agent's update may carry any kind.
-            moved |= e.dir == "mux" && e.kind == "transferred";
-            !moved
+        // The whole log with no move: off the runtime's workers (`qos::off_worker`).
+        let _ = crate::qos::off_worker(|| {
+            self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+                // The daemon's own records only: an agent's update may carry any kind.
+                moved |= e.dir == "mux" && e.kind == "transferred";
+                !moved
+            })
         });
         moved
     }
@@ -472,11 +475,10 @@ impl Hub {
         }
         // A delta bundle comes with the prefix staged for it (`transfer_precopy.rs`), never alone.
         let stage_id = params.get("stageId").and_then(Value::as_str);
-        if names_prefix(&manifest) != stage_id.is_some() || (stage_id.is_some() && guard.is_some())
-        {
+        if names_prefix(&manifest) != stage_id.is_some() {
             return Err(transfer_error(
                 "unstaged",
-                "a manifest with a prefix needs its stageId, unguarded, and only it does",
+                "a manifest with a prefix needs its stageId, and only it does",
             ));
         }
         let _receives = RECEIVES.lock().await;
@@ -498,7 +500,9 @@ impl Hub {
             crate::home_fs::write(dir.join("manifest.json"), serde_json::to_vec(&manifest)?)
         });
         made.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
-        if let Some(Err(e)) = stage_id.map(|stage| self.take_stage(stage, &manifest, &dir)) {
+        if let Some(Err(e)) = stage_id
+            .map(|stage| self.take_stage(stage, &manifest, &dir, guard.as_ref().map(|g| g.control)))
+        {
             let _ = crate::home_fs::remove_dir_all(&dir);
             return Err(e);
         }
@@ -811,9 +815,12 @@ impl Hub {
         let here = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(session_id).cloned();
         let mut landed = false;
         if let Some(session) = here {
-            let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
-                landed |= e.kind == "transferred_in" && e.msg["transferId"] == transfer_id;
-                !landed
+            // The whole log when it did not land: off the runtime's workers (`qos::off_worker`).
+            let _ = crate::qos::off_worker(|| {
+                self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+                    landed |= e.kind == "transferred_in" && e.msg["transferId"] == transfer_id;
+                    !landed
+                })
             });
         }
         Ok(json!({"transferId": transfer_id, "landed": landed}))
