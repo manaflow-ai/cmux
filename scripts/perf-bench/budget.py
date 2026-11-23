@@ -94,7 +94,7 @@ def animation_budgets(path: str | None = None) -> list[dict]:
 
 
 def _sleep(seconds: float):
-    time.sleep(seconds)  # bench: a deliberate settle window
+    time.sleep(seconds)  # sleep-ok: the scenario's home_settle_s/phase_settle_s: budgets are read that long after each phase
 
 
 def session(run, browser, round_no: int, log, budgets_path: str | None = None):

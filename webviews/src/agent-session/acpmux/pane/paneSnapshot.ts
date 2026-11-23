@@ -58,6 +58,7 @@ import { acpWire } from "../wire";
 import { chatPerfCapture } from "../chatPerfCapture";
 import { acpmuxPerf } from "../perf";
 import { perfReporter } from "../perfReporter";
+import { frameTally } from "../conversation/frameTally";
 import { reconciledProject } from "../newtab/startHint";
 import { streamingRow, streamingRowBlocked } from "../streamingRow";
 import { liveToolOutput, toolOutputOnly } from "../liveToolOutput";
@@ -138,6 +139,7 @@ import {
   offersAcpmuxRestart,
   quickRetry,
   readHostRestoring,
+  troubleSinceAfterLoss,
 } from "../hostRetry";
 import { heldStartStop, sendsHeldForHost, untilHostAnswers } from "../sendWhenReady";
 import type { Subagent } from "../subagents/subagentFold";
@@ -359,6 +361,8 @@ export type PaneSnapshotArgs = {
   setWaitingSince: React.Dispatch<React.SetStateAction<number | undefined>>;
   setRestartUnavailable: React.Dispatch<React.SetStateAction<boolean>>;
   setRelinkingSince: React.Dispatch<React.SetStateAction<number | undefined>>;
+  /// When the pane's trouble began (`troubleSince` below): bounds the bare "Reconnecting…".
+  setHostTroubleSince: React.Dispatch<React.SetStateAction<number | undefined>>;
   setHostRestoring: React.Dispatch<React.SetStateAction<HostRestoring | undefined>>;
   runPendingAdoption: React.RefObject<() => void>;
   freshRef: React.RefObject<boolean>;
@@ -499,6 +503,7 @@ export function paneSnapshotEffect({
   setWaitingSince,
   setRestartUnavailable,
   setRelinkingSince,
+  setHostTroubleSince,
   setHostRestoring,
   runPendingAdoption,
   freshRef,
@@ -847,6 +852,10 @@ export function paneSnapshotEffect({
   /// When the handshakes began failing (cleared by a connect): a recovery is said only once it
   /// has failed for HOST_ERROR_DEADLINE_MS (hostRetry.ts).
   let failingSince: number | undefined;
+  /// When the pane's trouble began: unlike `failingSince`, a connect that is lost again within
+  /// CONNECTION_STABLE_MS does not end it (hostRetry.ts `troubleSinceAfterLoss`), so a chat that
+  /// never stays open stops being a bare "Reconnecting…" past SELF_RETRY_SAID_MS.
+  let troubleSince: number | undefined;
   let connecting = false;
   /// The user asked to retry while an attempt was in flight; run a full one when it ends.
   let retryPending = false;
@@ -1226,6 +1235,8 @@ export function paneSnapshotEffect({
           // the handshakes fail past the deadline, then the waiting line or the failure.
           failingSince = Date.now();
           setRelinkingSince(failingSince);
+          troubleSince = troubleSinceAfterLoss(troubleSince, failingSince - connectedAt, failingSince);
+          setHostTroubleSince(troubleSince);
           // A client lost soon after it connected keeps the backoff growing: a daemon that drops
           // the pane right after every connect is not asked again every 250 ms. Jittered so the
           // tabs that lost one daemon together do not ask it again in lockstep.
@@ -1253,6 +1264,8 @@ export function paneSnapshotEffect({
       directClient.current = client;
       // The perf watch (perfReporter.ts): one status read on the page's first connect; off, nothing runs.
       perfReporter.attach((params) => client.perf(params));
+      // The always-on frame tally (conversation/frameTally.ts): the visible chat's frame gaps, to the daemon.
+      frameTally.attach((params) => client.perf(params));
       client.setFollowing(followingTranscript.current);
       // A reader scrolled far up keeps the rows in view and the screens under them (direct.ts `shedNewerHeld`).
       client.readerView = () => transcriptInView.current?.();
@@ -2718,6 +2731,8 @@ export function paneSnapshotEffect({
         setHostFailure(error);
         setHostRestoring(readHostRestoring((error as { details?: unknown } | null)?.details, Date.now()));
         failingSince ??= Date.now();
+        troubleSince ??= failingSince;
+        setHostTroubleSince(troubleSince);
         const recovering = hostIsReconnecting(error);
         // A sleeping Cloud machine is never "Can't reach"; an SSH peer of the same name still is.
         const asleep = (peer: string | undefined) =>
