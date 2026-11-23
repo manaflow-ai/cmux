@@ -48,6 +48,11 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing, Br
     /// a ticking title re-rendered the toolbar and rows and wrote history every frame.
     @ObservationIgnored var titleCoalescer = TitleCoalescer()
     @ObservationIgnored let titleTimer = DemandTimer(owner: "WebKitTab.title")
+    /// After Wait on a hung page, looks again whether WebKit still counts it unresponsive (`WebKitTab+Unresponsive`).
+    @ObservationIgnored let hangRecheck = DemandTimer(owner: "WebKitTab.hang")
+    @ObservationIgnored var hangRecheckDelay: Duration = .seconds(10)
+    /// Whether the page's web content process answers now (WebKit's `_webProcessIsResponsive`); tests replace it.
+    @ObservationIgnored var webProcessIsResponsiveOverride: (@MainActor () -> Bool)?
     @ObservationIgnored private var navigationIDs: [ObjectIdentifier: BrowserNavigationID] = [:]
     @ObservationIgnored private var nextNavigation: UInt64 = 0
     /// `observeNavigationEvents` handlers (WebKitTab+Navigations.swift).
@@ -316,6 +321,7 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing, Br
         removeStandIn()
         faviconTask?.cancel()
         titleTimer.cancel()
+        hangRecheck.cancel()
         rateReshow?.cancel()
         pageBaseHold.cancel()
         for prompt in pendingPrompts { prompt.respond(prompt.dismissalResponse) }
