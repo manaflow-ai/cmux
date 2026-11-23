@@ -52,7 +52,7 @@ pub(super) const FILES: &[(&str, &str)] = &[
 /// (cmux#47409's check-screen-share-identity.sh refuses the same bundle).
 pub(super) const COMPUTER_USE_APP: &str = "cmux Computer Use.app";
 
-/// The app's one Screen Sharing helper (`Contents/Library/* Screen Sharing.app`), `None` when it
+/// The app's one Screen Sharing helper (`Contents/Library/* Helper.app`, or `* Screen Sharing.app` in an app built before the rename), `None` when it
 /// bundles none. Refuses an app holding two helpers, or cmux Computer Use.app: macOS keeps the
 /// grants under one holder, and a try never picks one of several.
 pub(super) fn library_helper(app: &Path) -> Result<Option<PathBuf>, String> {

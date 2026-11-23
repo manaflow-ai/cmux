@@ -1,7 +1,7 @@
 //! The Screen Sharing helper a live try carries: `mac-live.json`'s top-level
 //! `screen_sharing_helper` (a key every older CLI ignores, so its payloads stay
-//! readable to them), the signed `<app> Screen Sharing.app` of the commit's
-//! cmux-rd host (plans/cmux-next/screen-sharing-helper.md).
+//! readable to them), the signed `<app> Helper.app` (`<app> Screen Sharing.app` before the
+//! rename) of the commit's cmux-rd host (plans/cmux-next/screen-sharing-helper.md).
 //!
 //! The app and the daemon never fall back to `bin/cmux rd serve` once a helper
 //! is bundled, so a try that changes the host's code changes this bundle. It is
@@ -42,7 +42,7 @@ pub(super) fn is_helper_name(name: &str) -> bool {
 pub(super) const EXECUTABLE: &str = "cmux-screen-sharing";
 /// A helper zip is a few megabytes.
 pub(super) const ZIP_MAX_BYTES: u64 = 128 * 1024 * 1024;
-/// The staging folder's prefix beside the installed helper (hidden: no glob of `* Screen Sharing.app` sees it).
+/// The staging folder's prefix beside the installed helper (hidden: no glob of `* Helper.app` or `* Screen Sharing.app` sees it).
 const STAGING_PREFIX: &str = ".app-try-helper-";
 
 /// `screen_sharing_helper` in `mac-live.json`.
