@@ -92,7 +92,7 @@ test('a channel build newer than the pin dispatches its roll on feat-cmux-next',
   assert.deepEqual(calls.compared, [`${PIN}...${NEW}`]);
   assert.ok(calls.files.every((f) => f.ref === 'refs/heads/feat-cmux-next'));
   const since = calls.listed.find((a) => a.status === 'completed');
-  assert.equal(since.created, '>=2026-11-23T09:38:48.000Z');
+  assert.equal(since.created, '>=2026-11-23T09:38:48Z');
   assert.equal(since.event, 'workflow_dispatch');
   assert.match(core.notices.join('\n'), /Dispatched a roll of cmux-tui bbbbbbbbbbbb/);
 });
@@ -113,10 +113,26 @@ test('auto-roll.json off starts nothing (a dispatch would ignore off)', async ()
   assert.deepEqual(calls.dispatches, []);
 });
 
-test('dry-run still dispatches: the roll itself bakes and gates without pushing', async () => {
-  const { github, calls } = fakeGitHub({ mode: 'dry-run' });
-  await runStep(github);
-  assert.equal(calls.dispatches.length, 1);
+test('dry-run dispatches one roll per publish: the roll bakes and gates but never moves the pin', async () => {
+  const first = fakeGitHub({ mode: 'dry-run' });
+  await runStep(first.github);
+  assert.equal(first.calls.dispatches.length, 1);
+  const again = fakeGitHub({ mode: 'dry-run', recent: [{ id: 1, conclusion: 'success' }] });
+  await runStep(again.github);
+  assert.deepEqual(again.calls.dispatches, []);
+});
+
+test('a lock pin that is not a commit fails the step', async () => {
+  const { github, calls } = fakeGitHub({ pin: 'v1.0' });
+  await assert.rejects(runStep(github), /not a commit/);
+  assert.deepEqual(calls.dispatches, []);
+});
+
+test('a channel without a publish time fails the step', async () => {
+  channel.payload = { ...channel.payload, published_at: 'soon' };
+  const { github, calls } = fakeGitHub();
+  await assert.rejects(runStep(github), /published_at is not a time/);
+  assert.deepEqual(calls.dispatches, []);
 });
 
 test('the pinned build is not rolled again', async () => {

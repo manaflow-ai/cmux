@@ -16,7 +16,8 @@ name: Cloud VM image roll catch-up
 # - images/cmux-vm/auto-roll.json says off (a dispatch ignores off, so this checks it first);
 # - the channel's build is the pin or older than it;
 # - two rolls dispatched since the channel's build was published both failed (a red roll needs a fix, not
-#   a third bake of the same build).
+#   a third bake of the same build), or three ran and the pin is still behind it (one in dry-run, where a
+#   roll never moves the pin). Any dispatched roll counts, a hand rebake too; the next publish resets both.
 # The roll's own plan job keeps every guard (on the branch, published for the image, not older than the pin,
 # binaries changed), so a wrong channel read can only cause a plan that rolls nothing.
 on:
@@ -93,6 +94,9 @@ jobs:
             }
             const commit = payload.commit;
             const publishedAt = new Date(Number(payload.published_at) * 1000);
+            if (Number.isNaN(publishedAt.getTime())) throw new Error(`cloud-machine channel: published_at is not a time: ${payload.published_at}`);
+            // GitHub's search dates are whole seconds (YYYY-MM-DDTHH:MM:SSZ).
+            const since = publishedAt.toISOString().replace(/\.\d{3}Z$/, 'Z');
 
             const file = async (path) => {
               const { data } = await github.rest.repos.getContent({ owner, repo, path, ref: `refs/heads/${source}` });
@@ -120,7 +124,7 @@ jobs:
 
             const { data: recent } = await github.rest.actions.listWorkflowRuns({
               owner, repo, workflow_id: workflow, branch: source, event: 'workflow_dispatch', status: 'completed',
-              created: `>=${publishedAt.toISOString()}`, per_page: 10,
+              created: `>=${since}`, per_page: 10,
             });
             const failed = recent.workflow_runs.filter((r) => r.conclusion === 'failure');
             if (failed.length >= 2) {
@@ -128,8 +132,10 @@ jobs:
               return;
             }
             // A roll whose plan rolls nothing (binaries unchanged, not published for the image) ends green and
-            // leaves the pin behind the channel: three dispatched rolls since the publish are enough.
-            if (recent.workflow_runs.length >= 3) {
+            // leaves the pin behind the channel: three dispatched rolls since the publish are enough. A dry-run
+            // roll bakes and gates but never moves the pin, so one is enough there.
+            const cap = mode === 'live' ? 3 : 1;
+            if (recent.workflow_runs.length >= cap) {
               core.warning(`${recent.workflow_runs.length} rolls ran since cmux-tui ${commit.slice(0, 12)} was published and the pin is still ${pinned.slice(0, 12)}; read their plans (${recent.workflow_runs.map((r) => r.id).join(', ')})`);
               return;
             }
@@ -140,4 +146,4 @@ jobs:
               ref: `refs/heads/${source}`,
               inputs: { commit },
             });
-            core.notice(`Dispatched a roll of cmux-tui ${commit.slice(0, 12)} (pinned ${pinned.slice(0, 12)}, published ${publishedAt.toISOString()})`);
+            core.notice(`Dispatched a roll of cmux-tui ${commit.slice(0, 12)} (pinned ${pinned.slice(0, 12)}, published ${since})`);
