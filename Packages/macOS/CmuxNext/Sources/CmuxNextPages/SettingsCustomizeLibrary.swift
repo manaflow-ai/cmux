@@ -18,7 +18,7 @@ public final class SettingsCustomizeLibrary: PageProvider {
     /// The one op this part serves.
     public static let op = "cmux.settings.customize.library"
     /// The verbs that change the library.
-    nonisolated static let changes: Set<String> = ["on", "off", "order", "remove"]
+    nonisolated static let changes: Set<String> = ["on", "off", "order", "remove", "reset"]
     nonisolated static let timeout: Duration = .seconds(60)
 
     /// One CLI run: arguments in, exit status, stdout and stderr out.
@@ -64,6 +64,9 @@ public final class SettingsCustomizeLibrary: PageProvider {
         switch verb {
         case "list":
             return base + ["list"]
+        case "reset":
+            // Every entry off (`cmux customize library reset`), the palette's Reset Customization Library.
+            return base + ["reset"]
         case "on", "off", "remove", "order":
             guard let name = params["name"]?.stringValue, !name.isEmpty, !name.hasPrefix("-") else {
                 throw PageError.invalidParams("name is a library entry")
@@ -74,8 +77,22 @@ public final class SettingsCustomizeLibrary: PageProvider {
             }
             return base + [verb, name, position]
         default:
-            throw PageError.invalidParams("verb is list, on, off, order or remove")
+            throw PageError.invalidParams("verb is list, on, off, order, remove or reset")
         }
+    }
+
+    /// Reset Customization Library (`customize.library.reset`, person-only): `cmux --json customize library
+    /// reset` with the card's environment, so it resets the library the card lists. The CLI's answer, or
+    /// its refusal (`code`, `message`) as the thrown error's text.
+    public static func reset(cli: URL, settingsFile: URL?, runCLI: Runner = { try await SettingsCustomizeLibrary.run($0, $1, $2) }) async throws -> JSONValue {
+        let environment = environment(ProcessInfo.processInfo.environment, settingsFile: settingsFile)
+        let (status, stdout, stderr) = try await runCLI(cli, try arguments(.object(["verb": .string("reset")])), environment)
+        guard status == 0 else {
+            let refusal = try? JSONValue.parse(stderr)
+            throw PageError(code: refusal?["code"]?.stringValue ?? "cmux.customize.failed",
+                            message: refusal?["message"]?.stringValue ?? String(decoding: stderr, as: UTF8.self))
+        }
+        return (try? JSONValue.parse(stdout)) ?? .object([:])
     }
 
     /// The CLI's environment: the app's own, naming the app's settings file only when it is not the
