@@ -110,12 +110,12 @@ impl ChunkDeltas {
             && at >= t.at
             && t.shape == shape
         {
-            let delta = json!({"ref": t.chunk_ref, "seq": seq, "dt": at - t.at, "text": text});
+            let delta = json!({"ref": t.chunk_ref, "seq": seq, "dt": at.saturating_sub(t.at), "text": text});
             t.seq = seq;
             t.at = at;
             return Message::notification(CHUNK, delta);
         }
-        let chunk_ref = self.next_ref.fetch_add(1, Ordering::Relaxed) + 1;
+        let chunk_ref = self.next_ref.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
         templates.insert(session_id.to_owned(), Template { chunk_ref, shape, seq, at });
         params.set("chunkRef", json!(chunk_ref));
         Message::notification(method::MUX_EVENT, params)
