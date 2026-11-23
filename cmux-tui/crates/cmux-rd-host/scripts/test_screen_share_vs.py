@@ -655,6 +655,32 @@ class AppViewerHelpers(unittest.TestCase):
         self.assertEqual(got, [{"id": 1, "method": "debug.mac_screen", "params": {"action": "state"}}])
         self.assertIn("error", vs.app_call(["/nonexistent.sock"], "x"))
 
+    def test_launch_refuses_a_release_app_at_once(self):
+        # A NIGHTLY answers system.ping but not debug.mac_screen: launch says so, no 120 s wait.
+        calls = []
+
+        def fake_call(paths, method, params=None, timeout=60):
+            calls.append(method)
+            if method == "debug.mac_screen":
+                return {"error": {"code": "method_not_found", "message": "debug.mac_screen"}}
+            return {"pong": True}
+
+        orig, vs.app_call = vs.app_call, fake_call
+        orig_id, vs.app_bundle_id = vs.app_bundle_id, lambda app: "com.cmuxterm.app.nightly"
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                a = vs.build_parser().parse_args(["app", "launch", "--app", os.path.join(d, "cmux NIGHTLY.app")])
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    vs.cmd_app(a)
+        finally:
+            vs.app_call, vs.app_bundle_id = orig, orig_id
+        got = json.loads(out.getvalue().strip().splitlines()[-1])
+        self.assertIn("is a Release build", got["error"])
+        self.assertIn("mac_screen.state", got["error"])
+        self.assertTrue(got["reused"])
+        self.assertEqual(calls, ["system.ping", "debug.mac_screen"])
+
     def test_locate_output(self):
         self.assertEqual(vs.parse_locate("origin 812,402 cell 32 at 868,418\n"), ("812,402", 32, "868,418"))
         self.assertIsNone(vs.parse_locate("no marker\n"))
@@ -718,10 +744,15 @@ class AppViewerRun(unittest.TestCase):
             if method == "debug.device_hub" and params["action"] == "connect":
                 opened.append(params)
                 return {"ok": True}
+            if method == "mac_screen.state":
+                # Every build's read: the pane timings come from here, not debug.mac_screen.
+                self.assertEqual(params, {"tab": "t1"})
+                return {"tabs": [{k: row[k] for k in ("tab", "phase") + vs.APP_TIMING_FIELDS if k in row}]}
             if method == "debug.mac_screen":
+                dev = {k: v for k, v in row.items() if k not in vs.APP_TIMING_FIELDS}
                 if "tab" in params:
-                    return {"tabs": [row]}
-                return {"tabs": [row] if opened else []}
+                    return {"tabs": [dev]}
+                return {"tabs": [dev] if opened else []}
             return {}
         return answer
 
