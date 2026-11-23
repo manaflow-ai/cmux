@@ -1791,6 +1791,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-duress"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "cmux-agent-cli-render",
+ "cmux-fault",
+ "ghostty-vt",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "toml",
+]
+
+[[package]]
 name = "cmux-embed"
 version = "0.1.0"
 dependencies = [
