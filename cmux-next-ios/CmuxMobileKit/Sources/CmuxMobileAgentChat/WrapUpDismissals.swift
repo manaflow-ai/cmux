@@ -18,6 +18,12 @@ public final class WrapUpDismissals {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+#if DEBUG
+        // A UI test's first launch starts with none dismissed (WrapUpDismissUITests).
+        if defaults === UserDefaults.standard, ProcessInfo.processInfo.arguments.contains("-cmux-mobile-reset-wrap-up-dismissals") {
+            defaults.removeObject(forKey: Self.defaultsKey)
+        }
+#endif
         keys = defaults.stringArray(forKey: Self.defaultsKey) ?? []
     }
 

@@ -11,7 +11,8 @@ final class WrapUpDismissUITests: XCTestCase {
     @MainActor
     func testTheSummaryCardDismissesAndStaysGoneAfterRelaunch() {
         XCUIDevice.shared.orientation = .portrait
-        let app = Self.launch()
+        // The first launch clears dismissals an earlier run kept; the relaunch keeps them.
+        let app = Self.launch(reset: true)
 
         let card = app.descendants(matching: .any)["agentChat.nextStep"].firstMatch
         XCTAssertTrue(card.waitForExistence(timeout: 30), "the summary card shows under the last answer\n\(app.debugDescription)")
@@ -40,10 +41,11 @@ final class WrapUpDismissUITests: XCTestCase {
     }
 
     @MainActor
-    private static func launch() -> XCUIApplication {
+    private static func launch(reset: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-demo", "wrap-up-chat"]
+        if reset { app.launchArguments.append("-cmux-mobile-reset-wrap-up-dismissals") }
         app.launch()
         return app
     }
