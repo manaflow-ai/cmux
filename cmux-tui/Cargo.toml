@@ -65,6 +65,7 @@ members = [
     "crates/cmux-follow-cam",
     "crates/cmux-cloud-start-core",
     "crates/cmux-tab-discard",
+    "crates/cmux-lifeline",
     "crates/cmux-cloud-machine",
     "crates/cmux-cloud-tasks",
     "crates/cmux-cloud-config",
@@ -98,6 +99,7 @@ members = [
     "crates/cmux-terminal-client",
     "crates/cmux-relay",
     "crates/cmux-fault",
+    "crates/cmux-duress",
     "crates/chatmux-relay",
     "crates/cmux-tui-machine-agent-protocol",
     "crates/cmux-tui-machine-protocol",
@@ -143,6 +145,7 @@ members = [
     "crates/cmux-cookie-sync",
     "crates/cmux-browser-import",
     "crates/cmux-terminal-prediction",
+    "crates/cmux-terminal-projection",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
     "crates/cmux-app-host",
@@ -150,12 +153,14 @@ members = [
     "crates/cmux-mobile-core",
     "crates/cmux-mobile-ffi",
     "crates/cmux-cloud-wire",
+    "crates/cmux-tab-snapshots",
     "crates/cmux-palette-ranker",
     "crates/cmux-palette-eval",
     "crates/cmux-action-catalog",
     "crates/cmux-host-budget",
     "crates/cmux-device-kind",
     "crates/cmux-usage-patterns",
+    "crates/cmux-usage-share",
     "crates/cmux-vault-egress",
     "crates/cmux-url-input",
     "crates/cmux-view-rows",
@@ -207,6 +212,7 @@ default-members = [
     "crates/cmux-focus-core",
     "crates/cmux-cloud-start-core",
     "crates/cmux-tab-discard",
+    "crates/cmux-lifeline",
     "crates/cmux-cloud-machine",
     "crates/cmux-cloud-tasks",
     "crates/cmux-cloud-config",
@@ -232,6 +238,7 @@ default-members = [
     "crates/cmux-remote",
     "crates/cmux-relay",
     "crates/cmux-fault",
+    "crates/cmux-duress",
     "crates/chatmux-relay",
     "crates/cmux-tui-machine-agent-protocol",
     "crates/cmux-tui-machine-protocol",
@@ -275,6 +282,7 @@ default-members = [
     "crates/cmux-cookie-sync",
     "crates/cmux-browser-import",
     "crates/cmux-terminal-prediction",
+    "crates/cmux-terminal-projection",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
     "crates/cmux-app-host",
@@ -362,6 +370,7 @@ cmux-follow-cam = { path = "crates/cmux-follow-cam" }
 cmux-bookmarks-core = { path = "crates/cmux-bookmarks-core" }
 cmux-bookmarks-ops = { path = "crates/cmux-bookmarks-ops" }
 cmux-cloud-start-core = { path = "crates/cmux-cloud-start-core" }
+cmux-lifeline = { path = "crates/cmux-lifeline" }
 cmux-cloud-machine = { path = "crates/cmux-cloud-machine" }
 cmux-cloud-tasks = { path = "crates/cmux-cloud-tasks" }
 cmux-cloud-config = { path = "crates/cmux-cloud-config" }
@@ -387,6 +396,7 @@ cmux-action-catalog = { path = "crates/cmux-action-catalog" }
 cmux-host-budget = { path = "crates/cmux-host-budget" }
 cmux-device-kind = { path = "crates/cmux-device-kind" }
 cmux-usage-patterns = { path = "crates/cmux-usage-patterns" }
+cmux-usage-share = { path = "crates/cmux-usage-share" }
 cmux-command-class = { path = "crates/cmux-command-class" }
 cmux-vault-egress = { path = "crates/cmux-vault-egress" }
 cmux-url-input = { path = "crates/cmux-url-input" }
@@ -428,6 +438,7 @@ cmux-link = { path = "crates/cmux-link" }
 cmux-build-identity = { path = "crates/cmux-build-identity" }
 cmux-netwatch = { path = "crates/cmux-netwatch" }
 cmux-fault = { path = "crates/cmux-fault" }
+cmux-duress = { path = "crates/cmux-duress" }
 cmux-remote = { path = "crates/cmux-remote", default-features = false, features = ["wireguard-transport"] }
 cmux-wg = { path = "crates/cmux-wg" }
 cmux-server = { path = "crates/cmux-server" }
