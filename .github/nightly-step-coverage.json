@@ -384,6 +384,20 @@
         "Ask main's nightly-next tick": {"nightly_only": "dispatches main's nightly-next-tick.yml when nightly-next-one ends (tests/test_nightly_next_push_slot_at_build.py)"},
         "Retry the commit that left the slot unless nightly-next moved": {"nightly_only": "dispatches nightly.yml with nightly_next_loop_retry after nightly-next-one left the slot before nightly-next moved (scripts/ci/nightly-steps/slot-left-retry.sh; tests/test_nightly_next_push_slot_at_build.py)"},
         "Check the published feed offers deltas": {"nightly_only": "reads the live nightly-next feed and fails when the published build lists no served delta (tests/test_nightly_next_delta_check.py)"}},
+      "build-live-code-variant": {
+        "Select Xcode": {"plumbing": true}, "Select the SDK of the selected Xcode": {"plumbing": true},
+        "Build the commit's live code overlay": {"nightly_only": "builds the published commit -interposable after the feed is written, continue-on-error (scripts/ci/nightly-steps/live-code-variant.sh; tests/test_swap_binary.py)"}},
+      "sign-live-code-variant": {
+        "Hold the whole Mac before any credential": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
+        "Claim the whole Mac for signing": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
+        "Initialize cmux-next notices submodule": {"plumbing": true},
+        "Select Xcode": {"plumbing": true}, "Select the SDK of the selected Xcode": {"plumbing": true}, "Install create-dmg": {"plumbing": true},
+        "Graft the overlay into the published nightly's app": {"nightly_only": "copies the published nightly app and places the live code overlay in it, no bundle code (scripts/ci/nightly-steps/live-code-variant.sh)"},
+        "Import the Developer ID certificate": {"nightly_only": "imports the nightly's Developer ID identity into a temporary keychain"},
+        "Sign the variant as the nightly is signed": {"nightly_only": "re-seals the variant with the nightly's identity, hardened runtime and entitlements, continue-on-error"},
+        "Notarize the variant and its DMG": {"nightly_only": "notarizes as the nightly does (scripts/ci/notarize-nightly-dmg.sh)"},
+        "Delete the signing keychain": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
+        "Publish the variant and its module outputs": {"nightly_only": "uploads the variant DMG, its module outputs and live-code-<commit>.json write-once to the nightly-next files"}},
       "dispatch-nightly-next-sign": {
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Ask for this build's sign run": {"nightly_only": "dispatches nightly.yml with nightly_next_sign_stage and this run's unsigned app (tests/test_nightly_next_pipeline.py)"}},

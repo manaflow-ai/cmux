@@ -170,9 +170,10 @@ TYPECHECK_EXACT = {
 
 UNIT_TESTS_EXACT = {
     "CHANGELOG.md",
-    # web/tests/next-docs.test.ts and docs-shortcuts tests compare the generated
-    # docs references with these, so a change to either must run the web tests
-    # (#38631 changed action-surfaces.json with Web tests skipped and broke base).
+    # web/tests/next-docs.test.ts and the docs-shortcuts tests build the docs
+    # references from these at the head (the committed copies are bot-only, RFD
+    # 0048), so a change to either must run the web tests (#38631 changed
+    # action-surfaces.json with Web tests skipped and broke base).
     "plans/cmux-next/action-surfaces.json",
     "schemas/settings/settings-schema.json",
     "config/iroh/managed-relay-catalog.json",

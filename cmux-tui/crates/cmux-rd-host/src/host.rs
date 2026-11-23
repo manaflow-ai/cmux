@@ -528,8 +528,14 @@ fn serve_viewer<S: ViewerStream>(
     if crate::desktop::reports_cursor() {
         host_caps.push(caps::CURSOR);
     }
+    // Frames over one FEC block keep their parity, in interleaved blocks (design D6).
+    host_caps.push(caps::FEC_BLOCKS);
     if crate::desktop::scales_pictures() {
         host_caps.push(caps::VIDEO_SCALED);
+    }
+    // An OpenH264 viewer asks for Constrained Baseline (cmux#50591).
+    if crate::stream::offers_h264_baseline(&cfg.codec) {
+        host_caps.push(caps::H264_BASELINE);
     }
     // The session clock (C8; the engine answers every ping) and the stage ledger (D8).
     host_caps.extend([caps::CLOCK, caps::LEDGER]);
