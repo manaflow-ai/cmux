@@ -2198,6 +2198,7 @@ dependencies = [
  "libc",
  "objc2-app-kit",
  "png",
+ "serde_json",
  "windows-sys 0.61.2",
 ]
 
