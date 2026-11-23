@@ -5,6 +5,10 @@ use super::review_queue::Settled;
 use super::*;
 use cmux_json::JsonSet as _;
 
+/// The `mux` record of a chat's plan usage limits after a harness report changed them:
+/// `{usageLimits}`, the session detail's value, or null when none are left.
+pub const USAGE_LIMITS_KIND: &str = "usage_limits";
+
 tokio::task_local! {
     /// The fence of the ancestor's answer the agent's request in this task got, until its
     /// write takes it (`respond_answer`).
@@ -107,6 +111,8 @@ impl Hub {
         closed: &mut tokio::sync::watch::Receiver<bool>,
     ) {
         while let Some(item) = next_inbound(rx, stop, closed, &session.inbound_tx).await {
+            // An agent's stream allocates without any request: its pages go back once it stops.
+            cmux_tui_platform::malloc_quiet_trim::note_activity();
             match item {
                 Inbound::Notification {
                     method: m,
@@ -283,6 +289,17 @@ impl Hub {
                 // `initialize` holds the spawn lock that check takes (review 1 of #26059), unless a
                 // reattach replaced the link since (review 2).
                 Inbound::LinkBroken { agent } => {
+                    let child =
+                        session.child.lock().await.clone().filter(|c| c.generation == agent);
+                    if let Some(child) = child.filter(|c| c.is_broken()) {
+                        // An entry from its host could not be stored: every request open on it is
+                        // answered now, with the store's refusal (`disk.full` on a full disk) or
+                        // the link's own error, never left to the client's limit. The next request
+                        // reattaches; the host keeps the entry for it.
+                        let full = self.store.durability().and_then(|d| (d.full)());
+                        let why = full.as_deref().unwrap_or(crate::agent::LINK_UNLOGGED);
+                        child.fail_pending_if_unheard_with(why).await;
+                    }
                     if self.full_access_managed_off() {
                         let child = session.child.lock().await.clone();
                         if let Some(child) = child.filter(|c| c.generation == agent) {
@@ -351,8 +368,19 @@ impl Hub {
                             if intentional { "stopped" } else { "exited" },
                             if hibernating {
                                 json!({"code": code, "hibernated": true})
-                            } else {
+                            } else if intentional {
                                 json!({"code": code})
+                            } else {
+                                // Its stderr was queued before its exit (`agent.rs`): the tail
+                                // holds what it said last (`exit_reason.rs`).
+                                let tail =
+                                    session.stderr_tail.lock().unwrap_or_else(|e| e.into_inner());
+                                super::exit_reason::exited_data(
+                                    code,
+                                    super::exit_reason::last_explaining(
+                                        tail.iter().map(String::as_str),
+                                    ),
+                                )
                             },
                         );
                     }
@@ -390,8 +418,20 @@ impl Hub {
         let mut goal_write = false;
         let mut mark_cleared = false;
         let mut breakdown_changed = false;
+        let mut limits_changed = false;
+        let mut retitled = false;
         let background = kind == "agent_message_chunk" && self.background_message(session, update);
         let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        // The harness's plan is the chat's task list from now on (`task_list.rs`); history a load
+        // replays says nothing newer than what the meta kept.
+        let task_list_write = (kind == "plan" && !replayed)
+            .then(|| crate::task_list::plan_items(update))
+            .flatten()
+            .and_then(|items| {
+                crate::task_list::after_plan(m.task_list.as_ref(), items, now_ms(), m.turn_count)
+            })
+            .map(|list| m.task_list = list)
+            .is_some();
         match kind {
             "agent_message_chunk" => {
                 // History a load replays is logged (`.replay`) but is not the chat's newest
@@ -492,6 +532,7 @@ impl Hub {
                 if let Some(title) = update.get("title").and_then(Value::as_str) {
                     let title = cmux_chat_index::without_client_context(title).trim_end();
                     if !title.is_empty() {
+                        retitled = m.title.as_deref() != Some(title);
                         m.title = Some(title.to_owned());
                         m.title_source = Some(super::titles::HARNESS.to_owned());
                         // The ledger's copy (one map entry; a line only when a field changed).
@@ -511,7 +552,7 @@ impl Hub {
                 if let Some(limits) = update.pointer("/_meta/acpmux/usageLimits") {
                     let merged =
                         crate::claude_stdio::merge_usage_limits(m.usage_limits.as_ref(), limits);
-                    breakdown_changed |= m.usage_limits.as_ref() != Some(&merged);
+                    limits_changed |= m.usage_limits.as_ref() != Some(&merged);
                     m.usage_limits = Some(merged);
                 }
                 // Codex's, as cmux-codex-acp passes `account/rateLimits/updated` on: each is
@@ -522,7 +563,7 @@ impl Hub {
                     .filter(|s| crate::codex_app_server::is_plan_snapshot(s))
                 {
                     let limits = crate::codex_app_server::usage_limits(snapshot);
-                    breakdown_changed |= m.usage_limits != limits;
+                    limits_changed |= m.usage_limits != limits;
                     m.usage_limits = limits;
                 }
                 // Claude Code's system/init: its MCP servers, plugins and skills.
@@ -533,10 +574,21 @@ impl Hub {
             }
             _ => {}
         }
+        let limits = limits_changed.then(|| m.usage_limits.clone().unwrap_or(Value::Null));
         drop(m);
-        // Goal state must survive a daemon restart even when the turn has not settled yet.
-        if goal_write || breakdown_changed {
+        if task_list_write {
+            self.task_list_changed(session);
+        }
+        // Goal state must survive a daemon restart even when the turn has not settled yet. So
+        // must a title the harness gave: the chat shows it now, and before it waited for the
+        // turn's end or the stop's flush, so a hard exit in between took it back.
+        if goal_write || breakdown_changed || retitled || limits.is_some() {
             self.save_meta(session);
+        }
+        // The plan limits as merged above, whole (null once Codex reports none): an open pane
+        // applies them as they are, so its plan ring moves without reading the detail again.
+        if let Some(limits) = limits {
+            self.append(session, "mux", USAGE_LIMITS_KIND, json!({"usageLimits": limits}));
         }
         if let Some(claude) = reported_tools {
             self.absorb_reported_tools(session, &claude);
@@ -754,6 +806,8 @@ impl Hub {
         turn_id: Option<String>,
     ) -> Result<Value, RpcError> {
         let mut path = Self::fs_path(session, &params)?;
+        // A conflict from the last flush of a paused machine answers this call (`paused_fs.rs`).
+        self.journal_notices(session)?;
         // The remote floor: never through a symlink, the question names the
         // resolved path, and only that file is written (`write_approved`).
         let web_turn = Self::web_turn(session);
@@ -789,6 +843,10 @@ impl Hub {
                 -32000,
                 format!("write to {shown} rejected by the acpmux permission policy"),
             ));
+        }
+        // A paused machine's write goes to its journal, applied when it resumes (`paused_fs.rs`).
+        if self.journal_write(session, &path, &content).await? {
+            return Ok(Value::Null);
         }
         // Keep the read lease through the write; a new seed cannot begin in
         // between readiness and mutation. A Stop during the wait cancels it.
@@ -872,18 +930,25 @@ impl Hub {
                 format!("read of {} rejected by the acpmux permission policy", path.display()),
             ));
         }
-        let text = self
-            .read_with_external_access(session, &path, epoch, turn_id, || match &target {
-                Some(Some(t)) => {
-                    use std::io::Read;
-                    let mut text = String::new();
-                    super::remote_floor::open_read_target(t)?.read_to_string(&mut text)?;
-                    Ok(text)
-                }
-                Some(None) => Err(std::io::Error::other("the path cannot be resolved")),
-                None => std::fs::read_to_string(&path),
-            })
-            .await?;
+        // A paused machine's read is answered from its journal and replica (`paused_fs.rs`).
+        self.journal_notices(session)?;
+        let journaled = self.journal_read(session, &path).await?;
+        let text = match journaled {
+            Some(text) => text,
+            None => {
+                self.read_with_external_access(session, &path, epoch, turn_id, || match &target {
+                    Some(Some(t)) => {
+                        use std::io::Read;
+                        let mut text = String::new();
+                        super::remote_floor::open_read_target(t)?.read_to_string(&mut text)?;
+                        Ok(text)
+                    }
+                    Some(None) => Err(std::io::Error::other("the path cannot be resolved")),
+                    None => std::fs::read_to_string(&path),
+                })
+                .await?
+            }
+        };
         let line = params.get("line").and_then(Value::as_u64).map(|l| l.max(1) as usize);
         let limit = params.get("limit").and_then(Value::as_u64).map(|l| l as usize);
         let content = match (line, limit) {

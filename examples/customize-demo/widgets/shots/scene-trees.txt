@@ -2,7 +2,7 @@
 VStack
   Panel: Today
     HStack
-      Text: 02:02
+      Text: 04:12
       Spacer
       Group
         HStack
@@ -113,7 +113,7 @@ VStack
     VStack
       Panel: Today
         HStack
-          Text: 02:02
+          Text: 04:12
           Spacer
           Group
             HStack
@@ -124,63 +124,64 @@ VStack
         Group
       Panel: World clock
         ForEach
-          Row: Los Angeles | −8 h · PST | appearance.light | 18:02
-          Row: New York | −5 h · EST | state.idle | 21:02
-          Row: London | Same time as you | state.idle | 02:02
-          Row: Tokyo | +9 h · GMT+9 | appearance.light | 11:02
-    VStack
-      Panel: Agents
-        HStack
-          Icon: agent.bot
-          VStack
-            HStack
-              Text: Byte
-              Icon: notification
-            Text: Review usage card is waiting for you
-          Spacer
-        HStack
-          VStack
-            HStack
-              Icon: automation
-              Text: Working
-            Text: 1
-          VStack
-            HStack
-              Icon: notification
-              Text: Waiting
-            Text: 1
-          VStack
-            HStack
-              Icon: status.complete
-              Text: Done
-            Text: 1
-        ForEach
-          Row: Fix sidebar glass | Working · cmux · 2 min ago | automation
-          Row: Review usage card | Waiting for you · cmux · 10 min ago | status.needsinput
-          Row: Land widgets demo | Finished · hq · 1 h ago | status.complete
-        Group
-    VStack
+          Row: Los Angeles | −8 h · PST | state.idle | 20:12
+          Row: New York | −5 h · EST | state.idle | 23:12
+          Row: London | Same time as you | state.idle | 04:12
+          Row: Tokyo | +9 h · GMT+9 | appearance.light | 13:12
+    Panel: Agents
+      HStack
+        Icon: agent.bot
+        VStack
+          HStack
+            Text: Byte
+            Icon: notification
+          Text: Review usage card is waiting for you
+        Spacer
+      HStack
+        VStack
+          HStack
+            Icon: automation
+            Text: Working
+          Text: 1
+        VStack
+          HStack
+            Icon: notification
+            Text: Waiting
+          Text: 1
+        VStack
+          HStack
+            Icon: status.complete
+            Text: Done
+          Text: 1
+      ForEach
+        Row: Fix sidebar glass | Working · cmux · 2 min ago | automation
+        Row: Review usage card | Waiting for you · cmux · 10 min ago | status.needsinput
+        Row: Land widgets demo | Finished · hq · 1 h ago | status.complete
       Group
-        Panel: Usage
-          Group
-            VStack
-              ForEach
-                VStack
-                  HStack
-                    Text: Claude
-                    Badge: 2/2
-                    Spacer
-                    Text: 65%
-                  ProgressView: 0.65
-                  Text: left this week · session 64% · under pace
-                VStack
-                  HStack
-                    Text: Codex
-                    Badge: 1/1
-                    Spacer
-                    Text: 31%
-                  ProgressView: 0.31
-                  Text: left this week · session 22% · over pace · $4.50 extra
+  Group
+    HStack
+      VStack
+        Group
+          Panel: Usage
+            Group
+              VStack
+                ForEach
+                  VStack
+                    HStack
+                      Text: Claude
+                      Badge: 2/2
+                      Spacer
+                      Text: 65%
+                    ProgressView: 0.65
+                    Text: left this week · session 64% · under pace
+                  VStack
+                    HStack
+                      Text: Codex
+                      Badge: 1/1
+                      Spacer
+                      Text: 31%
+                    ProgressView: 0.31
+                    Text: left this week · session 22% · over pace · $4.50 extra
       Panel: Pull requests
         Group
           Text: 1 pull request with failing checks

@@ -12,7 +12,7 @@ public nonisolated struct WorkspaceHibernationSettings: Sendable, Equatable {
     public var idleMinutes: Double
     /// Minutes a workspace of a space no window shows stays idle before it hibernates.
     public var hiddenSpaceMinutes: Double
-    /// `workspaces.freeing.enabled`: whether a hibernated workspace's idle shells end (off by default).
+    /// `workspaces.freeing.enabled`: whether a hibernated workspace's idle shells end (on by default).
     public var freeingEnabled: Bool
     /// `workspaces.freeing.idleMinutes`: minutes of no use before a hibernated workspace's idle shells end.
     public var freeingIdleMinutes: Double
@@ -26,7 +26,7 @@ public nonisolated struct WorkspaceHibernationSettings: Sendable, Equatable {
     ///   - enabled: on by default.
     ///   - idleMinutes: 60 by default.
     ///   - hiddenSpaceMinutes: the generated default (``hiddenSpaceMinutesDefault``).
-    ///   - freeingEnabled: off by default (``freeingEnabledDefault``).
+    ///   - freeingEnabled: on by default (``freeingEnabledDefault``).
     ///   - freeingIdleMinutes: one day by default (``freeingIdleMinutesDefault``).
     ///   - freeingAgents: on by default (``freeingAgentsDefault``).
     ///   - freeingRunningCommands: `never` by default (``freeingRunningCommandsDefault``).

@@ -7,6 +7,9 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
+import { ComposerPlusMenu } from "./ComposerPlusMenu";
+import { composerPlusRegistry } from "./composerPlusRegistry";
+import { FolderPopover } from "./FolderPopover";
 import { openComposerControl, PLAN_TOGGLE_OPENER } from "./composerControls";
 import { translate } from "./i18n";
 import { registerPicker } from "./pickerOpeners";
@@ -162,4 +165,107 @@ test("a chip's tooltip names the key the host bound, and its shortcut opens it",
     expect(openComposerControl("agentOptions", translate)).toBe(true);
   });
   expect(container.querySelector("[data-menu=options]")!.getAttribute("aria-expanded")).toBe("true");
+});
+
+test("the Folder chip names its key with no folder picked too", async () => {
+  // Fleet check 2026-11-20 (cmux10s, the #46990 build): a new chat's "No folder" chip carried
+  // data-tooltip-shortcut, but its only tooltip text was the folder (title={current}), so with no
+  // folder it drew no tooltip and its ⌃⌥⌘O never showed.
+  const container = installDom();
+  root = createRoot(container);
+  const draw = (current?: string) =>
+    act(async () =>
+      root!.render(
+        <ShortcutsContext.Provider value={{ "agentPane.composer.chooseFolder": "⌃⌥⌘O" }}>
+          <FolderPopover
+            label="Folder"
+            menu="Location"
+            face="No folder"
+            folders={[]}
+            current={current}
+            onPick={() => undefined}
+          />
+        </ShortcutsContext.Provider>,
+      ),
+    );
+  await draw();
+  const trigger = container.querySelector<HTMLElement>(".acpmux-location-button")!;
+  expect(trigger.getAttribute("data-tooltip-shortcut")).toBe("⌃⌥⌘O");
+  expect(trigger.getAttribute("title")).toBe("Folder");
+  // A picked folder: the tooltip still shows its whole path, which the strip may truncate.
+  await draw("/Users/me/work/atlas-web");
+  expect(container.querySelector(".acpmux-location-button")!.getAttribute("title")).toBe("/Users/me/work/atlas-web");
+});
+
+test("Toggle Plan Mode's key runs the + menu's Plan row, and the row names the key", async () => {
+  // Fleet check 2026-11-20: the app draws no Plan toggle chip (ComposerPickers showPlan={false});
+  // Plan/Build is the + menu's row, so ⌃⌥⌘P had no opener and did nothing, and no tooltip named it.
+  const container = installDom();
+  root = createRoot(container);
+  const entries = composerPlusRegistry({
+    translate,
+    planMode: { id: "plan", name: "Plan mode", description: "Plan before editing" },
+  });
+  const calls: string[] = [];
+  await act(async () =>
+    root!.render(
+      <ShortcutsContext.Provider value={{ "agentPane.composer.togglePlan": "⌃⌥⌘P" }}>
+        <ComposerPlusMenu
+          entries={entries}
+          onCommand={(id, modeId) => calls.push(`${id}:${modeId ?? ""}`)}
+          onSlash={() => undefined}
+        />
+      </ShortcutsContext.Provider>,
+    ),
+  );
+  await act(async () => {
+    expect(openComposerControl("togglePlan", translate)).toBe(true);
+  });
+  expect(calls).toEqual(["composer.planMode:plan"]);
+  await act(async () => {
+    expect(openComposerControl("addMenu", translate)).toBe(true);
+  });
+  const row = [...document.querySelectorAll<HTMLElement>("[role=option], [role=menuitem]")].find((el) =>
+    el.textContent?.includes("Plan mode"),
+  );
+  expect(row?.querySelector(".acpmux-menu-hint")?.textContent).toBe("⌃⌥⌘P");
+});
+
+test("the + menu's rows carry what Return does, and the none arm draws no hint", async () => {
+  // The design review: "show what Return does before Return" (cmux#49930). Every row carries the
+  // keycap and its verb; styles.css shows it on the highlighted row only.
+  const container = installDom();
+  root = createRoot(container);
+  const entries = composerPlusRegistry({
+    translate,
+    planMode: { id: "plan", name: "Plan mode", description: "Plan before editing" },
+  });
+  const draw = async () => {
+    await act(async () =>
+      root!.render(<ComposerPlusMenu entries={entries} onCommand={() => undefined} onSlash={() => undefined} />),
+    );
+    await act(async () => {
+      expect(openComposerControl("addMenu", translate)).toBe(true);
+    });
+    return [...document.querySelectorAll<HTMLElement>("[role=menuitem]")];
+  };
+  const rows = await draw();
+  const verbOf = (name: string) =>
+    rows.find((el) => el.textContent?.includes(name))?.querySelector(".acpmux-menu-return-verb")?.textContent;
+  expect(verbOf("Plan mode")).toBe("Switch to");
+  expect(rows.every((row) => row.querySelector(".acpmux-menu-return .acpmux-keycap")?.textContent === "↩")).toBe(true);
+  expect(rows.every((row) => row.querySelector(".acpmux-menu-return")?.getAttribute("aria-hidden") === "true")).toBe(
+    true,
+  );
+
+  await act(async () => root!.unmount());
+  root = createRoot(container);
+  globalThis.cmuxExperiments = { "composer-plus-return-hint": "none" };
+  try {
+    const plain = await draw();
+    expect(plain.length).toBeGreaterThan(0);
+    expect(plain.some((row) => row.querySelector(".acpmux-menu-return"))).toBe(false);
+  } finally {
+    delete globalThis.cmuxExperiments;
+  }
 });

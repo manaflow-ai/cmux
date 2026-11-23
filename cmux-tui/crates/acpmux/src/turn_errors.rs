@@ -48,6 +48,9 @@ pub(crate) fn is_usage_limit_error(message: &str) -> bool {
         || m.contains("insufficient credits")
         || m.contains("quota")
         || has_status(&m, "429")
+        // HTTP 429's own words with no code printed, and Gemini's status for it.
+        || m.contains("too many requests")
+        || m.contains("resource_exhausted")
         || m.contains("weekly limit")
         || m.contains("session limit")
 }
@@ -122,6 +125,19 @@ pub fn says_connection_dropped(message: &str) -> bool {
         "unexpected eof",
         "unexpected end of file",
         "early eof",
+        // A TLS handshake that did not verify: on Freestyle lanes (2026-11-22) ~30 Claude
+        // turns failed with "API Error: Unable to connect to API: SSL certificate verification
+        // failed (UNABLE_TO_VERIFY_LEAF_SIGNATURE)" when the restarted daemon's egress proxy
+        // signed with a new CA the agent did not trust yet; restarting the agent on the new
+        // proxy (`end_stale_proxy_before_retry`) fixes it, so it is a transport error.
+        "unable to connect to api",
+        "ssl certificate verification failed",
+        "unable_to_verify_leaf_signature",
+        "self_signed_cert_in_chain",
+        "depth_zero_self_signed_cert",
+        "unable to get local issuer certificate",
+        "certificate verify failed",
+        "invalid peer certificate",
     ];
     is_gateway_error(message)
         || PHRASES.iter().any(|p| m.contains(p))
@@ -195,7 +211,8 @@ pub(crate) fn continuation_error<'a>(raw: Option<&'a str>, shown: &'a str) -> &'
 /// compacted first, and only where its harness can compact, `auto_resume/compact_first.rs`).
 /// `raw` is the
 /// agent's own error, `shown` the turn's error as recorded (with the dead process's last stderr
-/// line, or the sign-in explanation). Usage limits retry as capacity on the same profile. A sign-in failure (including an expired credential unless the
+/// line, or the sign-in explanation). An account's usage or rate limit (HTTP 429,
+/// [`is_usage_limit_error`]) is `rate_limit`: the chat holds until its reset. A sign-in failure (including an expired credential unless the
 /// provider was unreachable) is never continued. Nor is a
 /// refused request ([`is_refused_request`]) in either: an agent that died of one would be
 /// refused the same way again.
@@ -214,10 +231,11 @@ pub fn resume_cause(raw: &str, shown: &str) -> Option<&'static str> {
     if is_refused_request(raw) || is_refused_request(shown) {
         return None;
     }
-    // Limits are account capacity, not sign-in failures. Retry this same conversation when the
-    // reset permits it; do not switch accounts.
+    // Limits are the account's: not sign-in failures, and not the provider's capacity. The chat
+    // holds every turn until the reset, then goes on in this same conversation
+    // (`hub/rate_hold.rs`); it does not switch accounts.
     if is_usage_limit_error(raw) || is_usage_limit_error(shown) {
-        return Some("capacity");
+        return Some("rate_limit");
     }
     if raw.starts_with("agent process closed") {
         return transient_cause(shown).or(Some("agent_exited"));
@@ -228,6 +246,9 @@ pub fn resume_cause(raw: &str, shown: &str) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Claude Code's whole error on a Freestyle lane (2026-11-22).
+    const CLAUDE_TLS_UNVERIFIED: &str = "API Error: Unable to connect to API: SSL certificate verification failed (UNABLE_TO_VERIFY_LEAF_SIGNATURE). The certificates the server sent don't lead to a trusted authority. If the server leaves out an intermediate certificate, which browsers fetch by themselves, whoever runs it must have it send its full chain. If it is a TLS-inspecting corporate proxy or a gateway signed by a private CA, set NODE_EXTRA_CA_CERTS to that CA bundle, or add it to the system certificate store · see https://code.claude.com/docs/en/network-config";
 
     #[test]
     fn transport_errors_are_told_from_limits_and_bugs() {
@@ -240,8 +261,13 @@ mod tests {
             "read ECONNRESET",
             "API Error: Connection lost mid-response. The response above may be incomplete.",
             "API Error: 500 {\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"Internal server error\"}}",
+            // Freestyle lanes, 2026-11-22: a restarted daemon's egress proxy had a new CA.
+            CLAUDE_TLS_UNVERIFIED,
+            "error sending request: invalid peer certificate: UnknownIssuer",
+            "request to https://api.anthropic.com failed, reason: self-signed certificate in certificate chain (SELF_SIGNED_CERT_IN_CHAIN)",
         ] {
             assert!(is_transport_error(m), "{m}");
+            assert_eq!(resume_cause(m, m), Some("transport"), "{m}");
         }
         for m in [
             "You've reached your usage limit for this account",
@@ -261,10 +287,12 @@ mod tests {
             "Claude AI usage limit reached|1760000000",
             "You have hit your usage limit for Opus.",
             "API Error: 429 rate_limit_error",
+            // claude-sr2-coord-old, 2026-11-16: 207 of 400 turns failed with this one.
+            "API Error: Request rejected (429) · This request would exceed your account's rate limit",
         ] {
             assert!(is_limit_error(m), "{m}");
             assert!(!is_transport_error(m), "{m}");
-            assert_eq!(resume_cause(m, m), Some("capacity"), "{m}");
+            assert_eq!(resume_cause(m, m), Some("rate_limit"), "{m}");
         }
         assert!(!is_limit_error("agent process closed"));
         assert!(!is_limit_error("You've hit the end of the file"));
@@ -280,7 +308,7 @@ mod tests {
         );
         assert_eq!(
             resume_cause(raw, "agent process closed (claude): You've hit your limit"),
-            Some("capacity")
+            Some("rate_limit")
         );
         // An expired credential is a sign-in failure too (`recovery::auth_kind`: auth.expired).
         assert_eq!(resume_cause(raw, "agent process closed (claude): credential expired"), None);
@@ -346,6 +374,30 @@ mod tests {
         assert!(is_limit_error("API Error: 429 Too Many Requests"));
     }
 
+    /// Every harness acpmux drives says its rate limit in its own words; each one holds the chat
+    /// until the reset (`hub/rate_hold.rs`) instead of retrying per prompt as capacity or a
+    /// dropped connection would.
+    #[test]
+    fn every_harness_rate_limit_holds_the_chat() {
+        for m in [
+            // Claude Code.
+            "API Error: Request rejected (429) · This request would exceed your account's rate limit",
+            // Codex.
+            "stream error: exceeded retry limit, last status: 429 Too Many Requests",
+            "exceeded retry limit, last status: 429",
+            // OpenCode.
+            "Rate limit exceeded. Please try again later.",
+            // Gemini CLI.
+            "[API Error: {\"error\":{\"code\":429,\"message\":\"Resource has been exhausted (e.g. check quota).\",\"status\":\"RESOURCE_EXHAUSTED\"}}]",
+            "RESOURCE_EXHAUSTED",
+            // Any harness that prints the status's words alone.
+            "Too Many Requests",
+        ] {
+            assert_eq!(resume_cause(m, m), Some("rate_limit"), "{m}");
+            assert!(!is_capacity_error(m) || is_usage_limit_error(m), "{m}");
+        }
+    }
+
     #[test]
     fn a_dropped_gateway_connection_is_continued() {
         for m in [
@@ -405,7 +457,7 @@ mod tests {
             assert_eq!(
                 resume_cause(m, m),
                 if is_usage_limit_error(m) && !is_refused_request(m) {
-                    Some("capacity")
+                    Some("rate_limit")
                 } else {
                     None
                 },
@@ -428,7 +480,7 @@ mod tests {
             assert_eq!(
                 resume_cause(m, m),
                 if is_usage_limit_error(m) && !is_refused_request(m) {
-                    Some("capacity")
+                    Some("rate_limit")
                 } else {
                     None
                 },

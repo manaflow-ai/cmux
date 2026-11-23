@@ -8,6 +8,7 @@
 
 import type { Translate } from "./i18n";
 import type { AcpmuxSnapshot } from "./model";
+import { intl } from "../../ui/intl";
 
 /** acpmux's `usageStats` (ao-vis-data's contract). Absent while the harness has no readable
  *  transcript; a number acpmux could not read is absent here too. */
@@ -91,25 +92,27 @@ export function sameUsageStats(value: unknown, previous: SessionUsageStats | und
 
 /** "$1,240" from 1240.4, "$12.40", "$0.08": whole dollars from $100, cents below. */
 export function usageCost(usd: number, locale?: string): string {
-  return new Intl.NumberFormat(locale, {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: usd >= 100 ? 0 : 2,
-    minimumFractionDigits: usd >= 100 ? 0 : 2,
-  }).format(usd);
+  return intl
+    .NumberFormat(locale, {
+      style: "currency",
+      currency: "USD",
+      maximumFractionDigits: usd >= 100 ? 0 : 2,
+      minimumFractionDigits: usd >= 100 ? 0 : 2,
+    })
+    .format(usd);
 }
 
 /** "94.3%" from 0.9431: one decimal, so a 94.3% and a 98.1% chat read apart. */
 export function usageShare(share: number, locale?: string): string {
-  return new Intl.NumberFormat(locale, { style: "percent", minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(
-    share,
-  );
+  return intl
+    .NumberFormat(locale, { style: "percent", minimumFractionDigits: 1, maximumFractionDigits: 1 })
+    .format(share);
 }
 
 /** "$0.35", "$0.004": a call can cost under a cent, so small costs keep two significant digits. */
 export function usageCallCost(usd: number, locale?: string): string {
   if (usd >= 0.01) return usageCost(usd, locale);
-  return new Intl.NumberFormat(locale, { style: "currency", currency: "USD", maximumSignificantDigits: 2 }).format(usd);
+  return intl.NumberFormat(locale, { style: "currency", currency: "USD", maximumSignificantDigits: 2 }).format(usd);
 }
 
 /** How Usage draws the prompt cache's numbers: two rows (shipped), or one row with both. */
@@ -145,7 +148,7 @@ export const UNKNOWN = "—";
 
 /** "312K", "1.2M": the compact token count the Context section uses. */
 export function usageTokens(tokens: number, locale?: string): string {
-  return new Intl.NumberFormat(locale, { notation: "compact", maximumFractionDigits: 1 }).format(tokens);
+  return intl.NumberFormat(locale, { notation: "compact", maximumFractionDigits: 1 }).format(tokens);
 }
 
 /** How the Sessions by usage list orders its rows. */

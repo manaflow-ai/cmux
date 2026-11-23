@@ -6,8 +6,9 @@
 
 // The tool limits the schemas name are the kernel's (chief-kernel tools.rs).
 pub use chief_kernel::tools::{
-    AUTH_KINDS, CONTROL_ACTIONS, EFFORTS, PLACES, SLEEP_MAX_SECONDS, SLEEP_MIN_SECONDS,
-    WATCH_DEFAULT_SECONDS, WATCH_MAX_SECONDS, WATCH_MIN_SECONDS, WATCHES_KEPT,
+    AUTH_KINDS, CONTROL_ACTIONS, EFFORTS, PLACES, SEND_DELAY_MAX_SECONDS, SEND_DELAY_MIN_SECONDS,
+    SLEEP_MAX_SECONDS, SLEEP_MIN_SECONDS, WATCH_DEFAULT_SECONDS, WATCH_MAX_SECONDS,
+    WATCH_MIN_SECONDS, WATCHES_KEPT,
 };
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -95,7 +96,7 @@ impl Memory for OptChat {
 
 /// The Chief tools a turn another person started may call only with
 /// some arguments (`approval::CHIEF_TOOLS`, by their socket names).
-const TURN_GATED: [&str; 17] = [
+const TURN_GATED: [&str; 23] = [
     "send",
     "reply",
     "react",
@@ -107,7 +108,13 @@ const TURN_GATED: [&str; 17] = [
     "control",
     "profile",
     "remember",
+    "automation",
     "recall",
+    "follow_up",
+    "follow_ups",
+    "check_ins",
+    "nothing",
+    "ask",
     "memory_read",
     "memory_write",
     "memory_forget",
@@ -244,6 +251,17 @@ pub trait Orchestrator: Send + Sync {
         let _ = call;
         Err("this Chief host cannot sleep".into())
     }
+    /// `automation(action, ...)` (automations.rs): the person's scheduled
+    /// and event-triggered tasks.
+    fn automation(&self, call: crate::automations::AutomationCall) -> Result<String, String> {
+        let _ = call;
+        Err("this Chief host runs no automations".into())
+    }
+    /// `follow_up`, `follow_ups`, `check_ins`, `nothing`, `ask` (check_in.rs).
+    fn wake_tool(&self, call: WakeCall) -> Result<String, String> {
+        let _ = call;
+        Err("this Chief host cannot wake itself".into())
+    }
     /// `watch(command, until, timeout_seconds, note)`, or `cancel`, or the
     /// list (brain/watches.rs): the host runs the command off the turn and
     /// wakes the Chief once.
@@ -308,6 +326,9 @@ pub struct SendCall {
     /// Chief knows the reply is long (a list the person asked for): the
     /// length gate lets its first send post (chief_kernel::replies).
     pub long: bool,
+    /// Send Later: post it this many seconds from now instead of now (the
+    /// conversation owner holds it, so it goes out even if no turn runs).
+    pub delay_seconds: Option<u64>,
 }
 
 impl SendCall {
@@ -349,11 +370,27 @@ impl SendCall {
             Some(Value::Bool(b)) => *b,
             Some(_) => return Err("send: `long` must be true or false".into()),
         };
+        let delay_seconds = match args.get("delay_seconds") {
+            None | Some(Value::Null) => None,
+            Some(v) => {
+                let seconds = v
+                    .as_u64()
+                    .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+                    .ok_or("send: `delay_seconds` must be a whole number of seconds")?;
+                if !(SEND_DELAY_MIN_SECONDS..=SEND_DELAY_MAX_SECONDS).contains(&seconds) {
+                    return Err(format!(
+                        "send: `delay_seconds` is {SEND_DELAY_MIN_SECONDS} to {SEND_DELAY_MAX_SECONDS} (one year)"
+                    ));
+                }
+                Some(seconds)
+            }
+        };
         Ok(SendCall {
             text,
             attachments,
             reply_to,
             long,
+            delay_seconds,
         })
     }
 
@@ -371,7 +408,140 @@ impl SendCall {
         if self.long {
             v["long"] = json!(true);
         }
+        if let Some(seconds) = self.delay_seconds {
+            v["delay_seconds"] = json!(seconds);
+        }
         v
+    }
+}
+
+/// The wake tools (check_in.rs): `follow_up`, `follow_ups`, `check_ins`,
+/// `nothing`, `ask`; the brain answers them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WakeCall {
+    FollowUp {
+        note: String,
+        at: Option<String>,
+        within: Option<String>,
+        loop_path: Option<String>,
+        for_person: bool,
+    },
+    FollowUps {
+        cancel: Option<String>,
+    },
+    CheckIns {
+        mode: Option<String>,
+        quiet: Option<String>,
+        /// The cost limit in thousandths of a dollar (0: no limit).
+        cost_limit_millis: Option<u64>,
+    },
+    Nothing {
+        reason: String,
+    },
+    Ask {
+        question: String,
+    },
+}
+
+impl WakeCall {
+    fn parse(tool: &str, args: &Value) -> Result<WakeCall, String> {
+        let text = |key: &str| {
+            args.get(key)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|t| !t.is_empty())
+                .map(str::to_owned)
+        };
+        let need = |key: &str| {
+            text(key).ok_or_else(|| format!("{tool}: `{key}` must be a non-empty string"))
+        };
+        Ok(match tool {
+            "follow_up" => {
+                let (at, within) = (text("at"), text("in"));
+                if at.is_some() == within.is_some() {
+                    return Err("follow_up: give exactly one of `at` or `in`".into());
+                }
+                let loop_path = text("loop");
+                if let Some(p) = &loop_path
+                    && !(p.starts_with("loops/") && crate::memory_files::writable(p))
+                {
+                    return Err("follow_up: `loop` must be a loops/<task>.md path".into());
+                }
+                WakeCall::FollowUp {
+                    note: need("note")?,
+                    at,
+                    within,
+                    loop_path,
+                    for_person: args
+                        .get("for_person")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                }
+            }
+            "follow_ups" => WakeCall::FollowUps {
+                cancel: text("cancel"),
+            },
+            "check_ins" => {
+                let mode = text("mode");
+                if let Some(m) = &mode
+                    && !matches!(m.as_str(), "auto" | "mornings" | "off")
+                {
+                    return Err("check_ins: `mode` is auto, mornings or off".into());
+                }
+                let quiet = text("quiet");
+                if let Some(q) = &quiet
+                    && q != "off"
+                    && crate::check_in::parse_quiet(q).is_none()
+                {
+                    return Err("check_ins: `quiet` is HH:MM-HH:MM (local time) or off".into());
+                }
+                let cost_limit_millis = match args.get("cost_limit_usd") {
+                    None | Some(Value::Null) => None,
+                    Some(v) => Some(
+                        v.as_f64()
+                            .or_else(|| v.as_str().and_then(|s| s.trim().trim_start_matches('$').parse().ok()))
+                            .filter(|n| *n >= 0.0 && n.is_finite())
+                            .map(|d| (d * 1000.0).round() as u64)
+                            .ok_or("check_ins: `cost_limit_usd` is a number of dollars, 0 for no limit")?,
+                    ),
+                };
+                WakeCall::CheckIns {
+                    mode,
+                    quiet,
+                    cost_limit_millis,
+                }
+            }
+            "nothing" => WakeCall::Nothing {
+                reason: need("reason")?,
+            },
+            "ask" => WakeCall::Ask {
+                question: need("question")?,
+            },
+            other => return Err(format!("unknown tool {other}")),
+        })
+    }
+
+    fn to_json(&self) -> Value {
+        match self {
+            WakeCall::FollowUp {
+                note,
+                at,
+                within,
+                loop_path,
+                for_person,
+            } => json!({
+                "tool": "follow_up", "note": note, "at": at, "in": within, "loop": loop_path, "for_person": for_person}),
+            WakeCall::FollowUps { cancel } => json!({"tool": "follow_ups", "cancel": cancel}),
+            WakeCall::CheckIns {
+                mode,
+                quiet,
+                cost_limit_millis,
+            } => json!({
+                "tool": "check_ins", "mode": mode, "quiet": quiet,
+                "cost_limit_usd": cost_limit_millis.map(|m| m as f64 / 1000.0)}),
+            WakeCall::Nothing { reason } => json!({"tool": "nothing", "reason": reason}),
+            WakeCall::Ask { question } => json!({"tool": "ask", "question": question}),
+        }
     }
 }
 
@@ -628,6 +798,18 @@ pub fn command(tool: &str, args: &[&str]) -> Result<Command, String> {
             }
             Call::parse("sleep", &v)
         }
+        ("automation", []) => Call::parse("automation", &serde_json::json!({"action": "list"})),
+        ("automation", [action @ ("pause" | "resume" | "delete" | "run"), id]) => Call::parse(
+            "automation",
+            &serde_json::json!({"action": action, "id": id}),
+        ),
+        ("automation", [args]) => match serde_json::from_str::<Value>(args) {
+            Ok(v @ Value::Object(_)) => Call::parse("automation", &v),
+            _ if *args == "list" => {
+                Call::parse("automation", &serde_json::json!({"action": "list"}))
+            }
+            _ => return Ok(Command::Usage(usage(tool))),
+        },
         ("watch", []) => Call::parse("watch", &serde_json::json!({})),
         ("watch", ["--cancel", id]) => Call::parse("watch", &serde_json::json!({"cancel": id})),
         ("watch", [args]) if args.trim_start().starts_with('{') => {
@@ -644,6 +826,22 @@ pub fn command(tool: &str, args: &[&str]) -> Result<Command, String> {
             Ok(v @ Value::Object(_)) => Call::parse("memory_write", &v),
             _ => return Ok(Command::Usage(usage(tool))),
         },
+        ("follow_ups", []) => Call::parse("follow_ups", &serde_json::json!({})),
+        (wake @ ("follow_up" | "check_ins" | "follow_ups" | "nothing" | "ask"), [args])
+            if args.trim_start().starts_with('{') =>
+        {
+            match serde_json::from_str::<Value>(args) {
+                Ok(v @ Value::Object(_)) => Call::parse(wake, &v),
+                _ => return Ok(Command::Usage(usage(tool))),
+            }
+        }
+        ("check_ins", []) => Call::parse("check_ins", &serde_json::json!({})),
+        ("nothing", reason) if !reason.is_empty() => {
+            Call::parse("nothing", &serde_json::json!({"reason": reason.join(" ")}))
+        }
+        ("ask", question) if !question.is_empty() => {
+            Call::parse("ask", &serde_json::json!({"question": question.join(" ")}))
+        }
         ("recall", words) if !words.is_empty() => {
             Call::parse("recall", &serde_json::json!({"query": words.join(" ")}))
         }
@@ -722,7 +920,16 @@ pub fn usage(tool: &str) -> String {
             "watch" =>
                 "['{\"command\": \"...\", \"until\": \"REGEX\", \"timeout_seconds\": 1800, \"note\": \"...\"}'] | --cancel ID|all",
             "remember" => "\"the preference, one short line\"",
+            "automation" =>
+                "[list] | pause|resume|delete|run ID | '{\"action\": \"add\", \"name\": \"...\", \"prompt\": \"...\", \"cron\": \"0 9 * * *\"}' | '{\"action\": \"add\", \"prompt\": \"...\", \"event\": \"agent_done\"}'",
             "recall" => "WORDS...",
+            "follow_up" =>
+                "'{\"note\": \"...\", \"at\": \"2026-11-20T09:00\"}' (or \"in\": \"2h\"; \"loop\", \"for_person\")",
+            "follow_ups" => "['{\"cancel\": \"fu_...|all\"}']",
+            "check_ins" =>
+                "['{\"mode\": \"auto|mornings|off\", \"quiet\": \"22:00-08:00|off\", \"cost_limit_usd\": 0.5}']",
+            "nothing" => "\"reason\"",
+            "ask" => "\"question\"",
             "memory_read" | "memory_forget" => "notes/TOPIC.md|loops/TASK.md|index.md",
             "memory_write" =>
                 "'{\"path\": \"notes/TOPIC.md\", \"description\": \"...\", \"body\": \"...\"}'",
@@ -737,7 +944,7 @@ pub fn usage(tool: &str) -> String {
             "chiefs" =>
                 "['{\"action\": \"create\", \"display_name\": \"...\", \"role\": \"...\"}']",
             "control" =>
-                "status [ID] | sessions [OFFSET] | interrupt ID [\"message\"] | answer ID OPTION|deny | pause ID | resume ID [\"message\"] | cancel ID | restart ID [\"message\"] | priority ID | cap N | cloud [PEER[,PEER...]|off]",
+                "status [ID] | sessions [OFFSET] | interrupt ID [\"message\"] | answer ID OPTION|deny | pause ID | resume ID [\"message\"] | cancel ID | restart ID [\"message\"] | priority ID | tasks ID [{content, status}...] | cap N | cloud [PEER[,PEER...]|off]",
             "tell" => "[--queue] ID \"message\"",
             _ => "ID \"message\"",
         }
@@ -759,6 +966,8 @@ pub struct ControlCall {
     pub n: Option<u64>,
     /// `cloud`: the acpmux peer cloud subagents run on, or `off`.
     pub peer: Option<String>,
+    /// `tasks`: the subagent chat's task list, `[{content, status}]` (`[]` clears it).
+    pub items: Option<Value>,
 }
 
 impl ControlCall {
@@ -792,6 +1001,7 @@ impl ControlCall {
             option: text("option"),
             n,
             peer: text("peer"),
+            items: args.get("items").filter(|v| !v.is_null()).cloned(),
         };
         let needs_id = !matches!(call.action.as_str(), "status" | "cap" | "cloud");
         if needs_id && call.id.is_none() {
@@ -799,6 +1009,12 @@ impl ControlCall {
         }
         if call.action == "answer" && call.option.is_none() {
             return Err("control answer: `option` is required (an option id, or `deny`)".into());
+        }
+        if call.action == "tasks" && !call.items.as_ref().is_some_and(Value::is_array) {
+            return Err(
+                "control tasks: `items` is required, a list of {content, status} ([] clears it)"
+                    .into(),
+            );
         }
         if call.action == "cap" && call.n.is_none() {
             return Err("control cap: `n` is required (0: no cap)".into());
@@ -822,6 +1038,9 @@ impl ControlCall {
         }
         if let Some(p) = &self.peer {
             v["peer"] = json!(p);
+        }
+        if let Some(items) = &self.items {
+            v["items"] = items.clone();
         }
         v
     }
@@ -899,6 +1118,8 @@ pub enum Call {
     Stop,
     /// `sleep` (brain/wakes.rs): ends the turn and wakes the Chief later.
     Sleep(SleepCall),
+    /// `follow_up`, `follow_ups`, `check_ins`, `nothing`, `ask` (check_in.rs).
+    Wake(WakeCall),
     /// `watch` (brain/watches.rs): a command the host runs off the turn,
     /// waking the Chief once.
     Watch(WatchCall),
@@ -908,6 +1129,9 @@ pub enum Call {
     },
     /// `control` (brain/control.rs): subagent control.
     Control(ControlCall),
+    /// `automation` (brain/automations.rs): scheduled and event-triggered
+    /// tasks.
+    Automation(crate::automations::AutomationCall),
     /// `cloud_workspace` (cloud_workspace.rs): a Cloud machine and its
     /// workspace for a task.
     CloudWorkspace(crate::cloud_workspace::Request),
@@ -1148,6 +1372,9 @@ impl Call {
             "send" => SendCall::parse(args).map(Call::Send),
             "stop" => Ok(Call::Stop),
             "sleep" => SleepCall::parse(args).map(Call::Sleep),
+            "follow_up" | "follow_ups" | "check_ins" | "nothing" | "ask" => {
+                WakeCall::parse(tool, args).map(Call::Wake)
+            }
             "watch" => WatchCall::parse(args).map(Call::Watch),
             "mcp" => {
                 // On the socket the arguments ride in `mcp_args`: the
@@ -1166,6 +1393,7 @@ impl Call {
                 crate::remember::clean(text).map(|text| Call::Remember { text })
             }
             "control" => ControlCall::parse(args).map(Call::Control),
+            "automation" => crate::automations::AutomationCall::parse(args).map(Call::Automation),
             "cloud_workspace" => {
                 let text = |key: &str| {
                     args.get(key)
@@ -1255,9 +1483,11 @@ impl Call {
             | Call::Transcript { .. }
             | Call::Stop
             | Call::Sleep(_)
+            | Call::Wake(_)
             | Call::Watch(_)
             | Call::Remember { .. }
             | Call::Control(_)
+            | Call::Automation(_)
             | Call::CloudWorkspace(_)
             | Call::Peers
             | Call::ZoomAgent { .. }
@@ -1350,10 +1580,12 @@ impl Call {
             // reaches this socket as a bare `{"tool": "stop"}`.
             Call::Stop => json!({"tool": "stop", "end_turn": true}),
             Call::Sleep(c) => c.to_json(),
+            Call::Wake(c) => c.to_json(),
             Call::Watch(c) => c.to_json(),
             Call::Mcp(args) => json!({"tool": "mcp", "mcp_args": args}),
             Call::Remember { text } => json!({"tool": "remember", "text": text}),
             Call::Control(c) => c.to_json(),
+            Call::Automation(c) => c.to_json(),
             Call::CloudWorkspace(r) => {
                 let mut v = json!({"tool": "cloud_workspace", "title": r.title});
                 if let Some(size) = &r.size {
@@ -1433,6 +1665,9 @@ pub enum ControlRequest {
     /// chief.stop {restart: [ids]}: those subagents go on (Restart on the
     /// stop-all toast).
     Restart(Vec<String>),
+    /// chief.automation.list / chief.automation.update: answers the
+    /// brain's JSON value.
+    Automations(crate::brain::AutomationsRequest),
     /// The turn session's tool hook (rights.rs): answers the hook's JSON.
     RightsHook { phase: String, payload: Value },
     /// `optchat-chief memory redescribe`: describe again the images these
@@ -1559,6 +1794,7 @@ fn connection(conn: UnixStream, served: &Served) {
                         | "inspect"
                         | "grant"
                         | "browse"
+                        | "automations"
                         | "redescribe"
                 ) && role() == crate::turn_caller::Role::Subagent
                 {
@@ -1569,6 +1805,44 @@ fn connection(conn: UnixStream, served: &Served) {
                     )
                     .is_err()
                     {
+                        return;
+                    }
+                    continue;
+                }
+                // chief.automation.list / chief.automation.update: the
+                // owner's list, pause, resume and delete from Home, through
+                // the daemon's owner-gated chief-control.
+                if tool == "automations" {
+                    let ask = match (
+                        req.get("action").and_then(Value::as_str),
+                        req.get("automation").and_then(Value::as_str),
+                    ) {
+                        (None | Some("list"), _) => Some(crate::brain::AutomationsRequest::List),
+                        (Some(action), Some(id)) => {
+                            Some(crate::brain::AutomationsRequest::Update {
+                                id: id.to_owned(),
+                                action: action.to_owned(),
+                            })
+                        }
+                        (Some(_), None) => None,
+                    };
+                    let answer = match (ask, control) {
+                        (None, _) => {
+                            json!({"error": {"code": "bad_request", "message": "an update names its automation"}})
+                        }
+                        (Some(_), None) => {
+                            json!({"error": {"code": "unavailable", "message": "automations are not served here"}})
+                        }
+                        (Some(ask), Some(control)) => {
+                            match control(ControlRequest::Automations(ask)) {
+                                Ok(text) => serde_json::from_str(&text).unwrap_or_else(
+                                    |_| json!({"error": {"code": "internal", "message": text}}),
+                                ),
+                                Err(e) => json!({"error": {"code": "unavailable", "message": e}}),
+                            }
+                        }
+                    };
+                    if writeln!(out, "{answer}").is_err() {
                         return;
                     }
                     continue;
@@ -1691,6 +1965,7 @@ fn connection(conn: UnixStream, served: &Served) {
                                     classifier_prompt: field("classifier_prompt"),
                                     reactions_can_wake: field("reactions_can_wake"),
                                     permission_mode: field("permission_mode"),
+                                    computer: field("computer"),
                                 }),
                             }))
                         }
@@ -1829,15 +2104,17 @@ fn connection(conn: UnixStream, served: &Served) {
                         | Call::Transcript { .. }
                         | Call::Stop
                         | Call::Sleep(_)
+                        | Call::Wake(_)
                         | Call::Watch(_)
                         | Call::Remember { .. }
                         | Call::MemoryFile(_)
                         | Call::Control(_)
+                        | Call::Automation(_)
                         | Call::CloudWorkspace(_)
                         | Call::Profile { .. }
                         | Call::Chiefs { .. },
                     ) if subagent => Err(
-                        "subagents have no spawn, cloud_workspace, react, reply, send, transcript, stop, sleep, watch, remember, control, profile or chiefs"
+                        "subagents have no spawn, cloud_workspace, react, reply, send, transcript, stop, sleep, follow_up, follow_ups, check_ins, nothing, ask, watch, remember, memory files, control, automation, profile or chiefs"
                             .to_owned(),
                     ),
                     // `chiefs` only for this host's own turn: the turn key the
@@ -1942,6 +2219,10 @@ fn connection(conn: UnixStream, served: &Served) {
                         Some(o) => o.sleep(call),
                         None => Err("this Chief host runs no turns".to_owned()),
                     },
+                    Ok(Call::Wake(call)) => match &served.orchestrator {
+                        Some(o) => o.wake_tool(call),
+                        None => Err("this Chief host runs no turns".to_owned()),
+                    },
                     Ok(Call::Watch(call)) => match &served.orchestrator {
                         Some(o) => o.watch(call),
                         None => Err("this Chief host runs no turns".to_owned()),
@@ -1971,6 +2252,10 @@ fn connection(conn: UnixStream, served: &Served) {
                     Ok(Call::Control(request)) => match &served.orchestrator {
                         Some(o) => o.control(request),
                         None => Err("this Chief host runs no subagents".to_owned()),
+                    },
+                    Ok(Call::Automation(call)) => match &served.orchestrator {
+                        Some(o) => o.automation(call),
+                        None => Err("this Chief host runs no automations".to_owned()),
                     },
                     Ok(Call::CloudWorkspace(request)) => match &served.orchestrator {
                         Some(o) => o.cloud_workspace(&request),

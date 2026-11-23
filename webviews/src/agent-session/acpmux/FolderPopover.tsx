@@ -17,6 +17,7 @@ import { folderRepo, groupByRepo, isMainCheckout, shownRepoRows, worktreeName, t
 
 /// A folder the popover offers: its path (`id`), name and, when known, its repository.
 export type FolderChoice = { id: string; label: string; repo?: ProjectRepo };
+const NO_FOLDERS: FolderChoice[] = [];
 
 /// The new chat's folder popover (hq#1957 composer location strip): a search field over the
 /// projects, one row per repository (projectRepos.ts: a repository's worktrees are its branches, not
@@ -143,14 +144,20 @@ export function FolderPopover({
   const extraFolders = extra?.folders;
   // The filesystem root is no project, so it is never listed: a chat someone started there (a shell
   // at `/`) put a row among the folders that named no folder. Typing `/` still offers it as a path.
-  // While adding, the project and the folders already added are not offered again.
+  // While adding, the project and the folders already added are not offered again. A closed menu
+  // offers none: the folders change with every chat that works in another one (their order is the
+  // newest chat's), and grouping thousands of them by repository on each change of a menu nobody
+  // opened cost each page about 7 ms a second at 10K chats (bench/session-scale-typing.bench.ts).
   const offered = useMemo(
     () =>
-      folders.filter(
-        (folder) =>
-          !/^\/+$/.test(folder.id) && !(addingExtra && (folder.id === current || extraFolders?.includes(folder.id))),
-      ),
-    [addingExtra, folders, current, extraFolders],
+      !open
+        ? NO_FOLDERS
+        : folders.filter(
+            (folder) =>
+              !/^\/+$/.test(folder.id) &&
+              !(addingExtra && (folder.id === current || extraFolders?.includes(folder.id))),
+          ),
+    [open, addingExtra, folders, current, extraFolders],
   );
   const groups = useMemo(() => groupByRepo(offered, current), [offered, current]);
   // Repositories that share a name (two clones both called "cmux") are told apart by their path.
@@ -333,7 +340,7 @@ export function FolderPopover({
       const reason = githubStatus === "unavailable" ? github?.state.status?.reason : undefined;
       // The title alone: GitHub's own page is the one place the person waits, so the row adds no
       // Waiting for GitHub… nor a reason under it. Only a click the host refused says why (#46018).
-      const detail = github?.state.connectError;
+      const detail = github?.state.connectError ?? github?.state.status?.message;
       return (
         <span className="acpmux-location-action acpmux-location-row" data-github="" data-github-unavailable={reason}>
           <span className="acpmux-location-action-icon" aria-hidden="true">
@@ -519,8 +526,9 @@ export function FolderPopover({
         type="button"
         className="acpmux-location-button ui-ghost ui-ghost-sm"
         aria-label={label}
-        // tooltip-allow: the fixed footer column may truncate a long folder name.
-        title={current}
+        // tooltip-allow: the fixed footer column may truncate a long folder name; with none picked the
+        // tooltip names the control, so its key (data-tooltip-shortcut) still shows.
+        title={current || label}
         data-tooltip-shortcut={shortcut}
         {...press}
       >

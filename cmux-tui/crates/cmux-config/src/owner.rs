@@ -79,9 +79,53 @@ impl ConfigStore {
             state = state.with_revision(revision + 1);
         }
         let history = state_dir.as_deref().map(HistoryLog::new);
-        let store = ConfigStore { state, config_path, seed_path, state_dir, history, reader };
+        let mut store = ConfigStore { state, config_path, seed_path, state_dir, history, reader };
+        store.migrate_once();
         store.write_cache();
         store
+    }
+
+    /// Moves a key cmux has renamed to its new name in the person's own file,
+    /// once per rename: each one is recorded in the ledger
+    /// (`migrations::once`), so a later open never runs it again. Needs a
+    /// state directory for the ledger and a settings file of the person's
+    /// own (a classic seed is not theirs to rewrite). A broken file, or a
+    /// write that fails, records nothing: the next open tries again.
+    fn migrate_once(&mut self) {
+        use crate::migrations::once::{Ledger, pending};
+        let Some(dir) = self.state_dir.clone() else { return };
+        if self.state.file_problem.is_some()
+            || std::fs::symlink_metadata(&self.config_path).is_err()
+        {
+            return;
+        }
+        let mut ledger = Ledger::read(&dir);
+        let due = pending(&self.state.file_root, &ledger);
+        if due.is_empty() {
+            return;
+        }
+        let at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |elapsed| elapsed.as_secs());
+        for migration in due {
+            let moved = match migration.edit {
+                None => false,
+                Some(edit) => {
+                    let meta =
+                        store::WriteMeta { origin: store::Origin::App, ..Default::default() };
+                    match self.apply(Op::Edit { edits: vec![edit], meta }).result {
+                        Ok(_) => true,
+                        // Not this open's to finish: the file is broken or unwritable.
+                        Err(Refusal::FileUnreadable { .. } | Refusal::Io { .. }) => break,
+                        // The new row refuses the value (a managed key, a bad value): the file
+                        // keeps the old key, which the table still reads.
+                        Err(_) => false,
+                    }
+                }
+            };
+            ledger.record(migration.id, moved, at);
+        }
+        let _ = ledger.write(&dir);
     }
 
     pub fn state(&self) -> &State {

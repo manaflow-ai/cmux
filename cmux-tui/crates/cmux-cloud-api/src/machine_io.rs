@@ -342,7 +342,8 @@ pub async fn perform(
 fn hold(cache: &Cache, now: &impl Fn() -> u64, status: u16) {
     let ms = session::hold_ms(status);
     if ms > 0 {
-        cache.store(&Entry::ProxyUntil { until_ms: now().saturating_add(ms) });
+        let at = now();
+        cache.store(&Entry::ProxyUntil { until_ms: at.saturating_add(ms) }, at);
     }
 }
 
@@ -368,7 +369,7 @@ async fn mint(
                 api_base_url: s.api_base_url,
             };
             let use_until_ms = session::use_until(s.expires_at, now());
-            cache.store(&Entry::Session { grant: grant.clone(), use_until_ms });
+            cache.store(&Entry::Session { grant: grant.clone(), use_until_ms }, now());
             Some(grant)
         }
         Err(refusal) => {

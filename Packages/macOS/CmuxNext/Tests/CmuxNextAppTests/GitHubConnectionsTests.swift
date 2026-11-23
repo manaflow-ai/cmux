@@ -25,6 +25,30 @@ import Testing
         #expect(!model.ready)
     }
 
+    @Test func aRefusedCompletionIsSaidWhereConnectIsAndClearedByTheNextConnect() async {
+        let model = GitHubConnections(scope: { self.scope }, call: { _, op, _, _ in
+            op == "integration.connect" ? ["connection": ["id": "sample"], "authorize_url": "https://github.com/apps/cmux/installations/new?state=a.eyJleHAiOjQxMDI0NDQ4MDB9.b"] : self.listing
+        }, open: { _ in })
+        await model.perform("githubRefresh")
+        model.linkRefusal = "The link expired; connect again."
+        #expect(model.pageState["detail"]?.stringValue == "The link expired; connect again.")
+        #expect(model.pageState["outcome"] == "failed")
+        #expect(model.pageState["canConnect"] == true)
+        await model.perform("githubConnect")
+        #expect(model.linkRefusal == nil)
+        #expect(model.pageState["detail"]?.stringValue != "The link expired; connect again.")
+    }
+
+    @Test func aSuspendedOrErroredConnectionHasItsOwnWordsNotConnectAgain() async {
+        let rows: JSONValue = ["connections": [["id": "a", "provider": "github", "status": "needs_reauth"], ["id": "b", "provider": "github", "status": "error"], ["id": "c", "provider": "github", "status": "pending"]],
+                               "providers": [["provider": "github", "configured": true]]]
+        let model = GitHubConnections(scope: { self.scope }, call: { _, _, _, _ in rows }, open: { _ in })
+        await model.perform("githubRefresh")
+        let statuses = model.pageState["connections"]?.arrayValue?.compactMap { $0["status"]?.stringValue } ?? []
+        #expect(statuses.count == 3)
+        #expect(Set(statuses).count == 3, "needs_reauth, error and pending each read differently")
+    }
+
     @Test func connectUsesTheAppInstallPageAndDoesNotPretendItIsConnected() async {
         var operations: [String] = []
         var opened: [URL] = []
