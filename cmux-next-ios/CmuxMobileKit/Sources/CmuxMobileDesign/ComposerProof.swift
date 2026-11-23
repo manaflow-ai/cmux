@@ -62,14 +62,22 @@ import UIKit
 
         // The gallery (`-cmux-mobile-composer-proof-gallery`): the tallest draft with the
         // keyboard up, without then with two attachments, left on screen for the shot.
+        // `-cmux-mobile-composer-proof-case L A` instead sets one draft: Leo's 2026-11-23 shot
+        // was four thumbnails over five lines with the keyboard up.
         if ProcessInfo.processInfo.arguments.contains("-cmux-mobile-composer-proof-gallery") {
+            let args = ProcessInfo.processInfo.arguments
+            var cases = [(20, 0), (20, 2)]
+            if let at = args.firstIndex(of: "-cmux-mobile-composer-proof-case"), at + 2 < args.count,
+               let caseLines = Int(args[at + 1]), let caseAttachments = Int(args[at + 2]) {
+                cases = [(caseLines, caseAttachments)]
+            }
             host.proofSetKeyboard(true)
             await pause(1.2)
-            for attachments in [0, 2] {
-                host.proofSetText(text(lines: 20))
+            for (count, attachments) in cases {
+                host.proofSetText(text(lines: count))
                 host.proofSetAttachments(attachments)
                 await pause(1)
-                lines.append(measure(host, lines: 20, attachments: attachments, keyboard: true))
+                lines.append(measure(host, lines: count, attachments: attachments, keyboard: true))
             }
             publish("done")
             return

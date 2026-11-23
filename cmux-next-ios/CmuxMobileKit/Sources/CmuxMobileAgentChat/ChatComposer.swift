@@ -259,8 +259,12 @@ struct ChatComposer: View {
                 // keyboard's Return sends, Shift-Return starts a new line.
                 ChatComposerField(text: $text, placeholder: placeholder, isFocused: focus, onSend: sendFromKeyboard,
                                   onPasteAttachments: pasteAttachments,
+<<<<<<< HEAD
                                   stripReserve: ComposerHeightCap.stripReserve(hasAttachments: !attachments.isEmpty),
                                   fieldRef: fieldRef)
+=======
+                                  onLineChange: { store.lineMotionPending = true })
+>>>>>>> origin/feat-cmux-next
                     .padding(.horizontal, 16)
                     .padding(.top, 14)
                     .padding(.bottom, 6)
@@ -625,7 +629,8 @@ struct ChatComposer: View {
             return
         }
         store.send(prompt: text, attachments: attachments, steer: steer, denyingPermission: denyingPermission)
-        text = ""
+        // A multi-line draft shrinks to one line on the line motion, with the transcript.
+        withAnimation(ComposerLineMotion.animation.unlessReduceMotion) { text = "" }
         attachments = []
         sendCount += 1
         if CmuxMobilePreferences.dismissKeyboardAfterSend() { focus.wrappedValue = false }

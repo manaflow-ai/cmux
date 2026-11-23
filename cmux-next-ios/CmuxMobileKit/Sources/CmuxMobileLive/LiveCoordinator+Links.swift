@@ -206,7 +206,9 @@ extension LiveCoordinator {
         do {
             let channel = try await link.openChannel(service: "daemon", args: [:])
             ConnectTimeline.shared.mark("daemon_channel_open")
-            return PreparedLink(auth: auth, daemon: .success(await WorkspaceSync.prepare(channel, deviceID: deviceID, deviceName: deviceName)))
+            let firstWindow = ListFirstWindow.honors(macID, defaults: .standard)
+            return PreparedLink(auth: auth, daemon: .success(await WorkspaceSync.prepare(channel, deviceID: deviceID, deviceName: deviceName,
+                                                                                         firstWindow: firstWindow)))
         } catch {
             return PreparedLink(auth: auth, daemon: .failure(error as? LinkError ?? LinkError(code: "daemon", message: LinkController.reason(error))))
         }
@@ -714,6 +716,33 @@ extension LiveCoordinator {
     public func touch(_ macID: String) {
         lastShown[macID] = instants.now()
         applyLinks()
+    }
+
+    /// A call (a Chief call, voice mode) runs on `macID`'s link, or none (nil):
+    /// that link never parks while the call runs, and a parked one resumes
+    /// now (PROTOCOL.md "Parked link"). Its replies, read aloud, would
+    /// otherwise wait on the Mac until the phone comes back to the screen.
+    public func setCallMac(_ macID: String?) {
+        guard macID != callMacID else { return }
+        callMacID = macID
+        holdCallLink()
+    }
+
+    /// Moves the call's hold onto its Mac's current link.
+    func holdCallLink() {
+        let link = callMacID.flatMap { sessions[$0]?.link }
+        guard callHold?.link != link.map(ObjectIdentifier.init) else { return }
+        callHold?.hold.release()
+        callHold = link.map { (ObjectIdentifier($0), $0.holdAwake()) }
+    }
+
+    /// Runs `body` with `macID`'s link held out of the park: a notification
+    /// action in the background (Deny, a reply) resumes a parked link for its
+    /// request, and the link parks again when it is done.
+    func withLinkAwake<T>(_ macID: String, _ body: () async throws -> T) async rethrows -> T {
+        let hold = sessions[macID]?.link.holdAwake()
+        defer { hold?.release() }
+        return try await body()
     }
 
     /// A surface of the Mac opened on screen (a terminal or browser tab): its link

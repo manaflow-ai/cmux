@@ -59,6 +59,34 @@ final class ComposerHeightCapUITests: XCTestCase {
         }
     }
 
+    /// Leo's 2026-11-23 shot: the chat composer with four attachment thumbnails over five lines,
+    /// keyboard up, about a third of the screen above the keyboard. Stills before and after
+    /// (`leo-shot-chat-*`, `leo-shot-terminal-*`). After: four attachments over five lines are no
+    /// taller than five lines alone plus the strip, and no taller than the six-line cap.
+    func testLeoShotCase() throws {
+        var rows: [String] = []
+        defer { attachText("composer-leo-shot", rows.joined(separator: "\n")) }
+        for screen in [("chat", "kbd-chat"), ("terminal", "ws-terminal-idle")] {
+            var cards: [String: Double] = [:]
+            for (label, extra) in [("before", ["-cmux-mobile-composer-legacy"]), ("after", [])] {
+                for attachments in [0, 4] {
+                    let name = "leo-shot-\(screen.0)-\(label)-\(attachments)"
+                    let readings = try proof(screen: screen.0, demo: screen.1, name: name,
+                                             extra: ["-cmux-mobile-composer-proof-gallery", "-cmux-mobile-composer-proof-case",
+                                                     "5", "\(attachments)"] + extra)
+                    rows += readings.lines.map { "\(screen.0) \(label) \($0)" }
+                    cards["\(label)-\(attachments)"] = readings.height(lines: 5, attachments: attachments, keyboard: true)
+                }
+            }
+            if let before = cards["before-4"], let after = cards["after-4"], let plain = cards["after-0"] {
+                XCTAssertLessThanOrEqual(after, plain + 68 + 4, "\(screen.0): the strip adds at most its own height")
+                XCTAssertLessThanOrEqual(after, before + 1, "\(screen.0): Leo's case is no taller than before")
+            } else {
+                XCTFail("\(screen.0): no heights read for Leo's case")
+            }
+        }
+    }
+
     // MARK: Readings
 
     struct Shift { var lines: Int; var adding: Bool; var attachments: Int; var frames: Int; var max: Double }
