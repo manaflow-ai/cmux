@@ -175,36 +175,14 @@ await requireBrowserLane("composer-grow-no-thumb.test.ts", async () => {
         expect(capped.scroll).toBeGreaterThan(capped.client + 1);
         // fixed-wait: the thumb's rest state is what the scroller shows after its scroll mark expires.
         await page.waitForTimeout(1500);
-        await page
-          .locator(".acpmux-composer-box")
-          .screenshot({ path: `/tmp/cg-leo/gnt-rest-${theme.replace(/ /g, "_")}.png` });
-        console.log(
-          "LANE " +
-            JSON.stringify(
-              await page.evaluate((selector) => {
-                const f = document.querySelector<HTMLElement>(selector)!;
-                const r = f.getBoundingClientRect();
-                const b = f.closest(".acpmux-composer-box")!.getBoundingClientRect();
-                return {
-                  fr: [r.left - b.left, r.right - b.left, r.top - b.top, r.bottom - b.top],
-                  ow: f.offsetWidth,
-                  cw: f.clientWidth,
-                  attrs: [...f.attributes].map((a) => a.name).join(","),
-                };
-              }, FIELD),
-            ),
-        );
-        console.log("INKREST " + (await laneInk(page)));
+        expect(await laneInk(page)).toBeLessThan(24);
         const field = (await page.locator(FIELD).boundingBox())!;
         await page.mouse.move(field.x + field.width / 3, field.y + field.height / 2);
         await page.mouse.wheel(0, -120);
         await page.evaluate(async () => {
           for (let left = 12; left > 0; left--) await new Promise((resolve) => requestAnimationFrame(resolve));
         });
-        await page
-          .locator(".acpmux-composer-box")
-          .screenshot({ path: `/tmp/cg-leo/gnt-wheel-${theme.replace(/ /g, "_")}.png` });
-        console.log("INKWHEEL " + (await laneInk(page)));
+        expect(await laneInk(page)).toBeGreaterThanOrEqual(24);
         const scrolled = await page.evaluate((selector) => {
           const field = document.querySelector<HTMLElement>(selector)!;
           field.scrollTop = 0;
