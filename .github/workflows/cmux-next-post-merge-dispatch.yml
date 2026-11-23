@@ -25,7 +25,7 @@ env:
 jobs:
   tick:
     if: github.repository == 'manaflow-ai/cmux'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-repair-jit-x64' }}
     permissions:
       actions: write
       contents: read
@@ -59,6 +59,8 @@ jobs:
           repositories: ${{ github.event.repository.name }}
           permission-actions: read
           permission-contents: read
+          # A read-only token is left to expire on its own: the revoke call would spend the App's budget.
+          skip-token-revoke: true
       - name: Start one batch run when the tip is untested
         env:
           GH_TOKEN: ${{ github.token }}
