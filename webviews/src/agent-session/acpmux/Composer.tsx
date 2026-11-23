@@ -666,7 +666,9 @@ function ComposerFrame({
   // its first frame instead of one line until the connection is up.
   // The prompt's text and caret live outside React state (composer/promptRef.current.ts): a key renders
   // this frame only when what it draws from the text changes (`facts`, below).
-  const [promptText] = useState(() => new PromptText(draft ?? readPersistedDraft(sessionId) ?? restoredDraft(sessionId) ?? ""));
+  const [promptText] = useState(
+    () => new PromptText(draft ?? readPersistedDraft(sessionId) ?? restoredDraft(sessionId) ?? ""),
+  );
   /// The same store for handlers and effects: a ref, so a hook that reads the text does not list it.
   const promptRef = useRef(promptText);
   /// Each write from here (not the field's own typing) renders the frame once, so the caret it
