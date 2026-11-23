@@ -14,6 +14,7 @@
 //! is atomic and keeps the file before it beside it ([`fsio`]), and nothing a server holds as a
 //! secret (an env value, a header) leaves this crate unmasked.
 
+pub mod commands;
 pub mod frontmatter;
 pub mod fsio;
 pub mod hooks;
