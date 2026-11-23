@@ -1798,6 +1798,7 @@ dependencies = [
  "base64",
  "cmux-agent-cli-render",
  "cmux-fault",
+ "cmux-output-paint",
  "ghostty-vt",
  "hex",
  "serde",
@@ -2158,6 +2159,10 @@ dependencies = [
  "libc",
  "tokio",
 ]
+
+[[package]]
+name = "cmux-output-paint"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-palette-eval"
