@@ -34,3 +34,9 @@ test("a window-height menu can show every row and an oversized menu stays in the
     if (height === viewport.height) expect(placed.maxHeight).toBeGreaterThanOrEqual(height);
   }
 });
+
+test("an RTL menu attaches its right edge to the pointer and flips right at the left boundary", () => {
+  const place = (x: number) => resolvePointerMenuPosition({ x, y: 80 }, size, viewport, 4, "rtl");
+  expect(place(400).left).toBe(220);
+  expect(place(40).left).toBe(40);
+});

@@ -203,7 +203,7 @@ export function ContextMenu({
   );
   const anchor = useMemo(() => point && pointerAnchor(point.x, point.y), [point]);
   useEscapingPopup(host, shown, () => anchor, { side: "bottom", align: "start", gap: 0, shell: "self" });
-  const place = usePointerMenuPosition(shown, anchor);
+  const place = usePointerMenuPosition(shown, anchor, shown?.parentElement);
   const placed = place !== null;
   useLayoutEffect(() => {
     if (placed) menu.current?.focus();
@@ -534,8 +534,10 @@ export function ContextMenu({
                 tabIndex={-1}
                 {...menuArms}
                 style={{
-                  position: "fixed",
-                  minWidth: "min(180px, 100vw)",
+                  position: "absolute",
+                  minWidth: "min(180px, 100%)",
+                  maxWidth: "min(360px, 100%)",
+                  maxHeight: "100%",
                   width: "max-content",
                   left: place?.left ?? point.x,
                   top: place?.top ?? point.y,

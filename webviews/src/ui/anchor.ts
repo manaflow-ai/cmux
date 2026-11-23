@@ -90,6 +90,7 @@ export function resolvePointerMenuPosition(
   size: UiOverlaySize,
   viewport: UiViewport,
   margin = 4,
+  direction: "ltr" | "rtl" = "ltr",
 ): UiOverlayPosition {
   // Give up the edge inset before making a menu scroll.
   const insetX = Math.min(margin, Math.max(0, (viewport.width - size.width) / 2));
@@ -100,7 +101,8 @@ export function resolvePointerMenuPosition(
   });
   const right = viewport.width - insetX - point.x;
   const left = point.x - insetX;
-  const x = right >= size.width || right >= left ? point.x : point.x - size.width;
+  const opensLeft = direction === "rtl" ? left >= size.width || left >= right : right < size.width && left > right;
+  const x = opensLeft ? point.x - size.width : point.x;
   const y = side === "above" ? point.y - size.height : point.y;
   return {
     left: Math.max(insetX, Math.min(x, viewport.width - insetX - size.width)),
@@ -173,9 +175,11 @@ function visibleBox(overlay: HTMLElement): UiAnchorBox {
   return box;
 }
 
-function scaleFor(container: HTMLElement | null): { x: number; y: number } {
-  if (!container || container.offsetWidth === 0 || container.offsetHeight === 0) return { x: 1, y: 1 };
-  const rect = container.getBoundingClientRect();
+export function scaleFor(
+  container: HTMLElement | null,
+  rect = container?.getBoundingClientRect(),
+): { x: number; y: number } {
+  if (!container || !rect || container.offsetWidth === 0 || container.offsetHeight === 0) return { x: 1, y: 1 };
   return {
     x: rect.width / container.offsetWidth || 1,
     y: rect.height / container.offsetHeight || 1,

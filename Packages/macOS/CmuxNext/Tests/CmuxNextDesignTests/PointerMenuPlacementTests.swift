@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextDesign
+@testable import CmuxNextDesign
 import Testing
 
 /// AppKit screen coordinates increase upward. An offset viewport also exercises a window
