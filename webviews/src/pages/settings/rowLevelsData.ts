@@ -308,6 +308,7 @@ export const ROW_LEVELS: {
     "agentPane.display.senderIcon.corner": "hidden",
     "agentPane.display.environment.placement": "hidden",
     "agentPane.display.pinnedPlan": "more",
+    "agentPane.display.sendPop": "more",
     "agentPane.display.trayTucked": "more",
     "agentPane.display.rail.side": "more",
     "agentPane.display.rail.show": "more",
