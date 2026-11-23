@@ -5,7 +5,8 @@ public import Foundation
 /// the person's click (SettingsIntegrationsHub in CmuxNextAgentIntegrations): never through the
 /// `cmux hub` CLI, which has no verb for it, since a lane running the CLI holds the person's token.
 @MainActor
-public enum HubApprovalAnswer {
+public struct HubApprovalAnswer {
+    public init() {}
     /// POSTs `body` to `path` at `platform` with AUTH's bearer (and `x-cmux-team` when a team is
     /// named) while ALLOWED says Cloud may be called: `(status, body)`.
     public static func poster(auth: CloudAuth, allowed: @escaping @MainActor () -> Bool)
