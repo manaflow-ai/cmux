@@ -131,6 +131,7 @@ import { remoteComposer } from "./remoteEditing";
 import { UsageRingMenu } from "./composerChrome";
 import { useComposerChrome } from "./composerChromeModel";
 import { useQueueing } from "./queueing";
+import { followUpSteers, returnQueues } from "./followUpMode";
 import { useMenuPressGuard } from "./menuPressGuard";
 import { setScrollToBottomOnSend, useComposerSettings } from "./composerSettings";
 import { lookRowInBox } from "./composerLook";
@@ -803,8 +804,15 @@ function ComposerFrame({
   // Resetting on a session key prevents a reopened chat from inheriting that reserved space.
   const [locationSlot, setLocationSlot] = useState<StripSlot>({});
   const sendButton = useRef<HTMLButtonElement>(null);
-  const { showContextUsage, composerRing, spellChecking, scrollToBottomOnSend, plainFooter, attachmentView } =
-    useComposerSettings();
+  const {
+    showContextUsage,
+    composerRing,
+    spellChecking,
+    scrollToBottomOnSend,
+    plainFooter,
+    attachmentView,
+    followUpMode,
+  } = useComposerSettings();
   // Claude's look draws Claude desktop's draft-sensitive ↵ slot before the mic; Codex's draws
   // Codex's ↑ after the mic, always there, so the mic never steps (composerLook.ts; Leo
   // 2026-11-04: "our codex style composer should look like codex's/chatgpt's").
@@ -2065,6 +2073,10 @@ function ComposerFrame({
     !snapshot.isWorking &&
     snapshot.summary?.steering === true &&
     !commandWaitsForTurn(facts.command ?? "", snapshot.summary?.harness, commands);
+  // Settings' Follow-Up Messages (agentPane.followUpMode, followUpMode.ts): "queue" swaps the keys, so
+  // Return and Send hold the message for after the turn and ⌘Return steers it in.
+  const followUp = { returnSteers, steersAlways, steersUnseen };
+  const returnHolds = returnQueues(followUpMode, followUp);
   // Mid-turn an agent that steers keeps Claude desktop's "Type / for commands" (Leo 2026-11-03:
   // "well the enter/cmd enter used to be claude code's placeholder... now they have this"); the
   // Send button's tooltip names ↵ steer and ⌘↵ queue instead. The Quick Composer's ⌘Return opens
@@ -2447,13 +2459,13 @@ function ComposerFrame({
     : sendMenuChoices({
         // Send refused for now (trust, sign-in, a held send): no other way goes either.
         draft: hasDraft && !(authBlock || authBlocked || blockSend || blocked?.reason || startHoldsSend),
-        sendSteers: returnSteers && !steersAlways && !onOpenInWindow,
+        sendSteers: returnSteers && !steersAlways && !returnHolds && !onOpenInWindow,
         side: Boolean(sendsToSide) && remote.canSend && !onOpenInWindow,
       });
   const chooseSend = (choice: SendChoice) => {
     if (choice === "side") send(false, false, undefined, "side");
     // Queue for later is ⌘Return; Send is the button's own send.
-    else send(false, choice === "queue" ? steersAlways : steersAlways || returnSteers || steersUnseen);
+    else send(false, choice === "queue" ? steersAlways : followUpSteers("return", followUpMode, followUp));
   };
   // Declared after every value they read: the React Compiler refuses a closure that reads one declared
   // below it.
@@ -2461,15 +2473,16 @@ function ComposerFrame({
   const submit = (event: { preventDefault(): void }): boolean => {
     event.preventDefault();
     if (canResume) return runResume(canResume);
-    // Send does what Return does: mid-turn it steers an agent that steers, else it queues.
-    return send(false, steersAlways || returnSteers || steersUnseen);
+    // Send does what Return does: mid-turn it steers an agent that steers, else it queues (and it
+    // queues when Follow-Up Messages says Queue).
+    return send(false, followUpSteers("return", followUpMode, followUp));
   };
   // Enter sends unless it picks a command (slashCommands.ts returnPicks): while the list shows, it
   // takes the highlighted row, unless the typed word is that row's name in full with no arguments to
   // take (Return runs it). Esc closes the list and keeps the word as typed.
   const returnSends = () => !open || !returnPicks(matches[selected], query ?? "");
   const sendOnReturn = (event: { preventDefault(): void }) => {
-    if (!returnSteers) return submit(event);
+    if (!returnSteers || returnHolds) return submit(event);
     event.preventDefault();
     return send(false, true);
   };
@@ -2503,14 +2516,15 @@ function ComposerFrame({
       return;
     }
     if (suggested && plain && event.key === "Escape") setSuggestionDismissed(suggestionKey);
-    // While a turn runs, ⌘Return queues the prompt for after it; Return steers (below). Nothing
+    // While a turn runs, ⌘Return queues the prompt for after it; Return steers (below). Follow-Up
+    // Messages set to Queue swaps them: ⌘Return steers, Return queues. Nothing
     // sent from the composer stops the turn: only Stop and Esc do (Leo 2026-10-20). (The Quick
     // Composer keeps its own ⌘Return and Esc, below.)
     const quick = Boolean(onOpenInWindow);
     const commandReturn = sendChoiceForKey(event) === "queue" && !quick;
     if (commandReturn && queues && (text.trim() || attachments.length > 0)) {
       event.preventDefault();
-      send(false, steersAlways);
+      send(false, followUpSteers("commandReturn", followUpMode, followUp));
       return;
     }
     // Option-Return sends the draft in a side chat, where Send's menu offers that (sendMenuModel.ts);
@@ -2768,11 +2782,15 @@ function ComposerFrame({
                       : t(
                           !snapshot.isWorking
                             ? "composer.sendTooltip"
-                            : returnSteers && !steersAlways && !onOpenInWindow
-                              ? COMPOSER_LABELS.steerQueueTooltip
-                              : steersAlways || returnSteers
-                                ? "composer.steerTooltip"
-                                : "composer.queueTooltip",
+                            : returnHolds
+                              ? onOpenInWindow
+                                ? "composer.queueTooltip"
+                                : COMPOSER_LABELS.queueSteerTooltip
+                              : returnSteers && !steersAlways && !onOpenInWindow
+                                ? COMPOSER_LABELS.steerQueueTooltip
+                                : steersAlways || returnSteers
+                                  ? "composer.steerTooltip"
+                                  : "composer.queueTooltip",
                         )
           }
         >

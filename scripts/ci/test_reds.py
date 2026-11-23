@@ -182,13 +182,23 @@ XCTEST_RESTART = re.compile(r"(?:Restarting after unexpected exit, crash, or tes
                             r"Test Case '-\[)(\S+)[ .](\w+)\]?'? crashed|"
                             r"Restarting after unexpected exit, crash, or test timeout in (\S+?)\.(\w+)\(\)")
 # What the CI wrapper or GitHub prints when a run's results are cut short: an error line, never test output.
+# Each word below is the wrapper's own word, so it is read as a word and never as part of a longer token: `\b` alone
+# let a file name carry it, and any annotation naming such a file called the job cut short. 2026-11-22,
+# cmuxterm-hq eb73df0c's 'go vet + go test' (job 137452468531) was refused as cut short because actions/checkout
+# annotated `##[error]error: Path 'docs/handbook/stalled-work-nobody-moves.md' not uptodate; will not remove from
+# working tree.` -- `\bstalled` inside that path -- while the job ran five more minutes and ended in a plain
+# `FAIL\tcmuxterm-hq/build-fleet/cmd/controller`, a failure the comparison can name. A word in a path or inside a
+# longer identifier (stalled-work..., TestTimeout, timeouts.go) is not that word.
+TOKEN_BEFORE, TOKEN_AFTER = r"(?<![\w./-])", r"(?![\w-])"
 TRUNCATED = re.compile(r"^(?:##\[error\]|::error[^:]*::)\s*(?:no \"Test run with\" summary line|"
-                       r"swift test ended early|reported fewer tests than it ran|swift test stuck|.*\bnever finished\b|"
+                       r"swift test ended early|reported fewer tests than it ran|swift test stuck|"
+                       r".*" + TOKEN_BEFORE + r"never finished" + TOKEN_AFTER + r"|"
                        r"The job running on runner .* has exceeded the maximum execution time|"
                        r"The operation was canceled|.*\blog (?:is|was) truncated|"
                        # the hang watchdog (hung_test_watchdog.py) and run_with_timeout.py
-                       r".*\b(?:timed out after|made no progress|stopped by SIG[A-Z]+|stalled|[Hh]ung test|"
-                       r"[Cc]ancelled test|[Tt]imeout))|^This log was truncated", re.I)
+                       r".*" + TOKEN_BEFORE + r"(?:timed out after|made no progress|stopped by SIG[A-Z]+|stalled|"
+                       r"[Hh]ung test|[Cc]ancelled test|[Tt]imeout)" + TOKEN_AFTER + r")|"
+                       r"^This log was truncated", re.I)
 # package-test-lane.sh suite: a suite the lane named whose tests did not run (all skipped, or skipped for a missing
 # same-tree cmux-tui) is no result: never a base red, whatever the base shows.
 NO_RESULT = re.compile(r"^(?:##\[error\]|::error[^:]*::)\s*.*\brequired tests did not run\b")
@@ -549,6 +559,12 @@ FAILURE_MARKERS = (
 # an xcresult `FAILED:` line, xcodebuild's `Failing tests:` list) named a failure; likewise a summary line whose count
 # cannot be read.
 CARGO_FAILED_TOTAL = re.compile(r"^test result: FAILED\. \d+ passed; (\d+) failed\b")
+# cargo's closing list, right above its summary: `failures:`, then each failing test indented four spaces. It names
+# what the summary counts even where a test ran a nested `cargo test` of itself, whose own `running 1 test` ... `test
+# result:` printed inside the parent's output and took the parent's `... FAILED` lines as its own (cmux#50445 at
+# fb4bd6c4, run 45036997271: bwrap's real_second_home_mount_hides_denied_names re-ran itself, and acpmux's lib
+# summary `12 failed` read as naming none though its list named all 12).
+CARGO_LISTED = re.compile(r"^    (\S+)$")
 UNITTEST_FAILED_TOTAL = re.compile(r"^FAILED \(([^)]*)\)$")
 UNITTEST_COUNTED = re.compile(r"\b(failures|errors|unexpected successes)=(\d+)")
 PYTEST_TOTAL = re.compile(r"^=+ (.*?) =+$")
@@ -582,9 +598,16 @@ def runner_unnamed(lines: list[str]) -> list[str]:
     xc_family = 0  # XCTest, xcresult `FAILED:` and xcodebuild listing names, anywhere in LINES
     xc_summaries: list[str] = []
     listing = False
+    cargo_listed: set | None = None  # the names under cargo's last `failures:` heading, while only names follow it
     for text in lines:
         if text.startswith(TAP_MARKER):
             continue
+        if text.strip() == "failures:":
+            cargo_listed = set()
+        elif cargo_listed is not None and (match := CARGO_LISTED.match(text)):
+            cargo_listed.add(match.group(1))
+        elif text.strip() and not CARGO_FAILED_TOTAL.match(text):
+            cargo_listed = None
         if listing:
             if XCODEBUILD_FAILED.match(text):
                 xc_family += 1
@@ -605,6 +628,8 @@ def runner_unnamed(lines: list[str]) -> list[str]:
         if FAILURE_MARKERS[0].search(text):
             runner, match = "cargo", CARGO_FAILED_TOTAL.match(text)
             reported = int(match.group(1)) if match else None
+            since[runner] = max(since[runner], len(cargo_listed or ()))
+            cargo_listed = None
         elif (match := UNITTEST_FAILED_TOTAL.match(text)) and (FAILURE_MARKERS[1].search(text)
                                                               or UNITTEST_COUNTED.search(match.group(1))):
             counts = UNITTEST_COUNTED.findall(match.group(1))
@@ -1896,9 +1921,11 @@ def web_cut_short(log: str | None) -> tuple[list[str], list[str], list[str]] | N
 
 
 def web_base_red_files(base_logs: list) -> set[str]:
-    """The webview test files the base logs name as red: failed (any of their tests, or the file) or timed out."""
+    """The webview test files the base logs name as red: failed (any of their tests, or the file). A file that only
+    timed out on the base is not red there: a cut-short file is never a base red, on the head or on the base (review
+    of #39840, F1)."""
     seen = merged_web(base_logs)
-    return {name.split(" > ", 1)[0] for name in seen.failed} | set(seen.timed_out)
+    return {name.split(" > ", 1)[0] for name in seen.failed}
 
 
 def classify_web_cut_short(head_log: str | None, windows, job: str = "", base: str = "the base") -> Verdict | None:
