@@ -37,7 +37,7 @@ struct SignInPageOpensBesideTests {
             services.linkOpener.placement = { .splitRight }
             let panes = Set(content.panes.keys)
 
-            let first = try await Self.open(services) { _ = services.linkOpener.openSignInPage(page, beside: pane.view) }
+            let first = try await Self.open(services) { _ = services.linkOpener.openSignInPage(Self.page, beside: pane.view) }
             @MainActor func right() -> PaneController? {
                 content.panes.first { !panes.contains($0.key) && $0.value.pane.tabs.contains { $0.id == first } }?.value
             }
@@ -49,7 +49,7 @@ struct SignInPageOpensBesideTests {
             let side = try #require(right())
             let afterFirst = Set(content.panes.keys)
 
-            let second = try await Self.open(services) { _ = services.linkOpener.openSignInPage(page, beside: pane.view) }
+            let second = try await Self.open(services) { _ = services.linkOpener.openSignInPage(Self.page, beside: pane.view) }
             try await PinnedPageTests.until({ side.stripModel.selectedID?.rawValue == second },
                                             report: { "a second sign-in is not selected in the pane beside the code: " + Self.describe(content) })
             #expect(Set(content.panes.keys) == afterFirst, "a second sign-in made another split: \(Self.describe(content))")
