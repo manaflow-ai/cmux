@@ -959,6 +959,7 @@ impl ConversationEvent {
             Self::Live { .. } => "conversation-live",
             Self::Avatar { .. } => "participant-avatar-changed",
             Self::Chief { .. } => "chief-changed",
+            Self::Scheduled { .. } => "conversation-scheduled-changed",
         }
     }
 
