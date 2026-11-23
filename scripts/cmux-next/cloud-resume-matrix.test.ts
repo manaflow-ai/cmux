@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { cliExecResult } from "./cloud-journey.ts";
-import { armOrder, CLIENT_SESSION_MAX_S, CLIENT_SESSION_MIN_S, directSessionPlan, parseServerTiming, parseWakeFacts, percentile, resumeMarkdown, type ResumeSample } from "./cloud-resume-matrix.ts";
+import { armOrder, cellDeadline, CLIENT_SESSION_MAX_S, CLIENT_SESSION_MIN_S, directSessionPlan, parseServerTiming, parseWakeFacts, percentile, resumeMarkdown, type ResumeSample } from "./cloud-resume-matrix.ts";
 
 describe("parseWakeFacts", () => {
   test("takes the gap spanning the event and the first relay line after it, guest clock corrected", () => {
@@ -85,5 +85,22 @@ describe("cliExecResult", () => {
   test("a CLI that exits with no output says it printed nothing; its own output is kept", () => {
     expect(cliExecResult({ status: 1, signal: null, stdout: "", stderr: "" }).stderr).toBe("[the cmux CLI exited 1 and printed nothing]");
     expect(cliExecResult({ status: 2, signal: null, stdout: "", stderr: "error: no such machine\n" })).toEqual({ code: 2, stdout: "", stderr: "error: no such machine\n" });
+  });
+});
+
+describe("an early stop", () => {
+  test("each pause length left gets an even share of the time before the deadline", () => {
+    expect(cellDeadline(1_000, 31_000, 3)).toBe(11_000);
+    expect(cellDeadline(1_000, 31_000, 1)).toBe(31_000);
+    expect(cellDeadline(40_000, 31_000, 2)).toBe(40_000);
+    expect(cellDeadline(1_000, undefined, 2)).toBe(Infinity);
+  });
+  test("the table names each stop and each arm's errors, so a row of failures reads without the job log (run 45147962604)", () => {
+    const s = (arm: ResumeSample["arm"], error: string): ResumeSample => ({ pause_s: 5, arm, i: 0, machine: "m", at: "", paused_ms: 5_000, answered_ms: null, running_ms: null, registered_ms: null, first_byte_ms: null, ack_ms: null, clock_offset_ms: 0, error });
+    const md = resumeMarkdown([s("send", "no reply within 180 s"), s("send", "no reply within 180 s"), s("direct", "direct start: HTTP 403")], [{ pause_s: 5, arm: "send", after: 2, reason: "2 send samples in a row failed; the last: no reply within 180 s", machine: "m1" }]);
+    expect(md).toContain("| 5 s | send | 2 | 2 |");
+    expect(md).toContain("- 5 s send (m1): stopped after 2 sample(s): 2 send samples in a row failed");
+    expect(md).toContain("- 5 s send: 2x no reply within 180 s");
+    expect(md).toContain("- 5 s direct: 1x direct start: HTTP 403");
   });
 });

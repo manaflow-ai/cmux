@@ -6,12 +6,18 @@ name: Cloud resume matrix (staging)
 # from its event to the resume's answer, the guest running, the relay registered and the agent reply's first byte
 # (scripts/cmux-next/cloud-resume-matrix.ts, run as cloud-journey.ts --resume-matrix).
 #
-# Runs on a feat-cmux-next pull request whose body carries a marker line (lanes may edit a body but not add labels);
-# the label of the same name works too. Each push or body edit while the marker is there runs it again, queued
-# behind the one running (never cancelled):
-#   resume-matrix: run    5 s, 30 s and 300 s pauses, n = 20 per arm (about 1 h 40 min; 4 machines side by side)
+# Runs on a feat-cmux-next pull request whose body carries a marker line, alone on its line (lanes may edit a body
+# but not add labels); the label of the same name works too. Each push or body edit while the marker is there runs it
+# again: a new head runs beside the one running (never cancelled), the same head queues behind it:
+#   resume-matrix: run    5 s, 30 s and 300 s pauses, n = 20 per arm (about 1 h; 6 machines side by side)
 #   resume-matrix: full   also 900 s (4 machines, n = 5 each) and 3600 s (20 machines, n = 1 each), about 3 h 10 min
 # The last job merges every machine's samples into one p50 / p95 table (job summary and the resume-matrix artifact).
+#
+# GitHub serves no log until a job ends, so every machine ends itself in time: each shard has a wall budget (about
+# 1.5 x its expected time, under the step timeout) passed as --resume-deadline, the matrix takes no sample it cannot
+# finish by then, an arm failing 3 samples in a row leaves its cell (3 in a row of any arm end the cell), and
+# resume-matrix.json is rewritten after every sample, so the upload (always) has what a cut-short machine had
+# (run 45147962604: its 5 s cell ran past 2 h with nothing readable).
 #
 # Secrets: the staging agent test account, CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD in cmux-next-vm-image-dev, as
 # cloud-journey-pr.yml. Same-repo pull requests only. The chat runs on the model stub.
@@ -25,7 +31,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: cloud-resume-matrix-${{ github.event.pull_request.number }}
+  # The head is in the group: a new push runs beside a long run of an older head instead of waiting hours behind it.
+  group: cloud-resume-matrix-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
   cancel-in-progress: false
 
 env:
@@ -46,16 +53,22 @@ jobs:
     steps:
       - id: plan
         env:
-          FULL: >-
-            ${{ github.event.label.name == 'resume-matrix-full' || github.event.action != 'labeled' && contains(github.event.pull_request.body, 'resume-matrix: full') }}
+          LABEL: ${{ github.event.action == 'labeled' && github.event.label.name || '' }}
+          BODY: ${{ github.event.pull_request.body }}
         run: |
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
           import json, os
+          # The marker counts alone on its line: a body that quotes `resume-matrix: full` in its prose is not one
+          # (run 45147962604 planned full off such a quote).
+          lines = {l.strip() for l in os.environ.get("BODY", "").splitlines()}
+          full = os.environ["LABEL"] == "resume-matrix-full" or (not os.environ["LABEL"] and "resume-matrix: full" in lines)
           # (pause seconds, machines, samples per arm on each): n = machines * samples per pause length.
-          plan = [(5, 1, 20), (30, 1, 20), (300, 2, 10)]
-          if os.environ["FULL"] == "true":
+          plan = [(5, 2, 10), (30, 2, 10), (300, 2, 10)]
+          if full:
               plan += [(900, 4, 5), (3600, 20, 1)]
-          shards = [{"pause": p, "shard": k, "n": n} for p, m, n in plan for k in range(m)]
+          # Each shard's wall budget, minutes: 1.5 x (3 arms x n x (pause + 60 s)), within 20..290 (step timeout 300).
+          budget = lambda p, n: max(20, min(290, round(1.5 * 3 * n * (p + 60) / 60)))
+          shards = [{"pause": p, "shard": k, "n": n, "budget": budget(p, n)} for p, m, n in plan for k in range(m)]
           print("shards=" + json.dumps(shards))
           PY
 
@@ -143,19 +156,24 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Resume matrix (staging, ${{ matrix.pause }} s, machine ${{ matrix.shard }})
+        # Under the job's 330: the upload below still runs when this one is cut.
+        timeout-minutes: 310
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
           PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
           PAUSE: ${{ matrix.pause }}
           N: ${{ matrix.n }}
+          BUDGET_MIN: ${{ matrix.budget }}
         run: |
           set -euo pipefail
           chmod +x "$RUNNER_TEMP/cmux-tui-bin/cmux-tui"
           out="$RUNNER_TEMP/resume-matrix/$PAUSE-${{ matrix.shard }}"
           mkdir -p "$out"
+          # The journey's create and chat come first; the matrix ends by the budget from this step's start.
+          deadline=$(( $(date +%s) + BUDGET_MIN * 60 ))
           bun scripts/cmux-next/cloud-journey.ts --backend staging --out "$out" --cmux "$RUNNER_TEMP/cmux-tui-bin/cmux-tui" \
-            --model stub --resume-matrix "$PAUSE" --resume-n "$N"
+            --model stub --resume-matrix "$PAUSE" --resume-n "$N" --resume-deadline "$deadline"
       - if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

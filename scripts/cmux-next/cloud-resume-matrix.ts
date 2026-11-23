@@ -86,7 +86,25 @@ export type ResumeDeps = {
   log?: (line: string) => void;
   /** Percent of MemTotal a guest holder keeps resident through every pause (0: none), as resume-memory-probe.sh. */
   fillPct?: number;
+  /** Each sample as it ends, with every sample so far: the caller writes them out, so a cut-short run still has them. */
+  onSample?: (s: ResumeSample, all: ResumeSample[]) => void;
+  /** Each early stop (a cell out of time, an arm or a cell failing K samples in a row), as it happens. */
+  onStop?: (stop: ResumeStop, all: ResumeStop[]) => void;
+  /**
+   * Wall-clock time (runner ms) the whole matrix must end by: what is left is split evenly over the pause lengths
+   * still to run, and a cell takes no sample it cannot finish in its share (the longest sample so far, or the pause
+   * plus a minute). The job's step timeout would otherwise kill the run before it writes anything (run 45147962604).
+   */
+  deadlineAt?: number;
+  /** K: an arm that fails K samples in a row is dropped from its cell, and a cell whose last K samples all failed ends. */
+  failStreak?: number;
 };
+
+/** Why a cell or arm took fewer samples than asked. */
+export type ResumeStop = { pause_s: number; arm?: ResumeArm; after: number; reason: string };
+
+/** Default K for ResumeDeps.failStreak. */
+export const FAIL_STREAK = 3;
 
 const TICKER = "/tmp/cmux-resume-matrix";
 /** A 50 ms ticker that writes one line per gap longer than 1 s: `<last tick before> <first tick after>` (epoch ms). */
@@ -208,13 +226,26 @@ export function directSessionPlan(pauseS: number): { ttl: number; afterHold: boo
 }
 const safe = (tag: string) => tag.replace(/[^A-Za-z0-9-]/g, "-");
 
+/** A cell's end (runner ms): its even share of what is left before `deadlineAt`, over `cellsLeft` pause lengths. */
+export function cellDeadline(nowMs: number, deadlineAt: number | undefined, cellsLeft: number): number {
+  if (deadlineAt === undefined) return Infinity;
+  return nowMs + Math.max(0, deadlineAt - nowMs) / Math.max(1, cellsLeft);
+}
+
 /** The whole matrix on one machine: every pause length, n samples of every arm, interleaved. */
 export async function runResumeMatrix(deps: ResumeDeps, pauses: number[], n: number, arms: ResumeArm[] = RESUME_ARMS): Promise<ResumeSample[]> {
   const { ctx } = deps;
   const now = deps.now ?? Date.now;
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const log = deps.log ?? ctx.log ?? (() => undefined);
+  const k = Math.max(1, deps.failStreak ?? FAIL_STREAK);
   const out: ResumeSample[] = [];
+  const stops: ResumeStop[] = [];
+  const stop = (x: ResumeStop) => {
+    stops.push(x);
+    log(`resume matrix: pause ${x.pause_s} s${x.arm ? ` ${x.arm}` : ""}: stopped after ${x.after} sample(s): ${x.reason}`);
+    deps.onStop?.(x, stops);
+  };
   const started = await ctx.exec(`${ctx.guest}${TICKER_START}`, 60_000);
   if (!/@@ticker \d+/.test(started.stdout)) throw new Error(`the guest ticker did not start: ${(started.stdout + started.stderr).slice(-200)}`);
   if (deps.fillPct) {
@@ -231,9 +262,23 @@ export async function runResumeMatrix(deps: ResumeDeps, pauses: number[], n: num
   if (warm.felt_ms === null || floor === null) throw new Error(`the matrix chat's warm-up turn did not finish: ${warm.error || "no verified end"}`);
   const direct = { m: "start" as "start" | "exec" };
   try {
-    for (const pause_s of pauses) {
-      for (let i = 0; i < n; i++) {
+    for (const [cell, pause_s] of pauses.entries()) {
+      const until = cellDeadline(now(), deps.deadlineAt, pauses.length - cell);
+      const live = new Set(arms);
+      const armStreak = new Map<ResumeArm, number>();
+      let cellStreak = 0;
+      let longest = pause_s * 1000 + 60_000;
+      let taken = 0;
+      let ended = false;
+      for (let i = 0; i < n && !ended; i++) {
         for (const arm of armOrder(arms, i)) {
+          if (!live.has(arm)) continue;
+          if (now() + longest > until) {
+            stop({ pause_s, after: taken, reason: `out of time: the cell's budget ends in ${Math.max(0, Math.round((until - now()) / 1000))} s, a sample takes up to ${Math.round(longest / 1000)} s` });
+            ended = true;
+            break;
+          }
+          const sampleStart = now();
           const s: ResumeSample = { pause_s, arm, i, machine: ctx.machine, at: new Date().toISOString(), paused_ms: null, answered_ms: null, running_ms: null, registered_ms: null, first_byte_ms: null, ack_ms: null, clock_offset_ms: null, error: "" };
           out.push(s);
           try {
@@ -288,6 +333,21 @@ export async function runResumeMatrix(deps: ResumeDeps, pauses: number[], n: num
             await deps.platformSync().catch(() => undefined);
           }
           log(`resume matrix: pause ${pause_s} s ${arm} #${i}: ${RESUME_POINTS.map((p) => `${p} ${s[`${p}_ms` as const] ?? "-"}`).join(", ")}${s.server_timing ? ` (server ${JSON.stringify(s.server_timing)})` : ""}${s.direct_mode ? ` [${s.direct_mode}]` : ""}${s.error ? ` ERROR ${s.error}` : ""}`);
+          taken += 1;
+          longest = Math.max(longest, now() - sampleStart);
+          deps.onSample?.(s, out);
+          armStreak.set(arm, s.error ? (armStreak.get(arm) ?? 0) + 1 : 0);
+          cellStreak = s.error ? cellStreak + 1 : 0;
+          if (cellStreak >= k) {
+            stop({ pause_s, after: taken, reason: `${k} samples in a row failed; the last: ${s.error}` });
+            ended = true;
+            break;
+          }
+          if ((armStreak.get(arm) ?? 0) >= k) {
+            live.delete(arm);
+            stop({ pause_s, arm, after: out.filter((x) => x.pause_s === pause_s && x.arm === arm).length, reason: `${k} ${arm} samples in a row failed; the last: ${s.error}` });
+            if (!live.size) { ended = true; break; }
+          }
         }
       }
     }
@@ -328,7 +388,7 @@ const sec = (ms: number | null) => (ms === null ? "-" : (ms / 1000).toFixed(2));
  * The table: one row per pause length and arm, p50 / p95 seconds per point, n, and the gap the stop condition judges:
  * the arm's first-byte p95 less the direct arm's answered p95 (our whole path over the provider's own resume).
  */
-export function resumeMarkdown(samples: ResumeSample[]): string {
+export function resumeMarkdown(samples: ResumeSample[], stops: (ResumeStop & { machine?: string })[] = []): string {
   const cells = resumeCells(samples);
   const get = (pause_s: number, arm: ResumeArm, point: ResumePoint) => cells.find((c) => c.pause_s === pause_s && c.arm === arm && c.point === point);
   const lines = [
@@ -347,7 +407,18 @@ export function resumeMarkdown(samples: ResumeSample[]): string {
       lines.push(`| ${pause_s} s | ${arm} | ${total} | ${fb.failed} | ${pts.join(" | ")} | ${gap} | ${pin.length ? `${sec(percentile(pin, 50))} / ${sec(percentile(pin, 95))}` : "-"} |`);
     }
   }
-  return `${lines.join("\n")}\n\nSeconds from the wake's event. answered: the resume call's answer (send: none). running: the guest's first tick after the pause. registered: the relay registration line. first byte: the agent reply's first record on the client. page-in: with --resume-fill, the guest's walk over its held memory after the reply (cold pages load on first touch; about 0.85 s per GiB in hq#17877). n counts samples; a point's p50/p95 uses the samples that reached it.\n`;
+  const stopped = stops.map((x) => `- ${x.pause_s} s${x.arm ? ` ${x.arm}` : ""}${x.machine ? ` (${x.machine})` : ""}: stopped after ${x.after} sample(s): ${x.reason}`);
+  // Each arm's errors, so a row of failures says why without the job log.
+  const errs: string[] = [];
+  for (const pause_s of [...new Set(samples.map((x) => x.pause_s))].sort((a, b) => a - b)) {
+    for (const arm of RESUME_ARMS) {
+      const counts = new Map<string, number>();
+      for (const x of samples) if (x.pause_s === pause_s && x.arm === arm && x.error) counts.set(x.error, (counts.get(x.error) ?? 0) + 1);
+      for (const [e, c] of [...counts].sort((a, b) => b[1] - a[1]).slice(0, 3)) errs.push(`- ${pause_s} s ${arm}: ${c}x ${e.slice(0, 300)}`);
+    }
+  }
+  const extra = `${stopped.length ? `\n\nStopped early:\n\n${stopped.join("\n")}` : ""}${errs.length ? `\n\nErrors:\n\n${errs.join("\n")}` : ""}`;
+  return `${lines.join("\n")}${extra}\n\nSeconds from the wake's event. answered: the resume call's answer (send: none). running: the guest's first tick after the pause. registered: the relay registration line. first byte: the agent reply's first record on the client. page-in: with --resume-fill, the guest's walk over its held memory after the reply (cold pages load on first touch; about 0.85 s per GiB in hq#17877). n counts samples; a point's p50/p95 uses the samples that reached it.\n`;
 }
 
 if (import.meta.main && process.argv[2] === "aggregate") {
@@ -355,11 +426,10 @@ if (import.meta.main && process.argv[2] === "aggregate") {
   const mdAt = args.indexOf("--md");
   const md = mdAt >= 0 ? args[mdAt + 1] : undefined;
   const files = args.filter((a, k) => a !== "--md" && k !== mdAt + 1);
-  const samples: ResumeSample[] = files.flatMap((f) => {
-    const j = JSON.parse(readFileSync(f, "utf8"));
-    return Array.isArray(j) ? j : j.samples ?? [];
-  });
-  const table = resumeMarkdown(samples);
+  const runs = files.map((f) => JSON.parse(readFileSync(f, "utf8")));
+  const samples: ResumeSample[] = runs.flatMap((j) => (Array.isArray(j) ? j : j.samples ?? []));
+  const stops: ResumeStop[] = runs.flatMap((j) => (Array.isArray(j) ? [] : (j.stops ?? []).map((x: ResumeStop) => ({ ...x, machine: j.machine }))));
+  const table = resumeMarkdown(samples, stops);
   if (md) writeFileSync(md, table);
   console.log(table);
 }

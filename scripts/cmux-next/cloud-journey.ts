@@ -128,7 +128,7 @@ import { fileURLToPath } from "node:url";
 import { appStartDetail } from "./cloud-chat-matrix.ts";
 import { collectGuestDiagnostics, type GuestDiagnostics } from "./cloud-journey-guest-diagnostics.ts";
 import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
-import { parseServerTiming, RESUME_ARMS, type ResumeArm, resumeMarkdown, runResumeMatrix } from "./cloud-resume-matrix.ts";
+import { FAIL_STREAK, parseServerTiming, RESUME_ARMS, type ResumeArm, resumeMarkdown, type ResumeSample, type ResumeStop, runResumeMatrix } from "./cloud-resume-matrix.ts";
 import { clientSpans, hopDurations, readStartTrace, slowestHop, traceMarkdown } from "./cloud-start-trace.ts";
 import { answeredPath, answerTimings, DAEMON_CHECK, MachineFailed, pickVmApiTenant, type StartPath, type StartSample, type StartTarget, startBenchMarkdown, summarize, timeStart, traceFacts } from "./cloud-start-bench.ts";
 
@@ -4086,6 +4086,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // (the page-in, hq#17877's resume-memory-probe.sh measure, now beside the matrix's points).
   const resumeFill = Number(argValue("--resume-fill", argv) ?? 0);
   if (!Number.isFinite(resumeFill) || resumeFill < 0 || resumeFill > 80) throw new Error("--resume-fill must be 0..80 percent");
+  // --resume-deadline EPOCH_S: the matrix takes no sample it cannot finish by then (each pause length its even share of
+  // what is left), so a CI step's timeout never kills it before it writes its table. --resume-fail-streak K: an arm
+  // that fails K samples in a row leaves its cell, and a cell whose last K samples failed ends (default 3).
+  const resumeDeadlineS = argValue("--resume-deadline", argv);
+  const resumeDeadlineAt = resumeDeadlineS === undefined ? undefined : Number(resumeDeadlineS) * 1000;
+  if (resumeDeadlineAt !== undefined && !Number.isFinite(resumeDeadlineAt)) throw new Error("--resume-deadline takes epoch seconds");
+  const resumeFailStreak = Number(argValue("--resume-fail-streak", argv) ?? FAIL_STREAK);
+  if (!Number.isInteger(resumeFailStreak) || resumeFailStreak < 1) throw new Error("--resume-fail-streak must be a positive integer");
   // --start-via app: the app's own start (agent-session-start over the carrier dial) instead of `acp ensure`.
   const startVia = argValue("--start-via", argv) ?? "acp";
   if (startVia !== "acp" && startVia !== "app") throw new Error(`--start-via ${startVia}: acp or app`);
@@ -5332,6 +5340,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         // The CLI processes the matrix starts (its chat dial, each exec) read the token from here, so a new sign-in
         // reaches every one started after it.
         const matrixEnv: Record<string, string | undefined> = { ...inherited, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer };
+        // Written after every sample and stop, so a run cut short (a step timeout, a cancel) still uploads what it had.
+        let sofar: ResumeSample[] = [];
+        let stops: ResumeStop[] = [];
+        const writeMatrix = () => {
+          if (!outDir) return;
+          const scrubbed = (x: unknown) => scrub(JSON.stringify(x, null, 2), J.secrets);
+          writeFileSync(path.join(outDir, "resume-matrix.json"), `${scrubbed({ backend: backend.name, machine: created.id, samples: sofar, stops })}\n`);
+          writeFileSync(path.join(outDir, "resume-matrix.md"), resumeMarkdown(sofar, stops));
+        };
         const samples = await runResumeMatrix({
           ctx: {
             cmux, machine: created.id, team: api.team, exec, guest: GUEST, session, tag, harness: agent,
@@ -5364,18 +5381,22 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             return { token: v.token, vm_id: String(v.vm_id), api_base_url: String(v.api_base_url) };
           },
           fillPct: resumeFill,
+          deadlineAt: resumeDeadlineAt,
+          failStreak: resumeFailStreak,
+          onSample: (_s, all) => { sofar = all; writeMatrix(); },
+          onStop: (_x, all) => { stops = all; writeMatrix(); },
         }, resumePauses, resumeN, resumeArms).catch((e: Error) => {
           J.record({ step: "resume matrix", status: "fail", ms: 0, detail: e.message });
-          return [];
+          stops = [...stops, { pause_s: resumePauses[0] ?? 0, after: sofar.length, reason: `the matrix failed: ${e.message}` }];
+          return sofar;
         });
-        const table = resumeMarkdown(samples);
+        sofar = samples;
+        for (const x of stops) J.record({ step: `resume matrix: ${x.pause_s} s${x.arm ? ` ${x.arm}` : ""} stopped early`, status: "fail", ms: 0, detail: x.reason });
+        const table = resumeMarkdown(samples, stops);
         for (const s of samples.filter((x) => x.error)) J.record({ step: `resume matrix: ${s.pause_s} s ${s.arm} #${s.i}`, status: "fail", ms: s.first_byte_ms ?? 0, detail: s.error });
         if (samples.length) J.record({ step: "resume matrix", status: samples.some((x) => x.error) ? "fail" : "pass", ms: 0, detail: `${samples.length} samples` });
         console.log(table);
-        if (outDir) {
-          writeFileSync(path.join(outDir, "resume-matrix.json"), `${JSON.stringify({ backend: backend.name, machine: created.id, samples }, null, 2)}\n`);
-          writeFileSync(path.join(outDir, "resume-matrix.md"), table);
-        }
+        writeMatrix();
         if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n## Resume matrix (${backend.name}, ${created.id})\n\n${table}`);
       }
     }
