@@ -22,11 +22,6 @@ export interface SetupState {
    * Replace overwrites; `foreign`: a `cmux` that is no cmux app's, never touched; `fromImage`: cmux runs from
    * its disk image, so nothing installs until it runs from Applications; `installing`: an install runs. */
   cli: "missing" | "other" | "installed" | "foreign" | "fromImage" | "installing";
-  /** Whether cmux may add its tools (its MCP server, Computer Use included) to the person's coding
-   * agents (`agents.cmuxMcp`): the agents found, by name, and the answer (`ask` until the person
-   * answers on this card; `on` or `off` after). Null or absent: nothing to ask (no agent found, or it
-   * was answered before), so the row does not show. */
-  tools?: { agents: readonly string[]; choice: "ask" | "on" | "off"; applying: boolean } | null;
   /** The launch's classic import while it asks on this row, and its answer; null: nothing to import (the row
    * does not show). `app` is the classic app that saved it, as its Dock names it; `savedAt` when (ms since
    * 1970); `running`: that app is still open, so this is its autosave; `resumes`: importing reconnects saved
@@ -54,7 +49,7 @@ export function setupTitle(state: SetupState, { t, format }: Strings): string {
   return agent ? format("home.setup.chiefNeeds", agent.name) : t("home.setup.title");
 }
 
-export type SetupStepID = "agents" | "tools" | "account" | "cli" | "classic" | "look";
+export type SetupStepID = "agents" | "account" | "cli" | "classic" | "look";
 
 /** What a row's button asks the host to do. */
 export type SetupAction =
@@ -63,8 +58,6 @@ export type SetupAction =
   | { kind: "confirmAgent"; id: string }
   | { kind: "signInAccount" }
   | { kind: "installCLI" }
-  | { kind: "addTools" }
-  | { kind: "declineTools" }
   | { kind: "setTextSize"; points: number | null }
   | { kind: "setDensity"; id: string }
   | { kind: "importClassic" }
@@ -106,7 +99,7 @@ function agentAction(agent: SetupAgent, { format }: Strings): { label: string; r
 }
 
 /** The rows in their order: classic first when found (its answer decides what Home holds), then
- * agents, cmux's tools in those agents when there is something to ask, account and the command line. */
+ * agents, account and the command line. */
 export function setupSteps(state: SetupState, strings: Strings): SetupStep[] {
   const { t, format } = strings;
   const steps: SetupStep[] = [];
@@ -187,27 +180,6 @@ export function setupSteps(state: SetupState, strings: Strings): SetupStep[] {
   });
   // Chief's form: the agents row is the whole card.
   if (state.forChief) return steps;
-  if (state.tools) {
-    const { agents, choice, applying } = state.tools;
-    const done = choice !== "ask" && !applying;
-    steps.push({
-      id: "tools",
-      done,
-      title: t("home.setup.tools"),
-      detail:
-        choice === "on" && !applying
-          ? t("home.setup.tools.added")
-          : choice === "off"
-            ? t("home.setup.tools.declined")
-            : format("home.setup.tools.detail", agents.join(", ")),
-      busy: applying,
-      ...(choice === "ask" &&
-        !applying && {
-          action: { label: t("home.setup.tools.add"), run: { kind: "addTools" } as const },
-          secondary: { label: t("home.setup.notNow"), run: { kind: "declineTools" } as const },
-        }),
-    });
-  }
   steps.push({
     id: "account",
     done: state.account.signedIn,

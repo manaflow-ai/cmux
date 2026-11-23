@@ -12,17 +12,7 @@ const strings = cardStrings();
 // A fixed save time, so the stills do not change from run to run.
 const savedAt = new Date(2026, 10, 5, 22, 26).getTime();
 
-type Fixture =
-  | "fresh"
-  | "classic"
-  | "classicOpen"
-  | "classicDeclined"
-  | "classicImporting"
-  | "mostlyDone"
-  | "installing"
-  | "unverified"
-  | "tools"
-  | "toolsAdded";
+type Fixture = "fresh" | "classic" | "classicOpen" | "classicDeclined" | "classicImporting" | "mostlyDone" | "installing" | "unverified";
 
 const FIXTURES: Record<Fixture, SetupState> = {
   fresh: {
@@ -84,26 +74,6 @@ const FIXTURES: Record<Fixture, SetupState> = {
       { id: "claude", name: "Claude Code", state: "installing" },
       { id: "codex", name: "Codex", state: "missing" },
     ],
-    account: { signedIn: false },
-    cli: "missing",
-    classic: null,
-  },
-  tools: {
-    agents: [
-      { id: "claude", name: "Claude Code", state: "signedIn" },
-      { id: "codex", name: "Codex", state: "signedOut" },
-    ],
-    tools: { agents: ["Claude Code", "Codex"], choice: "ask", applying: false },
-    account: { signedIn: false },
-    cli: "missing",
-    classic: null,
-  },
-  toolsAdded: {
-    agents: [
-      { id: "claude", name: "Claude Code", state: "signedIn" },
-      { id: "codex", name: "Codex", state: "signedOut" },
-    ],
-    tools: { agents: ["Claude Code", "Codex"], choice: "on", applying: false },
     account: { signedIn: false },
     cli: "missing",
     classic: null,
@@ -175,11 +145,6 @@ export default componentEntry<Props>({
       note: "An install runs: the spinner takes the button's slot, nothing moves.",
       props: { look: "next", fixture: "installing" },
     },
-    "rows-tools": {
-      note: "Claude Code and Codex found: cmux asks before adding its tools (Computer Use included) to them.",
-      props: { look: "rows", fixture: "tools" },
-    },
-    "rows-tools-added": { props: { look: "rows", fixture: "toolsAdded" } },
     "rows-unverified": {
       note: "Claude Code's login opened, but its Keychain sign-in cannot be read: the person confirms it or signs in again.",
       props: { look: "rows", fixture: "unverified" },
