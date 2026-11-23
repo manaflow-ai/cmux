@@ -65,7 +65,9 @@ export function SteerQueue({
   const [step, setStep] = useState<Step>();
   // The field as last drawn: a step that lands reads what the person typed while it was on its way.
   const textNow = useRef(text);
-  textNow.current = text;
+  useEffect(() => {
+    textNow.current = text;
+  }, [text]);
   const found = items.findIndex((item) => item.sessionId === focusId);
   const index = Math.max(0, found);
   // Focus never moves to another chat on its own: when the focused chat leaves the list, nothing is
