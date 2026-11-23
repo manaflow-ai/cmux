@@ -21,6 +21,7 @@ pub mod overlay;
 pub mod peers;
 #[cfg(unix)]
 pub mod reap;
+pub mod revision;
 #[cfg(unix)]
 pub mod state;
 pub mod store_fetch;
