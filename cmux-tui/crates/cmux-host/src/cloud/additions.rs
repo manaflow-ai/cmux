@@ -207,7 +207,9 @@ pub fn collect_on_machine(
     let mut drain = |out: &mut Vec<u8>| loop {
         match stdout.read(&mut buf) {
             Ok(0) => break,
-            Ok(n) => out.extend_from_slice(&buf[..n.min(MAX_OUT.saturating_sub(out.len()))]),
+            Ok(n) => out.extend_from_slice(
+                buf.get(..n.min(MAX_OUT.saturating_sub(out.len()))).unwrap_or(&[]),
+            ),
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(_) => break,
         }
