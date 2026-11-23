@@ -316,6 +316,7 @@ public nonisolated enum SidebarTunables {
             rowTitleSingleChat.descriptor,
             sectionTopFraction.descriptor,
             SidebarChatsDesign.tunable.descriptor,
+            CornerMorphVariant.tunable.descriptor,
             SidebarFaviconStyle.tunable.descriptor,
             SidebarGroupHeaderStyle.tunable.descriptor,
             SpaceSwitcherStyle.tunable.descriptor,

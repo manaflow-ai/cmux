@@ -24,6 +24,9 @@ public final class MainPaneChromeShadeView: NSView {
     private var dividers: [CGRect] = []
     /// The divider's line, in `Palette.chromeDivider` at ``Metrics/tabRowDividerStrength``, less the folders.
     private let dividerLayer = CAShapeLayer()
+    /// Debug `sidebar.cornerMorph`: what joins the card at its sidebar edge (`CornerMorph`); nil keeps the plain card.
+    private var morph: CornerMorph?
+    private var morphLeading = true
     private var cardsObservation: AnyObject?
     /// Repaints the divider on a live change to `chrome.dividerStrength` or `chrome.tabRowDivider` (Debug Settings), as the update and the
     /// appearance do.
@@ -79,16 +82,22 @@ public final class MainPaneChromeShadeView: NSView {
     /// whose toolbar meets their tabs), or none. It draws a hairline there in `Palette.separator` at
     /// ``Metrics/tabRowDividerStrength`` (nothing at the full title area contrast), less the folder tabs, so the line
     /// runs under the unselected tabs only.
+    /// `morph` (Debug `sidebar.cornerMorph`) joins its rects to the card as one unshaded surface;
+    /// `leading` says the sidebar is on the card's leading side.
     public func update(card: CGRect, radius: CGFloat, alpha: CGFloat, squareTopCorners: Bool = false, folders: [CGPath] = [],
-                       dividers: [CGRect] = []) {
+                       dividers: [CGRect] = [], morph: CornerMorph? = nil, leading: Bool = true) {
+        let morph = morph?.isEmpty == false ? morph : nil
         guard card != self.card || radius != self.radius || alpha != self.alpha || squareTopCorners != self.squareTopCorners
-            || folders != self.folders || dividers != self.dividers || shade.frame != bounds || Metrics.floatingPanes else { return }
+            || folders != self.folders || dividers != self.dividers || morph != self.morph || leading != morphLeading
+            || shade.frame != bounds || Metrics.floatingPanes else { return }
         self.card = card
         self.radius = radius
         self.alpha = alpha
         self.squareTopCorners = squareTopCorners
         self.folders = folders
         self.dividers = dividers
+        self.morph = morph
+        morphLeading = leading
         rebuild()
     }
 
@@ -153,6 +162,9 @@ public final class MainPaneChromeShadeView: NSView {
             // One union per selected folder: a strip per top-row pane, so a handful at most.
             for folder in folders { hole = hole.union(folder) }
             shade.path = CGPath(rect: bounds, transform: nil).subtracting(hole)
+        } else if let morph {
+            // Leo 2026-11-05: "we need to have some sort of way to morph them together" (Debug `sidebar.cornerMorph`).
+            shade.path = CGPath(rect: bounds, transform: nil).subtracting(morph.surface(card: card, radius: radius, leading: morphLeading))
         } else {
             let path = CGMutablePath()
             path.addRect(bounds)
