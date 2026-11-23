@@ -77,11 +77,12 @@ runs are known by their workflow path and need one machine and one simulator.
 The pool is its online idle runners (pr_runner_pool.live_owned_free()) less
 the machines charged. Simulators are counted per mini, not per runner: every
 runner instance of a simulator mini carries SIM_LABEL (`<member>-glaeda`,
-`<member>-glaeda-K`), and the mini runs one simulator job at a time, so an
-idle runner says nothing about its simulator. The free simulators are the
-online SIM_LABEL minis of the pool that no running simulator job holds, at
-most CI_OWNED_POOL_SLOTS' SIM_LABEL entry less those held, less the
-simulators charged. Neither count goes below zero. live_placements() lists
+`<member>-glaeda-K`), and the mini runs a fixed number of simulator jobs at
+once (its slots, see Simulator slots; one by default), so an idle runner says
+nothing about its simulator. The free simulators are the free slots of the
+online SIM_LABEL minis of the pool (each mini's slots less its running
+simulator jobs), at most CI_OWNED_POOL_SLOTS' SIM_LABEL entry less the slots
+held, less the simulators charged. Neither count goes below zero. live_placements() lists
 the markers, reads the jobs of the runs they and age leave open (at most
 MAX_JOB_READS, newest first), and lists one more page of markers when a run
 read has a finished picker the first listing did not mark, so a picker that
@@ -131,6 +132,15 @@ has ci-owned-pool-rescue.yml watch the jobs (owned_pool_rescue.job_pool()
 knows the label) and move one to retry_runs_on, unchanged, if no runner takes
 it.
 
+Simulator slots. A mini with N simulator token copies runs N simulator jobs
+at once, each on its own slot device (select_ios_simulator.py, from the
+job's GLAEDA_SIM_SLOT). The picker learns N from the runners listing it
+already reads, at no extra request: glaeda puts SIM_SLOTS_LABEL
+(`glaeda-sim-slots-<N>`) on the mini's runners, its SIM_LABEL runners and its
+sim-first runner alike. A mini whose runners carry none has one slot, as
+before; the largest N any of its runners carries wins. The label is a
+runner label only, never requested by a job.
+
 Build placement. ios-simulator-build reads its own output, `build_runs_on`.
 On the pool label with SIM_LABEL it waited behind the std pool's backlog,
 because on a simulator mini those labels are carried only by the std root and
@@ -156,10 +166,12 @@ would rescue it.
 
 Simulator capacity. glaeda puts SIM_LABEL (`glaeda-ios-sim`) on the runners of
 minis that have an iOS simulator role and an iOS 26.x runtime, and runs one
-simulator job at a time on each such mini (a second is refused). Its count is
+simulator job per slot on each such mini (one more is refused). Its cap is
 CI_OWNED_POOL_SLOTS' SIM_LABEL entry (`{"glaeda-ios-sim": 2}`, read by
-pr_runner_pool.capability_slots()), one simulator job per machine; without the
-entry the lane never takes the fleet on its own. What is taken comes from the
+pr_runner_pool.capability_slots()), simulator jobs at once: one per machine
+while every mini has one slot, so slots beyond that are used only once the
+entry is raised to the fleet's total; without the entry the lane never takes
+the fleet on its own. What is taken comes from the
 queue janitor's snapshot, which counts every queued or running job carrying
 the label and each run's capability marker (queue_janitor.capability_marker),
 plus every test-ios.yml and ios-screenshots.yml run created since the snapshot
@@ -275,6 +287,21 @@ WAITING = frozenset({"queued", "waiting", "pending", "requested"})
 MARKER_PAGES = 3
 # A glaeda runner's name: `<member>-glaeda`, or `<member>-glaeda-K` for instance K.
 RUNNER_INSTANCE_SUFFIX = re.compile(r"-glaeda(?:-\d+)?$")
+# A runner label glaeda puts on every runner of a mini with N simulator slots
+# (see Simulator slots). Absent: one slot.
+SIM_SLOTS_LABEL = re.compile(r"glaeda-sim-slots-([1-9][0-9]?)")
+
+
+def runner_labels(runner: Mapping[str, Any]) -> set[str]:
+    """A runners-API runner's label names."""
+    return {str(item.get("name")) for item in runner.get("labels") or [] if isinstance(item, Mapping)}
+
+
+def sim_slots(runner: Mapping[str, Any]) -> int | None:
+    """The simulator slots a runner's SIM_SLOTS_LABEL gives its mini, or None without one."""
+    counts = [int(match.group(1)) for label in runner_labels(runner)
+              if (match := SIM_SLOTS_LABEL.fullmatch(label))]
+    return max(counts) if counts else None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -726,6 +753,8 @@ class Hold:
     sims: int = 0
     # Minis whose simulator one of its running simulator jobs holds.
     sim_hosts: frozenset[str] = frozenset()
+    # The mini of each running simulator job, once per job (a mini may have several slots).
+    sim_jobs_on: tuple[str, ...] = dataclasses.field(default=(), compare=False)
 
 
 def settled_off(run: Mapping[str, Any]) -> bool:
@@ -811,9 +840,10 @@ def hold(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]] | None, pool:
     # Now: every waiting job takes a machine. After the build: the rest still
     # waiting, the simulator jobs, less the machine the running build frees.
     machines = max(len(pooled), waiting_rest + sum(1 for job in pooled if job in sims) + to_come - running_builds, 0)
+    slot_holders = [job for job in sims + first_builds if on_runner(job)]
     return Hold(machines=machines, sims=waiting_sims + to_come,
-                sim_hosts=frozenset(runner_host({"name": job["runner_name"]}) for job in sims + first_builds
-                                    if on_runner(job)))
+                sim_hosts=frozenset(runner_host({"name": job["runner_name"]}) for job in slot_holders),
+                sim_jobs_on=tuple(runner_host({"name": job["runner_name"]}) for job in slot_holders))
 
 
 def sim_first_hosts(runners: Sequence[Mapping[str, Any]], label: str) -> set[str]:
@@ -859,17 +889,27 @@ def live_free(runners: Sequence[Mapping[str, Any]], pool: str, recent: Sequence[
     if not mine:
         raise RuntimeError(f"no runner carries {pool}")
     idle = pr_runner_pool.live_owned_free(mine, (pool,))
+    # Each mini's simulator slots: the largest SIM_SLOTS_LABEL any of its runners carries, else one.
+    slots: dict[str, int] = {}
+    for runner in runners:
+        count = sim_slots(runner)
+        if count is not None:
+            slots[runner_host(runner)] = max(count, slots.get(runner_host(runner), 1))
     sim_hosts = {runner_host(runner) for runner in mine if runner.get("status") == "online"
-                 and SIM_LABEL in {str(item.get("name")) for item in runner.get("labels") or []
-                                   if isinstance(item, Mapping)}}
+                 and SIM_LABEL in runner_labels(runner)}
     holds = [hold(run, (jobs or {}).get(run.get("id")), pool, placements, now) for run in recent]
-    held = sim_hosts & frozenset().union(*(item.sim_hosts for item in holds))
-    sim_room = max(0, min(len(sim_hosts - held), capacity - len(held)))
+    running: dict[str, int] = {}
+    for host in (host for item in holds for host in item.sim_jobs_on):
+        running[host] = running.get(host, 0) + 1
+    held = sum(min(running.get(host, 0), slots.get(host, 1)) for host in sim_hosts)
+    open_slots = sum(max(0, slots.get(host, 1) - running.get(host, 0)) for host in sim_hosts)
+    sim_room = max(0, min(open_slots, capacity - held))
     charged = sum(item.sims for item in holds)
-    # One sim-first runner per mini, offline while its simulator is taken; a
-    # running simulator job's mini is left out in case the listing lags it.
+    # One sim-first runner per mini, offline while its simulators are all taken;
+    # a mini whose running simulator jobs fill its slots is left out in case the
+    # listing lags it.
     first_hosts = sim_first_hosts(runners, sim_first_label)
-    first_hosts -= frozenset().union(*(item.sim_hosts for item in holds))
+    first_hosts -= {host for host, count in running.items() if count >= slots.get(host, 1)}
     return LiveFree(pool=max(0, idle[pool] - sum(item.machines for item in holds)),
                     sim=max(0, sim_room - charged),
                     sim_first=max(0, len(first_hosts) - charged),

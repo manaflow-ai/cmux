@@ -89,7 +89,7 @@ class WatchdogStepTests(unittest.TestCase):
         (self.tmp / "issues.json").write_text(json.dumps(issues))
 
     def run_step(self, *, repo_runners=(), groups=None, age_seconds=9159, route_token="route-token",
-                 roster_fail=False) -> subprocess.CompletedProcess:
+                 roster_fail=False, label=LABEL) -> subprocess.CompletedProcess:
         (self.tmp / "roster.json").write_text(json.dumps({"repo": list(repo_runners), "groups": groups or {}}))
         newest = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=age_seconds)).strftime("%Y-%m-%dT%H:%M:%SZ")
         env = {
@@ -97,7 +97,7 @@ class WatchdogStepTests(unittest.TestCase):
             "HOME": str(self.tmp),
             "GH_TOKEN": "workflow-token",
             "GH_REPO": REPO,
-            "LABEL": LABEL,
+            "LABEL": label,
             "STALE_SECONDS": "1800",
             "ROUTE_TOKEN": route_token,
             "GITHUB_STEP_SUMMARY": str(self.summary),
@@ -155,6 +155,20 @@ class WatchdogStepTests(unittest.TestCase):
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
         [create] = self.issue_writes("create")
         self.assertIn("no routing token was minted", self.body_of(create))
+
+    def test_a_jit_sweep_label_reads_no_roster_and_names_the_variable(self) -> None:
+        # The sweep runs on the one-job repair VM cmux-gcp-repair-jit-x64 by default (GitHub-hosted Ubuntu starts
+        # nothing in manaflow-ai). A JIT label has no standing roster: the scaler mints a VM per queued job, so an
+        # idle roster read would always say starved; the alert names the variable instead.
+        done = self.run_step(label="cmux-gcp-repair-jit-x64", repo_runners=[runner(1)])
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertEqual([call for call in self.calls() if call["args"][:1] == ["api"] and "runner" in call["args"][1]], [])
+        [create] = self.issue_writes("create")
+        body = self.body_of(create)
+        self.assertIn("Runner label starved: cmux-gcp-repair-jit-x64", create)
+        self.assertIn("one-job JIT label", body)
+        self.assertIn("CI_QUEUE_JANITOR_ON_FLEET=1", body)
+        self.assertNotIn("roster", body)
 
     def test_a_fresh_snapshot_reads_no_roster_and_files_nothing(self) -> None:
         done = self.run_step(age_seconds=60, repo_runners=[runner(1)])
