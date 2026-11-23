@@ -197,8 +197,9 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
       const first = events[0];
       const turnOpener =
         first && first.kind !== "user_message" && events.length < chat.events.length
-          ? (chat.events.findLast((event) => event.kind === "user_message" && Number(event.seq) < Number(first.seq)) ??
-            null)
+          ? ([...chat.events]
+              .reverse()
+              .find((event) => event.kind === "user_message" && Number(event.seq) < Number(first.seq)) ?? null)
           : null;
       return {
         session: chat.session,
