@@ -257,6 +257,9 @@ export type TurnEndFold = {
   timer?: ReturnType<typeof setTimeout>;
   /// Stops the passes that follow the rows as they are placed again (the observer and listener).
   stop?: () => void;
+  /// Runs once when the fold is settled (its timer, a later fold, an unmount): the transcript reads
+  /// and places its mounted rows again then (VirtualTranscript.tsx `settleMotion`).
+  ended?: () => void;
 };
 
 const mounted = (thread: HTMLElement) => thread.querySelectorAll<HTMLElement>(":scope > .acpmux-row[data-row-id]");
@@ -607,6 +610,9 @@ export function settleTurnEnd(thread: HTMLElement | null, fold: TurnEndFold | un
   for (const copy of fold.copies) copy.remove();
   fold.copies.clear();
   thread?.removeAttribute(TURN_END_ATTR);
+  const ended = fold.ended;
+  fold.ended = undefined;
+  ended?.();
 }
 
 /// The reader's own scroll ends a fold in flight at once (cmuxterm-hq
