@@ -14,6 +14,24 @@
       "pending": "An outside-only look: there is no built-in twin."
     },
     {
+      "id": "aurora",
+      "addon": "aurora",
+      "builtIn": null,
+      "pending": "An outside-only look: there is no built-in twin."
+    },
+    {
+      "id": "grove",
+      "addon": "grove",
+      "builtIn": null,
+      "pending": "An outside-only look: there is no built-in twin."
+    },
+    {
+      "id": "gel",
+      "addon": "gel",
+      "builtIn": null,
+      "pending": "An outside-only look on the flush corner with goo fillets: there is no built-in twin."
+    },
+    {
       "id": "claude",
       "surface": "composer",
       "addon": null,
