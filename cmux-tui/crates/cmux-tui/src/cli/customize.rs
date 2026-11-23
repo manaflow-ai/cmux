@@ -17,6 +17,7 @@ mod dir;
 mod expire;
 mod library;
 mod pr;
+mod rebuild;
 mod render;
 mod source;
 #[cfg(test)]

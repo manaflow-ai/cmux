@@ -135,7 +135,7 @@ His reference is the account menu of a desktop chat app: one translucent surface
 | Dock backdrop | window-chrome | real glass rim around the terminal's background | `CmuxNextLayout/Views/DockBackdropView.swift` |
 | Browser omnibar | window-chrome | real glass | `CmuxNextBrowser/UI/OmnibarViews.swift` |
 | Terminal pane | (content, native Metal) | clear on the window material | `CmuxNextTerminal` |
-| Sidebar cards | sidebar-card | card veil | `SidebarNoticeCardView`, `SidebarUpdateCardView`, `SidebarNowPlayingCardView`, app health's footer chip (`AppHealthIndicatorView`) |
+| Sidebar cards | sidebar-card | card veil | `SidebarNoticeCardView`, `SidebarUpdateCardView`, `SidebarNowPlayingCardView` |
 | Command palette | native-overlay | real glass | `CmuxNextPalette/PaletteContentView.swift` |
 | Tooltips, hover cards | material-source | real glass | `CmuxNextDesign/Tooltip/TooltipPanel.swift`, `HoverCards/HoverCardPanel.swift` |
 | Toasts | native-overlay | real glass (the toast role: Liquid Glass on macOS 26, the blur before it, opaque under Reduce Transparency) | `CmuxNextDesign/Toast/CmuxToastView.swift`, `CmuxToastOverlayHost.swift` |
@@ -168,7 +168,7 @@ His reference is the account menu of a desktop chat app: one translucent surface
 | New Tab page | web-content | clear; its suggestions at 86% page glass | `W/agent-session/acpmux/newtab/*` |
 | Settings | web-content | clear; its menus page glass (no host glass in that page) | `W/pages/settings`, `W/pages/shared/pageBase.css` |
 | Markdown, diff, files | web-content | clear; headers and toolbar menus page glass | `W/pages/markdown`, `W/pages/diff`, `W/styles.css` |
-| Home messages and channels | web-content | page glass headers | `W/pages/home-messages`, `W/pages/home-channels` |
+| Home messages and channels | web-content | page glass headers | `W/pages/home-channels` |
 | Onboarding | web-content | page glass cards | `W/pages/onboarding/styles.css` |
 | In-page dialogs | web-floating | page glass | `W/ui/Dialog.tsx` |
 

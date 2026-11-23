@@ -89,8 +89,6 @@ def step_named(steps: list[dict], fragment: str) -> dict:
     return found[0]
 
 
-# Jobs that hold a write token stay on an ephemeral_only pool (tests/test_ci_ephemeral_pool_readers.py).
-WRITE_TOKEN_JOBS = {"receipt", "post"}
 
 
 class WorkflowShape(unittest.TestCase):
@@ -117,17 +115,14 @@ class WorkflowShape(unittest.TestCase):
                     self.assertTrue(runner.startswith(
                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == "
                         "'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && "
-                        "'blacksmith-"), runner)
+                        "(vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || "), runner)
                     self.assertNotIn("github.run_attempt == 1 && 'ubuntu-24.04'", runner)
                     self.assertNotIn("needs.", runner)
                     self.assertNotIn("inputs.", runner)
-                    if key in WRITE_TOKEN_JOBS:
-                        # receipt and post hold write tokens: the ephemeral-only linux_4 pool, never the persistent
-                        # cmux-linux label (tests/test_ci_ephemeral_pool_readers.py, #49007).
-                        self.assertTrue(runner.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_4 }}"), runner)
-                    else:
-                        self.assertTrue(runner.endswith("|| 'cmux-linux' }}"), runner)
-                        self.assertNotIn("vars.", runner)
+                    # #48644 (2026-11-23): every own-branch Linux job, the write-token ones too, takes the one
+                    # cmux-linux label; only the fork branch reads a variable.
+                    self.assertTrue(runner.endswith("|| 'cmux-linux' }}"), runner)
+                    self.assertNotIn("vars.RUNNER_POOLS", runner)
                     self.assertNotIn("macos", runner.lower())
                     self.assertNotIn("vars.LINUX_RUNNER", runner)
         for key, each in doc["jobs"].items():
@@ -544,13 +539,13 @@ class WorkflowShape(unittest.TestCase):
     def test_a_dispatch_never_saves_a_cache(self):
         # A dispatch runs on feat-cmux-next's ref after pull request code ran: a cache it saved would be the base's.
         steps = job(workflow())["steps"]
+        # #51100 (2026-11-23): restore only, on pull requests and dispatches alike; cmux-next-web-lint.yml's web-lint
+        # job saves the key on each feat-cmux-next push. So no step here saves a cache at all.
         for step in steps:
-            if step.get("uses", "").startswith("actions/cache@"):
-                self.assertIn("github.event_name == 'pull_request'", step["if"], step.get("name"))
+            self.assertFalse(step.get("uses", "").startswith("actions/cache@"), step.get("name"))
         for name in ("Restore the Bun package cache", "Restore the pinned lint tools"):
             restore = step_named(steps, name)
             self.assertTrue(restore["uses"].startswith("actions/cache/restore@"), name)
-            self.assertIn("github.event_name == 'workflow_dispatch'", restore["if"], name)
 
     def test_the_webviews_checks_are_ci_webs_fail_mode_checks(self):
         # The gate reruns what a pull request's ci-web fails on, so a check that landed after the PR's CI
@@ -595,8 +590,11 @@ class WorkflowShape(unittest.TestCase):
                 self.assertIs(step.get("continue-on-error"), True)
         # A red that keeps going must still fail the job: every continue-on-error step, an action's too, has an id
         # whose outcome the last step reads.
+        # The same-input receipt steps (#49946) are the exception: they fail open by design (an error runs the shard
+        # in full) and the last two run after the gate, so none of them is a verdict.
+        receipt_steps = ("same-input receipt", "the receipt's results")
         for step in steps:
-            if step.get("continue-on-error") is True:
+            if step.get("continue-on-error") is True and not any(r in step["name"] for r in receipt_steps):
                 with self.subTest(gated=step["name"]):
                     self.assertIn("id", step)
                     self.assertIn(f"${{{{ steps.{step['id']}.outcome }}}}", gated)
@@ -1110,7 +1108,7 @@ class ScriptBehavior(unittest.TestCase):
         self.assertIn("not the pull request head", result.stderr)
 
     def test_a_catalog_or_protocol_spec_change_runs_the_webviews_checks_on_a_pull_request(self):
-        # ci-web runs them only for a webviews/ change; check:catalog-keys and acpmux-protocol:check read these.
+        # ci-web runs them only for a webviews/ change; check:catalog-keys and typecheck read these.
         seed = self.seed
         for path in ("Resources/Localizable.xcstrings", "cmux-tui/crates/acpmux/spec/acpmux-protocol.json"):
             with self.subTest(path=path):
@@ -1200,21 +1198,26 @@ class ScriptBehavior(unittest.TestCase):
         self.assertEqual(len(list(barrier.glob("started-*"))), 4)
         self.assertEqual({e["gate"] for e in self.gate_log()}, set(GATE_SCRIPTS))
 
-    def test_no_gate_started_has_a_critical_path_fallback(self):
+    def test_a_zero_budget_stops_every_started_gate_and_still_names_a_critical_path_gate(self):
+        # Gates start side by side (#50061), so a spent budget no longer leaves every gate unstarted: each lane's first
+        # gate starts and is stopped as stalled, and a gate queued behind another in its lane (webviews checks behind
+        # web lint) never starts. The summary still names a critical-path gate, never "no gate ran".
         work, _ = self.prepared()
         summary = self.tmp / "summary.md"
-        result = self.script(work, "run", "--base", self.tip, "--web", "false", "--checks", "false",
+        result = self.script(work, "run", "--base", self.tip, "--web", "true", "--checks", "true",
                              budget=0, summary=summary)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Critical-path gate: **no gate ran**", summary.read_text())
+        text = summary.read_text()
+        self.assertRegex(text, r"Critical-path gate: \*\*(?!no gate ran)[^*]+\*\* \(")
+        self.assertIn("failed (no time left)", text)
 
     def test_gate_logs_are_named_per_gate_across_batches(self):
         module = load(SCRIPT)
         with tempfile.TemporaryDirectory(prefix="fast-gates-logs-") as tmp:
             log_dir = Path(tmp)
-            first = module.run_gate_batch([("crash ratchet", [sys.executable, "-c", "pass"])],
+            first = module.run_gate_batch([[("crash ratchet", [sys.executable, "-c", "pass"])]],
                                           Path(tmp), None, log_dir)
-            second = module.run_gate_batch([("webviews checks", [sys.executable, "-c", "pass"])],
+            second = module.run_gate_batch([[("webviews checks", [sys.executable, "-c", "pass"])]],
                                            Path(tmp), None, log_dir)
             self.assertIn("crash-ratchet.log", {path.name for path in log_dir.iterdir()})
             self.assertIn("webviews-checks.log", {path.name for path in log_dir.iterdir()})
