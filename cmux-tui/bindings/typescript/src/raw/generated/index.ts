@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 69fa34844098cf552177a00cf8a770179750916108759df3f37bd21ed1ef53d3. */
+/* cmux-tui mux protocol 12, IR 97d06eb386d91e9f2a3b47b2b22c5e88879c140d8344cd814bf07b55b0c9a936. */
 
 export * from "./types.js";
 export * from "./commands.js";
