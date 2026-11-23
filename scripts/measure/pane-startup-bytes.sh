@@ -23,6 +23,9 @@ for sha in "$@"; do
   git -C "$root" worktree add -q --detach "$tree" "$sha" || { status=1; continue; }
   trees+=("$tree")
   (cd "$tree/webviews" && bun install --frozen-lockfile --ignore-scripts >/dev/null) || { status=1; continue; }
+  # build-agent-pane-web.sh writes only the agentPane strings table, but the pane also imports other pages'
+  # tables (cloud's, from CloudEnvironmentEditorContent), which a full app build writes first: write them all.
+  (cd "$tree/webviews" && bun scripts/pages/gen-strings.mjs >/dev/null) || { status=1; continue; }
   (cd "$tree" && scripts/cmux-next/build-agent-pane-web.sh --out "$scratch/out-$sha" >/dev/null) || { status=1; continue; }
   line="$(cd "$tree/webviews" && bun -e '
     const { readFileSync, readdirSync } = require("fs");
