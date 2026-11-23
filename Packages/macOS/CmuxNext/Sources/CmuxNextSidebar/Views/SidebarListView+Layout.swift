@@ -223,6 +223,7 @@ extension SidebarListViewComponents {
         suppressHoverEffects = true
         defer { suppressHoverEffects = previousHoverSuppression }
         defer { updateHover() }
+        defer { reportGooeySelection() } // after the rows took their frames: the flare follows the selected row
         let old = displayed
         displayed = layout
         spliceBase = nil // a reload sets it again for its own full layout
@@ -642,6 +643,7 @@ extension SidebarListViewComponents {
         guard !isShiftingViewport else { return }
         SidebarPerfCounters.add(.scrollRealizes)
         groupEditing.followScroll()
+        defer { reportGooeySelection() } // a scroll moves the selected row under the window's shade
         let realize = realizationRect()
         for index in displayed.rowIndices(from: realize.minY, to: realize.maxY) {
             let row = displayed.rows[index]
