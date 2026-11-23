@@ -481,6 +481,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-auto-session"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "cmux-build-space"
 version = "0.1.0"
 dependencies = [
@@ -500,6 +510,15 @@ dependencies = [
 [[package]]
 name = "cmux-message-preview"
 version = "0.1.0"
+
+[[package]]
+name = "cmux-mobile-auto"
+version = "0.1.0"
+dependencies = [
+ "cmux-auto-session",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "cmux-mobile-host"
