@@ -21,6 +21,8 @@ import { KeptLayouts } from "./conversation/keptLayouts";
 import { isAgentMotionOff } from "../shared/motion";
 import { LoadFadeWindow } from "../shared/loadFade";
 import { entranceAllowed, pageAway } from "../shared/pageReveal";
+import { holdUntilSettled } from "./conversation/unsettledHeights";
+import { endOffscreenMotion } from "./conversation/offscreenMotion";
 import {
   layoutConversation,
   type PlacedLayout,
@@ -80,6 +82,8 @@ import { shareFrameBudget, type FrameBudget, rowsMoved } from "./conversation/fr
 import { followMotion } from "./conversation/followMotion.experiment";
 import { composerDockMotion } from "./composer/dockMotion.experiment";
 import { acpmuxPerf, type MountedSpan } from "./perf";
+import { layoutWatchWanted, startLayoutWatch } from "./conversation/layoutWatch";
+import { transition, type MotionList } from "./conversation/motionOwner";
 import { useCountedRender } from "./perfRender";
 import { drewStreamingRow, useStreamingRow } from "./streamingRow";
 import { rowsWithLiveOutput } from "./liveToolOutput";
@@ -1109,6 +1113,9 @@ function TranscriptView({
   };
   const followRef = useRef(follow);
   followRef.current = follow;
+  // The layout watcher's streaming read (conversation/layoutWatch.ts): a growing last row is no move.
+  const workingRef = useRef(working);
+  workingRef.current = working;
   const transcriptMounted = useRef(true);
   const scrollPacer = useRef<ReturnType<typeof createScrollPacer> | undefined>(undefined);
   const pacedScroll = (frame: ScrollFrame) => {
@@ -2498,6 +2505,10 @@ function TranscriptView({
     [reportRow, flushDrawn],
   );
   useEffect(() => () => observer?.disconnect(), [observer]);
+  // A CSS motion that starts out of the view draws at its end (cmuxterm-hq
+  // docs/design/transcript-animation-rules.md, rule 1): the overscan's rows the reader cannot see play
+  // nothing (conversation/offscreenMotion.ts).
+  useLayoutEffect(() => endOffscreenMotion(ref.current), []);
   // Forget rows that left the transcript (a session switch, older history unloaded).
   const previousRowList = useRef<readonly AcpmuxRow[] | undefined>(undefined);
   const previousTail = useRef<readonly AcpmuxRow[]>(NO_ROWS);
@@ -2629,10 +2640,15 @@ function TranscriptView({
   /// ends with the chat it was for: a cached chat opened mid-fade shows whole on its first frame,
   /// not under the last chat's fade, and a transcript that unmounts leaves none running.
   const openFade = useRef<Animation | undefined>(undefined);
+  /// A cold-opened chat held unseen until its parts settle (unsettledHeights.ts `holdUntilSettled`):
+  /// it too ends with the chat it was for, so a chat opened during it is not held or faded in for it.
+  const openHold = useRef<(() => void) | undefined>(undefined);
   useLayoutEffect(
     () => () => {
       openFade.current?.cancel();
       openFade.current = undefined;
+      openHold.current?.();
+      openHold.current = undefined;
     },
     [sessionId],
   );
@@ -2662,17 +2678,28 @@ function TranscriptView({
     },
     [],
   );
+  /// Ends the hold of an opening chat whose parts are still settling (`holdUntilSettled`).
   useLayoutEffect(() => {
     if (coldOpen === undefined || rows.length === 0 || fadedOpen.current === coldOpen) return;
     fadedOpen.current = coldOpen;
     openFade.current?.cancel();
+    openHold.current?.();
     // A switch under a chat switch motion (chatSwitch.ts) is drawn by its own play instead. A chat
     // this page already drew, or already faded in since it was opened, shows at once: a reload over
     // it (a reconnect, a cleared and refilled transcript) is not a first load (openBreakpoint.ts).
     const shownBefore = opened.drewBefore || fadedSession.current === opened;
     fadedSession.current = opened;
-    openFade.current = switchPending.current || shownBefore ? undefined : fadeInOpenedChat(ref.current);
-    onColdOpenShown?.(coldOpen);
+    const show = () => {
+      openHold.current = undefined;
+      openFade.current = switchPending.current || shownBefore ? undefined : fadeInOpenedChat(ref.current);
+      onColdOpenShown?.(coldOpen);
+    };
+    // A chat read cold shows once the parts of its rows that draw a moment late (math, diagrams,
+    // images the host reads) have their height, so its first shown frame is its last: held unseen
+    // until then, it is placed at its latest row as they land, and fades in once, in place
+    // (https://github.com/manaflow-ai/cmux/issues/48498). One shown before is not held again.
+    if (shownBefore || switchPending.current) show();
+    else openHold.current = holdUntilSettled(ref.current, show);
   }, [coldOpen, rows.length, onColdOpenShown, opened]);
   const previousSession = useRef(sessionId);
   // A layout effect: the first measure lands before the first paint, so a mounted transcript (a page
@@ -5797,6 +5824,37 @@ function TranscriptView({
     const node = ref.current;
     if (!node) return;
     const intent = userScrollIntent(node);
+    // The motion model's watcher (docs/design/transcript-motion-model.md): warn-only, flags a move no
+    // transition declared; on with perf, `cmux.layoutWatch`, or a dev build.
+    const stopLayoutWatch = layoutWatchWanted(acpmuxPerf.enabled)
+      ? startLayoutWatch(node, {
+          streaming: () => workingRef.current,
+          lastRowId: () => rowsRef.current.at(-1)?.id,
+          onFlag: () => acpmuxPerf.render("layout.unexplained_shifts"),
+          overlay: true,
+        })
+      : undefined;
+    // The list the motion owner drives (conversation/motionOwner.ts). The fold hold still keeps the
+    // line on its pixel, so a fold's transition only declares its move; the anchored list takes the
+    // scroll write over at step 10.
+    const motionList: MotionList = {
+      offsetOf: (rowId) => {
+        const row = node.querySelector<HTMLElement>(`[data-row-id="${CSS.escape(rowId)}"]`);
+        return row ? row.getBoundingClientRect().top - node.getBoundingClientRect().top : undefined;
+      },
+      scrollBy: () => {},
+      rowsAfter: (rowId) => {
+        const ids = rowsRef.current.map((row) => row.id);
+        const at = ids.indexOf(rowId);
+        return at < 0 ? [] : ids.slice(at + 1);
+      },
+      settle: () => {},
+    };
+    const declareFold = (line: Element | null | undefined) => {
+      const rowId = line?.closest<HTMLElement>("[data-row-id]")?.dataset.rowId;
+      if (rowId)
+        transition(motionList, { cause: "disclosure", anchorRow: rowId, ms: FOLD_HOLD_MIN_MS + FOLD_SETTLE_MS });
+    };
     // First on the window, so a fling's momentum held after a jump reaches no other listener.
     const removeMomentumHold = installMomentumHold(node, scrollRunning);
     const detachIntent = attachUserScrollIntent(node);
@@ -6136,6 +6194,7 @@ function TranscriptView({
       });
       const bottom = beginBottomStackFold(toggle, line, wasAtEnd);
       // A keyboard click (detail 0) had no press: an older, abandoned one is not its place.
+      declareFold(line);
       foldAnchor.current = clickFold(line, event.detail > 0 ? pressed : undefined, undefined, toggle);
       holdTop.current = node?.scrollTop;
       pressed = undefined;
@@ -6179,6 +6238,7 @@ function TranscriptView({
       const toggle = sameClick ? clicked! : header;
       const bottom = bottomStackFold.current?.toggle === header ? true : beginBottomStackFold(toggle, header, wasAtEnd);
       // The click that asked for it already holds this line at the place it was pressed at: keep it.
+      if (!sameClick) declareFold(header);
       foldAnchor.current = clickFold(header, foldAnchor.current, undefined, toggle);
       holdTop.current = node.scrollTop;
       if (!bottom) keepFoldRoom();
@@ -6269,6 +6329,7 @@ function TranscriptView({
       removeWheel?.();
       gutterRelease.current = undefined;
       gutter?.remove();
+      stopLayoutWatch?.();
     };
   }, [dropFoldRoom, landForReader, startBottomStack, stopBottomStackFold, slimFollow, stopFollowMotion, stopJump]);
   // A turn's footer (TurnFooter) shows for the turn the reader points at: anywhere after its prompt

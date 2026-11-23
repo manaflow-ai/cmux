@@ -433,6 +433,9 @@ pub mod method {
     /// budgets}`, and the always-on frame tally (`frame_tally.rs`): `{op: frames|tally}`; local app
     /// and unix socket only.
     pub const MUX_PERF: &str = "_acpmux/perf";
+    /// Each caller's requests and bytes over a recent window (`caller_stats.rs`):
+    /// `{sinceSecs?, top?}`; local app and unix socket only.
+    pub const MUX_CALLERS: &str = "_acpmux/callers";
     /// One-request v2 upgrade. The JSON-RPC reply is the last v1 message; the
     /// transport hands the same stream to the framed v2 connection afterward.
     pub const MUX_V2: &str = "_acpmux/v2";
