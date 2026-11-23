@@ -36,6 +36,8 @@ repo=$(cd "$here/../.." && pwd)
 [ -x "$acpmux" ] || { echo "agent-quota: acpmux=PATH (a build of this checkout) is required" >&2; exit 2; }
 command -v claude >/dev/null || { echo "agent-quota: claude is not on PATH" >&2; exit 2; }
 work=$(mktemp -d "${TMPDIR:-/tmp}/agent-quota.XXXXXX")
+# A failed or interrupted run removes its scratch folder; a finished one keeps it (its path is printed) to read the trials.
+trap 'status=$?; [ "$status" -eq 0 ] || rm -rf "$work"; exit "$status"' EXIT
 mkdir -p "$work/bin" "$work/plugin/.claude-plugin" "$work/plugin/skills/cmux-quota"
 cp "$here/agent-quota/gh" "$work/bin/gh" && cp "$acpmux" "$work/bin/acpmux" && chmod +x "$work/bin/"*
 echo '{"name":"cmux","version":"0.0.0","description":"cmux agent tools"}' > "$work/plugin/.claude-plugin/plugin.json"
