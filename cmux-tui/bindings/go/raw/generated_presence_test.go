@@ -9015,6 +9015,28 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 		}
 		assertGeneratedFieldJSON(t, presentValue, "generation", true, "\"value\"")
 	})
+	t.Run("Tree.Next", func(t *testing.T) {
+		var missing Tree
+		if err := json.Unmarshal([]byte("{\"workspaces\":[]}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if missing.Next != nil {
+			t.Fatal("Next did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "next", false, "")
+		var nullValue Tree
+		if err := json.Unmarshal([]byte("{\"workspaces\":[],\"next\":null}"), &nullValue); err == nil {
+			t.Fatal("non-nullable field next accepted null")
+		}
+		var presentValue Tree
+		if err := json.Unmarshal([]byte("{\"workspaces\":[],\"next\":1}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if presentValue.Next == nil {
+			t.Fatal("Next lost its value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "next", true, "1")
+	})
 	t.Run("Tree.PaneRevision", func(t *testing.T) {
 		var missing Tree
 		if err := json.Unmarshal([]byte("{\"workspaces\":[]}"), &missing); err != nil {
@@ -23176,6 +23198,32 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 			t.Fatal("Limit did not preserve a value")
 		}
 		assertGeneratedFieldJSON(t, presentValue, "limit", true, "1")
+	})
+	t.Run("ListWorkspacesRequest.After", func(t *testing.T) {
+		var missing ListWorkspacesRequest
+		if err := json.Unmarshal([]byte("{}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if !missing.After.IsAbsent() {
+			t.Fatal("After did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "after", false, "")
+		var nullValue ListWorkspacesRequest
+		if err := json.Unmarshal([]byte("{\"after\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.After.IsNull() {
+			t.Fatal("After did not preserve null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "after", true, "null")
+		var presentValue ListWorkspacesRequest
+		if err := json.Unmarshal([]byte("{\"after\":1}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.After.Get(); !ok {
+			t.Fatal("After did not preserve a value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "after", true, "1")
 	})
 	t.Run("ListWorkspacesRequest.Known", func(t *testing.T) {
 		var missing ListWorkspacesRequest
@@ -66823,10 +66871,10 @@ func TestGeneratedConstrainedFieldsRejectUnknownValuesOnMarshal(t *testing.T) {
 }
 
 const (
-	generatedFieldShapeCount               = 1865
-	generatedOptionalNullableFieldCount    = 1309
+	generatedFieldShapeCount               = 1867
+	generatedOptionalNullableFieldCount    = 1310
 	generatedRequiredNullableFieldCount    = 174
-	generatedOptionalNonnullableFieldCount = 382
+	generatedOptionalNonnullableFieldCount = 383
 	generatedRequiredFieldCount            = 1615
 	generatedRequiredNonnullableFieldCount = 1441
 	generatedConstrainedFieldCount         = 134

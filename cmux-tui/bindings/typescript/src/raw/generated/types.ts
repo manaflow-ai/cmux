@@ -1848,6 +1848,7 @@ export type TerminalResumeCommandResult = {
 
 export type Tree = {
   "generation"?: string;
+  "next"?: bigint;
   "pane_revision"?: bigint;
   "registry_id"?: string;
   "terminal_revision"?: bigint;
