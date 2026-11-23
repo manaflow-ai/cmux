@@ -3849,6 +3849,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const startLeftNewTab = useRef<NewTabHost | undefined>(undefined);
   const [newTabStartFailure, setNewTabStartFailure] = useState<Omit<NewTabStartFailure, "retry">>();
   const restoredAfterFailedStart = useRef(false);
+  /// The prompt a Classic New Tab start sent, until it opens a chat or fails; the page that comes
+  /// back takes it when the chat composer holds nothing yet (the switch hands it back later).
+  const startLeftDraft = useRef<{ text: string; attachments: ComposerAttachment[] } | undefined>(undefined);
+  const returnedDraft = useRef<{ text: string; attachments: ComposerAttachment[] } | undefined>(undefined);
   const newTabStartGeneration = useRef(0);
   const [sessionSelection, setSessionSelection] = useState<
     { sessionId: string; state: "pending" | "failed" } | undefined
@@ -8030,7 +8034,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// A page coming back after the chat view stood in for it: what that composer held, as its draft.
   const takeNewTabDraft = () => {
     if (!composerStoodIn.current) return takeNewChatLeftover();
-    const waiting = composerHandle.current?.draft() ?? heldBack.current?.pop();
+    const sent = returnedDraft.current;
+    returnedDraft.current = undefined;
+    const typed = composerHandle.current?.draft();
+    // The Classic page's own prompt, when the switch has not handed it to the chat composer yet.
+    if (sent && !typed?.text && !typed?.attachments.length) return sent;
+    const waiting = typed ?? heldBack.current?.pop();
     if (heldBack.current?.length === 0) heldBack.current = undefined;
     return waiting;
   };
@@ -8043,8 +8052,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const failedSwitch = switchView.intent?.phase === "failed" ? switchView.intent : undefined;
   /// Every New Tab start leaves its page this way (the screen's `leave`, the Classic page's
   /// `chatFromNewTab`): the page is kept until the start opens a chat or fails.
-  const leaveNewTabForStart = () => {
+  const leaveNewTabForStart = (sent?: { text: string; attachments: ComposerAttachment[] }) => {
     if (newTab) startLeftNewTab.current = newTab;
+    startLeftDraft.current = sent;
     setNewTabStartFailure(undefined);
     setNewTab(undefined);
   };
@@ -8055,6 +8065,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const left = startLeftNewTab.current;
     if (!left) return false;
     startLeftNewTab.current = undefined;
+    returnedDraft.current = startLeftDraft.current;
+    startLeftDraft.current = undefined;
     setNewTabStartFailure(failure);
     composerStoodIn.current = true;
     restoredAfterFailedStart.current = true;
@@ -8161,21 +8173,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // switch with nothing queued.
           const started = startNewTabTransition(
             () => callNative("chat.new", { ...chat, ...(folder ? { cwd: folder } : {}) }),
-            leaveNewTabForStart,
+            () => leaveNewTabForStart({ text, attachments }),
             isCurrent,
-          ).then(
-            (session) => {
-              if (isCurrent() && session && remembers) rememberStartedProject(folder, callNative);
-              return session;
-            },
-            (error: unknown) => {
-              // Refused before any chat opened: back on the page with the reason, not the chat
-              // view's empty-chat hero. A trust refusal asks its question in the chat view.
-              if (isCurrent() && !isTrustRefusal(error) && !isStartCancelled(error))
-                returnToNewTab(newTabStartFailureOf(error, chat.harness));
-              throw error;
-            },
-          );
+          ).then((session) => {
+            if (isCurrent() && session && remembers) rememberStartedProject(folder, callNative);
+            return session;
+          });
+          // A refusal before any chat opened fails the switch: the page comes back with the reason
+          // and the prompt the switch handed back (the `failedSwitch` effect), never the old hero.
           if (!asks) {
             // A blank Agent Return has no prompt to make a deferred switch visible. Preserve the
             // old immediate transition and observe the unresolved start only to avoid an unhandled

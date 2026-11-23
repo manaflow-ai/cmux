@@ -266,6 +266,8 @@ await requireBrowserLane("new-tab-start-frames.test.ts", async () => {
     expect(report("classic failed start", frames)).toEqual([]);
     expect(frames.at(-1)?.newTab).toBe(true);
     expect(frames.at(-1)?.failed).toBe(true);
+    // The prompt is back in the page's field.
+    expect(frames.at(-1)?.text).toContain(PROMPT);
   });
 
   test("a chat the Classic New Tab page starts never draws the old hero", async () => {

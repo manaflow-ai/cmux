@@ -246,6 +246,11 @@ export function NewTabPage({
   const [openFailed, setOpenFailed] = useState<{ kind: TabKind; detail: string; retry: () => void } | undefined>(() =>
     startFailure ? { kind: "agent", detail: startFailure.error.trim(), retry: () => retryStart.current() } : undefined,
   );
+  // A start that failed in the same turn it left keeps this page mounted: the failure arrives as a prop.
+  useLayoutEffect(() => {
+    if (startFailure)
+      setOpenFailed({ kind: "agent", detail: startFailure.error.trim(), retry: () => retryStart.current() });
+  }, [startFailure]);
   const attachmentRef = useRef<ComposerAttachment[]>([]);
   const make = (next: TabKind, value: string, folder?: string) => {
     setOpenFailed(undefined);
