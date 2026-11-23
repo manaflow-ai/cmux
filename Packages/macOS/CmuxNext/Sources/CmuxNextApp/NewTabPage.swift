@@ -231,8 +231,8 @@ extension PaneController {
         NewTabPage.open(in: self, seed: seed, reusingShown: reusingShown, then: then)
     }
 
-    /// Focus Location Bar: a browser tab's address bar; on a New Tab page its own (React) field; in
-    /// an agent chat its composer; anywhere else a new New Tab page, whose field takes the keyboard
+    /// Focus Location Bar: a browser tab's address bar; on a New Tab page its own (React) field; in a
+    /// chat dock beside a browser that browser's address bar; in an agent chat its composer; anywhere else a new New Tab page, whose field takes the keyboard
     /// (cx-e2aa; Lawrence 2026-10-10: the New Tab page is React only, no native omnibar row). ⌃L
     /// stays the terminal's (clear screen).
     func focusLocation(_ invocation: ActionInvocation) {
@@ -245,6 +245,15 @@ extension PaneController {
             bar.focusLocation()
             return
         }
+        // A docked chat (Home's Chief dock) has no address bar: the browser beside it (focused last, else first) takes Cmd-L.
+        if let workspace, let beside = workspace.workspace.screens.lazy.compactMap({ $0.panesBeside(dockedChat: self.pane.handle) }).first,
+           let browser = (workspace.recentPanes.compactMap { workspace.panes[$0] } + beside.compactMap { workspace.pane(for: $0.handle) }).first(where: { pane in
+               guard case .browser? = pane.currentContent else { return false }
+               return beside.contains { $0.handle == pane.pane.handle } }), let window = services.windowController(showing: browser) {
+            window.focus.send(.focusPane(browser.paneKey, source: .intent))
+            window.focus.send(.focusTarget(.addressBar, source: .intent))
+            return
+        }
         // An agent chat: its composer takes the keyboard, not a new New Tab page beside it.
         if case .agent(let view) = currentContent, view.model.newTab == nil {
             view.focusComposer()
@@ -253,28 +262,5 @@ extension PaneController {
         // `open` focuses the field of a New Tab page already showing, else opens one. In a pane
         // of another machine it is the same page; nothing starts there before a send (cx-k21v).
         NewTabPage.open(in: self, seed: nil, reusingShown: true)
-    }
-}
-
-extension AgentPaneNewTab {
-    /// The page with Integrate a harness off when it was dismissed for good.
-    func dismissingHarnessHint(_ dismissed: Bool) -> AgentPaneNewTab {
-        var page = self
-        page.harnessHintDismissed = dismissed ? true : nil
-        return page
-    }
-
-    /// The page with the project of the chat the person last picked and started, if any.
-    func startingIn(_ startedProject: String?) -> AgentPaneNewTab {
-        var page = self
-        page.startedProject = startedProject
-        return page
-    }
-
-    /// The page with All chats left out (recent chats only) when Show All Chats on New Tab is off.
-    func listingAllChats(_ shown: Bool) -> AgentPaneNewTab {
-        var page = self
-        page.allChats = shown ? nil : false
-        return page
     }
 }

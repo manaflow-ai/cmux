@@ -123,7 +123,7 @@ on:
     branches: [feat-cmux-next]
 jobs:
   fast-check-route:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     outputs:
       gate: ${{ steps.route.outputs.gate }}
     steps:
@@ -185,7 +185,7 @@ jobs:
         heavy = self.WORKFLOW.replace(f"    runs-on: {route.ROUTE_RUNS_ON}\n    outputs:", "    runs-on: big\n    outputs:")
         problems = self.tree(["scripts/ci/gate.py", "scripts/ci/helper.py", "data/", "other/", "docs/"],
                              workflow=heavy)
-        self.assertTrue(any("not the 2-vCPU pool" in p for p in problems), problems)
+        self.assertTrue(any("not the one Linux label" in p for p in problems), problems)
 
     def test_no_push_and_no_cover(self):
         no_push = self.WORKFLOW.replace("  push:\n    branches: [feat-cmux-next]\n", "")

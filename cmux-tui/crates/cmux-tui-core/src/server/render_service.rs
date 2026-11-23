@@ -9,6 +9,7 @@ use super::OUTBOUND_GLOBAL_CONTROL_BYTE_CAPACITY;
 use super::RENDER_GRAPHIC_BASE64_CACHE_MAX_BYTES;
 use super::RENDER_GRAPHIC_BASE64_CACHE_MAX_ENTRIES;
 use super::VtStateMessage;
+use super::render_messages::close_with_stamp;
 use super::terminal_colors_json;
 use super::tree_reply_text::TreeText;
 use super::write_pending_sequence_json;
@@ -410,7 +411,10 @@ impl RenderService {
         if let Some(skipped) = value.history_rows_skipped {
             write!(writer, ",\"history_rows_skipped\":{skipped}")?;
         }
-        writer.write_all(b"}")?;
+        if let Some(resume) = value.resume {
+            write!(writer, ",\"resume\":\"{resume}\"")?;
+        }
+        close_with_stamp(&mut writer, value.stamp)?;
         Ok(writer.finish())
     }
 
@@ -426,7 +430,8 @@ impl RenderService {
             AttachFrame::Output(output) => {
                 write!(writer, "{{\"event\":\"output\",\"surface\":{surface},\"data\":\"")?;
                 write_base64_json_string(&mut writer, output)?;
-                writer.write_all(b"\"}")?;
+                writer.write_all(b"\"")?;
+                close_with_stamp(&mut writer, shape.stamp)?;
             }
             AttachFrame::OutputWithColors { output, colors } => {
                 write!(writer, "{{\"event\":\"output\",\"surface\":{surface},\"data\":\"")?;
@@ -437,7 +442,7 @@ impl RenderService {
                     &terminal_colors_json(**colors, include_color_overrides),
                 )
                 .map_err(json_error_to_io)?;
-                writer.write_all(b"}")?;
+                close_with_stamp(&mut writer, shape.stamp)?;
             }
             AttachFrame::Resized {
                 cols,
@@ -459,7 +464,7 @@ impl RenderService {
                 if shape.pending_sequence {
                     write_pending_sequence_json(&mut writer, pending_sequence)?;
                 }
-                writer.write_all(b"}")?;
+                close_with_stamp(&mut writer, shape.stamp)?;
             }
             AttachFrame::ResizedWithColors {
                 cols,
@@ -493,12 +498,16 @@ impl RenderService {
                 if let Some(omitted) = history_rows_omitted {
                     write!(writer, ",\"history_rows_omitted\":{omitted}")?;
                 }
-                writer.write_all(b"}")?;
+                close_with_stamp(&mut writer, shape.stamp)?;
             }
             AttachFrame::ColorsChanged(colors) => {
                 let mut value = terminal_colors_json(**colors, include_color_overrides);
                 value.insert("event", json!("colors-changed"));
                 value.insert("surface", json!(surface));
+                if let Some(stamp) = shape.stamp {
+                    value.insert("offset", json!(stamp.offset));
+                    value.insert("generation", json!(stamp.generation()));
+                }
                 serde_json::to_writer(&mut writer, &value).map_err(json_error_to_io)?;
             }
         }

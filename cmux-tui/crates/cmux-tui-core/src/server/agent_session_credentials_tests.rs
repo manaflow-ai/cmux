@@ -224,3 +224,51 @@ fn a_prewarm_for_a_bound_tab_or_with_no_folder_is_refused() {
     assert_eq!(chat.client.request(no_folder)["ok"], json!(false), "a bound tab warms nothing");
     assert!(chat.sent("_acpmux/prewarm").is_empty());
 }
+
+/// ask-c30064eeff: a Codex Cloud start from the CLI failed `agent_session.bad_request` with no
+/// word of which param was refused. A start's or a refresh's bad request names the param in
+/// `data.field` (a serde unknown or missing field by its name), and never any value it carried.
+#[test]
+fn a_bad_request_names_the_refused_param_and_never_its_value() {
+    let mut chat = connect("bad-field", AgentStartHost::OwnerCloud, false);
+    let base = json!({"cmd":"agent-session-start","surface":chat.surface,"cwd":chat.cwd,
+        "harness":"codex","vm_kind":"owner"});
+    let with = |key: &str, value: Value| {
+        let mut frame = base.clone();
+        frame[key] = value;
+        frame
+    };
+    let secret = "sk-proj-secretvalue";
+    for (frame, field) in [
+        (with("credentials", json!({"env": {"PATH": secret}})), "credentials"),
+        (with("credentials", json!({"env": {"OPENAI_API_KEY": secret}, "extra": secret})), "extra"),
+        (with("cwd", json!("relative/folder")), "cwd"),
+        (with("model", json!("bad model")), "model"),
+        (with("harness", json!("codex agent")), "harness"),
+        (with("permission_mode", json!("everything")), "permission_mode"),
+        (with("person_instance", json!("a/b")), "person_instance"),
+        (with("bogus_param", json!(secret)), "bogus_param"),
+    ] {
+        let refused = chat.client.request(frame.clone());
+        assert_code(&refused, "agent_session.bad_request");
+        assert_eq!(refused["data"]["field"], json!(field), "{frame}: {refused}");
+        assert!(refused["error"].as_str().unwrap_or("").contains(field), "{refused}");
+        assert!(!refused.to_string().contains(secret), "never the value: {refused}");
+    }
+    let mut missing = base.clone();
+    missing.as_object_mut().unwrap().remove("surface");
+    let refused = chat.client.request(missing);
+    assert_eq!(refused["data"]["field"], json!("surface"), "{refused}");
+    // A wrong type names no field (serde's text carries the value): no value either.
+    let refused = chat.client.request(with("model", json!(424_242)));
+    assert_code(&refused, "agent_session.bad_request");
+    assert!(!refused.to_string().contains("424242"), "{refused}");
+    // The refresh verb names its param the same way.
+    let refresh = json!({"cmd":"agent-session-credentials","surface":chat.surface,
+        "env":{"PATH":secret},"vm_kind":"owner"});
+    let refused = chat.client.request(refresh);
+    assert_code(&refused, "agent_session.bad_request");
+    assert_eq!(refused["data"]["field"], json!("env"), "{refused}");
+    assert!(!refused.to_string().contains(secret), "{refused}");
+    assert!(chat.sent("session/new").is_empty(), "no agent starts");
+}

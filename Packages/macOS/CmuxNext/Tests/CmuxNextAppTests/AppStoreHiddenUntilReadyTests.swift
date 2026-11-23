@@ -41,13 +41,13 @@ struct AppStoreHiddenUntilReadyTests {
 
     /// The App Store items the window's sidebar draws, as its band reads them (`SidebarView.updateBands`):
     /// the layout's App Store items less those the sidebar hides, in the turn that makes the sidebar.
-    static func drawnStoreItems(_ services: AppServices) throws -> (listed: Int, drawn: Int) {
+    static func drawnStoreItems(_ services: AppServices, ref: LayoutItemRef = storeRef) throws -> (listed: Int, drawn: Int) {
         let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"store-hidden","workspace_key":"store-hidden-home"}"#.utf8))
         let bridge = SidebarBridge(services: services, state: WindowState(record: record))
         defer { bridge.teardown() }
         let sections = bridge.model.layout.sections
         let hidden = SidebarItemInfo.hiddenItems(in: sections, infos: bridge.model.resolvedItemInfo)
-        let store = sections.flatMap(\.items).filter { $0.ref == storeRef }
+        let store = sections.flatMap(\.items).filter { $0.ref == ref }
         return (store.count, store.filter { !hidden.contains($0.id) }.count)
     }
 
@@ -78,6 +78,26 @@ struct AppStoreHiddenUntilReadyTests {
             let store = try Self.drawnStoreItems(services)
             try #require(store.listed == 1, "the window's layout lists the App Store once")
             #expect(store.drawn == (labs ? 1 : 0), "the sidebar draws the App Store item with Labs \(labs ? "on" : "off")")
+        }
+    }
+
+    /// A layout stored before the App Store became an app keeps it as the `app_store` built-in
+    /// (SidebarLayoutDocument+RailMigration): that item hides with Labs off too.
+    @Test(arguments: [false, true])
+    func aStoredBuiltInStoreItemShowsOnlyWithLabsOn(labs: Bool) async throws {
+        try await Self.withDirectory { directory in
+            let services = try await Self.services(labs: labs, in: directory)
+            let builtIn = LayoutItemRef.builtIn(.appStore)
+            let layout = SidebarLayoutService()
+            layout.docLayout = SidebarLayoutDocument(sections: [
+                LayoutSection(id: SidebarLayoutDocument.topSectionID, region: .top, look: .builtIn,
+                              items: [LayoutItem(id: LayoutItemID("itm_home"), ref: SidebarLayoutDocument.homeRef),
+                                      LayoutItem(id: LayoutItemID("itm_app_store"), ref: builtIn)]),
+            ])
+            services.sidebarLayout = layout
+            let store = try Self.drawnStoreItems(services, ref: builtIn)
+            try #require(store.listed == 1, "the window's layout lists the built-in App Store once")
+            #expect(store.drawn == (labs ? 1 : 0), "the sidebar draws the built-in App Store item with Labs \(labs ? "on" : "off")")
         }
     }
 

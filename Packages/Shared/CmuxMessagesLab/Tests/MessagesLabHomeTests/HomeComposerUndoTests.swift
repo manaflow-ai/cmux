@@ -145,6 +145,24 @@ import UniformTypeIdentifiers
         #expect(r.pictures == [shot] && r.draft == [shot], "and Cmd+Z brings it back once more")
     }
 
+    /// Cmd+Shift+Z after the Cmd+Z of a paste pastes the picture again. The undo of a paste is the
+    /// field's own step (`undoDraftStep`). While Edit > Undo ran it, NSTextView's `shouldChangeText`
+    /// put a redo entry on the stack with the range the edit replaced ({0, 1}, the picture), not
+    /// the range its text has after the edit ({0, 0}): the Redo read past the end of the empty
+    /// field and the app ended with NSRangeException in `-[NSUndoReplaceCharacters undoRedo:]`
+    /// (the crash of the test above, a1318, 2026-11-21). A red run ends the test process.
+    @Test func redoAfterUndoingAPastePastesThePictureAgain() async throws {
+        let r = try await rig()
+        defer { r.close() }
+        let shot = try await paste(0, into: r)
+        r.undo.undo()
+        #expect(r.field.string.isEmpty && r.draft.isEmpty, "Cmd+Z takes the pasted picture out")
+        try #require(r.undo.canRedo, "the Cmd+Z of the paste left no redo for it")
+        r.undo.redo()
+        #expect(r.field.string == "\u{FFFC}")
+        #expect(r.pictures == [shot] && r.draft == [shot], "Cmd+Shift+Z pastes the picture again")
+    }
+
     /// Text only: what Delete took comes back, and goes again on Redo.
     @Test func undoBringsBackDeletedText() async throws {
         let r = try await rig()

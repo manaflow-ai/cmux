@@ -7,6 +7,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { teardownDom } from "./support/domTeardown";
+import { factsCardText } from "./support/factsCard";
 
 const scope = globalThis as Record<string, unknown>;
 let saved: Array<readonly [string, boolean, unknown]> = [];
@@ -542,7 +543,9 @@ test("keys another action has: the recorder says who has them and offers Overwri
   expect(field()?.getAttribute("aria-label")).toBe(strings.t("keybindings.page.recordingKeys"));
   const badge = () => doc.querySelector<HTMLElement>(".keys-search-badge");
   expect(badge()?.textContent).toBe(strings.t("keybindings.page.recordingKeys"));
-  expect(badge()?.title).toBe(strings.t("keybindings.page.recordingExit"));
+  expect(badge()?.title).toBe("");
+  // How to stop shows on the badge's hover card, also once recorded keys hide the placeholder.
+  expect(await factsCardText(badge()!)).toBe(strings.t("keybindings.page.recordingExit"));
   await keys("cmd+shift+p");
   expect(provider.recording).toBe(true);
   expect(doc.querySelector(".keys-record.on")).toBeTruthy();

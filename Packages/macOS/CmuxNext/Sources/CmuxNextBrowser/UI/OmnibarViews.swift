@@ -21,6 +21,8 @@ final class OmnibarPillView: NSView {
     private var isHovering: Bool { hover?.isHovering ?? false }
     /// Whether the pointer is over the bar (`debug.omnibar`).
     var debugHovering: Bool { isHovering }
+    /// The pointer came onto the bar (true) or left it: the bar shows its quiet icons then (`AddressBarView`).
+    var onHoverChange: ((Bool) -> Void)?
     /// A fill, ring or shadow animation is still running on the bar's layer.
     var debugIsFading: Bool { !(layer?.animationKeys() ?? []).isEmpty }
     /// The look in effect; follows cmux.json live.
@@ -49,6 +51,7 @@ final class OmnibarPillView: NSView {
         // The bar's hover eases in and clears at once (`ChromeHover.fade`).
         hover = PointerHover(self) { [weak self] hovering in
             self?.refresh(animated: true, fade: ChromeHover.fade(showing: hovering))
+            self?.onHoverChange?(hovering)
         }
         lookLoop = ObservationLoop { [weak self] in
             let next = OmnibarGlassLook.current

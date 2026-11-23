@@ -285,7 +285,11 @@ test("Continue and Retry go through acpmux's turn retry where the chat has one, 
 // works i shouldnt see this dialog again… there should also be a place where i can dismiss this".
 test("a failed turn's card goes once a later turn finishes, and comes back if that turn is gone", async () => {
   const failedTurn = [prompt("p1", 1_000), answer("a1", 30_000), summary("s1", 223_000)];
-  const later = [prompt("p2", 230_000), answer("a2", 240_000), summary("s2", 250_000, { status: "completed", error: undefined })];
+  const later = [
+    prompt("p2", 230_000),
+    answer("a2", 240_000),
+    summary("s2", 250_000, { status: "completed", error: undefined }),
+  ];
   const [failed, done] = footers([...failedTurn, ...later]);
   expect(failed!.recovered).toBe(true);
   expect(done!.recovered).toBeUndefined();
