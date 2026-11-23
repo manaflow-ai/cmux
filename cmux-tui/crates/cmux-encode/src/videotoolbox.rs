@@ -140,6 +140,7 @@ crate::framework! {
         fn VTSessionSetProperty(s: *mut c_void, key: CFStringRef, value: CFTypeRef) -> OSStatus;
         fn VTCompressionSessionEncodeFrame(s: VTCompressionSessionRef, pb: CVPixelBufferRef, pts: CMTime, duration: CMTime, props: CFDictionaryRef, frame_refcon: *mut c_void, info: *mut u32) -> OSStatus;
         fn VTCompressionSessionCompleteFrames(s: VTCompressionSessionRef, until: CMTime) -> OSStatus;
+        fn VTCompressionSessionPrepareToEncodeFrames(s: VTCompressionSessionRef) -> OSStatus;
         fn VTCompressionSessionInvalidate(s: VTCompressionSessionRef);
     }
 }
@@ -229,6 +230,14 @@ fn ultra_min_qp(env: Option<&str>) -> i32 {
     env.and_then(|v| v.trim().parse::<i32>().ok())
         .filter(|qp| (1..=51).contains(qp))
         .unwrap_or(ULTRA_MIN_QP)
+}
+
+/// A QP floor no higher than the session's QP ceiling (`None`: no ceiling). VideoToolbox fails
+/// each frame whose MinAllowedFrameQP passes its MaxAllowedFrameQP with -12902
+/// (kVTParameterErr): the frame-size guard's floor reaches 51 on a small budget, and the
+/// resolution ladder's ceiling is 40.
+fn floor_under_ceiling(floor: i32, ceiling: Option<u8>) -> i32 {
+    ceiling.map_or(floor, |c| floor.min(i32::from(c)))
 }
 
 /// Whether a profile runs the frame-size guard: on unless its env var says `off` (a sweep).
@@ -624,14 +633,26 @@ impl VideoToolbox {
         self.session_low_latency = low_latency;
         self.color = None;
         self.apply_bitrate(self.kbps);
-        // A new session has no QP ceiling: set it again when one is asked for.
+        // A new session has no QP floor or ceiling: set them again when asked for, the floor
+        // under the ceiling.
+        self.applied_min_qp = NO_MIN_QP;
         self.max_qp_on_session = None;
         self.apply_max_qp();
-        self.applied_min_qp = NO_MIN_QP;
         if self.ultra_min_qp != NO_MIN_QP && self.ultra {
-            self.apply_min_qp(self.ultra_min_qp);
+            self.apply_min_qp(floor_under_ceiling(self.ultra_min_qp, self.max_qp_on_session));
         }
         Ok(true)
+    }
+
+    /// Builds the session for the profile set now and has VideoToolbox allocate the encoder's
+    /// resources, so the first frame (the session's keyframe) does not pay for either. A session
+    /// opened during the link's handshake (`cmux-rd serve`) does this before the viewer starts.
+    /// Best effort: a refusal leaves the session to set itself up on the first frame, as before.
+    pub fn prepare(&mut self) -> Res<()> {
+        self.ensure_session(self.width, self.height)?;
+        // SAFETY: preparing our live session; it has no frame in flight.
+        let _ = unsafe { VTCompressionSessionPrepareToEncodeFrames(self.session) };
+        Ok(())
     }
 
     /// Encodes captured surfaces scaled down to `size` (the resolution ladder's picture,
@@ -673,6 +694,14 @@ impl VideoToolbox {
         if vt_qp_sys::available().is_err() {
             self.max_qp_refused = true;
             return;
+        }
+        // A floor already on the session comes down to the new ceiling first: a ceiling under
+        // the floor is refused, and the floor over it fails every frame (-12902).
+        if let Some(ceiling) = self.max_qp {
+            let floor = floor_under_ceiling(self.applied_min_qp, Some(ceiling));
+            if floor != self.applied_min_qp {
+                self.apply_min_qp(floor);
+            }
         }
         // H.264's largest QP lifts a ceiling the session already has.
         let qp = number_i32(i32::from(self.max_qp.unwrap_or(H264_MAX_QP)));
@@ -971,6 +1000,9 @@ impl VideoToolbox {
             // on standard, as before the guard).
             self.configured_min_qp()
         };
+        // Never above the session's QP ceiling (the resolution ladder's): VideoToolbox fails a
+        // frame whose MinAllowedFrameQP passes its MaxAllowedFrameQP (-12902, kVTParameterErr).
+        let floor = floor_under_ceiling(floor, self.max_qp_on_session);
         if floor != self.applied_min_qp {
             self.apply_min_qp(floor);
         }
@@ -1082,6 +1114,15 @@ mod tests {
         assert_eq!(ultra_frame_budget(150_000, 120, P1080, 4).0, 625_000);
         assert_eq!(ultra_frame_budget(400_000, 120, P1080, 4).0, 777_600);
         assert!(ultra_frame_budget(100, 120, 0, 1).0 > 0, "never zero");
+    }
+
+    #[test]
+    fn a_qp_floor_never_passes_the_ladders_ceiling() {
+        // The guard's 51 on a 2 KB budget under the ladder's 40: 40, not a -12902 frame.
+        assert_eq!(floor_under_ceiling(51, Some(40)), 40);
+        assert_eq!(floor_under_ceiling(30, Some(40)), 30);
+        assert_eq!(floor_under_ceiling(0, Some(40)), 0, "no floor stays none");
+        assert_eq!(floor_under_ceiling(51, None), 51, "no ceiling, no clamp");
     }
 
     #[test]

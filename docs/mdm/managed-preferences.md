@@ -62,7 +62,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `updates.channel` | string | `"nightly"` | `stable`, `nightly`, `canary`, `dev` | Update Channel. Stable gets builds that ran a week without problems; Canary and Dev get them first. |
 | `updates.checkAutomatically` | boolean | `true` |  | Check for Updates Automatically |
 | `updates.checkIntervalSeconds` | real | `3600` | 900 to 604800 | Check Every |
-| `updates.downloadAutomatically` | boolean | `false` |  | Download Updates Automatically. Off: cmux asks before downloading. It always asks before restarting. |
+| `updates.downloadAutomatically` | boolean | `true` |  | Download Updates Automatically. Off: cmux asks before downloading. It always asks before restarting. |
 | `updates.oneClickInstall` | boolean | `false` |  | Update in One Click. One click on Update downloads, installs and restarts. Terminals and agents keep running. |
 | `updates.whatsNewInstall` | boolean | `false` |  | Install Versions from What's New. An Install button for each version listed in What's New. |
 | `updates.meteredNetwork` | string | `"defer-low-data"` | `defer-low-data`, `defer-expensive`, `download` | On Metered Networks. While downloads wait, a found update shows on Settings and one click downloads it. |

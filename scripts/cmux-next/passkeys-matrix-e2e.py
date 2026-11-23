@@ -108,7 +108,12 @@ def click_go(tab, name):
     if not isinstance(rect, list):
         frames = js(tab, "JSON.stringify([...document.querySelectorAll('iframe')].map(f => [f.dataset.scenario, f.src]))")
         return f"no frame (got {rect}; iframes {frames})"
-    time.sleep(1.0)  # test harness: the frame document loads
+    # The frame document loaded: the parent's resource timing lists the frame once its load finished.
+    loaded = wait(lambda: js(tab, f"(() => {{ const f = document.querySelector('iframe[data-scenario=\"{name}\"]');"
+                                  " return !!f && performance.getEntriesByType('resource').some(e =>"
+                                  " e.initiatorType === 'iframe' && e.name === f.src && e.responseEnd > 0); })()") is True, 10, 0.1)
+    if not loaded:
+        print(f"note: the {name} frame's load was not seen in 10 s; clicking anyway", flush=True)
     x, y = rect[0] + 20, rect[1] + 18
     for kind in ("mousePressed", "mouseReleased"):
         devtools("Input.dispatchMouseEvent", {"type": kind, "x": x, "y": y, "button": "left", "clickCount": 1})
@@ -146,8 +151,10 @@ def scenario(engine, tab, name, spec):
     if engine == "cef" and not opts.no_virtual_authenticator:
         devtools("WebAuthn.disable")  # drops every virtual authenticator, a timed-out one too
     if not result:
-        js(tab, "location.reload()")
-        time.sleep(2)  # test harness: a stuck scenario must not poison the next one
+        # A stuck scenario must not poison the next one: wait for the fresh document (no marker, scenarios defined).
+        js(tab, "window.__stale = true; location.reload()")
+        if not wait(lambda: js(tab, "!window.__stale && typeof runPasskeyScenario === 'function'") is True, 20, 0.2):
+            note += "the reload after it did not finish in 20 s; "
         return "FAIL", note + "did not settle in 35 s"
     status = {True: "PASS", False: "FAIL"}.get(result.get("pass"), "NOTE")
     if status == "PASS" and unconfirmed and name in NO_AUTHENTICATOR:
@@ -182,7 +189,9 @@ def k16(tab):
     devtools("WebAuthn.enable", {"enableUI": False})
     devtools("WebAuthn.addVirtualAuthenticator", {"options": {"automaticPresenceSimulation": True, **spec["authenticator"]}})
     other = (run("openBrowser", {"url": "about:blank", "engine": "cef"}) or {}).get("created") or []
-    time.sleep(2)  # test harness: the new tab takes the pane
+    # The new tab takes the pane: the RP page is hidden.
+    if not wait(lambda: js(tab, "document.visibilityState") == "hidden", 15, 0.1):
+        print("note: the RP tab is still visible 15 s after the new tab opened", flush=True)
     began = time.time()
     js(tab, "(() => { window.__pk = null; runPasskeyScenario('create-platform')"
             ".then(r => { window.__pk = r; }, e => { window.__pk = {pass: false, detail: String(e)}; }); })()")
@@ -194,7 +203,9 @@ def k16(tab):
     row("cef", "k16 control: background tab is refused", "PASS" if refused else "FAIL", detail)
     if other:
         run("closeTab")
-        time.sleep(1)  # test harness: the RP tab is focused again
+        # The RP tab is shown again.
+        if not wait(lambda: js(tab, "document.visibilityState") == "visible", 15, 0.1):
+            print("note: the RP tab is not visible 15 s after closing the other tab", flush=True)
     devtools("WebAuthn.disable")
 
 

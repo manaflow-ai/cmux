@@ -16,6 +16,7 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 import { COMPOSER_MD_FIELD } from "../src/agent-session/acpmux/composerSelectors";
 
@@ -25,23 +26,30 @@ type Frame = {
   edge: number;
   fromEnd: number;
   reader: number | null;
-  top: number;
-  content: number;
-  shift: string;
 };
 type Run = { frames: Frame[]; scrollTop: number };
 
-const ENGINE_NAME = process.env.COMPOSER_PLACE_ENGINE === "chromium" ? "chromium" : "webkit";
-const ENGINE = ENGINE_NAME === "chromium" ? chromium : webkit;
-const ENTRY = "agent-pane.composer-outside-scroller";
-const FIELD = `${COMPOSER_MD_FIELD} .ProseMirror`;
-
-const frames = (page: Page, count: number) =>
-  page.evaluate(async (n) => {
-    for (let i = 0; i < n; i++) await new Promise((r) => requestAnimationFrame(r));
-  }, count);
-
 await requireBrowserLane("composer-outside-scroller.test.ts", async () => {
+  const ENGINE_NAME = process.env.COMPOSER_PLACE_ENGINE === "chromium" ? "chromium" : "webkit";
+  const ENGINE = ENGINE_NAME === "chromium" ? chromium : webkit;
+  const ENTRY = "agent-pane.composer-outside-scroller";
+  const FIELD = `${COMPOSER_MD_FIELD} .ProseMirror`;
+  // Waits for `count` painted frames.
+  const frames = (page: Page, count: number) =>
+    page.evaluate(async (n) => {
+      for (let i = 0; i < n; i++) await window.cmuxPaintFrame();
+    }, count);
+  // Waits until the scroller's offset held still for `still` painted frames in a row.
+  const scrollSettled = (page: Page, still = 10) =>
+    page.evaluate(async (need) => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      let last = scroller.scrollTop;
+      for (let held = 0; held < need;) {
+        await window.cmuxPaintFrame();
+        held = scroller.scrollTop === last ? held + 1 : 0;
+        last = scroller.scrollTop;
+      }
+    }, still);
   if (!(await probeEngineOrSkip("composer-outside-scroller", ENGINE_NAME, ENGINE))) return;
   setDefaultTimeout(180_000);
   const webviews = path.resolve(import.meta.dir, "..");
@@ -66,21 +74,7 @@ await requireBrowserLane("composer-outside-scroller.test.ts", async () => {
   const open = async (place: "outside" | "over", width: number, scrolledUp: boolean) => {
     const page = await browser.newPage({ viewport: { width, height: 560 }, deviceScaleFactor: 1 });
     const port = (vite.httpServer!.address() as { port: number }).port;
-    if (process.env.COMPOSER_PLACE_TRACE)
-      await page.addInitScript(() => {
-        const desc = Object.getOwnPropertyDescriptor(Element.prototype, "scrollTop")!;
-        const own = window as unknown as { __writes: string[]; __hold: string[] };
-        own.__writes = [];
-        own.__hold = [];
-        Object.defineProperty(Element.prototype, "scrollTop", {
-          get: desc.get,
-          set(this: Element, value: number) {
-            if ((this as HTMLElement).classList?.contains("acpmux-scroll"))
-              own.__writes.push(`${performance.now().toFixed(0)} ${value} ${new Error().stack?.split("\n").slice(2, 7).join(" | ")}`);
-            desc.set!.call(this, value);
-          },
-        });
-      });
+    await installPaintedFrames(page);
     await page.goto(`http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant: `${place}-bottom-one-line` })}`);
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
     await page.evaluate(() => document.fonts.ready);
@@ -92,15 +86,19 @@ await requireBrowserLane("composer-outside-scroller.test.ts", async () => {
     await page.evaluate(async () => {
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       scroller.scrollTop = scroller.scrollHeight;
-      for (let i = 0; i < 10; i++) await new Promise((r) => requestAnimationFrame(r));
+      for (let i = 0; i < 10; i++) await window.cmuxPaintFrame();
       scroller.scrollTop = scroller.scrollHeight;
     });
-    await frames(page, 20);
+    await scrollSettled(page);
     if (scrolledUp) {
       // A reader's own scroll (the wheel) unpins the chat; then their place is the row a third down.
       await page.mouse.move(width / 2, 200);
       await page.mouse.wheel(0, -500);
-      await page.waitForTimeout(600);
+      await page.waitForFunction(() => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        return scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop > 100;
+      });
+      await scrollSettled(page);
       await page.evaluate(() => {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
         const mid = scroller.getBoundingClientRect().top + scroller.clientHeight / 3;
@@ -114,36 +112,29 @@ await requireBrowserLane("composer-outside-scroller.test.ts", async () => {
     return page;
   };
 
-  // Samples every frame while the draft grows from one line to five and shrinks back.
+  // Samples every painted frame while the draft grows from one line to five and shrinks back.
   const growAndShrink = async (page: Page): Promise<Run> => {
     const scrollTop = await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop);
     await page.evaluate(() => {
-      const own = window as unknown as { __frames: Frame[]; __stop: boolean };
+      const own = window as unknown as { __frames: Frame[]; __stop: () => void };
       own.__frames = [];
-      own.__stop = false;
-      const tick = () => {
+      own.__stop = window.cmuxAfterPaint(() => {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
         const view = scroller.getBoundingClientRect();
         const rows = scroller.querySelectorAll<HTMLElement>(".acpmux-row");
         const last = rows[rows.length - 1]!.getBoundingClientRect();
         const reader = document.querySelector<HTMLElement>("[data-reader]");
+        const box = document.querySelector<HTMLElement>(".acpmux-composer-box")!.getBoundingClientRect();
         const round = (value: number) => Math.round(value * 10) / 10;
         own.__frames.push({
           view: round(scroller.clientHeight),
-          box: round(document.querySelector<HTMLElement>(".acpmux-composer-box")!.getBoundingClientRect().height),
+          box: round(box.height),
           // The last row's bottom against the composer's top: the gap the eye reads.
-          edge: round(
-            document.querySelector<HTMLElement>(".acpmux-composer-box")!.getBoundingClientRect().top - last.bottom,
-          ),
+          edge: round(box.top - last.bottom),
           fromEnd: round(scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop),
           reader: reader ? round(reader.getBoundingClientRect().top - view.top) : null,
-          top: round(scroller.scrollTop),
-          content: round(scroller.scrollHeight),
-          shift: getComputedStyle(scroller.querySelector<HTMLElement>(".acpmux-thread") ?? scroller).translate,
         });
-        if (!own.__stop) requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
+      });
     });
     await page.locator(FIELD).click();
     await page.keyboard.press("Control+End");
@@ -160,10 +151,9 @@ await requireBrowserLane("composer-outside-scroller.test.ts", async () => {
       await frames(page, 3);
     }
     const sampled = await page.evaluate(async () => {
-      const own = window as unknown as { __frames: Frame[]; __stop: boolean };
-      for (let i = 0; i < 40; i++) await new Promise((r) => requestAnimationFrame(r));
-      own.__stop = true;
-      await new Promise((r) => requestAnimationFrame(r));
+      const own = window as unknown as { __frames: Frame[]; __stop: () => void };
+      for (let i = 0; i < 40; i++) await window.cmuxPaintFrame();
+      own.__stop();
       return own.__frames;
     });
     return { frames: sampled, scrollTop };
@@ -184,9 +174,6 @@ await requireBrowserLane("composer-outside-scroller.test.ts", async () => {
         console.log(
           `COMPOSER-PLACE outside pinned ${ENGINE_NAME} ${width}px frames=${run.length} composerGrew=${grew} viewportShrank=${shrank} bottomEdgeDrift=${edge} maxFromEnd=${fromEnd}`,
         );
-        if (process.env.COMPOSER_PLACE_FRAMES) console.log(JSON.stringify(run));
-        if (process.env.COMPOSER_PLACE_TRACE)
-          console.log((await page.evaluate(() => (window as unknown as { __hold: string[] }).__hold)).slice(-30).join("\n"));
         expect(run.length).toBeGreaterThan(20);
         expect(grew).toBeGreaterThan(40);
         // Its growth shrinks the viewport, line for line.

@@ -81,6 +81,20 @@ public final class AppsClient {
     public var apps: [AppRecord] { projection.visible.map(withBundledDirectory) }
     public func app(_ id: String) -> AppRecord? { projection.visible(id).map(withBundledDirectory) }
 
+    /// The app's record as the supervisor lists it now. A mirror without the app lists again first:
+    /// a surface asked for right after the supervisor loaded the app (`cmux customize use`, then a
+    /// New Tab) can arrive before the `apps-changed` list lands, and a refusal then is final for
+    /// that page (it draws cmux's own instead).
+    public func listedApp(_ id: String) async -> AppRecord? {
+        if let record = app(id) { return record }
+        guard availability.isAvailable else { return nil }
+        let request = projection.listRequested()
+        guard let reply = try? await transport.list() else { return app(id) }
+        projection.applyList(reply.apps, revision: reply.revision, request: request)
+        hasList = true
+        return app(id)
+    }
+
     /// Hears every supervisor event after the client handled it, while `owner` lives
     /// (the transport's one callback stays the client's).
     public func observeEvents(owner: AnyObject, _ listener: @escaping @MainActor (AppsTransportEvent) -> Void) {

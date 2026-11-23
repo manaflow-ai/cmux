@@ -41,7 +41,7 @@ pub(super) const METHODS: &[&str] = &[
 /// `error.data.reason` when a caller that is not the person's own asks.
 pub const REMOTE_REFUSED: &str = "remote_refused";
 
-fn error(e: LoginError) -> RpcError {
+pub(super) fn error(e: LoginError) -> RpcError {
     let code = match e.reason {
         reason::UNSUPPORTED_AGENT
         | reason::UNSUPPORTED
@@ -82,7 +82,7 @@ fn allowed(conn: &Conn, params: &Value) -> bool {
 /// (Gemini's and Grok's: the profile's program is `gemini` or `grok`), else the CLI on
 /// the login PATH. The profile's env and Codex's global options come along;
 /// values that refer to a secret store are left out (nothing here asks one).
-fn cli_for(cfg: &Config, agent: Agent, selected: Option<HarnessProfile>) -> Option<Cli> {
+pub(super) fn cli_for(cfg: &Config, agent: Agent, selected: Option<HarnessProfile>) -> Option<Cli> {
     let cwd = std::env::temp_dir();
     let home = dirs::home_dir().unwrap_or_default();
     let selected = selected.or_else(|| {
@@ -100,6 +100,8 @@ fn cli_for(cfg: &Config, agent: Agent, selected: Option<HarnessProfile>) -> Opti
         }),
         // `cursor-agent acp` (or the `agent` link to it): the same program signs in.
         Agent::Cursor => p.kind == HarnessKind::Acp && cursor_launch(&p.argv),
+        // gh is no harness: always `gh` on the login PATH.
+        Agent::Github => false,
     };
     let profile =
         selected.as_ref().filter(native).or_else(|| cfg.harnesses.get(agent.name()).filter(native));
@@ -119,12 +121,12 @@ fn cli_for(cfg: &Config, agent: Agent, selected: Option<HarnessProfile>) -> Opti
     let (command, args) = argv.split_first()?;
     let program = match agent {
         Agent::Codex => env.get("CODEX_PATH").filter(|p| !p.is_empty()).cloned(),
-        Agent::Claude | Agent::Gemini | Agent::Grok | Agent::Cursor => None,
+        Agent::Claude | Agent::Gemini | Agent::Grok | Agent::Cursor | Agent::Github => None,
     }
     .unwrap_or_else(|| command.clone());
     let globals = match agent {
         Agent::Codex => crate::cli::harness_login::codex_globals(args).to_vec(),
-        Agent::Claude | Agent::Gemini | Agent::Grok | Agent::Cursor => Vec::new(),
+        Agent::Claude | Agent::Gemini | Agent::Grok | Agent::Cursor | Agent::Github => Vec::new(),
     };
     Some(Cli { program, globals, env })
 }
@@ -154,7 +156,7 @@ async fn cli(hub: &Hub, agent: Agent, params: &Value) -> Result<(Cli, Option<Str
     })
 }
 
-fn machine(hub: &Hub) -> Machine {
+pub(super) fn machine(hub: &Hub) -> Machine {
     Machine { root: hub.vm_marker_root(), home: dirs::home_dir().unwrap_or_default() }
 }
 

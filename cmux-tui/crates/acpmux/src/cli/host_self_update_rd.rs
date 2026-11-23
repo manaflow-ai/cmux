@@ -8,9 +8,13 @@
 //! (`share_host/linux.rs`) and sets the screen host up again. Nobody at the machine does
 //! anything.
 //!
-//! - Only a machine whose join wanted cmux-rd gets it: one with a cmux-rd (a regular file), or
-//!   whose join line could not install it ([`INSTALL_FAILED`] in the acpmux home, the
-//!   reason it wrote, removed once installed). A cmux-rd that is a symlink was put there on
+//! - Only a joined machine gets it: one that holds its join (`share_host::joined`), one with a
+//!   cmux-rd (a regular file), or one whose join line could not install it ([`INSTALL_FAILED`]
+//!   in the acpmux home, the reason it wrote, removed once installed). A machine joined before
+//!   the join line installed cmux-rd had neither of the last two, so it never got a screen
+//!   host (2026-11-23: a fleet Linux desktop had no cmux-rd and no unit, while its row offered a share); the
+//!   decided design installs it on every joined Linux machine (remote-screen-share-zero-touch
+//!   L1). A cmux-rd that is a symlink was put there on
 //!   purpose (a test build) and is kept, as the join line keeps it.
 //! - A channel without a cmux-rd build changes nothing.
 //! - A new tree can carry a new cmux-rd binary (nothing makes its build reproducible), and
@@ -51,6 +55,8 @@ pub(crate) struct RdPaths {
     pub(crate) min_age: Duration,
     /// Whether a share may be live: the on-demand virtual display runs.
     pub(crate) display_busy: fn() -> bool,
+    /// This machine holds its join (`share_host::joined`): it gets cmux-rd with none installed.
+    pub(crate) joined: bool,
 }
 
 impl RdPaths {
@@ -62,6 +68,7 @@ impl RdPaths {
             target: gnu_target(acpmux_target)?,
             min_age: if now { Duration::ZERO } else { REPLACE_EVERY },
             display_busy: virtual_display_runs,
+            joined: machine_joined(),
         })
     }
 }
@@ -72,6 +79,18 @@ pub(crate) fn gnu_target(acpmux_target: &str) -> Option<&'static str> {
         "x86_64-unknown-linux-musl" => Some("x86_64-unknown-linux-gnu"),
         "aarch64-unknown-linux-musl" => Some("aarch64-unknown-linux-gnu"),
         _ => None,
+    }
+}
+
+/// Whether this machine holds its join: the share host's own test (`share_host::joined`).
+fn machine_joined() -> bool {
+    #[cfg(unix)]
+    {
+        crate::share_host::joined().is_ok()
+    }
+    #[cfg(not(unix))]
+    {
+        false
     }
 }
 
@@ -88,7 +107,7 @@ fn virtual_display_runs() -> bool {
 /// What one run did with cmux-rd.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum RdOutcome {
-    /// This machine's join did not install cmux-rd.
+    /// This machine is not joined, and no join installed cmux-rd.
     NotJoined,
     /// cmux-rd is a symlink, kept.
     Symlink,
@@ -142,7 +161,7 @@ pub(crate) async fn refresh(
         return RdOutcome::Symlink;
     }
     let file = meta.filter(|m| m.file_type().is_file());
-    if file.is_none() && !paths.install_failed.is_file() {
+    if file.is_none() && !paths.install_failed.is_file() && !paths.joined {
         return RdOutcome::NotJoined;
     }
     let name = format!("cmux-tui-rd-{}", paths.target);

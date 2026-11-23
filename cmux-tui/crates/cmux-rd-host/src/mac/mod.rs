@@ -90,13 +90,17 @@ pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
         Capture::start_for_session(&cfg.display, cfg.max_fps, cfg.max_width, in_pictures)?;
     capture.wait_first_frame(FIRST_FRAME_TIMEOUT_NS)?;
     let (width, height) = capture.size();
-    let encoder = VideoToolbox::new(
+    let mut encoder = VideoToolbox::new(
         width,
         height,
         encoder_fps(width, height, cfg.max_fps),
         cfg.start_kbps,
         cfg.profile == "baseline",
     )?;
+    // The session's profile and the encoder's resources now, not on the first frame: an ultra
+    // session would otherwise rebuild the encoder inside the session's first keyframe.
+    encoder.set_ultra(cfg.encode_profile.is_ultra());
+    encoder.prepare()?;
     let name =
         format!("{} from screencapturekit iosurface", cmux_encode::H264Encoder::name(&encoder));
     let injector = Injector::new(capture.bounds(), (width, height))?;

@@ -6,7 +6,7 @@
 // Export saves what the view shows: CSV through acpmux to Downloads, JSON (the answer on screen)
 // through the host's save panel. Every number is the platform's; the page formats and orders them.
 // Built like History > Costs (ledger/LedgerScreen.tsx) and with its formatters; spend reads as time.
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { Select } from "../../../ui/Select";
 import { Tabs, TabsList, TabsTrigger } from "../../../ui/Tabs";
@@ -106,6 +106,14 @@ export function TeamAuditScreen({
   const [group, setGroup] = useState<UsageGroup>(initialGroup);
   const [drill, setDrill] = useState<UsageDrillStep[]>(initialDrill);
   const [notice, setNotice] = useState<{ text: string; tone: "ok" | "error" } | undefined>();
+  // A pick counts at once in `picks` and in the next render's `drawn`: an export clicked between the
+  // two (the old render's handler) holds a reply for what is no longer picked, so it saves nothing.
+  const picks = useRef(0);
+  const [drawn, setDrawn] = useState(0);
+  const moved = () => {
+    picks.current += 1;
+    setDrawn(picks.current);
+  };
   const read = loadUsage ?? load;
   const day = now ?? today;
 
@@ -127,7 +135,7 @@ export function TeamAuditScreen({
   // Export saves the answer on screen, and only once it is the answer for what is picked.
   const shown = main.result?.kind === "ready" ? main.result.reply : undefined;
   const csv = () => {
-    if (!shown) return;
+    if (!shown || picks.current !== drawn) return;
     const params = { ...primary, format: "csv" };
     // The reply's own days: the file holds what the page holds.
     if (shown.range.since && shown.range.until) Object.assign(params, shown.range);
@@ -145,7 +153,7 @@ export function TeamAuditScreen({
     );
   };
   const json = async () => {
-    if (!shown || !save) return;
+    if (!shown || !save || picks.current !== drawn) return;
     setNotice(undefined);
     const name = `cmux-usage-${shown.range.since}-${shown.range.until}-${shown.groupBy}.json`;
     try {
@@ -157,6 +165,7 @@ export function TeamAuditScreen({
   };
 
   const pick = (next: { range?: TeamAuditRange; group?: UsageGroup; view?: TeamAuditView }) => {
+    moved();
     setNotice(undefined);
     if (next.range) setRange(next.range);
     if (next.view) setView(next.view);
@@ -176,6 +185,7 @@ export function TeamAuditScreen({
       ? (row: TeamAuditRow) => {
           const next = nextGroup(shown.groupBy);
           if (!next || row.key === USAGE_OTHERS_KEY || row.key === TEAM_AUDIT_NONE) return;
+          moved();
           setNotice(undefined);
           setDrill((steps) => [
             ...steps,
@@ -187,6 +197,7 @@ export function TeamAuditScreen({
   const backTo = (index: number) => {
     const step = drill[index];
     if (!step) return;
+    moved();
     setNotice(undefined);
     setDrill(drill.slice(0, index));
     setGroup(step.group);
