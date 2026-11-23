@@ -3468,6 +3468,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       elsewhere: chatElsewhere,
       sessionId: snapshot.sessionId,
       harness: snapshot.summary?.harness,
+      model: snapshot.summary?.model,
       supported: loginSupported,
       gesture: (intent) =>
         postNative<{ ticket?: string }>("transport.gesture", { intent }).then((reply) => reply?.ticket),
@@ -3541,6 +3542,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     loginSupported,
     snapshot.sessionId,
     snapshot.summary?.harness,
+    snapshot.summary?.model,
     snapshot.switching?.phase,
     snapshot.switching?.code,
     snapshot.switching?.harness,
