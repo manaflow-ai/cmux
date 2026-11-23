@@ -31,7 +31,22 @@ import CmuxNextCompat
         last = now()
         lastScope = last
         lastUpload = last
+        lastPress = last
         if click { lastClick = last }
+    }
+
+    /// The person's last key press or click in the pane, for an action that needs one from just now
+    /// (``consumeFreshGesture()``).
+    private var lastPress: TimeInterval?
+
+    /// Spends the person's key press or click from just now (within ``answerWindow``) for one action that opens app
+    /// UI by itself (Set Up Computer Use from a held `@computer-use` send): true once per gesture, and only while the
+    /// gesture's grant credit is unspent. Not the generic credit, which any key press leaves for half a minute, so a
+    /// deferred page request cannot wait for unrelated typing and spend it. Keys count, as Return sends.
+    func consumeFreshGesture() -> Bool {
+        guard let lastPress, now() - lastPress <= Self.answerWindow else { return false }
+        self.lastPress = nil
+        return consume()
     }
 
     /// How old the person's click may be when a permission answer uses it (cx-ocdz).

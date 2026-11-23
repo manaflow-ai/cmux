@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -86,14 +87,31 @@ struct AgentPaneComputerUseStateTests {
         #expect(request == .unsupported("chat.computerUse.state"))
     }
 
-    @Test func setUpComputerUseRunsOnlyOnThePersonsGesture() async {
-        let model = AgentPaneModel(host: NoHost())
+    /// Review round 2 of #48024: Set Up spends a key press or click from just now, once. A deferred request (a held
+    /// send that waited) cannot spend the half-minute credit that unrelated typing leaves.
+    @Test func setUpComputerUseRunsOnlyOnThePersonsGestureFromJustNow() async {
+        final class Clock { var now: TimeInterval = 100 }
+        let clock = Clock()
+        let model = AgentPaneModel(host: NoHost(), transport: AgentPaneTransport(gestures: AgentPaneUserGestures(now: { clock.now })))
         var ran: [String] = []
         model.onRunAction = { id, _ in ran.append(id); return .ran }
-        #expect(await model.respond(to: .runAction(AgentPaneComputerUseState.setupAction))["ok"] as? Bool != true)
+        let setUp = { await model.respond(to: .runAction(AgentPaneComputerUseState.setupAction))["ok"] as? Bool == true }
+        #expect(!(await setUp()))
         #expect(ran.isEmpty, "no gesture, no onboarding step")
+        // Return in the composer: a key counts, not only a click.
         model.transport.gestures.record()
-        #expect(await model.respond(to: .runAction(AgentPaneComputerUseState.setupAction))["ok"] as? Bool == true)
+        #expect(await setUp())
+        #expect(ran == ["palette.computerUse.setup"])
+        #expect(!(await setUp()), "one key press opened Set Up twice")
+        // A key press older than the answer window still leaves the generic credit, but Set Up does not take it.
+        model.transport.gestures.record()
+        clock.now += AgentPaneUserGestures.answerWindow + 0.5
+        #expect(model.transport.gestures.isAvailable, "setup: the generic credit should still hold")
+        #expect(!(await setUp()), "a deferred request spent an old key press")
+        // A click from just now whose grant another frame spent opens nothing.
+        model.transport.gestures.record(click: true)
+        #expect(model.transport.gestures.consume())
+        #expect(!(await setUp()), "a spent click opened Set Up")
         #expect(ran == ["palette.computerUse.setup"])
         // The Settings card's other Computer Use actions stay out of the pane's reach.
         for id in ["palette.computerUse.restart", "palette.computerUse.accessibility", "computerUse.approval.set"] {
@@ -101,5 +119,64 @@ struct AgentPaneComputerUseStateTests {
             #expect(await model.respond(to: .runAction(id))["ok"] as? Bool != true, "\(id)")
         }
         #expect(ran == ["palette.computerUse.setup"])
+    }
+
+    /// Review round 2 of #48024 (P0): New Tab's `app.action` runs a listed palette row as the person's pick with no
+    /// gesture. No Computer Use action is listed for a page or run from one, even when a page names it.
+    @Test func aNewTabPageNeitherListsNorRunsAComputerUseAction() async {
+        let computerUse = ["palette.computerUse.setup", "palette.computerUse.restart", "palette.computerUse.accessibility",
+                           "palette.computerUse.screenRecording", "computerUse.approval.set", "computerUse.approval.forget",
+                           "computerUseStop", "computerUseFocus", "remote.restartComputerUse"]
+        for id in computerUse { #expect(!AgentPaneOmnibar.Action.pageMayRun(id), "\(id)") }
+        #expect(AgentPaneOmnibar.Action.pageMayRun("newTab.page"))
+        let listed = (computerUse + ["newTab.page"]).map { AgentPaneOmnibar.Action(id: $0, title: $0) }
+        let model = AgentPaneModel(host: NoHost(), newTab: AgentPaneNewTab(kind: .agent, omnibar: AgentPaneOmnibar(actions: listed)))
+        var ran: [String] = []
+        model.onAppAction = { id, _ in ran.append(id) }
+        for action in listed {
+            let ok = await model.respond(to: .appAction(action.id))["ok"] as? Bool == true
+            #expect(ok == (action.id == "newTab.page"), "\(action.id)")
+        }
+        #expect(ran == ["newTab.page"])
+    }
+
+    @Test func aPromptNamesComputerUseOnlyAsAWholeWordOutsideCode() {
+        for text in ["open the app with @computer-use", "@Computer-Use please", "open it with $computer-use", "Use (@computer-use) for this",
+                     "use **@computer-use** now", "use @computer-use. Then stop", "\u{FFFC}shot-1\u{FFFC}@computer-use", "> quoted: @computer-use"] {
+            #expect(AgentPaneComputerUseState.isNamed(in: text), "\(text)")
+        }
+        for text in ["run `@computer-use` literally", "```\n@computer-use\n```", "run `` a `@computer-use` b `` now", "mail me@computer-use.dev",
+                     "@computer-user", "see @computer-use_notes", "review @computer-use.md", "@browser-use only", "costs $5", "no tools here", ""] {
+            #expect(!AgentPaneComputerUseState.isNamed(in: text), "\(text)")
+        }
+    }
+
+    /// Review round 2 of #48024: native New Tab opened the chat and closed, so the new chat's page held the send with
+    /// no gesture left to open Set Up. The submit decides first, on the person's own key press.
+    @Test func aNativeNewTabSubmitNamingComputerUseHoldsUntilItIsReady() {
+        let registry = ActionRegistry.standard()
+        registry.context = ActionContext(rawValue: .max)
+        var runs: [ActionInvocation] = []
+        let bound = registry.bind(ActionID(rawValue: AgentPaneComputerUseState.setupAction), invoke: { runs.append($0) })
+        #expect(bound)
+        var refusals: [String] = []
+        registry.refusalObserver = { reason, _ in refusals.append(reason) }
+        let follower = AgentPaneComputerUse(read: nil)
+        let prompt = "open Notes with @computer-use"
+        let holds = { follower.holdsSubmit(prompt, registry: registry, refusal: "turned off") }
+        #expect(!holds(), "an unknown state let the page decide")
+        follower.set(.ready)
+        #expect(!holds(), "ready held the send")
+        for state: AgentPaneComputerUseState in [.needsSetup, .starting, .unavailable] {
+            follower.set(state)
+            #expect(holds(), "\(state)")
+        }
+        #expect(runs.count == 3, "Set Up ran \(runs.count) times for 3 held submits")
+        #expect(runs.allSatisfy { $0.origin == .user }, "Set Up did not run as the person's own run")
+        #expect(!follower.holdsSubmit("open Notes", registry: registry, refusal: "turned off"), "a prompt with no mention was held")
+        follower.set(.disabled)
+        #expect(holds())
+        #expect(refusals == ["turned off"])
+        #expect(runs.count == 3, "Set Up ran while the organization turned computer use off")
     }
 }

@@ -27,7 +27,8 @@ extension AgentPaneModel {
     /// tab, so it spends the person's gesture.
     static let terminalSwitchActions: Set<String> = ["palette.toggleTerminalChat"]
     /// Set Up Computer Use from the chat's "Computer use is not set up" notice (`@computer-use`,
-    /// ``AgentPaneComputerUseState``). It opens the onboarding step, so it spends the person's gesture.
+    /// ``AgentPaneComputerUseState``). It opens the onboarding step, so it spends the person's key press or click from
+    /// just now (``AgentPaneUserGestures/consumeFreshGesture()``), never the generic half-minute credit.
     static let setupActions: Set<String> = [AgentPaneComputerUseState.setupAction]
 
     /// A model the person cannot use (Leo 2026-10-26: "if user picks a model they don't have api key,
@@ -59,7 +60,9 @@ extension AgentPaneModel {
         if let session, header?.showsChat(session) != true {
             return Self.refused("This chat is no longer shown.")
         }
-        if gated, !transport.gestures.consume() { return Self.transportFailure(.gestureRequired) }
+        if gated, !(Self.setupActions.contains(id) ? transport.gestures.consumeFreshGesture() : transport.gestures.consume()) {
+            return Self.transportFailure(.gestureRequired)
+        }
         var arguments = Self.connectArguments[id] ?? Self.accessArguments[id] ?? [:]
         if screenShare, let session { arguments["session"] = session }
         if let environment { arguments["environment"] = environment }

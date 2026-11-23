@@ -1,3 +1,4 @@
+public import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextSettings
 import Foundation
@@ -35,6 +36,27 @@ public nonisolated enum AgentPaneComputerUseState: String, Sendable, Equatable {
     /// The action the page runs for Set Up Computer Use (`action.run`): the onboarding step that
     /// turns computer use on and asks for both grants (AgentHandlers, `palette.computerUse.setup`).
     public static let setupAction = "palette.computerUse.setup"
+
+    /// Whether `prompt` names `@computer-use` (or `$computer-use`) as a tool, for a native field with no page to
+    /// decide it (New Tab's). Simple and conservative next to the page's parser (toolMentions.ts): a whole word,
+    /// any case, outside backticks (inline code and fences both split on them); `me@computer-use.dev`,
+    /// `@computer-use.md` and `@computer-user` are not a mention.
+    public static func isNamed(in prompt: String) -> Bool {
+        let outsideCode = prompt.split(separator: "`", omittingEmptySubsequences: false).enumerated().filter { $0.offset.isMultiple(of: 2) }
+        return outsideCode.contains { _, part in
+            let text = Array(part.lowercased())
+            let word = Array("computer-use")
+            func wordy(_ c: Character) -> Bool { c.isLetter || c.isNumber || c == "_" || c == "-" }
+            for index in text.indices where (text[index] == "@" || text[index] == "$") && text.count - index > word.count {
+                guard Array(text[(index + 1)...(index + word.count)]) == word else { continue }
+                if index > 0, wordy(text[index - 1]) || text[index - 1] == "." || text[index - 1] == "@" { continue }
+                let after = index + word.count + 1
+                if after < text.count, wordy(text[after]) || (text[after] == "." && after + 1 < text.count && wordy(text[after + 1])) { continue }
+                return true
+            }
+            return false
+        }
+    }
 }
 
 /// Computer Use's state on every agent page: each page gets it at load and again on every change of
@@ -49,7 +71,7 @@ public final class AgentPaneComputerUse {
     }
 
     /// The state now; nil until the App's setup answered (a test host, or before the first view).
-    private(set) var state: AgentPaneComputerUseState?
+    public private(set) var state: AgentPaneComputerUseState?
     /// The pages told so far, held weakly, for the pushes on a change.
     private let views = NSHashTable<AgentPaneView>.weakObjects()
     /// Follows the App's setup for the app's life once a view brought its reader (idempotent).
@@ -90,6 +112,21 @@ public final class AgentPaneComputerUse {
 
     private func send(to view: AgentPaneView) {
         view.deliver([.computerUseState(state)], scripts: [Self.oldHostScript(state)])
+    }
+
+    /// A native New Tab submit of `prompt` (`NewTabPage.submitNative`), decided at the submit as the page decides a
+    /// send: true when it must not open a chat. A prompt that names `@computer-use` (``AgentPaneComputerUseState/isNamed(in:)``)
+    /// while Computer Use is known and not ready runs Set Up Computer Use as the person's own run from this submit (the
+    /// chat it would open could not: its first gesture is gone with the closed page), or, when the organization turned
+    /// it off, refuses with `refusal`. The caller keeps the page and its typed text. Unknown (nil) or ready lets it go.
+    public func holdsSubmit(_ prompt: String, registry: ActionRegistry, refusal: String) -> Bool {
+        guard let state, state != .ready, AgentPaneComputerUseState.isNamed(in: prompt) else { return false }
+        if state == .disabled {
+            registry.refuse(refusal)
+        } else {
+            _ = registry.perform(ActionID(rawValue: AgentPaneComputerUseState.setupAction), invocation: ActionInvocation(origin: .user))
+        }
+        return true
     }
 
     /// The old host's script for the state (computerUseState.ts `window.cmuxAcpmuxComputerUseState`).

@@ -353,6 +353,7 @@ extension NewTabPage {
         case (.terminal, _): page.newTerminalTab(cwd: cwd, typing: nativeTerminalTyping(request))
         case (.browser, true): return page.newBrowserTab()
         case (.agent, true): return page.openAgentTab(seed: AgentPaneSeedSource(AgentPaneSeed(cwd: cwd)))
+        case (.agent, false) where page.services.agentTabs.paneShared.computerUse.holdsSubmit(request.text, registry: page.services.registry, refusal: ComputerUseSessionStrings.disabledByPolicy): return false
         case (.browser, false), (.agent, false):
             let arguments: [String: ActionValue] = ["text": .string(request.text), "search": .bool(request.search)]
             return page.services.registry.perform(NewTabSubmit.action, invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: page.pane.id), arguments: arguments, origin: .user).onMachine(page.daemon.machineID))
