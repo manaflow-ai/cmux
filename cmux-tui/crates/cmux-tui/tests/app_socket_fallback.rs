@@ -94,7 +94,9 @@ fn with_no_app_named_the_one_answering_nightly_is_used_and_said() {
     let home = temp_dir("nfb");
     let socket = home.join(".local/state/cmux/cmux-nightly.sock");
     serve_app(&socket, json!(true));
-    let output = cmux(&home, &["--json", "settings", "get", "updates.liveWebReload"]);
+    // Bare `settings get` is the app's (`settings get PATH` is the daemon's v2 owner, cli.rs
+    // `daemon_settings_scope`), so it reaches the app socket the CLI picked.
+    let output = cmux(&home, &["--json", "settings", "get"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_eq!(output.status.code(), Some(0), "stdout: {stdout}\nstderr: {stderr}");
@@ -115,7 +117,9 @@ fn with_no_app_named_and_no_nightly_answering_nothing_is_used() {
     let socket = home.join(".local/state/cmux/cmux-nightly.sock");
     std::fs::create_dir_all(socket.parent().unwrap()).unwrap();
     drop(UnixListener::bind(&socket).unwrap());
-    let output = cmux(&home, &["--json", "settings", "get", "updates.liveWebReload"]);
+    // Bare `settings get` is the app's (`settings get PATH` is the daemon's v2 owner, cli.rs
+    // `daemon_settings_scope`), so it reaches the app socket the CLI picked.
+    let output = cmux(&home, &["--json", "settings", "get"]);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_ne!(output.status.code(), Some(0), "{stderr}");
     assert!(!stderr.contains("cmux NIGHTLY"), "{stderr}");
