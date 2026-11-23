@@ -6,6 +6,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { HostError, HostUnavailableLine, HostWaitingLine } from "./HostError";
+import { type FlickerEvent, resetFlickerLogForTests, startFlickerLog } from "./flickerLog";
 import { waitedText } from "./hostErrorModel";
 import { hostLineText } from "./hostLine";
 import { hostErrorShows } from "./hostRetry";
@@ -298,4 +299,28 @@ test("a wait the host cannot restart keeps its time and shows no button", async 
   });
   expect(container.textContent).toContain("Waiting for the agent service (0:40)");
   expect(buttons(container)).toEqual([]);
+});
+
+test("the waiting line records when it shows and when it goes, and a short wait records nothing", async () => {
+  const container = installDom();
+  const sent: FlickerEvent[] = [];
+  const win = dom!.window as unknown as Window;
+  startFlickerLog(win, (events) => void sent.push(...events));
+  try {
+    await act(async () => {
+      root = createRoot(container);
+      root.render(<HostWaitingLine since={0} now={3_000} onRestart={() => undefined} />);
+    });
+    await act(async () => root!.render(<HostWaitingLine since={0} now={95_000} onRestart={() => undefined} />));
+    await act(async () => root!.render(<HostWaitingLine since={0} now={3_000} onRestart={() => undefined} />));
+    win.dispatchEvent(new dom!.window.Event("pagehide"));
+    const lines = sent.filter((event) => event.kind === "host-line");
+    expect(lines.map((event) => [event.line, event.state])).toEqual([
+      ["waiting", "shown"],
+      ["waiting", "cleared"],
+    ]);
+    expect(typeof lines[1]!.ms).toBe("number");
+  } finally {
+    resetFlickerLogForTests();
+  }
 });

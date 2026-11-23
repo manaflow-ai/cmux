@@ -23,6 +23,8 @@
 //   (focusLossWatch.ts): `cause`, `what`, `to`; the app also writes it to its focus log.
 // - `layout-undeclared`: in a dev build, a box moved on no event the layout-motion contract declares for
 //   its surface (layout/motionAudit.ts): `surface`, `px` (its largest change) and `during` (what was open).
+// - `host-line`: a host line (HostError.tsx: Reconnecting…, Restoring sessions…, Waiting for the
+//   agent service, a failure) came on screen or went: `line`, `state` (shown, cleared), `ms` it showed.
 // - `first-load`: how a chat page loaded shown, judged frame by frame as the first-load bench judges
 //   it (firstLoadWatch.ts): `copy` (a drawn copy showed first), `first` and `settled` (ms from
 //   navigation), `shifts` (frames that moved the composer or the bottom row), `blank`, `why`.
@@ -287,6 +289,15 @@ export function noteTranscriptMount(): void {
 export function noteTranscriptReplace(cause: string, blank: boolean, n: number): void {
   log?.record("transcript-replace", { cause, blank, n });
   perfReporter.transcriptReplaced();
+}
+
+/// A host line (HostError.tsx) came on screen (`state: shown`) or went (`state: cleared`, with `ms`
+/// it showed): `line` is `reconnecting`, `restoring`, `waiting` ("Waiting for the agent service") or
+/// `unavailable`. So a measurement counts the line Leo sees, not the link state that may lead to it
+/// (Leo, 2026-11-22: "you guys shouldn't be showing that message/shouldn't have that issue in the
+/// first place"); nothing before startFlickerLog.
+export function noteHostLine(line: string, state: "shown" | "cleared", ms?: number): void {
+  log?.record("host-line", ms === undefined ? { line, state } : { line, state, ms });
 }
 
 /// The ended turn's final reply is not painted where the reader follows (conversation/replyPainted.ts):

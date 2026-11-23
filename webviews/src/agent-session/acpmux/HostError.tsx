@@ -1,7 +1,8 @@
-import { type ReactNode, useId, useState } from "react";
+import { type ReactNode, useEffect, useId, useState } from "react";
 import { Notice } from "../../ui/Notice";
 import { Clock } from "../../ui/Typography";
 import { HOST_ERROR_DEADLINE_MS, type HostRestoring, hostRecoveryLine } from "./hostRetry";
+import { noteHostLine } from "./flickerLog";
 import { useNow } from "./subagents/subagentGroupModel";
 import { useT } from "./i18n";
 import { waitedText } from "./hostErrorModel";
@@ -57,6 +58,22 @@ export function HostError({
 /// person and the chat comes back by itself (Leo, 2026-11-12: "the recovery needs to be a lot better
 /// and it shouldn't talk so much bullshit"; "try what? no, it should just automatically do stuff").
 /// Only a failure asking again cannot clear keeps its message and its one action.
+/// Records the host line `line` in the flicker ring while it is on screen: `shown` when it mounts,
+/// `cleared` with how long it showed when it goes (flickerLog.ts `host-line`). The gallery and tests
+/// start no flicker log, so they record nothing.
+function useHostLineLog(line: string): void {
+  useEffect(() => {
+    const shown = Date.now();
+    noteHostLine(line, "shown");
+    return () => noteHostLine(line, "cleared", Date.now() - shown);
+  }, [line]);
+}
+
+function HostLineLog({ line }: { line: string }) {
+  useHostLineLog(line);
+  return null;
+}
+
 export function HostUnavailableLine({
   message,
   detail,
@@ -80,6 +97,7 @@ export function HostUnavailableLine({
   if (selfRetrying && !onRestart) return <ReconnectingLine />;
   return (
     <div className="acpmux-host-line-group" role="alert">
+      <HostLineLog line="unavailable" />
       <div className="acpmux-host-line">
         <p
           className="acpmux-host-line-message selectable"
@@ -147,6 +165,7 @@ export function ConnectionChip({
   variant?: ConnectionChipVariant;
 }) {
   const label = typeof words === "string" ? words : undefined;
+  useHostLineLog(kind);
   return (
     <output
       className="acpmux-host-chip"
@@ -211,6 +230,7 @@ export function HostWaitingLine({
   if (waited < HOST_ERROR_DEADLINE_MS && !restarting) return otherwise;
   return (
     <output className="acpmux-host-line-group" data-host-waiting>
+      <HostLineLog line="waiting" />
       <div className="acpmux-host-line">
         <p className="acpmux-host-line-message">
           <ClockedWords text={t("host.waitingService", { time: SLOT })} time={waitedText(waited)} />
