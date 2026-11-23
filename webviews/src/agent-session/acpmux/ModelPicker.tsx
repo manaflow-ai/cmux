@@ -348,10 +348,11 @@ function readableLaunchId(id: string): string | undefined {
 const blockedProfile = (entry: HarnessChoice | undefined) =>
   entry?.folder?.state === "needs-trust" || entry?.folder?.state === "error";
 
-/// A rail tab: a plain icon on a round wash, filled while its models show (no square tile; Leo
-/// 2026-10-18).
+/// A rail tab: a plain icon on a wash, filled while its models show (no tile at rest; Leo
+/// 2026-10-18). Its size and its rounded-square corner are modelPicker.css's rail tokens (Leo
+/// 2026-10-20: "the buttons can, I assume, be kind of like rounded squared off-ish").
 const railTab =
-  "acpmux-mp-rail-tab grid size-8 flex-none cursor-default place-items-center rounded-full border-0 bg-transparent p-0 text-muted hover:bg-hover hover:text-fg aria-selected:bg-hover aria-selected:text-fg disabled:opacity-50 aria-disabled:opacity-50";
+  "acpmux-mp-rail-tab grid flex-none cursor-default place-items-center border-0 bg-transparent p-0 text-muted hover:bg-hover hover:text-fg aria-selected:bg-hover aria-selected:text-fg disabled:opacity-50 aria-disabled:opacity-50";
 /// A model row: one line, the theme's text. The fill is separate (`rowFill`): two background
 /// utilities on one element resolve by Tailwind's output order, not by the class list.
 const modelRow =
@@ -1564,14 +1565,11 @@ export function ModelPicker(props: ModelPickerProps) {
               started chat's harness is fixed, so its menu has none. */}
           {!harnessFixed && (
             <ScrollArea
-              className="acpmux-mp-rail-scroll w-11 flex-none border-r-[0.5px] border-edge"
+              className="acpmux-mp-rail-scroll flex-none border-r-[0.5px] border-edge"
               viewportClassName="acpmux-mp-rail-viewport"
               horizontal
             >
-              <PickerOptionList
-                className="acpmux-mp-rail-list flex flex-col items-center gap-1 py-1.5"
-                aria-label={harnessText}
-              >
+              <PickerOptionList className="acpmux-mp-rail-list flex flex-col items-center" aria-label={harnessText}>
                 <PickerOption
                   type="button"
                   className={railTab}

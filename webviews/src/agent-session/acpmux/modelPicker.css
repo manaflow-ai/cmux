@@ -70,8 +70,22 @@
    glass the chat blurs in place under the 40% veil, in WebKit the menu level's 32 px frost takes it,
    and in a see-through Chromium page without the App's glass the underlay lays the theme surface
    under the tint (glass.css). Reduce Transparency still makes it the solid popup surface. */
+/* The full picker's harness rail, condensed (Leo 2026-10-20: "you're giving way too much space to
+   the model things, the harnesses on the left there ... the padding itself, and then even the
+   buttons ... rounded squared off-ish"). Before: a 44px rail, 6px ends, 4px gaps and 32px round
+   tabs. Now a 36px rail of 28px tabs (the menu's row height, as the symbols row's tabs) with 4px
+   ends, 2px gaps and the rows' own corner. The gallery's `agent-pane.model-picker-rail` compares
+   this with the rail before and a denser one. */
+.acpmux-mp {
+  --acpmux-mp-rail-width: 36px;
+  --acpmux-mp-rail-tab: 28px;
+  --acpmux-mp-rail-pad: 4px;
+  --acpmux-mp-rail-gap: 2px;
+  --acpmux-mp-rail-radius: var(--ui-row-radius, 5px);
+}
 .acpmux-mp-rail-scroll {
   flex: 0 0 auto;
+  width: var(--acpmux-mp-rail-width);
   min-width: 0;
   min-height: 0;
 }
@@ -83,11 +97,15 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: var(--acpmux-mp-rail-gap);
+  padding-block: var(--acpmux-mp-rail-pad);
   min-width: 100%;
 }
 .acpmux-mp-rail-tab {
   flex: 0 0 auto;
+  width: var(--acpmux-mp-rail-tab);
+  height: var(--acpmux-mp-rail-tab);
+  border-radius: var(--acpmux-mp-rail-radius);
 }
 .acpmux-mp-content {
   display: flex;
@@ -159,6 +177,8 @@
     inline-size: 32px;
     min-inline-size: 32px;
     max-inline-size: 32px;
+    /* The narrow strip keeps its whole 32px cells (pickerRailGeometry.ts). */
+    block-size: 32px;
   }
   .acpmux-mp-content {
     width: 100%;
