@@ -662,7 +662,7 @@ impl Inner {
         let parts = match crate::home_fs::symlink_metadata(&dir) {
             Ok(_) => {
                 let _open = self.local.writable()?;
-                Some(self.local.parts.write(&dir, meta).inspect_err(|e| self.space.saw(e))?)
+                Some(self.local.parts.write(&dir, meta)?)
             }
             Err(_) => None,
         };

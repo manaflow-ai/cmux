@@ -1,8 +1,9 @@
 //! A full disk is a state the daemon stays up in, not a reason to stop (RFD 0049 R6, leg `disk`).
 //!
 //! The store keeps a reserve file in its home ([`RESERVE`], [`RESERVE_BYTES`]). When a write of
-//! the journal fails for a full disk or quota ([`cmux_journal::Journal::on_out_of_space`]), or a
-//! log or checkpoint write does ([`Space::saw`]), the store enters the full state:
+//! the journal fails for a full disk or quota ([`cmux_journal::Journal::on_out_of_space`]), the
+//! store enters the full state (a log line's write that fails so is answered with its own
+//! `ENOSPC` already, before its record is appended):
 //!
 //! - the reserve is removed, so the writer's next retry (its backoff, 100 ms at first) writes the
 //!   records already appended. A reply waiting for them is sent once they are durable, as on any
@@ -46,7 +47,7 @@ impl Space {
         let space =
             Arc::new(Self { home: home.to_path_buf(), full: AtomicBool::new(false), ending });
         let path = space.reserve_path();
-        let kept = std::fs::metadata(&path).is_ok_and(|m| m.len() >= RESERVE_BYTES);
+        let kept = crate::home_fs::symlink_metadata(&path).is_ok_and(|m| m.len() >= RESERVE_BYTES);
         if !kept && !space.make_reserve() {
             space.enter("the disk had no room for the journal's reserve at start");
         }
@@ -70,20 +71,13 @@ impl Space {
         ))
     }
 
-    /// A write's error: when it is a full disk or quota, the store enters the full state.
-    pub(super) fn saw(self: &Arc<Self>, error: &anyhow::Error) {
-        if is_out_of_space(error) {
-            self.enter(&format!("{error:#}"));
-        }
-    }
-
     /// Enters the full state, once until it leaves: the reserve goes, and a thread waits for
     /// space. Quick: called on the journal writer's thread.
     pub(super) fn enter(self: &Arc<Self>, why: &str) {
         if self.full.swap(true, Ordering::SeqCst) {
             return;
         }
-        let _ = std::fs::remove_file(self.reserve_path());
+        let _ = crate::home_fs::remove_file(self.reserve_path());
         tracing::warn!(
             home = %self.home.display(),
             free_bytes = self.free(),
@@ -140,7 +134,7 @@ impl Space {
         }
         let path = self.reserve_path();
         let made = (|| -> std::io::Result<()> {
-            let mut file = std::fs::File::create(&path)?;
+            let mut file = crate::home_fs::create_file(&path)?;
             let zeros = vec![0u8; 1 << 20];
             let mut left = RESERVE_BYTES;
             while left > 0 {
@@ -153,7 +147,7 @@ impl Space {
         match made {
             Ok(()) => true,
             Err(error) => {
-                let _ = std::fs::remove_file(&path);
+                let _ = crate::home_fs::remove_file(&path);
                 tracing::warn!("write the journal's disk reserve {}: {error}", path.display());
                 false
             }
@@ -183,12 +177,16 @@ pub(crate) fn set_test_free(home: &Path, free: Option<u64>) {
 
 /// A full disk or quota anywhere in the error's chain.
 pub(super) fn is_out_of_space(error: &anyhow::Error) -> bool {
-    error.chain().any(|cause| {
-        cause.downcast_ref::<std::io::Error>().is_some_and(|io| {
-            matches!(
-                io.kind(),
-                std::io::ErrorKind::StorageFull | std::io::ErrorKind::QuotaExceeded
-            ) || matches!(io.raw_os_error(), Some(code) if code == libc::ENOSPC || code == libc::EDQUOT)
-        })
-    })
+    error.chain().any(|cause| cause.downcast_ref::<std::io::Error>().is_some_and(io_out_of_space))
+}
+
+fn io_out_of_space(error: &std::io::Error) -> bool {
+    if matches!(error.kind(), std::io::ErrorKind::StorageFull | std::io::ErrorKind::QuotaExceeded) {
+        return true;
+    }
+    #[cfg(unix)]
+    if matches!(error.raw_os_error(), Some(code) if code == libc::ENOSPC || code == libc::EDQUOT) {
+        return true;
+    }
+    false
 }

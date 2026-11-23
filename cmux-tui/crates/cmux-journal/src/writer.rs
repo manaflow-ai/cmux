@@ -607,8 +607,14 @@ impl Writer {
 
 /// A full disk or quota.
 fn out_of_space(error: &io::Error) -> bool {
-    matches!(error.kind(), io::ErrorKind::StorageFull | io::ErrorKind::QuotaExceeded)
-        || matches!(error.raw_os_error(), Some(code) if code == libc::ENOSPC || code == libc::EDQUOT)
+    if matches!(error.kind(), io::ErrorKind::StorageFull | io::ErrorKind::QuotaExceeded) {
+        return true;
+    }
+    #[cfg(unix)]
+    if matches!(error.raw_os_error(), Some(code) if code == libc::ENOSPC || code == libc::EDQUOT) {
+        return true;
+    }
+    false
 }
 
 /// A failed append: the segment is cut back to its size before it. A failed cut ends the

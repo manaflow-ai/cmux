@@ -764,7 +764,7 @@ impl Store for JournalStore {
         // the log write, never after it unless the writer stops in between.
         let room = inner.journal.reserve(payload.len()).map_err(JournalStore::journal_error)?;
         // Refused once the store is sealed (the seal waits out this append: `Inner::quiet`).
-        inner.local.append_line(id, line.as_bytes()).inspect_err(|e| inner.space.saw(e))?;
+        inner.local.append_line(id, line.as_bytes())?;
         #[cfg(test)]
         pause_after_log_write();
         // Refused only if the writer stopped since the reservation: the line is in the log
