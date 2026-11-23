@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 @testable import CmuxNextApp
+import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextPages
 import CmuxNextTabs
