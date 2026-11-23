@@ -21,9 +21,6 @@ struct BoundActionCatalogTests {
         // which adds these rows to the Rust catalog: until it lands and re-pins, they do nothing.
         "macScreen.viewOnly", "macScreen.fullControl", "macScreen.fullScreen", "macScreen.sendSwitchApp",
         "macScreen.sendSpotlight", "macScreen.reconnect", "macScreen.stopAllViewing",
-        // Adjust Background…, Fill and Fit (PR #49748, step B) bind before their step A catalog rows
-        // (cmux-action-catalog backdrop.rs) re-pin: until then they do nothing.
-        "appearance.adjustBackground", "appearance.background.fill", "appearance.background.fit",
     ]
 
     @Test func everyBoundActionIsInTheCatalog() {
