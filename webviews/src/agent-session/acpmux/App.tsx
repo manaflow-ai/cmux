@@ -98,7 +98,6 @@ import {
   keepAdoptedTail,
   useSessionAdoption,
   type SessionAdoption,
-  useLostSharedPart,
 } from "./newtab/adoption";
 import { sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import {

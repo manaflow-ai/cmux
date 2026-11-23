@@ -455,6 +455,7 @@ pub(crate) async fn move_running(
         all_idle: false,
         interrupt: true,
         after_turn: false,
+        turn_timeout: DEFAULT_TURN_TIMEOUT,
         leave_dirty: false,
         carry_changes: true,
         cwd: None,
