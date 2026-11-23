@@ -41,6 +41,9 @@ extension AgentPaneComposerSetting {
     /// `agentPane.emptyChatComposerPosition`: Where an empty chat's composer sits (agentPane.emptyChatComposerPosition): bottom, docked as always, or center, the middle of the pane with the hero over it, as the New Tab page sets it (styles.css, [data-empty-chat-composer="center"]).
     public nonisolated static let emptyChatComposerPositionPath = ["agentPane", "emptyChatComposerPosition"]
     public nonisolated static let emptyChatComposerPositionDefault: AgentPaneEmptyChatComposerPosition = .bottom
+    /// `agentPane.followUpMode`: What Return (and Send) does with a message sent while the agent is mid-turn, for an agent that steers (Composer.tsx, followUpMode.ts): steer (as always) takes it into the running turn and Command-Return queues it; queue holds it until the turn ends and Command-Return steers. An agent that cannot steer queues either way; queueing off (a queued row's menu) steers on every key either way.
+    public nonisolated static let followUpModePath = ["agentPane", "followUpMode"]
+    public nonisolated static let followUpModeDefault: AgentPaneFollowUpMode = .steer
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -205,6 +208,19 @@ nonisolated enum AgentPaneComposerSettingsSchema {
                 ]),
                 default: .string(AgentPaneComposerSetting.emptyChatComposerPositionDefault.rawValue),
                 keywords: ["composer", "message box", "empty", "new chat", "center", "centered", "middle", "bottom", "position", "agent"]
+            ),
+            SettingDescriptor(
+                AgentPaneComposerSetting.followUpModePath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.followUpMode", "Follow-Up Messages"),
+                help: SettingsText.keyed("settings.agentPane.followUpMode.help", "What Return does with a message sent while the agent is working. Command-Return does the other."),
+                kind: .choice([
+                    SettingChoice(AgentPaneFollowUpMode.steer.rawValue, SettingsText.keyed("settings.choice.followUpModeSteer", "Steer")),
+                    SettingChoice(AgentPaneFollowUpMode.queue.rawValue, SettingsText.keyed("settings.choice.followUpModeQueue", "Queue")),
+                ]),
+                default: .string(AgentPaneComposerSetting.followUpModeDefault.rawValue),
+                keywords: ["follow-up", "follow up", "steer", "queue", "queued", "mid-turn", "return", "enter", "send", "message", "agent"]
             ),
         ]
     }
