@@ -139,6 +139,7 @@ public nonisolated struct CloudLinkLauncher: Sendable {
         var environment = base.filter { Self.inheritedKeys.contains($0.key) }
         if let stateRoot { environment["CMUX_TUI_STATE_DIR"] = stateRoot.path }
         environment["TMPDIR"] = runtimeBase.path
+        DaemonLauncher.applyRuntimeScope(to: &environment)
         return environment
     }
 
