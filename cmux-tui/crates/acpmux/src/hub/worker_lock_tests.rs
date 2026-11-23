@@ -51,7 +51,7 @@ async fn status_answers_while_a_slow_writer_holds_a_chats_append_lock() {
             std::thread::sleep(Duration::from_secs(2));
         }
     });
-    held_rx.recv().unwrap();
+    held_rx.recv_timeout(Duration::from_secs(10)).expect("the slow holder never took the lock");
     let appends: Vec<_> = (0..8)
         .map(|i| {
             let (hub, session) = (hub.clone(), session.clone());
@@ -93,7 +93,7 @@ async fn status_answers_while_a_slow_writer_holds_the_outbox() {
         let hub = hub.clone();
         move || hub.outbox.hold_book_for_then(Duration::from_secs(2), || held_tx.send(()).unwrap())
     });
-    held_rx.recv().unwrap();
+    held_rx.recv_timeout(Duration::from_secs(10)).expect("the slow holder never took the lock");
     let deliveries: Vec<_> = (0..8)
         .map(|i| {
             let hub = hub.clone();

@@ -98,7 +98,7 @@ mod tests {
                 std::thread::sleep(Duration::from_secs(2));
             }
         });
-        held_rx.recv().unwrap();
+        held_rx.recv_timeout(Duration::from_secs(10)).expect("the slow holder never took the lock");
         let waiters: Vec<_> = (0..8)
             .map(|_| {
                 let lock = lock.clone();
@@ -134,7 +134,7 @@ mod tests {
                 std::thread::sleep(Duration::from_secs(2));
             }
         });
-        held_rx.recv().unwrap();
+        held_rx.recv_timeout(Duration::from_secs(10)).expect("the slow holder never took the lock");
         let writer = tokio::spawn({
             let lock = lock.clone();
             async move { drop(lock.write().unwrap()) }
