@@ -52,9 +52,12 @@ mod roam;
 use roam::{Control, Session};
 #[path = "wireguard_paths.rs"]
 mod paths;
-pub use roam::{network_changed, rehome, roam_timeline};
+pub use paths::{app_backgrounded, set_app_backgrounded};
+pub use roam::{network_changed, rehome, roam_timeline, route_destinations};
 #[doc(hidden)]
-pub use roam::{roam_session, session_endpoints, simulate_network_loss, simulate_turn_loss};
+pub use roam::{
+    roam_session, session_endpoints, simulate_blackout, simulate_network_loss, simulate_turn_loss,
+};
 
 /// The link's TCP port inside the tunnel (PROTOCOL.md).
 pub const LINK_PORT: u16 = 7420;
@@ -71,10 +74,30 @@ pub(crate) const KEEPALIVE_SECONDS: u16 = 10;
 /// A confirmed route silent this long is no longer trusted: every datagram
 /// goes on every route again until the peer confirms one. Longer than the
 /// WireGuard keepalive (10 s), shorter than the link keepalive timeout
-/// (20 s), so a route that dies in both directions recovers on TURN before
-/// the link gives up.
+/// (`link::KEEPALIVE_TIMEOUT`, 45 s), so a route that dies in both
+/// directions recovers on TURN before the link gives up.
 const DIRECT_STALE: Duration = Duration::from_secs(14);
 const STUN_WAIT: Duration = Duration::from_millis(1500);
+
+/// Measurement only: answer as before the answer trickled its endpoints
+/// (wg-resp waits out the STUN gather, up to [`STUN_WAIT`]). Off by
+/// default; tests turn it on for their baseline.
+static ANSWER_AFTER_GATHER: AtomicBool = AtomicBool::new(false);
+
+/// Measurement only (see [`ANSWER_AFTER_GATHER`]).
+pub fn set_answer_after_gather(on: bool) {
+    ANSWER_AFTER_GATHER.store(on, Ordering::Relaxed);
+}
+
+/// Whether an answer sends `wg-resp` with its host endpoints at once and
+/// announces its reflexive (and TURN) endpoints after it, through the
+/// roaming messages (`wg-endpoints` and the in-tunnel announcement, resent
+/// until acknowledged). A version-2 peer reads those; an older one, or a
+/// side with no plain UDP (whose only endpoint is its TURN address), gets
+/// the answer after the gather, as before.
+fn answer_trickles(options: &DialOptions, peer_version: u32) -> bool {
+    peer_version >= WG_VERSION && !no_plain_udp(options) && !ANSWER_AFTER_GATHER.load(Ordering::Relaxed)
+}
 /// Once one STUN server answered, how much longer the others get. Cloudflare
 /// lists STUN on 3478 and on 53, and cellular networks often take port 53 for
 /// their own DNS or drop it: waiting out [`STUN_WAIT`] for that one held
@@ -252,6 +275,19 @@ pub fn primary_local_ip() -> Option<IpAddr> {
 /// Whether this side uses no plain UDP at all (relay only, or UDP blocked).
 fn no_plain_udp(options: &DialOptions) -> bool {
     options.relay_only || options.block_udp
+}
+
+/// The answer's gather before `wg-resp` (an older peer, or no plain UDP):
+/// host and reflexive endpoints, and the TURN allocation of a Mac whose
+/// network answers no STUN (it drops UDP), over TLS when UDP to the server
+/// fails too. The allocation starts once STUN has been silent for
+/// [`STUN_SILENT`], beside the rest of the STUN wait, not after it.
+async fn gather_for_answer(socket: &UdpSocket, options: &DialOptions) -> (Gathered, Option<TurnCarrier>) {
+    let (stun_side, turn_side) = stun_turn_link();
+    tokio::join!(
+        gather_endpoints(socket, options, Some(stun_side)),
+        turn_beside(options, no_plain_udp(options), turn_side)
+    )
 }
 
 /// Asked for a TURN allocation (`wanted`) and got none in time, though a TURN
@@ -560,7 +596,8 @@ const ROAM_SPRAY_GAP: Duration = Duration::from_millis(100);
 /// the dead route would otherwise cost TCP inside the tunnel its 1 s
 /// minimum retransmission timeout, or after a long outage (airplane mode)
 /// its backed-off one. WireGuard's replay window drops the copies that did
-/// arrive. As long as the link's own keepalive timeout.
+/// arrive. The link's old keepalive timeout; what a replay sends is
+/// bounded by [`REPLAY_MAX`] and [`REPLAY_BYTES`] whatever the age.
 const REPLAY_AGE: Duration = Duration::from_secs(20);
 /// At most this many datagrams are kept for that (about 100 ms of a
 /// 15 Mbit/s stream; a whole outage of retransmissions and keepalives).
@@ -678,6 +715,10 @@ struct HybridUnderlay {
     /// When a datagram last arrived relayed (through a TURN server).
     last_relayed_arrival: Option<Instant>,
     path: watch::Sender<LinkPath>,
+    /// The peer address plain UDP on the current route goes to (none on
+    /// this side's own TURN allocation): which local interface carries the
+    /// session ([`route_destinations`]).
+    route_to: Arc<watch::Sender<Option<SocketAddr>>>,
     control: mpsc::UnboundedReceiver<Control>,
     /// STUN transactions of the current socket still unanswered, and where
     /// the reflexive addresses go.
@@ -691,6 +732,9 @@ struct HybridUnderlay {
     /// The socket's network is gone (debug and tests): nothing it sends
     /// leaves and nothing arrives.
     blackhole: bool,
+    /// The network is dark for now (debug and tests, [`Control::Dark`]):
+    /// as `blackhole`, but the socket and the TURN allocation stay.
+    dark: bool,
     /// Test support: addresses plain UDP was sent to; with
     /// `DialOptions::restrict_inbound_udp`, UDP from anywhere else is dropped.
     sent_to: HashSet<SocketAddr>,
@@ -748,6 +792,7 @@ struct UnderlaySpec<'a> {
     turn: Option<TurnCarrier>,
     reach_out: mpsc::UnboundedSender<(SocketAddr, Carrier)>,
     path: watch::Sender<LinkPath>,
+    route_to: Arc<watch::Sender<Option<SocketAddr>>>,
     control: mpsc::UnboundedReceiver<Control>,
 }
 
@@ -786,6 +831,7 @@ impl HybridUnderlay {
             last_on_route: None,
             last_relayed_arrival: None,
             path: spec.path,
+            route_to: spec.route_to,
             control: spec.control,
             stun: Vec::new(),
             reflexive: None,
@@ -793,6 +839,7 @@ impl HybridUnderlay {
             next_spray: None,
             roam: None,
             blackhole: false,
+            dark: false,
             sent_to: HashSet::new(),
             recent: std::collections::VecDeque::new(),
             last_replay: None,
@@ -936,6 +983,17 @@ impl HybridUnderlay {
                 self.replay_recent(true);
                 self.wake_receiver();
             }
+            Control::Gather { stun, reflexive } => {
+                for server in stun {
+                    let mut transaction = [0u8; 12];
+                    getrandom::fill(&mut transaction).expect("operating system randomness");
+                    let request = cmux_transport::stun::binding_request(transaction);
+                    if self.socket.try_send_to(&request, server).is_ok() {
+                        self.stun.push((transaction, server));
+                    }
+                }
+                self.reflexive = Some(reflexive);
+            }
             Control::Turn(turn) => {
                 tracing::debug!(relayed = %turn.relayed, transport = ?turn.transport, "WireGuard takes a TURN allocation");
                 self.retire_turn();
@@ -1003,6 +1061,7 @@ impl HybridUnderlay {
                 self.retire_turn();
                 self.turn_targets.clear();
             }
+            Control::Dark(dark) => self.dark = dark,
             Control::KillTurn => {
                 if let Some(turn) = &self.turn {
                     turn.kill();
@@ -1275,6 +1334,7 @@ impl HybridUnderlay {
         if self.options.drop_outbound_udp
             || self.options.block_udp
             || self.blackhole
+            || self.dark
             || self.options.drop_udp_to.is_some_and(|drop| drop(&target))
         {
             return true;
@@ -1296,6 +1356,9 @@ impl HybridUnderlay {
     /// Through this side's TURN allocation to every peer endpoint it can
     /// reach.
     fn send_turn_targets(&self, datagram: &[u8], class: SendClass) {
+        if self.dark {
+            return;
+        }
         if let Some(turn) = &self.turn {
             for target in &self.turn_targets {
                 turn.send(datagram, *target, class);
@@ -1318,7 +1381,9 @@ impl HybridUnderlay {
             }
             Carrier::Turn => match &self.turn {
                 Some(turn) if !turn.is_dead() => {
-                    turn.send(datagram, route.addr, class);
+                    if !self.dark {
+                        turn.send(datagram, route.addr, class);
+                    }
                     true
                 }
                 _ => false,
@@ -1378,6 +1443,8 @@ impl HybridUnderlay {
     fn publish_path(&mut self) {
         let own = self.turn.as_ref().map(|turn| turn.transport);
         let path = path_of(self.direct, &self.labels, own);
+        let to = self.direct.filter(|route| route.carrier == Carrier::Udp).map(|route| route.addr);
+        self.route_to.send_if_modified(|current| std::mem::replace(current, to) != to);
         if self.direct_only()
             && let Some(roam) = self.roam.take()
         {
@@ -1415,7 +1482,7 @@ impl HybridUnderlay {
     fn impaired(&mut self, datagram: &[u8], origin: Origin) -> bool {
         let Some(impair) = self.options.impair_inbound else { return false };
         let Some(from) = origin.addr else { return false };
-        match impair(origin.path == TURN_PATH, &from) {
+        match impair(origin.path == TURN_PATH, &from, datagram.len()) {
             None => true,
             Some(delay) if delay.is_zero() => false,
             Some(delay) => {
@@ -1479,6 +1546,9 @@ impl HybridUnderlay {
             self.publish_path();
             if self.send_route(route, datagram, class) {
                 self.paths.sent(route, now);
+                if class != SendClass::Control {
+                    self.paths.sent_data(now);
+                }
                 self.maybe_spray(datagram, route);
                 return true;
             }
@@ -1622,6 +1692,7 @@ impl Underlay for HybridUnderlay {
                 Poll::Ready(Ok(source)) => {
                     let len = read.filled().len();
                     if self.blackhole
+                        || self.dark
                         || self.options.block_udp
                         || (self.options.restrict_inbound_udp && !self.sent_to.contains(&source))
                         || self.stun_answer(&buffer[..len], source)
@@ -1651,6 +1722,9 @@ impl Underlay for HybridUnderlay {
         while let Some(turn) = &mut self.turn
             && let Poll::Ready(Some((datagram, from))) = turn.inbound.poll_recv(cx)
         {
+            if self.dark {
+                continue;
+            }
             let origin = Origin { path: TURN_PATH, addr: Some(from) };
             if self.impaired(&datagram, origin) {
                 continue;
@@ -1871,6 +1945,7 @@ fn start_tunnel(
 ) -> Result<Tunnel, DialError> {
     let current = Arc::new(Mutex::new(signaling.clone()));
     let (path_tx, path_rx) = watch::channel(LinkPath::NoPath);
+    let route_to = Arc::new(watch::channel(None).0);
     let (control_tx, control_rx) = mpsc::unbounded_channel();
     let (reach_tx, reach_rx) = mpsc::unbounded_channel();
     let (relayed, relayed_tls) = relayed_of(spec.turn.as_ref());
@@ -1885,6 +1960,7 @@ fn start_tunnel(
             turn: spec.turn,
             reach_out: reach_tx,
             path: path_tx,
+            route_to: Arc::clone(&route_to),
             control: control_rx,
         },
         options,
@@ -1921,6 +1997,7 @@ fn start_tunnel(
         relayed: (relayed, relayed_tls),
         keeps_turn: spec.keeps_turn,
         turn_dead,
+        route_to,
     });
     Ok(Tunnel { session, path: path_rx })
 }
@@ -2137,16 +2214,17 @@ impl Dialer for WireGuardDialer {
                 .map_err(|_| DialError::Unexpected("wg-init overlayIP is not IPv4".into()))?;
             let own_ip = if peer_ip == ANSWER_OVERLAY { DIALER_OVERLAY } else { ANSWER_OVERLAY };
             let socket = bind_udp().map_err(transport_error)?;
-            // A Mac whose network answers no STUN (it drops UDP) takes its
-            // own TURN allocation, over TLS when UDP to the server fails too.
-            // It starts once STUN has been silent for STUN_SILENT, beside
-            // the rest of the STUN wait, not after it.
-            let (stun_side, turn_side) = stun_turn_link();
-            let (gathered, turn) = tokio::join!(
-                gather_endpoints(&socket, options, Some(stun_side)),
-                turn_beside(options, no_plain_udp(options), turn_side)
-            );
-            let wants_turn = no_plain_udp(options) || gathered.udp_looks_blocked();
+            let port = socket.local_addr().map_err(transport_error)?.port();
+            let trickle = answer_trickles(options, peer_version);
+            let (gathered, turn) = if trickle {
+                // Host endpoints now; the STUN (and TURN) gather runs after
+                // `wg-resp`, on the tunnel's socket (gather_after_answer).
+                let endpoints = offered(host_endpoints(port, options), options);
+                (Gathered { endpoints, stun: Vec::new(), answered: 0 }, None)
+            } else {
+                gather_for_answer(&socket, options).await
+            };
+            let wants_turn = !trickle && (no_plain_udp(options) || gathered.udp_looks_blocked());
             // A STUN answer came after all: the early allocation is dropped
             // (released) unused.
             let turn = if wants_turn { turn } else { None };
@@ -2228,6 +2306,10 @@ impl Dialer for WireGuardDialer {
                     },
                 )
                 .map_err(|e| DialError::Signaling(e.to_string()))?;
+            options.timeline.mark("wg_resp_sent");
+            if trickle {
+                tunnel.session.gather_after_answer(port, options.timeline.clone());
+            }
             let stream =
                 listener.accept().await.ok_or_else(|| DialError::Transport("tunnel closed".into()))?;
             // The phone's second connection is the input lane.
@@ -2359,6 +2441,7 @@ mod tests {
                 turn: None,
                 reach_out,
                 path: watch::channel(LinkPath::NoPath).0,
+                route_to: Arc::new(watch::channel(None).0),
                 control,
             },
             &DialOptions::default(),
@@ -2395,6 +2478,7 @@ mod tests {
                 turn: None,
                 reach_out,
                 path: watch::channel(LinkPath::NoPath).0,
+                route_to: Arc::new(watch::channel(None).0),
                 control,
             },
             &DialOptions::default(),
@@ -2433,6 +2517,7 @@ mod tests {
                 turn: None,
                 reach_out,
                 path: watch::channel(LinkPath::NoPath).0,
+                route_to: Arc::new(watch::channel(None).0),
                 control,
             },
             &DialOptions::default(),
@@ -2522,6 +2607,7 @@ mod tests {
                 turn: None,
                 reach_out,
                 path: watch::channel(LinkPath::NoPath).0,
+                route_to: Arc::new(watch::channel(None).0),
                 control,
             },
             &DialOptions::default(),
@@ -2579,6 +2665,7 @@ mod tests {
                 turn: None,
                 reach_out,
                 path: watch::channel(LinkPath::NoPath).0,
+                route_to: Arc::new(watch::channel(None).0),
                 control,
             },
             &DialOptions::default(),
@@ -2660,6 +2747,7 @@ mod tests {
                 turn: Some(first),
                 reach_out,
                 path: watch::channel(LinkPath::NoPath).0,
+                route_to: Arc::new(watch::channel(None).0),
                 control,
             },
             &options,
