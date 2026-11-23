@@ -26,9 +26,11 @@ pub mod key_tiers;
 pub mod model;
 pub mod palette;
 pub mod request;
+pub mod status_menus;
 pub mod strings;
 pub mod tables;
 pub mod text;
+pub mod when_clause;
 
 use std::collections::HashMap;
 use std::sync::OnceLock;
