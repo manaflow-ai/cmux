@@ -517,10 +517,14 @@ import Testing
         let windowId: UUID
         let manager: TabManager
         let workspace: Workspace
+        // Chief Home would be a second workspace in this window, so it would
+        // never hold only its mirror.
+        private let chiefHomeOff: ChiefHomeOffForTesting
         var controller: RemoteTmuxController { appDelegate.remoteTmuxController }
 
         init() throws {
             appDelegate = try #require(AppDelegate.shared)
+            chiefHomeOff = ChiefHomeOffForTesting()
             windowId = appDelegate.createMainWindow()
             manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
             workspace = try #require(manager.selectedWorkspace)
@@ -531,6 +535,7 @@ import Testing
             // Clear any marker so it can't leak into another serialized test.
             controller.consumeKillSessionsOnWindowClose(windowId: windowId)
             closeWindow(windowId)
+            chiefHomeOff.restore()
         }
 
         func cacheConnection(host: RemoteTmuxHost, session: String) {
