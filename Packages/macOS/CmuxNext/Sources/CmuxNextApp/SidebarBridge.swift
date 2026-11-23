@@ -18,7 +18,7 @@ import Observation
 /// intents into daemon commands (SidebarBridge+Intents). Selection is
 /// client-local: it only changes which workspace this window shows.
 final class SidebarBridge {
-    let model = SidebarCollapsedSections(defaults: .standard).restoring(SidebarModel())
+    let model = SidebarCollapsedSections(defaults: .standard).restoring(SidebarModel()); let machineSections = SidebarMachineSections()
     let container: SidebarContainerView
     unowned let services: AppServices
     /// Weak: a daemon command's `Task` can outlive the window.
@@ -122,6 +122,10 @@ final class SidebarBridge {
             focus.send(.focusTarget(.content, source: .keyboard))
         }
         seedFromSnapshot(state)
+        machineSections.bind(host: services.hostsSidebar, visible: { [weak state] in state?.sidebarHidden == false },
+            socketPath: QuitAgents.environment(services)?.socketPath ?? services.agentLanes.socketPath,
+            displayName: { [weak services] peer in services?.machines.machineName(peer: peer) },
+            open: { [weak services] lane in guard let services else { return }; SidebarPriorityFeed.open(lane, services: services) })
         // Clear until real content (`markReadyForReveal`, or the deadline); a no-op once it is ready.
         services.launchReveal.hold(container, until: .sidebar)
         observe()
@@ -136,6 +140,7 @@ final class SidebarBridge {
         sectionsPass?.cancel()
         appSections?.releaseAll()
         cardsObservation?.cancel()
+        machineSections.stop()
         container.sidebarView.tearDownSpaceWindowMarks() // a retained closed window keeps its views (#38333 review)
         container.sidebarView.updateSurfaces = nil // the update surface pages cancel their subscriptions (cx-urd.61.2)
     }
