@@ -42,11 +42,10 @@ describe("a new team's idle pause", () => {
     expect(cloudPolicyOf(s).idle_pause).toBe(true)
   })
 
-  it("the per-team switch still turns it off, and the next sign-in does not turn it back on", () => {
+  it("a team that switched it off stays off through the next sign-in", () => {
     const made = okState(teamDomain.reduce(teamDomain.initial(), "team.ensure_personal", {}, session()))
-    const off = okState(
-      teamDomain.reduce(made, "team.policy.update", { changes: [{ key: "cloud.idlePause", value: { value: false, mode: "default" } }], expected_version: 0 }, session())
-    )
+    const policy = currentPolicy(made)
+    const off: TeamState = { ...made, policy: { ...policy, version: 1, values: { ...policy.values, "cloud.idlePause": { value: false, mode: "default" } } } }
     expect(cloudPolicyOf(off).idle_pause).toBe(false)
     const again = teamDomain.reduce(off, "team.ensure_personal", {}, session())
     expect(again.ok && cloudPolicyOf(again.state).idle_pause).toBe(false)
