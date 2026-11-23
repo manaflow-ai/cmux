@@ -50,7 +50,7 @@
 .acpmux-approved-plan-tag {
   flex: none;
   padding: 0 var(--ds-space-1);
-  border-radius: var(--ds-radius-1, 4px);
+  border-radius: var(--ds-radius-control);
   background: var(--acpmux-row-hover);
   color: var(--agent-muted);
 }
@@ -81,7 +81,7 @@
   place-items: center;
   padding: 0;
   border: 0;
-  border-radius: var(--ds-radius-1, 4px);
+  border-radius: var(--ds-radius-control);
   background: none;
   color: var(--agent-muted);
   cursor: pointer;
