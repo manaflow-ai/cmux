@@ -372,7 +372,8 @@ export function NewTabPage({
   const queryRef = useRef(query);
   queryRef.current = query;
   retryStart.current = () => make("agent", queryRef.current);
-  const open = focused && query.trim() !== "" && query !== dismissed;
+  // The failure line sits where the rows float: they wait for the next edit, which clears the line.
+  const open = focused && query.trim() !== "" && query !== dismissed && !openFailed;
   // The recent chats are sorted only while the rows show: a page at rest never sorts every chat.
   const recent = useMemo(() => (open ? recentSessions(snapshot.sessions) : []), [open, snapshot.sessions]);
   const rows = useMemo(
