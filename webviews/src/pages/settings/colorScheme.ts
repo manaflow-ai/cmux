@@ -16,3 +16,9 @@ export function useColorScheme(): "dark" | "light" {
   const page = useSyncExternalStore(subscribeScheme, readScheme, (): "dark" | "light" => "dark");
   return useSettingsState().host?.theme?.system_scheme ?? page;
 }
+
+/** This page's window's light or dark (its prefers-color-scheme), the side a window's Light & Dark
+ * background draws: a window's appearance follows the App Theme, not only the Mac. */
+export function useWindowColorScheme(): "dark" | "light" {
+  return useSyncExternalStore(subscribeScheme, readScheme, (): "dark" | "light" => "dark");
+}

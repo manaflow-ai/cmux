@@ -236,7 +236,7 @@ public final class CmuxDialogButtonView: ClickableButton {
             let onOpaqueCard = enclosingOverlaySurface?.material == .opaque
             focusGap.borderColor = (onOpaqueCard ? look.opaqueCard : look.card).nsColor.cgColor
             CATransaction.commit()
-            let font = button.role == .default ? Typography.bodyEmphasized : Typography.body
+            let font = button.role == .default ? Typography.cardTitle : Typography.cardMessage
             if let keycapView {
                 keycapView.paint(ink: look.title.nsColor, glyph: look.keyHint.nsColor)
                 let title = NSMutableAttributedString(string: button.title, attributes: [.foregroundColor: look.title.nsColor, .font: font])
@@ -275,13 +275,14 @@ enum CmuxDialogMetrics {
     /// The dialog card (``CmuxDialogView``): its width, wider with an icon so the text column keeps its width.
     static var width: CGFloat { 380 * Typography.userScale }
     static var widthWithIcon: CGFloat { 432 * Typography.userScale }
-    static var cardPadding: CGFloat { 16 * Typography.userScale }
+    /// The card's padding: the density's dialog padding (``Metrics/dialogPadding``, 16 pt at Default; #49579).
+    static var cardPadding: CGFloat { Metrics.dialogPadding }
     /// The card's concentric geometry (Lawrence 2026-11-15: "all dialogs needs concentric padding with buttons
     /// inside"): the buttons on its bottom row sit ``cardPadding`` from the bottom and the sides, so the card
     /// rounds by the button corner plus that padding.
     static var card: ConcentricContainer { Metrics.buttonContainer(padding: cardPadding) }
-    static var spacing: CGFloat { 8 * Typography.userScale }
-    static var subtitleGap: CGFloat { 4 * Typography.userScale }
+    static var spacing: CGFloat { Metrics.space4 }
+    static var subtitleGap: CGFloat { Metrics.space2 }
     static var buttonsGap: CGFloat { 12 * Typography.userScale }
     static var fieldHeight: CGFloat { 24 * Typography.userScale }
     static var iconSize: CGFloat { 40 * Typography.userScale }

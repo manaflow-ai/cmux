@@ -14,7 +14,7 @@ import Observation
 /// One per process, owned by the App. Action handlers call ``checkForUpdates()``,
 /// ``installAvailableUpdate()`` and ``switchChannel(to:)``. No Sparkle window opens; Sparkle's
 /// user-driver steps are the sidebar's cards. Without the automatic-install opt-in
-/// (`updates.downloadAutomatically`, off by default on every channel) a found update is the
+/// (`updates.downloadAutomatically` off; on by default on every channel) a found update is the
 /// update-found step (the notice card after Check for Updates, else the titlebar's Update
 /// Available) and a downloaded one is the Update Ready card, which asks before relaunching; with
 /// it, updates download by themselves and the Update Ready card still asks before the relaunch.
@@ -138,6 +138,9 @@ public final class UpdaterService {
     /// without a relaunch.
     @ObservationIgnored public var hidesForRelaunch: (() -> Void)?
     @ObservationIgnored public var installAbandoned: (() -> Void)?
+    /// The pictures of the windows that stay on screen across a relaunch (set by the App:
+    /// ``RelaunchAfterimage``); the quit waits for them before the process ends.
+    @ObservationIgnored public var afterimage: RelaunchAfterimage?
     /// Reads a build's verified notes (``releaseNotes`` in the app; replaced by tests).
     @ObservationIgnored var notesLoader: (@Sendable (String) async -> ReleaseNotes?)?
     /// UPDATE-CARD: the staged update's display version (kept while it
@@ -154,7 +157,7 @@ public final class UpdaterService {
     @ObservationIgnored var prewarmInstallWait: Duration = UpdaterService.prewarmInstallBound
     /// The last skipped pre-warm's build and reason (``prewarmStagedUpdate(trigger:)``), logged once.
     @ObservationIgnored var prewarmSkipLogged: String?
-    /// Replaces a staged build's pre-warm (``StagedUpdatePrewarm/perform(work:processes:timeout:marker:urgency:progress:)``) in tests; returns its log line.
+    /// Replaces a staged build's pre-warm (``StagedUpdatePrewarm/perform(work:processes:timeout:total:clock:marker:urgency:progress:)``) in tests; returns its log line.
     @ObservationIgnored var prewarmRunner: (@Sendable (StagedUpdatePrewarm) async -> String)?
     /// This build's own verified notes, read once when the Updated card has
     /// no change list of its record (``loadCurrentBuildNotesIfNeeded()``).
@@ -169,6 +172,9 @@ public final class UpdaterService {
     /// BOTTOM-LEFT-CARDS K1: today's "Did you know" tip (nil: none, or
     /// `sidebar.cards.tips` off) and what the tips remember on this Mac.
     public internal(set) var tip: Tip?
+    /// ``tip`` as the card shows it: read again from the catalog, so its title and benefit are in
+    /// the app's language now (`app.language` switches live), not the one it was picked in.
+    public var shownTip: Tip? { tip.map { picked in TipCatalog.all.first { $0.id == picked.id } ?? picked } }
     @ObservationIgnored var tipState = TipState()
     /// `sidebar.cards.tips` (set by the App once settings load; nil before,
     /// and no tip shows until then); turning it on again ends a timed mute.

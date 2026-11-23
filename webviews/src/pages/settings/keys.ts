@@ -3,6 +3,7 @@
 // person. Records never carry a value. Older records lack the newer fields (label, hosts, uses), so
 // every field is read defensively here and the card only draws.
 import type { KeyRecordWire, KeyRequestWire, KeysState } from "./ops";
+import { intl } from "../../ui/intl";
 
 export type KeyState = "live" | "expired" | "revoked";
 
@@ -136,7 +137,7 @@ export function keyDate(at: number, now: number, locale: string): string {
   const date = new Date(at);
   const sameDay = new Date(now).toDateString() === date.toDateString();
   const format = sameDay
-    ? new Intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit" })
-    : new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" });
+    ? intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit" })
+    : intl.DateTimeFormat(locale, { month: "short", day: "numeric" });
   return format.format(date);
 }

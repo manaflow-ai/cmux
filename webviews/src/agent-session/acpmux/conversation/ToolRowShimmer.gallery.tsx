@@ -51,7 +51,10 @@ export default componentEntry<{ look: Look }>({
   pane: true,
   height: 200,
   widths: { narrow: 420, normal: 640, wide: 820 },
-  covers: ["agent-session/acpmux/conversation/ShimmerText.tsx#RowShimmer"],
+  covers: [
+    "agent-session/acpmux/conversation/ShimmerText.tsx#RowShimmer",
+    "agent-session/acpmux/conversation/RunningTime.tsx#RunningTime",
+  ],
   styles: () =>
     Promise.all([import("../styles.css"), import("./conversation.css"), import("./ToolRowShimmer.gallery.css")]),
   load: async () => ToolRowShimmer,

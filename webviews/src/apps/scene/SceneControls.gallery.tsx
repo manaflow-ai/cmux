@@ -6,7 +6,7 @@ import { SceneMount } from "./panels";
 import type { MountedPanel } from "./panelsClient";
 import { SceneStore, type SceneOp } from "./store";
 
-type Look = "controls" | "glass-panel" | "card-panel" | "failed" | "disconnected";
+type Look = "controls" | "glass-panel" | "card-panel" | "reorderable" | "failed" | "disconnected";
 
 const controls: SceneOp[] = [
   { op: "create", id: "root", type: "VStack", props: { spacing: 4, padding: { leading: 8, trailing: 8 } } },
@@ -45,9 +45,25 @@ const panel = (style: "glass" | "card"): SceneOp[] => [
   { op: "root", id: "root" },
 ];
 
+// A list the app lets the person reorder: each row with its item key, the third locked.
+const reorderable: SceneOp[] = [
+  { op: "create", id: "pins", type: "Reorderable", props: { onMove: true, spacing: 2 } },
+  { op: "create", id: "pin-a", type: "Row", props: { title: "Release checklist", symbol: "pin", reorderKey: "a" } },
+  { op: "create", id: "pin-b", type: "Row", props: { title: "Flaky test triage", symbol: "pin", reorderKey: "b" } },
+  {
+    op: "create",
+    id: "pin-c",
+    type: "Row",
+    props: { title: "Team standup notes", symbol: "pin", reorderKey: "c", disabled: true },
+  },
+  { op: "children", id: "pins", children: ["pin-a", "pin-b", "pin-c"] },
+  { op: "root", id: "pins" },
+];
+
 function mounted(look: Look): MountedPanel {
   const store = new SceneStore();
   if (look === "controls") store.apply(controls);
+  else if (look === "reorderable") store.apply(reorderable);
   else if (look === "glass-panel" || look === "card-panel")
     store.apply(panel(look === "card-panel" ? "card" : "glass"));
   else if (look === "failed") store.setStatus("failed", "init: main: SyntaxError: expecting ';' at main.js:2:12");
@@ -56,6 +72,15 @@ function mounted(look: Look): MountedPanel {
     panel: { app: "local/customize", section: "gallery", title: "Gallery" },
     store,
     dispatch: (node, event, payload) => {
+      if (event === "move") {
+        // The app answers a drop with the list's new order.
+        const { id, index } = payload as { id: string; index: number };
+        const order = store.getNode(node)!.children.filter((child) => store.getNode(child)?.props.reorderKey !== id);
+        const moved = store.getNode(node)!.children.find((child) => store.getNode(child)?.props.reorderKey === id)!;
+        order.splice(index, 0, moved);
+        store.apply([{ op: "children", id: node, children: order }]);
+        return;
+      }
       if (event !== "change") return;
       store.apply([
         { op: "update", id: node, props: { value: (payload as { value?: unknown } | undefined)?.value ?? null } },
@@ -87,7 +112,12 @@ export default componentEntry<{ look?: Look }>({
   pane: true,
   height: 320,
   widths: { narrow: 300, normal: 340 },
-  covers: ["apps/scene/SceneRenderer.tsx", "apps/scene/SceneFailure.tsx", "apps/scene/panels.tsx"],
+  covers: [
+    "apps/scene/SceneRenderer.tsx",
+    "apps/scene/SceneFailure.tsx",
+    "apps/scene/panels.tsx",
+    "apps/scene/SceneReorderable.tsx#SceneReorderable",
+  ],
   load: async () => SceneControls,
   variants: {
     controls: {
@@ -104,6 +134,13 @@ export default componentEntry<{ look?: Look }>({
       note: "Panel with style card: the translucent hover fill and a separator hairline.",
       props: { look: "card-panel" },
       play: ready,
+    },
+    reorderable: {
+      note: "A Reorderable list: each row drags within its list and the app answers with the new order; the locked row does not drag.",
+      props: { look: "reorderable" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cmux-app-scene-move-row[draggable=true]").length === 2);
+      },
     },
     failed: {
       note: "A failed mount: the native failure row's words with Reload, Copy Error and Details.",
