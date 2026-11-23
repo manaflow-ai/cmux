@@ -30,12 +30,9 @@ struct TerminalJumpToBottomRow: View {
                 } label: {
                     Label("Jump to bottom", systemImage: "arrow.down")
                         .font(.footnote.weight(.semibold))
-                        .foregroundStyle(CmuxMobileTheme.standard.colors.label.color)
                         .padding(.horizontal, 12)
                         .frame(height: Self.pillHeight)
-                        // The theme's floating glass, as the chat's jump button (Leo, 2026-11-23:
-                        // "the jump to bottom isn't themed properly. and isn't glassed properly").
-                        .cmuxMobileFloatingGlass(in: .rect(cornerRadius: KeyRowGlass.cornerRadius, style: .continuous), interactive: true)
+                        .glassSurface(in: .rect(cornerRadius: KeyRowGlass.cornerRadius, style: .continuous))
                         // The pill looks the same; its tap target is larger (Leo,
                         // 2026-11-22: "make the tapping of the jump to bottom button
                         // ... a bit easier to tap"). It reaches out sideways, up into
