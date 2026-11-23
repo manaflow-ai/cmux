@@ -30,7 +30,13 @@ export function CopyButton({
   const t = useT();
   const [copied, setCopied] = useState(false);
   const timer = useRef<number | undefined>(undefined);
-  useEffect(() => () => window.clearTimeout(timer.current), []);
+  // Most buttons never set a timer; a chat switch unmounts every mounted one at once.
+  useEffect(
+    () => () => {
+      if (timer.current !== undefined) window.clearTimeout(timer.current);
+    },
+    [],
+  );
   const name = copied ? t("code.copied") : label;
   return (
     <button
