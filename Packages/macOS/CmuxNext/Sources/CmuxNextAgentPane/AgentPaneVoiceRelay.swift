@@ -10,15 +10,36 @@ public nonisolated enum AgentPaneVoiceCommand: Equatable, Sendable {
 /// A native click starts a lease on this exact chat/connection. Every async callback carries that
 /// lease, and cancellation tears down I/O synchronously before any daemon reply can return.
 @MainActor
+public final class AgentPaneVoiceRegistry {
+    public init() {}
+
+    public var environment: (@MainActor () -> AcpmuxEnvironment?)?
+    private let relays = NSHashTable<AgentPaneVoiceRelay>.weakObjects()
+
+    func register(_ relay: AgentPaneVoiceRelay) { relays.add(relay) }
+
+    func stopForManualReadAloud(owner: AnyObject) {
+        guard !(owner is AgentPaneVoiceRelay) else { return }
+        for relay in relays.allObjects where relay.active { relay.cancel() }
+    }
+
+    public func keyChanged(account: String, removed: Bool) {
+        for relay in relays.allObjects where relay.active && relay.keyAccount == account {
+            if removed { relay.fail(AgentPaneDictation.failureMessage(.providerFailed(code: "key_missing", detail: ""))) }
+            else { relay.restartRequired = true; relay.push() }
+        }
+    }
+}
+
+@MainActor
 final class AgentPaneVoiceRelay {
-    static var environment: (@MainActor () -> AcpmuxEnvironment?)?
+    private let registry: AgentPaneVoiceRegistry
     weak var view: AgentPaneView?
     private(set) var epoch = 0
     private var scope: (session: String, connection: Int)?
     private var local: AcpmuxEnvironment?
     private var captured: [String: String] = [:]
-    private var keyAccount: String?
-    private static let sessions = NSHashTable<AgentPaneVoiceRelay>.weakObjects()
+    fileprivate var keyAccount: String?
     private var state: JSONValue = .null
     private var pending: [JSONValue] = []
     private var drain: Task<Void, Never>?
@@ -33,25 +54,19 @@ final class AgentPaneVoiceRelay {
     private var wireFrames: [String] = []
     private var wireBytes = 0
     private var wireTask: Task<Void, Never>?
-    private var restartRequired = false
+    fileprivate var restartRequired = false
     private var shownPhase = "idle"
     private var failureMessage: String?
-    private lazy var fallbackReader = AgentPaneReadAloud()
+    private lazy var fallbackReader = AgentPaneReadAloud(registry: registry)
 
-    init(view: AgentPaneView) { self.view = view; Self.sessions.add(self) }
-    static func stopForManualReadAloud(owner: AnyObject) {
-        guard !(owner is AgentPaneVoiceRelay) else { return }
-        for session in sessions.allObjects where session.active { session.cancel() }
-    }
-    static func keyChanged(account: String, removed: Bool) {
-        for session in sessions.allObjects where session.active && session.keyAccount == account {
-            if removed { session.fail(AgentPaneDictation.failureMessage(.providerFailed(code: "key_missing", detail: ""))) }
-            else { session.restartRequired = true; session.push() }
-        }
+    init(view: AgentPaneView, registry: AgentPaneVoiceRegistry) {
+        self.view = view
+        self.registry = registry
+        registry.register(self)
     }
     private var reader: AgentPaneReadAloud { view?.model.readAloud ?? fallbackReader }
     private var generation: JSONValue { state["generation"] ?? .number(0) }
-    private var active: Bool { scope != nil }
+    fileprivate var active: Bool { scope != nil }
 
     var event: AgentPageEvent {
         var value: [String: JSONValue] = ["state": .string(shownPhase), "enabled": .bool(active),
@@ -102,7 +117,7 @@ final class AgentPaneVoiceRelay {
     private func start() {
         guard let view, view.model.composer.voiceButton,
               let session = view.model.sessionId, let connection = view.model.transport.connection,
-              let environment = Self.environment?() else { return }
+              let environment = registry.environment?() else { return }
         epoch += 1
         let lease = epoch
         scope = (session, connection); local = environment
@@ -150,7 +165,7 @@ final class AgentPaneVoiceRelay {
             restartRequired = true; push()
         }
     }
-    private func fail(_ message: String? = nil) {
+    fileprivate func fail(_ message: String? = nil) {
         // Snapshot before cancellation destroys capture state. A user cancel/navigation never
         // takes this path: recovery belongs only to this still-visible chat's failed I/O.
         let session = valid(epoch) ? scope?.session : nil
@@ -270,8 +285,8 @@ final class AgentPaneVoiceRelay {
         meterTask?.cancel()
         // task-owner: microphone capture; no timer survives cancellation or finalization.
         meterTask = Task { [weak self] in
-            while !Task.isCancelled {
-                do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+            while !Task.isCancelled { // wakeup-allow: bounded microphone meter cadence; cancellation tears it down.
+                do { try await Task.sleep(for: .milliseconds(100)) } catch { return } // wakeup-allow: bounded cadence, never external polling.
                 guard let self, self.valid(lease), self.captureID == id else { return }
                 guard self.microphone?.phase == .listening else { continue }
                 let time = JSONValue.number((ProcessInfo.processInfo.systemUptime * 1000).rounded(.down))
@@ -322,8 +337,3 @@ private extension JSONValue {
 }
 
 /// Settings signals a successful key mutation without transferring a key to a chat or page.
-@MainActor public enum AgentPaneVoiceKeys {
-    public static func changed(account: String, removed: Bool) {
-        AgentPaneVoiceRelay.keyChanged(account: account, removed: removed)
-    }
-}

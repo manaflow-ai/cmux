@@ -19,7 +19,6 @@ public struct DictationProviderEngine {
         claims: DictationMicrophoneClaims = .shared,
         environment: @escaping @MainActor () -> AcpmuxEnvironment?
     ) {
-        AgentPaneVoiceRelay.environment = environment
         claims.providerTranscription = { [weak settings] in
             guard let settings,
                   settings.snapshot.agentPaneComposer.dictationEngine != .onDevice,

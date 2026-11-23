@@ -57,6 +57,7 @@ public final class SettingsDictation: PageProvider {
     private let environment: @MainActor () -> AcpmuxEnvironment?
     private let daemonCall: (@Sendable (AcpmuxEnvironment, AcpmuxHarnessMethod, [String: any Sendable]) async throws -> Data)?
     private let keys: any VoiceKeyStoring
+    private let onKeyChanged: @MainActor (String, Bool) -> Void
 
     /// - Parameters:
     ///   - environment: the local acpmux.
@@ -64,10 +65,12 @@ public final class SettingsDictation: PageProvider {
     ///   - keys: the Keychain.
     public init(environment: @escaping @MainActor () -> AcpmuxEnvironment?,
                 call: (@Sendable (AcpmuxEnvironment, AcpmuxHarnessMethod, [String: any Sendable]) async throws -> Data)? = nil,
-                keys: any VoiceKeyStoring = KeychainVoiceKeyStore()) {
+                keys: any VoiceKeyStoring = KeychainVoiceKeyStore(),
+                onKeyChanged: @escaping @MainActor (String, Bool) -> Void = { _, _ in }) {
         self.environment = environment
         daemonCall = call
         self.keys = keys
+        self.onKeyChanged = onKeyChanged
     }
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
@@ -89,14 +92,14 @@ public final class SettingsDictation: PageProvider {
                                 message: "this dictation engine takes no key here; pick one that does, or set its server URL first")
             }
             try await keys.store(key, service: service, account: account)
-            AgentPaneVoiceKeys.changed(account: account, removed: false)
+            onKeyChanged(account, false)
             return try await daemon(.voiceState)
         case "removeKey":
             try Self.requirePerson(context)
             let (service, account) = try Self.keyItem(try await daemon(.voiceState))
             if let account {
                 await keys.delete(service: service, account: account)
-                AgentPaneVoiceKeys.changed(account: account, removed: true)
+                onKeyChanged(account, true)
             }
             return try await daemon(.voiceState)
         default:

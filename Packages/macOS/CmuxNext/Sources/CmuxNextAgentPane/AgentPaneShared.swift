@@ -17,6 +17,7 @@ public import CmuxNextDesign
 ///   (``AgentPaneNewTabText``): each page's model gets it, so the pages of a held New Tab key cost one make.
 /// - `hostMarks`: the app's host marks (`AppServices.personInput.hostMarks`, ``AgentPaneHostMarks``); nil (tests): a key's mark is never taken back.
 public struct AgentPaneShared {
+    public let voiceRegistry: AgentPaneVoiceRegistry
     public let openPanel: MadeAheadOpenPanel?
     public let eventSources: EventSourceProcesses
     public let apps: AppsClient?
@@ -30,7 +31,10 @@ public struct AgentPaneShared {
     /// a New Tab text of this value's own and no host marks.
     public init(openPanel: MadeAheadOpenPanel? = nil, eventSources: EventSourceProcesses = EventSourceProcesses(), apps: AppsClient? = nil,
                 actAsMe: AgentPaneActAsMe? = nil, flickerLog: AgentPageFlickerLog? = nil, focusLoss: AgentPaneView.PageFocusLoss? = nil,
-                newTabText: AgentPaneNewTabText = AgentPaneNewTabText(), hostMarks: AgentPaneHostMarks? = nil) {
+                newTabText: AgentPaneNewTabText = AgentPaneNewTabText(), hostMarks: AgentPaneHostMarks? = nil,
+                voiceEnvironment: (@MainActor () -> AcpmuxEnvironment?)? = nil) {
+        self.voiceRegistry = AgentPaneVoiceRegistry()
+        self.voiceRegistry.environment = voiceEnvironment
         self.hostMarks = hostMarks
         self.openPanel = openPanel
         self.eventSources = eventSources
@@ -47,7 +51,8 @@ extension AgentPaneView {
     public convenience init?(model: AgentPaneModel, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped,
                              pageHost: Bool = false, shared: AgentPaneShared) {
         self.init(model: model, source: source, renderRate: renderRate, pageHost: pageHost, panelProvider: shared.apps.map(AppsPanelsPageProvider.init(client:)),
-                  openPanel: shared.openPanel, eventSources: shared.eventSources, flickerLog: shared.flickerLog)
+                  openPanel: shared.openPanel, eventSources: shared.eventSources, flickerLog: shared.flickerLog,
+                  voiceRegistry: shared.voiceRegistry)
         model.transport.gestures.actAsMe = shared.actAsMe
         model.hostTouch.marks = shared.hostMarks
         model.newTabText = shared.newTabText // before the page's first request: a new view's document has no shared text

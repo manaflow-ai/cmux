@@ -12,13 +12,21 @@ import CmuxNextSettings
 /// test makes its own with a fake voice.
 @MainActor
 public final class AgentPaneReadAloud {
+    let registry: AgentPaneVoiceRegistry
+
     /// A reader on the system voice.
     public convenience init() {
-        self.init(voice: AgentPaneSystemVoice())
+        self.init(registry: AgentPaneVoiceRegistry())
     }
 
-    init(voice: any AgentPaneReadAloudVoice) {
+    /// A reader on the system voice that shares the app's voice relay registry.
+    public convenience init(registry: AgentPaneVoiceRegistry) {
+        self.init(voice: AgentPaneSystemVoice(), registry: registry)
+    }
+
+    init(voice: any AgentPaneReadAloudVoice, registry: AgentPaneVoiceRegistry = AgentPaneVoiceRegistry()) {
         self.voice = voice
+        self.registry = registry
     }
 
     /// A page's request.
@@ -58,7 +66,7 @@ public final class AgentPaneReadAloud {
 
     /// Reads `text` as message `id` for `owner`'s chat, stopping whatever read before.
     func speak(_ text: String, id: String, language: String?, owner: AnyObject, finished: (@MainActor () -> Void)? = nil) {
-        AgentPaneVoiceRelay.stopForManualReadAloud(owner: owner)
+        registry.stopForManualReadAloud(owner: owner)
         if current != nil { voice.stop() }
         utterances += 1
         let utterance = utterances

@@ -99,7 +99,7 @@ pub fn speakable(markdown: &str, max_characters: usize, max_inline_code: usize) 
             if line.is_empty() {
                 None
             } else {
-                let last = line.chars().last().unwrap();
+                let last = line.chars().last()?;
                 Some(if ".!?:;,…".contains(last) { line } else { format!("{line}.") })
             }
         })

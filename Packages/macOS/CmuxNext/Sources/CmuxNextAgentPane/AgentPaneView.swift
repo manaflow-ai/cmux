@@ -50,7 +50,8 @@ public final class AgentPaneView: NSView {
     }
     private let navigation = AgentPaneNavigation()
     let dictation: AgentPaneDictation
-    lazy var voice = AgentPaneVoiceRelay(view: self)
+    let voiceRegistry: AgentPaneVoiceRegistry
+    lazy var voice = AgentPaneVoiceRelay(view: self, registry: voiceRegistry)
     /// Where the Dictation key and Edit ▸ Start Dictation go from this pane (AgentPaneView+DictationKey).
     var dictationKey = AgentPaneDictationKey()
     /// Shown when the page's web content kept ending (``AgentPageCrashRetry`` gave up retrying).
@@ -231,7 +232,9 @@ public final class AgentPaneView: NSView {
                  pageHost: Bool = false, testRoot: Bool = false, chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
                  panelProvider: (any PageProvider)? = nil,
                  openPanel: MadeAheadOpenPanel? = nil, terminations: AgentPageTerminations? = nil,
-                 eventSources: EventSourceProcesses = EventSourceProcesses(), flickerLog: AgentPageFlickerLog? = nil) {
+                 eventSources: EventSourceProcesses = EventSourceProcesses(), flickerLog: AgentPageFlickerLog? = nil,
+                 voiceRegistry: AgentPaneVoiceRegistry = AgentPaneVoiceRegistry()) {
+        self.voiceRegistry = voiceRegistry
         self.terminations = terminations ?? Self.processGroups.terminations
         self.flickerLog = flickerLog
         guard let source = source ?? Self.bundledPage.map({ AgentPaneSource.bundled($0) }) else { return nil }
