@@ -74,7 +74,9 @@ jobs:
 
   build:
     needs: plan
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    # The owned cmux-linux pool, as cmux-tui-sdks.yml's cmux-tui builds: on the cold fleet pool the build never
+    # reached cargo (run 45226321646: the Ghostty submodules took 20 min, then the Rust setup hung for 30).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -82,12 +84,14 @@ jobs:
           persist-credentials: false
           submodules: false
       - name: Initialize Ghostty protocol submodules
+        timeout-minutes: 8
         run: git submodule update --init --depth 1 ghostty ghostty-next
       - name: Install Linux cmux-tui build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y clang libclang-dev pkg-config
       - name: Set up cmux-tui Rust
+        timeout-minutes: 10
         uses: ./.github/actions/setup-cmux-tui-rust
       - name: Resolve Ghostty Zig version
         id: ghostty-zig-version
@@ -99,6 +103,7 @@ jobs:
           [[ -n "$version" ]]
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - name: Set up Zig for Ghostty
+        timeout-minutes: 8
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
           version: ${{ steps.ghostty-zig-version.outputs.version }}
