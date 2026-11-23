@@ -1,5 +1,6 @@
 public import CryptoKit
 import Foundation
+import LocalAuthentication
 import os
 import Security
 
@@ -25,9 +26,13 @@ nonisolated public final class KeptRecordKey: Sendable {
     }
 
     private static func readOrMake(service: String) -> SymmetricKey? {
+        // Read at launch, unasked: a Keychain that would need the person answers no key, never a prompt.
+        let noPrompt = LAContext()
+        noPrompt.interactionNotAllowed = true
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
                                     kSecAttrAccount as String: "record-key", kSecAttrSynchronizable as String: false,
-                                    kSecUseDataProtectionKeychain as String: true]
+                                    kSecUseDataProtectionKeychain as String: true,
+                                    kSecUseAuthenticationContext as String: noPrompt]
         var read = query
         read[kSecReturnData as String] = true
         read[kSecMatchLimit as String] = kSecMatchLimitOne
