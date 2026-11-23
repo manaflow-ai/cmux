@@ -161,9 +161,18 @@ struct AttentionRingTimingTests {
     /// Case 2 of the issue, from the sidebar: a press on b's row switches to it. The press is on the
     /// sidebar, not on the pane, so it is no click that reads the pane later: the pane is gone into now.
     @Test func switchingFromASidebarPressBlinksTheShownPanesRingOut() async throws {
-        let fixture = try await Self.open(active: true)
+        let fixture = try await Self.open(active: false)
         defer { fixture.close() }
         let pane = LayoutPaneID(fixture.ringing.id)
+        // `b` shows once while cmux is in the back, so its ring draws, then is parked: the switch back has a ring to blink out.
+        fixture.controller.showWorkspace(requested: fixture.b.id)
+        try await PinnedPageTests.until({ fixture.controller.content?.workspace === fixture.b && fixture.controller.content?.layoutModel.focusedPane == pane },
+                                        report: { "workspace b never showed with its pane focused" })
+        let shown = try #require(fixture.controller.content?.layoutModel)
+        try await PinnedPageTests.until({ shown.attention[pane] != nil }, report: { "b's unread pane never rang" })
+        fixture.controller.showWorkspace(requested: fixture.a.id)
+        try await PinnedPageTests.until({ fixture.controller.content?.workspace === fixture.a && fixture.controller.focus.state.pane != fixture.ringing.id })
+        fixture.services.appActiveSource = { true }
         // A real left press being dispatched, outside every pane (where the sidebar row is).
         let down = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: NSPoint(x: -20, y: -20), modifierFlags: [],
                                                    timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: fixture.window.windowNumber,
@@ -174,6 +183,7 @@ struct AttentionRingTimingTests {
 
         fixture.controller.showWorkspace(requested: fixture.b.id)
         let model = try #require(fixture.controller.content?.layoutModel)
+        #expect(model === shown, "b did not come back from its parked content")
         #expect(fixture.controller.content?.workspace === fixture.b, "the switch did not show b")
         #expect(model.attention[pane] == nil, "a sidebar press kept the shown pane's ring for a later pass")
         #expect(model.attentionReadByEntry.contains(pane), "the switch took the ring without the dismiss blink")

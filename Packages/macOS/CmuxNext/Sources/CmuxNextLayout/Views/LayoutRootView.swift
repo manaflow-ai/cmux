@@ -370,6 +370,10 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
     /// ``sync(_:)``'s body (`LayoutRootView+AvoiderBatch`).
     func syncBatched(_ snapshot: Snapshot) {
         let previous = lastSnapshot
+        var snapshot = snapshot
+        // A layout just shown keeps its chrome's rings as they were while it is held (cmux#46908): a ring the switch read
+        // blinks out when the hold ends, in a frame that shows it, not hidden under the hold. The release syncs the change.
+        if snapshot.holdsAttention, let previous { snapshot.attention = previous.attention }
         lastSnapshot = snapshot
         // A newly earned ring, or the ring moving to another pane by key, measures pointer travel from
         // zero (``handlePointerTravel(_:)``).
@@ -546,6 +550,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         updateVisibility()
         overlayIsStale = true
         // A layout just shown draws its rings from the frame that shows its content, not over the one before (cmux#46908).
+        // Released after the chrome took its rings above: a blink starts in the same transaction that shows it.
         if snapshot.holdsAttention || previous?.holdsAttention == true {
             for host in context.hosts.values { host.chrome.holdsAttention = snapshot.holdsAttention }
         }

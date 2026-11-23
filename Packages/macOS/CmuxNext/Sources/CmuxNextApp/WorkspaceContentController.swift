@@ -105,7 +105,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// (`PaneController.resume`), and the attention rings are read now and followed again.
     func unpark() {
         isParked = false
-        layoutModel.holdsAttentionUntilShown = true; AfterFrameCommit().run { [weak self] in self?.refillPaneSpare(); self?.layoutModel.holdsAttentionUntilShown = false } // after the switch's frame; its rings draw then (cmux#46908)
+        layoutModel.holdsAttentionUntilShown = true; AfterFrameCommit().run { [weak self] in self?.refillPaneSpare(); self?.layoutModel.holdsAttentionUntilShown = false; self?.layoutView.syncWithModel() } // after the switch's frame; its rings draw (and a read one blinks) then, in this pass (cmux#46908)
         comeOnScreen()
         setDrawsNothing(false)
         observeAttention()
