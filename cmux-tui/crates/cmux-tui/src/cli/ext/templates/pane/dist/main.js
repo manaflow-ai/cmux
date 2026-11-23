@@ -2209,6 +2209,7 @@
       "cloud.machine.link_token",
       "cloud.machine.resize",
       "cloud.machine.share_chat",
+      "cloud.machine.chief_start",
       "cloud.owner.acpmux_keyed_start",
       "cloud.owner.acpmux_person_holds",
       "cloud.owner.fork_run",

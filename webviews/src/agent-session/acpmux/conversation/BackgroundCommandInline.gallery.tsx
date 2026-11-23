@@ -8,13 +8,16 @@
 // - `edge-dot`: the same row with a small still dot at its trailing edge.
 // - `before`: the line the run ended with before, "1 background command completed, 1 running",
 //   redrawn here (its component is gone) for comparison.
-// The two edge arms are gallery-only CSS over the shipped row (BackgroundCommandInline.gallery.css).
+// The two edge arms are gallery-only over the shipped row: the dot is CSS (BackgroundCommandInline.gallery.css),
+// the ring is the shared `Spinner` placed into the row's hidden running mark.
 // References: cmux-design-references claude/live/transcript-tool-rows-and-task-list (a running call
 // is a row like the rest, the live line under it), cmux-next/live/transcript-background-commands-summary-row
 // (the count line this removes).
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { componentEntry, type ComponentVariant } from "../../../gallery/format";
 import { tool } from "../../../gallery/fixtures/acpmux";
+import { Spinner } from "./icons";
 import { Thinking } from "./Thinking";
 import { ToolGroupRow } from "./ToolGroupRow";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
@@ -51,9 +54,16 @@ const run = [
 function BackgroundCommandInline({ look }: Props) {
   const session = `gallery-background-command-inline-${look}`;
   useEffect(() => resetTranscriptDisclosure(session), [session]);
+  const stage = useRef<HTMLElement>(null);
+  const [edge, setEdge] = useState<Element | null>(null);
+  useEffect(() => {
+    const mark = stage.current?.querySelector('.cv-command__bg-state[data-state="running"]') ?? null;
+    setEdge(look === "edge-spinner" ? mark : null);
+  }, [look]);
   return (
     <TranscriptDisclosureProvider sessionId={session}>
-      <main className="bg-command-inline acpmux-conversation" data-look={look}>
+      <main ref={stage} className="bg-command-inline acpmux-conversation" data-look={look}>
+        {edge && createPortal(<Spinner loading size={12} className="bg-command-inline__edge-spinner" />, edge)}
         <p className="bg-command-inline__prose">Starting the API in the background, then the migrations.</p>
         <div className="acpmux-row">
           <ToolGroupRow kind="commands" items={run} disclosureKey={`${session}:run`} />

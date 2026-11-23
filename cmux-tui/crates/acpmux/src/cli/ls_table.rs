@@ -313,7 +313,7 @@ fn usage(row: &Value) -> [String; 7] {
 }
 
 /// How long ago `at` was, from `now` (both in ms): `12s`, `4m`, `3h`, `2d`.
-fn ago(now: u64, at: u64) -> String {
+pub(crate) fn ago(now: u64, at: u64) -> String {
     let s = now.saturating_sub(at) / 1000;
     match s {
         0..60 => format!("{s}s"),
