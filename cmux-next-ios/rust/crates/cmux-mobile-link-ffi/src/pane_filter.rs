@@ -13,8 +13,9 @@
 //! linear in the number of panes: the overview's cost stays constant per
 //! pane however many the Mac has.
 //!
-//! [`PaneFilter::default`] shows every pane, as the overview did before the
-//! filter existed: a default changes only on Leo's word.
+//! [`PaneFilter::default`] is agent sessions and terminals, browsers tucked
+//! behind their toggle: Leo called the dev-server browser case rare and said
+//! to tuck it in a toggle (his proxy's answer on the default, 2026-11-23).
 
 /// What a pane is, as the overview sorts it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, uniffi::Enum)]
@@ -50,9 +51,10 @@ pub struct PaneFilter {
 }
 
 impl Default for PaneFilter {
-    /// Every pane shows: the overview as it was before the filter.
+    /// Agent sessions and terminals; browsers and simulator screens one toggle
+    /// away.
     fn default() -> Self {
-        Self { scope: PaneScope::AgentsAndTerminals, show_browsers: true }
+        Self { scope: PaneScope::AgentsAndTerminals, show_browsers: false }
     }
 }
 
@@ -61,15 +63,16 @@ impl Default for PaneFilter {
 pub struct PaneFilterResult {
     /// Indices into the panes, in their order, of the panes shown.
     pub shown: Vec<u32>,
-    /// Panes hidden, by what hid them, for the header's "3 of 7" and the
-    /// empty state's way back.
+    /// Panes hidden, by what hid them, for the control's count and the
+    /// header's "3 of 7": a hidden browser never looks lost.
     pub hidden_terminals: u32,
     pub hidden_browsers: u32,
     /// The filter hides something: the control shows as on.
     pub filtering: bool,
 }
 
-/// The filter that shows every pane (today's overview).
+/// The overview's filter until the person picks another: agent sessions and
+/// terminals, browsers behind their toggle.
 #[uniffi::export]
 pub fn pane_filter_default() -> PaneFilter {
     PaneFilter::default()
@@ -150,9 +153,17 @@ mod tests {
     }
 
     #[test]
-    fn the_default_shows_every_pane_as_before() {
-        assert_eq!(pane_filter_default(), EVERYTHING);
+    fn the_default_tucks_browsers_behind_their_toggle() {
+        assert_eq!(pane_filter_default(), AGENTS_TERMINALS);
         let result = pane_filter_apply(mixed(), None, pane_filter_default());
+        assert_eq!(result.shown, vec![0, 1, 3, 5, 6]);
+        assert_eq!(result.hidden_browsers, 2);
+        assert!(result.filtering);
+    }
+
+    #[test]
+    fn showing_browsers_shows_every_pane() {
+        let result = pane_filter_apply(mixed(), None, EVERYTHING);
         assert_eq!(result.shown, vec![0, 1, 2, 3, 4, 5, 6]);
         assert!(!result.filtering);
     }

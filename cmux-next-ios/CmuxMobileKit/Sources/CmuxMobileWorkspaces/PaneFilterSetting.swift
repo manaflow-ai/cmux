@@ -9,7 +9,8 @@ import Observation
 /// toggle"). One choice for every workspace, kept across launches. The rule is Rust's
 /// (`pane_filter_apply`); this holds the choice and saves it.
 ///
-/// The default shows every pane, as the overview did before the filter.
+/// The default is agent sessions and terminals, browsers one tap away behind their toggle (Leo
+/// called the dev-server browser case rare: "we tuck that ... in some kinda toggle").
 @MainActor
 @Observable
 public final class PaneFilterSetting {
@@ -41,8 +42,8 @@ public final class PaneFilterSetting {
         set { filter.showBrowsers = newValue }
     }
 
-    /// The filter hides a kind of pane (whatever the workspace has): the control reads as on.
-    public var isNarrowed: Bool { filter != paneFilterDefault() }
+    /// The person changed the filter from the default.
+    public var isChanged: Bool { filter != paneFilterDefault() }
 }
 
 extension PaneKind {

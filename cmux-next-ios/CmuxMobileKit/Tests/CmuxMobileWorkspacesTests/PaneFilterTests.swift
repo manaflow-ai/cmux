@@ -10,9 +10,12 @@ import CmuxTabsKit
 
 /// Leo, 2026-11-23: "we want a ... filtering mechanism for only agent sessions, agent
 /// sessions/terminals, and ... browsers on their own honestly should be a ... toggle."
-/// The overview's tabs follow the pane filter; the default shows every tab, as before.
+/// The overview's tabs follow the pane filter. The default is agent sessions and terminals, with
+/// browsers one tap away behind their toggle (Leo's proxy on the default, 2026-11-23).
 /// `ws-cmux` (mock) lists t-claude (agent), t-zsh (terminal), t-docs (browser).
 @MainActor @Suite(.serialized) struct PaneFilterTests {
+    static let everything = PaneFilter(scope: .agentsAndTerminals, showBrowsers: true)
+
     static func rig(_ filter: PaneFilter? = nil, active: String = "t-claude") -> (WorkspaceTabsSource, PaneFilterSetting) {
         let store = AppStore.mock(tabMemory: .inMemory([:]))
         store.macConnection["mac-studio"] = .connected
@@ -25,11 +28,26 @@ import CmuxTabsKit
         return (source, setting)
     }
 
-    @Test func theDefaultShowsEveryTab() {
+    @Test func theDefaultTucksBrowsersBehindTheirToggle() {
         let (source, setting) = Self.rig()
-        #expect(!setting.isNarrowed)
+        #expect(!setting.isChanged)
+        #expect(source.tabs.map(\.id) == ["t-claude", "t-zsh"])
+        // The hidden browser is counted, so the control shows it is one tap away.
+        #expect(source.paneFilterResult.hiddenBrowsers == 1)
+        setting.showsBrowsers = true
+        #expect(setting.isChanged)
         #expect(source.tabs.map(\.id) == ["t-claude", "t-zsh", "t-docs"])
         #expect(!source.paneFilterResult.filtering)
+    }
+
+    /// The overview owner's warning: card pictures are kept per tab id, so a tab the filter hides
+    /// keeps its entry (and its picture) and comes back drawn when the filter clears.
+    @Test func aHiddenTabKeepsItsCard() {
+        let (source, setting) = Self.rig()
+        #expect(!source.tabs.map(\.id).contains("t-docs"))
+        let entry = try? #require(source.entry("t-docs"))
+        setting.showsBrowsers = true
+        #expect(source.entry("t-docs") === entry)
     }
 
     @Test func agentsOnlyShowsAgentSessions() {
@@ -58,14 +76,14 @@ import CmuxTabsKit
     }
 
     @Test func changingTheFilterChangesTheTabsAtOnce() {
-        let (source, setting) = Self.rig()
+        let (source, setting) = Self.rig(Self.everything)
         #expect(source.tabs.count == 3)
         setting.scope = .agents
         #expect(source.tabs.map(\.id) == ["t-claude", "t-docs"])
         setting.showsBrowsers = false
         #expect(source.tabs.map(\.id) == ["t-claude"])
         setting.filter = paneFilterDefault()
-        #expect(source.tabs.count == 3)
+        #expect(source.tabs.map(\.id) == ["t-claude", "t-zsh"])
     }
 
     @Test func theChoiceIsKeptAcrossLaunches() throws {
@@ -88,7 +106,7 @@ import CmuxTabsKit
         #expect(source.workspaceIndex(forGridIndex: 0, in: workspace) == 0)
         #expect(source.workspaceIndex(forGridIndex: 1, in: workspace) == 2)
         #expect(source.workspaceIndex(forGridIndex: 9, in: workspace) == 2)
-        let (all, _) = Self.rig()
+        let (all, _) = Self.rig(Self.everything)
         #expect(all.workspaceIndex(forGridIndex: 1, in: workspace) == 1)
     }
 
@@ -98,7 +116,7 @@ import CmuxTabsKit
     /// screen's three-column grid it was drawn 50% too large, and a lone card on a wide page
     /// ignored TabsKit's 300 pt cap. Now it is TabsKit's own card width.
     @Test func agentCardsDrawAtTheGridsColumnWidth() {
-        let (source, _) = Self.rig()
+        let (source, _) = Self.rig(Self.everything)
         source.rememberPageSize(CGSize(width: 669, height: 951))
         source.overviewColumns = 3
         let three = TabsKitOverviewGeometry.cardWidth(pageWidth: 669, columns: 3, cards: 3)

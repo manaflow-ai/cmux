@@ -12,8 +12,8 @@ private let theme = CmuxMobileTheme.standard
 ///
 /// Three styles, drawn side by side in the gallery (`-cmux-mobile-recovery-gallery panefilter`):
 /// - `menu` (A, the one the grid shows): a glass circle beside More, the system funnel glyph,
-///   filled while the filter hides something. One tap opens the choice; the grid's header keeps
-///   its two controls and its title, so nothing shifts.
+///   with a small count of the panes it hides, filled in the accent once the person changes the
+///   filter. One tap opens the choice; the grid's header keeps its controls and its title.
 /// - `segmented` (B): a glass capsule under the title, Agents | Terminals | Browsers, each a toggle.
 ///   Always visible, but it takes a row of the grid on every visit for a choice made rarely.
 /// - `chips` (C): the scope as two chips and Browsers as a third, as Mail's filter bar does. Most
@@ -71,13 +71,27 @@ public struct PaneFilterControl: View {
                 if let hidden = hiddenLine { Text(hidden) }
             }
         } label: {
-            Image(systemName: setting.isNarrowed ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease")
+            Image(systemName: setting.isChanged ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease")
                 .font(.system(size: metrics.toolbarGlyph, weight: .medium))
-                .foregroundStyle(setting.isNarrowed ? theme.colors.accent.color : theme.colors.label.color)
+                .foregroundStyle(setting.isChanged ? theme.colors.accent.color : theme.colors.label.color)
                 .frame(width: metrics.overviewTopControl, height: metrics.overviewTopControl)
                 .contentShape(.circle)
         }
         .glassEffect(.regular.interactive(), in: .circle)
+        // A hidden pane never looks lost: how many the filter tucks away sits on the control.
+        .overlay(alignment: .topTrailing) {
+            if hiddenCount > 0 {
+                Text("\(hiddenCount)")
+                    .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(theme.colors.label2.color)
+                    .padding(.horizontal, 5)
+                    .frame(minWidth: 18, minHeight: 18)
+                    .glassEffect(.regular, in: .capsule)
+                    .offset(x: 4, y: -4)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
         .accessibilityLabel("Filter Tabs")
         .accessibilityValue(accessibilityValue)
         .accessibilityIdentifier("workspace.grid.paneFilter")
@@ -142,6 +156,11 @@ public struct PaneFilterControl: View {
 
     // MARK: Text
 
+    private var hiddenCount: Int {
+        guard let result else { return 0 }
+        return Int(result.hiddenTerminals + result.hiddenBrowsers)
+    }
+
     private var hiddenLine: String? {
         guard let result, result.filtering else { return nil }
         var parts: [String] = []
@@ -156,7 +175,8 @@ public struct PaneFilterControl: View {
 
     private var accessibilityValue: String {
         let scope = setting.scope == .agents ? "Agents" : "Agents and Terminals"
-        return setting.showsBrowsers ? "\(scope), Browsers" : scope
+        let shown = setting.showsBrowsers ? "\(scope), Browsers" : scope
+        return hiddenLine.map { "\(shown). \($0)" } ?? shown
     }
 }
 
@@ -164,7 +184,7 @@ public struct PaneFilterControl: View {
 /// The three styles over the grid's wallpaper, for the PR's screenshots
 /// (`-cmux-mobile-recovery-gallery panefilter`): each in its default and a narrowed state.
 public struct PaneFilterGallery: View {
-    @State private var everything = PaneFilterSetting(defaults: nil)
+    @State private var standard = PaneFilterSetting(defaults: nil)
     @State private var narrowed: PaneFilterSetting = {
         let setting = PaneFilterSetting(defaults: nil)
         setting.filter = PaneFilter(scope: .agents, showBrowsers: false)
@@ -179,8 +199,9 @@ public struct PaneFilterGallery: View {
                 ForEach(PaneFilterControl.Style.allCases, id: \.self) { style in
                     VStack(alignment: .leading, spacing: 12) {
                         Text(style.title).font(.headline)
-                        row(style, everything, caption: "Default: every pane")
-                        row(style, narrowed, caption: "Agents only")
+                        row(style, standard, caption: "Default: agents and terminals, 1 browser tucked away",
+                            hidden: (0, 1))
+                        row(style, narrowed, caption: "Agents only", hidden: (2, 1))
                     }
                     .accessibilityIdentifier("paneFilterGallery.\(style.rawValue)")
                 }
@@ -191,10 +212,12 @@ public struct PaneFilterGallery: View {
                                    startPoint: .top, endPoint: .bottom).ignoresSafeArea())
     }
 
-    private func row(_ style: PaneFilterControl.Style, _ setting: PaneFilterSetting, caption: String) -> some View {
+    private func row(_ style: PaneFilterControl.Style, _ setting: PaneFilterSetting, caption: String,
+                     hidden: (terminals: UInt32, browsers: UInt32)) -> some View {
         HStack(spacing: 12) {
             PaneFilterControl(setting: setting, style: style,
-                              result: PaneFilterResult(shown: [0], hiddenTerminals: 2, hiddenBrowsers: 1, filtering: setting.isNarrowed))
+                              result: PaneFilterResult(shown: [0], hiddenTerminals: hidden.terminals,
+                                                       hiddenBrowsers: hidden.browsers, filtering: true))
             Text(caption).font(.footnote).foregroundStyle(theme.colors.label2.color)
         }
     }
