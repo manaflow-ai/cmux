@@ -20,6 +20,7 @@ import { usePopupHost, usePortalContainer } from "./UiProvider";
 import { useEscapingPopup } from "./popupHost";
 import { virtualAnchor, type UiAnchor } from "./Popover";
 import { cx } from "./cx";
+import { keycapLegend } from "./keycapLegend";
 import { KeyHint } from "./KeyHint";
 import { attachSeeThroughBlur, type CoveredCandidates, type SeeThroughOptions } from "./glass/seeThroughBlur";
 import { hoverCardGlass, hoverCardUnder } from "./glass/hoverCardGlass";

@@ -42,7 +42,7 @@
 // where it stops, its end too. It stays open for its chat until closed (not across reloads);
 // prompts sent now always show.
 import { RESUME_NOTE_DELAY_MS, useAfterDelay } from "./afterDelay";
-import React, { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "./icons/Icon";
 import { QueuedImages } from "./QueuedImages";
 import type { QueuedVideo } from "./queuedImagesModel";

@@ -1,3 +1,4 @@
+import { keycapLegend } from "../../ui/keycapLegend";
 import { KeyHint } from "../../ui/KeyHint";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Combobox } from "../../ui/Combobox";
