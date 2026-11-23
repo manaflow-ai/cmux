@@ -6193,6 +6193,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const pendingWake = useRef<ComposerWake | undefined>(undefined);
   /// Where the shown transcript rests now (VirtualTranscript `anchorNow`).
   const transcriptAnchor = useRef<(() => ScrollAnchor | null | undefined) | undefined>(undefined);
+  /// The transcript's Toggle Terminal and Chat placement (VirtualTranscript `placeNow`).
+  const placeTranscript = useRef<((rowId: string | null) => boolean) | null>(null);
   /// Prompts sent from this pane (every `chat.send`): each puts the transcript at its latest message.
   const [sends, setSends] = useState(0);
   /// VirtualTranscript updates this synchronously on reader scrolls, so a disabled send-to-bottom
@@ -7238,6 +7240,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       untakenSends,
       pendingWake,
       transcriptAnchor,
+      placeTranscript,
       setSends,
       followingTranscript,
       setHostError,
@@ -8749,6 +8752,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                   anchorNow={
                                                                     quick || childRows ? undefined : transcriptAnchor
                                                                   }
+                                                                  placeNow={
+                                                                    quick || childRows ? undefined : placeTranscript
+                                                                  }
                                                                   inViewNow={
                                                                     quick || childRows ? undefined : transcriptInView
                                                                   }
@@ -8764,6 +8770,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                     childRows ? undefined : onTranscriptKeepFrom
                                                                   }
                                                                   onAnchor={
+                                                                    quick || childRows || !shownSessionId
+                                                                      ? undefined
+                                                                      : (anchor) =>
+                                                                          postScrollAnchor(shownSessionId, anchor)
+                                                                  }
+                                                                  onFollowingAnchor={
                                                                     quick || childRows || !shownSessionId
                                                                       ? undefined
                                                                       : (anchor) =>
