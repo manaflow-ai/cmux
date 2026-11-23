@@ -1458,6 +1458,16 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   changes (PNG), only for its own daemon's tabs that are not incognito, while a phone is
   paired; it skips bytes it sent last for that tab and part, and resends the newest of each
   to a new hostd.
+- `live-code` (2026-11-23, ios-dev-channels step 4): Swift live code patches for a DEBUG cmux Dev
+  phone (`live_code.rs`). The host watches its live folder (`CMUX_MOBILE_LIVE_CODE_DIR`, default
+  `~/Library/Caches/cmux-live-code/ios-device`, filled by `scripts/live-code/ios-device.sh patch`)
+  and sends each entry made after the channel opened, in name order: a data frame
+  `{"name","bytes","sha256"}` (a `*.dylib` patch, or a `*.rollback` / `*.rollback-all` undo with
+  `bytes` 0), then exactly `bytes` raw bytes in frames of at most 64 KiB (a patch is at most
+  64 MiB). Each data frame the phone sends is one line of its live code log; the host appends it
+  to the folder's `live-code.log`. The host checks nothing about the code: the phone opens the
+  service only in a DEBUG dev build launched with `CMUX_LIVE_CODE_LINK=1` and loads only a patch
+  signed by its own team. Machines are never offered it.
 - `echo`: test service.
 - `version` (link protocol 2, added 2026-10-14): one data frame
   `{"hostd": "<version>", "link": 2}`, then `eof`. A host that refuses it
