@@ -221,8 +221,8 @@ extension NotificationCenterService {
     /// The bit an agent's attention ring carries, apart from manual marks.
     static let attentionRingBase: UInt64 = 1 << 62
 
-    /// A viewed tab reads its notifications and needs-you requests at once (cmux#42210), so it draws no ring (a mark stays).
-    func readsOnSight(_ t: TabModel) -> Bool { reads(.focus, t) && isViewed(t.id) }
+    /// A viewed tab reads its notifications and needs-you requests at once (cmux#42210), so it draws no ring (a mark stays). A tab a strip press holds is no look yet: it rings until the click's mouse-up blinks it out (cmux#46908).
+    func readsOnSight(_ t: TabModel) -> Bool { reads(.focus, t) && isViewed(t.id) && !viewHolds.contains(t.id) }
     /// Going into `t`'s pane by `trigger` reads its ring: it clears every reason the ring draws for, an unread notification, a needs-you request, a mark (a click) and a finished turn (`turn`), by the policy.
     func reads(_ trigger: NotificationTrigger, _ t: TabModel, turn: Bool = false) -> Bool { let p = NotificationPolicy(prefs: preferences), finished = turn && agentFinished[t.id] != nil && t.agentSession != nil && DesignSettings.shared.attention.rings(agentChat: true); return (t.hasUnread || t.attention != nil || t.markedUnread || finished) && (!t.hasUnread || p.clears(trigger, for: source(of: t))) && (!t.markedUnread || trigger == .click) && (t.attention == nil || p.clears(trigger, for: .agent)) && (!finished || p.clears(trigger, for: .agent)) }
     /// The person went into ringing `pane` (a focus, a click) in the window they look at, its keys or a loading chat's page not attached yet: read it now (cmux#46908). A press on this pane reads it by its click, after a strip press holds it; one elsewhere (a sidebar row) is no look at it.
