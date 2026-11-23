@@ -198,15 +198,15 @@ final class SidebarUpdateCardView: NSView {
 
     // MARK: Geometry
 
-    /// Compact (Leo 2026-10-19): a 10 pt inset, the detail right under the
-    /// title. 6 pt between the rows (Leo 2026-11-03: "stretched out wasted space"; it was 8).
-    private static var padding: CGFloat { Metrics.space2 + Metrics.space1 / 2 }
+    /// Every card's padding (``Metrics/cardPadding``, 10 pt at Default; Leo 2026-10-19 asked for a 10 pt inset, and the
+    /// card had drifted to 5): the detail right under the title, ``Metrics/cardRowGap`` between the rows (#49579).
+    private static var padding: CGFloat { Metrics.cardPadding }
     /// The card's corner, concentric with its buttons: the button corner plus ``padding``, the gap from its edges to them.
-    static var cardCornerRadius: CGFloat { Metrics.buttonContainer(padding: padding).outerRadius }
-    private static var rowGap: CGFloat { Metrics.space1 + Metrics.space1 / 2 }
-    private static var titleFont: NSFont { Typography.bodyEmphasized }
+    static var cardCornerRadius: CGFloat { Metrics.cardCornerRadius }
+    private static var rowGap: CGFloat { Metrics.cardRowGap }
+    private static var titleFont: NSFont { Typography.cardTitle }
 
-    private static var captionHeight: CGFloat { ceil(Typography.caption.boundingRectForFont.height) }
+    private static var captionHeight: CGFloat { ceil(Typography.cardBody.boundingRectForFont.height) }
     private static let closeSide: CGFloat = 16
 
     /// The title row: the x in the top trailing corner, concentric with the card (as the notice card's), and the
@@ -231,7 +231,7 @@ final class SidebarUpdateCardView: NSView {
     static func height(for card: SidebarUpdateCard, layout: SidebarUpdateCardLayout) -> CGFloat {
         // The title row is as tall as the x when the card shows it (the x sits in the corner, the title centred on it).
         let title = titleRow(width: 0, showsClose: card.closeTitle != nil && card.closeAction != nil).bottom - padding
-        let detail = card.detail == nil ? 0 : Metrics.space1 / 2 + captionHeight
+        let detail = card.detail == nil ? 0 : Metrics.cardTextGap + captionHeight
         switch layout {
         case .card:
             return ceil(padding + title + detail + rowGap
@@ -264,8 +264,8 @@ final class SidebarUpdateCardView: NSView {
         var y = layoutTitleRow(width: width)
         let caption = Self.captionHeight
         if !detailLabel.isHidden {
-            y += Metrics.space1 / 2
-            detailLabel.font = Typography.caption
+            y += Metrics.cardTextGap
+            detailLabel.font = Typography.cardBody
             detailLabel.frame = NSRect(x: pad, y: y, width: width, height: caption)
             y += caption
         }
@@ -299,7 +299,7 @@ final class SidebarUpdateCardView: NSView {
         let y = layoutTitleRow(width: width) + Self.rowGap, h = SidebarUpdateButton.height
         let buttonWidth = min(width, button.fittingWidth)
         button.frame = NSRect(x: pad + width - buttonWidth, y: y, width: buttonWidth, height: h)
-        detailLabel.font = Typography.caption
+        detailLabel.font = Typography.cardBody
         detailLabel.frame = NSRect(x: pad, y: y + (h - Self.captionHeight) / 2, width: max(0, width - buttonWidth - Metrics.space2),
                                    height: Self.captionHeight)
         presence.didLayout()
@@ -313,9 +313,9 @@ final class SidebarUpdateCardView: NSView {
         toggle.isHidden = true
         closeButton.isHidden = true
         button.frame = NSRect(x: pad, y: pad, width: width, height: SidebarUpdateButton.height)
-        detailLabel.font = Typography.caption
+        detailLabel.font = Typography.cardBody
         detailLabel.alignment = .center
-        detailLabel.frame = NSRect(x: pad, y: button.frame.maxY + Metrics.space1 / 2, width: width, height: Self.captionHeight)
+        detailLabel.frame = NSRect(x: pad, y: button.frame.maxY + Metrics.cardTextGap, width: width, height: Self.captionHeight)
         presence.didLayout()
     }
 
@@ -350,7 +350,7 @@ final class SidebarUpdateCardView: NSView {
         return menu
     }
 
-    override func menu(for event: NSEvent) -> NSMenu? { closeMenu }
+    override func menu(for event: NSEvent) -> NSMenu? { NSMenu.withoutSystemItems(closeMenu) }
 
     /// The x: one click hides this version's card (no menu). It fades out; under Reduce Motion it
     /// goes in one frame (Lawrence 2026-10-20).
