@@ -67,11 +67,20 @@ final class AddMachineDialog {
     private var picked: HostCandidate?
     /// The list's pick last put in the host field: a later edit of the field never puts it back.
     private var appliedPick: String?
+    /// The pending close of a finished run (``closeWhenReady()``); stops when the card hides or draws another state.
+    private var closeTask: Task<Void, Never>?
+    /// How long the ready card shows before it goes by itself.
+    static let readyHold = Duration.seconds(2)
 
     init(runs: AddMachineRuns) {
         self.runs = runs
         panel.takesKeyboardOnShow = true
-        panel.onHide = { [weak self] in self?.isOpen = false }
+        // A real window: it drags, Escape and a click outside close it, and a finished add closes itself.
+        panel.hidesOnOutsideClick = true
+        panel.onHide = { [weak self] in
+            self?.isOpen = false
+            self?.closeTask?.cancel()
+        }
         runs.changed = { [weak self] in self?.draw() }
     }
 
@@ -102,6 +111,24 @@ final class AddMachineDialog {
             self.edited(values, in: card)
         }
         edited(card.dialog.values, in: card)
+        closeWhenReady()
+    }
+
+    /// A finished run closes its card after a short hold (the person saw it work; Open Workspace and Done are still
+    /// there until then), never one still running or failed.
+    private func closeWhenReady() {
+        guard runs.run?.outcome == .ready else {
+            closeTask?.cancel()
+            return
+        }
+        guard closeTask == nil || closeTask?.isCancelled == true else { return }
+        // task-owner: one close per ready card; hiding or any other state cancels it.
+        closeTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.readyHold)
+            guard !Task.isCancelled, let self, runs.run?.outcome == .ready else { return }
+            closeTask = nil
+            panel.hide()
+        }
     }
 
     private func initialValues() -> [String: CmuxDialogValue] {

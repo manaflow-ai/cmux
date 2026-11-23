@@ -152,8 +152,28 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
     /// The icon the card leads with: the spec's, else the app's for a cmux dialog; none for a web page's.
     static func icon(for spec: CmuxDialogSpec) -> NSImage? {
         if let data = spec.icon { return NSImage(data: data) }
-        guard spec.origin == nil else { return nil }
+        guard spec.origin == nil, spec.showsAppIcon else { return nil }
         return NSApplication.shared.applicationIconImage
+    }
+
+    /// The room an info circle takes beside the title: its side and the gap before it.
+    static var helpRoom: CGFloat { 16 + Metrics.space2 }
+
+    /// The info circle: a small `info.circle` whose hover shows `text` (and VoiceOver reads it as help).
+    static func helpCircle(_ text: String) -> NSView {
+        let view = NSImageView(image: NSImage(systemSymbolName: "info.circle", accessibilityDescription: nil) ?? NSImage())
+        view.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
+        view.contentTintColor = Palette.sheetText(.secondary)
+        view.imageScaling = .scaleProportionallyDown
+        view.toolTip = text
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.widthAnchor.constraint(equalToConstant: 16).isActive = true
+        view.heightAnchor.constraint(equalToConstant: 16).isActive = true
+        view.setAccessibilityElement(true)
+        view.setAccessibilityRole(.help)
+        view.setAccessibilityLabel(text)
+        view.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.help")
+        return view
     }
 
     private func build() {
@@ -185,8 +205,19 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
         body.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
 
         let titleFont = Typography.dialogTitle
-        let title = label(spec.title, font: titleFont, role: .primary, width: contentWidth)
-        body.addArrangedSubview(title)
+        let help = spec.help.flatMap { $0.isEmpty ? nil : $0 }
+        let title = label(spec.title, font: titleFont, role: .primary, width: help == nil ? contentWidth : contentWidth - Self.helpRoom)
+        if let help {
+            // The words the card does not print sit behind an info circle at the title's end, with a hover.
+            let row = NSStackView(views: [title, Self.helpCircle(help)])
+            row.orientation = .horizontal
+            row.alignment = .firstBaseline
+            row.spacing = Metrics.space2
+            row.translatesAutoresizingMaskIntoConstraints = false
+            body.addArrangedSubview(row)
+        } else {
+            body.addArrangedSubview(title)
+        }
         if let origin = spec.origin {
             body.addArrangedSubview(label(CmuxDialogStrings.from(origin), font: Typography.cardBody, role: .secondary, width: contentWidth))
         }

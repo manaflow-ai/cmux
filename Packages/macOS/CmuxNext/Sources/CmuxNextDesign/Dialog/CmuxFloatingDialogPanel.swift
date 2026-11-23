@@ -28,6 +28,13 @@ open class CmuxFloatingDialogPanel: NSPanel {
     /// Whether the card goes away when the person works elsewhere (it stops being key): a card the person
     /// opened, as a popover does. A prompt waits for its answer.
     public var hidesWhenInactive = false
+    /// Whether a click anywhere outside the card (another cmux window, another app) takes it away: a card the person
+    /// opened, as a popover does. A prompt waits for its answer.
+    public var hidesOnOutsideClick = false
+    /// Where the person dragged the card to (its top left); a redraw keeps it there, a new showing starts over.
+    private var draggedOrigin: NSPoint?
+    private var isPlacing = false
+    private var outsideClickMonitors: [Any] = []
     /// Called when the card goes away (answered, Escape, or the person worked elsewhere).
     public var onHide: (@MainActor () -> Void)?
     /// SECURITY: answers the card's ``CmuxDialogButton/personOnly`` buttons (Confirm on a pairing card): only the
@@ -66,6 +73,8 @@ open class CmuxFloatingDialogPanel: NSPanel {
         hidesOnDeactivate = false
         becomesKeyOnlyIfNeeded = true
         isReleasedWhenClosed = false
+        // The card is a window: it drags by any part that is not a control.
+        isMovableByWindowBackground = true
         animationBehavior = .none
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         setAccessibilityIdentifier(identifier)
@@ -123,6 +132,7 @@ open class CmuxFloatingDialogPanel: NSPanel {
             FocusRoute(.system, "a floating dialog redrew its card: keep its keys").moveKeyboard(in: self, to: card)
         }
         orderFrontRegardless()
+        startOutsideClickMonitors()
         if !wasVisible {
             enter()
             if takesKeyboardOnShow, let card = dialogView {
@@ -137,9 +147,41 @@ open class CmuxFloatingDialogPanel: NSPanel {
     public func hide() {
         let wasShown = hosted != nil
         orderOut(nil)
+        draggedOrigin = nil
+        stopOutsideClickMonitors()
         hosted?.removeFromSuperview()
         hosted = nil
         if wasShown { onHide?() }
+    }
+
+    /// The person moved the card: later redraws keep its top left.
+    open override func setFrameOrigin(_ point: NSPoint) {
+        super.setFrameOrigin(point)
+        noteMoved()
+    }
+
+    private func noteMoved() {
+        guard !isPlacing, hosted != nil, isVisible else { return }
+        draggedOrigin = NSPoint(x: frame.minX, y: frame.maxY)
+    }
+
+    /// While a card that closes on an outside click shows: a click in another cmux window (local) or another app
+    /// (global) takes it away. Both stop when it hides.
+    private func startOutsideClickMonitors() {
+        guard hidesOnOutsideClick, outsideClickMonitors.isEmpty else { return }
+        let kinds: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        if let local = NSEvent.addLocalMonitorForEvents(matching: kinds, handler: { [weak self] event in
+            MainActor.assumeIsolated { if let self, event.window !== self { self.hide() } }
+            return event
+        }) { outsideClickMonitors.append(local) }
+        if let global = NSEvent.addGlobalMonitorForEvents(matching: kinds, handler: { [weak self] _ in
+            Task { @MainActor [weak self] in self?.hide() }
+        }) { outsideClickMonitors.append(global) }
+    }
+
+    private func stopOutsideClickMonitors() {
+        outsideClickMonitors.forEach { NSEvent.removeMonitor($0) }
+        outsideClickMonitors = []
     }
 
     open override func resignKey() {
@@ -169,7 +211,12 @@ open class CmuxFloatingDialogPanel: NSPanel {
             card = NSRect(x: area.maxX - size.width - Self.screenMargin, y: area.maxY - size.height - Self.screenMargin,
                           width: size.width, height: size.height)
         }
-        setFrame(card.insetBy(dx: -room, dy: -room), display: true)
+        var frame = card.insetBy(dx: -room, dy: -room)
+        // Dragged: the card keeps its top left where the person put it as it changes size.
+        if let dragged = draggedOrigin { frame.origin = NSPoint(x: dragged.x, y: dragged.y - frame.height) }
+        isPlacing = true
+        setFrame(frame, display: true)
+        isPlacing = false
     }
 
     /// The card's frame on screen while it shows (tests, placement).

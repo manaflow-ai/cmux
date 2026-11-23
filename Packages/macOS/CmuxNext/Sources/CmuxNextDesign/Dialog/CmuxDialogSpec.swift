@@ -27,6 +27,12 @@ public nonisolated struct CmuxDialogSpec: Equatable, Sendable {
     /// Why the last answer did not go through, drawn in the danger ink above the buttons (the request ended,
     /// the network); nil draws none.
     public var error: String?
+    /// False draws no leading icon at all (the app's is the default): a card with nothing of its own to show there keeps
+    /// no empty column for one.
+    public var showsAppIcon: Bool
+    /// What the card does not print: it shows on hover of an info circle after the title (a hint, a disclaimer); nil draws
+    /// no circle.
+    public var help: String?
 
     /// How a dialog places its buttons and check boxes.
     public enum Layout: Equatable, Sendable {
@@ -52,7 +58,7 @@ public nonisolated struct CmuxDialogSpec: Equatable, Sendable {
 
     public init(usesTransientMaterial: Bool = false, title: String, lines: [String] = [], origin: String? = nil, fields: [CmuxDialogField] = [],
                 buttons: [CmuxDialogButton], icon: Data? = nil, identifier: String? = nil, layout: Layout = .standard,
-                error: String? = nil) {
+                error: String? = nil, showsAppIcon: Bool = true, help: String? = nil) {
         self.usesTransientMaterial = usesTransientMaterial
         self.title = title
         self.lines = lines
@@ -63,6 +69,8 @@ public nonisolated struct CmuxDialogSpec: Equatable, Sendable {
         self.identifier = identifier
         self.layout = layout
         self.error = error
+        self.showsAppIcon = showsAppIcon
+        self.help = help
     }
 
     /// The button Return presses: the first `.default`, else none. A person-only button is never pressed by a key.

@@ -11,35 +11,16 @@ enum AddMachineCardSpec {
     }
 
     @MainActor
-    static func spec(runs: AddMachineRuns, candidates: AddMachineDialog.Candidates, values: [String: CmuxDialogValue]) -> CmuxDialogSpec {
+    static func spec(runs: AddMachineRuns, candidates: AddMachineDialog.Candidates, values: [String: CmuxDialogValue],
+                     variant: Variant = .lean) -> CmuxDialogSpec {
         let mode = runs.request.mode
         let adding = mode == .add
-        func card(_ title: String, lines: [String] = [], fields: [CmuxDialogField] = [], buttons: [CmuxDialogButton]) -> CmuxDialogSpec {
-            CmuxDialogSpec(usesTransientMaterial: true, title: title, lines: lines, fields: fields, buttons: buttons,
-                           identifier: "cmux.addMachine.card")
+        func card(_ title: String, _ help: String? = nil, _ fields: [CmuxDialogField] = [], _ buttons: [CmuxDialogButton]) -> CmuxDialogSpec {
+            CmuxDialogSpec(usesTransientMaterial: true, title: title, fields: fields, buttons: buttons,
+                           identifier: "cmux.addMachine.card", showsAppIcon: false, help: help)
         }
         guard let run = runs.run else {
-            let destination = values[ID.destination]?.text ?? ""
-            var fields: [CmuxDialogField] = [
-                .text(id: ID.destination, label: nil, initial: destination, placeholder: AddMachineStrings.hostPlaceholder, secure: false),
-                .text(id: ID.name, label: AddMachineStrings.name, initial: values[ID.name]?.text ?? "", placeholder: nil, secure: false),
-            ]
-            switch candidates {
-            case .loading: fields.append(.progress(AddMachineStrings.lookingForPeers))
-            case let .loaded(list) where !list.isEmpty:
-                let picked = list.first { $0.destination == destination }
-                let options = [CmuxDialogOption(label: "—", value: "")] + list.map {
-                    CmuxDialogOption(label: [$0.name, $0.os, badge($0) ?? ""].filter { !$0.isEmpty }.joined(separator: " · "), value: $0.id,
-                                     isEnabled: $0.isPickable)
-                }
-                fields.append(.choice(id: ID.candidate, label: AddMachineStrings.tailnet, options: options, selected: picked?.id ?? ""))
-            default: break
-            }
-            return card(AddMachineStrings.title, lines: [AddMachineStrings.subtitle], fields: fields, buttons: [
-                CmuxDialogButton(id: ID.cancel, title: AddMachineStrings.cancel, role: .cancel),
-                // Return always reaches Add; the card dims it while the field holds no host ssh takes, and Add does nothing then.
-                CmuxDialogButton(id: ID.add, title: AddMachineStrings.add, role: .default),
-            ])
+            return pick(candidates: candidates, values: values, variant: variant)
         }
         let checklist = AddMachineChecklist(events: run.events)
         let steps = Self.steps(checklist)
@@ -52,14 +33,13 @@ enum AddMachineCardSpec {
             var buttons = [cancel]
             if adding { buttons.append(CmuxDialogButton(id: ID.add, title: AddMachineStrings.adding, role: .default, isEnabled: false)) }
             if case .check = mode { buttons.append(CmuxDialogButton(id: ID.fix, title: AddMachineStrings.checking, role: .default, isEnabled: false)) }
-            return card(title, fields: [.steps(steps)], buttons: buttons)
+            return card(title, nil, [.steps(steps)], buttons)
         case .ready:
             let buttons = adding
                 ? [done(.cancel), CmuxDialogButton(id: ID.openWorkspace, title: AddMachineStrings.openWorkspace, role: .default,
                                                    isEnabled: run.machineID != nil)]
                 : [done(.default)]
-            return card(AddMachineStrings.ready(run.name), lines: adding ? [AddMachineStrings.readyDetail] : [], fields: [.steps(steps)],
-                        buttons: buttons)
+            return card(AddMachineStrings.ready(run.name), adding ? AddMachineStrings.readyDetail : nil, [.steps(steps)], buttons)
         case .failed:
             let title = adding ? AddMachineStrings.addFailed(run.name) : AddMachineStrings.checkFailed(run.name)
             let buttons: [CmuxDialogButton] = switch mode {
@@ -68,8 +48,57 @@ enum AddMachineCardSpec {
             case .check: [copy, CmuxDialogButton(id: ID.fix, title: AddMachineStrings.fix, role: .default)]
             case .checkJoined: [copy, done(.default)]
             }
-            return card(title, fields: [.steps(steps)], buttons: buttons)
+            return card(title, nil, [.steps(steps)], buttons)
         }
+    }
+
+    /// How the pick card is laid out. `lean` ships (Leo, 2026-11-23: "get more creative with these lifeless-ass ... menus"); the
+    /// others are the gallery's alternatives (AAAddMachineGalleryTests), `before` the card as it was.
+    enum Variant: String, CaseIterable, Sendable {
+        /// The card as it shipped: the app icon's empty column, a subtitle, a captioned Name and a captioned tailnet list.
+        case before
+        /// No icon, no printed explanation (an info circle with a hover has it), no captions: the host, the optional name,
+        /// the tailnet's machines to pick from.
+        case lean
+        /// The tailnet's machines first (most people pick), the host to type under it, the name left to the host.
+        case pickFirst
+        /// One field and the tailnet list: the smallest card.
+        case minimal
+    }
+
+    /// The pick phase's card: the host field, then what is on the tailnet.
+    @MainActor
+    static func pick(candidates: AddMachineDialog.Candidates, values: [String: CmuxDialogValue], variant: Variant) -> CmuxDialogSpec {
+        let destination = values[ID.destination]?.text ?? ""
+        let lean = variant != .before
+        let host = CmuxDialogField.text(id: ID.destination, label: nil, initial: destination, placeholder: AddMachineStrings.hostPlaceholder, secure: false)
+        let name = CmuxDialogField.text(id: ID.name, label: lean ? nil : AddMachineStrings.name, initial: values[ID.name]?.text ?? "",
+                                        placeholder: lean ? AddMachineStrings.namePlaceholder : nil, secure: false)
+        var tailnet: [CmuxDialogField] = []
+        switch candidates {
+        case .loading: tailnet.append(.progress(AddMachineStrings.lookingForPeers))
+        case let .loaded(list) where !list.isEmpty:
+            let picked = list.first { $0.destination == destination }
+            let options = [CmuxDialogOption(label: lean ? AddMachineStrings.pickFromTailnet : "—", value: "")] + list.map {
+                CmuxDialogOption(label: [$0.name, $0.os, badge($0) ?? ""].filter { !$0.isEmpty }.joined(separator: " · "), value: $0.id,
+                                 isEnabled: $0.isPickable)
+            }
+            tailnet.append(.choice(id: ID.candidate, label: lean ? nil : AddMachineStrings.tailnet, options: options, selected: picked?.id ?? ""))
+        default: break
+        }
+        let fields: [CmuxDialogField] = switch variant {
+        case .before: [host, name] + tailnet
+        case .lean: [host, name] + tailnet
+        case .pickFirst: tailnet + [host]
+        case .minimal: [host] + tailnet
+        }
+        let buttons = [
+            CmuxDialogButton(id: ID.cancel, title: AddMachineStrings.cancel, role: .cancel),
+            // Return always reaches Add; the card dims it while the field holds no host ssh takes, and Add does nothing then.
+            CmuxDialogButton(id: ID.add, title: AddMachineStrings.add, role: .default),
+        ]
+        return CmuxDialogSpec(usesTransientMaterial: true, title: AddMachineStrings.title, fields: fields, buttons: buttons,
+                              identifier: "cmux.addMachine.card", showsAppIcon: variant == .before, help: lean ? AddMachineStrings.subtitle : nil)
     }
 
     /// The checklist's rows as the card lists them: a fix shows on a failed or warned step; a step that failed with no

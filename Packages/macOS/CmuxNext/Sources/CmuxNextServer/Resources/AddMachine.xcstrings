@@ -10743,6 +10743,28 @@
         }
       }
     },
+    "addMachine.namePlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name (optional)"
+          }
+        }
+      }
+    },
+    "addMachine.pickFromTailnet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick from your tailnet…"
+          }
+        }
+      }
+    },
     "addMachine.tailnet": {
       "extractionState": "manual",
       "localizations": {

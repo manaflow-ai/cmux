@@ -51,6 +51,8 @@ nonisolated enum AddMachineStrings {
     static var hostPlaceholder: String { s("addMachine.hostPlaceholder", "user@host or a Tailscale name") }
     static var name: String { s("addMachine.name", "Name") }
     static var tailnet: String { s("addMachine.tailnet", "On your tailnet") }
+    static var namePlaceholder: String { s("addMachine.namePlaceholder", "Name (optional)") }
+    static var pickFromTailnet: String { s("addMachine.pickFromTailnet", "Pick from your tailnet…") }
     static var lookingForPeers: String { s("addMachine.lookingForPeers", "Looking for machines on your tailnet…") }
     static func addingTitle(_ name: String) -> String { String(format: s("addMachine.addingTitle", "Adding %@"), name) }
     static func checkingTitle(_ name: String) -> String { String(format: s("addMachine.checkingTitle", "Checking %@"), name) }
