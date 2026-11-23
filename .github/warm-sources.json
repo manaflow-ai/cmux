@@ -52,6 +52,7 @@
     "ci-web.yml:web-db-migrations": {"class": "webview", "warm": ["actions-cache"]},
     "ci-web.yml:web-instant-navigation": {"class": "webview", "warm": ["actions-cache"]},
     "ci-web.yml:web-typecheck": {"class": "webview", "warm": ["actions-cache"]},
+    "ci-web.yml:webviews-typecheck": {"class": "webview", "warm": ["actions-cache"]},
     "ci.yml:dogfood-build": {"class": "mac-build", "warm": [], "exempt": "cold: a build script from a clean tree; no warm source wired yet"},
     "cloud-chat-proof.yml:proof-staging": {"class": "mac-build", "warm": [], "exempt": "cold: a tagged reload.sh build into a fresh DerivedData on an ephemeral Mac that holds the dev stack pair; no shared cache is read in a secret-bearing job"},
     "cloud-chat-proof.yml:proof-prod": {"class": "mac-build", "warm": [], "exempt": "cold: a tagged reload.sh build into a fresh DerivedData on an ephemeral Mac that holds the dev stack pair; no shared cache is read in a secret-bearing job"},
