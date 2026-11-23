@@ -18,7 +18,9 @@ public struct SystemUpstreamPermissions: RemoteUpstreamPermissions {
         switch kind {
         case .microphone: await AVCaptureDevice.requestAccess(for: .audio)
         case .camera: await AVCaptureDevice.requestAccess(for: .video)
-        // Shows the system prompt once; the grant takes effect after a relaunch.
+        // This app's own grant: the prompt shows once and the grant takes effect after a relaunch. No
+        // capturer sends this Mac's screen upstream yet; one must run in the Screen Sharing helper
+        // (plans/cmux-next/screen-sharing-helper.md) and ask the helper here, or it keeps the relaunch.
         case .screen: CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess()
         }
     }
