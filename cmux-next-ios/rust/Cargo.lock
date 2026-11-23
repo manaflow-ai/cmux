@@ -489,6 +489,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-cloud-wire"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-fault"
 version = "0.1.0"
 dependencies = [
@@ -707,6 +715,13 @@ version = "0.1.0"
 dependencies = [
  "unicode-segmentation",
  "unicode-width",
+]
+
+[[package]]
+name = "cmux-terminal-sizing"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
