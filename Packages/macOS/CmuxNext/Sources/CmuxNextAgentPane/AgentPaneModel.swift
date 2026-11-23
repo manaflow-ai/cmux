@@ -34,6 +34,8 @@ public final class AgentPaneModel {
     /// The first reveal came from the page's after-render report, rather than the watchdog.
     @ObservationIgnored var pageReportedPaint = false
     @ObservationIgnored var paintWaiters: [() -> Void] = []
+    /// The chat whose settled paint this pane last published (``RemoteChatEvents``): a repaint publishes nothing.
+    @ObservationIgnored var livePaintedSession: String?
     /// The waits for another process this open ran before its first paint, as the host sees them.
     @ObservationIgnored public internal(set) var openWaits = AgentPaneOpenWaits()
     /// The page's acpmux client is connected and its page actions answer (`pane.clientReady`); false
@@ -94,6 +96,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onEditShortcut: ((AgentPaneTabKind) -> Void)?
     /// Runs an app action requested by an empty-state or new-tab control, with its string arguments.
     @ObservationIgnored public var onRunAction: ((String, [String: String]) -> AgentPaneActionRun)?
+    /// `editors.list`: `{"default": {"id","name"} | null, "others": [{"id","name"}]}`, the installed editors.
+    @ObservationIgnored public var onEditorsList: (@MainActor () -> [String: Any])?
     /// Resolves the explicit Browse… fallback in the project picker.
     @ObservationIgnored public var onBrowseProject: (() async -> String?)?
     /// A new chat's Sandboxed send (`sandbox.run`, hq#3367): the App runs one task on a throwaway
@@ -636,6 +640,8 @@ public final class AgentPaneModel {
                 pageReportedPaint = true
             }
             markPainted()
+            // acpmux's settled view is on screen: a remote chat's `agent.chat.live_paint`, once per chat.
+            if settled, let events = machineLink?.events { livePaintedSession = events.livePainted(session: sessionId, last: livePaintedSession) }
             return AgentPaneReply.success()
         case .openTab(let request): return request.open(in: self)
         case .runAttach(let request): return await request.attach(in: self)
@@ -668,7 +674,8 @@ public final class AgentPaneModel {
             return AgentPaneReply.success()
         case .attentionOpen where !transport.gestures.consume(): return Self.transportFailure(.gestureRequired)
         case .attentionOpen(let tab): return attentionTabs?.open(tab) == true ? AgentPaneReply.success() : Self.unsupported("chat.attention.open")
-        case .runAction(let id, let session, let environment, let handoff): return runAction(id, session: session, environment: environment, handoff: handoff)
+        case .runAction(let id, let session, let environment, let handoff, let app): return runAction(id, session: session, environment: environment, handoff: handoff, app: app)
+        case .editorsList: return onEditorsList.map { AgentPaneReply.success($0()) } ?? Self.unsupported("editors.list")
         case .jump(let target, let id): guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }; onJump(target, id); return AgentPaneReply.success()
         case .chooseFolder where remoteChat: return Self.unsupported("workspace.chooseFolder")
         case .chooseFolder: return await chooseFolder()
