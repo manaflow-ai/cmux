@@ -12,7 +12,7 @@ import type { AccountRowWire } from "../shared/signIn/accountSignIn";
 
 const restore = installDom();
 afterAll(() => restore());
-const { renderPage, click, settle } = await import("./testing");
+const { renderPage, click, settle, changeValue } = await import("./testing");
 
 let page: Rendered | null = null;
 afterEach(() => {
@@ -24,7 +24,7 @@ const claudeSignedOut: AccountRowWire[] = ACCOUNT_LISTS.signedOut.map((row) =>
   row.family === "claude" ? { ...row, signedIn: false } : row,
 );
 
-async function open(options: { accounts?: AccountRowWire[] | null; olderDaemon?: boolean } = {}) {
+async function open(options: { accounts?: AccountRowWire[] | null; olderDaemon?: boolean; held?: boolean } = {}) {
   page = await renderPage({
     path: "/settings/models",
     setup: (provider) => {
@@ -36,7 +36,7 @@ async function open(options: { accounts?: AccountRowWire[] | null; olderDaemon?:
         };
       }
       provider.signIn.olderDaemon = options.olderDaemon === true;
-      provider.signInHold = new Promise<void>(() => {});
+      if (options.held !== false) provider.signInHold = new Promise<void>(() => {});
     },
   });
   await settle();
@@ -84,4 +84,22 @@ test("a daemon without the in-place sign-in, or a host without the accounts, kee
     rendered.unmount();
     page = null;
   }
+});
+
+test("a finished in-place sign-in reads Models again, so the row shows it", async () => {
+  const rendered = await open({ accounts: claudeSignedOut, held: false });
+  await signInAgain(rendered);
+  // The host's Models changed with the sign-in but sent no change: only a fresh read shows it.
+  const models = structuredClone(mockModels.macLogins);
+  const own = models.personal!.connections.find((connection) => connection.id === "claude-login")!;
+  own.email = "signed-in@example.com";
+  rendered.provider.models = models;
+  const form = rendered.container.querySelector<HTMLElement>('[data-connection-sign-in="claude-login"] .signin')!;
+  await changeValue(form.querySelector<HTMLInputElement>("input")!, "pasted-code");
+  await click(form.querySelector<HTMLElement>('[data-sign-in-action="continue"]')!);
+  await settle();
+  expect(card(rendered)?.dataset.state).toBe("signedIn");
+  expect(
+    rendered.container.querySelector('[data-card="models"] [data-connection="claude-login"]')?.textContent,
+  ).toContain("signed-in@example.com");
 });

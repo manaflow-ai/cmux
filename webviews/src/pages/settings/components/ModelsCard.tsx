@@ -339,7 +339,9 @@ function ConnectionRow({
   const router = useSettingsRouter();
   const [confirming, setConfirming] = useState(false);
   const listed = useSettingsState().accounts?.signInAccounts;
-  const signIn = useSettingsSignIn();
+  const store = useStore();
+  // A finished sign-in reads Models again, so the row shows the login signed in.
+  const signIn = useSettingsSignIn(() => void store.refreshModels());
   const builtin = connection.kind === "codex-login" || connection.kind === "claude-login";
   const plan = connection.kind === "chatgpt-plan";
   const reauth: ModelsRun | null = plan
