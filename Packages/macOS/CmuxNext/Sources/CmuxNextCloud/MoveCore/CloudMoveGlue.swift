@@ -44,10 +44,10 @@ public final class CloudStartGate {
     /// most `within` while `running` (an update of the machine that already ran when the start came; one that begins
     /// later finds the start here and answers busy). A hold taken after the connect came too late: the update could pass
     /// its check while the start connected and read its model route, then restart the daemon under the copy.
-    public func holdBeforeConnect<C: Clock>(_ machineID: String, until timeline: CloudSendTimeline?, within: Duration, clock: C,
+    public func holdBeforeConnect<C: Clock & Sendable>(_ machineID: String, until timeline: CloudSendTimeline?, within: Duration, clock: C,
                                             running: @escaping @Sendable () async -> Bool) async -> Hold where C.Duration == Duration {
         let hold = self.hold(machineID, until: timeline, clock: clock)
-        _ = await CloudWait.bounded(within, clock: clock, running)
+        _ = await CloudOutdatedMachine.bounded(within, clock: clock, running)
         return hold
     }
 
