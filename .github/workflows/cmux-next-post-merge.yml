@@ -228,8 +228,18 @@ jobs:
     permissions:
       contents: read
 
+  cmux-tui-sdks:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' cmux-tui-sdks ')
+    uses: ./.github/workflows/cmux-tui-sdks.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+    permissions:
+      contents: read
+
   judge:
-    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, swift-acpmux-protocol, rust-workspaces, web, tip-test-compile, gallery-health]
+    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, swift-acpmux-protocol, rust-workspaces, web, tip-test-compile, gallery-health, cmux-tui-sdks]
     # A probe's judge also runs when its plan job died (a lost runner: drill-8 probe run 44980687386): it then
     # sees no verdict and dispatches the same probe again, so the bisect goes on instead of stopping.
     if: ${{ !cancelled() && (needs.plan.result == 'success' || inputs.mode == 'probe') }}
@@ -328,14 +338,14 @@ jobs:
         timeout-minutes: 5
         with:
           persist-credentials: false
-          ref: ${{ github.ref_name }}
+          ref: ${{ github.ref }}
       - name: Check out again
         if: steps.checkout.outcome != 'success'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         timeout-minutes: 5
         with:
           persist-credentials: false
-          ref: ${{ github.ref_name }}
+          ref: ${{ github.ref }}
       - name: Fetch this ref's history
         timeout-minutes: 4
         run: |
