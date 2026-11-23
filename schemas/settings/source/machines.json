@@ -912,6 +912,45 @@
       ]
     },
     {
+      "name": "macScreenViewing",
+      "section": "machines",
+      "group": {
+        "key": "settings.group.screenSharing",
+        "text": "Screen Sharing"
+      },
+      "rows": [
+        {
+          "key": "macScreen.onlyPersonStartsViewing",
+          "note": "Read by MacScreenPages.agentMayStartViewing: off (the default), an agent's or the CLI's macScreen.open with a device of the person's own starts viewing at once (MacScreenPages.isOwnDevice); on, it waits at the Connect card for the person's click, as before. Leo 2026-11-17: \"why should it get held only be aperson's click? i dont like that\".",
+          "title": {
+            "key": "settings.macScreen.onlyPersonStartsViewing",
+            "text": "Only Your Click Starts Viewing a Screen"
+          },
+          "help": {
+            "key": "settings.macScreen.onlyPersonStartsViewing.help",
+            "text": "On, a Screen Sharing tab an agent or the cmux CLI opens waits until you choose View Only or Full Control. Off, it starts viewing your own devices at once and says who started it. A device someone else owns always asks first."
+          },
+          "summary": {
+            "key": "settings.macScreen.onlyPersonStartsViewing.summary",
+            "text": "Agents can't start viewing your screens"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "screen sharing",
+            "mac screen",
+            "agents",
+            "automation",
+            "cli",
+            "view",
+            "control",
+            "click",
+            "approve"
+          ]
+        }
+      ]
+    },
+    {
       "name": "macScreenDebug",
       "section": "development",
       "group": {
