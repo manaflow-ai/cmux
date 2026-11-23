@@ -132,11 +132,25 @@ pub async fn serve(
             crate::machine::serve(&sender, &name, &grants).await
         }
         "needs-you" => crate::needs_you::serve(&sender, receiver).await,
+        "pair-requests" => {
+            crate::pair_requests::serve(config.pairing.as_ref(), &peer.device_id, &link, &args, &sender)
+                .await
+                .map_err(|(code, reason)| Refusal::new(code, reason))
+        }
         "appearance" => crate::appearance::serve(&sender, receiver).await,
         "appearance-wallpaper" => crate::appearance::serve_wallpaper(&sender, &args).await,
         "browser" => crate::browser::serve(&config.browser, &*config, &peer, &args, &sender, receiver).await,
         "surface" => crate::surface::serve(&config.surface, &*config, &peer, &args, &sender, receiver).await,
         "localhost" => crate::localhost::serve(&args, &sender, receiver).await,
+        "phone-frames" => {
+            crate::phone_frames::serve(
+                &peer.device_id,
+                &crate::phone_frames::default_path(),
+                &sender,
+                receiver,
+            )
+            .await
+        }
         _ => Err(Refusal::new("unknown_service", format!("no service {service}"))),
     };
     match result {
@@ -210,7 +224,11 @@ const ACPMUX_MAX_MESSAGE_BYTES: usize = 64 << 20;
 /// `needs-you-v1`: the `needs-you` service (the Mac app's own open Feed requests, `needs_you.rs`).
 /// `appearance-v1`: the `appearance` and `appearance-wallpaper` services (the Mac's theme and
 /// wallpaper, `appearance.rs`).
-pub const CAPABILITIES: [&str; 7] = [
+/// `pair-requests-v1`: the `pair-requests` service (a paired device answers a pairing request
+/// waiting on this Mac, `pair_requests.rs`).
+/// `phone-frames-v1`: the `phone-frames` service (the phone's terminal scroll frame times,
+/// logged to `phone-frames.jsonl`, `phone_frames.rs`).
+pub const CAPABILITIES: [&str; 9] = [
     "removal-v1",
     "file-preview-v1",
     "localhost-forward-v1",
@@ -218,6 +236,8 @@ pub const CAPABILITIES: [&str; 7] = [
     "cloud-acpmux-v1",
     "needs-you-v1",
     "appearance-v1",
+    "pair-requests-v1",
+    "phone-frames-v1",
 ];
 /// Added to [`CAPABILITIES`] when this Mac can stream browser tabs (`browser`).
 pub const BROWSER_STREAM: &str = "browser-stream-v1";
@@ -2287,7 +2307,9 @@ mod tests {
                 "cloud-directory-v1",
                 "cloud-acpmux-v1",
                 "needs-you-v1",
-                "appearance-v1"
+                "appearance-v1",
+                "pair-requests-v1",
+                "phone-frames-v1"
             ]
         );
         let launcher: crate::browser::Launcher = std::sync::Arc::new(|_| {
@@ -2304,6 +2326,8 @@ mod tests {
                 "cloud-acpmux-v1",
                 "needs-you-v1",
                 "appearance-v1",
+                "pair-requests-v1",
+                "phone-frames-v1",
                 BROWSER_STREAM,
                 BROWSER_VIDEO_TRACK
             ]
