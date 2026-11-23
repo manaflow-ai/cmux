@@ -22,6 +22,7 @@ import home_classic  # noqa: E402
 # (its scratch working folder, its own session).
 from bench_launch import finder_limits, limits_line, require_gui_session, socket_candidates  # noqa: E402
 from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -130,7 +131,9 @@ try:
     results["open"] = {"action": opened, "geometry": shown}
     if not shown:
         sys.exit(f"FAIL the channel is not shown: {opened}")
-    time.sleep(2)  # let the first layout and pictures settle before measuring
+    # The first layout and pictures settle before measuring: the transcript's geometry and rows stop changing.
+    wait_stable(lambda: (rpc("debug.home.drive", {"action": "geometry"}), rpc("debug.home.drive", {"action": "rows"})),
+                "the opened transcript's layout", timeout=20, interval=0.1, reads=5)
     results["memory_open"] = memory(pid)
 
     def scroll():

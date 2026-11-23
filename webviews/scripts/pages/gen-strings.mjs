@@ -74,7 +74,11 @@ export const PAGES = {
   // its keys and translations the Swift steps' (CmuxNextOnboarding) it replaces.
   onboarding: {
     out: "webviews/src/pages/onboarding/generated/strings.json",
-    catalogs: [{ file: "webviews/src/pages/onboarding/Localizable.xcstrings" }],
+    catalogs: [
+      { file: "webviews/src/pages/onboarding/Localizable.xcstrings" },
+      // The provider readiness rows' sign-in (logins done right): the shared sign-in card's keys.
+      { file: "webviews/src/pages/shared/signIn/Localizable.xcstrings" },
+    ],
   },
   gallery: {
     out: "webviews/src/gallery/generated/strings.json",
@@ -108,6 +112,11 @@ export const PAGES = {
   pageErrors: {
     out: "webviews/src/pages/shared/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/shared/Localizable.xcstrings" }],
+  },
+  // The device sign-in card and account list (Settings > Accounts, onboarding): their own table.
+  signIn: {
+    out: "webviews/src/pages/shared/signIn/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/shared/signIn/Localizable.xcstrings" }],
   },
   variantPick: {
     out: "webviews/src/ui/variant-pick/generated/strings.json",
@@ -174,6 +183,8 @@ export const PAGES = {
         file: `${sources}/CmuxNextActions/RemoteActions.xcstrings`,
         keys: () => ["action.device.add"],
       },
+      // Settings > Accounts' device sign-in and account list (logins done right).
+      { file: "webviews/src/pages/shared/signIn/Localizable.xcstrings" },
     ],
   },
   history: {
@@ -426,6 +437,19 @@ export const PAGES = {
                 "preview.openIn",
               ].includes(key),
           ),
+      },
+    ],
+  },
+  // Settings > Agents > Harnesses draws the agent pane's plan usage card under each account
+  // (ProviderAccounts.tsx, acpmux/PlanUsageCard.tsx), which reads the pane's table; the page installs
+  // only its `planUsage.` keys (settings/paneStrings.ts). Without them the shipped page showed the
+  // raw keys (planUsage.window.session) in every account's usage.
+  "settings-pane": {
+    out: "webviews/src/pages/settings/generated/pane-strings.json",
+    catalogs: [
+      {
+        file: "webviews/src/agent-session/acpmux/Localizable.xcstrings",
+        keys: (all) => all.filter((key) => key.startsWith("planUsage.")),
       },
     ],
   },
