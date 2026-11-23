@@ -410,9 +410,9 @@ mod tests {
         }
         let mut ultra_job = job(8_000, false);
         ultra_job.req.profile = EncodeProfile::Ultra;
-        let mut plain = Recorder { kbps: 8_000, set: Vec::new() };
+        let mut plain = Recorder::new(8_000);
         assert_eq!(encode_one(&mut plain, &ultra_job).expect("encode").profile, None);
-        let mut able = Ultra(Recorder { kbps: 8_000, set: Vec::new() });
+        let mut able = Ultra(Recorder::new(8_000));
         assert_eq!(
             encode_one(&mut able, &ultra_job).expect("encode").profile,
             Some(EncodeProfile::Ultra)

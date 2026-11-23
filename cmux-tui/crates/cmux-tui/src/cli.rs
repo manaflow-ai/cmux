@@ -168,6 +168,7 @@ mod start_stages;
 mod vm;
 #[cfg(unix)]
 mod vm_cleanup;
+mod vm_gcp;
 #[cfg(unix)]
 mod vm_ready;
 #[cfg(unix)]
@@ -175,6 +176,8 @@ mod vm_short;
 mod vm_words;
 #[cfg(unix)]
 mod vnc;
+#[cfg(unix)]
+pub(crate) use app::spawn_daemon_updates;
 #[cfg(unix)]
 pub(crate) use auth_token::app_token;
 #[cfg(unix)]
