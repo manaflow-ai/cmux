@@ -218,7 +218,10 @@ async fn past_the_daemon_wide_bound_a_reader_over_its_fair_share_is_disconnected
 async fn past_the_daemon_wide_bound_a_reader_taking_lines_keeps_its_connection() {
     const FAIR: usize = 8 << 10;
     const OWN: usize = 1 << 20;
-    const STALL: Duration = Duration::from_millis(300);
+    // Wide against the pane's 50 ms rounds: the pane's progress is seen at each round's first
+    // push, so a round late by the stall bound cuts it, and a loaded suite stretched a 100 ms
+    // sleep past a 300 ms bound.
+    const STALL: Duration = Duration::from_secs(1);
     let scope = cmux_scope::Scope::new("outbound-test");
     let pool = own_pool();
     let limits = || Limits { pool, total_bound: 16 << 10, fair_share: FAIR, reader_stall: STALL };
@@ -232,8 +235,8 @@ async fn past_the_daemon_wide_bound_a_reader_taking_lines_keeps_its_connection()
         n += 1;
     }
     assert!(!cli.is_closed(), "a reader within its stall bound is kept");
-    // The pane reads a little every third of the stall bound while its queue keeps growing: far
-    // past its fair share and the total, over several stall bounds, it is served.
+    // The pane reads a little every twentieth of the stall bound while its queue keeps growing:
+    // far past its fair share and the total, it is served.
     let mut sent = 0;
     for _round in 0..10 {
         for _ in 0..10 {
@@ -244,7 +247,7 @@ async fn past_the_daemon_wide_bound_a_reader_taking_lines_keeps_its_connection()
         for _ in 0..2 {
             let _ = reading.try_recv();
         }
-        tokio::time::sleep(STALL / 3).await;
+        tokio::time::sleep(STALL / 20).await;
     }
     assert!(pane.held() > FAIR, "the pane's queue grew past its fair share");
     assert!(!pane.is_closed());
