@@ -28,6 +28,7 @@ members = [
     "crates/acpmux-book",
     "crates/cmux-coderouter",
     "crates/cmux-history",
+    "crates/cmux-session-cloud",
     "crates/cmux-imessage",
     "crates/cmux-chat-index",
     "crates/cmux-apps",
@@ -35,6 +36,7 @@ members = [
     "crates/cmux-cloud-environment",
     "crates/cmux-conversation",
     "crates/cmux-message-preview",
+    "crates/cmux-share-approval",
     "crates/cmux-chief",
     "bindings/rust",
     "bindings/rust-sidebar",
@@ -89,6 +91,7 @@ members = [
     "crates/cmux-web-pieces",
     "crates/cmux-scope",
     "crates/cmux-file-lock",
+    "crates/cmux-install-check",
     "crates/cmux-files-host",
     "crates/cmux-projection",
     "crates/cmux-deadline",
@@ -118,6 +121,7 @@ members = [
     "crates/cmux-server",
     "crates/cmux-host",
     "crates/cmux-motion",
+    "crates/cmux-wallpaper",
     "crates/cmux-config",
     "crates/cmux-customize",
     "crates/cmux-customize-recipes",
@@ -187,6 +191,7 @@ default-members = [
     "crates/cmux-cloud-cli",
     "crates/cmux-conversation",
     "crates/cmux-message-preview",
+    "crates/cmux-share-approval",
     "bindings/rust",
     "bindings/rust-sidebar",
     "bindings/rust-daemon-client",
@@ -233,6 +238,7 @@ default-members = [
     "crates/cmux-web-pieces",
     "crates/cmux-scope",
     "crates/cmux-file-lock",
+    "crates/cmux-install-check",
     "crates/cmux-deadline",
     "crates/cmux-remote-protocol",
     "crates/cmux-build-identity",
@@ -259,6 +265,7 @@ default-members = [
     "crates/cmux-server",
     "crates/cmux-host",
     "crates/cmux-motion",
+    "crates/cmux-wallpaper",
     "crates/cmux-config",
     "crates/cmux-customize",
     "crates/cmux-customize-recipes",
@@ -350,6 +357,7 @@ await_holding_refcell_ref = "deny"
 chrono = "0.4"
 chrono-tz = "0.10"
 cmux-coderouter = { path = "crates/cmux-coderouter" }
+cmux-session-cloud = { path = "crates/cmux-session-cloud" }
 cmux-automations = { path = "crates/cmux-automations" }
 cmux-tailnet = { path = "crates/cmux-tailnet" }
 ghostty-vt-sys = { path = "crates/ghostty-vt-sys" }
@@ -358,6 +366,7 @@ cmux-tui-core = { path = "crates/cmux-tui-core" }
 cmux-git = { path = "crates/cmux-git" }
 cmux-supervise-core = { path = "crates/cmux-supervise-core" }
 cmux-file-lock = { path = "crates/cmux-file-lock" }
+cmux-install-check = { path = "crates/cmux-install-check" }
 cmux-signed-envelope = { path = "crates/cmux-signed-envelope" }
 cmux-web-pieces = { path = "crates/cmux-web-pieces" }
 cmux-projection = { path = "crates/cmux-projection" }
@@ -414,6 +423,7 @@ cmux-flow-trace = { path = "crates/cmux-flow-trace" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-conversation = { path = "crates/cmux-conversation" }
 cmux-message-preview = { path = "crates/cmux-message-preview" }
+cmux-share-approval = { path = "crates/cmux-share-approval" }
 cmux-history = { path = "crates/cmux-history" }
 cmux-tasks = { path = "crates/cmux-tasks" }
 cmux-tasks-core = { path = "crates/cmux-tasks-core" }
@@ -491,6 +501,9 @@ ip_network = "0.4"
 smoltcp = { version = "0.14", default-features = false, features = ["std", "medium-ip", "proto-ipv4", "proto-ipv6", "socket-tcp", "socket-tcp-cubic", "async"] }
 png = "0.17"
 libc = "0.2"
+# One poller for every idle terminal-host link (cmux-tui-core surface/idle_links.rs); tokio
+# already links mio with these features.
+mio = { version = "1", features = ["os-poll", "os-ext"] }
 memchr = "2"
 tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
 # Debug-only daemon hot-patching (cmux-tui-core feature `hotpatch`); pinned to

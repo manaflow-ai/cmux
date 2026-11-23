@@ -881,9 +881,10 @@ async fn a_captured_ssh_s_stderr_goes_into_the_link_error_as_one_line() {
     let Err(LinkError::Transport(detail)) = ended else { panic!("{ended:?}") };
     let said = cmux_remote::provider::ssh_stderr_of(&detail).expect(&detail);
     assert_eq!(said, "ssh: connect to host 10.20.0.7 port 22: Connection refused kex 'x' / junk");
-    let line = routes_line(MACHINE, Phase::Resume, None, None, Some(Step::Relay), Some(said));
+    let line = routes_line(MACHINE, Phase::Resume, None, None, Some(Step::Relay), Some(&detail));
     assert!(
-        line.ends_with(&format!(" outcome=relay ssh_stderr=\"{said}\"\n")),
+        line.contains(" outcome=relay why=")
+            && line.ends_with(&format!(" ssh_stderr=\"{said}\"\n")),
         "a quoted field last: {line}"
     );
     assert_eq!(line.matches('\n').count(), 1, "{line}");
@@ -896,12 +897,43 @@ fn a_stderr_tail_is_one_quoted_safe_line_and_only_its_end_is_logged() {
     assert_eq!(ssh_stderr_of("x; ssh stderr: \"said it\"; relay: closed"), Some("said it"));
     assert_eq!(ssh_stderr_of("no stderr here"), None);
     let long = "y".repeat(300) + "end";
-    let line = routes_line(MACHINE, Phase::Resume, None, None, Some(Step::Relay), Some(&long));
+    let detail = format!("the ssh link ended; ssh stderr: \"{long}\"");
+    let line = routes_line(MACHINE, Phase::Resume, None, None, Some(Step::Relay), Some(&detail));
     let field = line.split_once("ssh_stderr=\"").unwrap().1.trim_end_matches("\"\n");
     assert_eq!(field.chars().count(), 240);
     assert!(field.ends_with("yend"));
-    let quiet = routes_line(MACHINE, Phase::Resume, None, None, None, Some("  "));
-    assert!(!quiet.contains("ssh_stderr"), "{quiet}");
+    let quiet = routes_line(MACHINE, Phase::Resume, None, None, None, Some("ssh stderr: \"  \""));
+    assert!(!quiet.contains("ssh_stderr") && !quiet.contains("why="), "{quiet}");
+}
+
+#[test]
+fn a_failed_routes_line_says_why_in_fixed_codes_only() {
+    use super::super::contract::why_codes;
+    // Each route of a group resume that failed, in order, as a fixed code:
+    // never the secret-bearing text it failed with.
+    let all = "relay: connection closed; carrier ssh key: no authorization within 4000 ms; \
+               carrier ssh route dropped: vm-secret-501";
+    assert_eq!(why_codes(all).as_deref(), Some("closed,ssh_key_timeout,ssh_refused"));
+    assert_eq!(why_codes("carrier ssh key: token=abc").as_deref(), Some("ssh_key"));
+    assert_eq!(
+        why_codes("the carrier route was killed; the carrier route was killed").as_deref(),
+        Some("killed")
+    );
+    // A quoted stderr tail (even one holding `; ` or a marker) is its own field.
+    let said = "x; ssh stderr: \"a; carrier ssh key: b\"; relay: timed out";
+    assert_eq!(why_codes(said).as_deref(), Some("other,timeout"));
+    assert_eq!(why_codes("  "), None);
+    let line = routes_line(MACHINE, Phase::Resume, None, None, Some(Step::Relay), Some(all));
+    assert_eq!(
+        line,
+        format!(
+            "carrier.routes machine={MACHINE} phase=resume carrier=none outcome=relay \
+             why=closed,ssh_key_timeout,ssh_refused\n"
+        )
+    );
+    assert!(!line.contains("secret"), "{line}");
+    let ok = routes_line(MACHINE, Phase::Resume, None, Some("ssh:0"), None, Some(all));
+    assert!(!ok.contains("why="), "{ok}");
 }
 
 /// A state directory whose path holds `%`: every path reaches ssh as an

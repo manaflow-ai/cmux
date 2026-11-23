@@ -127,6 +127,8 @@
 //! the session weakly.
 
 use super::*;
+#[path = "inbox_reader.rs"]
+pub(super) mod reader;
 #[path = "inbox_surge.rs"]
 mod surge;
 #[path = "inbox_topic.rs"]
@@ -665,7 +667,12 @@ fn display_sender_name(sender: &Value, fallback: &str) -> String {
         (Some(label), true, false) => format!("{label} (self-declared, unauthenticated)"),
         (Some(label), true, true) if fallback.is_empty() => label.to_owned(),
         (Some(label), true, true) => format!("{fallback} (label: {label})"),
-        _ => fallback.to_owned(),
+        // A session with a given name reads by it, with the name it was known by
+        // (`Mango · HOST/NAME`, `prompt_provenance::display_label`).
+        _ => crate::prompt_provenance::display_label(
+            sender.get("displayName").and_then(Value::as_str),
+            fallback,
+        ),
     }
 }
 
@@ -806,6 +813,14 @@ pub(crate) fn relay_body(text: &str) -> &str {
 /// whole (`newest`) while it is [`NEWEST_BYTES`] or less and the notice's newest ones stay within
 /// [`NEWEST_TOTAL_BYTES`]. Only the parts carry it: the agent's text keeps its previews.
 pub(super) fn render(items: &[&Item]) -> (String, Value) {
+    render_read(items, &reader::Summaries::new())
+}
+
+/// [`render`] with the inbox reader's `summaries` (`inbox_reader.rs`), by message id: a thread
+/// with no blocker whose newest message has one shows it in place of that message's preview, and
+/// such threads go by how much the reader says they matter to the chat's goal, then the newest
+/// first. A blocker's thread, and a notice that holds every message whole, read as before.
+pub(super) fn render_read(items: &[&Item], summaries: &reader::Summaries) -> (String, Value) {
     let mut threads: Vec<(&str, Vec<&Item>)> = Vec::new();
     for item in items {
         match threads.iter_mut().find(|(k, _)| *k == item.thread) {
@@ -815,8 +830,16 @@ pub(super) fn render(items: &[&Item]) -> (String, Value) {
     }
     let blocker = |list: &[&Item]| list.iter().any(|i| i.class.urgent());
     let newest = |list: &[&Item]| list.iter().map(|i| i.at).max().unwrap_or(0);
-    threads.sort_by_key(|(_, list)| (!blocker(list), std::cmp::Reverse(newest(list))));
     let whole = items.iter().map(|i| i.text.len()).sum::<usize>() <= WHOLE_BYTES;
+    let summary = |list: &[&Item]| {
+        let last = list.iter().max_by_key(|i| i.at)?;
+        summaries.get(&last.prompt_id).filter(|_| !whole && !blocker(list))
+    };
+    // Unread by the reader: in the middle, as background is not noise.
+    let score = |list: &[&Item]| summary(list).map_or(1, |s| s.score);
+    threads.sort_by_key(|(_, list)| {
+        (!blocker(list), std::cmp::Reverse(score(list)), std::cmp::Reverse(newest(list)))
+    });
     let n = threads.len();
     let mut text = format!(
         "[inbox] New messages from other agents in {n} thread{}.",
@@ -877,7 +900,11 @@ pub(super) fn render(items: &[&Item]) -> (String, Value) {
                 }
             }
         } else {
-            let line = last.map(|i| preview(&i.text)).unwrap_or_default();
+            let line = match summary(list) {
+                // Marked, so the agent never takes the reader's words for the sender's.
+                Some(s) => format!("(summary) {}", s.line),
+                None => last.map(|i| preview(&i.text)).unwrap_or_default(),
+            };
             text.push_str(&format!("\n- {head}: {line} (thread {key})"));
         }
         let ids: Vec<&str> = list.iter().map(|i| i.prompt_id.as_str()).collect();
@@ -888,6 +915,10 @@ pub(super) fn render(items: &[&Item]) -> (String, Value) {
         });
         if let Some(last) = last.filter(|item| item.sender.is_object()) {
             part.set("sender", last.sender.clone());
+        }
+        if let Some(s) = summary(list) {
+            part.set("summary", json!(s.line));
+            part.set("relevance", json!(s.score));
         }
         if let Some(session) = last.and_then(|i| i.from_session.as_deref()) {
             part.set("fromSession", json!(session));
@@ -1183,6 +1214,14 @@ pub(super) fn persons_prompt(agent: Option<&str>, provenance: Option<&Value>) ->
         && !super::digest::inbox_digest::is_digest(provenance)
         && !super::turn_cap::is_notice(provenance)
         && !super::subagent_retry::is_retry(provenance)
+        && !is_subagent_resume(provenance)
+}
+
+/// Whether a prompt is the Resume of a stopped subagent (`subagent_resume.rs`): acpmux's own ask
+/// of the chat's agent, never the person's words.
+fn is_subagent_resume(provenance: Option<&Value>) -> bool {
+    provenance.and_then(|p| p.get("kind")).and_then(Value::as_str)
+        == Some(super::subagent_resume::PROVENANCE_KIND)
 }
 
 /// Whether the running turn is one the person's own prompt started: no notice and no other
@@ -1458,6 +1497,8 @@ impl Hub {
             let msg = crate::prompt_provenance::marked(msg, provenance);
             self.append(session, "mux", "inbox", msg);
             self.note_delegator(session, provenance);
+            let fire = surge_on && fire_notice(provenance.and_then(|p| p.get("notice")));
+            self.inbox_reader_prefetch(session, prompt_id, sender, class, fire, &text);
         }
         // `resent`: a resend of one it holds or a notice carries, not a message kept now
         // (`sender_harness::on_kept` writes no claim for it).
@@ -1773,7 +1814,7 @@ impl Hub {
     /// and answers their waiting `session/prompt`s with how it went in.
     fn deliver_notice(self: &Arc<Self>, session: &Arc<Session>, steer: bool) {
         let notice_id = format!("{NOTICE_ID_PREFIX}{}", uuid::Uuid::now_v7());
-        let (text, whole, parts, ids) = {
+        let (text, whole, parts, ids, reads) = {
             let mut inbox = session.inbox();
             if inbox.in_flight.is_some() {
                 return;
@@ -1781,6 +1822,13 @@ impl Hub {
             if inbox.items.iter().all(|i| i.noticed) {
                 return;
             }
+            // The reader's summaries that are cached (`inbox_reader.rs`): the notice never waits
+            // for one. `reads` are the ones no read started for yet (a message from before a
+            // restart), started once the lock is let go.
+            let (summaries, reads) = {
+                let new: Vec<&Item> = inbox.items.iter().filter(|i| !i.noticed).collect();
+                reader::lookup(&session.id, &new)
+            };
             // The wake timer is done: this notice carries what it waited for.
             if let Some(timer) = inbox.timer.take() {
                 timer.abort();
@@ -1788,7 +1836,12 @@ impl Hub {
             inbox.held_by_person = false;
             inbox.due_now = false;
             let new: Vec<&Item> = inbox.items.iter().filter(|i| !i.noticed).collect();
-            let (mut text, parts) = render(&new);
+            let started = std::time::Instant::now();
+            let (mut text, parts) = render_read(&new, &summaries);
+            if !summaries.is_empty() {
+                let us = u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX);
+                tracing::debug!(session = %session.id, summaries = summaries.len(), us, "inbox notice rendered");
+            }
             let mut whole = team_page::whole_notice(&new);
             if let Some(hint) = reply_hint(&new) {
                 for notice in [&mut text, &mut whole] {
@@ -1827,8 +1880,9 @@ impl Hub {
             inbox.in_flight = Some((notice_id.clone(), ids.clone()));
             let carry = Carry { notice: notice_id.clone(), ids: ids.clone(), steer, waiters };
             inbox.carrying.push(carry);
-            (text, whole, parts, ids)
+            (text, whole, parts, ids, reads)
         };
+        self.inbox_read_jobs(session, reads);
         let provenance = json!({"kind": NOTICE_KIND, "noticeId": notice_id, "threads": parts});
         let opts = PromptOptions {
             prompt_id: Some(notice_id.clone()),
@@ -2431,6 +2485,8 @@ impl Hub {
 
     /// `_acpmux/inbox_threads`: the chat's threads, the one with the newest message first.
     pub fn inbox_threads(&self, session: &Session) -> Value {
+        // Read before the inbox lock: the journal's read pruning takes it.
+        let held_now = self.surge_held_now(session);
         let inbox = session.inbox();
         let mut threads: Vec<(&str, Vec<&Item>)> = Vec::new();
         for item in &inbox.items {
@@ -2465,12 +2521,21 @@ impl Hub {
                     "unread": unread.len(), "new": list.iter().filter(|i| !i.noticed).count(),
                     "count": list.len(), "newestAt": newest(list),
                     "surgeHeld": list.iter().any(|i| i.surge_held),
+                    // The held bar's "need you" filter: an unread message for the person.
+                    "needYou": unread.iter().any(|i| crate::surge_triage::needs_person(
+                        i.class.as_str(), &i.text, super::presence::owner_name())),
                     "newestPreview": last.map(|i| preview(&i.text)), "class": class,
                     "sender": last.map(|i| i.sender.clone()),
                 })
             })
             .collect();
-        let counts = inbox.surge_counts.lock().unwrap_or_else(|e| e.into_inner()).json();
+        let counts = {
+            let mut counts = inbox.surge_counts.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some((held, through)) = held_now {
+                counts.settle_held(held, through);
+            }
+            counts.json()
+        };
         json!({"sessionId": session.id, "threads": rows, "surge": counts})
     }
 
