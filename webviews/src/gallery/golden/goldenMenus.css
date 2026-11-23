@@ -5,7 +5,7 @@
   justify-content: space-between;
   align-items: flex-start;
   gap: 24px;
-  min-height: 420px;
+  min-height: 100vh; /* the stage frame (the entry's height: 440) */
   padding: 32px;
   box-sizing: border-box;
   background: var(--cmux-page-background, var(--cmux-window-background, Canvas));
@@ -15,9 +15,9 @@
   line-height: var(--text-control--line-height);
 }
 .golden-menus__trigger {
-  padding: 6px 12px;
+  padding: 4px 12px;
   border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
-  border-radius: 7px;
+  border-radius: var(--ds-radius-control);
   background: color-mix(in srgb, currentColor 7%, transparent);
   color: inherit;
 }
