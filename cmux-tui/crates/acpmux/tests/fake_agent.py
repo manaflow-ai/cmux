@@ -27,6 +27,7 @@ Behaviour per prompt text:
   "work-gate: <p>" -> a plan step in progress and a running tool call, then as "gate:"
   "plan-json: <entries>" -> a plan update with the JSON list of entries, then "planned" and end_turn
   "wrap-up: <json>" -> a reply, then a completed mcp__acpmux__wrap_up call with <json> as its input
+  "steps"      -> a finished tool call every 150 ms until session/cancel (see FAKE_STEPS_IN)
   "tool-then-cancel: <p>" -> a running tool call tc-1 until a write to FIFO <p>, its result, then
                  as "until-cancel" (a turn a move may stop between its tool calls)
   "elapsed-tour:" -> a finished shell, a shell gone on in the background, then a shell
@@ -78,6 +79,10 @@ FAKE_NO_FORK=1: the agent does not advertise sessionCapabilities.fork and answer
 session/fork with a bare "Internal error", as Kimi does.
 
 FAKE_UNTIL_CANCEL_IN=<text>: a prompt containing <text> is an "until-cancel" one.
+
+FAKE_STEPS_IN=<text>: a prompt containing <text> is a "steps" one. FAKE_STEP_LOG=<path>: each
+finished step's tool call id, one per line, written after its result is sent. FAKE_STEPS_END=<path>:
+once that file exists a "steps" turn ends by itself.
 
 FAKE_ASK_MODE=1: the sample harness of `cmux harness add sample` (cx-00p) as a remote
 start takes it: its one mode is "ask" (an acpmux config.json `webAskingModes` entry
@@ -1697,6 +1702,35 @@ def handle_prompt(rid, params):
     if text == "refuse":
         err = {"type": "error", "error": {"message": "Image web search is not supported by the backend.", "code": "unsupported_parameter"}, "status": 400}
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": json.dumps(err)}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "steps" (or a prompt containing FAKE_STEPS_IN) is a turn that works until told to stop: a
+    # tool call every 150 ms (step-PID-N: 20 ms running, then its result), each finished call's
+    # id appended to FAKE_STEP_LOG once its result is sent. A session/cancel between two calls
+    # ends it cancelled; once the file FAKE_STEPS_END exists it says "stepped" and ends its turn.
+    if text == "steps" or (os.environ.get("FAKE_STEPS_IN") or "\0") in text:
+        end, step_log = os.environ.get("FAKE_STEPS_END"), os.environ.get("FAKE_STEP_LOG")
+        for n in range(2000):
+            with lock:
+                was_cancelled = sid in cancelled
+                cancelled.discard(sid)
+            if was_cancelled:
+                send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
+                return
+            if end and os.path.exists(end):
+                break
+            call = f"step-{os.getpid()}-{n}"
+            update(sid, {"sessionUpdate": "tool_call", "toolCallId": call, "title": f"step {n}",
+                         "kind": "execute", "status": "in_progress"})
+            time.sleep(0.02)
+            update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": call, "status": "completed",
+                         "rawOutput": f"done {n}"})
+            if step_log:
+                fd = os.open(step_log, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+                os.write(fd, (call + "\n").encode())
+                os.close(fd)
+            time.sleep(0.13)
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "stepped"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "until-cancel" streams "running" and ends only on session/cancel (bounded at 30 s).
