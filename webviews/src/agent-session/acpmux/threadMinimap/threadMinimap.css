@@ -399,7 +399,7 @@
   cursor: default;
 }
 /* Reduce Transparency: the solid popup surface. */
-:root[data-reduce-transparency] .acpmux-minimap__card {
+:root:is([data-reduce-transparency], [data-glass="off"]) .acpmux-minimap__card {
   background: var(--surface-popup, var(--acpmux-minimap-card));
 }
 @media (prefers-reduced-transparency: reduce) {
@@ -579,7 +579,7 @@
     --acpmux-landing-highlight: color-mix(in srgb, var(--agent-text) 22%, var(--glass-surface));
   }
 }
-:root[data-reduce-transparency] .acpmux-row .cv-user__bubble {
+:root:is([data-reduce-transparency], [data-glass="off"]) .acpmux-row .cv-user__bubble {
   --acpmux-landing-highlight: color-mix(in srgb, var(--agent-text) 22%, var(--glass-surface));
 }
 /* The full-height map (ScrollMap.tsx): marks sit where their messages are in the chat. A prompt's

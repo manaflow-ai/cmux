@@ -153,7 +153,9 @@ fn kind_schema(row: &Row) -> Value {
             // `system:<absolute path>` (a macOS wallpaper), `file:<absolute path>`
             // or `folder:<absolute path>` (not `/` alone), or a `youtube:` video.
             let path = json!({ "type": "string", "pattern": "^((system|file):/|folder:/.)" });
-            return json!({ "anyOf": [choice(choices), path, youtube()] });
+            // `live:<id>` or `live:<extension>/<id>` (a live wallpaper).
+            let live = json!({ "type": "string", "pattern": super::backdrop::LIVE_PATTERN });
+            return json!({ "anyOf": [choice(choices), path, live, youtube(), shader()] });
         }
         Validation::Domain(DomainKind::BackdropPicture) => return picture(),
         Validation::Domain(DomainKind::BackdropSchedule) => {
@@ -174,6 +176,26 @@ fn kind_schema(row: &Row) -> Value {
                 "type": "object",
                 "properties": { "rotate": rotate, "folder": folder, "off": off },
                 "additionalProperties": false,
+            });
+        }
+        Validation::Domain(DomainKind::BackdropPlacement) => {
+            return json!({
+                "type": "object",
+                "propertyNames": { "pattern": "\\S" },
+                "additionalProperties": {
+                    "type": "string",
+                    "pattern": "^[ \\t]*(fill|fit|center|stretch)([ \\t]+[0-9.]+[ \\t]+[0-9.]+([ \\t]+[0-9.]+)?)?[ \\t]*$",
+                },
+            });
+        }
+        Validation::Domain(DomainKind::BackdropRecents) => {
+            let listed = json!({ "type": "string", "enum": super::backdrop::selection_choices() });
+            let path = json!({ "type": "string", "pattern": "^((system|file):/|folder:/.)" });
+            return json!({
+                "type": "array",
+                "maxItems": super::backdrop::RECENTS_CAP,
+                "uniqueItems": true,
+                "items": { "anyOf": [listed, path, youtube()] },
             });
         }
         Validation::Domain(DomainKind::ChatRoots) => {
@@ -210,6 +232,24 @@ fn kind_schema(row: &Row) -> Value {
                 },
             });
             return json!({ "type": "array", "items": { "anyOf": [name, rule] } });
+        }
+        Validation::Domain(DomainKind::TranscriptTokens) => {
+            // One property per token of schemas/transcript-look/transcript-look.json, so an editor
+            // completes and checks a theme file's tokens.
+            let mut properties = Map::new();
+            for token in &crate::transcript_look::spec().tokens {
+                let schema = match token.kind {
+                    crate::transcript_look::TokenKind::Choice => {
+                        json!({ "enum": token.choices, "description": token.description })
+                    }
+                    crate::transcript_look::TokenKind::Number => json!({
+                        "type": "number", "minimum": token.min, "maximum": token.max,
+                        "description": token.description,
+                    }),
+                };
+                properties.insert(token.name.clone(), schema);
+            }
+            return json!({ "type": "object", "properties": properties, "additionalProperties": false });
         }
         Validation::Domain(DomainKind::AppId) => {
             // The manifest's own id pattern, read from its schema.
@@ -306,7 +346,12 @@ fn kind_schema(row: &Row) -> Value {
 fn picture() -> Value {
     let listed = json!({ "type": "string", "enum": super::backdrop::picture_choices() });
     let path = json!({ "type": "string", "pattern": super::backdrop::PATH_PATTERN });
-    json!({ "anyOf": [listed, path, youtube()] })
+    json!({ "anyOf": [listed, path, youtube(), shader()] })
+}
+
+/// A living wallpaper, `shader:NAME` (super::backdrop::SHADERS).
+fn shader() -> Value {
+    json!({ "type": "string", "enum": super::backdrop::shader_ids() })
 }
 
 /// A canonical `youtube:` video id (crate::youtube; a settings write turns a
