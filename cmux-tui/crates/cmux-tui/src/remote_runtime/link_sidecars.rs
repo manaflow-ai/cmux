@@ -1,6 +1,6 @@
 //! What a client link runs beside its local socket: the network watch that tells the link the
-//! network changed, the link's own socket (`PATH.admin`: its state and a wait by a caller's
-//! deadline), and the SSH route record.
+//! network changed, the link's own socket (`PATH.admin`: its state, a wait by a caller's
+//! deadline and the link's port forwards), and the SSH route record.
 
 use std::fs;
 #[cfg(unix)]
@@ -9,10 +9,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 #[cfg(unix)]
-use cmux_remote::admin::{AdminServer, link_admin_socket, serve_link_cell_admin};
+use cmux_remote::admin::{AdminServer, link_admin_socket, serve_link_cell_admin_with_ports};
 use cmux_remote::connection::ClientConnection;
 use cmux_remote::first_dial::{LinkCell, LinkPhase};
+use cmux_remote::link_ports::LinkPorts;
 use cmux_remote::network_watch::{self, NetworkWatch};
+use cmux_remote::service::ServiceMultiplexer;
 use tokio::sync::watch;
 
 /// Started before the link's first dial, so the link's socket answers while it dials (the first
@@ -23,6 +25,7 @@ pub(super) struct PendingSidecars {
     watch: NetworkWatch,
     changes: watch::Receiver<u64>,
     cell: Arc<LinkCell>,
+    ports: Arc<LinkPorts>,
     #[cfg(unix)]
     admin: Option<AdminServer>,
 }
@@ -39,14 +42,19 @@ impl PendingSidecars {
     pub(super) async fn start_with(watch: NetworkWatch, local_socket: &Path) -> Self {
         let changes = watch.subscribe();
         let cell = LinkCell::new();
+        let ports = LinkPorts::new();
         #[cfg(unix)]
-        let admin = serve_link_cell_admin(&cell, link_admin_socket(local_socket)).await.ok();
+        let admin =
+            serve_link_cell_admin_with_ports(&cell, &ports, link_admin_socket(local_socket))
+                .await
+                .ok();
         #[cfg(not(unix))]
         let _ = local_socket;
         Self {
             watch,
             changes,
             cell,
+            ports,
             #[cfg(unix)]
             admin,
         }
@@ -70,16 +78,23 @@ impl PendingSidecars {
         self.watch.subscribe()
     }
 
-    /// The first connect succeeded: the link's socket answers for `connection` from now on, and
-    /// every network change since [`PendingSidecars::start`] goes to it.
-    pub(super) fn attach(mut self, connection: &Arc<ClientConnection>) -> LinkSidecars {
+    /// The first connect succeeded: the link's socket answers for `connection` from now on, its
+    /// port forwards go through `multiplexer`, and every network change since
+    /// [`PendingSidecars::start`] goes to it.
+    pub(super) fn attach(
+        mut self,
+        connection: &Arc<ClientConnection>,
+        multiplexer: &Arc<ServiceMultiplexer>,
+    ) -> LinkSidecars {
         self.cell.attach(connection);
+        self.ports.attach(multiplexer);
         let changes = self.changes.clone();
         let forward = tokio::spawn(network_watch::forward(changes, Arc::downgrade(connection)));
         LinkSidecars {
             _watch: self.watch.clone(),
             forward,
             cell: self.cell.clone(),
+            _ports: self.ports.clone(),
             #[cfg(unix)]
             _admin: self.admin.take(),
         }
@@ -99,11 +114,13 @@ impl Drop for PendingSidecars {
     }
 }
 
-/// Ends the forwarding and unlinks the link socket when dropped.
+/// Ends the forwarding, closes the link's port forwards and unlinks the link socket when
+/// dropped.
 pub(super) struct LinkSidecars {
     _watch: NetworkWatch,
     forward: tokio::task::JoinHandle<()>,
     cell: Arc<LinkCell>,
+    _ports: Arc<LinkPorts>,
     #[cfg(unix)]
     _admin: Option<AdminServer>,
 }
