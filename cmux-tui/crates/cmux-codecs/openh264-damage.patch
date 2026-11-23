@@ -1,0 +1,50 @@
+diff -ruN a/encoder/core/inc/cmux_damage.h b/encoder/core/inc/cmux_damage.h
+--- a/encoder/core/inc/cmux_damage.h	1970-01-01 00:00:00.000000000 +0000
++++ b/encoder/core/inc/cmux_damage.h	2026-11-23 06:48:33.879315158 +0000
+@@ -0,0 +1,25 @@
++/*!
++ * cmux measurement patch (cmux-tui/crates/cmux-codecs/openh264-damage.patch), never shipped:
++ * CMUX_OH264_DAMAGE="x,y,w,h" (pixels) forces every P-slice macroblock outside that rectangle to
++ * P_Skip, with no motion search or mode decision, so codec-bench's damage-bench can ask what
++ * "code only the damaged region" saves when the encoder keeps its full-frame pipeline (preprocess,
++ * scene analysis, rate control, deblocking, reference extension). Unset, the encoder is upstream's.
++ */
++#ifndef CMUX_DAMAGE_H
++#define CMUX_DAMAGE_H
++#include <stdlib.h>
++#include <stdio.h>
++
++static inline bool CmuxDamageOutside (int iMbX, int iMbY) {
++  static int sInit = 0, sOn = 0, sX0, sY0, sX1, sY1;
++  if (!sInit) {
++    const char* kpEnv = getenv ("CMUX_OH264_DAMAGE");
++    int x, y, w, h;
++    if (kpEnv != NULL && sscanf (kpEnv, "%d,%d,%d,%d", &x, &y, &w, &h) == 4) {
++      sOn = 1; sX0 = x / 16; sY0 = y / 16; sX1 = (x + w + 15) / 16; sY1 = (y + h + 15) / 16;
++    }
++    sInit = 1;
++  }
++  return sOn && (iMbX < sX0 || iMbX >= sX1 || iMbY < sY0 || iMbY >= sY1);
++}
++#endif
+diff -ruN a/encoder/core/src/svc_encode_slice.cpp b/encoder/core/src/svc_encode_slice.cpp
+--- a/encoder/core/src/svc_encode_slice.cpp	2026-11-23 06:48:33.877705423 +0000
++++ b/encoder/core/src/svc_encode_slice.cpp	2026-11-23 06:48:33.888587907 +0000
+@@ -46,6 +46,7 @@
+ #include "svc_set_mb_syn.h"
+ #include "decode_mb_aux.h"
+ #include "svc_mode_decision.h"
++#include "cmux_damage.h"
+ 
+ namespace WelsEnc {
+ //#define ENC_TRACE
+@@ -1848,6 +1849,9 @@
+ 
+ TRY_REENCODING:
+     WelsInitInterMDStruc (pCurMb, pMvdCostTable, kiMvdInterTableStride, pMd);
++    if (CmuxDamageOutside (pCurMb->iMbX, pCurMb->iMbY)) {
++      WelsMdInterDecidedPskip (pEncCtx, pSlice, pCurMb, pMbCache);
++    } else
+     pEncCtx->pFuncList->pfInterMd (pEncCtx, pMd, pSlice, pCurMb, pMbCache);
+     //mb_qp
+ 
