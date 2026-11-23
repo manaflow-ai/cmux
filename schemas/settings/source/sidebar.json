@@ -1035,6 +1035,37 @@
           }
         },
         {
+          "key": "sidebar.showAutomaticSessions",
+          "note": "Sessions no person started and no chat's subagent (the daemon recorded created_by kind script at the create: a script, an automation, a launcher) fold behind an Automatic (N) row at the end of their list (SidebarLayout+DoneFold); the rule is Rust's (cmux-layout-reducer automatic). Off by default: they fold; on draws them in place.",
+          "title": {
+            "key": "settings.sidebar.showAutomaticSessions",
+            "text": "Show Automatic Sessions"
+          },
+          "help": {
+            "key": "settings.sidebar.showAutomaticSessions.help",
+            "text": "Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "sidebar",
+            "automatic",
+            "auto",
+            "script",
+            "automation",
+            "background",
+            "hidden",
+            "hide",
+            "fold",
+            "sessions",
+            "tidy"
+          ],
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
           "key": "sidebar.showColors",
           "title": {
             "key": "settings.sidebar.showColors",
@@ -1252,6 +1283,27 @@
                 "key": "settings.choice.groupBackgroundSections",
                 "text": "Sections"
               }
+            },
+            {
+              "value": "chip",
+              "title": {
+                "key": "settings.choice.groupBackgroundChip",
+                "text": "Chips"
+              }
+            },
+            {
+              "value": "tree",
+              "title": {
+                "key": "settings.choice.groupBackgroundTree",
+                "text": "Tree"
+              }
+            },
+            {
+              "value": "card",
+              "title": {
+                "key": "settings.choice.groupBackgroundCard",
+                "text": "Cards"
+              }
             }
           ],
           "default": "folder",
@@ -1270,7 +1322,14 @@
             "sections",
             "section",
             "heading",
-            "plain"
+            "plain",
+            "chip",
+            "chromium",
+            "rail",
+            "tree",
+            "guide",
+            "card",
+            "cards"
           ],
           "swift_enum": {
             "name": "SidebarGroupBackgroundStyle",

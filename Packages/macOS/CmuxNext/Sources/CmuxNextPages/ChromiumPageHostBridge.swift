@@ -1,5 +1,6 @@
 import CmuxNextCompat
 public import Foundation
+import CmuxNextWakeups
 import os
 
 /// ``PageHostBridge`` for a Chromium page, through the DevTools protocol only (no render-process
@@ -10,9 +11,12 @@ import os
 /// - A script for every new document (``pageScript(handlers:)``) installs the WebKit-shaped API
 ///   on top of it (`window.webkit.messageHandlers.cmuxPage.postMessage(envelope)` resolving to the
 ///   reply), so the page does not know which engine shows it.
-/// - Trust: the payload says nothing about its sender. For each message the bridge asks the
-///   sender's own context for `location.href` and `window === window.top` (both unforgeable), and
-///   ``PageHostTrust`` checks them as for WebKit.
+/// - Trust: the payload says nothing about its sender. The bridge asks the sender's own context
+///   for `location.href` and `window === window.top` (both unforgeable), and ``PageHostTrust``
+///   checks them as for WebKit. It asks once per context (``sender(of:)``), not once per message:
+///   a context is one document of one frame for its whole life, so neither answer can change
+///   enough to change the verdict (a same-document navigation keeps the origin, which is all the
+///   trust rule reads). A failed ask is asked again and its reason logged (cmux#48605).
 /// - Replies go back into the sender's context only (`__cmuxPageHostResolve(seq, reply)`).
 /// - ``evaluate(_:)`` runs scripts in order; the ones queued together go in one `Runtime.evaluate`.
 /// - The Runtime domain is on only while a navigation starts: on, a new document's main world
@@ -47,6 +51,8 @@ public final class ChromiumPageHostBridge: PageHostBridge {
     private var draining = false
     /// Number of messages answered (tests wait on it).
     public private(set) var answered = 0
+    /// Messages dropped because their sender context never answered the sender check (tests wait on it).
+    public private(set) var unknownSenders = 0
     /// The host's pushes into the page since it was made: scripts, `Runtime.evaluate` batches and their bytes, each
     /// batch JSON-parsed by Chromium on the main thread (`debug.page` state's `pushes`; the many-chats bench reads it).
     public private(set) var pushes = (scripts: 0, batches: 0, bytes: 0)
@@ -62,6 +68,14 @@ public final class ChromiumPageHostBridge: PageHostBridge {
     /// The Runtime switches and the navigations that wait for them, in order; nil when none runs.
     private var runtimeSwitch: Task<Void, Never>?
     private var runtimeSwitches = 0
+    /// The sender each execution context answered (``sender(of:)``), until its document goes.
+    private var senders: [Int: ChromiumPageHostWire.Sender] = [:]
+    /// The sender asks out now, one per context: the messages of a context that arrive while its
+    /// ask is out wait for that ask instead of each sending its own.
+    private var senderAsks: [Int: Task<ChromiumPageHostWire.Sender?, Never>] = [:]
+    /// Which documents the kept senders are of: a commit or a renderer's end starts a new one, and an
+    /// ask that answers after that keeps nothing (a new renderer may number its contexts again).
+    private var senderEpoch = 0
 
     /// - Parameters:
     ///   - page: The Chromium page.
@@ -97,11 +111,23 @@ public final class ChromiumPageHostBridge: PageHostBridge {
     /// Runs ``setupCalls(handlers:documentScripts:)`` (with this bridge's ``fireAndForget``
     /// handlers) on the page, in order, before its first load: the Runtime domain is on after it.
     public func setUp(documentScripts: [String]) async throws {
+        try await startSetUp(documentScripts: documentScripts)()
+    }
+
+    /// ``setUp(documentScripts:)`` in two steps: sends every setup call now, in order, in this turn,
+    /// and returns what awaits their answers, so they come in about one round trip instead of one
+    /// each (one at a time, the chat page's setup took about 50 ms). Other calls sent in the same
+    /// turn go after them. Awaiting it throws the first failed call's error, as one at a time did.
+    public func startSetUp(documentScripts: [String]) throws -> @MainActor () async throws -> Void {
         guard let page else { throw PageError.unavailable("the Chromium page is gone") }
-        for (method, params) in Self.setupCalls(handlers: fireAndForget, documentScripts: documentScripts) {
-            _ = try await page.devTools(method, params: params)
+        // Sent in order now (the page keeps its call order), not raced as child tasks.
+        let answers = Self.setupCalls(handlers: fireAndForget, documentScripts: documentScripts).map { call in
+            page.startDevTools(call.0, params: call.1)
         }
-        runtimeEnabled = true
+        return {
+            for answer in answers { _ = try await answer() }
+            self.runtimeEnabled = true
+        }
     }
 
     nonisolated static let bindingCall: (String, [String: any Sendable]) = ("Runtime.addBinding", ["name": bindingName])
@@ -147,12 +173,18 @@ public final class ChromiumPageHostBridge: PageHostBridge {
     }
 
     /// The main frame committed a new document of the page: the Runtime domain goes off before the
-    /// document's scripts run (``commitCalls(runtimeEnabled:)``).
-    public func documentCommitted() {
+    /// document's scripts run (``commitCalls(runtimeEnabled:)``). When requested, the readiness
+    /// script is asked to resend its current state after the binding is re-added; this closes the
+    /// Runtime-disable event gap without keeping the expensive Runtime domain enabled.
+    public func documentCommitted(resendInputReadiness: Bool = false) {
         rendererGone = false
+        forgetSenders()
         let calls = Self.commitCalls(runtimeEnabled: runtimeEnabled)
         runtimeEnabled = false
-        switchRuntime(calls)
+        switchRuntime(calls) { [weak self] in
+            guard resendInputReadiness else { return }
+            self?.evaluate("globalThis.__cmuxInputReadyResend?.();")
+        }
     }
 
     /// The page's renderer ended: until a document commits again, ``navigate(_:)`` does not wait on
@@ -160,6 +192,25 @@ public final class ChromiumPageHostBridge: PageHostBridge {
     /// the binding comes with the commit.
     public func rendererEnded() {
         rendererGone = true
+        forgetSenders()
+    }
+
+    /// DevTools events after which a context number may name another document's context.
+    nonisolated static func endsContexts(_ method: String?) -> Bool {
+        method == "Page.frameNavigated" || method == "Runtime.executionContextsCleared" || method == "Runtime.executionContextDestroyed"
+    }
+
+    /// A document of the page was replaced or ended, whether or not it is one the page keeps (an
+    /// `about:` commit, one the navigation policy sends back): no kept sender outlives it.
+    public func documentReplaced() {
+        forgetSenders()
+    }
+
+    /// The page's contexts went with their document or renderer: their senders are asked anew.
+    private func forgetSenders() {
+        senderEpoch += 1
+        senders.removeAll()
+        senderAsks.removeAll()
     }
 
     /// Sends `calls` after the switches before them, then runs `then`.
@@ -251,6 +302,10 @@ public final class ChromiumPageHostBridge: PageHostBridge {
     @discardableResult
     public func receive(devToolsMessage json: String) -> Bool {
         let head = DevToolsMessageHead(json: json)
+        // A frame's new document, or contexts cleared (a cross-process swap), in the same ordered stream
+        // as the binding calls: no call after it is answered with a sender kept from before it, whatever
+        // number its context reuses (a new renderer numbers its contexts again).
+        if Self.endsContexts(head.method) { documentReplaced() }
         guard head.method == "Runtime.bindingCalled", head.contains(Self.bindingName) else { return false }
         if inbox == nil { startReading() }
         if case .dropped = inbox?.yield(json) { logger.error("page host binding call dropped: \(Self.maximumWaitingCalls) wait for their parse") }
@@ -300,12 +355,18 @@ public final class ChromiumPageHostBridge: PageHostBridge {
 
     private func answer(_ message: ChromiumPageHostWire.Message, context: Int) async {
         guard let page else { return }
-        let senderJSON = try? await page.devTools("Runtime.evaluate", params: [
-            "expression": "[location.href, window === window.top]",
-            "contextId": context, "returnByValue": true, "silent": true,
-        ])
-        let sender = senderJSON.flatMap(ChromiumPageHostWire.Sender.init(evaluation:))
-        let request = PageHostMessage(frameURL: sender?.url, isMainFrame: sender?.isTop ?? false, body: message.body, json: message.json)
+        guard let sender = await sender(of: context) else {
+            // Answered as if from a subframe, the main frame's message was refused as untrusted and a
+            // fire-and-forget one (input readiness) was lost without a word, so typing stayed held for
+            // good. Dropped here instead; the page re-sends its readiness, and a call settles with null.
+            unknownSenders += 1
+            logger.error("page host message \(message.name, privacy: .public) dropped: its sender context \(context) did not answer the sender check")
+            guard message.name == PageHostTrust.handlerName, handler != nil, let seq = message.seq else { return }
+            let expression = ChromiumPageHostWire.resolveExpression(seq: seq, reply: nil)
+            _ = try? await page.devTools("Runtime.evaluate", params: ["expression": expression, "contextId": context, "silent": true])
+            return
+        }
+        let request = PageHostMessage(frameURL: sender.url, isMainFrame: sender.isTop, body: message.body, json: message.json)
         if message.name != PageHostTrust.handlerName {
             guard fireAndForget.contains(message.name), request.isMainFrame else { return }
             noteReached()
@@ -320,6 +381,58 @@ public final class ChromiumPageHostBridge: PageHostBridge {
         _ = try? await page.devTools("Runtime.evaluate", params: ["expression": expression, "contextId": context, "silent": true])
         answered += 1
     }
+
+    /// The sender of the messages of execution context `context`: kept from its first answer, else
+    /// asked of the context (one ask at a time per context, ``askSender(of:)``). Before, every message
+    /// cost a DevTools round trip in the browser's call order, behind the page's queued scripts
+    /// (cmux#48605: a chat page's open makes dozens of calls, and under load the handshake and the
+    /// first-paint report waited behind them until the loading state gave up). Nil when no try answered.
+    func sender(of context: Int) async -> ChromiumPageHostWire.Sender? {
+        if let known = senders[context] { return known }
+        if let out = senderAsks[context] { return await out.value }
+        let epoch = senderEpoch
+        // task-owner: one context's sender ask; bounded by senderTries DevTools calls, each bounded
+        // by the DevTools call deadline, and dropped with the context's document (forgetSenders)
+        let ask = Task { [weak self] in await self?.askSender(of: context) }
+        senderAsks[context] = ask
+        let sender = await ask.value
+        guard epoch == senderEpoch else { return sender }
+        senderAsks[context] = nil
+        if let sender { senders[context] = sender }
+        return sender
+    }
+
+    /// The sender check of `context`, ``senderTries`` times at most (20 then 80 ms apart): under full CPU load
+    /// (or right after a navigation) one `Runtime.evaluate` can time out or fail, and the message is the
+    /// page's main frame more often than not. Nil when every try failed; that failure is not kept, so the
+    /// context's next message asks again.
+    private func askSender(of context: Int) async -> ChromiumPageHostWire.Sender? {
+        var backoff = Backoff(initial: .milliseconds(20), maximum: .milliseconds(80), multiplier: 4, jitter: 0)
+        var failure = "the page is gone"
+        for attempt in 0..<Self.senderTries {
+            if attempt > 0 {
+                // concurrency-allow: Backoff.wait is an async sleep after a failed sender check, not a blocking wait.
+                do { try await backoff.wait(owner: "page-host.sender-check") } catch { return nil }
+            }
+            guard let page else { break }
+            do {
+                let json = try await page.devTools("Runtime.evaluate", params: [
+                    "expression": ChromiumPageHostWire.senderExpression,
+                    "contextId": context, "returnByValue": true, "silent": true,
+                ])
+                if let sender = ChromiumPageHostWire.Sender(evaluation: json) { return sender }
+                // Not the answer itself: it can name the page's address.
+                failure = "an unreadable answer (\(json.utf8.count) bytes)"
+            } catch {
+                failure = String(describing: error)
+            }
+        }
+        logger.error("page host sender check of context \(context) failed \(Self.senderTries) times: \(failure, privacy: .public)")
+        return nil
+    }
+
+    /// How many times the sender check is tried before its message is dropped.
+    nonisolated static let senderTries = 3
 
     private func noteReached() {
         guard !reachedHost else { return }

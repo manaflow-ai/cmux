@@ -497,10 +497,26 @@ async fn a_message_for_another_host_or_a_daemon_is_never_given_to_a_session_here
     assert!(hub.mesh_for_here(&mine, Some("inst_me")).is_ok());
     assert!(hub.mesh_for_here(&mine, Some("inst_other")).is_err());
     assert!(hub.mesh_for_here(&mine, None).is_err());
+    // The prompt ids in the chat's records: a turn's or an inbox item's. Another agent's message
+    // to a chat that already ran a turn goes to its inbox, not a turn of its own (`hub/inbox.rs`),
+    // so the chat's turn count says nothing about what reached it.
+    async fn held(local: &mut Client, session: &str) -> Vec<String> {
+        let page = local.call("_acpmux/events", json!({"sessionId": session})).await;
+        let mut ids: Vec<String> = page
+            .pointer("/result/events")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|e| e["msg"]["promptId"].as_str().map(str::to_owned))
+            .collect();
+        ids.sort();
+        ids.dedup();
+        ids
+    }
     let own = acpmux::pairing::machine_name();
-    let mut ran = 0;
+    let mut ran: Vec<String> = Vec::new();
     if own != "host" {
-        // Its own host, as a field and as a prefix, is this one: those run.
+        // Its own host, as a field and as a prefix, is this one: those reach the chat.
         let mine = [
             ("own-host", named(Some(&own.to_uppercase()), None)),
             ("own-prefix", Target { name: Some(format!("{own}/dep-land")), ..Target::default() }),
@@ -509,20 +525,19 @@ async fn a_message_for_another_host_or_a_daemon_is_never_given_to_a_session_here
             fake.lease(InMessage { message_id: id.into(), ..to(target) });
             fake.until(id, |s| !s.acked(id).is_empty()).await;
             assert_eq!(fake.with(|s| s.acked(id)[0].clone()), Ack::delivered(id, None), "{id}");
-            ran += 1;
+            ran.push(id.to_owned());
         }
     }
-    let mut info = Value::Null;
+    ran.sort();
+    let mut got = Vec::new();
     for _ in 0..600 {
-        info = local.call("_acpmux/info", json!({"sessionId": session})).await;
-        let idle = info.pointer("/result/turn").is_none_or(Value::is_null);
-        if idle && info.pointer("/result/turnCount").and_then(Value::as_u64) >= Some(ran) {
+        got = held(&mut local, &session).await;
+        if got.len() >= ran.len() {
             break;
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    let count = info.pointer("/result/turnCount").and_then(Value::as_u64).unwrap_or(0);
-    assert_eq!(count, ran, "a message for elsewhere ran here: {info}");
+    assert_eq!(got, ran, "a message for elsewhere reached the chat here, or one for here did not");
     relay.stop().await;
 }
 
@@ -1158,14 +1173,15 @@ async fn a_send_to_a_name_no_peer_has_goes_through_the_hub_and_is_delivered_with
     let said = keyed.pointer("/error/message").and_then(Value::as_str).unwrap_or_default();
     assert!(said.contains("--supersede") && !said.contains("no session"), "{keyed}");
     assert_eq!(fake.with(|s| s.sent.len()), posted, "a keyed send reached the hub");
-    // Nor a class but result, the default the target reads: refused, not sent as a result.
+    // A class but result has no field on the hub's message: it goes as the text's first line,
+    // and the sender's row says so (`server/mesh_send.rs`, #49350), never as a plain result.
     let mut block = send_queue("dep-land", "prompt-0005");
     block["request"]["_meta"]["acpmux"]["class"] = json!("block");
     let block = sender.call("_acpmux/send_queue", block).await;
-    assert_eq!(block.pointer("/error/data/reason"), Some(&json!("mesh.no_class")), "{block}");
-    let said = block.pointer("/error/message").and_then(Value::as_str).unwrap_or_default();
-    assert!(said.contains("--class") && !said.contains("no session"), "{block}");
-    assert_eq!(fake.with(|s| s.sent.len()), posted, "a classified send reached the hub");
+    assert_eq!(block.pointer("/result/classInline"), Some(&json!("block")), "{block}");
+    let body = fake.with(|s| s.sent.last().unwrap().body.clone());
+    assert_eq!(body, "[block]\n\nfrom another machine");
+    assert_eq!(fake.with(|s| s.sent.len()), posted + 1, "a classified send did not reach the hub");
     relay.stop().await;
 }
 

@@ -17,6 +17,42 @@ pub(super) fn explains_exit(line: &str) -> bool {
     !is_wrapper_exit_line(line)
 }
 
+/// An `exited` record's data: its exit `code`, and, when the dead process's stderr said why
+/// (`last`: its last line that [`explains_exit`]), that line as `error` and its class as `reason`
+/// ([`exit_cause`]).
+///
+/// Leo, 2026-11-21: "i dont think 429 should just cause a process to just exit on its own, this
+/// is pretty weird". An agent process that quit on its own between turns was logged `exited`
+/// with only its code, and a code of 0 read as "agent stopped" in the transcript, as if someone
+/// had stopped it: an agent that printed its account's 429 and quit read the same as a Stop. Now
+/// the record says what the process said, and the transcript says it exited and why
+/// (`transcript.rs`). The chat's status and its resume are as before: the next prompt starts the
+/// harness again on the same conversation.
+pub(super) fn exited_data<C: serde::Serialize>(code: C, last: Option<&str>) -> serde_json::Value {
+    let mut data = serde_json::json!({"code": code});
+    if let (Some(line), Some(o)) = (last, data.as_object_mut()) {
+        o.insert("reason".to_owned(), exit_cause(line).into());
+        o.insert("error".to_owned(), line.into());
+    }
+    data
+}
+
+/// The last line of `lines` that explains an exit ([`explains_exit`]), trimmed.
+pub(super) fn last_explaining<'a>(
+    lines: impl DoubleEndedIterator<Item = &'a str>,
+) -> Option<&'a str> {
+    lines.rev().map(str::trim).find(|l| explains_exit(l))
+}
+
+/// Why an agent process died, from the stderr line that says it: as a turn its death cut off is
+/// classed (`turn_errors::resume_cause`: `rate_limit` for an account's 429 or usage limit,
+/// `capacity`, `transport`, `context`), `auth` for a sign-in failure, else `agent_exited`.
+pub(super) fn exit_cause(line: &str) -> &'static str {
+    crate::turn_errors::resume_cause(crate::agent::AGENT_CLOSED, line)
+        .or_else(|| crate::recovery::auth_kind(line).map(|_| "auth"))
+        .unwrap_or("agent_exited")
+}
+
 /// `<program>: exit status <n>`, as Go's `exec.ExitError` prints it.
 fn is_wrapper_exit_line(line: &str) -> bool {
     let Some((program, rest)) = line.split_once(": exit status ") else {
@@ -59,5 +95,27 @@ mod explains_exit_tests {
         assert!(!explains_exit("at Object.<anonymous> (cli.js:1:1)"));
         assert!(!explains_exit("[SYSTEM_ERROR] boom"));
         assert!(!explains_exit(""));
+    }
+
+    /// An agent that printed its account's 429 and quit says so in its `exited` record.
+    #[test]
+    fn an_exit_after_a_429_is_classed_rate_limit_with_its_line() {
+        use super::{exit_cause, exited_data, last_explaining};
+        let tail = [
+            "API Error: Request rejected (429) · This request would exceed your account's rate limit",
+            "subrouter: exit status 1",
+        ];
+        let last = last_explaining(tail.iter().copied());
+        assert_eq!(last, Some(tail[0]));
+        let data = exited_data(Some(0), last);
+        assert_eq!(data["code"], 0);
+        assert_eq!(data["reason"], "rate_limit");
+        assert_eq!(data["error"], tail[0]);
+        assert_eq!(exit_cause("API Error: 529 overloaded_error"), "capacity");
+        assert_eq!(exit_cause("Not logged in · Please run /login"), "auth");
+        assert_eq!(exit_cause("panic: index out of range"), "agent_exited");
+        // Nothing on stderr: the code alone, as before.
+        let quiet = exited_data(Some(1), None);
+        assert_eq!(quiet, serde_json::json!({"code": 1}));
     }
 }

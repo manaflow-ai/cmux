@@ -141,10 +141,16 @@ fn build_harness_command(
         ));
     }
     let owned = if let (true, Some((session_id, session_name))) = (claude_session, session) {
-        let extra =
+        let (extra, prompt) =
             crate::agent_tools::claude_args_for(false, &profile.env, &owned.1, session_id, cwd);
         let named = claude_name_args(&profile.env, &owned.1, session_name);
-        (owned.0, owned.1.into_iter().chain(extra).chain(named).collect())
+        let mut args = owned.1;
+        // acpmux's own servers' instructions, which they then leave out: in the system prompt
+        // every chat shares, not the first turn's (`AgentTools::instructions_in_prompt`).
+        if let Some(prompt) = prompt {
+            crate::agent_tools::append_system_prompt(&mut args, &prompt);
+        }
+        (owned.0, args.into_iter().chain(extra).chain(named).collect())
     } else {
         owned
     };

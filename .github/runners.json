@@ -11,7 +11,18 @@
     "",
     "Capability keys are requirements, not lanes. Who is asking (pull request,",
     "manual flake hunt, non-urgent background work) is cost policy and is not",
-    "expressed here."
+    "expressed here.",
+    "",
+    "manaflow-ai resolves to `owned`, not Blacksmith (Leo, 2026-11-14, on CI still",
+    "running on Blacksmith: owned fleet first). Its Linux keys name the one owned Linux",
+    "label, cmux-linux, the label every own-branch Linux job already takes (#48644).",
+    "The other keys keep Blacksmith because nothing else is allowed there yet: there is",
+    "no owned arm64 Linux; owned Macs are reached only through a picker's",
+    "output, never a fixed label, and the one macOS caller (ios-app-store.yml's",
+    "release-secret upload) may not land on a shared mini. A caller whose job a fork pull",
+    "request can run puts its own fork branch first, so fork code never reaches the owned",
+    "pool. The `blacksmith` fleet stays declared as an explicit opt-in:",
+    "vars.CMUX_CI_RUNNER_FLEET=blacksmith (or a caller's `fleet` input)."
   ],
   "capabilities": {
     "linux": "x86_64 Linux; the default for every non-macOS job",
@@ -49,10 +60,22 @@
       "macos_26": "macos-26",
       "macos_26_ios": "macos-26",
       "macos_26_large": "macos-26"
+    },
+    "owned": {
+      "linux": "cmux-linux",
+      "linux_16": "cmux-linux",
+      "linux_32": "cmux-linux",
+      "linux_arm64": "blacksmith-4vcpu-ubuntu-2404-arm",
+      "macos_15": "blacksmith-6vcpu-macos-15",
+      "macos_15_gui": "blacksmith-6vcpu-macos-15",
+      "macos_15_sdk15": "blacksmith-6vcpu-macos-15",
+      "macos_26": "blacksmith-6vcpu-macos-26",
+      "macos_26_ios": "blacksmith-6vcpu-macos-26",
+      "macos_26_large": "blacksmith-12vcpu-macos-26"
     }
   },
   "owners": {
-    "manaflow-ai": "blacksmith"
+    "manaflow-ai": "owned"
   },
   "default_fleet": "hosted",
   "pools": {
@@ -73,6 +96,7 @@
       "why": "Every Linux job: the runner set's Blacksmith sizes (Leo, 2026-10-28: \"just pin the set of the shit that isn't hilariously slow\"), smallest first. Blacksmith now caps us on vCPUs at once, so a 32 vCPU job holds the room of eight 4 vCPU jobs, and on 2026-10-31 the live member was 32 vCPU: 106,443 jobs and 193,021 billed minutes (about $12.4k of $19.3k) ran there, most of them checks under a minute (pr-perf-section-check 2,940 runs at 0.1 min). A stalled 4 vCPU moves the pool to 16 vCPU; 8 vCPU is not a member because the bounded selectors (vars.LINUX_RUNNER in 4/16/32, else 4) would send its readers back to 4 (Leo, 2026-11-01: \"we clearly are not able to use them. so we should have resized a long-ass time ago.\"). A job that needs more cores names its size, not this pool",
       "members": [
         "cmux-fleet-linux-x64",
+        "cmux-freestyle-linux-x64",
         "blacksmith-4vcpu-ubuntu-2404",
         "blacksmith-16vcpu-ubuntu-2404"
       ]
@@ -81,6 +105,7 @@
       "why": "One-minute control and comment jobs measured at 2 vCPU. A job that used to end in a literal 2 vCPU label reads this pool, so a stalled 2 vCPU size moves it to 4 vCPU by declaration, not by a YAML edit (Leo, 2026-10-28: \"Where the f***ing are the generalized solution to all these problems that these incessant pins?\")",
       "members": [
         "cmux-fleet-linux-x64",
+        "cmux-freestyle-linux-x64",
         "blacksmith-2vcpu-ubuntu-2404",
         "blacksmith-4vcpu-ubuntu-2404"
       ]
@@ -97,6 +122,7 @@
       "why": "Jobs measured at 8 vCPU (tooling tests, mid-size compiles). A stalled 8 vCPU size moves them to 16 vCPU",
       "members": [
         "cmux-fleet-linux-x64",
+        "cmux-freestyle-linux-x64",
         "blacksmith-8vcpu-ubuntu-2404",
         "blacksmith-4vcpu-ubuntu-2404",
         "blacksmith-16vcpu-ubuntu-2404"
@@ -248,7 +274,7 @@
     },
     "portable-checks": {
       "needs": "any",
-      "description": "Static checks and stdlib Python, bash and bun tests that run the same on Linux and macOS: fleet Linux first, then a free owned mini with no nightly job waiting, Blacksmith Linux last (scripts/ci/portable_job_placement.py)."
+      "description": "Static checks and stdlib Python, bash and bun tests that run the same on Linux and macOS. Own-branch jobs take the one label cmux-linux."
     }
   },
   "macos_jobs": {
@@ -260,10 +286,6 @@
       "reads no picker output and so waits on one fixed label (scripts/ci/runner_routing_table.py). All three",
       "lists only shrink."
     ],
-    "ci-guards.yml#guard-status": "portable-checks",
-    "cmux-next-fast-gates.yml#resolve": "portable-checks",
-    "cmux-next-fast-gates.yml#post": "portable-checks",
-    "cmux-next-fast-gates.yml#receipt": "portable-checks",
     "agent-brands.yml#swift-test": {
       "class": "apple-swift-tests",
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
@@ -345,7 +367,6 @@
     "cmux-next-dev-daily.yml#verify": "apple-signing-release",
     "cmux-next-fast-tier-seed.yml#seed": "apple-app-build",
     "cmux-next-frame-pacing.yml#bench": "apple-gui",
-    "cmux-next-guards.yml#tooling-tests": "portable-checks",
     "cmux-next-ios-kit.yml#kit-tests": "apple-swift-tests",
     "cmux-next-iphone-clips.yml#record": {
       "class": "apple-gui",
@@ -672,6 +693,7 @@
       "ci-web.yml#web-production-build": {"routes": [16, 32], "target": 4, "measured": {"32": [114.5, 1.15, 1.4], "4": [14.0, 1.88, 2.33]}, "pending": "#30277 and #29981 change this file's runs-on"},
       "ci-web.yml#web-tests": {"routes": [16, 32], "target": 4, "measured": {"32": [14.0, 1.12, 1.32], "16": [464.5, 0.97, 1.33], "4": [46.5, 1.7, 2.37]}, "pending": "#30277 and #29981 change this file's runs-on"},
       "ci-web.yml#web-typecheck": {"routes": [16, 32], "target": 4, "measured": {"32": [4.5, 0.2, 0.23], "16": [115.5, 0.36, 0.6], "4": [12.5, 0.51, 0.82]}, "pending": "#30277 and #29981 change this file's runs-on"},
+      "ci-web.yml#webviews-typecheck": {"routes": [16, 32], "target": 4, "measured": {}, "pending": "new job (ci-self-heal 0c): the webviews type check, moved out of react-apps-check (1); same runs-on as web-typecheck"},
       "cloudflare-relay.yml#cloudflare-relay": {"size": 8, "failover": 16, "measured": {}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits; no runs in the window"},
       "cmux-actions.yml#check": {"size": 4, "failover": 8, "measured": {"16": [151.0, 0.71, 0.9]}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class)"},
       "cmux-browser-host-chromium.yml#chromium": {"size": 8, "failover": 16, "measured": {}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits; no runs in the window"},

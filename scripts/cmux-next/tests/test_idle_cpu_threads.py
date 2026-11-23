@@ -72,5 +72,39 @@ class PageActivity(unittest.TestCase):
         self.assertNotIn("metrics_per_s", pages[0])
 
 
+class RendererThreads(unittest.TestCase):
+    def test_each_renderer_gets_its_own_thread_groups_per_window(self):
+        procs = {10: ("app", "cmux"), 20: ("cef-renderer", "r --type=renderer"), 30: ("cef-gpu", "g"),
+                 40: ("cef-renderer-extension", "e --type=renderer")}
+        self.assertEqual(idle_cpu.renderer_pids(procs), [20, 40])
+        times = {10: [{1: ("main", 0)}, {1: ("main", 1_000_000)}],
+                 20: [{7: ("Compositor", 0)}, {7: ("Compositor", 4_000_000)}],
+                 40: [{8: ("main", 0)}, {8: ("main", 0)}]}
+        calls = {pid: iter(v) for pid, v in times.items()}
+        renderer_threads: list = []
+        with mock.patch.object(idle_cpu.bench_memory, "owned", return_value=procs), \
+                mock.patch.object(idle_cpu.bench_memory, "thread_times", side_effect=lambda pid: next(calls[pid])), \
+                mock.patch.object(idle_cpu.bench_memory, "usage", return_value=None), \
+                mock.patch.object(idle_cpu, "switches", return_value=None), \
+                mock.patch.object(idle_cpu.time, "sleep"), \
+                mock.patch.object(idle_cpu.time, "monotonic", side_effect=[0.0, 2.0]):
+            idle_cpu.measure(10, "b", 1, 2.0, None, [], renderer_threads)
+        self.assertEqual(renderer_threads, [{20: [{"name": "Compositor", "threads": 1, "cpu_ms_per_s": 2.0}], 40: []}])
+
+
+class CefSwitches(unittest.TestCase):
+    def test_switches_reach_the_launch_env_after_the_home_is_prepared(self):
+        seen = []
+        env = {"HOME": "/tmp/h"}
+        idle_cpu.with_cef_switches(lambda e: seen.append(dict(e)), "disable-component-update")(env)
+        self.assertEqual(seen, [{"HOME": "/tmp/h"}])
+        self.assertEqual(env["CMUX_NEXT_CEF_EXTRA_SWITCHES"], "disable-component-update")
+
+    def test_no_switches_leave_the_env_alone(self):
+        env = {"HOME": "/tmp/h"}
+        idle_cpu.with_cef_switches(lambda e: None, "")(env)
+        self.assertNotIn("CMUX_NEXT_CEF_EXTRA_SWITCHES", env)
+
+
 if __name__ == "__main__":
     unittest.main()

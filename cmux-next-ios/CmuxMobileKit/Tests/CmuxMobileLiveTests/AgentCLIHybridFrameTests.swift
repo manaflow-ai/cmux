@@ -165,6 +165,10 @@ import Testing
         #expect(DaemonTerminalSession.capabilities(agentCLIHybrid: true).contains("agent-cli-hybrid-v1"))
         #expect(DaemonTerminalSession.capabilities(agentCLIHybrid: true).contains("agent-cli-hybrid-v2"))
         #expect(!DaemonTerminalSession.capabilities(agentCLIHybrid: false).contains("agent-cli-hybrid-v2"))
+        for capability in ["terminal-shell-lines-v1", "attach-output-coalesce-v1"] {
+            #expect(DaemonTerminalSession.capabilities(agentCLIHybrid: true).contains(capability))
+            #expect(!DaemonTerminalSession.capabilities(agentCLIHybrid: false).contains(capability))
+        }
         let defaults = try #require(UserDefaults(suiteName: "AgentCLIHybridFrameTests-\(UUID().uuidString)"))
         #expect(!DaemonTerminalSession.agentCLIHybridEnabled(defaults), "off by default")
         defaults.set(true, forKey: DaemonTerminalSession.agentCLIHybridDefaultsKey)

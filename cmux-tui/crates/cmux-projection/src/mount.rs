@@ -12,6 +12,9 @@
 //!   life of the mount, and every change to the path comes through the mount, which tells the
 //!   kernel), an answer about an upper path for [`UPPER_TTL`] (the upper folder
 //!   is plain files on the machine's disk);
+//! - a listing of a folder only in the manifest (`FOPEN_CACHE_DIR`), dropped by the kernel when a
+//!   change through the mount touches the folder, and each listed name's `stat` with it
+//!   (`FUSE_DO_READDIRPLUS`), so a walk asks this process once per folder and never per file;
 //! - `FUSE_AUTO_INVAL_DATA`: pages go when a fresh `stat` shows another size or mtime.
 //!
 //! No writeback cache: edits must be on the upper folder's disk when the write returns, because
@@ -21,15 +24,16 @@ use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::path::Path;
 
+use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use fuser::consts::{FOPEN_KEEP_CACHE, FUSE_AUTO_INVAL_DATA};
+use fuser::consts::{FOPEN_CACHE_DIR, FOPEN_KEEP_CACHE, FUSE_AUTO_INVAL_DATA, FUSE_DO_READDIRPLUS};
 use fuser::{
     BackgroundSession, FileAttr, FileType, Filesystem, KernelConfig, MountOption, Notifier,
-    ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry, ReplyOpen,
-    ReplyStatfs, ReplyWrite, Request, TimeOrNow,
+    ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyDirectoryPlus, ReplyEmpty, ReplyEntry,
+    ReplyOpen, ReplyStatfs, ReplyWrite, Request, TimeOrNow,
 };
 
 use crate::overlay::{Attr, Overlay, Set, Type, Version, Who};
@@ -55,6 +59,9 @@ fn ttl(attr: &Attr) -> Duration {
     if attr.upper { UPPER_TTL } else { LOWER_TTL }
 }
 
+/// A listed name: its number, kind, name, and its attributes when the listing had them.
+type Listed = (u64, FileType, String, Option<Attr>);
+
 /// Threads that run reads and writes.
 const WORKERS: usize = 16;
 
@@ -63,9 +70,19 @@ type Job = Box<dyn FnOnce() + Send>;
 /// A mounted projection; dropping it unmounts.
 pub struct Mounted {
     session: Option<BackgroundSession>,
+    notifier: Option<Notifier>,
 }
 
 impl Mounted {
+    /// Tells the kernel to drop what it cached of `name` in folder `parent` (a number the overlay
+    /// gave), so the next lookup asks the overlay again: after [`Overlay::swap_to_link`].
+    pub fn forget_entry(&self, parent: u64, name: &str) -> std::io::Result<()> {
+        match &self.notifier {
+            Some(notifier) => notifier.inval_entry(parent, OsStr::new(name)),
+            None => Ok(()),
+        }
+    }
+
     /// Unmounts and waits for the session to end.
     pub fn unmount(mut self) {
         if let Some(session) = self.session.take() {
@@ -111,15 +128,26 @@ pub fn mount_with(overlay: Arc<Overlay>, at: &Path, options: Options) -> anyhow:
     let session = fuser::spawn_mount2(fs, at, &mount_options(&options))?;
     // Set before this returns, so before anything the caller starts opens through the mount.
     let _ = notifier.set(session.notifier());
-    Ok(Mounted { session: Some(session) })
+    Ok(Mounted { notifier: Some(session.notifier()), session: Some(session) })
 }
 
 /// Mounts `overlay` at `at` and serves it on this thread until it is unmounted from outside
-/// (`fusermount3 -u`). `mounted` runs once the mount is up, before the first request.
+/// (`fusermount3 -u`) or this process gets SIGTERM, SIGINT or SIGHUP, which unmount it
+/// ([`unmount_on_signal`]). `mounted` runs once the mount is up, before the first request.
 pub fn serve(overlay: Arc<Overlay>, at: &Path, mounted: impl FnOnce()) -> anyhow::Result<()> {
-    let options = Options::default();
+    serve_with(overlay, at, Options::default(), mounted)
+}
+
+/// [`serve`] as `options` say (a read-only lower: `read_only`).
+pub fn serve_with(
+    overlay: Arc<Overlay>,
+    at: &Path,
+    options: Options,
+    mounted: impl FnOnce(),
+) -> anyhow::Result<()> {
     let (fs, notifier) = filesystem(overlay, &options)?;
     let mut session = fuser::Session::new(fs, at, &mount_options(&options))?;
+    unmount_on_signal(at)?;
     // Set before the first request is read, so before any open.
     let _ = notifier.set(session.notifier());
     mounted();
@@ -168,8 +196,80 @@ fn filesystem(
         listings: HashMap::new(),
         versions: Arc::new(Mutex::new(HashMap::new())),
         notifier: notifier.clone(),
+        read_only: options.read_only,
     };
     Ok((fs, notifier))
+}
+
+/// The write end of the pipe [`on_stop_signal`] wakes the unmounting thread through (-1: none).
+static STOP_PIPE: AtomicI32 = AtomicI32::new(-1);
+
+extern "C" fn on_stop_signal(_: libc::c_int) {
+    let fd = STOP_PIPE.load(Ordering::Relaxed);
+    if fd >= 0 {
+        let byte = 1_u8;
+        // SAFETY: write(2) is async-signal-safe; the byte outlives the call.
+        let _ = unsafe { libc::write(fd, (&raw const byte).cast(), 1) };
+    }
+}
+
+/// On SIGTERM, SIGINT or SIGHUP, unmounts `at`, so the session loop of [`serve`] sees the device
+/// go and returns, and the process exits with no mount left behind. A service manager's stop (or
+/// Ctrl-C) used to kill the server with its mount still in the table: every call at `at` then
+/// failed with ENOTCONN ("Transport endpoint is not connected") until someone ran
+/// `fusermount3 -u`. The handler only writes a byte to a pipe; a thread does the unmount: a plain
+/// one first, a lazy one when something still has the mount open (its edits are on the upper
+/// folder's disk already, nothing is lost). Handlers reset at exec, so no child inherits them.
+fn unmount_on_signal(at: &Path) -> anyhow::Result<()> {
+    let mut fds = [0; 2];
+    // SAFETY: pipe2 writes two descriptors into `fds`.
+    anyhow::ensure!(
+        unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) } == 0,
+        "pipe2: {}",
+        std::io::Error::last_os_error()
+    );
+    let [read, write] = fds;
+    STOP_PIPE.store(write, Ordering::Relaxed);
+    let at = at.to_path_buf();
+    std::thread::Builder::new().name("projection-stop".into()).spawn(move || {
+        let mut byte = 0_u8;
+        loop {
+            // SAFETY: reads one byte into `byte` from the pipe this function made.
+            let got = unsafe { libc::read(read, (&raw mut byte).cast(), 1) };
+            if got == 1 {
+                break;
+            }
+            if got < 0 && std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted
+            {
+                continue;
+            }
+            return;
+        }
+        let plain = std::process::Command::new("fusermount3")
+            .arg("-u")
+            .arg(&at)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+        if !plain.is_ok_and(|status| status.success()) {
+            unmount_stale(&at);
+        }
+    })?;
+    for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
+        // SAFETY: a zeroed sigaction with a handler that only calls write(2).
+        unsafe {
+            let mut action: libc::sigaction = std::mem::zeroed();
+            action.sa_sigaction = on_stop_signal as extern "C" fn(libc::c_int) as usize;
+            action.sa_flags = libc::SA_RESTART;
+            libc::sigemptyset(&raw mut action.sa_mask);
+            anyhow::ensure!(
+                libc::sigaction(signal, &raw const action, std::ptr::null_mut()) == 0,
+                "sigaction: {}",
+                std::io::Error::last_os_error()
+            );
+        }
+    }
+    Ok(())
 }
 
 /// Lazily unmounts whatever is mounted at `at` (a dead mount a daemon restart left), ignoring
@@ -189,10 +289,12 @@ struct Fs {
     jobs: Sender<Job>,
     /// Folder listings by handle, taken at `opendir` and again at each read from the start, so
     /// paging is stable and cheap.
-    listings: HashMap<u64, Vec<(u64, FileType, String)>>,
+    listings: HashMap<u64, Arc<[Listed]>>,
     /// Each file's [`Version`] at its last open: the pages the kernel holds are of it.
     versions: Arc<Mutex<HashMap<u64, Version>>>,
     notifier: Arc<OnceLock<Notifier>>,
+    /// A read-only mount: nothing in it ever changes, so the kernel keeps folder listings.
+    read_only: bool,
 }
 
 fn file_type(kind: Type) -> FileType {
@@ -252,13 +354,26 @@ fn who(req: &Request<'_>) -> Who {
 
 impl Fs {
     /// Folder `ino`'s listing as `readdir` pages it: `.`, `..`, then its names.
-    fn listing(&self, ino: u64) -> Result<Vec<(u64, FileType, String)>, i32> {
-        let entries = self.overlay.readdir(ino)?;
+    fn listing(&self, ino: u64) -> Result<Vec<Listed>, i32> {
+        let entries = self.overlay.readdir_plus(ino)?;
         let mut listing = Vec::with_capacity(entries.len() + 2);
-        listing.push((ino, FileType::Directory, ".".to_owned()));
-        listing.push((ino, FileType::Directory, "..".to_owned()));
-        listing.extend(entries.into_iter().map(|(ino, kind, name)| (ino, file_type(kind), name)));
+        listing.push((ino, FileType::Directory, ".".to_owned(), None));
+        listing.push((ino, FileType::Directory, "..".to_owned(), None));
+        listing.extend(
+            entries.into_iter().map(|(ino, kind, name, attr)| (ino, file_type(kind), name, attr)),
+        );
         Ok(listing)
+    }
+
+    /// The listing a read of handle `fh` at `offset` answers from. A read from the start (the
+    /// first, or one after rewinddir) lists the folder as it is now: POSIX has rewinddir see
+    /// names made or deleted since the folder was opened.
+    fn listing_at(&mut self, ino: u64, fh: u64, offset: i64) -> Result<Arc<[Listed]>, i32> {
+        if offset == 0 && self.listings.contains_key(&fh) {
+            let listing = self.listing(ino)?;
+            self.listings.insert(fh, listing.into());
+        }
+        self.listings.get(&fh).cloned().ok_or(libc::EBADF)
     }
 
     fn run(&self, job: impl FnOnce(&Overlay) + Send + 'static) {
@@ -310,6 +425,15 @@ fn open_flags(
     }
 }
 
+/// `FOPEN_CACHE_DIR | FOPEN_KEEP_CACHE` for a folder only in the manifest, else nothing. The
+/// manifest is fixed for the life of the mount, so such a folder's names change only by a create,
+/// unlink, rename or rmdir through the mount, each of which drops the kernel's cached listing
+/// itself; the next walk (`git status`, `find`, `rg`) is then answered by the kernel, with no
+/// `READDIR`. An upper folder is plain files on the machine's disk and is listed afresh.
+fn dir_flags(overlay: &Overlay, ino: u64) -> u32 {
+    if overlay.lower_only(ino) { FOPEN_CACHE_DIR | FOPEN_KEEP_CACHE } else { 0 }
+}
+
 fn entry(reply: ReplyEntry, made: Result<Attr, i32>) {
     match made {
         Ok(attr) => reply.entry(&ttl(&attr), &file_attr(&attr), 0),
@@ -328,6 +452,11 @@ impl Filesystem for Fs {
     fn init(&mut self, _req: &Request<'_>, config: &mut KernelConfig) -> Result<(), libc::c_int> {
         // A kernel without it still works: an open of a changed file drops its pages anyway.
         let _ = config.add_capabilities(FUSE_AUTO_INVAL_DATA);
+        // Every listing carries its entries' attributes (not `FUSE_READDIRPLUS_AUTO`, which sends
+        // them only for a folder's first chunk or one already looked up in): the manifest answers
+        // them with no fetch, and a walk then never asks per file. A kernel without it lists as
+        // before and looks each name up.
+        let _ = config.add_capabilities(FUSE_DO_READDIRPLUS);
         Ok(())
     }
 
@@ -571,8 +700,15 @@ impl Filesystem for Fs {
         });
         match listed {
             Ok((handle, listing)) => {
-                self.listings.insert(handle, listing);
-                reply.opened(handle, 0);
+                self.listings.insert(handle, listing.into());
+                // Read only, a folder never changes: the kernel answers every later listing of it
+                // from its cache (`find` and git's untracked scan then make no round trip here).
+                let flags = if self.read_only {
+                    FOPEN_CACHE_DIR | FOPEN_KEEP_CACHE
+                } else {
+                    dir_flags(&self.overlay, ino)
+                };
+                reply.opened(handle, flags);
             }
             Err(errno) => reply.error(errno),
         }
@@ -586,27 +722,57 @@ impl Filesystem for Fs {
         offset: i64,
         mut reply: ReplyDirectory,
     ) {
-        // A read from the start (the first, or one after rewinddir) lists the folder as it is now:
-        // POSIX has rewinddir see names made or deleted since the folder was opened.
-        if offset == 0 && self.listings.contains_key(&fh) {
-            match self.listing(ino) {
-                Ok(listing) => {
-                    self.listings.insert(fh, listing);
-                }
-                Err(errno) => {
-                    reply.error(errno);
-                    return;
-                }
+        let listing = match self.listing_at(ino, fh, offset) {
+            Ok(listing) => listing,
+            Err(errno) => {
+                reply.error(errno);
+                return;
             }
-        }
-        let Some(listing) = self.listings.get(&fh) else {
-            reply.error(libc::EBADF);
-            return;
         };
         let start = usize::try_from(offset).unwrap_or(0);
-        for (at, (ino, kind, name)) in listing.iter().enumerate().skip(start) {
+        for (at, (ino, kind, name, _)) in listing.iter().enumerate().skip(start) {
             let next = i64::try_from(at + 1).unwrap_or(i64::MAX);
             if reply.add(*ino, next, *kind, name) {
+                break;
+            }
+        }
+        reply.ok();
+    }
+
+    /// A listing with each entry's attributes (`FUSE_DO_READDIRPLUS`), so the kernel holds every
+    /// name and `stat` of the folder from one call: a walk (`find`, `git status`, `rg`) then
+    /// `stat`s each file with no `LOOKUP` round trip. The attributes are the ones `lookup` would
+    /// answer, kept as long ([`LOWER_TTL`], [`UPPER_TTL`]).
+    fn readdirplus(
+        &mut self,
+        _req: &Request<'_>,
+        ino: u64,
+        fh: u64,
+        offset: i64,
+        mut reply: ReplyDirectoryPlus,
+    ) {
+        let listing = match self.listing_at(ino, fh, offset) {
+            Ok(listing) => listing,
+            Err(errno) => {
+                reply.error(errno);
+                return;
+            }
+        };
+        let start = usize::try_from(offset).unwrap_or(0);
+        for (at, (child, _, name, listed)) in listing.iter().enumerate().skip(start) {
+            let next = i64::try_from(at + 1).unwrap_or(i64::MAX);
+            // `.` and `..` are never linked by the kernel (it takes no lookup for them), so their
+            // attributes are the folder's own. A name the listing had no attributes for (an upper
+            // folder's) is looked up.
+            let attr = match listed {
+                Some(attr) => Ok(*attr),
+                None if at < 2 => self.overlay.getattr(ino),
+                None => self.overlay.lookup(ino, name),
+            };
+            // A name gone since the listing was taken (a race with an unlink): leave it out, as
+            // a fresh listing would.
+            let Ok(attr) = attr else { continue };
+            if reply.add(*child, next, name, &ttl(&attr), &file_attr(&attr), 0) {
                 break;
             }
         }

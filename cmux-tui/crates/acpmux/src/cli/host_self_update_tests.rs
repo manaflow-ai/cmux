@@ -82,6 +82,8 @@ fn paths(peer: &FakePeer) -> Paths {
         cloud_vm: peer.home.join("etc/cmux/vm-kind"),
         unit: peer.home.join(format!("{UNITS}/acpmux.service")),
         target: TARGET,
+        rd: None,
+        allow_downgrade: false,
     }
 }
 
@@ -115,7 +117,7 @@ async fn ready(peer: &FakePeer, files: &Files) -> Plan {
         Prepared::Ready(plan) => plan,
         Prepared::Off => panic!("automatic updates are off"),
         Prepared::Locked => panic!("the lock is held"),
-        Prepared::RolledBackBefore(_) => panic!("the build was rolled back before"),
+        Prepared::RolledBackBefore(..) => panic!("the build was rolled back before"),
     }
 }
 
@@ -300,6 +302,55 @@ async fn a_channel_without_this_hosts_target_is_refused() {
     peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), OLD);
 }
 
+/// Lane hosts, 2026-11-23: several held b45cad3d8 (a lane branch's build, newer
+/// than the channel's head 7d439038 and containing the fix the channel lacked)
+/// while the timer kept trying to put the older channel build back, each try a
+/// daemon restart that some hosts did not survive (`rolledBack`) and others did
+/// (a downgrade). Newer wins: the timer leaves a build of a newer commit alone
+/// and restarts nothing; `--allow-downgrade` still pulls it back.
+#[tokio::test]
+#[cfg(unix)]
+async fn a_host_on_a_newer_commit_than_the_channels_keeps_it_unless_told_to_go_back() {
+    let peer = FakePeer::new("self-newer-wins");
+    let installed = stamped_acpmux(OLD, Some(OLD), 1_794_748_257);
+    peer.exe(".local/bin/acpmux", &installed);
+    let channels = stamped_acpmux(NEW, Some(NEW), 1_794_744_982);
+    let files = serving(&channels);
+    let plan = ready(&peer, &files).await;
+    let up = apply(&peer, &plan, TARGET, true);
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::Current, Some("newerInstalled")),
+        "{up:?}"
+    );
+    assert!(!up.outcome.failed(), "the timer's unit does not fail for it");
+    assert_eq!(peer.read(".local/bin/acpmux"), installed);
+    assert!(!peer.exists(".local/bin/acpmux.prev"));
+    assert_eq!(peer.daemon(), OLD);
+    let calls = peer.take_calls();
+    assert!(!calls.iter().any(|c| c.contains("restart acpmux.service")), "{calls:?}");
+    assert!(!peer.exists(&format!(".acpmux/update/{}/{ROLLED_BACK}", sha_of(&channels))));
+    drop(plan);
+
+    // The next run finds the same: still nothing installed or restarted.
+    let plan = ready(&peer, &serving(&channels)).await;
+    let up = apply(&peer, &plan, TARGET, true);
+    assert_eq!(up.reason.as_deref(), Some("newerInstalled"), "{up:?}");
+    assert_eq!(peer.read(".local/bin/acpmux"), installed);
+    drop(plan);
+
+    // `--allow-downgrade`: a bad channel build is pulled back on purpose.
+    let mut back = paths(&peer);
+    back.allow_downgrade = true;
+    let Prepared::Ready(plan) = prepare(&back, &serving(&channels), CHANNEL).await.unwrap() else {
+        panic!("the self-update did not go ahead");
+    };
+    let up = apply(&peer, &plan, TARGET, true);
+    assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
+    assert_eq!(peer.read(".local/bin/acpmux"), channels);
+    assert_eq!(peer.read(".local/bin/acpmux.prev"), installed);
+}
+
 #[tokio::test]
 async fn a_build_whose_daemon_does_not_come_back_is_rolled_back_and_not_tried_again() {
     let peer = FakePeer::new("self-rollback");
@@ -325,7 +376,7 @@ async fn a_build_whose_daemon_does_not_come_back_is_rolled_back_and_not_tried_ag
     // The next run leaves that build alone: no download, no restart.
     let files = serving(&bad);
     let again = prepared(&peer, &files).await;
-    assert!(matches!(&again, Prepared::RolledBackBefore(commit) if commit == COMMIT));
+    assert!(matches!(&again, Prepared::RolledBackBefore(commit, _) if commit == COMMIT));
     assert!(peer.take_calls().is_empty(), "the daemon is not restarted again");
     assert_eq!(files.asked().len(), 1);
 
@@ -345,7 +396,7 @@ async fn a_build_whose_daemon_does_not_come_back_is_rolled_back_and_not_tried_ag
     // channel that moved back to the bad build installed it again.
     let files = serving(&bad);
     let again = prepared(&peer, &files).await;
-    assert!(matches!(&again, Prepared::RolledBackBefore(commit) if commit == COMMIT));
+    assert!(matches!(&again, Prepared::RolledBackBefore(commit, _) if commit == COMMIT));
     assert!(peer.take_calls().is_empty(), "the healthy daemon is not restarted");
     assert_eq!(files.asked().len(), 1, "the bad build is not downloaded again");
     assert_eq!(peer.daemon(), newer);

@@ -251,6 +251,15 @@ impl Supervisor {
         if !reachable {
             return Err(ApiError::new("apps.hidden", "the app is hidden from this surface"));
         }
+        // An agent runs only the ops the app's catalog offers to agents
+        // (`mcp.expose: "default"`, apps/mcp_tools.rs). Server ops keep the
+        // backend catalog's policy (`admit_server_op`).
+        if origin == Origin::Mcp
+            && export.is_some()
+            && !package.catalog_op(op).is_some_and(|(_, entry)| super::mcp_tools::offered(&entry))
+        {
+            return Err(super::mcp_tools::not_offered(app, op));
+        }
         let Some(export) = export else {
             Self::server_approved_locked(inner, app)?;
             Self::admit_server_op(inner, app, op, origin)?;

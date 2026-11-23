@@ -40,7 +40,7 @@ jobs:
   due:
     if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' }}
     name: Is a fast-tier seed due
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
     permissions:
@@ -86,6 +86,41 @@ jobs:
           python3 -I scripts/cmux-next/fast-tier-seed-due.py --minutes "$SEED_INTERVAL_MINUTES" \
             --endpoint-url "$CI_CACHE_R2_ENDPOINT" --bucket "$CI_CACHE_R2_BUCKET" \
             --pools "$SEED_POOLS" --inputs "$inputs" | tee -a "$GITHUB_OUTPUT"
+
+  # The ghostty-next git directory every init-submodule.sh caller restores before
+  # fetching. Freestyle runners read github.com at about 0.3-1 MB/s and the ~33 MB
+  # depth-1 pack outran the 120 s bound on all three attempts of 27 of 104 cargo
+  # fast tier jobs on 2026-11-23 (job 137511000146); with the pin cached they fetch
+  # nothing. A pin the bucket holds exits after one HEAD request.
+  ghostty-next-gitdir:
+    if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' }}
+    name: Seed the ghostty-next submodule cache
+    concurrency:
+      group: cmux-next-ghostty-next-gitdir-${{ github.ref }}
+      cancel-in-progress: false
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 20
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            .gitmodules
+            scripts/ci/init-submodule.sh
+            scripts/ci/r2-cache.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Save the ghostty-next git directory at its pin
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+          INIT_SUBMODULE_CACHE_URL: ${{ env.CI_CACHE_R2_PUBLIC_URL }}
+          INIT_SUBMODULE_ATTEMPT_TIMEOUT: "600"
+        run: bash scripts/ci/init-submodule.sh --seed ghostty-next
 
   seed:
     needs: due

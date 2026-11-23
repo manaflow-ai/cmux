@@ -1,6 +1,6 @@
 use serde_json::{Value, json};
 
-use super::{Command, Switched, Target, human, parse, pick, switched};
+use super::{Command, Switched, Target, human, parse, parse_app, pick, switched};
 use crate::localization::NightlyMessages;
 
 fn words(list: &[&str]) -> Vec<String> {
@@ -56,6 +56,65 @@ fn nightly_parse_reads_list_and_install() {
     assert!(parse(&words(&["list", "--bogus"])).is_err());
 }
 
+/// `cmux app versions` and `cmux app use` are `nightly list` and `nightly install`.
+#[test]
+fn app_versions_and_use_are_the_nightly_commands() {
+    assert_eq!(parse_app("versions", &words(&[])).unwrap(), Command::List { limit: 10 });
+    assert_eq!(
+        parse_app("versions", &words(&["--limit", "3"])).unwrap(),
+        Command::List { limit: 3 }
+    );
+    assert_eq!(
+        parse_app("use", &words(&["previous"])).unwrap(),
+        Command::Install { target: Target::Previous }
+    );
+    assert_eq!(
+        parse_app("use", &words(&["next"])).unwrap(),
+        Command::Install { target: Target::Next }
+    );
+    assert_eq!(
+        parse_app("use", &words(&["latest"])).unwrap(),
+        Command::Install { target: Target::Latest }
+    );
+    assert_eq!(
+        parse_app("use", &words(&["200"])).unwrap(),
+        Command::Install { target: Target::Build("200".into()) }
+    );
+    assert_eq!(parse_app("use", &words(&["--help"])).unwrap(), Command::Help);
+    assert!(parse_app("use", &words(&[])).is_err());
+    assert!(parse_app("use", &words(&["older"])).is_err());
+    assert_eq!(
+        super::super::parse(&words(&["app", "use", "previous"])).unwrap(),
+        Some(super::super::AppCommand::Nightly(Command::Install { target: Target::Previous }))
+    );
+    assert_eq!(
+        super::super::parse(&words(&["app", "versions"])).unwrap(),
+        Some(super::super::AppCommand::Nightly(Command::List { limit: 10 }))
+    );
+}
+
+/// `next` is one step forward (the undo of `previous`), `latest` the newest; neither is a pulled
+/// build, and both refuse when nothing installable is above the running build.
+#[test]
+fn app_use_next_and_latest_go_forward() {
+    assert_eq!(picked(Target::Next), Ok("500".into()));
+    assert_eq!(picked(Target::Latest), Ok("1000".into()));
+    let back = json!({ "installed": "200", "switches": true, "builds": [
+        { "build": "500", "switchable": true, "health": "pending" },
+        { "build": "400", "switchable": true, "health": "pending", "kept": true },
+        { "build": "300", "switchable": false, "health": "pulled" },
+        { "build": "200", "switchable": false, "installed": true } ] });
+    let next = pick(&back, &Target::Next, messages()).map(|build| build["build"].as_str().unwrap());
+    assert_eq!(next.map_err(|(code, _)| code), Ok("400"));
+    let top = json!({ "installed": "500", "switches": true, "builds": [
+        { "build": "500", "switchable": false, "installed": true },
+        { "build": "400", "switchable": true } ] });
+    for target in [Target::Next, Target::Latest] {
+        let result = pick(&top, &target, messages()).map_err(|(code, _)| code);
+        assert_eq!(result.err(), Some("nightly.no_next"));
+    }
+}
+
 #[test]
 fn nightly_cli_routes_to_the_nightly_command() {
     assert_eq!(
@@ -101,6 +160,36 @@ fn nightly_list_marks_the_running_kept_and_pulled_builds() {
     assert!(lines[3].contains(messages().kept));
     assert!(lines[0].contains("abcdef01") && lines[0].contains("Fix the sidebar; Faster tabs"));
     assert_eq!(human(&json!({ "builds": [] }), messages()), format!("{}\n", messages().no_builds));
+}
+
+/// A build the appcast offers before its notes land comes with no commit and no titles: it is
+/// still the `*` row when it runs, and installable from an older build.
+#[test]
+fn nightly_lists_and_installs_a_build_whose_notes_lag_the_appcast() {
+    let ahead = |installed: bool| {
+        json!({ "build": "4495894547301", "version": "1.0.0-nightly.4495894547301", "date": "2026-11-21",
+                "commit": Value::Null, "health": "pending", "installed": installed, "kept": false,
+                "switchable": !installed, "titles": [] })
+    };
+    let older = |installed: bool| {
+        json!({ "build": "4495375783401", "version": "1.0.0-nightly.4495375783401", "date": "2026-11-21",
+                "commit": "afeb89238dab", "health": "pending", "installed": installed, "kept": false,
+                "switchable": !installed, "titles": ["Faster tabs"] })
+    };
+    let running = json!({ "installed": "4495894547301", "switches": true,
+                          "builds": [ahead(true), older(false)] });
+    let text = human(&running, messages());
+    let lines: Vec<&str> = text.lines().collect();
+    assert!(lines[0].starts_with("* 4495894547301"), "{}", lines[0]);
+    assert!(lines[1].starts_with("  4495375783401"), "{}", lines[1]);
+    let previous = pick(&running, &Target::Previous, messages()).map_err(|(code, _)| code);
+    assert_eq!(previous.map(|build| build["build"].clone()), Ok(json!("4495375783401")));
+
+    let behind = json!({ "installed": "4495375783401", "switches": true,
+                         "builds": [ahead(false), older(true)] });
+    let target = Target::Build("4495894547301".into());
+    let picked = pick(&behind, &target, messages()).map_err(|(code, _)| code);
+    assert_eq!(picked.map(|build| build["build"].clone()), Ok(json!("4495894547301")));
 }
 
 /// Only a connection that closes with no answer counts as the restart; an answer, a refusal and an

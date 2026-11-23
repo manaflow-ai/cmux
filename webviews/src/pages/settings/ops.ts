@@ -12,6 +12,7 @@
 import type { AcpmuxUsageLimits } from "../../agent-session/acpmux/model";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 import type { WorktreeRecipe } from "../../worktreeRecipe";
+import type { AccountFamily, AccountRowWire, SignInFinishWire, SignInStartWire } from "../shared/signIn/accountSignIn";
 import { OWNER_SENTENCE } from "../shared/userMessage";
 
 /** A museum search result (cmux.settings.art.search); its thumbnail is at `museum/<key>`. */
@@ -632,6 +633,76 @@ export type TeamAgentKeysState = {
   agents: TeamAgentKeyRow[];
 };
 
+/** A member's Chief tier (Settings > Team > Compute). */
+export type ChiefTier = "standard" | "plus" | "max";
+
+/**
+ * The team's monthly Cloud allotment as the backend keeps it (Settings > Team > Compute). Micros are
+ * millionths of a US dollar. Every seat includes $25 a month of pooled usage; `commit_micros` is the
+ * extra pooled usage the admin commits to, in $25 steps at 20% off. Field names are the wire's.
+ */
+export interface TeamAllotment {
+  commit_micros: number;
+  mode: "ask" | "auto";
+  auto_max_micros: number | null;
+  tiers: Record<string, ChiefTier>;
+  snoozed_until: number | null;
+  changed_at: number;
+  changed_by: string;
+}
+
+/** One member's Cloud use over this month and the last 14 days. `spare_micros` is warm-spare time,
+ * the platform's cost, shown to the team as $0. */
+export interface MemberUse {
+  member: string;
+  tier: ChiefTier;
+  month_micros: number;
+  usd14_micros: number;
+  active_days14: number;
+  share_micros: number;
+  rank: number;
+  over_share14: number;
+  plan_limit_ms14: number;
+  spare_micros: number;
+}
+
+/** Why the scheduler proposes what it proposes. */
+export type AllotmentReason =
+  | { kind: "unused"; members: string[] }
+  | { kind: "over"; member: string; count: number }
+  | { kind: "runaway"; member: string; rate_micros_h: number }
+  | { kind: "tier"; member: string; to: ChiefTier; costs_micros: number };
+
+/** The scheduler's proposal: `position` and the commit it would set (`to_commit_micros`).
+ * `allot_micros` = included + tier credits + commit. Members are never refused by the allotment. */
+export interface AllotmentDecision {
+  allot_micros: number;
+  forecast_micros: number;
+  position: "down" | "hold" | "up";
+  to_commit_micros: number;
+  reasons: AllotmentReason[];
+  members: MemberUse[];
+  order: string[];
+  apply: boolean;
+}
+
+/** `cmux.settings.cloud.allotment.get` and `.set`'s answer. `allotment` is null before an admin
+ * ever set one. */
+export interface AllotmentView {
+  allotment: TeamAllotment | null;
+  decision: AllotmentDecision;
+  hard_cap_micros: number | null;
+  as_of: number;
+}
+
+export type AllotmentPosition = AllotmentDecision["position"];
+
+/** One gesture of the Compute card: up and down apply the decision's `to_commit_micros`; hold
+ * snoozes proposals 14 days. `auto` sets the mode. */
+/** No `action`: only the mode changes (the Auto switch); the commit and any snooze are kept, as the platform's
+ * cloud.allotment.set does. `hold` snoozes proposals. */
+export type AllotmentSet = { action?: AllotmentPosition; auto?: boolean };
+
 /** Which way of paying for a model a Settings > Models connection is (cmux-tui/docs/model-connections.md). */
 export type ModelConnectionKind =
   | "codex-login"
@@ -710,6 +781,10 @@ export type AccountsState = {
   cmux: AccountsCmux;
   removeTitle: string;
   groups: Array<{ id: string; title: string; rows: AccountsRow[] }>;
+  /** The daemon's sign-in accounts (`account.list` rows: GitHub, ChatGPT and Claude, several each).
+   * Present only from a host that signs in in place (shared/signIn/accountSignIn.ts); without it the
+   * page keeps the terminal sign-in. */
+  signInAccounts?: AccountRowWire[] | null;
 };
 
 /**
@@ -723,6 +798,19 @@ export type AccountsRun = {
   secret?: string;
   team?: string;
   name?: string;
+  /** The in-place sign-in's gestures (ACCOUNT_ACTIONS): its login, a pasted code, a new account's family. */
+  loginId?: string;
+  code?: string;
+  family?: AccountFamily;
+};
+
+/** `cmux.settings.accounts.run`'s answer. A sign-in gesture adds the daemon's answer: `signIn` for
+ * a start, `finished` for a finish, `reason` for a refusal (SignInFailure). */
+export type AccountsRunReply = {
+  error?: string;
+  signIn?: SignInStartWire;
+  finished?: SignInFinishWire;
+  reason?: string;
 };
 
 /** One Settings > Agents row: a harness acpmux knows (never its command line or env). */
@@ -914,7 +1002,9 @@ export type HarnessesRun = {
   id?: string;
   /** With every account gesture but `accountAdd`: a listed account id. */
   account?: string;
-  /** With `accountAdd`: the provider family (`codex`, `claude`) that gets a new account. */
+  /** With `accountAdd`: the provider family (`codex`, `claude`) that gets a new account; `github`
+   * (way `new` only) types gh's own `gh auth login` into a terminal tab, the in-place sign-in's
+   * fallback for a daemon without `_acpmux/account/sign_in`. */
   family?: string;
   /** With `accountAdd`: `new` signs in a login folder of its own, `key` adds an API key. */
   way?: "new" | "key";
@@ -1147,7 +1237,8 @@ export type DevicesState = {
   thisDevice: DevicesDevice | null;
   others: DevicesDevice[];
   /** "Allow Mac Screen on this Mac"; null until this Mac is registered. */
-  sharing: { on: boolean; busy: boolean; permissions: DevicesPermission[] } | null;
+  /** `agentsMayShare`: the account's "My agents can turn screen sharing and control on my machines" (device hub). */
+  sharing: { on: boolean; busy: boolean; permissions: DevicesPermission[]; agentsMayShare: boolean } | null;
   relays: DevicesRelay[];
   /** Newest first. */
   history: DevicesHistoryRow[];
@@ -1228,6 +1319,8 @@ export type DevicesLabels = {
   sharingSection: string;
   sharingToggle: string;
   sharingDetail: string;
+  agentsToggle: string;
+  agentsDetail: string;
   openSettings: string;
   allowed: string;
   relaysSection: string;
@@ -1290,6 +1383,7 @@ export type DevicesRun =
   | { action: "remove"; id: string }
   | { action: "setAccess"; id: string; scope: DevicesScope }
   | { action: "setSharing"; on: boolean }
+  | { action: "setAgentsMayShare"; on: boolean }
   | { action: "openPermission"; id: DevicesPermissionId }
   | { action: "saveRelay"; relay: DevicesRelayDraft }
   | { action: "checkRelay"; id?: string; relay?: DevicesRelayDraft }
@@ -1319,7 +1413,7 @@ export type IntegrationRow = {
 export type AgentToolsCardRow = {
   id: string;
   name: string;
-  /** `terminals`: started in cmux, it gets cmux's tools; `ready`: not yet (the answer is not on). */
+  /** `terminals`: started in cmux, it gets cmux's tools; `ready`: not (`agents.cmuxMcp` is off). */
   state: "ready" | "terminals" | "failed";
   /** The line that removes a `cmux` entry in the agent's own settings that runs `cmux mcp serve`, used
    * outside cmux (not this build's own manual line); null or absent for none. Remove runs it only on
@@ -1331,12 +1425,12 @@ export type AgentToolsCardRow = {
 export type AgentToolsCardState = {
   /** The first read answered (an empty list then says none was found). */
   loaded: boolean;
-  /** Turn On runs. */
+  /** Turn On (shown while `agents.cmuxMcp` is off) runs. */
   applying: boolean;
   /** The answer could not be saved. */
   failed: boolean;
-  /** `agents.cmuxMcp` now. Absent from older hosts. */
-  choice?: "ask" | "on" | "off";
+  /** `agents.cmuxMcp` now (`on` unless the person turned it off). Absent from older hosts. */
+  choice?: "on" | "off";
   rows: AgentToolsCardRow[];
   /** The lines a person runs themselves to use cmux's tools in agents started elsewhere (cmux never
    * runs them). Absent from older hosts. */
@@ -1507,15 +1601,21 @@ export type AgentSkillsState =
       /** `files` (cmux read the folders) or `app-server` (Codex's own list). */
       sources: { claude: string; codex: string } | null;
       elapsedMs: number | null;
-      /** The CLI's refusal of the last switch ("" with no words of its own). */
+      /** The CLI's refusal of the last switch ("" with no words of its own); `path` is `new-command` for
+       * a New Command the CLI refused. */
       refusal: { path: string; message: string } | null;
+      /** The command New Command last saved: what to type and its file. */
+      added?: { agent: "claude" | "codex" | "cmux"; invocation: string; path: string } | null;
     };
 
 /** One Skills gesture; on and off run only on a click. */
 export type AgentSkillsRun =
   | { action: "refresh" }
   | { action: "open" | "reveal"; path: string }
-  | { action: "on" | "off"; path: string; agent: "claude" | "codex" };
+  | { action: "on" | "off"; path: string; agent: "claude" | "codex" }
+  /** New Command (`cmux agent-config commands add NAME --prompt TEXT --agent A`): a saved prompt in the
+   * agent's own folder, or cmux's (`cmux`, in every chat's `/` menu); only on a click. */
+  | { action: "add"; agent: "claude" | "codex" | "cmux"; name: string; prompt: string; description?: string };
 
 /** One MCP server Claude Code or Codex starts, from its own config files (`cmux agent-config mcp
  * list --json`, cmux-agent-customize `mcp.rs`). Never a secret: env and header values are names only. */
@@ -1791,7 +1891,7 @@ export type SettingsOps = {
   /** Native: the Accounts part (providers, linked accounts, forms). */
   "cmux.settings.accounts.state": [Record<string, never>, AccountsState];
   /** Native: one Accounts gesture; a failed Keychain save answers its message. */
-  "cmux.settings.accounts.run": [AccountsRun, { error?: string }];
+  "cmux.settings.accounts.run": [AccountsRun, AccountsRunReply];
   /** Native: Settings > Agents, the harnesses acpmux knows and the last doctor answers. */
   "cmux.settings.agents.state": [Record<string, never>, AgentsState];
   /** Native: one Agents gesture; a daemon refusal rejects with `cmux.agents.<code>` and its text. */
@@ -1818,6 +1918,12 @@ export type SettingsOps = {
   "cmux.settings.tailnet.logout": [Record<string, never>, TailnetState | null];
   /** Native: one `cmux customize` verb through the bundled CLI, for the try-on bar. */
   "cmux.settings.customize.run": [{ verb: "status" | "keep" | "revert" }, CustomizeAnswer];
+  /** Settings > Team > Compute: the team's Cloud allotment, who uses what, and the scheduler's
+   * proposal (the backend's `cloud.allotment.get`). Only the mock provider serves it today. */
+  "cmux.settings.cloud.allotment.get": [Record<string, never>, AllotmentView];
+  /** Settings > Team > Compute, an admin's one click: scale down, hold or scale up, and Auto (the
+   * backend's `cloud.allotment.set`); answers the view after it. */
+  "cmux.settings.cloud.allotment.set": [AllotmentSet, AllotmentView];
   /** Native: this Mac's chat shares (Settings > Privacy and Security > Shared Links). */
   "cmux.settings.shares.list": [Record<string, never>, SharesState];
   /** Native: the share stops working and its guests leave at once; a daemon refusal rejects. */

@@ -245,6 +245,8 @@ For a push or loop retry, `pick-nightly-next-signer` reads the runner census and
 
 Main’s rolling rule defaults to one slot. Enable `NIGHTLY_NEXT_SLOTS=2` only after both changes land and existing legacy-group builds drain; likewise drain the per-host groups when switching back to one. The Macs share a publication lease: under that lease the publisher rechecks the live feed, and the conditional feed write compares build number and source ancestry before replacing it. Finishing late cannot roll the authoritative appcast back. The release mirror has its own lease and can lag the feed; the two are not an atomic write.
 
+The pick accepts a census up to 50 min old (CENSUS_MAX_AGE_SECONDS), not the pool's 5 min: vars are read when the run starts and the pick runs after resolve (~13 min), so on 2026-11-22 runs 44990363506, 44992267457 and 44993740115 read censuses 30, 36 and 23 min old, every pick fell back to the label alone in nightly-next-one-push-cmux15, and the second build waited for the first (run 44992267457 waited 6 min at the slot, left it, and its retry fed 8ff8e496 56 min after landing). Who holds each host still comes from the live jobs listing.
+
 ## note-34
 
 Above `run-name: >-` in `.github/workflows/nightly.yml`.
@@ -440,3 +442,17 @@ only (run_tail), so its queue never holds the push group (test_nightly_owned_min
 the key keeps it off the nightly mini's shared light runners, its span fetch waits through API rate limits
 (70 min), which on the trusted signing runner would hold the whole Mac while the next run signs, and
 release-notes.py's `openssl pkeyutl -rawin` needs OpenSSL 3, which macOS's LibreSSL is not.
+
+## note-51
+
+Above `early-nightly-webviews:` in `.github/workflows/nightly.yml`.
+
+In one-job mode the webview checks used to run only on the signing Mac, after the Release build, so a
+webview red cost a whole signer slot (~12 min) and retry-nightly-next then rebuilt the same commit up to
+twice more (cmuxterm-hq#19108: 13 of 23 reds over 24 h, 46 runs and 28.4 h of the week's red-after-red
+on one commit). This job runs the same `fast_gate_webviews_checks.py` on decide's head_sha alongside
+resolve (~4.5 min), so it adds no time to a green run. nightly-next-one skips only when resolve's
+build_sha equals the red sha; the Mac's own check stays the publish guard's input. retry-nightly-next
+skips a webview red (early on the built commit, or the Mac's `webview_red`), which is deterministic, and
+waits for a new commit instead. Route: check-nightly-webviews' owned nightly-only pool, not Linux, since
+test_nightly_owned_minis_only allows a JIT Linux label only for Leo's listed tail and loop jobs.

@@ -46,6 +46,16 @@ public nonisolated enum SidebarWorkspaceKind: String, Codable, Hashable, Sendabl
     }
 }
 
+/// Who made a workspace (`workspace-created-by-v1`: the daemon records it at the create).
+public nonisolated enum SidebarCreator: String, Hashable, Sendable {
+    /// The person.
+    case person
+    /// An agent session (a chat's subagent: it nests under that chat).
+    case agent
+    /// A script, an automation, a launcher or a daemon: no person and no chat.
+    case script
+}
+
 /// One workspace row.
 public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var id: WorkspaceID
@@ -75,6 +85,10 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// An agent turn runs in one of the workspace's tabs (daemon agent
     /// state): the row's working indicator.
     public var agentWorking: Bool
+    /// An agent chat here finished a turn nobody has seen yet (its lane is idle and unread, and the Priority view has
+    /// not marked it read: `AgentPriorityRanking`'s done). The `experiments.agentBadges` Done pill; `agentChip` never
+    /// says done (the row's blue dot does).
+    public var agentDone = false
     /// The Priority view's chip for the workspace's most urgent agent chat on this Mac
     /// (`sidebar.rowStatus`): needs you, done, failed or lost. Nil when every chat works or is idle.
     public var agentChip: SidebarPriorityEntry.State?
@@ -160,7 +174,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// compact row has no second line of its own, Leo 2026-10-30). Nil for
     /// every other row.
     public var stage: String?
-    /// Its front tab is a New Tab page whose Send starts a Cloud chat (`AgentCloudStartTitles`): the row draws the
+    /// Its front tab is a New Tab page whose Send starts a Cloud chat (`AgentCloudStartTitles`), or a Cloud machine's desktop: the row draws the
     /// cloud mark from the Send, as the chat's own row on its machine does once it opens (``WorkspaceRowContent/runsInCloud``).
     public var startsInCloud = false
     /// Archived in the sidebar document (`extra.archived`, or under an archived group): the row
@@ -190,9 +204,15 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// The task lane the person pinned (Mark as Done, Set Workspace Status): the hover card names
     /// it and done-fold logic can use it. Nil while automatic.
     public var taskStatus: SidebarTaskStatus?
+    /// Who made the workspace, as its daemon recorded it at the create (`extra.created_by.kind`); nil without a
+    /// record (the person in the app). A ``SidebarCreator/script`` row that is no chat's subagent folds behind its
+    /// list's "Automatic (N)" row while `sidebar.showAutomaticSessions` is off (``SidebarAutomaticPlanner``).
+    public var createdBy: SidebarCreator?
     /// The title's weight from the user's row decoration (`SidebarRowDecoration`); nil is the
     /// default (regular).
     public var titleWeight: SidebarRowDecoration.Weight?
+    /// The split layout of its shown screen, for the hover card's miniature; nil for one pane or an unmapped row.
+    public var paneShape: SidebarPaneShape?
 
     public init(
         id: WorkspaceID,

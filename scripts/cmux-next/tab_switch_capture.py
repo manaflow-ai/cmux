@@ -218,7 +218,9 @@ class Marker:
         answer = self.reply(5)
         if not answer or answer.get("flipped") != name:
             raise CaptureError(f"marker flip {name}: {answer}")
-        time.sleep(0.05)  # test script: the flip's frame reaches the display before the action's change
+        # sleep-ok: a few display frames between the flip and the action, so the video shows them in different
+        # frames (the marker answers when it flipped, not when the display presented it)
+        time.sleep(0.05)
 
     def window(self):
         self.send("window")
@@ -272,7 +274,7 @@ class Capture:
         self.blocks += 1
         self.block_dir = os.path.join(self.folder, f"block-{self.blocks:02d}")
         self.session.start(self.block_dir)
-        time.sleep(0.3)  # test script: the stream's first frame before the first flip
+        time.sleep(0.3)  # sleep-ok: recorded span before the first flip, so transitions() sees the marker's first gray
 
     def flip(self, name):
         self.names.append(name)
@@ -280,7 +282,7 @@ class Capture:
         self.marker.flip(name)
 
     def end(self):
-        time.sleep(0.2)  # test script: the last change's frames reach the stream
+        time.sleep(0.2)  # sleep-ok: recorded span after the last flip, so its frames are in the video before the stop
         video = self.session.stop(self.block_dir)
         frames_path = os.path.join(self.block_dir, "frames.bin")
         decoded = self.decode(video, frames_path)

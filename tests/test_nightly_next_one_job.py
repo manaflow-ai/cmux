@@ -174,8 +174,11 @@ class NightlyNextOneJobTests(unittest.TestCase):
                      "Finish the webview checks before any signing secret", "Wait for the build commit's tree-commit marker"):
             self.assertIn(name, names)
         notarize = next(s for s in self.job["steps"] if s.get("name") == "Notarize app ticket through final DMG")
-        # As today: the app, its staple, the DMG around the stapled app, its staple.
-        self.assertEqual(notarize["env"]["CMUX_STAPLE_APP_IN_DMG"], "true")
+        # One Apple round: only the DMG carries a stapled ticket, and the verify step expects the same
+        # (verify-dmg-artifact.sh --app-ticket-online: Gatekeeper must still call the app notarized).
+        self.assertEqual(notarize["env"]["CMUX_STAPLE_APP_IN_DMG"], "false")
+        verify = next(s for s in self.job["steps"] if s.get("name") == "Verify final DMG artifact")
+        self.assertEqual(verify["env"]["CMUX_STAPLE_APP_IN_DMG"], notarize["env"]["CMUX_STAPLE_APP_IN_DMG"])
         # A slow notarization fails the job (the loop retries it) instead of handing an artifact to a later run.
         self.assertEqual(notarize["env"]["CMUX_NOTARY_PENDING_ON_TIMEOUT"], "false")
 

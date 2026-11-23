@@ -304,6 +304,51 @@ fn thread_ticks(pid: u32) -> HashMap<u32, (String, u64, u64)> {
     out
 }
 
+/// Snapshot files the output store replaced under `state` (each is a screen
+/// replay under the terminal's parser lock, a gzip and two fsyncs): a thread
+/// polls every 2 ms for a new inode of any `*.snap` file until it is stopped.
+fn count_snapshots(state: Option<PathBuf>) -> (Arc<AtomicBool>, std::thread::JoinHandle<u64>) {
+    use std::os::unix::fs::MetadataExt;
+    fn snaps(dir: &Path, depth: u32, out: &mut Vec<PathBuf>) {
+        let Ok(entries) = fs::read_dir(dir) else { return };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().is_some_and(|extension| extension == "snap") {
+                out.push(path);
+            } else if depth > 0 && path.is_dir() {
+                snaps(&path, depth - 1, out);
+            }
+        }
+    }
+    let stop = Arc::new(AtomicBool::new(false));
+    let flag = stop.clone();
+    let handle = std::thread::spawn(move || {
+        let Some(state) = state else { return 0 };
+        let mut seen: HashMap<PathBuf, u64> = HashMap::new();
+        let mut count = 0_u64;
+        let mut files = Vec::new();
+        let mut next_scan = Instant::now();
+        while !flag.load(Ordering::Acquire) {
+            if Instant::now() >= next_scan {
+                files.clear();
+                snaps(&state, 6, &mut files);
+                next_scan = Instant::now() + Duration::from_millis(250);
+            }
+            for file in &files {
+                if let Ok(metadata) = fs::metadata(file) {
+                    let previous = seen.insert(file.clone(), metadata.ino());
+                    if previous.is_some_and(|previous| previous != metadata.ino()) {
+                        count += 1;
+                    }
+                }
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        count
+    });
+    (stop, handle)
+}
+
 fn sample(pids: &[(String, u32)]) -> HashMap<(String, u32), (String, u64, u64)> {
     let mut out = HashMap::new();
     for (role, pid) in pids {
@@ -395,6 +440,11 @@ struct ViewerStats {
     decode_seconds: f64,
     /// Socket reads that returned bytes (each one wake of the viewer).
     reads: u64,
+    /// Each resync the viewer saw (a READY, a `vt-state`, a `resized`): when, what, and for a frames
+    /// viewer the stream bytes it skipped (the READY's offset past the end of the last frame).
+    marks: Vec<(Instant, &'static str, Option<u64>)>,
+    /// A frames viewer's stream position after its last frame or READY.
+    end_offset: Option<u64>,
 }
 
 impl Viewer {
@@ -475,6 +525,7 @@ impl Viewer {
                                 got.frame_gaps += 1;
                             }
                             next_offset = Some(offset + len as u64);
+                            got.end_offset = next_offset;
                             start += 16 + len;
                             got.outputs += 1;
                             got.output_bytes += len as u64;
@@ -498,11 +549,26 @@ impl Viewer {
                                 got.output_bytes += decoded.len() as u64;
                                 got.last_output = Some(Instant::now());
                             }
-                            "vt-state" => got.replays += 1,
+                            "vt-state" => {
+                                got.replays += 1;
+                                got.marks.push((Instant::now(), "vt-state", None));
+                            }
                             "snapshot" if text.contains("\"phase\":\"ready\"") => {
                                 got.replays += 1;
+                                let ready_at = number_field(text, "offset");
+                                let skipped = next_offset
+                                    .zip(ready_at)
+                                    .map(|(end, ready)| ready.saturating_sub(end));
+                                got.marks.push((Instant::now(), "ready", skipped));
+                                if ready_at.is_some() {
+                                    got.end_offset = ready_at;
+                                }
                                 // The next frame starts at the READY's offset.
                                 next_offset = None;
+                            }
+                            "resized" => {
+                                *got.other.entry("resized".to_string()).or_default() += 1;
+                                got.marks.push((Instant::now(), "resized", None));
                             }
                             "" if text.contains("\"ok\":true") => {
                                 replies += 1;
@@ -546,6 +612,14 @@ fn thread_cpu_seconds() -> f64 {
     let status = unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut now) };
     assert_eq!(status, 0, "clock_gettime: {}", std::io::Error::last_os_error());
     now.tv_sec as f64 + now.tv_nsec as f64 / 1e9
+}
+
+/// The number value of `"key":N` in a JSON line (the first such key).
+fn number_field(line: &str, key: &str) -> Option<u64> {
+    let pattern = format!("\"{key}\":");
+    let at = line.find(&pattern)? + pattern.len();
+    let digits: String = line[at..].chars().take_while(char::is_ascii_digit).collect();
+    digits.parse().ok()
 }
 
 /// The string value of `"key":"..."` in a JSON line with no escapes in it.
@@ -599,17 +673,22 @@ fn burst(
     let mut pids = vec![("daemon".to_string(), daemon.child.id())];
     pids.extend(daemon.host_pids().into_iter().map(|pid| ("host".to_string(), pid)));
     let before = sample(&pids);
+    let (snapshots_stop, snapshots) = count_snapshots(daemon.state.clone());
     let started = Instant::now();
     fs::write(&go, b"go").unwrap();
     let res = wait_file(&result, Duration::from_secs(600))
         .unwrap_or_else(|| panic!("{label}: the writer gave no result"));
     let wall = started.elapsed().as_secs_f64();
+    snapshots_stop.store(true, Ordering::Release);
+    let snapshots_written = snapshots.join().unwrap_or(0);
     let after = sample(&pids);
     let bytes = res["bytes"].as_u64().unwrap_or(0) as usize;
     let seconds = res["seconds"].as_f64().unwrap_or(0.0);
     let mut row = json!({
         "stage": label, "bytes": bytes, "seconds": seconds, "mb_s": mb_s(bytes, seconds),
         "threads": busiest(&before, &after, wall),
+        "snapshots_written": snapshots_written,
+        "snapshots_per_s": (snapshots_written as f64 / wall * 10.0).round() / 10.0,
         "cpus": std::thread::available_parallelism().map_or(0, |n| n.get()),
         "process_cpu_pct": process_cpu(&before, &after, wall),
     });
@@ -649,6 +728,16 @@ fn burst(
             "seconds_to_last_output": to_last, "mb_s_to_last_output": mb_s(stats.output_bytes as usize, to_last),
             "viewer_cpu_pct": (busy / window * 1000.0).round() / 10.0,
             "decode_pct": (stats.decode_seconds / window * 1000.0).round() / 10.0,
+            // Resyncs in time order, ms after the writer's go (negative: while attaching).
+            "marks": stats.marks.iter().map(|(at, kind, skipped)| {
+                let ms = if *at >= started {
+                    at.duration_since(started).as_secs_f64() * 1e3
+                } else {
+                    -(started.duration_since(*at).as_secs_f64() * 1e3)
+                };
+                json!({"ms": ms.round(), "kind": kind, "skipped_bytes": skipped})
+            }).collect::<Vec<_>>(),
+            "end_offset": stats.end_offset,
         });
     }
     // Best effort: the next burst runs in its own terminal either way.
