@@ -207,7 +207,9 @@ final class WorkspaceShiftMeasurement {
                     trackedPrefixes.contains { prefix in entry.key.hasPrefix(prefix) }
                 }
                 let before = index > 0 ? frames[index - 1].boxes : [:]
-                if current.contains(where: { name, box in
+                if current.contains(where: { entry in
+                    let name = entry.key
+                    let box = entry.value
                     guard let old = before[name], box.count >= 4, old.count >= 4 else { return false }
                     return zip(old.prefix(4), box.prefix(4)).contains { pair in abs(pair.0 - pair.1) >= 1 }
                 }) { count += 1 }
@@ -227,14 +229,17 @@ final class WorkspaceShiftMeasurement {
         // Toolbar controls can be obscured while the browser exits with its
         // address field editing. Any one control is enough for that case.
         expected.append("toolbar.*")
-        if surface == "agent" { expected.append("agent composer or accessory") }
-        if surface == "terminal" { expected.append("terminal composer or accessory") }
+        // When the keyboard is up the accessory is legitimately occluded by
+        // the system keyboard during a pop. Page and toolbar remain the
+        // comparable landmarks for that case.
+        if !keyboardUp, surface == "agent" { expected.append("agent composer or accessory") }
+        if !keyboardUp, surface == "terminal" { expected.append("terminal composer or accessory") }
         return expected
     }
 
     private static func path(from value: String) -> String? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.hasPrefix("/") { return trimmed.split(separator: " ", maxSplits: 1).first.map(String.init) }
+        if trimmed.hasPrefix("/") { return trimmed.split(separator: " ", maxSplits: 1).first.map { String($0) } }
         if let marker = trimmed.range(of: "file=") {
             let rest = String(trimmed[marker.upperBound...])
             return rest.split(separator: " ", maxSplits: 1).first.map { String($0).replacingOccurrences(of: "%20", with: " ") }
@@ -247,7 +252,10 @@ final class WorkspaceShiftMeasurement {
             throw MeasurementError.traceUnreadable(url.path)
         }
         let hasPartial = !text.isEmpty && !text.hasSuffix("\n")
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        var lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        // split(omittingEmptySubsequences: false) keeps the empty component
+        // after a terminating newline. It is a delimiter, not a trace line.
+        if lines.last?.isEmpty == true { lines.removeLast() }
         let complete = hasPartial ? lines.dropLast() : lines[...]
         let decoder = JSONDecoder()
         var frames: [Frame] = []
