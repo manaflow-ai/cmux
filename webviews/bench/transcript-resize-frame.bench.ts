@@ -33,7 +33,7 @@ const TURNS = (args[0] ?? "100,1500").split(",").map(Number);
 const ROUNDS = Number(args[1] ?? 3);
 const FIXTURE = args[2];
 if (TURNS.some((turns) => !Number.isInteger(turns) || turns < 3) || !Number.isInteger(ROUNDS) || ROUNDS < 1)
-  throw new Error("usage: transcript-resize-frame.bench.ts [turns>=3,...] [rounds>=1]");
+  throw new Error("usage: transcript-resize-frame.bench.ts [turns>=3,...] [rounds>=1] [fixture]");
 /// The drag: from WIDE to NARROW and back, STEPS frames each way.
 const WIDE = 900;
 const NARROW = 520;
