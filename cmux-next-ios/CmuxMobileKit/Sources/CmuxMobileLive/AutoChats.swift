@@ -202,6 +202,9 @@ public final class AutoChatsModel {
     @ObservationIgnored private var open: Open?
     /// The chats this phone started here: each opens as starting until its first message shows.
     @ObservationIgnored private var startedHere: Set<String> = []
+    /// Messages whose send failed after the person left their chat, by chat id. Each goes back
+    /// to the composer when its chat is opened again.
+    @ObservationIgnored private var unsent: [String: [(text: String, promptID: String)]] = [:]
 
     public init(service: any AutoChatService) {
         self.service = service
@@ -255,11 +258,24 @@ public final class AutoChatsModel {
         let source = AutoChatSource(row: row, service: service, starting: startedHere.contains(row.id)) { [weak self] row in
             self?.changed(row)
         }
+        let id = row.id
+        source.leftUnsent = { [weak self] text, promptID in self?.keepUnsent(text, promptID: promptID, chat: id) }
         let store = AgentChatStore(source: source)
         let opened = Open(source: source, store: store)
         open?.source.close()
         open = opened
+        // What was not sent from this chat after the person left it goes back to its composer.
+        for message in unsent.removeValue(forKey: id) ?? [] {
+            keepUnsent(message.text, promptID: message.promptID, chat: id)
+        }
         return opened
+    }
+
+    /// A message to the chat `id` was not sent, and the reader that sent it is gone. The chat's
+    /// reader gets it back now when the chat is open again; else it waits for the next one.
+    private func keepUnsent(_ text: String, promptID: String, chat id: String) {
+        if let open, open.source.row.id == id, open.source.returnUnsent(text, promptID: promptID) { return }
+        unsent[id, default: []].append((text: text, promptID: promptID))
     }
 
     /// The person left the open chat: its held request ends. Opening it again reads it anew.
@@ -304,6 +320,9 @@ public final class AutoChatSource: AgentSessionSource {
     @ObservationIgnored private var line: (any AutoChatLine)?
     @ObservationIgnored private var continuation: AsyncStream<AgentSessionEvent>.Continuation?
     @ObservationIgnored private var caughtUp = false
+    /// Told a message that was not sent once nobody reads this chat any more (the person left
+    /// it before the send failed), so it is not lost with this reader.
+    @ObservationIgnored var leftUnsent: (@MainActor (_ text: String, _ promptID: String) -> Void)?
 
     init(row: AutoChatRow, service: any AutoChatService, starting: Bool = false,
          changed: @escaping @MainActor (AutoChatRow) -> Void) {
@@ -361,16 +380,25 @@ public final class AutoChatSource: AgentSessionSource {
             continuation?.yield(.promptNotSent(text: text, attachments: [], promptID: promptID, reason: AutoChatWords.notSent))
             return
         }
-        Task { [weak self] in
+        // The task holds this source until the send settles, so a send that fails after the
+        // person left the chat is still told to someone.
+        Task {
             // The prompt's id is the message's id: sent again, the Cloud service takes it once.
             let json = try? await line.send(messageID: promptID, text: text)
-            guard let self, self.line === line else { return }
             guard let json, let batch = AutoChatBatch(json: json) else {
-                self.continuation?.yield(.promptNotSent(text: text, attachments: [], promptID: promptID, reason: AutoChatWords.notSent))
+                if !self.returnUnsent(text, promptID: promptID) { self.leftUnsent?(text, promptID) }
                 return
             }
             self.apply(batch, from: line)
         }
+    }
+
+    /// Puts a message that was not sent back in the composer, under its id. False when nobody
+    /// reads this chat now.
+    func returnUnsent(_ text: String, promptID: String) -> Bool {
+        guard let continuation else { return false }
+        continuation.yield(.promptNotSent(text: text, attachments: [], promptID: promptID, reason: AutoChatWords.notSent))
+        return true
     }
 
     /// Keeps the chat in the Cloud when a Mac returns, or stops keeping it. The row shows the

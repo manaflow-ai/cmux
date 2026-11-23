@@ -70,6 +70,16 @@ impl State {
     }
 }
 
+/// Where an answer about the chat came from.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Answer {
+    /// The read loop, which asks one thing at a time: the answer is newer than every page the
+    /// phone has taken.
+    Read,
+    /// A send or a keep, beside the read loop: a page taken meanwhile may be newer than it.
+    Beside,
+}
+
 /// What `next` does, decided from what the phone has.
 enum Step {
     Open,
@@ -110,7 +120,7 @@ impl<C: AutoCloud> ChatSession<C> {
     /// person may not read, is the store's error.
     pub async fn open(&self) -> CloudResult<Batch> {
         let view = self.cloud.get(&self.id).await?;
-        self.viewed(view);
+        self.viewed(view, Answer::Read);
         self.page().await
     }
 
@@ -167,7 +177,7 @@ impl<C: AutoCloud> ChatSession<C> {
             Step::Page => self.page().await,
             Step::Wait { version } => {
                 let view = self.cloud.wait(&self.id, version, WAIT_MAX_MS).await?;
-                if self.viewed(view) { self.page().await } else { Ok(self.batch(Vec::new())) }
+                if self.viewed(view, Answer::Read) { self.page().await } else { Ok(self.batch(Vec::new())) }
             }
         }
     }
@@ -182,14 +192,14 @@ impl<C: AutoCloud> ChatSession<C> {
             answer => answer?,
         };
         let record = self.sent(message_id, text, &posted);
-        self.viewed(posted.session);
+        self.viewed(posted.session, Answer::Beside);
         Ok(self.batch(record.into_iter().collect()))
     }
 
     /// Keeps the chat in the Cloud when a Mac returns, or stops keeping it.
     pub async fn keep(&self, keep_in_cloud: bool) -> CloudResult<Batch> {
         let view = self.cloud.keep(&self.id, keep_in_cloud).await?;
-        self.viewed(view);
+        self.viewed(view, Answer::Beside);
         Ok(self.batch(Vec::new()))
     }
 
@@ -209,13 +219,19 @@ impl<C: AutoCloud> ChatSession<C> {
 
     /// Takes the chat as the store answered it. An older answer than the one the phone has
     /// changes nothing. Answers whether the store has events the phone does not.
-    fn viewed(&self, view: SessionView) -> bool {
+    fn viewed(&self, view: SessionView, answer: Answer) -> bool {
         let mut guard = self.lock();
         let state = guard.get_or_insert_with(|| State::new(view.clone()));
         if view.version >= state.view.version {
             // A chat switched off and on again starts over, empty: this view of it is done.
-            state.ended = state.ended || !view.auto || view.last_seq < state.seq;
-            state.last_seq = view.last_seq;
+            // From one answer to a newer one, only that takes the store's event count or its
+            // snapshot's number back. Fewer events than the phone has drawn says it too, but
+            // only in the read loop's own answers: a send's answer may have been written before
+            // the last page and arrive after it, and that chat did not start over.
+            let went_back = view.last_seq < state.view.last_seq || view.snapshot < state.view.snapshot;
+            let behind = answer == Answer::Read && view.last_seq < state.seq;
+            state.ended = state.ended || !view.auto || went_back || behind;
+            state.last_seq = state.last_seq.max(view.last_seq);
             state.outbox.viewed(&view);
             state.view = view;
         }
@@ -234,12 +250,20 @@ impl<C: AutoCloud> ChatSession<C> {
                 records.push(record);
             }
         }
-        state.seq = match page.events.last() {
-            Some(last) => have.max(last.seq),
-            // The store said it has more and gave none: take its word that this is all.
-            None => have.max(state.last_seq.min(page.last_seq)),
-        };
-        state.last_seq = state.last_seq.max(page.last_seq);
+        match page.events.last() {
+            Some(last) => {
+                state.seq = have.max(last.seq);
+                state.last_seq = state.last_seq.max(page.last_seq);
+            }
+            // The store said it has more and gave none: take the page's word for what it has,
+            // so the same page is not asked for again. Fewer events than the phone has drawn is
+            // a log that started over (Auto off drops it): this view of the chat is done.
+            None => {
+                state.ended = state.ended || page.last_seq < have;
+                state.seq = have.max(state.last_seq.min(page.last_seq));
+                state.last_seq = page.last_seq;
+            }
+        }
         state.batch(records)
     }
 

@@ -8,6 +8,13 @@
 //! The holder gives each inbox message to the chat under the message's id, so the record that
 //! shows it names that id. A holder that names it differently is matched by the message's text
 //! once the holder has taken it, so the phone's row never stays beside the real one.
+//!
+//! The store's answer to a send can arrive after the chat's record of the message: the first
+//! try reached the store and its answer was lost, the holder ran the message, and the second
+//! try is answered. The outbox remembers the prompts the chat's records have shown, so that
+//! late answer adds no waiting row, which no later record would take away.
+
+use std::collections::HashSet;
 
 use cmux_auto_session::wire::{Delivery, InboxPosted, SessionView};
 use serde_json::Value;
@@ -32,13 +39,17 @@ struct Sent {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Outbox {
     sent: Vec<Sent>,
+    /// The ids of the prompts the chat's own records have shown, for as long as the chat is
+    /// open.
+    shown: HashSet<String>,
 }
 
 impl Outbox {
     /// The store took `id` (or took it before: the same id again changes nothing). Answers the
-    /// record that draws it as waiting, the first time.
+    /// record that draws it as waiting, the first time. A message the chat's records already
+    /// showed does not wait: it gets no record.
     pub fn posted(&mut self, chat: &str, id: &str, text: &str, posted: &InboxPosted) -> Option<Value> {
-        if self.sent.iter().any(|sent| sent.id == id) {
+        if self.shown.contains(id) || self.sent.iter().any(|sent| sent.id == id) {
             return None;
         }
         let through = posted.session.inbox;
@@ -65,6 +76,7 @@ impl Outbox {
     /// sent, answers the record that takes the phone's waiting row away first.
     pub fn recorded(&mut self, chat: &str, record: &Value) -> Option<Value> {
         let (id, text) = records::prompt_of(record)?;
+        self.shown.insert(id.to_owned());
         let at = self
             .sent
             .iter()
