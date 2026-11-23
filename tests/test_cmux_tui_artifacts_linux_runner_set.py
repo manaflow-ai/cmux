@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 
 from blacksmith_linux_sizes import failover_label, size_label  # noqa: E402
-from runs_on_labels import pool_members, resolve_labels  # noqa: E402
+from runs_on_labels import pool_members, resolve_labels, without_fork_branch  # noqa: E402
 import workflow_jobs  # noqa: E402
 
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-artifacts.yml"
@@ -64,6 +64,13 @@ NIGHTLY_JIT = "cmux-gcp-nightly-jit-x64"
 # Every x64 pool leads with our own one-job fleet label (#47803); its Blacksmith members follow in size order.
 FLEET = "cmux-fleet-linux-x64"
 LINUX_LABEL_JOBS = {"tree-preflight", "tree-owner-wait", "darwin-fallback-plan", "cmux-next-daemon-tests"}
+# The one-label tail scripts/ci/one_linux_label.py writes (Leo, 2026-11-20: "Just send it somewhere"): after its fork
+# branch, every own-branch run takes cmux-linux.
+ONE_LABEL_TAIL = "|| 'cmux-linux' }}"
+
+
+def one_label(name: str, runs_on: str) -> bool:
+    return name in LINUX_LABEL_JOBS or runs_on.rstrip().endswith(ONE_LABEL_TAIL)
 NIGHTLY_TREE_JOBS = ("publish", "publish-tree", "mark-tree-commits")
 OVERFLOW_RECORD = '{"probe":"blacksmith-4vcpu-ubuntu-2404"}'
 # The short jobs that sat queued on 2026-10-30; each must stay in the set.
@@ -145,7 +152,7 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
             with self.subTest(expression=expr):
                 self.assertEqual(expr, "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
                                  "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name "
-                                 f"!= github.repository && 'blacksmith-{size}vcpu-ubuntu-2404' || 'cmux-linux' " + "}}")
+                                 "!= github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' " + "}}")
 
     def test_the_short_jobs_are_linux_jobs_of_this_workflow(self) -> None:
         names = {name for name, _ in linux_routes()}
@@ -158,10 +165,11 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
         for (name, runs_on), linux_runner, overflow, trusted in itertools.product(
             routes, LINUX_RUNNER_VALUES, ("", OVERFLOW_RECORD), TRUSTED_RUNNER_VALUES
         ):
-            labels = resolved(runs_on, "manaflow-ai", linux_runner, overflow, trusted)
-            if name in LINUX_LABEL_JOBS:
+            labels = resolved(without_fork_branch(runs_on), "manaflow-ai", linux_runner, overflow, trusted)
+            if one_label(name, runs_on):
                 with self.subTest(job=name):
-                    self.assertEqual(labels, {"cmux-linux"})
+                    # A nightly tree job's attempt-1 pin keeps its place before the one label.
+                    self.assertEqual(labels - ({NIGHTLY} if name in NIGHTLY_TREE_JOBS else set()), {"cmux-linux"})
                 continue
             allowed = (blacksmith_set(name) | ({linux_runner} if linux_runner in (POOL, HOSTED) else set())
                        | ({NIGHTLY} if name in NIGHTLY_TREE_JOBS else set()))
@@ -171,7 +179,7 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
 
     def test_the_overflow_switch_moves_every_linux_job_to_the_other_size(self) -> None:
         for name, runs_on in linux_routes():
-            if name in LINUX_LABEL_JOBS:
+            if one_label(name, runs_on):
                 continue
             # A write-token job reads only the ephemeral_only linux_4 pool, whose own next member is its overflow
             # (tests/test_ci_ephemeral_pool_readers.py); the switch does not move it.
@@ -207,7 +215,8 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
         request = "cmux-tui-tree-request.yml"
         jobs = yaml.load((WORKFLOW.parent / request).read_text(encoding="utf-8"), Loader=yaml.BaseLoader)["jobs"]
         routes.extend((request, name, job["runs-on"]) for name, job in jobs.items()
-                      if "vars.LINUX_RUNNER" in str(job.get("runs-on", "")))
+                      if "vars.LINUX_RUNNER" in str(job.get("runs-on", ""))
+                      or str(job.get("runs-on", "")).rstrip().endswith(ONE_LABEL_TAIL))
         self.assertGreater(len(routes), len(NIGHTLY_TREE_JOBS))
         nightly = {"event": "'push'", "ref": "'refs/heads/feat-cmux-next'", "attempt": "1"}
         cases = (
@@ -221,7 +230,7 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
             for case, values, owned in cases:
                 if workflow == "cmux-tui-tree-request.yml" and case in ("lane push", "feat-cmux-next push"):
                     continue  # it runs only as a feat-cmux-next dispatch
-                text = runs_on.replace("github.run_attempt", values["attempt"])
+                text = without_fork_branch(runs_on).replace("github.run_attempt", values["attempt"])
                 text = text.replace("github.event_name", values["event"])
                 text = re.sub(r"\bgithub\.ref\b", values["ref"], text)
                 text = text.replace("github.workflow_ref",
