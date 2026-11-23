@@ -850,6 +850,8 @@
         "agentPane.display.thinking.shimmerBand",
         "agentPane.display.thinking.jumpButton",
         "agentPane.display.harnessPlacement",
+        "agentPane.display.modelChipIcon",
+        "agentPane.display.queueing",
         "agentPane.display.rail.side",
         "agentPane.display.rail.show",
         "agentPane.display.rail.control",
