@@ -495,14 +495,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cmux-follow-cam"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "cmux-message-preview"
 version = "0.1.0"
 
@@ -579,7 +571,6 @@ dependencies = [
 name = "cmux-mobile-link-ffi"
 version = "0.1.0"
 dependencies = [
- "cmux-follow-cam",
  "cmux-mobile-host",
  "cmux-mobile-link",
  "cmux-rd-core",

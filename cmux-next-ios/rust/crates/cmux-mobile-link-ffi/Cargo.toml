@@ -22,7 +22,6 @@ required-features = ["bindgen"]
 bindgen = ["uniffi/cli"]
 
 [dependencies]
-cmux-follow-cam.workspace = true
 cmux-mobile-link.workspace = true
 cmux-rd-ffi.workspace = true
 cmux-rd-proto.workspace = true
