@@ -13476,6 +13476,228 @@
       },
       "extra": false
     },
+    "ProjectAction": {
+      "kind": "object",
+      "fields": {
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The action's key in its actions section; a project action takes the place of a global one with this name."
+        },
+        "source": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "project",
+              "global"
+            ]
+          },
+          "description": "project: the project's .cmux/actions.json; global: the actions of cmux-next.json."
+        },
+        "title": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The title, else the tooltip, else the name."
+        },
+        "tooltip": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "command": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The shell command it types; an agent action's is the agent and its args."
+        },
+        "icon": {
+          "required": false,
+          "type": {
+            "kind": "union",
+            "variants": [
+              {
+                "kind": "object",
+                "fields": {
+                  "type": {
+                    "required": true,
+                    "type": {
+                      "kind": "enum",
+                      "values": [
+                        "symbol"
+                      ]
+                    }
+                  },
+                  "name": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "string",
+                      "min_length": 1
+                    }
+                  }
+                },
+                "extra": false
+              },
+              {
+                "kind": "object",
+                "fields": {
+                  "type": {
+                    "required": true,
+                    "type": {
+                      "kind": "enum",
+                      "values": [
+                        "image"
+                      ]
+                    }
+                  },
+                  "path": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "string",
+                      "min_length": 1
+                    }
+                  }
+                },
+                "extra": false
+              }
+            ]
+          },
+          "description": "{type: symbol, name} or {type: image, path} with an absolute path."
+        },
+        "target": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "newTabInCurrentPane",
+              "currentTerminal"
+            ]
+          },
+          "description": "Where it runs."
+        },
+        "cwd": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The folder a project action runs in: the project root. Absent for a global action."
+        },
+        "file": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The file it came from."
+        },
+        "shadows": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "True when a global action with this name is hidden by it."
+        }
+      },
+      "extra": false
+    },
+    "ProjectActionProblem": {
+      "kind": "object",
+      "fields": {
+        "source": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "project",
+              "global"
+            ]
+          }
+        },
+        "path": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The entry, as actions.NAME.FIELD, or the file's path for a file that was not read."
+        },
+        "message": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        }
+      },
+      "extra": false
+    },
+    "ProjectActionsListResult": {
+      "kind": "object",
+      "fields": {
+        "project_root": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The folder whose .cmux/actions.json applies; absent outside a project."
+        },
+        "file": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The project file's path, when there is one."
+        },
+        "actions": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "ProjectAction"
+            }
+          },
+          "description": "Project actions by name, then the global ones they do not replace, by name."
+        },
+        "problems": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "ProjectActionProblem"
+            }
+          },
+          "description": "Entries or files that were skipped, and why."
+        }
+      },
+      "extra": false
+    },
     "ProjectList": {
       "kind": "object",
       "fields": {
@@ -32986,6 +33208,63 @@
         "The daemon keeps ONE avatar store for people and Chiefs: chiefs.sqlite3 in the session state directory (memory for an in-memory session). Bytes are stored once by SHA-256 and deleted when no participant references them.",
         "The media type comes from the bytes: PNG, JPEG, GIF or WebP, 1 to 1048576 bytes; anything else is validation.invalid on bytes.",
         "bytes or clear true; anything else is validation.invalid. Setting the same picture again changes nothing; a committed change publishes participant-avatar-changed on subscribe to connections that echoed participant-avatars-v1.", "The idempotency key is per participant for a person (the last 256 keys are kept) and per caller for a Chief: the same key with the same params answers the committed result with replayed true; other params under the key are idempotency.conflict. revision is the Chief record's rev for a Chief and the people's avatar revision (it moves on every change of any person's picture) for a person."
+      ]
+    },
+    "project.actions.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside the project. Use it, or a workspace, pane, tab or terminal selector whose working directory names the project."
+          },
+          "include_global": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Also list the global actions of cmux-next.json (default true)."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "ProjectActionsListResult"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "The project is the nearest folder from the path up with .cmux/actions.json, up to the repository root (the first folder with .git) and never the home folder. The file is {\"actions\": {NAME: ACTION}} in the shape of the global actions section; JSONC is accepted.",
+        "A linked .cmux folder or file, a file that is not a regular file and a file over 256 KiB are not read; a bad entry is skipped and listed in problems.",
+        "It only reads: a project action runs when the user picks it, in the project root."
       ]
     },
     "project.add": {

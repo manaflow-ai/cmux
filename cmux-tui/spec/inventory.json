@@ -198,6 +198,7 @@
     "pane.zoom",
     "participant.avatar.get",
     "participant.avatar.set",
+    "project.actions.list",
     "project.add",
     "project.list",
     "project.observe",

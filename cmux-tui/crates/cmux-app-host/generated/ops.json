@@ -305,6 +305,7 @@
     "participants.add",
     "participants.set_role",
     "participants.unban",
+    "project.actions.list",
     "project.add",
     "project.list",
     "project.observe",

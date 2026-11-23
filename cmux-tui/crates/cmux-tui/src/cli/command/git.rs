@@ -166,7 +166,10 @@ fn diff_pages(flags: &mut Flags, params: &mut Map<String, Value>) -> Result<(), 
 }
 
 /// The repository to read: one selector, `--path`, or the current directory.
-fn target(flags: &mut Flags, params: &mut Map<String, Value>) -> Result<Selectors, UsageError> {
+pub(super) fn target(
+    flags: &mut Flags,
+    params: &mut Map<String, Value>,
+) -> Result<Selectors, UsageError> {
     let mut selectors = Selectors::default();
     let mut chosen = 0;
     for &(scope, prefix) in TARGETS {

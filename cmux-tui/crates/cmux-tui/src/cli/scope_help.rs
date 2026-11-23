@@ -201,6 +201,30 @@ USAGE
   cmux space close <name> [--json]
 ";
 
+pub(super) const PROJECT_HELP: &str = "\
+USAGE
+  cmux project actions [PATH] [TARGET] [--no-global] [--json]
+
+  The actions of the project a folder is in: <project>/.cmux/actions.json
+  ({\"actions\": {NAME: ACTION}}, the shape of the global actions in
+  cmux-next.json), then the global actions it does not replace by name.
+  The project is the nearest folder up with .cmux/actions.json, up to the
+  repository root, never the home folder. Listing never runs anything; the
+  app runs an action in the project root when you pick it.
+
+TARGET
+  PATH or --path <path>  A file or folder in the project
+  --workspace <selector> The working directory of the workspace's current terminal
+  --screen <selector>    ... of the screen's current terminal
+  --pane <selector>      ... of the pane's current terminal
+  --tab <selector>       ... of the tab's terminal
+  --terminal <selector>  ... of the terminal
+  Without one, the current directory.
+
+OPTIONS
+  --no-global            Only the project's own actions
+";
+
 pub(super) const GIT_HELP: &str = "\
 USAGE
   cmux git status [TARGET]

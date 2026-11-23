@@ -259,6 +259,7 @@ impl ResourceOperation {
             Self::SidebarApply => "sidebar.apply",
             Self::SidebarReset => "sidebar.reset",
             Self::ProjectList => "project.list",
+            Self::ProjectActionsList => "project.actions.list",
             Self::ProjectObserve => "project.observe",
             Self::ProjectAdd => "project.add",
             Self::ProjectUpdate => "project.update",
