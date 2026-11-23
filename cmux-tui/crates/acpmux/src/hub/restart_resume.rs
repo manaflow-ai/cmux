@@ -19,7 +19,8 @@
 //!   carries `_meta.provenance = {kind: "auto_resume", reason: "daemon_restart", ...}`.
 //! - `autoResumeDelaysMs: []` turns it off, as it does the transport continuation, and a chain
 //!   of restarts gives up after the attempts it configures ([`configured_attempts`]), as a
-//!   transport cut does (`auto_resume_exhausted`).
+//!   transport cut does (`auto_resume_exhausted`). A move's continuation is not one of those
+//!   attempts: a turn moves as many times as a person moves it.
 //! - A crash between the continuation's `queued` record and its move to the head
 //!   (`queue_order`) still restores it at the head (`queue.rs` `restore_queue`), and once.
 //! - It goes through the trust gate as the cut turn did (`turn_started` records `trustGate`),
@@ -446,6 +447,24 @@ fn continue_text_for(
 }
 
 impl Hub {
+    /// How many of the continuations behind the prompt `root` a move made (`reason: "moved"`).
+    /// A move is not a failed attempt: it spends none of the waits `autoResumeDelaysMs`
+    /// configures, for a restart's chain here or a transport cut's (`auto_resume.rs`).
+    pub(in crate::hub) fn moves_behind(&self, session: &Arc<Session>, root: &str) -> usize {
+        let mut moves = 0;
+        let _ = self.store.scan_heads(&session.id, &mut |head: &RecordHead<'_>| {
+            if head.kind == "auto_resume_scheduled"
+                && let Some(e) = head.record()
+                && e.msg.get("reason").and_then(Value::as_str) == Some(Cut::Move.reason())
+                && e.msg.get("promptId").and_then(Value::as_str) == Some(root)
+            {
+                moves += 1;
+            }
+            true
+        });
+        moves
+    }
+
     /// Before the cut turn `turn_id` is settled: logs the continuation that goes on with it, and
     /// returns its prompt id; `None` when it gets none (turned off, or too many attempts).
     pub(in crate::hub) fn log_restart_continuation(
@@ -494,6 +513,9 @@ impl Hub {
         let mut stopped = false;
         let mut tool_start = None;
         let mut tool_end = None;
+        // Every `auto_resume_scheduled` a move logged, by the prompt it continues: a move is no
+        // failed attempt (`moves_behind`).
+        let mut moved: Vec<String> = Vec::new();
         let _ = self.store.scan_heads(&session.id, &mut |head: &RecordHead<'_>| {
             // Headers are cheap to inspect. Parse payloads only after the interrupted turn starts,
             // and stop at its result so a long session does not deserialize historical tool I/O.
@@ -508,6 +530,7 @@ impl Hub {
                     | "remote_floor_cancel"
                     | "turn_result"
                     | "turn_stop_requested"
+                    | "auto_resume_scheduled"
             );
             if !needs_record {
                 return true;
@@ -516,6 +539,11 @@ impl Hub {
             let is_turn = e.msg.get("turnId").and_then(Value::as_str) == Some(turn_id);
             let field = |k: &str| e.msg.get(k).and_then(Value::as_str).map(str::to_owned);
             match e.kind.as_str() {
+                "auto_resume_scheduled" => {
+                    if e.msg.get("reason").and_then(Value::as_str) == Some(Cut::Move.reason()) {
+                        moved.extend(field("promptId"));
+                    }
+                }
                 "turn_started" if is_turn => {
                     started = true;
                     trigger = e.msg.get("trigger") == Some(&Value::Bool(true));
@@ -618,7 +646,10 @@ impl Hub {
         });
         let (root, done) = split_attempt(&prompt_id);
         let attempt = done + 1;
-        if attempt > attempts {
+        // A person moves a chat as often as they like: a move's continuation is never refused for
+        // the count, and the moves behind a restart's are not failures it has used up.
+        let moves = moved.iter().filter(|id| id.as_str() == root).count();
+        if cut == Cut::Restart && attempt.saturating_sub(moves) > attempts {
             let msg = json!({"promptId": root, "attempts": done, "turnId": turn_id, "reason": cut.reason()});
             self.append(session, "mux", "auto_resume_exhausted", msg);
             return None;
@@ -803,6 +834,49 @@ mod tests {
         let (id, gave_up) = chain(Some(vec![10_000; 6]), 5).await;
         assert_eq!(id, Some(format!("p1{SUFFIX}6")));
         assert!(gave_up.is_empty(), "{gave_up:?}");
+    }
+
+    /// A move is not a failed attempt: a turn moved more times than the waits configured still
+    /// goes on where it lands, and the moves behind a restart use up none of its attempts.
+    #[tokio::test]
+    async fn a_move_spends_no_attempt_and_is_never_refused_for_the_count() {
+        let (root, hub, session) = cut_turn(Some(vec![10_000]), 0);
+        let mut prompt = "p1".to_owned();
+        for hop in 1..=10 {
+            let turn = format!("t{hop}");
+            if hop > 1 {
+                hub.append(
+                    &session,
+                    "in",
+                    "turn_started",
+                    json!({"turnId": turn, "promptId": prompt}),
+                );
+                hub.append(&session, "in", "user_message", json!({"turnId": turn, "text": "on"}));
+            }
+            let id = hub.log_continuation(&session, &turn, Cut::Move);
+            assert_eq!(id, Some(format!("p1{SUFFIX}{hop}")), "move {hop}");
+            hub.append(&session, "in", "turn_result", json!({"turnId": turn}));
+            prompt = id.unwrap();
+        }
+        assert_eq!(hub.moves_behind(&session, "p1"), 10);
+        // Ten moves behind it, the one configured attempt is still unspent: a restart continues.
+        hub.append(&session, "in", "turn_started", json!({"turnId": "t11", "promptId": prompt}));
+        hub.append(&session, "in", "user_message", json!({"turnId": "t11", "text": "on"}));
+        let id = hub.log_restart_continuation(&session, "t11");
+        assert_eq!(id, Some(format!("p1{SUFFIX}11")));
+        hub.append(&session, "in", "turn_result", json!({"turnId": "t11"}));
+        // The second restart has no wait left.
+        hub.append(
+            &session,
+            "in",
+            "turn_started",
+            json!({"turnId": "t12", "promptId": id.unwrap()}),
+        );
+        hub.append(&session, "in", "user_message", json!({"turnId": "t12", "text": "on"}));
+        assert_eq!(hub.log_restart_continuation(&session, "t12"), None);
+        assert_eq!(exhausted(&hub).len(), 1);
+        hub.shutdown_all().await;
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// The key unset keeps the default waits' attempts, and `[]` still turns it off.

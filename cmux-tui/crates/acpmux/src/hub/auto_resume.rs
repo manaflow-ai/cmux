@@ -662,7 +662,9 @@ impl Hub {
                 return;
             }
             let delays = if context { compact_first::waits(&delays) } else { delays };
-            let Some(&delay) = delays.get(done) else {
+            // A move's continuation is no failed attempt and uses up no wait (`restart_resume.rs`).
+            let moves = if done == 0 { 0 } else { hub.moves_behind(&session, &root) };
+            let Some(&delay) = delays.get(done.saturating_sub(moves)) else {
                 let ours = hub.take_pending(&session, &turn_id);
                 if done > 0 {
                     let msg = json!({"promptId": root, "attempts": done, "turnId": turn_id, "reason": reason.as_str()});

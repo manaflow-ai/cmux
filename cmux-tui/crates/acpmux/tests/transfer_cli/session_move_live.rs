@@ -38,11 +38,20 @@ async fn pair(tag: &str, logs: &Path) -> [Side; 2] {
 }
 
 async fn events(rpc: &mut Rpc, id: &str) -> Vec<Value> {
-    let page =
-        rpc.call("_acpmux/events", json!({"sessionId": id, "afterSeq": 0, "limit": 5000})).await;
-    let events = page["events"].as_array().unwrap().clone();
-    assert!(events.len() < 5000, "the whole log fits one page");
-    events
+    // A page is bounded in bytes as well as in records: read on until the log's end.
+    let (mut events, mut after) = (Vec::new(), 0);
+    loop {
+        let page = rpc
+            .call("_acpmux/events", json!({"sessionId": id, "afterSeq": after, "limit": 5000}))
+            .await;
+        events.extend(page["events"].as_array().unwrap().iter().cloned());
+        if page["hasMore"] != true {
+            return events;
+        }
+        let through = page["pageThrough"].as_u64().expect("a page that stops short says where");
+        assert!(through > after, "a page with more behind it moves the cursor: {through}");
+        after = through;
+    }
 }
 
 /// The chat's steps in log order: each tool call's id with how many times it was announced and
