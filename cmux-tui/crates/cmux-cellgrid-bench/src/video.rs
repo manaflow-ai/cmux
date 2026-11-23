@@ -99,7 +99,7 @@ impl Video {
     }
 }
 
-/// BT.601 video range back to BGRX: the inverse of cmux-encode's `bgrx_rect_to_i420`.
+/// Back to BGRX: the inverse of cmux-encode's `bgrx_rect_to_i420` (the hosts' BT.709, video range).
 pub fn i420_to_bgrx(
     y: &[u8],
     u: &[u8],
@@ -109,18 +109,8 @@ pub fn i420_to_bgrx(
     h: usize,
     out: &mut [u8],
 ) {
-    for row in 0..h {
-        for col in 0..w {
-            let c = i32::from(y[row * strides.0 + col]) - 16;
-            let d = i32::from(u[(row / 2) * strides.1 + col / 2]) - 128;
-            let e = i32::from(v[(row / 2) * strides.2 + col / 2]) - 128;
-            let clamp = |x: i32| ((x + 128) >> 8).clamp(0, 255) as u8;
-            let i = (row * w + col) * 4;
-            out[i + 2] = clamp(298 * c + 409 * e);
-            out[i + 1] = clamp(298 * c - 100 * d - 208 * e);
-            out[i] = clamp(298 * c + 516 * d);
-        }
-    }
+    let screen = cmux_encode::color::Yuv::SCREEN;
+    cmux_encode::color::i420_to_bgrx(y, u, v, strides, w, h, screen, out);
 }
 
 /// The I420 round trip with no codec: the floor 4:2:0 alone sets on colour.

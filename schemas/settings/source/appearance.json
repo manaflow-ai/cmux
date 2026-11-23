@@ -479,6 +479,36 @@
             "colour",
             "theme"
           ]
+        },
+        {
+          "key": "customize.doctorNotice",
+          "name": "customizeDoctorNotice",
+          "note": "The app's quiet notice (a toast) at launch and when customization changes, naming a file or layer that changes the person's setup (`cmux customize doctor --announce`, cmux-customize library/doctor.rs). Informational: it changes nothing. Off: no toast; Settings' doctor card and the CLI still list findings. Leo 2026-11-19: \"if there's errant files etc that affect customizations it should be able to automatically tell the user and inform them\".",
+          "title": {
+            "key": "settings.customize.doctorNotice",
+            "text": "Customization notices"
+          },
+          "summary": {
+            "key": "settings.customize.doctorNotice.summary",
+            "text": "Tell me when a file or layer changes my setup"
+          },
+          "kind": "toggle",
+          "swift_owner": {
+            "type": "CmuxConfigSnapshot",
+            "prefixed": true
+          },
+          "default": true,
+          "keywords": [
+            "customize",
+            "customization",
+            "doctor",
+            "notice",
+            "toast",
+            "theme",
+            "layer",
+            "broken",
+            "file"
+          ]
         }
       ]
     },

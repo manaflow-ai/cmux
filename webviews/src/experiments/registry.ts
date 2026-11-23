@@ -60,6 +60,7 @@ import { pausedMachineResume } from "../agent-session/acpmux/pausedMachine.exper
 import { codeRouterOffer } from "../agent-session/acpmux/conversation/codeRouterOffer.experiment";
 import { stoppedTurnLook } from "../agent-session/acpmux/conversation/stoppedTurn.experiment";
 import { chromiumGlassUnderlay } from "../ui/glass/chromiumUnderlay.experiment";
+import { hoverLook } from "../ui/hoverLook.experiment";
 import { questionPreviewLayout } from "../agent-session/acpmux/question/previewLayout.experiment";
 import { trayPanelLook, trayRowLook, trayStopLook } from "../agent-session/acpmux/subagents/trayPanel.experiment";
 import { trayMotionLook } from "../agent-session/acpmux/subagents/trayMotion.experiment";
@@ -82,6 +83,7 @@ import { trayLatestLook } from "../agent-session/acpmux/subagents/trayLatest.exp
 import { doneReportLook } from "../agent-session/acpmux/subagents/doneReport.experiment";
 import { traySurfaceLook } from "../agent-session/acpmux/subagents/traySurface.experiment";
 import { chatSwitchMotion } from "../agent-session/acpmux/chatSwitch.experiment";
+import { holdToApprove, holdToApproveDuration } from "../agent-session/acpmux/permissions/holdToApprove.experiment";
 import { liveBackground } from "../ui/liveBackground/liveBackground.experiment";
 import { composerPlusCommands } from "../agent-session/acpmux/composerPlusCommands.experiment";
 import { composerPlusReturnHint } from "../agent-session/acpmux/composerPlusReturnHint.experiment";
@@ -162,6 +164,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   timeHoverWording,
   timeHoverDate,
   chromiumGlassUnderlay,
+  hoverLook,
   questionPreviewLayout,
   toolErrorLook,
   tableActionsPlace,
@@ -228,6 +231,8 @@ export const EXPERIMENTS: readonly Experiment[] = [
   composerDockMotion,
   teamAudit,
   jumpPairLook,
+  holdToApprove,
+  holdToApproveDuration,
   jumpLatestPlace,
   dockBand,
   outcomeAsk,

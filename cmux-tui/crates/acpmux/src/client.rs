@@ -8,10 +8,25 @@ use anyhow::{Context, Result};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::{Arc, Mutex as StdMutex};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{Mutex, mpsc, oneshot};
+
+type PendingReplies = StdMutex<HashMap<String, oneshot::Sender<Result<Value, RpcError>>>>;
+
+/// The caller owns its reply slot. Dropping a timed-out or cancelled request forgets the
+/// waiter even when the daemon never replies. This does not cancel work already sent.
+struct PendingRequest<'a> {
+    replies: &'a PendingReplies,
+    key: String,
+}
+
+impl Drop for PendingRequest<'_> {
+    fn drop(&mut self) {
+        self.replies.lock_or_recover().remove(&self.key);
+    }
+}
 
 pub struct Client {
     /// Build id the daemon reported at initialize, for mismatch hints.
@@ -35,7 +50,9 @@ pub struct Client {
     person_challenge: std::sync::Mutex<Option<(String, String)>>,
     out: mpsc::Sender<String>,
     next_id: AtomicI64,
-    pending: Arc<Mutex<HashMap<String, oneshot::Sender<Result<Value, RpcError>>>>>,
+    // Only map operations hold this lock; no I/O or await. A synchronous lock lets the
+    // request's drop release its slot without spawning another task to clean up.
+    pending: Arc<PendingReplies>,
     notifications: Mutex<Option<mpsc::Receiver<Message>>>,
     notif_tx: Arc<Mutex<mpsc::Sender<Message>>>,
     closed: Arc<std::sync::atomic::AtomicBool>,
@@ -61,8 +78,7 @@ impl Client {
         let (notif_tx, notif_rx) = mpsc::channel::<Message>(4096);
         let notif_tx = Arc::new(Mutex::new(notif_tx));
         let closed = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let pending: Arc<Mutex<HashMap<String, oneshot::Sender<Result<Value, RpcError>>>>> =
-            Arc::new(Mutex::new(HashMap::new()));
+        let pending = Arc::new(PendingReplies::default());
         tokio::spawn(async move {
             while let Some(line) = out_rx.recv().await {
                 if wr.write_all(line.as_bytes()).await.is_err() {
@@ -80,7 +96,8 @@ impl Client {
                     let Ok(msg) = Message::parse(&line) else { continue };
                     match msg {
                         Message::Response { id, result, error } => {
-                            if let Some(tx) = pending.lock().await.remove(&id.to_string()) {
+                            let tx = pending.lock_or_recover().remove(&id.to_string());
+                            if let Some(tx) = tx {
                                 let _ = tx.send(match error {
                                     Some(e) => Err(e),
                                     None => Ok(result.unwrap_or(Value::Null)),
@@ -100,11 +117,9 @@ impl Client {
                     }
                 }
                 closed.store(true, Ordering::SeqCst);
-                let mut p = pending.lock().await;
                 // Dropping the senders identifies transport EOF independently
                 // of any message or error code supplied by the daemon.
-                p.clear();
-                drop(p);
+                pending.lock_or_recover().clear();
                 // The stream never ends on its own (the client keeps a
                 // sender), so say goodbye explicitly.
                 let tx = notif_tx.lock().await.clone();
@@ -356,14 +371,15 @@ impl Client {
         {
             // Check and register under the lock the reader drains with after
             // it marks the connection closed, so no request slips between.
-            let mut pending = self.pending.lock().await;
+            let mut pending = self.pending.lock_or_recover();
             if self.closed.load(Ordering::SeqCst) {
+                drop(pending);
                 return Err(self.closed(&context));
             }
             pending.insert(key.clone(), tx);
         }
+        let _pending = PendingRequest { replies: &self.pending, key };
         if self.out.send(Message::request(id, m, params).to_line()).await.is_err() {
-            self.pending.lock().await.remove(&key);
             return Err(self.closed(&context));
         }
         match rx.await {
@@ -590,6 +606,10 @@ pub fn closed_error(context: &str, daemon_build: Option<&str>) -> anyhow::Error 
 #[cfg(test)]
 #[path = "client_closed_tests.rs"]
 mod closed_tests;
+
+#[cfg(all(test, unix))]
+#[path = "client_cancel_tests.rs"]
+mod cancel_tests;
 
 #[cfg(test)]
 mod lineage_tests {
