@@ -51,6 +51,28 @@ for (const name of ["incoming-notice-turn", "incoming-message-turn"])
     expect({ thinking: gaps.thinking, working: gaps.working }).toEqual({ thinking: want, working: want });
   });
 
+// ST-02, Leo, 2026-11-22 08:29Z (screenshot 1159): "this one seems to have an unnecessary gap due to being a recieved
+// message. these aren't categorized properly under our tool call formatting." Another agent's message received mid-turn
+// and a "Sent to" line are activity rows: at every step each stands exactly the gap a tool row would stand in its place.
+test("chat simulator: received-sent-as-activity: received and sent rows stand a tool row's gap at every step", () => {
+  const result = runSimulation(SCENARIOS["received-sent-as-activity"]!());
+  const seen = { received: 0, sent: 0 };
+  const off: string[] = [];
+  for (const step of result.traces)
+    for (const row of step.rows ?? []) {
+      if (!row.message) continue;
+      seen[row.message] += 1;
+      if (row.toolGap === undefined || row.gap !== row.toolGap)
+        off.push(`${step.label}: ${row.message} ${row.id} ${row.gap}px (a tool row: ${row.toolGap}px)`);
+    }
+  expect(off).toEqual([]);
+  expect(seen.received).toBeGreaterThan(0);
+  expect(seen.sent).toBeGreaterThan(0);
+  // And at the turn's end, folded, nothing else breaks.
+  expect(broken(result, "a-")).toEqual([]);
+  expect(broken(result, "b-")).toEqual([]);
+});
+
 test("chat simulator: a person's prompt keeps the block gap over Working for", () => {
   const result = runSimulation(SCENARIOS.basic!());
   const trace = result.traces.find((step) => step.rows?.some((row) => row.kind === "working" && row.head));

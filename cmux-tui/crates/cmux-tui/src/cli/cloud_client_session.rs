@@ -349,7 +349,7 @@ fn print_exec(
 /// `POST {api}/v1/cloud/machines/{machine}/exec` (cmux-platform MachineGuest.ts):
 /// `{command, timeoutMs}` -> `{exitCode, stdout, stderr}`, as the work user. A refusal answers
 /// `{ok: false, error: {code}}`; only a code from `cmux_cloud_api::session::known_code` is printed.
-async fn exec_route(
+pub(super) async fn exec_route(
     client: &reqwest::Client,
     scope: &Scope,
     credential: &str,
@@ -394,7 +394,7 @@ async fn exec_route(
     Ok(ExecAnswer { exit_code, stdout: text("stdout")?, stderr: text("stderr")? })
 }
 
-async fn exec(
+pub(super) async fn exec(
     client: &reqwest::Client,
     session: &Session,
     command: &str,

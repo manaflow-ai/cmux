@@ -64,7 +64,7 @@
   visibility: hidden;
   pointer-events: none;
 }
-.acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-strip-placeholder { display: none; }
+.acpmux-composer[data-queue] > .acpmux-composer-strip-placeholder { display: none; }
 :root[data-top-strip="bump"] .acpmux-composer > .acpmux-composer-strip-placeholder {
   --acpmux-strip-slot-gapped: calc(var(--acpmux-strip-slot) + var(--acpmux-strip-gap, 4px));
   height: var(--acpmux-strip-slot-gapped);
@@ -882,7 +882,7 @@
 .acpmux-composer-box {
   box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-shadow, var(--elevation-1));
 }
-.acpmux-composer-box:has(:focus-visible) {
+.acpmux-composer-box[data-focused] {
   box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-shadow, var(--elevation-1));
 }
 /* Send, Stop and ↵ are the bar's control size (28 px at Default, density's --acpmux-composer-control), plain line glyphs in the secondary text color, as the mic is
@@ -933,14 +933,14 @@
    whose sides carry the rim on up. Two rims broke at the join (half a pixel of mask at 1x) and took
    two tones once the card had focus (live captures, 2026-10-14). The card under a top strip variant
    keeps its whole rim (below). */
-:root:not([data-top-strip]) .acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-box {
+:root:not([data-top-strip]) .acpmux-composer[data-queue] > .acpmux-composer-box {
   border-top-left-radius: 0;
   border-top-right-radius: 0;
 }
-.acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-box {
+.acpmux-composer[data-queue] > .acpmux-composer-box {
   box-shadow: var(--acpmux-composer-shadow, var(--elevation-1));
 }
-.acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-box::before {
+.acpmux-composer[data-queue] > .acpmux-composer-box::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -959,12 +959,12 @@
 .acpmux-composer > .acpmux-composer-queue {
   border-radius: var(--acpmux-strip-radius, 18px) var(--acpmux-strip-radius, 18px) 0 0;
 }
-.acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-strip {
+.acpmux-composer[data-queue] > .acpmux-composer-strip {
   border-radius: 0;
 }
 /* Under the queue the rim's top edge gives way to the queue's sides: the rim leaves out its top
    line, all but one hairline at each side (the mask keeps whole device pixels at 1x and 2x). */
-.acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-box::before {
+.acpmux-composer[data-queue] > .acpmux-composer-box::before {
   border-top-left-radius: 0;
   border-top-right-radius: 0;
   --acpmux-seam: linear-gradient(#000 0 0) 50% 0 / calc(100% - 2 * var(--cmux-hairline, .5px))
@@ -986,11 +986,11 @@
      desktop show the context above their prompt.
    - tray: a filled tray tucked under the card's top edge, the card's whole rim drawn over it, as
      ChatGPT desktop's Codex tray (cg-design-judge, 2026-10-15). */
-:root[data-top-strip] .acpmux-composer:has(> .acpmux-composer-strip, > .acpmux-composer-queue) > .acpmux-composer-box,
+:root[data-top-strip] .acpmux-composer:is([data-strip], [data-queue]) > .acpmux-composer-box,
 :root[data-top-strip] .nt-composer:has(.acpmux-composer-strip) .nt-box {
   box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-shadow, var(--elevation-1));
 }
-:root[data-top-strip] .acpmux-composer:has(> .acpmux-composer-strip, > .acpmux-composer-queue) > .acpmux-composer-box::before,
+:root[data-top-strip] .acpmux-composer:is([data-strip], [data-queue]) > .acpmux-composer-box::before,
 :root[data-top-strip] .nt-composer:has(.acpmux-composer-strip) .nt-box::before {
   content: none;
 }
@@ -1003,21 +1003,21 @@
   border-radius: 10px 10px 5px 5px;
   box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-strip-edge);
 }
-:root[data-top-strip="bump"] .acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-strip {
-  border-radius: 0 0 5px 5px;
+:root[data-top-strip="bump"] .acpmux-composer[data-queue] > .acpmux-composer-strip {
+  border-radius: 0 0 5px 5px; /* concentric-allow: the strip tucks under the queue card, unchanged from the :has() form it replaced */
   box-shadow:
     inset var(--cmux-hairline, .5px) 0 0 var(--acpmux-strip-edge),
     inset calc(-1 * var(--cmux-hairline, .5px)) 0 0 var(--acpmux-strip-edge),
     inset 0 calc(-1 * var(--cmux-hairline, .5px)) 0 var(--acpmux-strip-edge);
 }
 /* A started chat's queue is the top strip: the same gap and closed rim. */
-:root[data-top-strip="bump"] .acpmux-composer:not(:has(> .acpmux-composer-strip)) > .acpmux-composer-queue {
+:root[data-top-strip="bump"] .acpmux-composer:not([data-strip]) > .acpmux-composer-queue {
   --acpmux-queue-edge: var(--acpmux-composer-edge);
   margin-bottom: var(--acpmux-strip-gap);
   border-radius: 12px 12px 5px 5px;
   box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-queue-edge);
 }
-:root[data-top-strip="bump"] .acpmux-composer:not([data-shell]):not(:has(> .acpmux-composer-strip)):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
+:root[data-top-strip="bump"] .acpmux-composer:not([data-shell]):not([data-strip])[data-focused][data-focused] > .acpmux-composer-queue {
   --acpmux-queue-edge: var(--acpmux-composer-edge-focus);
   box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-queue-edge);
 }
@@ -1030,7 +1030,7 @@
 :root[data-top-strip="plain"] .acpmux-composer { --acpmux-top-strip-edge: 14px; }
 :root[data-top-strip="plain"] .nt-composer { --acpmux-top-strip-edge: calc(var(--nt-composer-inset) + 5px); }
 :root[data-top-strip="plain"] .acpmux-composer-strip,
-:root[data-top-strip="plain"] .acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-strip {
+:root[data-top-strip="plain"] .acpmux-composer[data-queue] > .acpmux-composer-strip {
   height: auto;
   margin: 0 0 var(--acpmux-strip-gap);
   padding-inline: calc(var(--acpmux-top-strip-edge) - 6px);
@@ -1053,7 +1053,7 @@
   padding: 0;
 }
 :root[data-top-strip="plain"] .acpmux-composer > .acpmux-composer-queue,
-:root[data-top-strip="plain"] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
+:root[data-top-strip="plain"] .acpmux-composer:not([data-shell])[data-focused][data-focused] > .acpmux-composer-queue {
   border-radius: 0;
   background: none;
   box-shadow: none;
@@ -1063,16 +1063,16 @@
    solid fill (--acpmux-queue-fill, composerStates.css), the same as its fold, never clear text over
    the wallpaper with a solid fold under it (queued-glass.test.ts). */
 :root[data-top-strip="plain"]:is([data-reduce-transparency], [data-glass="off"]) .acpmux-composer > .acpmux-composer-queue,
-:root[data-top-strip="plain"]:is([data-reduce-transparency], [data-glass="off"]) .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
+:root[data-top-strip="plain"]:is([data-reduce-transparency], [data-glass="off"]) .acpmux-composer:not([data-shell])[data-focused][data-focused] > .acpmux-composer-queue {
   background: var(--acpmux-queue-fill);
 }
 @media (prefers-reduced-transparency: reduce) {
   :root[data-top-strip="plain"] .acpmux-composer > .acpmux-composer-queue,
-  :root[data-top-strip="plain"] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
+  :root[data-top-strip="plain"] .acpmux-composer:not([data-shell])[data-focused][data-focused] > .acpmux-composer-queue {
     background: var(--acpmux-queue-fill);
   }
 }
-:root[data-top-strip="plain"] .acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-queue { margin-bottom: 0; }
+:root[data-top-strip="plain"] .acpmux-composer[data-strip] > .acpmux-composer-queue { margin-bottom: 0; }
 :root[data-top-strip="plain"] .acpmux-composer-queue .acpmux-queued { padding-inline: 0; color: var(--agent-muted); }
 /* The row's actions take their own room at its end, with no tray to fade into. */
 :root[data-top-strip="plain"] .acpmux-composer-queue .acpmux-queued-actions { position: static; padding-left: 0; background: none; }
@@ -1098,12 +1098,12 @@
 :root[data-top-strip="tray"] .nt-composer .nt-box { z-index: var(--layer-raised, 1); }
 /* A small ghost button's icon ink sits 6 px in from the button's edge (ui/ghost.css). */
 :root[data-top-strip="tray"] .acpmux-composer-strip,
-:root[data-top-strip="tray"] .acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-strip {
+:root[data-top-strip="tray"] .acpmux-composer[data-queue] > .acpmux-composer-strip {
   z-index: var(--layer-base, 0);
   height: calc(var(--acpmux-strip-height) + var(--acpmux-tray-tuck));
   margin: 0 var(--acpmux-tray-inset) calc(-1 * var(--acpmux-tray-tuck));
   padding: 0 calc(var(--acpmux-top-strip-edge) - var(--acpmux-tray-inset) - 6px) var(--acpmux-tray-tuck);
-  border-radius: 14px 14px 0 0;
+  border-radius: 14px 14px 0 0; /* concentric-allow: the tray tab tucks under the card, unchanged from the :has() form it replaced */
   background: var(--acpmux-top-tray);
   box-shadow: inset 0 var(--cmux-hairline, .5px) 0 var(--acpmux-strip-edge);
 }
@@ -1121,7 +1121,7 @@
     background: color-mix(in srgb, var(--agent-text) 5%, var(--glass-tint));
   }
 }
-:root[data-top-strip="tray"] .acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-strip {
+:root[data-top-strip="tray"] .acpmux-composer[data-queue] > .acpmux-composer-strip {
   border-radius: 0;
   box-shadow: none;
 }
@@ -1135,16 +1135,16 @@
   padding: 4px 0 calc(4px + var(--acpmux-tray-tuck));
 }
 :root[data-top-strip="tray"] .acpmux-composer > .acpmux-composer-queue,
-:root[data-top-strip="tray"] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
+:root[data-top-strip="tray"] .acpmux-composer:not([data-shell])[data-focused][data-focused] > .acpmux-composer-queue {
   --acpmux-composer-tray: var(--acpmux-top-tray);
   border-radius: 14px 14px 0 0;
   background: var(--acpmux-queue-fill);
   box-shadow: inset 0 var(--cmux-hairline, .5px) 0 var(--acpmux-composer-edge);
 }
-:root[data-top-strip="tray"] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
+:root[data-top-strip="tray"] .acpmux-composer:not([data-shell])[data-focused][data-focused] > .acpmux-composer-queue {
   box-shadow: inset 0 var(--cmux-hairline, .5px) 0 var(--acpmux-composer-edge-focus);
 }
-:root[data-top-strip="tray"] .acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-queue {
+:root[data-top-strip="tray"] .acpmux-composer[data-strip] > .acpmux-composer-queue {
   margin-bottom: 0;
   padding-bottom: 0;
 }
@@ -1165,7 +1165,7 @@
   margin-bottom: 0;
   padding-bottom: 4px;
 }
-:root[data-top-strip="tray"] .acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-queue-foldbar {
+:root[data-top-strip="tray"] .acpmux-composer[data-strip] > .acpmux-queue-foldbar {
   margin-bottom: 0;
   padding-bottom: 2px;
 }
@@ -1372,7 +1372,7 @@
    on it (26 px, Claude Code leaves about 8) is dropped while the quiet row ends the composer (Leo
    2026-10-21: "WE HAVE TOO MUCH STUPID SPACE AT THE BOTTOM COMPAREDE TO CLAUDE CODE"). Only
    the floating chat dock: a fresh chat's hero layout keeps its padding. */
-.acpmux-main[data-dock="float"] > .acpmux-dock > .acpmux-composer:has(.acpmux-composer-foot) { padding-bottom: 0; }
+.acpmux-main[data-dock="float"] > .acpmux-dock > .acpmux-composer[data-foot] { padding-bottom: 0; }
 /* The chips lay out as the row's own items, so the mode goes left and the rest right (right too
    before a chat has a mode, as on a fresh New Tab page). */
 .acpmux-composer-foot .acpmux-chips { display: contents; }
