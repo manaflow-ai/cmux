@@ -33,16 +33,20 @@ const WAITS: [string, LiveWait | undefined][] = [
 ];
 
 const STATUSES: [string, ReactNode][] = [
-  ["Thinking", <Thinking since={0} now={now} />],
-  ["Step", <Thinking since={0} now={now} doing="Read App.tsx" doingAt={40_000} turnTotal />],
-  ["Command", <Thinking since={0} now={now} doing="bun test" doingShell doingAt={50_000} turnTotal />],
-  ["Writing a command", <Thinking since={0} now={now} doing="" doingShell draft turnTotal />],
-  ["Sending", <Thinking since={0} now={now} doing="SendMessage" sendTo="Prioritize visible cmux" doingAt={60_000} />],
-  ["Writing", <Thinking since={0} now={now} liveState="writing" quietKey="r:1" quietAt={NOW} turnTotal />],
-  ["Subagents", <Thinking since={0} now={now} liveState="subagents" liveAgents={2} turnTotal />],
+  ["Thinking", <Thinking key="k36" since={0} now={now} />],
+  ["Step", <Thinking key="k37" since={0} now={now} doing="Read App.tsx" doingAt={40_000} turnTotal />],
+  ["Command", <Thinking key="k38" since={0} now={now} doing="bun test" doingShell doingAt={50_000} turnTotal />],
+  ["Writing a command", <Thinking key="k39" since={0} now={now} doing="" doingShell draft turnTotal />],
+  [
+    "Sending",
+    <Thinking key="k40" since={0} now={now} doing="SendMessage" sendTo="Prioritize visible cmux" doingAt={60_000} />,
+  ],
+  ["Writing", <Thinking key="k41" since={0} now={now} liveState="writing" quietKey="r:1" quietAt={NOW} turnTotal />],
+  ["Subagents", <Thinking key="k42" since={0} now={now} liveState="subagents" liveAgents={2} turnTotal />],
   [
     "Subagent, named",
     <Thinking
+      key="k45"
       since={0}
       now={now}
       liveState="subagents"
@@ -53,11 +57,20 @@ const STATUSES: [string, ReactNode][] = [
   ],
   [
     "Subagents, named",
-    <Thinking since={0} now={now} liveState="subagents" liveAgents={2} liveAgentNames={["lint", "tests"]} turnTotal />,
+    <Thinking
+      key="k56"
+      since={0}
+      now={now}
+      liveState="subagents"
+      liveAgents={2}
+      liveAgentNames={["lint", "tests"]}
+      turnTotal
+    />,
   ],
   [
     "Subagents, more",
     <Thinking
+      key="k60"
       since={0}
       now={now}
       liveState="subagents"
@@ -68,18 +81,18 @@ const STATUSES: [string, ReactNode][] = [
   ],
   ...WAITS.map(([name, liveWait]): [string, ReactNode] => [
     name,
-    <Thinking since={0} now={now} phaseAt={0} heardAt={20_000} heardKey="k" liveWait={liveWait} turnTotal />,
+    <Thinking key={name} since={0} now={now} phaseAt={0} heardAt={20_000} heardKey="k" liveWait={liveWait} turnTotal />,
   ]),
-  ["Compacting", <Thinking since={0} now={now} liveState="compacting" doingAt={50_000} turnTotal />],
-  ["Retrying", <Thinking since={0} now={now} retry={{ attempt: 3, maxRetries: 10, errorStatus: 503 }} />],
+  ["Compacting", <Thinking key="k73" since={0} now={now} liveState="compacting" doingAt={50_000} turnTotal />],
+  ["Retrying", <Thinking key="k74" since={0} now={now} retry={{ attempt: 3, maxRetries: 10, errorStatus: 503 }} />],
   ["Needs you", wait("permission", <Thinking since={0} now={now} />)],
   ["Trust", wait("trust", <Thinking since={0} now={now} />)],
   ["Secret", wait("secret", <Thinking since={0} now={now} />)],
-  ["Activity: step", <ActivityLine row={{ ...line, text: "Edit ProductGrid.module.css" }} now={now} />],
-  ["Activity: thinking", <ActivityLine row={line} now={now} />],
+  ["Activity: step", <ActivityLine key="k78" row={{ ...line, text: "Edit ProductGrid.module.css" }} now={now} />],
+  ["Activity: thinking", <ActivityLine key="k79" row={line} now={now} />],
   [
     "Activity: sending",
-    <ActivityLine row={{ ...line, text: "SendMessage", doingSendTo: "Prioritize visible cmux" }} now={now} />,
+    <ActivityLine key="k82" row={{ ...line, text: "SendMessage", doingSendTo: "Prioritize visible cmux" }} now={now} />,
   ],
   ["Activity: waiting", wait("permission", <ActivityLine row={line} now={now} />)],
 ];

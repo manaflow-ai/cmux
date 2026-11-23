@@ -48,20 +48,19 @@ export function ActivityLine({ row, now = Date.now }: { row: AcpmuxRow; now?: ()
         before={before}
         name={sendName}
         after={after}
-        // Sending is live work: it shimmers as "Thinking" does (Leo, 2026-11-22).
-        children={
-          <RowShimmer>
-            {before}
-            <AgentTag name={sendName} />
-            {after}
-          </RowShimmer>
-        }
         meta={<span className="cv-command__meta">{formatDuration(Math.max(0, time - row.at))}</span>}
         className="cv-activity-row is-live"
         // It opens nothing, so it draws no chevron (a row shows one only with something to show).
         chevron={false}
         ariaLabel={t("send.sending", { target: sendName })}
-      />
+      >
+        {/* Sending is live work: it shimmers as "Thinking" does (Leo, 2026-11-22). */}
+        <RowShimmer>
+          {before}
+          <AgentTag name={sendName} />
+          {after}
+        </RowShimmer>
+      </TranscriptActivityRow>
     );
   }
   return (

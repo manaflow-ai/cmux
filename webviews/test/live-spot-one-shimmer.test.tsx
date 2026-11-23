@@ -33,36 +33,73 @@ const NOW = 60_000;
 
 // Every label the Thinking line can show, by the props that make it.
 const statuses: [string, ReactNode, RegExp][] = [
-  ["thinking", <Thinking since={0} now={() => NOW} />, /^Thinking/],
-  ["a named step", <Thinking since={0} now={() => NOW} doing="Read App.tsx" doingAt={1_000} />, /^Read App\.tsx/],
-  ["a running command", <Thinking since={0} now={() => NOW} doing="bun test" doingShell doingAt={1_000} />, /bun test/],
-  ["writing a command", <Thinking since={0} now={() => NOW} doing="" doingShell draft />, /command/i],
+  ["thinking", <Thinking key="k36" since={0} now={() => NOW} />, /^Thinking/],
+  [
+    "a named step",
+    <Thinking key="k37" since={0} now={() => NOW} doing="Read App.tsx" doingAt={1_000} />,
+    /^Read App\.tsx/,
+  ],
+  [
+    "a running command",
+    <Thinking key="k38" since={0} now={() => NOW} doing="bun test" doingShell doingAt={1_000} />,
+    /bun test/,
+  ],
+  ["writing a command", <Thinking key="k39" since={0} now={() => NOW} doing="" doingShell draft />, /command/i],
   [
     "sending a message",
-    <Thinking since={0} now={() => NOW} doing="SendMessage" sendTo="tests" doingAt={1_000} />,
+    <Thinking key="k42" since={0} now={() => NOW} doing="SendMessage" sendTo="tests" doingAt={1_000} />,
     /tests/,
   ],
-  ["writing", <Thinking since={0} now={() => NOW} liveState="writing" quietKey="reply:1" quietAt={NOW} />, /^Writing/],
-  ["waiting on subagents", <Thinking since={0} now={() => NOW} liveState="subagents" liveAgents={2} />, /2/],
+  [
+    "writing",
+    <Thinking key="k45" since={0} now={() => NOW} liveState="writing" quietKey="reply:1" quietAt={NOW} />,
+    /^Writing/,
+  ],
+  ["waiting on subagents", <Thinking key="k46" since={0} now={() => NOW} liveState="subagents" liveAgents={2} />, /2/],
   [
     "waiting (silent)",
-    <Thinking since={0} now={() => NOW} phaseAt={0} heardAt={0} heardKey="k" turnTotal />,
+    <Thinking key="k49" since={0} now={() => NOW} phaseAt={0} heardAt={0} heardKey="k" turnTotal />,
     /^Waiting/,
   ],
-  ["compacting", <Thinking since={0} now={() => NOW} liveState="compacting" doingAt={1_000} turnTotal />, /ompact/],
+  [
+    "compacting",
+    <Thinking key="k52" since={0} now={() => NOW} liveState="compacting" doingAt={1_000} turnTotal />,
+    /ompact/,
+  ],
   [
     "waiting on one named subagent",
-    <Thinking since={0} now={() => NOW} liveState="subagents" liveAgents={1} liveAgentNames={["Explore auth"]} />,
+    <Thinking
+      key="k55"
+      since={0}
+      now={() => NOW}
+      liveState="subagents"
+      liveAgents={1}
+      liveAgentNames={["Explore auth"]}
+    />,
     /^Waiting on subagent Explore auth/,
   ],
   [
     "waiting on two named subagents",
-    <Thinking since={0} now={() => NOW} liveState="subagents" liveAgents={2} liveAgentNames={["lint", "tests"]} />,
+    <Thinking
+      key="k60"
+      since={0}
+      now={() => NOW}
+      liveState="subagents"
+      liveAgents={2}
+      liveAgentNames={["lint", "tests"]}
+    />,
     /^Waiting on subagents lint and tests/,
   ],
   [
     "waiting on many subagents",
-    <Thinking since={0} now={() => NOW} liveState="subagents" liveAgents={4} liveAgentNames={["lint", "tests"]} />,
+    <Thinking
+      key="k65"
+      since={0}
+      now={() => NOW}
+      liveState="subagents"
+      liveAgents={4}
+      liveAgentNames={["lint", "tests"]}
+    />,
     /^Waiting on subagent lint and 3 more/,
   ],
   ...(
@@ -76,7 +113,16 @@ const statuses: [string, ReactNode, RegExp][] = [
     ] as [LiveWait | undefined, RegExp][]
   ).map(([liveWait, label]): [string, ReactNode, RegExp] => [
     `waiting (silent, ${liveWait?.kind ?? "unknown"})`,
-    <Thinking since={0} now={() => NOW} phaseAt={0} heardAt={0} heardKey="k" liveWait={liveWait} turnTotal />,
+    <Thinking
+      key={liveWait?.kind ?? "unknown"}
+      since={0}
+      now={() => NOW}
+      phaseAt={0}
+      heardAt={0}
+      heardKey="k"
+      liveWait={liveWait}
+      turnTotal
+    />,
     label,
   ]),
 ];
