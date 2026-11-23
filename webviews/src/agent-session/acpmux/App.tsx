@@ -99,6 +99,8 @@ import { cloudModePickFor as cloudModeFor, useCloudModePick } from "./cloudModeP
 import { rememberStartedProject } from "./newtab/startedProject";
 import { shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { TaskGoalStrip } from "./TaskGoalStrip";
+import { ApprovedPlanBand } from "./ApprovedPlanBand";
+import { approvedPlanPlace } from "./approvedPlan.experiment";
 import { hatPlanOf } from "./chatTaskList";
 import { goalHatPlace } from "./goalHat.experiment";
 import { jumpLatestPlace } from "./jumpPlace.experiment";
@@ -191,7 +193,6 @@ import { cloudSendWakes, cloudTypingWakes, type CloudWakeState } from "./cloudWa
 import { type PastTurn } from "./pastChatModel";
 import type { Project } from "./ProjectChooser";
 import { byRecentUse, parseProjectRepos } from "./projectRepos";
-import { agentDotGridArm } from "./dotGrid/agentDotGrid.experiment";
 import { lastChange, turnFiles, turnPathsOnly, turnRows, type PathRef, type TurnFile } from "./diff";
 import { opensTurn } from "./turnStart";
 import { TrustAsk } from "./TrustAsk";
@@ -447,6 +448,8 @@ import {
   cloudSendAfterCheck,
   composerCloudStartFolder,
   pageOnOtherMachine,
+  pickedChatCloudCall,
+  pickOnlyNewChat,
 } from "./cloudRun";
 import { promptBeforeTyped, type CloudStartDraft } from "./cloudStartCarry";
 import { folderRunLocation, newChatRunLocation, defaultFolderFor } from "./runLocationDefault";
@@ -2136,8 +2139,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const subagentTray = useSubagentTray();
   const trayPlacement = useSubagentTrayPlacement();
   const [goalHatPlaceArm] = useState(() => experimentArm(goalHatPlace));
-  // The agent dot grid on the home (dotGrid/agentDotGrid.experiment.ts): off unless opted in.
-  const [dotGridArm] = useState(agentDotGridArm);
+  const [approvedPlanArm] = useState(() => experimentArm(approvedPlanPlace));
   const doneLines = useRef<DoneLineCache>(new Map());
   const childDoneLines = useRef<DoneLineCache>(new Map());
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
@@ -3894,8 +3896,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const newTabGeneration = useNewTabAdoption(adoptNewTab, currentNewTab);
   // A Fix from a link's failure is that New Tab visit's: the next visit starts without it.
   useEffect(() => setNewTabFixError(undefined), [newTabGeneration]);
-  // `tabs.newTabApp` (newtab/NewTabAppPage.tsx): the visit (adoption) whose app page could not show
-  // draws cmux's own; the next Cmd-T tries the app again, also on a spare that keeps its screen.
+  // `tabs.newTabApp` (newtab/NewTabAppSlot.tsx): the visit (adoption) whose extension slot could not show
+  // leaves it empty; the next Cmd-T tries the app again, also on a spare that keeps its screen.
   const [newTabAppGone, setNewTabAppGone] = useState<number>();
   // A start owns this visit's screen until accepted, even while a switch publishes queued rows.
   // A new adoption has a different generation and never inherits this pending/error view.
@@ -6214,6 +6216,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const pendingWake = useRef<ComposerWake | undefined>(undefined);
   /// Where the shown transcript rests now (VirtualTranscript `anchorNow`).
   const transcriptAnchor = useRef<(() => ScrollAnchor | null | undefined) | undefined>(undefined);
+  /// The transcript's Toggle Terminal and Chat placement (VirtualTranscript `placeNow`).
+  const placeTranscript = useRef<((rowId: string | null) => boolean) | null>(null);
   /// Prompts sent from this pane (every `chat.send`): each puts the transcript at its latest message.
   const [sends, setSends] = useState(0);
   /// VirtualTranscript updates this synchronously on reader scrolls, so a disabled send-to-bottom
@@ -7259,6 +7263,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       untakenSends,
       pendingWake,
       transcriptAnchor,
+      placeTranscript,
       setSends,
       followingTranscript,
       setHostError,
@@ -8002,7 +8007,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (newTabStartPage === newTabGeneration ||
       ((sessionSelection?.state === "pending" || !snapshot.sessionId) && snapshot.rows.length === 0)) &&
     (handshaken || hostError === undefined);
-  // The extension the person picked to draw the whole page (`tabs.newTabApp`), until it could not show.
+  // The extension the person picked to draw over the composer (`tabs.newTabApp`), until it could not show.
   const newTabApp = showNewTab ? pickedNewTabApp(newTab, newTabAppGone, newTabAdoptions) : undefined;
   /// The chat view (header, transcript, dock and composer) shows: no page or screen stands in its place.
   const showsChatView =
@@ -8039,7 +8044,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// Only where it draws: the chat composer, or the New Tab screen (not the classic New Tab page,
   /// history, nor an extension's page), so a claim never spends the budget on a hint nobody saw.
   const cloudHintDraws =
-    !showNewTab || (newTab !== undefined && !newTab.history && !newTabApp && shownTemplate(newTab) !== "classic");
+    !showNewTab || (newTab !== undefined && !newTab.history && shownTemplate(newTab) !== "classic");
   const cloudHintDue = !quick && !onOtherMachine && cloudHintDraws && cloudChatHintDue(cloudHintFacts);
   /// Only the page the person looks at asks: a spare in the pool never does.
   useCloudChatHintClaim(cloudHintDue, cloudHint.claim);
@@ -8801,6 +8806,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                   anchorNow={
                                                                     quick || childRows ? undefined : transcriptAnchor
                                                                   }
+                                                                  placeNow={
+                                                                    quick || childRows ? undefined : placeTranscript
+                                                                  }
                                                                   inViewNow={
                                                                     quick || childRows ? undefined : transcriptInView
                                                                   }
@@ -8816,6 +8824,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                     childRows ? undefined : onTranscriptKeepFrom
                                                                   }
                                                                   onAnchor={
+                                                                    quick || childRows || !shownSessionId
+                                                                      ? undefined
+                                                                      : (anchor) =>
+                                                                          postScrollAnchor(shownSessionId, anchor)
+                                                                  }
+                                                                  onFollowingAnchor={
                                                                     quick || childRows || !shownSessionId
                                                                       ? undefined
                                                                       : (anchor) =>
@@ -9281,6 +9295,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       />
     ) : null;
   const goalAtFoot = goalNode !== null && goalHatPlaceArm === "foot";
+  // The plan the person approved stays in sight while the agent builds it (ApprovedPlanBand.tsx), a
+  // row of the hat under the goal. Leo: "plan pane that stays during the build".
+  const approvedPlanNode =
+    !showNewTab && composerSnapshot.summary?.approvedPlan ? (
+      <ApprovedPlanBand
+        key={`approved-plan:${composerSnapshot.summary.sessionId}`}
+        chat={composerSnapshot.summary.sessionId}
+        plan={composerSnapshot.summary.approvedPlan}
+        initiallyOpen={approvedPlanArm === "open"}
+      />
+    ) : null;
   // The dock draws the composer (a draft a refusal put back stays in reach even once the tab's run
   // shows), and with it the composer card's quiet row: the dock's `data-foot` (bottomStack.css).
   const dockFoot = (!sandboxHoldsChat || sandboxDraftMoved) && !viewedSandbox && (readOnlySubagent || !reviewing);
@@ -9363,6 +9388,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     hideManaged,
     goalAtFoot,
     goalNode,
+    approvedPlanNode,
+    approvedPlanAtFoot: approvedPlanArm === "foot",
     hatQuestionList,
     NO_HAT_QUESTIONS,
     hatQuestionActions,
@@ -9804,8 +9831,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     trayHandle,
     chatMinimapBeside,
     hasBottomAsk,
-    unsettleChat,
-    holdsChat,
     setPaneMain,
     setToastTop,
     harnessesOpen,
@@ -9965,7 +9990,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     githubRepository,
     sandboxView,
     sandboxHoldsChat,
-    heroPicker,
     tourOffer,
     chatTones,
     chatAgentNames,
@@ -9983,7 +10007,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     paneToasts,
     toastTop,
     asks,
-    dotGridArm,
     hostLine,
     forkPendingLine,
     composer,
