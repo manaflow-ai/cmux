@@ -110,7 +110,7 @@ impl Client {
     }
 
     fn emit(&self, machine: &str, kind: &str, record: Option<&Machine>) {
-        let mut event = json!({ "type": EVENT, "machine": machine, "kind": kind });
+        let mut event = json!({ "event": EVENT, "machine": machine, "kind": kind });
         if let Some(record) = record {
             event["record"] = serde_json::to_value(record).unwrap_or(Value::Null);
         }

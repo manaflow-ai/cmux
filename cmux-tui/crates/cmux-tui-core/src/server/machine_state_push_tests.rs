@@ -218,7 +218,7 @@ fn a_frame_goes_to_the_app_server_then_shows_and_goes_live() {
     assert_eq!(auth.as_deref(), Some("Bearer token-1"));
     assert_eq!(team.as_deref(), Some("team-a"));
     let record = f.event();
-    assert_eq!((record["type"].as_str(), record["kind"].as_str()), (Some(EVENT), Some("record")));
+    assert_eq!((record["event"].as_str(), record["kind"].as_str()), (Some(EVENT), Some("record")));
     assert_eq!(record["machine"], A);
     assert_eq!(record["record"]["status"], "paused");
     assert_eq!(f.event()["kind"], "live");
