@@ -55,6 +55,7 @@ pub mod keys;
 pub mod overlay;
 mod put;
 pub mod recover;
+pub mod stack;
 mod text;
 
 pub use applies::{NoLongerApplies, Stale};
@@ -63,6 +64,7 @@ pub use code::{CodeKind, CodeLayer, WEB_KEY, WebBase};
 use keys::KEYBINDINGS;
 pub use overlay::Overlay;
 pub use recover::{ActiveLayer, Layers, Recovered};
+pub use stack::StackLayer;
 pub use text::thumbnail;
 use text::{one_line, slug, unique_name};
 
@@ -231,6 +233,10 @@ struct LibraryFile {
     /// ran on, so the app runs it again at start only after an update.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     refreshed_on: Option<String>,
+    /// The on web layers built as one series ([`stack`]), served in place
+    /// of the top layer while they are the ones on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    stack: Option<StackLayer>,
 }
 
 /// Whether `refresh` is due on an app at `app` (its `CMUXCommit`) when it
@@ -968,10 +974,12 @@ impl Customize {
     ) -> Result<Changed, Error> {
         let mut library = self.read_library()?;
         let before = library.entries.clone();
+        let stack_before = library.stack.clone();
         edit(&mut library)?;
-        // The web part: which layer web-dev.json serves after this change.
-        let web_was = web_top(&before).map(|code| code.web.clone());
-        let web_will = web_top(&library.entries).map(|code| code.web.clone());
+        // The web part: which layer web-dev.json serves after this change
+        // (the stack's build while its layers are the ones on).
+        let web_was = stack::web_key(&before, stack_before.as_ref());
+        let web_will = stack::web_key(&library.entries, library.stack.as_ref());
         if let Some(key) = &web_will
             && web_was.as_ref() != Some(key)
             && !self.layer_ready(key)

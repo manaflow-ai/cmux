@@ -27,7 +27,7 @@ use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
-use cmux_customize::library::{CodeKind, CodeLayer, code};
+use cmux_customize::library::{CodeKind, CodeLayer, StackLayer, code};
 use cmux_customize::{Customize, Error};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -946,3 +946,145 @@ pub(super) fn refresh(customize: &Customize, origin: &str, now_ms: u64) -> Resul
 #[cfg(test)]
 #[path = "pr_tests.rs"]
 mod tests;
+
+/// Code layers built as one series (cmuxterm-hq RFD 0038, phase 4 step 11):
+/// with two or more web layers on, serves the CI build of all their changes,
+/// bottom first, on this app's commit, or asks CI for it. Until it is there
+/// the top layer serves alone, as before. `None` when there is nothing to
+/// say (fewer than two web layers, or the stack serves on this commit).
+pub(super) fn settle_stack(customize: &Customize, origin: &str, now_ms: u64) -> Option<String> {
+    let (items, built) = customize.library_stack().ok()?;
+    let items = items?;
+    let mut app = App::find();
+    let http = match Http::with_timeout(Duration::from_secs(120)) {
+        Ok(http) => http,
+        Err(error) => return Some(format!("the stack is not served: {}", error.message)),
+    };
+    app.full_commit(&http);
+    let shown = stack_label(&items);
+    let Some(commit) = app.commit.clone().filter(|commit| is_sha(commit)) else {
+        return Some(format!(
+            "{shown} are on together; only the top one serves: this app names no commit to build them on"
+        ));
+    };
+    if built.as_ref().is_some_and(|stack| stack.base == commit) {
+        return None;
+    }
+    let id = StackLayer::id(&items);
+    let url = format!("{}/stack/{id}/{commit}.json", base_url());
+    let pointer = match http.get_json(&url) {
+        Ok(pointer) => pointer,
+        Err(error) => {
+            return Some(format!(
+                "{shown} are on together; only the top one serves: the stack could not be read ({})",
+                error.message
+            ));
+        }
+    };
+    let Some(pointer) = pointer else {
+        return Some(format!(
+            "{shown} are on together; only the top one serves until CI builds them as one series on {}: {}",
+            short(&commit),
+            request_stack(&items, &commit)
+        ));
+    };
+    let served = stack_from(&pointer, &items, &commit, &app).and_then(|(stack, layer)| {
+        install(customize, &http, &layer)?;
+        customize.library_set_stack(stack, origin, now_ms).map_err(Failure::from)
+    });
+    Some(match served {
+        Ok(_) => format!(
+            "{shown} serve together: built as one series on {}; open pages reload onto it",
+            short(&commit)
+        ),
+        Err(error) => format!("{shown}: the stack is not served ({}); the top one serves alone", error.message),
+    })
+}
+
+/// `#1 + #2 + commit abc1234`, bottom first.
+fn stack_label(items: &[String]) -> String {
+    items
+        .iter()
+        .map(|item| match item.strip_prefix("pr:").and_then(|rest| rest.split_once('@')) {
+            Some((pr, _)) => format!("#{pr}"),
+            None => format!("commit {}", item.trim_start_matches("sha:").get(..7).unwrap_or(item)),
+        })
+        .collect::<Vec<_>>()
+        .join(" + ")
+}
+
+/// The stack a pointer describes, checked against what was asked, and the
+/// layer whose folder its bundles are fetched into.
+pub(super) fn stack_from(
+    pointer: &Value,
+    items: &[String],
+    commit: &str,
+    app: &App,
+) -> Result<(StackLayer, CodeLayer), Failure> {
+    let field =
+        |name: &str| pointer.get(name).and_then(Value::as_str).unwrap_or_default().to_owned();
+    let said: Vec<String> = pointer
+        .get("stack")
+        .and_then(Value::as_array)
+        .map(|items| items.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+        .unwrap_or_default();
+    if said != items {
+        return Err(failure("the pointer names another series".into()));
+    }
+    if field("base") != commit {
+        return Err(failure(format!("the pointer is built on {}, not {}", field("base"), commit)));
+    }
+    let key = field("key");
+    if !code::valid_key(&key) {
+        return Err(failure("the pointer names no web bundle key".into()));
+    }
+    let abi = pointer.get("abi").and_then(Value::as_u64).map(|abi| abi as u32);
+    if let (Some(want), Some(have)) = (abi, app.abi)
+        && want != have
+    {
+        return Err(failure(format!("it needs web ABI {want}; this app has {have}")));
+    }
+    let merge = Some(field("merge")).filter(|merge| is_sha(merge)).unwrap_or_else(|| commit.to_owned());
+    let id = StackLayer::id(items);
+    let layer = CodeLayer {
+        kind: CodeKind::Sha,
+        source: format!("stack-{id}"),
+        repo: REPO.to_owned(),
+        pr: 0,
+        title: format!("stack {}", stack_label(items)),
+        head: merge,
+        base: commit.to_owned(),
+        web: key.clone(),
+        abi,
+        needs_build: Vec::new(),
+        note: String::new(),
+    };
+    Ok((StackLayer { items: items.to_vec(), base: commit.to_owned(), web: key, abi }, layer))
+}
+
+/// Asks our CI to build `items` as one series on `commit`.
+fn request_stack(items: &[String], commit: &str) -> String {
+    let args: Vec<String> = [
+        "workflow",
+        "run",
+        "cmux-next-web-bundle-publish.yml",
+        "-R",
+        REPO,
+        "--ref",
+        "feat-cmux-next",
+        "-f",
+    ]
+    .iter()
+    .map(|arg| (*arg).to_owned())
+    .chain([
+        format!("stack={}", items.join(" ")),
+        "-f".to_owned(),
+        format!("base={commit}"),
+    ])
+    .collect();
+    let shown = format!("gh {}", args.join(" "));
+    match dispatch(&args) {
+        Ok(()) => format!("asked CI to build it ({shown})"),
+        Err(why) => format!("could not ask CI ({why}); run `{shown}`"),
+    }
+}
