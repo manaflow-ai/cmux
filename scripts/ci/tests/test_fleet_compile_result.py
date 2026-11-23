@@ -70,6 +70,22 @@ class ReadTest(unittest.TestCase):
         self.assertIn("no verdict in 1500", why)
         self.assertGreaterEqual(t, 1490)
 
+    def test_a_full_waiter_cap_is_not_the_service_down(self):
+        # 429 for 10 minutes, then the verdict: the reads in between hold no slot (wait=0) and it never hands back.
+        answers = [(429, None)] * 40 + [(200, rec("pass"))]
+        word, _, urls, _ = run(answers, per_read=1)
+        self.assertEqual(word, "pass")
+        holds = [int(u.rsplit("wait=", 1)[1]) for u in urls]
+        self.assertEqual(holds[1], 0, holds[:3])
+        self.assertTrue(all(h == 0 for h in holds[1:40]), holds[:41])
+
+    def test_a_full_waiter_cap_then_a_record_waits_again(self):
+        word, _, urls, _ = run([(429, None), (200, rec("running")), (200, rec("pass"))])
+        self.assertEqual(word, "pass")
+        holds = [int(u.rsplit("wait=", 1)[1]) for u in urls]
+        self.assertEqual(holds[1], 0)
+        self.assertGreater(holds[2], 0)
+
     def test_service_down_two_minutes_hands_back(self):
         word, why, _, t = run([(530, None)])
         self.assertEqual(word, "none")
