@@ -291,7 +291,7 @@ fn the_acpmux_server_gets_the_agents_gh_sign_in() {
     };
     let tools = super::AgentTools {
         servers: vec![server("cmux"), server(crate::acpmux_mcp_names::SERVER_NAME)],
-        // The person said yes to cmux's tools (agents.cmuxMcp), so `cmux` stays.
+        // cmux's tools are on for agents (agents.cmuxMcp), so `cmux` stays.
         cmux_for_agents: true,
         ..Default::default()
     };
@@ -461,6 +461,40 @@ fn the_github_status_server_reaches_every_harness_kind() {
     let upstreams: serde_json::Value = serde_json::from_str(upstreams).unwrap();
     assert!(upstreams.as_array().unwrap().iter().any(|s| s["name"] == acpmux), "{upstreams}");
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The Chief's engine file reaches only the `cmux` server (its `cloud_computer` default machine),
+/// and a daemon's own value never does.
+#[test]
+fn the_chief_engine_file_reaches_only_the_cmux_server() {
+    let server = |name: &str, env: Vec<(String, String)>| super::McpServer {
+        name: name.to_owned(),
+        command: "x".into(),
+        args: vec![],
+        env,
+    };
+    let stale = vec![(super::CHIEF_ENGINE_ENV.to_owned(), "/stale/engine.json".to_owned())];
+    let tools = super::AgentTools {
+        servers: vec![server("cmux", stale.clone()), server("cmux-cua", stale)],
+        cmux_for_agents: true,
+        ..Default::default()
+    };
+    let env = std::collections::BTreeMap::from([(
+        super::CHIEF_ENGINE_ENV.to_owned(),
+        "/chief/optchat/engine.json".to_owned(),
+    )]);
+    let scoped = tools.clone().scoped(&env);
+    let engine = |s: &super::McpServer| {
+        s.env
+            .iter()
+            .filter(|(k, _)| k == super::CHIEF_ENGINE_ENV)
+            .map(|(_, v)| v.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(engine(&scoped.servers[0]), ["/chief/optchat/engine.json"]);
+    assert!(engine(&scoped.servers[1]).is_empty());
+    let unset = tools.scoped(&std::collections::BTreeMap::new());
+    assert!(unset.servers.iter().all(|s| engine(s).is_empty()));
 }
 
 #[test]
@@ -775,7 +809,7 @@ fn acpmux_processes(config: &serde_json::Value, exe: &std::path::Path) -> Vec<St
 }
 
 /// One chat starts at most [`ACPMUX_PROCESSES_PER_CHAT`] acpmux processes, with the `cmux`
-/// server (folded) and without it (the person has not said yes to cmux's tools: each of acpmux's
+/// server (folded) and without it (the person turned cmux's tools off: each of acpmux's
 /// servers its own entry), and the entries keep their names, so the tool names
 /// (`mcp__cmux-forum__...`) and every allowlist naming them stay.
 #[tokio::test]
@@ -790,7 +824,7 @@ async fn a_chat_starts_at_most_its_budget_of_acpmux_processes() {
         secrets: true,
         offers: true,
         subsessions: true,
-        ..memory_inputs(&root, None)
+        ..memory_inputs(&root, Some(r#"{"agents": {"cmuxMcp": "off"}}"#))
     };
     let gateway = crate::mcp_gateway::bind(
         &root.join("home"),
@@ -846,11 +880,11 @@ async fn a_chat_starts_at_most_its_budget_of_acpmux_processes() {
 }
 
 /// Every agent cmux starts gets the one `cmux` server ([`super::cmux_server`]): this CLI's `mcp
-/// serve` with the app's settings file, and only with the person's yes (`agents.cmuxMcp` on).
-/// Unanswered, `off` or a file that does not parse: the session's other servers, standalone. A
-/// Chief turn (a preset naming its cmux tools) keeps it either way.
+/// serve` with the app's settings file, unless the person turned it off (`agents.cmuxMcp` `off`):
+/// then the session's other servers, standalone. No file, no key, `ask`, another value or a file
+/// that does not parse: on. A Chief turn (a preset naming its cmux tools) keeps it either way.
 #[test]
-fn the_cmux_server_goes_only_with_the_persons_yes() {
+fn the_cmux_server_goes_unless_the_person_turned_it_off() {
     let root = tempfile::tempdir().unwrap();
     let cmux = root.path().join("cmux");
     crate::test_exec::write_executable(&cmux, "#!/bin/sh\nexit 0\n");
@@ -868,14 +902,7 @@ fn the_cmux_server_goes_only_with_the_persons_yes() {
             .collect::<Vec<_>>()
     };
     let none = std::collections::BTreeMap::new();
-    for json in [
-        None,
-        Some("{}"),
-        Some(r#"{"agents": {"cmuxMcp": "ask"}}"#),
-        Some(r#"{"agents": {"cmuxMcp": "off"}}"#),
-        Some(r#"{"agents.cmuxMcp": "yes"}"#),
-        Some("{"),
-    ] {
+    for json in [Some(r#"{"agents": {"cmuxMcp": "off"}}"#), Some(r#"{"agents.cmuxMcp": "off"}"#)] {
         let names = names(json, &none);
         assert!(!names.contains(&"cmux".to_owned()), "{json:?}: {names:?}");
         assert!(names.contains(&crate::acpmux_mcp::SERVER_NAME.to_owned()), "{json:?}: {names:?}");
@@ -887,19 +914,31 @@ fn the_cmux_server_goes_only_with_the_persons_yes() {
             super::resolve(&inputs(json)).scoped(&chief).servers.iter().any(|s| s.name == "cmux")
         );
     }
-    for json in [r#"{"agents": {"cmuxMcp": "on"}}"#, "{\n// mine\n\"agents.cmuxMcp\": \"on\",\n}"] {
-        let tools = super::resolve(&inputs(Some(json))).scoped(&none);
+    for json in [
+        None,
+        Some("{}"),
+        Some(r#"{"agents": {"cmuxMcp": "on"}}"#),
+        Some(r#"{"agents": {"cmuxMcp": "ask"}}"#),
+        Some(r#"{"agents.cmuxMcp": "yes"}"#),
+        Some("{\n// mine\n\"agents.cmuxMcp\": \"on\",\n}"),
+        Some("{"),
+    ] {
+        let tools = super::resolve(&inputs(json)).scoped(&none);
         let server =
-            tools.servers.iter().find(|s| s.name == "cmux").unwrap_or_else(|| panic!("{json}"));
+            tools.servers.iter().find(|s| s.name == "cmux").unwrap_or_else(|| panic!("{json:?}"));
         assert_eq!(server.command, cmux);
         assert_eq!(server.args, ["mcp", "serve"]);
         // Folded: one server, `cmux`, the others behind it.
         let folded = tools.for_session("s-1").folded();
         assert_eq!(folded.servers.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), ["cmux"]);
     }
-    // MCP off in the settings file: no `cmux` server even with the yes.
-    let off = r#"{"agents": {"cmuxMcp": "on"}, "mcp": {"enabled": false}}"#;
-    assert!(!names(Some(off), &none).contains(&"cmux".to_owned()));
+    // MCP off in the settings file: no `cmux` server even with the setting on.
+    for off in [
+        r#"{"agents": {"cmuxMcp": "on"}, "mcp": {"enabled": false}}"#,
+        r#"{"mcp": {"enabled": false}}"#,
+    ] {
+        assert!(!names(Some(off), &none).contains(&"cmux".to_owned()), "{off}");
+    }
 }
 
 #[test]
@@ -1070,7 +1109,7 @@ fn a_chat_started_from_another_mac_gets_cmux_by_that_macs_answer() {
     let (on, off) = (r#"{"agents": {"cmuxMcp": "on"}}"#, r#"{"agents": {"cmuxMcp": "off"}}"#);
     assert!(has_cmux(off, Some("on")));
     assert!(!has_cmux(on, Some("off")));
-    assert!(!has_cmux(on, Some("ask")), "anything but on is no");
+    assert!(!has_cmux(on, Some("ask")), "a forwarded answer other than on is no");
     // Started here: this machine's answer.
     assert!(has_cmux(on, None));
     assert!(!has_cmux(off, None));
@@ -1288,4 +1327,88 @@ fn a_chat_gets_the_saved_mcp_servers_with_its_session() {
         resolve(&memory_inputs(&root, Some(r#"{"agents":{"mcpServers":{"enabled":false}}}"#)));
     assert!(off.servers.iter().all(|s| s.name != name), "{:?}", off.servers);
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// acpmux's own servers' instructions go in Claude Code's appended system prompt, the prefix
+/// every chat shares in the prompt cache, and the servers leave them out of `initialize`, so a
+/// chat reads them once. The text never names the session: two chats in two folders get the same
+/// bytes, or the shared system prompt cache would break for every new chat.
+#[test]
+fn own_server_instructions_move_to_a_system_prompt_every_chat_shares() {
+    let root = std::env::temp_dir().join(format!("acpmux-mcp-prompt-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    let inputs = super::Inputs {
+        acpmux: Some(crate::self_command::SelfCommand::new(
+            std::path::PathBuf::from("/usr/local/lib/cmux/cmux-tui"),
+            vec!["acp".into()],
+        )),
+        secrets: true,
+        offers: true,
+        subsessions: true,
+        ..memory_inputs(&root, None)
+    };
+    let chat = |session: &str, cwd: &std::path::Path| {
+        let mut tools = resolve(&inputs).for_session(session).folded();
+        let prompt = tools.instructions_in_prompt();
+        (tools.via_gateway_on(None, session, cwd), prompt)
+    };
+    let (tools, one) = chat("01a2-chat-one", &root.join("repo-a"));
+    let (_, two) = chat("01a2-chat-two", &root.join("repo-b"));
+    let one = one.expect("no instructions moved");
+    assert_eq!(Some(&one), two.as_ref(), "two chats' appended prompts differ");
+    assert!(!one.contains("01a2-chat") && !one.contains("repo-"), "{one}");
+    assert!(one.starts_with(super::INSTRUCTIONS_HEADING), "{one}");
+    let at = |name: &str| one.find(&format!("## {name}\n")).unwrap_or_else(|| panic!("{one}"));
+    assert!(at("acpmux") < at("cmux-sessions") && at("cmux-sessions") < at("cmux-subsessions"));
+    assert!(one.contains(crate::offer_mcp::INSTRUCTIONS), "{one}");
+    assert!(one.contains(&crate::subsession_mcp::instructions()), "{one}");
+    assert!(one.contains("with bg_start"), "{one}");
+    // The servers with instructions are told they are in the prompt; the rest keep their env.
+    let flag = |name: &str| {
+        let server = tools.servers.iter().find(|s| s.name == name).unwrap();
+        server
+            .env
+            .iter()
+            .any(|(k, v)| k == crate::tools_mcp::INSTRUCTIONS_IN_PROMPT_ENV && v == "1")
+    };
+    assert!(flag("acpmux") && flag("cmux-sessions") && flag("cmux-subsessions"));
+    assert!(!flag(crate::forum_mcp::SERVER_NAME) && !flag(crate::secret_mcp::SERVER_NAME));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Behind the `cmux` server (code mode) acpmux's servers are its upstreams, whose instructions
+/// it relays itself: none move, and nothing is told to leave them out.
+#[test]
+fn folded_servers_keep_their_instructions() {
+    let server = |name: &str, word: &str| super::McpServer {
+        name: name.to_owned(),
+        command: "x".into(),
+        args: vec![word.to_owned()],
+        env: vec![],
+    };
+    let mut tools = super::AgentTools {
+        servers: vec![server("cmux", "mcp"), server(crate::offer_mcp::SERVER_NAME, "offer-mcp")],
+        cmux_for_agents: true,
+        ..Default::default()
+    }
+    .folded();
+    let before = tools.clone();
+    assert_eq!(tools.instructions_in_prompt(), None);
+    assert_eq!(tools, before);
+}
+
+/// The moved text joins the one appended system prompt Claude Code reads (it takes only the
+/// last `--append-system-prompt`), after what is there; a file or `=` form is left alone.
+#[test]
+fn the_moved_instructions_join_the_last_appended_prompt() {
+    let words = |w: &[&str]| w.iter().map(|w| (*w).to_owned()).collect::<Vec<_>>();
+    let mut args = words(&["--append-system-prompt", "rules", "--model", "m"]);
+    super::append_system_prompt(&mut args, "MCP");
+    assert_eq!(args, words(&["--append-system-prompt", "rules\n\nMCP", "--model", "m"]));
+    let mut args = words(&["--model", "m"]);
+    super::append_system_prompt(&mut args, "MCP");
+    assert_eq!(args, words(&["--model", "m", "--append-system-prompt", "MCP"]));
+    assert!(super::takes_appended_prompt(&words(&["--append-system-prompt", "x"])));
+    assert!(!super::takes_appended_prompt(&words(&["--append-system-prompt-file", "f"])));
+    assert!(!super::takes_appended_prompt(&words(&["--append-system-prompt=x"])));
 }

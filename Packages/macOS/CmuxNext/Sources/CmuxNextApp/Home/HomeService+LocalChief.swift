@@ -5,29 +5,10 @@ import CmuxNextHomeEngine
 import Foundation
 import os
 
-/// New Chief on this Mac's Chief owner (UniiChat and Codex, ``ChiefBackend/createsOnThisMac``)
+/// New Chief on this Mac's Chief owner (UniiChat, Codex and Muse, ``ChiefBackend/createsOnThisMac``;
+/// Claude when the person picks "Make it on this Mac")
 /// and the engines the Home list's Chief rows show as badges.
 extension HomeService {
-    /// A Chief of this Mac's Chief owner that starts on `backend` (`chief.profile.create` with
-    /// `harness`), and the person's direct message with it, which the page then shows.
-    func createLocalChief(named name: String, backend: ChiefBackend) async -> HomeComposeOutcome {
-        guard let connection else { return .offline }
-        do {
-            let made = try await HomeLocalChiefCreator(connection: connection, me: Self.localUser).create(name: name, backend: backend)
-            pendingSelection = made.conversation
-            refreshChiefHarnesses()
-            return .opened(made.conversation)
-        } catch let error as DaemonError {
-            switch error {
-            case .notConnected, .connectionClosed, .daemonShutdown: return .offline
-            case .command(_, let message, let code, _, _): return .refused(message.isEmpty ? code ?? "" : message)
-            default: return .refused(error.description)
-            }
-        } catch {
-            return .refused(String(describing: error))
-        }
-    }
-
     /// Opens the person's direct message with each of this Mac's Chiefs that has none, so a Chief
     /// made outside New Chief (a Chief's chiefs tool, `cmux chief new`) is in the Home list and the
     /// pinned Chief row at once (``HomeChiefDirectMessages``). Runs after each conversation-list read,

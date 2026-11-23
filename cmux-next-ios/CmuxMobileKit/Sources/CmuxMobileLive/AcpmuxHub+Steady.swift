@@ -114,6 +114,9 @@ extension AcpmuxHub {
             await recovering.value
             return
         }
+        // A recovery that started and finished during the probe already replaced `stale`: a second
+        // one would rebind a channel that is healthy.
+        guard connection === stale || connection == nil else { return }
         log.info("acpmux channel \(why, privacy: .public) on \(method, privacy: .public): recovering")
         ConnectivityTelemetry.shared.record(.hub, "channel_recover", outcome: .failure,
                                             fields: ["why": .text(why), "method": .text(method)])
