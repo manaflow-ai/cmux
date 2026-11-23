@@ -4,7 +4,8 @@
 # numbers kept. A stand-in cargo on PATH plays three filters: one writes a line
 # and fails, one writes a line and passes, one fails having written nothing.
 # The script's exit code stays the one it had (1 when any filter failed), and
-# the filter that wrote nothing is named in its log.
+# the filter that wrote nothing is named in its log. A bad gate line exits 2 by
+# name, and the script uses no bash 4 construct.
 # With an argument, the measures file is copied there for the home's test
 # (benches/v2/mod.rs reads it through report_value).
 set -euo pipefail
@@ -44,6 +45,26 @@ grep -q '^v2 gates: failed before writing a measure: cargo test .* family_page_g
   || fail "the filter that wrote nothing is not named" "$(cat "$TMP/log")"
 [[ $(grep -c '^v2 gates: failed before writing a measure:' "$TMP/log") -eq 1 ]] \
   || fail "a filter that wrote its line is named as writing none" "$(cat "$TMP/log")"
+
+# A line of another shape or an unknown group fails the script by name, before any
+# gate runs. A filter is a word of [A-Za-z0-9_]: `core mod::gate` is refused, and
+# the registry tests' gate_lines() refuses it the same way.
+mkdir -p "$TMP/bad/v2-gates.d"
+cp "$ROOT/scripts/cmux-next/run-v2-gates.sh" "$TMP/bad/"
+for bad in 'core mod::gate' 'core two words' 'acpmux-core some_gate'; do
+  printf '%s\n' "$bad" >"$TMP/bad/v2-gates.d/pr99.gates"
+  status=0
+  (cd "$TMP" && PATH="$TMP/bin:$PATH" V2_GATE_OUT="$TMP/bad/out" bash "$TMP/bad/run-v2-gates.sh" >"$TMP/log" 2>&1) || status=$?
+  [[ $status -eq 2 ]] || fail "the line '$bad' exited $status, not 2" "$(cat "$TMP/log")"
+  grep -q 'pr99.gates:1: ' "$TMP/log" || fail "the line '$bad' is not named" "$(cat "$TMP/log")"
+  [[ ! -e $TMP/bad/out ]] || fail "a gate ran with the line '$bad'"
+done
+
+# The script keeps to bash 3.2, a Mac's stock bash.
+if grep -nE '(declare|local|typeset) -[a-zA-Z]*A|mapfile|readarray|\$\{[A-Za-z_]+(,,|\^\^)' \
+  "$ROOT/scripts/cmux-next/run-v2-gates.sh"; then
+  fail "run-v2-gates.sh uses a bash 4 construct"
+fi
 
 if [[ $# -gt 0 ]]; then cp "$out" "$1"; fi
 echo "run-v2-gates.test.sh: ok"
