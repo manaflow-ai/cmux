@@ -58,6 +58,9 @@ public protocol AppsTransport: AnyObject {
     /// `apps-set`; returns the app's record after the commit.
     func set(app: String, change: AppChange, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppRecord
     func mount(app: String, interface: String, mountID: String, context: AppJSON) async throws(AppsTransportError)
+    /// A mount with the asker's origin: an overlay (`context.surface = overlay`) needs `user`,
+    /// which the transport sends only on the connection the daemon verified as the cmux app.
+    func mount(app: String, interface: String, mountID: String, context: AppJSON, origin: AppOrigin) async throws(AppsTransportError)
     /// Sent whenever a connection exists, also while the client shows the
     /// supervisor as unavailable (a policy turned apps off).
     func unmount(mountID: String) async throws(AppsTransportError)
@@ -77,9 +80,18 @@ public protocol AppsTransport: AnyObject {
     /// Runs the message action `action` of `app` (`cmux.chat.action/1`, `apps-chat-action`) on
     /// `message`; the daemon checks the app lists it and runs its op. The answer is the op's result.
     func chatAction(app: String, action: String, message: AppChatMessage, origin: AppOrigin) async throws(AppsTransportError) -> AppJSON
+
+    /// `apps.chat_widgets.route`: the daemon's choice of chat widget for a tool call or a widget part,
+    /// `{widget: null}` or `{widget: {app, interface, title, symbol?, context}}`.
+    func chatWidgetRoute(_ args: AppJSON) async throws(AppsTransportError) -> AppJSON
 }
 
 public extension AppsTransport {
+    /// The daemon's chat widget route, as a store op (`apps.chat_widgets.route`); a transport that
+    /// serves no store ops answers `{}`, which the page reads as no widget.
+    func chatWidgetRoute(_ args: AppJSON) async throws(AppsTransportError) -> AppJSON {
+        try await storeCall("apps.chat_widgets.route", args: args)
+    }
     /// A transport without web panes refuses every page call.
     func pageCall(app: String, page: String, message: String) async throws(AppsTransportError) -> AppJSON {
         // The wire command it lacks, not prose: the page shows the code.
@@ -98,6 +110,11 @@ extension AppsTransport {
 }
 
 extension AppsTransport {
+    /// A transport that sends no origin with a mount (a test fake) mounts as it always did.
+    public func mount(app: String, interface: String, mountID: String, context: AppJSON, origin: AppOrigin) async throws(AppsTransportError) {
+        try await mount(app: app, interface: interface, mountID: mountID, context: context)
+    }
+
     /// A read with no arguments is a read with an empty argument object.
     public func storeCall(_ op: String) async throws(AppsTransportError) -> AppJSON { try await storeCall(op, args: .object([:])) }
 
@@ -114,6 +131,11 @@ extension AppsTransport {
     /// The agent chat composer's extension places (`apps.composer.list`): the reply as the daemon
     /// wrote it, `{commands, mentions}`.
     public func composerPlaces() async throws(AppsTransportError) -> AppJSON { try await storeCall("apps.composer.list") }
+
+    /// The toolbar band's app items (`apps.toolbar.list`), in the daemon's order.
+    public func toolbarItems() async throws(AppsTransportError) -> [AppToolbarContribution] {
+        AppToolbarContribution.list(try await storeCall("apps.toolbar.list"))
+    }
 
     /// The installed extensions' `@` items for a query, ranked by the daemon (`apps.composer.mentions`):
     /// `{mentions: [{app, extension, prefix, id, label, detail?, insert}]}`.

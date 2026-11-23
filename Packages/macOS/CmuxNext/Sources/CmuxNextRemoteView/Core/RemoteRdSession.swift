@@ -85,6 +85,19 @@ public nonisolated final class RemoteRdSession {
         _ = try RemoteRdCoreError.check(cmux_rd_session_request_keyframe(handle, stream))
     }
 
+    /// Records stream 0 into a new fragmented MP4 at `path` (the core
+    /// writes it, starting at a keyframe it asks the host for). Throws
+    /// when the file cannot be created.
+    public func startRecording(path: String) throws(RemoteRdCoreError) {
+        _ = try RemoteRdCoreError.check(cmux_rd_session_record_start(handle, path))
+    }
+
+    /// Finishes the recording; returns the frames in the file.
+    @discardableResult
+    public func stopRecording() throws(RemoteRdCoreError) -> Int {
+        try RemoteRdCoreError.check(cmux_rd_session_record_stop(handle))
+    }
+
     /// Every feedback datagram due at `nowMicros` (any stream), framed for
     /// the carrier and ready to send in order.
     public func feedback(nowMicros: UInt64) throws(RemoteRdCoreError) -> [Data] {
