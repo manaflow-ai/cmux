@@ -579,6 +579,12 @@ class Lint:
             elif not re.search(r"defaultValue: \"[^\"\n]*Anthropic[^\"\n]*OpenAI", joined):
                 self.add("ai.consent", "5.1.2(i)", "blocker",
                          "the AI sharing question does not name the providers (Anthropic, OpenAI)", APP_DIR)
+            elif not re.search(r"\.sendGate\s*=\s*\{[^}]*ChiefAIConsent\.isGranted", joined):
+                # The Send button is one of several send paths (Return, the effect picker, voice,
+                # polls, Send Now); the conversation's sendGate sees them all.
+                self.add("ai.consent", "5.1.2(i)", "blocker",
+                         "the AI sharing question is not asked on every send path "
+                         "(set ConversationViewController.sendGate to check ChiefAIConsent.isGranted)", APP_DIR)
             # 1.2 / 4.7.1: chatbots and user-generated content need a way to report content.
             if not re.search(r"ChiefReport\.open\(", joined):
                 self.add("ugc.report", "1.2", "blocker",

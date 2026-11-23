@@ -153,10 +153,18 @@ class AppReviewGateTests(unittest.TestCase):
         self.write_chief(consent='let k = "cmuxMobile.chief.aiSharingConsent"; let p = String(localized: "p", defaultValue: "our AI")')
         self.assertIn("ai.consent", self.rules(self.run_lint()))
 
+    NAMED = ('let k = "cmuxMobile.chief.aiSharingConsent"; '
+             'let p = String(localized: "p", defaultValue: "Anthropic (Claude) and OpenAI")')
+    GATED = "conversation.sendGate = { retry in guard !ChiefAIConsent.isGranted else { return true }; return false }"
+
     def test_ai_consent_naming_the_providers_passes(self) -> None:
-        self.write_chief(consent='let k = "cmuxMobile.chief.aiSharingConsent"; '
-                                 'let p = String(localized: "p", defaultValue: "Anthropic (Claude) and OpenAI")')
+        self.write_chief(consent=f"{self.NAMED}\n{self.GATED}")
         self.assertEqual(self.rules(self.run_lint()), set())
+
+    def test_ai_consent_only_on_the_send_button_blocks(self) -> None:
+        # Asked in the Send button's handler alone: Return and the effect picker skip it.
+        self.write_chief(consent=f"{self.NAMED}\nfunc sendTapped() {{ if !ChiefAIConsent.isGranted {{ return }} }}")
+        self.assertIn("ai.consent", self.rules(self.run_lint()))
 
     def test_ai_chat_without_a_report_control_blocks(self) -> None:
         self.write_chief(consent='let k = "aiSharingConsent"; let p = String(localized: "p", defaultValue: "Anthropic and OpenAI")',

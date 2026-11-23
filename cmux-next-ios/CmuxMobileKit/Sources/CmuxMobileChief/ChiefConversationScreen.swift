@@ -263,6 +263,20 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     /// package's own action; until then the text stays in the composer and
     /// the screen says why, with Try Again.
     private func installSendGate() {
+        // App Review 5.1.2(i): nothing goes to the AI providers before the person agrees.
+        // The conversation asks this before every send path (Send, Return, the effect
+        // picker, voice, polls, Send Now); Not Now keeps the draft and sends nothing.
+        conversation.sendGate = { [weak self] retry in
+            guard let self, self.asksAIConsent, !ChiefAIConsent.isGranted else { return true }
+            if self.presentedViewController == nil {
+                // Agreeing sends it, unless Chief can't take sends yet: then the draft stays.
+                self.present(ChiefAIConsent.alert { [weak self] in
+                    guard let self else { return }
+                    if self.session.acceptsSendsNow { retry() } else { self.holdUnsentMessage() }
+                }, animated: true)
+            }
+            return false
+        }
         guard let button = conversation.view.firstSubview(where: { $0.accessibilityIdentifier == "conversation.composer.send" }) as? UIButton
         else { return }
         var actions: [UIAction] = []
@@ -279,13 +293,6 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
 
     private func sendTapped() {
         guard let button = sendButton else { return }
-        // App Review 5.1.2(i): nothing goes to the AI providers before the person agrees.
-        // Not Now keeps the draft in the composer.
-        if asksAIConsent, !ChiefAIConsent.isGranted {
-            guard presentedViewController == nil else { return }
-            present(ChiefAIConsent.alert { [weak self] in self?.sendTapped() }, animated: true)
-            return
-        }
         if session.acceptsSendsNow {
             for action in packageSendActions { button.sendAction(action) }
             return
