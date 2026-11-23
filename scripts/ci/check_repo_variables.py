@@ -35,7 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from pr_runner_pool import PR_XCODE_VARIABLE, SLOTS_VARIABLE, slot_problems  # noqa: E402
 from runner_label_policy import HOSTED_MACOS_LABEL, PolicyUnreadable, drifted_runner_variables  # noqa: E402
-from cloud_overflow_switch import (RECORD_VARIABLE, TRUSTED_BLACKSMITH_LABELS, TRUSTED_VARIABLE,  # noqa: E402
+from cloud_overflow_switch import (RECORD_VARIABLE, TRUSTED_ACCEPTED_LABELS, TRUSTED_VARIABLE,  # noqa: E402
                                    parse_record)
 from signing_runner_variables import allowed_value  # noqa: E402
 
@@ -143,10 +143,10 @@ def problems(env: dict[str, str]) -> list[str]:
                     continue
                 found.append(f"{name}={value!r}: {reason}")
             trusted = variables.get(TRUSTED_VARIABLE, "").strip()
-            if trusted and trusted != "ubuntu-24.04" and trusted not in TRUSTED_BLACKSMITH_LABELS:
+            if trusted and trusted != "ubuntu-24.04" and trusted not in TRUSTED_ACCEPTED_LABELS:
                 # Its readers accept only these, so any other value silently falls back to Blacksmith 4 vCPU.
                 found.append(f"{TRUSTED_VARIABLE}={trusted!r}: its readers accept only ubuntu-24.04, "
-                             + ", ".join(sorted(TRUSTED_BLACKSMITH_LABELS)) + "; anything else falls back")
+                             + ", ".join(sorted(TRUSTED_ACCEPTED_LABELS)) + "; anything else falls back")
         except (ValueError, PolicyUnreadable) as error:
             found.append(str(error))
     for problem in slot_problems(env.get(SLOTS_VARIABLE), env.get(PR_XCODE_VARIABLE)):
