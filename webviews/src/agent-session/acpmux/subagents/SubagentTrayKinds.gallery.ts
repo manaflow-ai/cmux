@@ -193,11 +193,11 @@ export default agentPaneEntry({
       snapshot: leoTray,
     },
     mixed: {
-      note: "Every kind: two subagents running (one Codex, by its mark: in the header's stacked marks, or after the counts when the stack has no room for it), a session the agent started, a test run and a server, a subagent done and one stopped. The columns hold on every line.",
+      note: "Every kind: two subagents (one Codex, by its mark: in the header's stacked marks, or after the counts when the stack has no room for it), a session the agent started, a test run and a server, a subagent done and one stopped. The columns hold on every line.",
       play: async (ctx) => {
         await open(ctx, 7);
         columns(ctx);
-        if (title(ctx) !== "2 subagents running · 1 session · 1 test run · 1 server · 1 subagent done · 1 stopped")
+        if (title(ctx) !== "2 subagents · 1 session · 1 test run · 1 server · 1 subagent done · 1 stopped")
           throw new Error(`unexpected header: ${title(ctx)}`);
         // A failed line leaves the hat (runningTray.ts `endedInFailure`): no failure count is left to read.
         if (ctx.document.querySelector(".acpmux-running-tray__failed"))

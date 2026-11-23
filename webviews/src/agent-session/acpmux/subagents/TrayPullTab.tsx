@@ -90,7 +90,7 @@ export function TrayPullTab({
   const label = [
     t("tray.untuck"),
     waiting > 0 && t("summary.subagents.waiting", { n: waiting }),
-    running > 0 && t("summary.subagents.running", { n: running }),
+    running > 0 && t("subagents.count", { n: running }),
   ]
     .filter(Boolean)
     .join(" · ");

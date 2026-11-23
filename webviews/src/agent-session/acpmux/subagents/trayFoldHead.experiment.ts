@@ -28,7 +28,7 @@ export const trayFoldHeadLook = defineExperiment({
     },
     counts: {
       label: "Counts",
-      description: "Only counts (1 subagent running · 1 command), as before, for comparison.",
+      description: "Only counts (1 subagent · 1 command), as before, for comparison.",
     },
   },
   // One newest name that fits beats two cut ones (Leo, 2026-11-03, on a bar that read "Context

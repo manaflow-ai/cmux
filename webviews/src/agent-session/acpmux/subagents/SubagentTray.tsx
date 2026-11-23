@@ -14,7 +14,7 @@
 // Every tray gets a header first, one item too (Leo, 2026-11-07: a lone line that opened its subagent
 // on the first click "instead of expanding it"; folded, a lone item's header names it, what it does
 // now and its time, `loneHeadOf`), as the Codex and Claude desktop apps head their running agents: a still running-work mark (never the spinner, which stays on each
-// working line, #27103), "2 subagents running · 1 command", the time since the first started as
+// working line, #27103), "2 subagents · 1 command", the time since the first started as
 // quiet meta right after the counts (never a column of its own far from them), and the chevron in
 // the trailing column every line's chevron ends in; between turns it says "Running in background ·
 // 2 subagents · 1 command". The
