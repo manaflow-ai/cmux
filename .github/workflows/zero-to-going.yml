@@ -11,9 +11,10 @@ name: Zero to going (staging)
 # The machine the run made is deleted at its end, pass, fail or cancel (the script's own cleanup and SIGTERM
 # handler); the always() step deletes what a run killed before its cleanup left, by its tag.
 #
-# Secrets: the staging agent test account (CMUX_JOURNEY_DEV_STACK_*) in cmux-next-cloud-journey, as vm-hassle.yml
-# and cloud-journey-pr.yml read it. Same-repo pull requests only. Without the pair the script writes the counted
-# steps and passes.
+# Secrets: the staging agent test account, CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD in cmux-next-vm-image-dev, the pair
+# cloud-journey-pr.yml reads on pull requests. (vm-hassle.yml's cmux-next-cloud-journey pair reaches no lane pull
+# request: its run 44956448419 wrote the documented path only.) Same-repo pull requests only. Without the pair the
+# script writes the counted steps and passes.
 
 on:
   pull_request:
@@ -35,7 +36,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     environment:
-      name: cmux-next-cloud-journey
+      name: cmux-next-vm-image-dev
       deployment: false
     timeout-minutes: 30
     steps:
@@ -51,8 +52,8 @@ jobs:
         run: echo "tag=zg-$(date +%s | xargs printf '%x')${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
       - name: Measure (staging)
         env:
-          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_JOURNEY_DEV_STACK_EMAIL }}
-          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_JOURNEY_DEV_STACK_PASSWORD }}
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
           ZG_TAG: ${{ steps.tag.outputs.tag }}
         run: |
           set -o pipefail
@@ -64,8 +65,8 @@ jobs:
       - name: Delete what a cut-off run left
         if: always()
         env:
-          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_JOURNEY_DEV_STACK_EMAIL }}
-          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_JOURNEY_DEV_STACK_PASSWORD }}
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
           ZG_TAG: ${{ steps.tag.outputs.tag }}
         run: |
           if [ -z "${CMUX_DOGFOOD_STACK_EMAIL:-}" ] || [ -z "$ZG_TAG" ]; then exit 0; fi
