@@ -12,7 +12,8 @@
 //!    no copy of the log. `afterSeq` is the seq before the chat's last `keepTurns` turns began
 //!    (earlier when a prompt that still waits was queued before that: the queue moves whole, in
 //!    the freeze). The answer says `historyLater: true`; its files are the agent's own
-//!    transcript, pre-copied as ever.
+//!    transcript, pre-copied as ever. The log through `afterSeq` is packed into the chat's pack
+//!    store on a thread of its own at the lowest CPU priority meanwhile ([`Prepack`]), never inside a freeze.
 //! 2. target `transfer_stage`, `transfer_write`, `transfer_stage_finish`: as for any prefix, but
 //!    the staged segment is empty.
 //! 3. source `transfer_begin {prepareId, afterSeq}`, target `transfer_receive {manifest,
@@ -23,8 +24,10 @@
 //!    source `_acpmux/transfer_history_export {sessionId, throughSeq, have}` (the chat has moved
 //!    away; its copy keeps the log): the lines through `throughSeq` packed into the chat's
 //!    pack store (`history-pack` in its folder; a chat packed before keeps its sealed segments) and
-//!    bundled without the chunks in `have`. The answer is a prefix manifest with `packed`, read
-//!    with `transfer_read`.
+//!    bundled without the chunks in `have`. A prepare's pack of the same prefix that still holds
+//!    is waited for and bundled as it is; one that does not (another prefix, a log rewritten, a
+//!    pack that failed, a daemon restarted since) is packed again here. The answer is a prefix
+//!    manifest with `packed`, read with `transfer_read`.
 //! 5. target `transfer_stage {manifest}`, `transfer_write`, `transfer_stage_finish`: the bundle
 //!    is unpacked into the chat's pack store there and read back as lines, each record then checked
 //!    and written as for any staged prefix.
@@ -46,6 +49,57 @@ use cmux_session_pack as pack;
 
 /// The one file of a history export's manifest: a session-pack bundle.
 pub(in crate::hub) const HISTORY_FILE: &str = "events/history.cspb";
+/// Each chat's newest history-later prepare's pack ([`Hub::prepack_history`]): the seq it packs
+/// through, and its result once done.
+static PREPACKS: std::sync::LazyLock<std::sync::Mutex<HashMap<String, (u64, Arc<Prepack>)>>> =
+    std::sync::LazyLock::new(Default::default);
+
+/// A prepare's pack of a chat's history: `None` while it runs, then `Some` of what it made
+/// (`None` inside when it failed).
+#[derive(Default)]
+struct Prepack {
+    packed: std::sync::Mutex<Option<Option<Prepacked>>>,
+    ready: std::sync::Condvar,
+}
+
+#[derive(Clone)]
+struct Prepacked {
+    stamp: u64,
+    digest: String,
+    manifest: pack::Manifest,
+    stats: pack::PackStats,
+    ms: u64,
+}
+
+/// The calling thread at the lowest CPU priority, and the threads it starts after: nice 19 on
+/// Linux (a thread's own, inherited by the threads it starts), the background band on macOS.
+/// Best effort: a refusal leaves it as it was.
+fn lower_this_thread() {
+    #[cfg(target_os = "linux")]
+    unsafe {
+        let tid = libc::syscall(libc::SYS_gettid) as libc::id_t;
+        libc::setpriority(libc::PRIO_PROCESS, tid, 19);
+    }
+    #[cfg(target_os = "macos")]
+    unsafe {
+        libc::setpriority(libc::PRIO_DARWIN_THREAD, 0, libc::PRIO_DARWIN_BG);
+    }
+}
+
+/// Ends a [`Prepack`] when dropped, with what it made.
+struct PrepackDone<'a> {
+    slot: &'a Prepack,
+    packed: Option<Prepacked>,
+}
+
+impl Drop for PrepackDone<'_> {
+    fn drop(&mut self) {
+        let mut slot = self.slot.packed.lock().unwrap_or_else(|e| e.into_inner());
+        *slot = Some(self.packed.take());
+        self.slot.ready.notify_all();
+    }
+}
+
 /// The chat folder's note that its history through a seq has not arrived.
 const PENDING_FILE: &str = "transfer-history-pending.json";
 
@@ -284,47 +338,22 @@ impl Hub {
         let started = std::time::Instant::now();
         let chat = root.join(&session.id);
         crate::home_fs::create_dirs(chat.join("events"))?;
-        // The lines as an export writes them, so a chat packed again packs the same bytes.
-        let lines = root.join("history.ndjson");
-        let mut out = std::io::BufWriter::new(crate::home_fs::create_file(&lines)?);
-        let (mut last, mut digest, mut failed) = (0u64, String::new(), None::<anyhow::Error>);
-        self.store.scan(&session.id, 0, &mut |mut e: EventRecord| {
-            if e.seq > through {
-                return false;
-            }
-            let at_end = e.seq == through;
-            let step = (|| -> anyhow::Result<()> {
-                if at_end {
-                    digest = crate::sha256::sha256_hex(&serde_json::to_vec(&e)?);
-                }
-                last = e.seq;
-                self.display_logged(Some(&**session), &mut e);
-                serde_json::to_writer(&mut out, &e)?;
-                out.write_all(b"\n")?;
-                Ok(())
-            })();
-            if let Err(e) = step {
-                failed = Some(e);
-            }
-            failed.is_none() && !at_end
-        })?;
-        if let Some(e) = failed {
-            return Err(e);
-        }
-        out.flush()?;
-        drop(out);
-        anyhow::ensure!(last == through, "the log here holds no record at seq {through}");
         let store = self.pack_store(&session.id)?;
-        let params = pack::Params::default();
-        let (manifest, stats) = pack::pack(&store, &session.id, &[lines.clone()], &params, false)
-            .map_err(pack_error)?;
+        let prepacked = self.prepacked(session, through, &store);
+        let (manifest, stats, digest, prepack_ms) = match prepacked {
+            Some(p) => (p.manifest, p.stats, p.digest, Some(p.ms)),
+            None => {
+                let (manifest, stats, digest) =
+                    self.pack_through(session, through, &store, root)?;
+                (manifest, stats, digest, None)
+            }
+        };
         let bundle = chat.join(HISTORY_FILE);
         let mut out = std::io::BufWriter::new(crate::home_fs::create_file(&bundle)?);
         let shipped =
             pack::ship::bundle(&store, &session.id, have, &mut out).map_err(pack_error)?;
         out.flush()?;
         drop(out);
-        crate::home_fs::remove_file(&lines)?;
         let files: Vec<Value> = bundle_files(&chat)?
             .into_iter()
             .map(|(path, size)| json!({"path": path, "size": size}))
@@ -340,16 +369,137 @@ impl Hub {
             "sessionChunks": shipped.session_chunks,
             "keptSegments": stats.kept_segments,
             "ms": u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+            "prepackMs": prepack_ms,
         });
         Ok(json!({
             "schema": PREFIX_SCHEMA,
             "prepareId": export_id,
             "sessionId": session.id,
-            "afterSeq": last,
-            "token": format!("{export_id}:{last}:{digest}"),
+            "afterSeq": through,
+            "token": format!("{export_id}:{through}:{digest}"),
             "packed": packed,
             "files": files,
         }))
+    }
+
+    /// Packs chat `session`'s log through seq `through` into `store` as the chat, from its lines
+    /// as an export writes them (written in `work` and removed after). Returns the manifest,
+    /// what the pack did, and the digest of the record at `through`.
+    fn pack_through(
+        &self,
+        session: &Session,
+        through: u64,
+        store: &pack::Store,
+        work: &Path,
+    ) -> anyhow::Result<(pack::Manifest, pack::PackStats, String)> {
+        use std::io::Write as _;
+        crate::home_fs::create_dirs(work)?;
+        // The lines as an export writes them, so a chat packed again packs the same bytes.
+        let lines = work.join("history.ndjson");
+        let mut out = std::io::BufWriter::new(crate::home_fs::create_file(&lines)?);
+        let (mut last, mut digest, mut failed) = (0u64, String::new(), None::<anyhow::Error>);
+        self.store.scan(&session.id, 0, &mut |mut e: EventRecord| {
+            if e.seq > through {
+                return false;
+            }
+            let at_end = e.seq == through;
+            let step = (|| -> anyhow::Result<()> {
+                if at_end {
+                    digest = crate::sha256::sha256_hex(&serde_json::to_vec(&e)?);
+                }
+                last = e.seq;
+                self.display_logged(Some(session), &mut e);
+                serde_json::to_writer(&mut out, &e)?;
+                out.write_all(b"\n")?;
+                Ok(())
+            })();
+            if let Err(e) = step {
+                failed = Some(e);
+            }
+            failed.is_none() && !at_end
+        })?;
+        if let Some(e) = failed {
+            let _ = crate::home_fs::remove_file(&lines);
+            return Err(e);
+        }
+        out.flush()?;
+        drop(out);
+        let packed = (|| {
+            anyhow::ensure!(last == through, "the log here holds no record at seq {through}");
+            let params = pack::Params::default();
+            pack::pack(store, &session.id, &[lines.clone()], &params, false).map_err(pack_error)
+        })();
+        crate::home_fs::remove_file(&lines)?;
+        let (manifest, stats) = packed?;
+        Ok((manifest, stats, digest))
+    }
+
+    /// At a history-later prepare through seq `through`: packs the chat's log through it into
+    /// its pack store on a thread of its own, so the export after the move's commit only bundles.
+    /// The freeze never waits for it; the export does ([`Self::prepacked`]).
+    pub(in crate::hub) fn prepack_history(self: &Arc<Self>, session: &Arc<Session>, through: u64) {
+        let slot = Arc::new(Prepack::default());
+        PREPACKS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(session.id.clone(), (through, slot.clone()));
+        let (hub, session) = (self.clone(), session.clone());
+        let run = move || {
+            // Set however the pack ends, so an export never waits on one that panicked.
+            let mut done = PrepackDone { slot: &slot, packed: None };
+            let started = std::time::Instant::now();
+            let work = transfers_dir().join(format!("pre-{}", uuid::Uuid::now_v7()));
+            let packed = hub.pack_store(&session.id).and_then(|store| {
+                let stamp = hub.store.log_stamp(&session.id)?;
+                let (manifest, stats, digest) =
+                    hub.pack_through(&session, through, &store, &work)?;
+                Ok(Prepacked { stamp, digest, manifest, stats, ms: 0 })
+            });
+            let _ = crate::home_fs::remove_dir_all(&work);
+            match packed {
+                Ok(mut p) => {
+                    p.ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+                    done.packed = Some(p);
+                }
+                Err(error) => {
+                    tracing::debug!(session = %session.id, "history not packed at prepare: {error:#}");
+                }
+            }
+        };
+        // Its own thread, at the lowest CPU priority: the pack encodes on every core (zstd 19)
+        // for seconds, and a move's begin that runs meanwhile must not wait for a core.
+        let spawned = std::thread::Builder::new().name("acpmux-prepack".into()).spawn(move || {
+            lower_this_thread();
+            run();
+        });
+        if let Err(error) = spawned {
+            tracing::debug!("history not packed at prepare: {error}");
+        }
+    }
+
+    /// The prepare's pack of chat `session`'s log through `through`, waited for, when it is
+    /// still what `store` holds of the chat and the log through `through` is as it was packed:
+    /// the same log stamp (not rewritten) and the same record at `through`.
+    fn prepacked(&self, session: &Session, through: u64, store: &pack::Store) -> Option<Prepacked> {
+        // Taken: one export uses it, and a later one packs again (keeping its sealed segments).
+        let mut all = PREPACKS.lock().unwrap_or_else(|e| e.into_inner());
+        let slot = all.remove(&session.id).filter(|(at, _)| *at == through);
+        drop(all);
+        let (at, slot) = slot?;
+        let mut packed = slot.packed.lock().unwrap_or_else(|e| e.into_inner());
+        while packed.is_none() {
+            packed = slot.ready.wait(packed).unwrap_or_else(|e| e.into_inner());
+        }
+        let p = packed.as_ref()?.as_ref()?;
+        let stamp = self.store.log_stamp(&session.id).ok();
+        let digest = self.digest_at(&session.id, at).ok().flatten();
+        let manifest = pack::Manifest::load(store, &session.id).ok().flatten()?;
+        let same = stamp == Some(p.stamp)
+            && digest.as_deref() == Some(p.digest.as_str())
+            && manifest.lines == p.manifest.lines
+            && manifest.raw_bytes == p.manifest.raw_bytes
+            && manifest.segments.len() == p.manifest.segments.len();
+        same.then(|| Prepacked { manifest, ..p.clone() })
     }
 
     /// `_acpmux/transfer_history {sessionId, stageId}`: the staged history becomes the live

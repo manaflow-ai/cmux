@@ -584,7 +584,7 @@ impl Hub {
             return Err(unfreeze(transfer_error("busy", "a recovered turn is running"), carried));
         }
         // Nothing appends now: the prepared prefix is the log's head, or the move is refused.
-        let prefix = match precopy.map(|(id, after)| self.check_prefix(session, id, after)) {
+        let mut prefix = match precopy.map(|(id, after)| self.check_prefix(session, id, after)) {
             Some(Err(error)) => {
                 drop(guard);
                 return Err(unfreeze(error, carried));
@@ -601,12 +601,22 @@ impl Hub {
                 carried,
             ));
         }
+        // A history-later prepare folded its prefix and copied the agent's files: the freeze
+        // reads only what came after (`transfer_precopy.rs` `PrefixFold`).
+        let mut folded = prefix.as_mut().and_then(|p| p.folded.take());
+        let grown = folded.as_ref().map(|f| (f.native_dir.as_path(), &f.native));
         let made = self
-            .export_after(session, &dir, prefix.as_ref().map(|p| p.after_seq))
+            .export_grown(session, &dir, prefix.as_ref().map(|p| p.after_seq), grown)
             .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))
             .and_then(|bundle| {
-                let prefix_seq = prefix.as_ref().map(|p| (session.id.as_str(), p.after_seq));
-                let approved_waiting = self.held_prompts_with(prefix_seq, &bundle)?;
+                let approved_waiting = match folded.as_mut() {
+                    Some(f) => self.held_prompts_from(std::mem::take(&mut f.held), &bundle)?,
+                    None => {
+                        let prefix_seq =
+                            prefix.as_ref().map(|p| (session.id.as_str(), p.after_seq));
+                        self.held_prompts_with(prefix_seq, &bundle)?
+                    }
+                };
                 if !approved_waiting.is_empty() && !gates_receiver {
                     return Err(approved_prompts_error(
                         json!(approved_waiting),
@@ -630,7 +640,13 @@ impl Hub {
                 return Err(if logged { unfreeze(error, carried) } else { error });
             }
         };
-        if let Err(error) = self.restore_ownership_epoch(session) {
+        let restored = match (&folded, &prefix) {
+            (Some(f), Some(p)) => self
+                .ownership_epoch_after(&session.id, p.after_seq, f.epoch)
+                .map(|epoch| session.restore_ownership_epoch(epoch)),
+            _ => self.restore_ownership_epoch(session),
+        };
+        if let Err(error) = restored {
             drop(guard);
             return Err(unfreeze(
                 transfer_error("store", format!("ownership epoch unreadable: {error}")),
