@@ -4,8 +4,10 @@
    As tall as its content up to a cap; each column scrolls on its own. */
 .acpmux-cols.ui-popup {
   --acpmux-cols-line: var(--ui-line, color-mix(in srgb, var(--agent-text) 11%, transparent));
-  /* The rail and the settings column stand apart from the models by a quiet fill, not a vertical rule
-     (David Beyer 2026-11-20: "I hate those vertical lines"). Horizontal rules stay where they end a row. */
+  /* One fill for the whole menu: the rail's quiet fill, under the models and the settings column too
+     (Lucas 2026-11-22: "make it all 1 colour", "the panel fill should follow the rail colour"). No
+     vertical rule between the columns (David Beyer 2026-11-20: "I hate those vertical lines");
+     horizontal rules stay where they end a row. .acpmux-cols-frame paints it. */
   --acpmux-cols-side-fill: var(--ds-surface-card);
   --acpmux-cols-pad: var(--ui-popup-padding, 4px);
   --acpmux-cols-inline: var(--ui-row-padding-inline, 8px);
@@ -34,6 +36,8 @@
 .acpmux-cols-frame {
   display: flex;
   flex-direction: column;
+  background: var(--acpmux-cols-side-fill);
+  border-radius: var(--ui-popup-radius, var(--ds-radius-popup));
   max-height: min(var(--acpmux-cols-max-height), var(--available-height, var(--acpmux-cols-max-height)));
 }
 .acpmux-cols-sep {
@@ -89,10 +93,7 @@
   /* The avatar's height (.acpmux-cols-profile) even when the corner is empty, so the search row and the
      columns under it keep their place as tabs with and without an account switch. */
   min-block-size: 32px;
-  /* The rail's fill runs up through the whole row: no padding above or below the corner. It meets the
-     popup's top corner, so it takes the popup's round there. */
-  background: var(--acpmux-cols-side-fill);
-  border-start-start-radius: var(--ui-popup-radius, var(--ds-radius-popup));
+  /* No padding above or below the corner: it spans the search row's height. */
 }
 
 /* The account avatar: a round face with the family's mark at its corner. */
@@ -232,14 +233,9 @@
   overflow-x: hidden;
   overscroll-behavior: contain;
 }
-/* The rail: the first of two lists, its bottom corner the popup's. */
-.acpmux-cols-list:first-child:not(:last-child) {
-  background: var(--acpmux-cols-side-fill);
-  border-end-start-radius: var(--ui-popup-radius, var(--ds-radius-popup));
-}
 /* The effort column's Reasoning heading sits in the search row, centered on its height; its text starts
-   where the levels' text does (the list's padding and a row's). Head and column share one fill, the
-   popup's end corners at its top and bottom: one column, with no rule beside or above it. */
+   where the levels' text does (the list's padding and a row's). Head and column take the menu's one
+   fill: one column, with no rule beside or above it. */
 .acpmux-cols-body > .acpmux-cols-tune-head {
   grid-area: 1 / 2;
   /* The search field's type and ink, not a caption's (Lucas 2026-11-12: "not bold, the same font and
@@ -253,8 +249,6 @@
   min-width: 0;
   padding-block: 0;
   padding-inline: calc(var(--acpmux-cols-pad) + var(--acpmux-cols-inline));
-  background: var(--acpmux-cols-side-fill);
-  border-start-end-radius: var(--ui-popup-radius, var(--ds-radius-popup));
 }
 .acpmux-cols-body > .acpmux-cols-tune {
   grid-area: 2 / 2 / 4 / 3;
@@ -262,8 +256,6 @@
   flex-direction: column;
   padding: 0;
   overflow: hidden;
-  background: var(--acpmux-cols-side-fill);
-  border-end-end-radius: var(--ui-popup-radius, var(--ds-radius-popup));
 }
 /* Its levels and providers scroll on their own; Fast stays fixed under them, at the column's bottom,
    a hairline above it (Lucas 2026-11-12). */
