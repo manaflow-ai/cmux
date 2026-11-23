@@ -77,6 +77,11 @@ pub struct Scenario {
     /// out as one `output` event (no timer). Not with `coalesce_ms`.
     #[serde(default)]
     pub merge_ready: bool,
+    /// `terminal` with `[tui]` only, the phone side of the fix: the phone parses each event as it
+    /// arrives (off its main thread) and paints at most once per display frame, everything parsed
+    /// by then, paying `phone_event_ms` once per paint instead of once per event.
+    #[serde(default)]
+    pub phone_batch: bool,
     #[serde(default, rename = "event")]
     pub events: Vec<Event>,
     #[serde(default, rename = "check")]
@@ -347,7 +352,9 @@ impl Scenario {
                     || self.phone_event_ms.is_some()
                     || self.merge_ready =>
             {
-                return Err("coalesce_ms, phone_event_ms and merge_ready need [tui]".into());
+                return Err(
+                    "coalesce_ms, phone_event_ms, merge_ready and phone_batch need [tui]".into()
+                );
             }
             _ => {}
         }

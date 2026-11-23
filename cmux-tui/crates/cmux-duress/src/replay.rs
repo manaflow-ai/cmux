@@ -530,13 +530,7 @@ fn projection_run(
         let started = Instant::now();
         let decoded = decoder.decode(&lean).ok_or("a lean frame the decoder reads")?;
         let decode_ms = ms(started);
-        let took = arrived.max(phone_free);
-        {
-            let mut unread = unread.borrow_mut();
-            unread.retain(|(read, _)| *read > start);
-            unread.push_back((took, event.len()));
-        }
-        let ready = took + decode_ms + event_ms;
+        let ready = arrived.max(phone_free) + decode_ms;
         let started = Instant::now();
         if let Some(bytes) = vt::frame_bytes(&decoded.frame, rows, decoded.cursor) {
             phone.vt_write(&bytes);
@@ -598,6 +592,9 @@ fn tui_bytes_run(
     let mac_free = std::cell::Cell::new(0.0f64);
     let unread = std::cell::RefCell::new(std::collections::VecDeque::<(f64, usize)>::new());
     let event_ms = scenario.phone_event_ms.unwrap_or(0.0).max(0.0);
+    // `phone_batch`: the paint that will present what is parsed by its start (start, done,
+    // present), and when the last paint is done.
+    let (mut paint, mut paint_done): (Option<(f64, f64, f64)>, f64) = (None, 0.0);
     let trim = |text: &str| text.lines().map(str::trim_end).collect::<Vec<_>>().join("\n");
 
     // One `output` event leaving the Mac's attach worker at `due` (virtual ms): `held` are the
@@ -629,7 +626,13 @@ fn tui_bytes_run(
             .and_then(|data| STANDARD.decode(data).ok())
             .ok_or("an output event's data")?;
         let decode_ms = ms(started);
-        let ready = arrived.max(phone_free) + decode_ms;
+        // When the phone reads the event off its socket: once it is done with the last.
+        let took = arrived.max(phone_free);
+        {
+            let mut unread = unread.borrow_mut();
+            unread.retain(|(read, _)| *read > start);
+            unread.push_back((took, event.len()));
+        }
         let started = Instant::now();
         phone.vt_write(&data);
         let parse_ms = ms(started);
@@ -637,10 +640,28 @@ fn tui_bytes_run(
         phone_state.update(&mut phone).map_err(vt_err)?;
         let _ = phone_state.build_frame().map_err(vt_err)?;
         let build_ms = ms(started);
-        let paint_ms = parse_ms + build_ms;
         metrics.push("phone_wait_ms", "ms", took - arrived);
-        phone_free = ready + paint_ms;
-        let present = (phone_free / FRAME_MS).ceil() * FRAME_MS;
+        let (paint_ms, present) = if scenario.phone_batch {
+            // Parsed off the main thread as it comes; painted at the first vsync after it is
+            // parsed and the last paint is done, with everything parsed by then.
+            phone_free = took + decode_ms + parse_ms;
+            match paint {
+                Some((at, _, present)) if phone_free <= at => (0.0, present),
+                _ => {
+                    let cost = build_ms + event_ms;
+                    let at = (phone_free.max(paint_done) / FRAME_MS).ceil() * FRAME_MS;
+                    paint_done = at + cost;
+                    let present = (paint_done / FRAME_MS).ceil() * FRAME_MS;
+                    paint = Some((at, paint_done, present));
+                    (cost, present)
+                }
+            }
+        } else {
+            // Today: each event decoded, parsed and painted in turn on the main thread.
+            let paint_ms = parse_ms + build_ms + event_ms;
+            phone_free = took + decode_ms + paint_ms;
+            (paint_ms, (phone_free / FRAME_MS).ceil() * FRAME_MS)
+        };
 
         for (t, _) in held {
             metrics.push("mac_queue_ms", "ms", start - t);
@@ -652,8 +673,10 @@ fn tui_bytes_run(
         metrics.push("phone_decode_ms", "ms", decode_ms);
         metrics.push("phone_parse_ms", "ms", parse_ms);
         metrics.push("phone_build_ms", "ms", build_ms);
-        metrics.push("vsync_wait_ms", "ms", present - phone_free);
-        metrics.push("phone_paint_ms", "ms", paint_ms);
+        if paint_ms > 0.0 {
+            metrics.push("vsync_wait_ms", "ms", present - phone_free.max(paint_done));
+            metrics.push("phone_paint_ms", "ms", paint_ms);
+        }
         metrics.push("wire_bytes", "bytes", event.len() as f64);
         events += 1;
         wire_total += event.len() as u64;

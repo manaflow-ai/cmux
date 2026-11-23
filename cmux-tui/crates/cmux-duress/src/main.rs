@@ -6,7 +6,7 @@
 //! cmux-duress scenario list [--dir DIR]
 //! cmux-duress scenario run NAME|all [--sim] [--dir DIR] [--repo ROOT]
 //!     [--spec SPEC] [--link NAME] [--path terminal|projection] [--cols N] [--coalesce-ms MS]
-//!     [--phone-event-ms MS] [--merge-ready]
+//!     [--phone-event-ms MS] [--merge-ready] [--phone-batch]
 //! ```
 //!
 //! `scenario run` replays a named scenario (`scenarios/NAME.toml`) headless through the phone's
@@ -28,7 +28,7 @@ const USAGE: &str = "usage:
   cmux-duress scenario list [--dir DIR]
   cmux-duress scenario run NAME|all [--sim] [--dir DIR] [--repo ROOT]
       [--spec SPEC] [--link NAME] [--path terminal|projection] [--cols N] [--coalesce-ms MS]
-      [--phone-event-ms MS] [--merge-ready]";
+      [--phone-event-ms MS] [--merge-ready] [--phone-batch]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -114,7 +114,7 @@ fn scenario(mut args: impl Iterator<Item = String>) -> Result<bool, String> {
     // Overrides of each scenario's own fields: the same case under another link, path or width.
     let (mut spec, mut path, mut cols, mut coalesce_ms) = (None, None, None, None);
     let mut link: Option<String> = None;
-    let (mut phone_event_ms, mut merge_ready) = (None, false);
+    let (mut phone_event_ms, mut merge_ready, mut phone_batch) = (None, false, false);
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--sim" => sim = true,
@@ -143,6 +143,7 @@ fn scenario(mut args: impl Iterator<Item = String>) -> Result<bool, String> {
                     Some(value.parse::<f64>().map_err(|_| format!("--phone-event-ms {value}"))?);
             }
             "--merge-ready" => merge_ready = true,
+            "--phone-batch" => phone_batch = true,
             "--dir" => dir = Some(args.next().ok_or("--dir needs a value")?),
             "--repo" => repo = Some(args.next().ok_or("--repo needs a value")?),
             flag if flag.starts_with('-') => return Err(format!("unknown flag {flag}\n{USAGE}")),
@@ -187,6 +188,7 @@ fn scenario(mut args: impl Iterator<Item = String>) -> Result<bool, String> {
                     scenario.phone_event_ms = phone_event_ms;
                 }
                 scenario.merge_ready |= merge_ready;
+                scenario.phone_batch |= phone_batch;
                 scenario.validate()?;
             }
             if sim {
