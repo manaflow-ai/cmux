@@ -207,7 +207,6 @@ fn value_why(row: &Row, value: &Value) -> Option<String> {
         | Kind::OrderedChoices(_)
         | Kind::NumberList(_) => Some((&["array"], "a list")),
         Kind::StringMap | Kind::SoundRules => Some((&["object"], "an object")),
-        // A nested JSON row's shape is its own schema: no one type word names it.
         Kind::ChoiceOrUrl(..) | Kind::TimeRange | Kind::Json(_) => None,
     };
     Some(match holds {

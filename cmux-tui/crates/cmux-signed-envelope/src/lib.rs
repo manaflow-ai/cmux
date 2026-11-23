@@ -11,6 +11,8 @@
 //! payload `purpose`; each kind passes only its own keys, so a file signed with one kind's
 //! key never opens as another kind.
 
+pub mod linux_release;
+
 use base64::Engine as _;
 use ring::signature::{ED25519, UnparsedPublicKey};
 use serde::Deserialize;
