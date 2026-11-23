@@ -369,7 +369,7 @@ class WorkflowTest(unittest.TestCase):
         self.assertIn("vars.FIXIT_HANDOFF != '0'", post["if"])
         web = self.load("ci-web.yml")
         self.assertIn("fixit_nofix", (web.get("on") or web[True])["workflow_call"]["outputs"])
-        for job in ("web-typecheck", "react-apps-check-shard"):
+        for job in ("web-typecheck", "webviews-typecheck"):
             self.assertIn("fixit_nofix", web["jobs"][job]["outputs"])
 
 
