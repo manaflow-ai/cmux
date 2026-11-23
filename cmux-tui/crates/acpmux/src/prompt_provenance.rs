@@ -1006,7 +1006,7 @@ pub fn display_name_of(provenance: Option<&Value>) -> Option<&str> {
 }
 
 /// How a line names a sender or recipient: its given handle first, then the `HOST/NAME` (or
-/// name) it was known by, `Mango · cosmic-gray/claude-sr2-coord-old`, the same `HANDLE · NAME`
+/// name) it was known by, `Mango · studio-mac/claude-sr2-coord-old`, the same `HANDLE · NAME`
 /// form `acpmux ls` prints and every resolver takes (#49803). `name` alone when no handle was
 /// given, or when `name` already is the handle.
 pub fn display_label(display_name: Option<&str>, name: &str) -> String {
@@ -1258,10 +1258,10 @@ mod sender_tests {
         assert_eq!(sender_record(Some(&json!({})), None, None)["displayName"], Value::Null);
 
         let label = |d: Option<&str>, n: &str| display_label(d, n);
-        assert_eq!(label(Some("Mango"), "cosmic-gray/coord-old"), "Mango · cosmic-gray/coord-old");
+        assert_eq!(label(Some("Mango"), "studio-mac/coord-old"), "Mango · studio-mac/coord-old");
         assert_eq!(label(Some("Mango"), "coord-old"), "Mango · coord-old");
-        assert_eq!(label(None, "cosmic-gray/coord-old"), "cosmic-gray/coord-old");
-        assert_eq!(label(Some("Mango"), "cosmic-gray/Mango"), "cosmic-gray/Mango", "no repeat");
+        assert_eq!(label(None, "studio-mac/coord-old"), "studio-mac/coord-old");
+        assert_eq!(label(Some("Mango"), "studio-mac/Mango"), "studio-mac/Mango", "no repeat");
         assert_eq!(label(Some("Mango"), "Mango · coord-old"), "Mango · coord-old", "no repeat");
         assert_eq!(label(Some("Mango"), ""), "Mango");
     }

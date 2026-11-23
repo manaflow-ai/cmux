@@ -177,7 +177,7 @@ pub(super) fn mark(params: &mut Value, sender: Option<&str>, provenance: Option<
     let first = blocks.iter().position(|b| !crate::prompt_context::is_context(b)).unwrap_or(0);
     if let Some(name) = sender.filter(|n| !n.trim().is_empty()) {
         // The name people call the sender first, then the HOST/NAME it is known by
-        // (`Mango · cosmic-gray/claude-sr2-coord-old`), so the receiver can reply to either.
+        // (`Mango · studio-mac/claude-sr2-coord-old`), so the receiver can reply to either.
         let label = crate::prompt_provenance::display_label(
             crate::prompt_provenance::display_name_of(provenance),
             name,
@@ -418,13 +418,13 @@ mod tests {
         let mut params =
             json!({"sessionId": "s", "prompt": [{"type": "text", "text": "PR is green"}]});
         let provenance = json!({"kind": "session_message", "from": "s2",
-            "fromName": "cosmic-gray/claude-sr2-coord-old", "fromHarness": "claude",
+            "fromName": "studio-mac/claude-sr2-coord-old", "fromHarness": "claude",
             "fromDisplayName": "Mango"});
-        mark(&mut params, Some("cosmic-gray/claude-sr2-coord-old"), Some(&provenance));
+        mark(&mut params, Some("studio-mac/claude-sr2-coord-old"), Some(&provenance));
         assert_eq!(
             texts(&params),
             vec![
-                "From another agent (Mango · cosmic-gray/claude-sr2-coord-old, claude), not the \
+                "From another agent (Mango · studio-mac/claude-sr2-coord-old, claude), not the \
                  person:",
                 "PR is green"
             ]
