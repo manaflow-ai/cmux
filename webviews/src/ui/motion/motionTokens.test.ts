@@ -6,7 +6,7 @@ import { motionToken } from "./motionTokens";
 
 function fixture() {
   let reads = 0;
-  let value = "180ms";
+  let value = "123ms";
   let notify: (() => void) | undefined;
   const attributes: Record<string, string> = {};
   const root = { getAttribute: (name: string) => attributes[name] ?? null };
@@ -45,9 +45,9 @@ function fixture() {
 
 test("a token is read once, then kept", () => {
   const page = fixture();
-  expect(motionToken(page.node, "--agent-motion-send")).toBe("180ms");
-  expect(motionToken(page.node, "--agent-motion-send")).toBe("180ms");
-  expect(motionToken(page.node, "--agent-motion-send")).toBe("180ms");
+  expect(motionToken(page.node, "--agent-motion-send")).toBe("123ms");
+  expect(motionToken(page.node, "--agent-motion-send")).toBe("123ms");
+  expect(motionToken(page.node, "--agent-motion-send")).toBe("123ms");
   expect(page.reads()).toBe(1);
 });
 
