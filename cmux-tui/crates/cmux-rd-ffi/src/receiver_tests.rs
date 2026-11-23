@@ -229,38 +229,6 @@ fn a_frame_is_retried_and_given_up_at_the_outage_threshold_after_its_first_shard
     assert!(r.feedback(161_002).is_none(), "one immediate request, then the interval");
 }
 
-/// With no round trip known the retry goes out after 50 ms, before an 80 ms
-/// path's repair can arrive. The repair is still timed from the first
-/// request, so the window settles a little over 90 ms instead of shrinking
-/// toward the retry interval (which would give up frames whose repair was on
-/// its way).
-#[test]
-fn a_retry_before_the_repair_does_not_shorten_the_measured_round_trip() {
-    let mut p = Packetizer::new(0, MAX_DATAGRAM_VPC);
-    let mut r = receiver();
-    deliver(&mut r, &packets(&mut p, 1, flags::KEYFRAME, REF_NONE, 3000), 0);
-    assert_eq!(ready(&mut r), vec![1]);
-    assert!(r.feedback(0).is_some());
-    for f in 2..=13u32 {
-        let at = u64::from(f - 1) * 300_000;
-        let frame = packets(&mut p, f, 0, f - 1, 3000);
-        deliver(&mut r, &frame[1..], at);
-        assert!(!decode_feedback(&r.feedback(at + 5_000).expect("NACK")).nacks.is_empty());
-        let retry_at = r.next_deadline_us();
-        assert!(retry_at < at + 85_000, "retried before the repair arrives");
-        assert!(!decode_feedback(&r.feedback(retry_at).expect("retry")).nacks.is_empty());
-        deliver(&mut r, &frame[..1], at + 85_000);
-        assert_eq!(ready(&mut r), vec![f]);
-        assert!(r.feedback(at + 85_000).is_some());
-    }
-    let window = r.repair_window_us();
-    assert!(
-        (90_000..=100_000).contains(&window),
-        "80 ms from the first request, plus 10 ms: {window}"
-    );
-    assert_eq!(r.retry_us(), 50_000, "the retry stays capped on a long path");
-}
-
 #[test]
 fn a_repair_inside_the_window_releases_the_frame() {
     let mut p = Packetizer::new(0, MAX_DATAGRAM_VPC);

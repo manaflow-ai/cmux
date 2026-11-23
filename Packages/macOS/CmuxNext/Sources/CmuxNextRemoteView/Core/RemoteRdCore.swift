@@ -164,7 +164,8 @@ public nonisolated final class RemoteRdCore {
             flags: RemoteFrameFlags(rawValue: frame.flags),
             tCaptureMicros: frame.t_capture_us,
             data: copy(frame.data, frame.len),
-            codec: codec
+            codec: codec,
+            refFrame: frame.ref_frame == UInt32.max ? nil : frame.ref_frame
         )
     }
 

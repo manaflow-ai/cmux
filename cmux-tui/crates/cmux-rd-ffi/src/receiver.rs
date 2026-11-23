@@ -71,6 +71,7 @@ pub struct Receiver {
     /// The display stream this receiver reassembles; its feedback names it.
     stream: u16,
     reassembler: Reassembler,
+    nack_after_us: u64,
     deframer: StreamDeframer,
     ready: VecDeque<CompleteFrame>,
     messages: VecDeque<Message>,
@@ -127,7 +128,13 @@ impl Receiver {
         Self {
             carrier,
             stream,
-            reassembler: Reassembler::with_nack_after(deadline_us, nack_after_us),
+            reassembler: {
+                let mut r = Reassembler::with_nack_after(deadline_us, nack_after_us);
+                // A gap's reorder grace counts from when the gap is first seen.
+                r.set_gap_grace(true);
+                r
+            },
+            nack_after_us,
             deframer: StreamDeframer::default(),
             ready: VecDeque::new(),
             messages: VecDeque::new(),
@@ -223,11 +230,6 @@ impl Receiver {
         self.reassembler.repair_window_us()
     }
 
-    /// How long after a NACK an unanswered shard is requested again.
-    pub fn retry_us(&self) -> u64 {
-        self.reassembler.retry_us()
-    }
-
     /// The oldest queued message.
     pub fn pop_message(&mut self) -> Option<Message> {
         let m = self.messages.pop_front()?;
@@ -241,6 +243,13 @@ impl Receiver {
             self.decode_us.pop_front();
         }
         self.decode_us.push_back(decode_us);
+    }
+
+    /// Retries NACKs a measured repair round trip apart instead of every
+    /// [`FEEDBACK_INTERVAL_US`] (design D6; `Reassembler::set_rtt_nack_retry`).
+    /// Off by default.
+    pub fn set_rtt_nack_retry(&mut self, on: bool) {
+        self.reassembler.set_rtt_nack_retry(on);
     }
 
     /// Asks the host for a keyframe (a decode error or a frame gap). The
@@ -321,7 +330,8 @@ impl Receiver {
         if let Some(expiry) = self.reassembler.next_expiry_us() {
             deadline = deadline.min(expiry);
         }
-        if let Some(nack) = self.reassembler.next_nack_us() {
+        if let Some(nack) = self.reassembler.next_nack_us(self.nack_after_us, FEEDBACK_INTERVAL_US)
+        {
             deadline = deadline.min(nack);
         }
         deadline
@@ -338,7 +348,10 @@ impl Receiver {
         let due = since.is_none_or(|s| s >= FEEDBACK_INTERVAL_US);
         let keepalive = since.is_none_or(|s| s >= KEEPALIVE_US);
         let overflow = self.arrivals.len() > MAX_ARRIVALS;
-        let nack_due = self.reassembler.next_nack_us().is_some_and(|deadline| now_us >= deadline);
+        let nack_due = self
+            .reassembler
+            .next_nack_us(self.nack_after_us, FEEDBACK_INTERVAL_US)
+            .is_some_and(|deadline| now_us >= deadline);
         if !(self.released_since_feedback
             || keepalive
             || overflow
@@ -387,7 +400,7 @@ impl Receiver {
     }
 
     fn nacks(&mut self, now_us: u64) -> Vec<Nack> {
-        self.reassembler.take_nacks(now_us)
+        self.reassembler.take_nacks(now_us, self.nack_after_us, FEEDBACK_INTERVAL_US)
     }
 
     fn frame_datagram(&self, payload: &[u8]) -> Vec<u8> {
@@ -427,17 +440,18 @@ impl Receiver {
         }
         match header.kind {
             DatagramKind::Video | DatagramKind::Fec => {
-                if self.arrivals.len() >= MAX_PENDING_ARRIVALS {
-                    self.arrivals.pop_front();
-                }
-                // Viewer monotonic microseconds; the field wraps and only differences matter.
-                self.arrivals.push_back(Arrival {
-                    transport_seq: header.transport_seq,
-                    arrival_us: now_us as u32,
-                });
+                self.note_arrival(header.transport_seq, now_us);
                 let released = self.reassembler.push(&header, payload, now_us);
                 released.into_iter().for_each(|f| self.on_released(f));
                 self.count_losses();
+                Ok(())
+            }
+            // An ultra capacity probe is padding: only its arrival time matters. It rides
+            // the same transport feedback as media, so the host's probe planner can read
+            // the train's dispersion. Like any datagram, it shows the link is live.
+            DatagramKind::Probe => {
+                self.note_arrival(header.transport_seq, now_us);
+                self.note_link_datagram(now_us);
                 Ok(())
             }
             _ => {
@@ -454,6 +468,14 @@ impl Receiver {
             self.recovery_sent = false;
         }
         self.reassembler.note_datagram(now_us);
+    }
+
+    fn note_arrival(&mut self, transport_seq: u16, now_us: u64) {
+        if self.arrivals.len() >= MAX_PENDING_ARRIVALS {
+            self.arrivals.pop_front();
+        }
+        // Viewer monotonic microseconds; the field wraps and only differences matter.
+        self.arrivals.push_back(Arrival { transport_seq, arrival_us: now_us as u32 });
     }
 
     fn queue_message(&mut self, kind: u8, bytes: Vec<u8>) -> Result<(), ReceiverError> {

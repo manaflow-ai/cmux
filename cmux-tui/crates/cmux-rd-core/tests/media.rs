@@ -2,7 +2,7 @@
 
 use cmux_rd_core::fec;
 use cmux_rd_core::packetize::{Packetizer, parity_for};
-use cmux_rd_core::reassembly::{FrameLoss, Reassembler};
+use cmux_rd_core::reassembly::{FrameLoss, NACK_RETRY_FLOOR_US, Reassembler};
 use cmux_rd_proto::{
     DatagramHeader, FRAME_PREFIX_LEN, FrameBody, HEADER_LEN, MAX_DATAGRAM_DEFAULT,
     MAX_DATAGRAM_VPC, REF_NONE, flags,
@@ -208,28 +208,40 @@ fn nack_grace_does_not_request_the_unseen_tail_of_an_arriving_frame() {
         let now = 25_000 + i as u64 * 4_000;
         let (h, payload) = DatagramHeader::decode(d).expect("decode");
         assert!(r.push(&h, payload, now).is_empty());
-        assert_eq!(r.next_nack_us(), Some(now + 5_000));
-        assert!(r.take_nacks(now + 3_999).is_empty());
+        assert_eq!(r.next_nack_us(5_000, 50_000), Some(now + 5_000));
+        assert!(r.take_nacks(now + 3_999, 5_000, 50_000).is_empty());
     }
     let tail_due = 25_000 + (last as u64 - 1) * 4_000 + 5_000;
-    let requests = r.take_nacks(tail_due);
+    let requests = r.take_nacks(tail_due, 5_000, 50_000);
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].indexes, vec![last as u16]);
 
-    // A gap proven by a later shard is requested one grace after it is first
-    // seen, while shards beyond the newest arrival are still allowed to arrive
-    // normally: the tail is requested only one grace after the last arrival.
+    // A gap proven by a later shard is requested promptly, while shards
+    // beyond that later shard are still allowed to arrive normally.
     let mut r = Reassembler::new(200_000);
+    for (i, now) in [(0, 0), (2, 6_000)] {
+        let (h, payload) = DatagramHeader::decode(&sent.datagrams[i]).expect("decode");
+        assert!(r.push(&h, payload, now).is_empty());
+    }
+    let requests = r.take_nacks(6_000, 5_000, 50_000);
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].indexes, vec![1]);
+
+    // With the viewer's per-gap grace, the same gap is requested one grace
+    // after it is first seen, while shards beyond the newest arrival are still
+    // allowed to arrive: the tail is requested one grace after the last arrival.
+    let mut r = Reassembler::new(200_000);
+    r.set_gap_grace(true);
     for (i, now) in [(0, 0), (2, 6_000), (3, 9_000), (4, 10_000)] {
         let (h, payload) = DatagramHeader::decode(&sent.datagrams[i]).expect("decode");
         assert!(r.push(&h, payload, now).is_empty());
     }
-    assert!(r.take_nacks(10_999).is_empty());
-    let requests = r.take_nacks(11_000);
+    assert!(r.take_nacks(10_999, 5_000, 50_000).is_empty());
+    let requests = r.take_nacks(11_000, 5_000, 50_000);
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].indexes, vec![1]);
-    assert!(r.take_nacks(14_999).is_empty());
-    let requests = r.take_nacks(15_000);
+    assert!(r.take_nacks(14_999, 5_000, 50_000).is_empty());
+    let requests = r.take_nacks(15_000, 5_000, 50_000);
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].indexes, vec![5, 6]);
 }
@@ -248,17 +260,17 @@ fn nack_deadlines_are_per_frame_and_only_sent_requests_start_retrying() {
             assert!(r.push(&h, payload, 25_000).is_empty());
         }
     }
-    assert_eq!(r.next_nack_us(), Some(30_000));
-    assert!(r.take_nacks(29_999).is_empty());
-    let first = r.take_nacks(30_000);
+    assert_eq!(r.next_nack_us(5_000, 50_000), Some(30_000));
+    assert!(r.take_nacks(29_999, 5_000, 50_000).is_empty());
+    let first = r.take_nacks(30_000, 5_000, 50_000);
     assert_eq!(first.iter().map(|n| n.frame).collect::<Vec<_>>(), vec![1, 2, 3, 4]);
-    assert_eq!(r.next_nack_us(), Some(30_000));
-    let rest = r.take_nacks(30_000);
+    assert_eq!(r.next_nack_us(5_000, 50_000), Some(30_000));
+    let rest = r.take_nacks(30_000, 5_000, 50_000);
     assert_eq!(rest.iter().map(|n| n.frame).collect::<Vec<_>>(), vec![5, 6]);
     assert!(first.iter().chain(&rest).all(|n| n.indexes == vec![0]));
-    assert!(r.take_nacks(30_000).is_empty());
+    assert!(r.take_nacks(30_000, 5_000, 50_000).is_empty());
     // No round trip known: an unanswered request is retried after 50 ms.
-    assert_eq!(r.next_nack_us(), Some(80_000));
+    assert_eq!(r.next_nack_us(5_000, 50_000), Some(80_000));
 
     // A new frame does not inherit the retry deadline of previous gaps.
     let out = p.packetize(7, 0, &body(7, 5000, false), 0).expect("packetize");
@@ -266,14 +278,14 @@ fn nack_deadlines_are_per_frame_and_only_sent_requests_start_retrying() {
         let (h, payload) = DatagramHeader::decode(d).expect("decode");
         assert!(r.push(&h, payload, 40_000).is_empty());
     }
-    assert_eq!(r.next_nack_us(), Some(45_000));
-    assert_eq!(r.take_nacks(45_000)[0].frame, 7);
+    assert_eq!(r.next_nack_us(5_000, 50_000), Some(45_000));
+    assert_eq!(r.take_nacks(45_000, 5_000, 50_000)[0].frame, 7);
     for d in repairs.iter().chain(std::iter::once(&out.datagrams[0])) {
         let (h, payload) = DatagramHeader::decode(d).expect("decode");
         assert_eq!(r.push(&h, payload, 75_000).len(), 1);
     }
-    assert_eq!(r.next_nack_us(), None);
-    assert!(r.take_nacks(80_000).is_empty());
+    assert_eq!(r.next_nack_us(5_000, 50_000), None);
+    assert!(r.take_nacks(80_000, 5_000, 50_000).is_empty());
     assert!(!r.need_recovery());
 }
 
@@ -541,7 +553,7 @@ fn a_hold_then_a_burst_completes_the_frame_in_flight_without_recovery() {
     while t < hold_end {
         t += 5_000;
         assert!(r.tick(t).is_empty());
-        let _ = r.take_nacks(t);
+        let _ = r.take_nacks(t, 5_000, 50_000);
         assert!(r.next_expiry_us().is_none_or(|at| at > t), "a timer due in the past spins");
     }
     assert!(r.take_losses().is_empty(), "the frame in flight was given up during the hold");
@@ -588,7 +600,7 @@ fn a_hold_shorter_than_the_outage_threshold_completes_the_frame_without_recovery
     while t < hold_end {
         t += 5_000;
         assert!(r.tick(t).is_empty());
-        let _ = r.take_nacks(t);
+        let _ = r.take_nacks(t, 5_000, 50_000);
     }
     let mut released = Vec::new();
     for d in &out.datagrams[1..] {
@@ -612,6 +624,7 @@ fn a_reordered_shard_inside_its_grace_is_never_nacked_and_a_real_loss_is() {
     use cmux_rd_core::reassembly::NACK_AFTER_US;
     let mut p = Packetizer::new(0, 256);
     let mut r = Reassembler::new(200_000);
+    r.set_gap_grace(true);
     r.set_path_rtt_us(Some(8_000));
     let out = p.packetize(1, flags::KEYFRAME, &body(1, 2_400, true), 0).expect("packetize");
     let d: Vec<_> =
@@ -625,16 +638,22 @@ fn a_reordered_shard_inside_its_grace_is_never_nacked_and_a_real_loss_is() {
     push(&mut r, 1, 0);
     // Shard 3 overtakes shard 2, 10 ms into the frame: gap 2 is first seen now.
     push(&mut r, 3, 10_000);
-    assert!(r.take_nacks(10_000).is_empty(), "a gap just seen was requested at once");
-    assert_eq!(r.next_nack_us(), Some(10_000 + NACK_AFTER_US));
+    assert!(
+        r.take_nacks(10_000, 5_000, 50_000).is_empty(),
+        "a gap just seen was requested at once"
+    );
+    assert_eq!(r.next_nack_us(5_000, 50_000), Some(10_000 + NACK_AFTER_US));
     // The overtaken shard arrives inside its grace: it is never requested.
     push(&mut r, 2, 12_000);
-    assert!(r.take_nacks(12_000).is_empty());
+    assert!(r.take_nacks(12_000, 5_000, 50_000).is_empty());
     // Shard 5 is lost: shard 6 shows the gap at 20 ms, and 5 never comes.
     push(&mut r, 4, 20_000);
     push(&mut r, 6, 20_000);
-    assert!(r.take_nacks(20_000 + NACK_AFTER_US - 1).is_empty(), "requested inside its grace");
-    let nacks = r.take_nacks(20_000 + NACK_AFTER_US);
+    assert!(
+        r.take_nacks(20_000 + NACK_AFTER_US - 1, 5_000, 50_000).is_empty(),
+        "requested inside its grace"
+    );
+    let nacks = r.take_nacks(20_000 + NACK_AFTER_US, 5_000, 50_000);
     assert_eq!(nacks.len(), 1);
     assert_eq!(nacks[0].indexes.first(), Some(&5), "the lost shard, after its own grace");
     assert!(!nacks[0].indexes.contains(&2), "the overtaken shard was requested");
@@ -691,6 +710,7 @@ fn a_gap_exposed_after_the_frames_first_nack_is_requested_without_the_retry_wait
     let n = sent.datagrams.len();
     assert!(n >= 16, "{n} shards");
     let mut r = Reassembler::new(1_000_000);
+    r.set_gap_grace(true);
     // One shard every 500 us over ~10 ms; shards 3 and 12 are lost.
     let at = |i: usize| i as u64 * 500;
     for i in (0..n).filter(|&i| i != 3 && i != 12) {
@@ -698,19 +718,96 @@ fn a_gap_exposed_after_the_frames_first_nack_is_requested_without_the_retry_wait
         r.push(&h, payload, at(i));
         if at(i) == 5_000 {
             // Gap 3 was seen at 2 ms (shard 4): its grace runs to 7 ms.
-            assert!(r.take_nacks(5_000).is_empty());
+            assert!(r.take_nacks(5_000, 5_000, 50_000).is_empty());
         }
         if at(i) == 7_000 {
             // The first NACK, 5 ms after the gap was seen, carries the early gap.
-            let first = r.take_nacks(7_000);
+            let first = r.take_nacks(7_000, 5_000, 50_000);
             assert_eq!(first.len(), 1);
             assert_eq!(first[0].indexes, vec![3]);
         }
     }
     // Shard 13 arrived at 6.5 ms and proved 12 missing.
     let exposed = at(13);
-    let due = r.next_nack_us().expect("frame still incomplete");
+    let due = r.next_nack_us(5_000, 50_000).expect("frame still incomplete");
     assert!(due <= exposed + 5_000, "late gap NACK due at {due} us, exposed at {exposed} us");
-    let late = r.take_nacks(exposed + 5_000);
+    let late = r.take_nacks(exposed + 5_000, 5_000, 50_000);
     assert!(late.iter().any(|n| n.indexes.contains(&12)), "{late:?}");
+}
+
+/// One lost shard per frame at 1% loss: a gap the viewer first sees after the
+/// frame's first NACK went out is asked for at once, not on the 50 ms retry of
+/// the earlier request (that wait was the ~45 ms a lost shard cost on the fleet).
+#[test]
+fn a_gap_exposed_after_the_frames_first_nack_is_requested_at_once() {
+    let mut p = Packetizer::new(0, 256);
+    let sent = p.packetize(1, flags::KEYFRAME, &body(1, 2500, true), 0).expect("packetize");
+    assert!(sent.datagrams.len() >= 9);
+    let mut r = Reassembler::new(200_000);
+    let push = |r: &mut Reassembler, i: usize, now: u64| {
+        let (h, payload) = DatagramHeader::decode(&sent.datagrams[i]).expect("decode");
+        r.push(&h, payload, now)
+    };
+    // Shard 1 is lost; shard 2 shows the gap.
+    push(&mut r, 0, 0);
+    push(&mut r, 2, 1_000);
+    assert_eq!(r.next_nack_us(5_000, 50_000), Some(5_000));
+    let first = r.take_nacks(5_000, 5_000, 50_000);
+    assert_eq!(first.len(), 1);
+    assert_eq!(first[0].indexes, vec![1]);
+    // The frame keeps arriving; shard 6 is lost and shard 7 shows it at 9 ms.
+    for (i, now) in [(3, 6_000), (4, 7_000), (5, 8_000), (7, 9_000)] {
+        push(&mut r, i, now);
+    }
+    let due = r.next_nack_us(5_000, 50_000).expect("a gap waits");
+    assert!(due <= 9_000, "the late gap waits for no retry: due at {due} us, exposed at 9000 us");
+    let late = r.take_nacks(9_000, 5_000, 50_000);
+    assert_eq!(late.len(), 1);
+    assert_eq!(late[0].indexes, vec![6], "shard 1's request is not repeated before its retry");
+    // The rest of the frame arrives; each shard keeps its own retry clock.
+    for i in 8..sent.datagrams.len() {
+        push(&mut r, i, 10_000);
+    }
+    assert_eq!(r.next_nack_us(5_000, 50_000), Some(55_000));
+    assert!(r.take_nacks(54_999, 5_000, 50_000).is_empty());
+    assert_eq!(r.take_nacks(55_000, 5_000, 50_000)[0].indexes, vec![1]);
+    assert_eq!(r.next_nack_us(5_000, 50_000), Some(59_000));
+}
+
+/// With the RTT retry on, a lost repair is asked for again after a couple of
+/// measured repair round trips (floored), not after the caller's 50 ms; off, the
+/// retry stays the caller's cadence (today's behavior).
+#[test]
+fn rtt_nack_retry_follows_the_measured_repair_round_trip() {
+    for on in [false, true] {
+        let mut p = Packetizer::new(0, 256);
+        let mut r = Reassembler::new(1_000_000);
+        r.set_rtt_nack_retry(on);
+        let push = |r: &mut Reassembler, d: &[u8], now: u64| {
+            let (h, payload) = DatagramHeader::decode(d).expect("decode");
+            r.push(&h, payload, now)
+        };
+        // Frame 1 loses shard 1; its repair comes back 1 ms after the request.
+        let one = p.packetize(1, flags::KEYFRAME, &body(1, 1500, true), 0).expect("packetize");
+        push(&mut r, &one.datagrams[0], 0);
+        for d in &one.datagrams[2..] {
+            push(&mut r, d, 500);
+        }
+        assert_eq!(r.take_nacks(5_000, 5_000, 50_000)[0].indexes, vec![1]);
+        assert_eq!(push(&mut r, &one.datagrams[1], 6_000).len(), 1);
+        assert_eq!(r.repair_rtt_us(), Some(1_000));
+        // Frame 2 loses shard 1, and the repair of it too.
+        let two = p.packetize(2, 0, &body(2, 1500, false), 0).expect("packetize");
+        push(&mut r, &two.datagrams[0], 20_000);
+        for d in &two.datagrams[2..] {
+            push(&mut r, d, 20_500);
+        }
+        assert_eq!(r.take_nacks(25_000, 5_000, 50_000)[0].indexes, vec![1]);
+        let retry = if on { 25_000 + NACK_RETRY_FLOOR_US } else { 75_000 };
+        assert_eq!(r.next_nack_us(5_000, 50_000), Some(retry), "rtt retry {on}");
+        assert_eq!(r.take_nacks(retry, 5_000, 50_000)[0].indexes, vec![1]);
+        // The answer to a retried shard is ambiguous: no sample.
+        assert_eq!(push(&mut r, &two.datagrams[1], retry + 1_000).len(), 1);
+        assert_eq!(r.repair_rtt_us(), Some(1_000));
+    }
 }

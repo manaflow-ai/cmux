@@ -334,7 +334,8 @@ async fn heartbeats(
     if !started(&hub, &mut stop).await {
         return;
     }
-    let host = crate::pairing::machine_name();
+    // The name it joined with, so two machines with one host name are two hosts on the mesh.
+    let host = crate::pairing::mesh_host();
     let mut backoff = Backoff::new(options.backoff_first, options.backoff_cap);
     let mut failing = false;
     loop {
@@ -650,7 +651,14 @@ impl ControlHook for MeshControlHook {
             // A read changes nothing, so it needs no ledger: a repeat runs again and answers
             // the session as it is then.
             if op == "read" {
-                return Some(read::answer(hub, message).await);
+                // A rename through the hub is a change: only a sender trusted with a lifecycle op
+                // here may make one (`read::WRITE_METHODS`), never one granted `read` alone.
+                let writes = ["start", "resume", "stop"].iter().any(|op| {
+                    self.allowed
+                        .iter()
+                        .any(|entry| entry.allows(&message.from, own_user.as_deref(), op))
+                });
+                return Some(read::answer(hub, message, writes).await);
             }
             // The ledger keys a result by its sender: the stamped daemon, else the stamped person.
             let sender = match message.from.daemon_id.as_deref().filter(|id| !id.is_empty()) {
@@ -882,10 +890,23 @@ async fn rpc_call(
         {
             return match (result, error) {
                 (Some(result), None) => Ok(result),
-                (_, Some(error)) => Err(ControlFailure::Refused(error.to_string())),
+                (_, Some(error)) => Err(ControlFailure::Refused(refusal_detail(&error))),
                 _ => Err(ControlFailure::Unknown),
             };
         }
+    }
+}
+
+/// A refused control's ack detail: the RPC error's message and code, and its `data.reason` when
+/// it has one. The reason is what tells two refusals with one text apart (`remote.mode_not_asking`
+/// from `remote.executable_refused`); the ack is all the starting machine sees of it (Door A
+/// timing run, 2026-11-16: the Mac got only "no reviewed asking mode ... (code -32602)").
+fn refusal_detail(error: &crate::rpc::RpcError) -> String {
+    let reason =
+        error.data.as_ref().and_then(|data| data.get("reason")).and_then(serde_json::Value::as_str);
+    match reason {
+        Some(reason) => format!("{} (code {}, reason {reason})", error.message, error.code),
+        None => error.to_string(),
     }
 }
 
@@ -1216,6 +1237,23 @@ mod tests {
         assert!(!start_work_allowed(&message));
         message.start_work = Some(StartWork::Allowed);
         assert!(start_work_allowed(&message));
+    }
+
+    /// Door A timing run (huge-blue/door-a-join-timing, 2026-11-16): `cmux chat --on doora-vm-1`
+    /// was refused "this harness has no reviewed asking mode for a remote WebSocket connection
+    /// (code -32602)", a text two refusals share. The ack names the refusal's reason, so the Mac
+    /// says which one it was.
+    #[test]
+    fn a_refused_control_ack_names_the_refusals_reason() {
+        let error = crate::rpc::RpcError::invalid_params("no reviewed asking mode")
+            .with_data(serde_json::json!({"reason": "remote.executable_refused"}));
+        let detail = refusal_detail(&error);
+        assert!(detail.contains("no reviewed asking mode"), "{detail}");
+        assert!(detail.contains("code -32602"), "{detail}");
+        assert!(detail.contains("reason remote.executable_refused"), "{detail}");
+        // An error with no reason reads as before.
+        let plain = crate::rpc::RpcError::invalid_params("bad params");
+        assert_eq!(refusal_detail(&plain), "bad params (code -32602)");
     }
 
     #[test]

@@ -28,9 +28,9 @@ use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 
-/// The cap that asks a host for H.264 Constrained Baseline (cmux#44497), the profile OpenH264
-/// decodes. A host that does not know it ignores it.
-const H264_BASELINE: &str = "h264.baseline";
+// The cap that asks a host for H.264 Constrained Baseline (cmux#44497), the profile OpenH264
+// decodes. A host that does not know it ignores it; one that does encodes that profile.
+use cmux_rd_core::service::caps::H264_BASELINE;
 /// The reassembler's wait for a missing shard (the bench's default).
 const DEADLINE_US: u64 = 200_000;
 /// Input not yet acknowledged repeats this often.
@@ -231,6 +231,8 @@ pub fn run(
     };
 
     let mut reassembler = Reassembler::new(DEADLINE_US);
+    // A gap's reorder grace counts from when the gap is first seen.
+    reassembler.set_gap_grace(true);
     // Every frame decodes into this; the newest of a batch is swapped into the mailbox.
     let mut current = I420::new(2, 2);
     let mut sender = InputSender::new();
@@ -250,7 +252,7 @@ pub fn run(
     let mut host_stats = None;
     let ended: String = 'run: loop {
         let timeout_ns = reassembler
-            .next_nack_us()
+            .next_nack_us(5_000, 50_000)
             .map_or(FEEDBACK_EVERY_NS, |d| d.saturating_mul(1000).saturating_sub(now_ns()))
             .min(if sender.is_empty() { FEEDBACK_EVERY_NS } else { INPUT_REPEAT_NS });
         wait_readable(&[net.event_fd(), hub_waker.fd(), input_waker.fd()], Some(timeout_ns))?;
@@ -447,7 +449,8 @@ fn start_session(net: &Net, config: &Config) -> Res<()> {
         max_datagram: MAX_DATAGRAM_VPC,
         token: None,
         service: SERVICE_DESKTOP.into(),
-        caps: vec![H264_BASELINE.into()],
+        // This viewer's reassembler rebuilds frames in interleaved FEC blocks.
+        caps: vec![H264_BASELINE.into(), cmux_rd_core::service::caps::FEC_BLOCKS.into()],
     };
     net.send_control(serde_json::to_vec(&hello)?);
     let start = Control::Start {
@@ -501,6 +504,11 @@ fn on_datagram(
                 }
             }
         }
+        // An ultra capacity probe: only its arrival goes back, in the media feedback.
+        DatagramKind::Probe => {
+            arrivals
+                .push(Arrival { transport_seq: h.transport_seq, arrival_us: (now / 1000) as u32 });
+        }
         DatagramKind::InputAck if payload.len() >= 4 => {
             sender.ack(u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]));
         }
@@ -538,7 +546,8 @@ fn maybe_feedback(
 ) {
     let now = now_ns();
     let since = now.saturating_sub(*last_feedback_ns);
-    let nack_due = reassembler.next_nack_us().is_some_and(|deadline| now / 1000 >= deadline);
+    let nack_due =
+        reassembler.next_nack_us(5_000, 50_000).is_some_and(|deadline| now / 1000 >= deadline);
     if !(*released_since_feedback
         || since >= KEEPALIVE_NS
         || nack_due
@@ -546,7 +555,7 @@ fn maybe_feedback(
     {
         return;
     }
-    let nacks = reassembler.take_nacks(now / 1000);
+    let nacks = reassembler.take_nacks(now / 1000, 5_000, 50_000);
     let mut recent: Vec<f64> = stats.decode_ms.iter().rev().take(30).copied().collect();
     recent.sort_by(f64::total_cmp);
     let send = |fb: &Feedback| {

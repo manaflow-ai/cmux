@@ -15,7 +15,7 @@ use std::collections::{BTreeMap, VecDeque};
 
 use cmux_rd_proto::{
     DatagramHeader, DatagramKind, FrameBody, MAX_NACK_FRAMES, MAX_NACK_INDEXES, Nack, REF_NONE,
-    flags,
+    fec_blocks, flags,
 };
 
 use crate::cc::{OUTAGE_FREEZE_MAX_US, outage_threshold_us};
@@ -49,9 +49,11 @@ pub enum FrameLoss {
 /// The NACK schedule's intervals, read once per call.
 struct Timing {
     nack_after_us: u64,
+    /// The reorder grace counts from when each gap is first seen
+    /// ([`Reassembler::set_gap_grace`]).
+    gap_grace: bool,
     deadline_us: u64,
     window_us: u64,
-    retry_us: u64,
     /// The D12 outage threshold ([`crate::cc::outage_threshold_us`]): no frame
     /// is given up sooner than this after its first shard.
     outage_us: u64,
@@ -70,14 +72,11 @@ struct Pending {
     /// When the frame first had enough shards to decode.
     complete_us: Option<u64>,
     highest_index: u16,
-    /// When this frame's newest NACK went out.
-    last_nack_us: Option<u64>,
-    /// How often each data shard was NACKed.
-    requested: Vec<u8>,
-    /// When each data shard was first NACKed: a repair is timed from it, so
-    /// a retry sent before the first repair could arrive does not make the
-    /// round trip look shorter (and the next retry earlier, and so on).
-    first_requested_us: Vec<Option<u64>>,
+    /// When each data shard was last requested, and how often (`None`: never). Each
+    /// shard keeps its own retry clock: a gap exposed after the frame's first request
+    /// is asked for at once, not a whole retry interval later (that wait was most of
+    /// the ~45 ms one lost shard cost at 1% loss).
+    nacked: Vec<Option<NackMark>>,
     /// When each missing data shard was first seen missing (a higher index
     /// of this frame arrived): its reorder grace counts from then, so a shard
     /// overtaken in a burst is not requested the moment the gap shows.
@@ -94,17 +93,38 @@ struct Pending {
     body: Option<Result<FrameBody, ()>>,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct NackMark {
+    at_us: u64,
+    /// When the shard was first requested: the frame's give-up counts from it.
+    first_us: u64,
+    times: u8,
+}
+
+/// The shortest RTT-derived NACK retry ([`Reassembler::set_rtt_nack_retry`]),
+/// whatever the measured repair round trip.
+pub const NACK_RETRY_FLOOR_US: u64 = 5_000;
+
 /// Reassembly state for one display stream.
 #[derive(Debug)]
 pub struct Reassembler {
     /// The longest a frame may wait for missing shards: the ceiling of the
     /// repair window, and a hard cap counted from the frame's first shard.
     deadline_us: u64,
-    /// The reorder grace before a gap is NACKed.
+    /// The reorder grace before a gap is NACKed, for the give-up schedule
+    /// (the NACK calls take their own).
     nack_after_us: u64,
+    /// The reorder grace counts from when each gap is first seen
+    /// ([`Self::set_gap_grace`]); off: from the frame's first shard.
+    gap_grace: bool,
+    /// Retry NACKs at an interval derived from the measured repair round trip
+    /// ([`Self::set_rtt_nack_retry`]); off: at the caller's `retry_us`.
+    rtt_retry: bool,
     /// The session's round trip from outside (clock pings, the link's path).
     path_rtt_us: Option<u64>,
-    /// NACK-to-repair times, smoothed: the round trip a repair actually takes.
+    /// Smoothed round trip from a NACK to the shard it asked for, and its
+    /// deviation, from shards asked for once (the answer to a retried shard is
+    /// ambiguous).
     repair_rtt: RttEstimator,
     /// Recent gaps between the first shards of new frames (the frame interval).
     frame_gaps: VecDeque<u64>,
@@ -120,7 +140,6 @@ pub struct Reassembler {
     pending_bytes: usize,
     /// Recently released frames that a recovery frame may reference.
     released_recent: VecDeque<u32>,
-    /// When the last datagram of any kind arrived.
     /// Whether the link is up or away (an outage, design D12), from the
     /// arrivals of datagrams of any kind.
     link: ViewerLinkState,
@@ -155,12 +174,6 @@ pub const MIN_REPAIR_FRAMES: u64 = 2;
 /// recovery frame and a stall) into one more window. Never past the
 /// deadline, so on a long path the wait is the base's 200 ms.
 pub const REPAIR_WINDOWS: u64 = 2;
-
-/// The longest retry interval, and the interval while no round trip is
-/// known (the cadence before RTT sizing). On a long path the retry goes out
-/// before the first repair could arrive: a duplicate shard costs less than
-/// a lost request waiting a whole window.
-pub const NACK_RETRY_MAX_US: u64 = 50_000;
 
 /// The frame interval assumed until frames arrive (60 fps).
 pub const DEFAULT_FRAME_INTERVAL_US: u64 = 16_667;
@@ -200,6 +213,11 @@ impl RttEstimator {
         self.samples = self.samples.saturating_add(1);
     }
 
+    /// The smoothed round trip (SRTT), once a sample arrived.
+    pub fn smoothed_us(&self) -> Option<u64> {
+        (self.samples > 0).then_some(self.srtt_us)
+    }
+
     /// SRTT + 4 RTTVAR, once at least `min_samples` samples arrived.
     pub fn estimate_us(&self, min_samples: u32) -> Option<u64> {
         (self.samples >= min_samples.max(1))
@@ -230,8 +248,8 @@ fn push_sample(samples: &mut VecDeque<u64>, sample: u64) {
 
 impl Reassembler {
     /// `deadline_us`: the longest a frame may wait for missing shards. A
-    /// missing shard is NACKed after [`NACK_AFTER_US`], again every retry
-    /// interval ([`Self::retry_us`]) while missing, and the frame is given up
+    /// missing shard is NACKed after the caller's reorder grace, again every
+    /// retry interval ([`Self::nack_retry_us`]) while missing, and the frame is given up
     /// [`REPAIR_WINDOWS`] repair windows ([`Self::repair_window_us`]) after
     /// its newest gap's first request, never later than `deadline_us`.
     pub fn new(deadline_us: u64) -> Self {
@@ -243,6 +261,8 @@ impl Reassembler {
         Self {
             deadline_us,
             nack_after_us,
+            gap_grace: false,
+            rtt_retry: false,
             path_rtt_us: None,
             repair_rtt: RttEstimator::default(),
             frame_gaps: VecDeque::new(),
@@ -301,11 +321,38 @@ impl Reassembler {
         repair_window_us(self.rtt_us(), self.frame_interval_us(), self.deadline_us)
     }
 
-    /// How long after a NACK an unanswered shard is requested again: one
-    /// repair window, at most [`NACK_RETRY_MAX_US`] (that, while no round
-    /// trip is known); never past the deadline.
-    pub fn retry_us(&self) -> u64 {
-        self.repair_window_us().min(NACK_RETRY_MAX_US).min(self.deadline_us)
+    /// Counts each gap's reorder grace from when the gap is first seen (a
+    /// higher shard of its frame arrived), not from the frame's first shard:
+    /// a shard overtaken late in a frame's arrival is not requested the
+    /// moment the gap shows. Off by default.
+    pub fn set_gap_grace(&mut self, on: bool) {
+        self.gap_grace = on;
+    }
+
+    /// Retries NACKs every `max(2 x smoothed repair RTT + 4 x its deviation,
+    /// NACK_RETRY_FLOOR_US)`, at most the caller's `retry_us`, once a repair was
+    /// measured. Off by default: a retry sooner than the caller's cadence can ask
+    /// again for a resend that was only slow, so the host sends it twice.
+    pub fn set_rtt_nack_retry(&mut self, on: bool) {
+        self.rtt_retry = on;
+    }
+
+    /// The smoothed round trip from a NACK to its repaired shard, once measured.
+    pub fn repair_rtt_us(&self) -> Option<u64> {
+        self.repair_rtt.smoothed_us()
+    }
+
+    /// The NACK retry interval in force for a caller cadence of `retry_us`.
+    pub fn nack_retry_us(&self, retry_us: u64) -> u64 {
+        let retry_us = retry_us.max(1);
+        match self.repair_rtt.smoothed_us() {
+            Some(srtt) if self.rtt_retry => srtt
+                .saturating_mul(2)
+                .saturating_add(self.repair_rtt.rttvar_us.saturating_mul(4))
+                .max(NACK_RETRY_FLOOR_US)
+                .min(retry_us),
+            _ => retry_us,
+        }
     }
 
     /// Newest frame released to the decoder (the feedback `acked_frame`).
@@ -364,9 +411,7 @@ impl Reassembler {
             last_seen_us: now_us,
             complete_us: None,
             highest_index: header.index,
-            last_nack_us: None,
-            requested: vec![0; usize::from(header.count)],
-            first_requested_us: vec![None; usize::from(header.count)],
+            nacked: vec![None; usize::from(header.count)],
             gap_seen_us: vec![None; usize::from(header.count)],
             flags: header.flags,
             count: header.count,
@@ -378,6 +423,7 @@ impl Reassembler {
         // Every shard of a frame has the same length (the session's shard size); a shard
         // of another length is refused, and pending payload bytes are capped.
         let shard_len_ok = entry.shard_len.is_none_or(|l| l == payload.len());
+        let mut repair_sample = None;
         if entry.shards.len() == total
             && entry.count == header.count
             && shard_len_ok
@@ -385,10 +431,11 @@ impl Reassembler {
             && entry.shards.get(usize::from(header.index)).is_some_and(Option::is_none)
         {
             entry.shard_len = Some(payload.len());
-            // A requested shard arriving times the repair round trip.
-            if let Some(&Some(nacked_at)) = entry.first_requested_us.get(usize::from(header.index))
+            // A shard requested once arriving times the repair round trip.
+            if let Some(Some(mark)) = entry.nacked.get(usize::from(header.index))
+                && mark.times == 1
             {
-                self.repair_rtt.sample(now_us.saturating_sub(nacked_at));
+                repair_sample = Some(now_us.saturating_sub(mark.at_us));
             }
             entry.last_seen_us = now_us;
             // Data shards this arrival skipped over are gaps from now on. Those
@@ -411,6 +458,9 @@ impl Reassembler {
             if entry.complete_us.is_none() && Self::decodable(entry) {
                 entry.complete_us = Some(now_us);
             }
+        }
+        if let Some(sample) = repair_sample {
+            self.repair_rtt.sample(sample);
         }
         self.expire(now_us);
         self.release_ready(now_us)
@@ -438,28 +488,26 @@ impl Reassembler {
             .collect()
     }
 
-    /// The next missing-shard request. A missing data shard is requested
-    /// first as an observed gap after the reorder grace, or as an unseen tail
-    /// once arrivals stopped for the grace; a request still unanswered one
-    /// retry interval later is sent again, until the frame is given up
-    /// [`REPAIR_WINDOWS`] repair windows after its newest gap's first request.
-    /// Each frame has its own schedule, so feedback for another frame cannot
-    /// delay this frame's request.
-    pub fn next_nack_us(&self) -> Option<u64> {
-        let t = self.timing();
+    /// The next missing-shard request: first after the reorder grace, then
+    /// at the retry cadence. Each shard has its own deadline, so neither a
+    /// request for another frame nor one for another shard of the same frame
+    /// can delay its repair request.
+    pub fn next_nack_us(&self, after_us: u64, retry_us: u64) -> Option<u64> {
+        let retry_us = self.nack_retry_us(retry_us);
+        let grace = self.gap_grace;
         self.pending
             .values()
             .filter(|p| !Self::decodable(p))
-            .filter_map(|p| Self::nack_at(p, &t))
+            .filter_map(|p| Self::nack_at(p, after_us, retry_us, grace))
             .min()
     }
 
     fn timing(&self) -> Timing {
         Timing {
             nack_after_us: self.nack_after_us,
+            gap_grace: self.gap_grace,
             deadline_us: self.deadline_us,
             window_us: self.repair_window_us(),
-            retry_us: self.retry_us(),
             outage_us: outage_threshold_us(self.rtt_us()),
             away_us: self.link.away_total_us(),
         }
@@ -470,103 +518,83 @@ impl Reassembler {
         Timing { away_us: self.link.away_total_us_at(now_us, self.rtt_us()), ..self.timing() }
     }
 
-    /// When a gap not requested yet is due: an observed gap after the reorder
-    /// grace from the first shard, an unseen tail after the grace from the
-    /// last. A large frame may still be arriving after the grace.
-    fn first_request_at(p: &Pending, after_us: u64) -> Option<u64> {
-        let observed = Self::observed_data(p);
-        let unrequested = |i: usize| Self::missing_requests(p, i) == Some(0);
-        (0..observed)
-            .filter(|&i| unrequested(i))
-            .map(|i| Self::gap_due_at(p, i, after_us))
-            .min()
-            .or_else(|| {
-                (observed..usize::from(p.count))
-                    .any(unrequested)
-                    .then(|| p.last_seen_us.saturating_add(after_us))
-            })
-    }
-
-    /// When an observed gap at data shard `i` may first be requested: the
-    /// reorder grace after the gap was first seen.
-    fn gap_due_at(p: &Pending, i: usize, after_us: u64) -> u64 {
-        p.gap_seen_us.get(i).copied().flatten().unwrap_or(p.first_seen_us).saturating_add(after_us)
-    }
-
-    /// When a request is retried: one retry interval after the last NACK,
-    /// while a requested shard is missing and the frame not yet given up.
-    fn retry_at(p: &Pending, t: &Timing) -> Option<u64> {
-        let missing_requested =
-            (0..usize::from(p.count)).any(|i| Self::missing_requests(p, i).is_some_and(|n| n > 0));
-        p.last_nack_us
-            .filter(|_| missing_requested)
-            .map(|at| at.saturating_add(t.retry_us))
-            .filter(|&at| at < Self::give_up_at(p, t))
-    }
-
-    fn nack_at(p: &Pending, t: &Timing) -> Option<u64> {
-        [Self::first_request_at(p, t.nack_after_us), Self::retry_at(p, t)]
-            .into_iter()
-            .flatten()
+    /// When the earliest missing data shard of `p` is due for a request.
+    fn nack_at(p: &Pending, after_us: u64, retry_us: u64, grace: bool) -> Option<u64> {
+        (0..usize::from(p.count))
+            .filter(|&i| p.shards.get(i).is_some_and(Option::is_none))
+            .map(|i| Self::shard_nack_at(p, i, after_us, retry_us, grace))
             .min()
     }
 
-    /// How often data shard `i` was requested while it is missing; `None`
-    /// once it arrived (or past the frame's data shards).
-    fn missing_requests(p: &Pending, i: usize) -> Option<u8> {
-        match (p.shards.get(i), p.requested.get(i)) {
-            (Some(None), Some(&n)) => Some(n),
-            _ => None,
+    fn shard_nack_at(p: &Pending, i: usize, after_us: u64, retry_us: u64, grace: bool) -> u64 {
+        match p.nacked.get(i).copied().flatten() {
+            Some(mark) => mark.at_us.saturating_add(retry_us),
+            None => Self::first_request_due(p, i, after_us, grace),
         }
+    }
+
+    /// When missing data shard `i`, not requested yet, is due. A large frame
+    /// may still be arriving after the reorder grace: an observed gap can be
+    /// requested after the grace (from when the gap was first seen with the
+    /// gap grace on, else from the frame's first shard); its unseen tail only
+    /// becomes a gap after arrivals stop for a grace period.
+    fn first_request_due(p: &Pending, i: usize, after_us: u64, grace: bool) -> u64 {
+        if i >= Self::observed_data(p) {
+            return p.last_seen_us.saturating_add(after_us);
+        }
+        let seen = if grace { p.gap_seen_us.get(i).copied().flatten() } else { None };
+        seen.unwrap_or(p.first_seen_us).saturating_add(after_us)
+    }
+
+    /// When the first request of a gap not requested yet is due, if any.
+    fn first_request_at(p: &Pending, after_us: u64, grace: bool) -> Option<u64> {
+        (0..usize::from(p.count))
+            .filter(|&i| {
+                p.shards.get(i).is_some_and(Option::is_none)
+                    && p.nacked.get(i).is_some_and(Option::is_none)
+            })
+            .map(|i| Self::first_request_due(p, i, after_us, grace))
+            .min()
     }
 
     fn observed_data(p: &Pending) -> usize {
         (usize::from(p.highest_index) + 1).min(usize::from(p.count))
     }
 
-    /// Takes the due NACKs that fit in one feedback packet and marks their
-    /// shards requested. A frame with more gaps than fit stays due. Repaired
-    /// frames disappear from this schedule as soon as their data is complete.
-    pub fn take_nacks(&mut self, now_us: u64) -> Vec<Nack> {
-        let t = self.timing();
+    /// Takes the due NACKs that fit in one feedback packet: the shards whose
+    /// own request is due. Only shards actually requested advance their retry
+    /// deadlines. Repaired frames disappear from this schedule as soon as
+    /// their data is complete.
+    pub fn take_nacks(&mut self, now_us: u64, after_us: u64, retry_us: u64) -> Vec<Nack> {
+        let retry_us = self.nack_retry_us(retry_us);
+        let grace = self.gap_grace;
         self.pending
             .iter_mut()
             .filter(|(_, p)| {
-                !Self::decodable(p) && Self::nack_at(p, &t).is_some_and(|at| now_us >= at)
+                !Self::decodable(p)
+                    && Self::nack_at(p, after_us, retry_us, grace).is_some_and(|at| now_us >= at)
             })
             .take(MAX_NACK_FRAMES)
-            .filter_map(|(&frame, p)| {
-                let observed = Self::observed_data(p);
-                let tail_due = now_us >= p.last_seen_us.saturating_add(t.nack_after_us);
-                let retry_due = Self::retry_at(p, &t).is_some_and(|at| now_us >= at);
+            .map(|(&frame, p)| {
                 let indexes: Vec<u16> = (0..usize::from(p.count))
-                    .filter(|&i| match Self::missing_requests(p, i) {
-                        // An observed gap once its own grace passed; the unseen
-                        // tail once arrivals stopped for the grace.
-                        Some(0) if i < observed => {
-                            now_us >= Self::gap_due_at(p, i, t.nack_after_us)
-                        }
-                        Some(0) => tail_due,
-                        Some(_) => retry_due,
-                        None => false,
+                    .filter(|&i| {
+                        p.shards.get(i).is_some_and(Option::is_none)
+                            && now_us >= Self::shard_nack_at(p, i, after_us, retry_us, grace)
                     })
                     .take(MAX_NACK_INDEXES)
                     .map(|i| i as u16)
                     .collect();
-                if indexes.is_empty() {
-                    return None;
-                }
                 for &i in &indexes {
-                    let i = usize::from(i);
-                    if let Some(n) = p.requested.get_mut(i) {
-                        *n = n.saturating_add(1);
-                    }
-                    if let Some(at) = p.first_requested_us.get_mut(i) {
-                        at.get_or_insert(now_us);
+                    if let Some(slot) = p.nacked.get_mut(usize::from(i)) {
+                        let (first_us, times) = slot.map_or((now_us, 0), |m| (m.first_us, m.times));
+                        *slot = Some(NackMark {
+                            at_us: now_us,
+                            first_us,
+                            times: times.saturating_add(1),
+                        });
                     }
                 }
-                p.last_nack_us = Some(now_us);
-                Some(Nack { frame, indexes })
+                Nack { frame, indexes }
             })
             .collect()
     }
@@ -614,15 +642,15 @@ impl Reassembler {
     fn give_up_unpaused_at(p: &Pending, t: &Timing) -> u64 {
         let tail_nack = p.last_seen_us.saturating_add(t.nack_after_us);
         let newest_first_request = (0..usize::from(p.count))
-            .filter(|&i| Self::missing_requests(p, i).is_some())
-            .filter_map(|i| p.first_requested_us.get(i).copied().flatten())
+            .filter(|&i| p.shards.get(i).is_some_and(Option::is_none))
+            .filter_map(|i| p.nacked.get(i).copied().flatten().map(|m| m.first_us))
             .max();
-        let from =
-            [Some(tail_nack), newest_first_request, Self::first_request_at(p, t.nack_after_us)]
-                .into_iter()
-                .flatten()
-                .max()
-                .unwrap_or(tail_nack);
+        let first_request = Self::first_request_at(p, t.nack_after_us, t.gap_grace);
+        let from = [Some(tail_nack), newest_first_request, first_request]
+            .into_iter()
+            .flatten()
+            .max()
+            .unwrap_or(tail_nack);
         // Never sooner than the outage threshold from the first shard: a hold
         // shorter than it is not an outage, so the give-up pause never starts,
         // and a frame given up inside it would be one its burst completes.
@@ -644,7 +672,21 @@ impl Reassembler {
     }
 
     fn decodable(p: &Pending) -> bool {
-        p.shards.iter().filter(|s| s.is_some()).count() >= usize::from(p.count)
+        let count = usize::from(p.count);
+        if p.shards.iter().filter(|s| s.is_some()).count() < count {
+            return false;
+        }
+        // A frame over one FEC block needs enough shards in every block (design D6).
+        let blocks = Self::blocks(p);
+        blocks == 1
+            || p.shards.get(..count).is_some_and(|data| data.iter().all(Option::is_some))
+            || fec::decodable_blocks(&p.shards, count, blocks)
+    }
+
+    /// The frame's FEC blocks (cmux-rd-proto `fec_blocks`): one unless it is larger.
+    fn blocks(p: &Pending) -> usize {
+        let parity = p.shards.len().saturating_sub(usize::from(p.count));
+        fec_blocks(p.count, u16::try_from(parity).unwrap_or(u16::MAX))
     }
 
     fn expire(&mut self, now_us: u64) {
@@ -702,10 +744,11 @@ impl Reassembler {
 
     /// Rebuilds and parses a decodable frame's body, once.
     fn assemble(p: &mut Pending) -> &Result<FrameBody, ()> {
+        let (count, blocks) = (usize::from(p.count), Self::blocks(p));
+        let shards = &mut p.shards;
         p.body.get_or_insert_with(|| {
-            let count = usize::from(p.count);
-            fec::reconstruct(&mut p.shards, count).map_err(|_| ())?;
-            let bytes: Vec<u8> = p.shards[..count].iter().flatten().flatten().copied().collect();
+            fec::reconstruct_blocks(shards, count, blocks).map_err(|_| ())?;
+            let bytes: Vec<u8> = shards[..count].iter().flatten().flatten().copied().collect();
             FrameBody::decode(&bytes).map_err(|_| ())
         })
     }
