@@ -1,6 +1,7 @@
 // Compile all first-party pages in one graph: React, the compiler runtime and shared UI ship
 // once. Each page keeps its own document, CSS, origin and bridge; chunks are immutable assets.
 import { build } from "esbuild";
+import { productionDefine } from "../productionDefine.mjs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import postcss from "postcss";
 import path from "node:path";
@@ -30,7 +31,7 @@ const result = await build({
   format: "esm",
   platform: "browser",
   target: "es2022",
-  define: { "process.env.NODE_ENV": '"production"' },
+  define: productionDefine,
   minify: true,
   legalComments: "none",
   loader: { ".png": "dataurl", ".woff2": "dataurl" },
@@ -73,7 +74,7 @@ for (const page of pages) {
     format: "esm",
     platform: "browser",
     target: "es2022",
-    define: { "process.env.NODE_ENV": '"production"' },
+    define: productionDefine,
     minify: true,
     legalComments: "none",
     loader: { ".png": "dataurl", ".woff2": "dataurl" },

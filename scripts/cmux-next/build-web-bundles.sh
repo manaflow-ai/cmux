@@ -215,6 +215,11 @@ fi
 if [ -n "$OUT_ROOT" ]; then
   "$ROOT/scripts/cmux-next/build-optchat-inspector-web.sh" --out "$(out "$INSPECTOR")"
 fi
+# No bundle may still read import.meta.env: a builder that leaves it as written ships an
+# undefined read (cmux#50616's agent pane sat on "Reconnecting..."). Before the stamp, so a
+# failed check rebuilds next time.
+python3 -I "$ROOT/scripts/cmux-next/check-bundle-import-meta-env.py" \
+  "$(out "$PANE")" "$(out "$PAGES")" "$(out "$ACTIVITY")" "$(out "$APP")"
 
 if [ -z "$OUT_ROOT" ]; then
   python3 "$KEY" "$ROOT" --stamp > "$STAMP.tmp"

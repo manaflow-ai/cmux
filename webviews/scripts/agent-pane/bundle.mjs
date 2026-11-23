@@ -20,6 +20,7 @@ import { artifactRuntimePlugin } from "./artifactRuntimePlugin.mjs";
 // esbuild bundles and minifies as before. Components the compiler skips or bails out on are
 // listed on stderr, and as JSON with --report, so a bailout is visible in review.
 import { build } from "esbuild";
+import { productionDefine } from "../productionDefine.mjs";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -78,7 +79,7 @@ const result = await build({
   format: "esm",
   platform: "browser",
   target: "es2022",
-  define: { "process.env.NODE_ENV": '"production"' },
+  define: productionDefine,
   minify: !cssInputsOnly,
   write: !cssInputsOnly,
   legalComments: "none",
