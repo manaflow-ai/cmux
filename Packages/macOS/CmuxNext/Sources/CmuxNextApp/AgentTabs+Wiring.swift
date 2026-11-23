@@ -182,6 +182,8 @@ extension AgentTabStore {
                   let machine = tabs.remoteMachineID(of: scoped.key, machine: scoped.machine) else { return nil }
             return SidebarBridge.paneLink(machine, in: services.machines)
         }
+        tabs.machineLink.events.publish = { [weak services] name, payload in _ = services?.apps.controlRouter?.events.publish(name: name, category: "agent", source: "app", payload: payload) }
+        tabs.machineLink.events.peerOf = { [weak services] session in services?.agentLanes.lane(session)?.peer }
         tabs.machineLink.use = { [weak services] machine in
             services.map { SidebarBridge.paneUse(machine, in: $0.machines) } ?? .stuck
         }

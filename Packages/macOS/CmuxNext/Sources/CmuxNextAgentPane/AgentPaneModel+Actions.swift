@@ -18,6 +18,15 @@ extension AgentPaneModel {
     /// Search chats) and the History search page (the + menu's Search pages). They open the app's own
     /// palette, as Cmd-K does, so they need no gesture credit.
     static let paletteActions: Set<String> = ["agentPane.searchChats", "history.search"]
+    /// The chat folder's actions (the "..." menu's Folder ▸, Session Info, the changed-files card, the worktree
+    /// pill): Open in Editor, Open In ▸, Reveal in Finder, Open Terminal Here, Copy Path, on this tab's chat. They
+    /// open another app, a tab or write the clipboard, so each spends the person's gesture.
+    static let folderActions: Set<String> = [
+        "agentPane.openCwdInEditor", "agentPane.openCwdInApp", "agentPane.revealCwdInFinder", "agentPane.openCwdInTerminal",
+        "agentPane.copyCwdPath",
+    ]
+    /// The folder actions that take an `app`: an editor id of the table (``AgentPaneRequest/isEditorID(_:)``).
+    static let editorActions: Set<String> = ["agentPane.openCwdInEditor", "agentPane.openCwdInApp"]
     /// New Cloud Chat from a started chat's `/side --on cloud` or `/cd --on cloud` (webviews
     /// commandPlace.ts). It opens a tab, so it spends the person's gesture; its `handoff` is the page's
     /// one-time token, handed to the new tab's page unread (the page keeps what it names).
@@ -50,11 +59,11 @@ extension AgentPaneModel {
     /// is an `unavailable` failure, so the page can say so, with the app's reason when it gave one
     /// (``AgentPaneActionRun/refused(_:)``); one that ran and then stopped reports itself in the app
     /// (its own toast).
-    func runAction(_ id: String, session: String? = nil, environment: String? = nil, handoff: String? = nil, mode: String? = nil, queued: Int? = nil, hasDraft: Bool? = nil,
-                   sessions: [String]? = nil) -> [String: Any] {
+    func runAction(_ id: String, session: String? = nil, environment: String? = nil, handoff: String? = nil, app: String? = nil, mode: String? = nil,
+                   queued: Int? = nil, hasDraft: Bool? = nil, sessions: [String]? = nil) -> [String: Any] {
         let screenShare = id == "session.screenShare"
         let gated = Self.connectActions.contains(id) || Self.accessActions.contains(id) || Self.cloudStartActions.contains(id)
-            || Self.terminalSwitchActions.contains(id) || Self.placeActions.contains(id) || screenShare
+            || Self.terminalSwitchActions.contains(id) || Self.folderActions.contains(id) || Self.placeActions.contains(id) || screenShare
         guard id == "newTab.page" || Self.paletteActions.contains(id) || gated, let onRunAction else {
             return Self.unsupported("action.run")
         }
@@ -70,6 +79,7 @@ extension AgentPaneModel {
         if let hasDraft { arguments["hasDraft"] = String(hasDraft) }
         if let environment { arguments["environment"] = environment }
         if let handoff { arguments["handoff"] = handoff }
+        if let app, Self.editorActions.contains(id) { arguments["app"] = app }
         // The named chats (a chat-list row, Evacuate's selection), comma-joined as the app's handlers read them.
         if let sessions, Self.placeActions.contains(id) { arguments["sessions"] = sessions.joined(separator: ",") }
         switch onRunAction(id, arguments) {

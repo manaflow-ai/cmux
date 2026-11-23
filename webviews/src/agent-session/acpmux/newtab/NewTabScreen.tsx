@@ -3,6 +3,7 @@ import type { ExtraFolderControl } from "../extraFolders";
 import { authBlocksSend, authText, useSessionAuth, authLoginText, authParty } from "../sessionAuth";
 import { useWebSwapHold } from "../../../pages/shared/useWebSwapHold";
 import { WEB_SWAP_KEPT_TEXT } from "../../../pages/shared/webSwap";
+import { watchFocusVisible } from "../focusVisibleMark";
 import React, {
   useCallback,
   useEffect,
@@ -89,7 +90,7 @@ import { listingWanted, omnibarFolders, omnibarFolder } from "./launchRows";
 import { type CompleteFolder, useFolderListing } from "./omnibarReads";
 import { useRecentlyClosed } from "./recentlyClosed";
 import { initialRecentProject } from "./recentProject";
-import { rememberedStartedProject } from "./startedProject";
+import { startedProjectChoices } from "./startedProject";
 import {
   canonicalAddress,
   defaultSelection,
@@ -522,20 +523,23 @@ export function NewTabScreen(props: Props) {
   // Before the host's project list lands, a chat folder counts; once it lands, one it does not
   // list (removed, deleted) gives way to the newest it lists.
   const known = props.knownProjects?.length ? props.knownProjects : undefined;
+  // The one dropped gives way to the next this page knows that the list still has (a kept folder of
+  // this run, cmux#51272), never to a blank chip while the chats are still to come.
   if (
     latched !== undefined &&
     (props.knownProjects === null || (known && !known.some((path) => path.replace(/(.)\/+$/, "$1") === latched)))
   )
-    setLatched(undefined);
+    setLatched(initialRecentProject(snapshot.sessions, home, props.knownProjects));
   else if (latched === undefined && candidate !== undefined && (props.knownProjects === undefined || known))
     setLatched(candidate);
   // The project of the chat the person last picked and started wins over the newest chat's folder
   // (Leo 2026-10-21): chats agents start move that one. Not on another machine's page (no `home`),
-  // and only a folder the host's project list still has. Read once, as the page mounts.
-  const [startedProject] = useState(() => rememberedStartedProject() ?? props.startedProject);
+  // and only a folder the host's project list still has: this run's copy, else the app's (cmux#51272).
+  // Read once, as the page mounts.
+  const [startedChoices] = useState(() => startedProjectChoices(props.startedProject));
   const started =
-    mayStartRecent && home && startedProject
-      ? firstProject([startedProject.replace(/(.)\/+$/, "$1")], home, props.knownProjects)
+    mayStartRecent && home && startedChoices.length > 0
+      ? firstProject(startedChoices, home, props.knownProjects)
       : undefined;
   const found = mayStartRecent ? (started ?? latched ?? candidate) : undefined;
   const startsRecent = mayStartRecent && (!temporary || found !== undefined);
@@ -1298,6 +1302,12 @@ export function NewTabScreen(props: Props) {
   // The suggestions' popover (Leo 2026-10-12) hangs under the composer box, on the popup layer:
   // it floats over every section, never covered and never moving the page.
   const [box, setBox] = useState<HTMLDivElement | null>(null);
+  // Focus-visible in the box (focusVisibleMark.ts), the box's own state: the box, the composer around
+  // it and the suggestions' popover read it as `data-focused` (and the popover's `nt-popover-focused`,
+  // a class since Popover takes no attributes), never a `body:has(.nt-box :focus-visible)` checked
+  // again for every node the page inserts (transcript-motion-model step 7). Set on focus changes only.
+  const [boxFocused, setBoxFocused] = useState(false);
+  useLayoutEffect(() => (box ? watchFocusVisible(box, setBoxFocused) : undefined), [box]);
   // With the split, the mode, model and effort sit in the quiet row under the box: the rows hang
   // under the whole composer instead, so they never cover those controls (a press there would pick
   // a row).
@@ -2333,6 +2343,7 @@ export function NewTabScreen(props: Props) {
       <div
         ref={setComposer}
         className="nt-composer"
+        data-focused={boxFocused ? "" : undefined}
         data-cloud-starting={props.cloudStarting === true ? "true" : undefined}
         data-trailing-gap={trailingGap}
         data-icon-column={iconColumn}
@@ -2423,6 +2434,7 @@ export function NewTabScreen(props: Props) {
         <div
           ref={setBox}
           className="ui-glass ui-glass-floats nt-composer-surface nt-box"
+          data-focused={boxFocused ? "" : undefined}
           inert={props.cloudStarting === true}
         >
           {/* Drawn out of the card's glass, above it, as the chat composer's (backdropLayer.tsx). */}
@@ -2709,7 +2721,7 @@ export function NewTabScreen(props: Props) {
             // The Console template's field has the popup corner; the portal cannot see the screen's template.
             `nt-composer-surface nt-popover${drawnRows === 1 ? " nt-popover-single" : ""}${
               template === "console" ? " nt-popover-console" : ""
-            }`
+            }${boxFocused ? " nt-popover-focused" : ""}`
           }
           hostGlass={false}
           initialFocus={false}

@@ -1,6 +1,114 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.agentPane.followUpMode": {
+      "comment": "Settings > Agent Chat: title of the row that picks what Return does with a message sent while the agent is working (steer it into the running turn or queue it for after)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Follow-Up Messages"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "رسائل المتابعة"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Naknadne poruke"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Opfølgende beskeder"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Folgenachrichten"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Mensajes de seguimiento"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Messages de suivi"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Messaggi di follow-up"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "フォローアップメッセージ"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "សារតាមដាន"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "후속 메시지"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Oppfølgingsmeldinger"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Wiadomości uzupełniające"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Mensagens de acompanhamento"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Дополнительные сообщения"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ข้อความติดตามผล"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Takip mesajları"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Додаткові повідомлення"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Tin nhắn tiếp theo"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "后续消息"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "後續訊息"}}
+      }
+    },
+    "settings.agentPane.followUpMode.help": {
+      "comment": "Settings > Agent Chat > Follow-Up Messages: what the row does. Command-Return is the Command key with Return.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "What Return does with a message sent while the agent is working. Command-Return does the other."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "ما يفعله مفتاح Return برسالة تُرسل أثناء عمل الوكيل. ويفعل Command-Return الخيار الآخر."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Šta Return radi s porukom poslanom dok agent radi. Command-Return radi suprotno."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Hvad Return gør med en besked, der sendes, mens agenten arbejder. Command-Return gør det modsatte."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Was Return mit einer Nachricht macht, die gesendet wird, während der Agent arbeitet. Command-Return macht das andere."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Qué hace Return con un mensaje enviado mientras el agente trabaja. Command-Return hace lo otro."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Ce que fait Retour d’un message envoyé pendant que l’agent travaille. Commande-Retour fait l’autre."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Cosa fa Invio con un messaggio inviato mentre l’agente lavora. Comando-Invio fa l’altro."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "エージェントの作業中に送ったメッセージを Return でどう扱うか。Command-Return はもう一方の動作になります。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "អ្វីដែល Return ធ្វើជាមួយសារដែលផ្ញើពេលភ្នាក់ងារកំពុងធ្វើការ។ Command-Return ធ្វើមួយទៀត។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "에이전트가 작업 중일 때 보낸 메시지를 Return이 어떻게 처리할지 정합니다. Command-Return은 다른 쪽으로 동작합니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Hva Return gjør med en melding som sendes mens agenten jobber. Command-Return gjør det motsatte."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Co robi Return z wiadomością wysłaną, gdy agent pracuje. Command-Return robi to drugie."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "O que Return faz com uma mensagem enviada enquanto o agente trabalha. Command-Return faz o outro."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Что делает Return с сообщением, отправленным во время работы агента. Command-Return делает другое."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "สิ่งที่ Return ทำกับข้อความที่ส่งขณะเอเจนต์กำลังทำงาน Command-Return จะทำอีกแบบ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Ajan çalışırken gönderilen bir mesajla Return'ün ne yaptığı. Command-Return diğerini yapar."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Що робить Return із повідомленням, надісланим під час роботи агента. Command-Return робить інше."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Return làm gì với tin nhắn gửi khi tác tử đang làm việc. Command-Return làm điều còn lại."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "代理工作时发送的消息按 Return 后如何处理。Command-Return 执行另一种。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "代理工作時傳送的訊息按 Return 後如何處理。Command-Return 執行另一種。"}}
+      }
+    },
+    "settings.choice.followUpModeSteer": {
+      "comment": "Settings > Agent Chat > Follow-Up Messages: choice that takes a message sent mid-turn into the running turn (the agent reads it when its current step ends)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Steer"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "توجيه"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Usmjeri"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Styr"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Lenken"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Dirigir"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Orienter"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Indirizza"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ステア"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ដឹកនាំ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "조정"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Styr"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Pokieruj"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Direcionar"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Направить"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ปรับทิศทาง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Yönlendir"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Спрямувати"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Điều hướng"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "引导"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "引導"}}
+      }
+    },
+    "settings.choice.followUpModeQueue": {
+      "comment": "Settings > Agent Chat > Follow-Up Messages: choice that holds a message sent mid-turn until the turn ends, then runs it as its own turn",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Queue"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "طابور"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "U red"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Sæt i kø"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Einreihen"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Poner en cola"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Mettre en file"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Metti in coda"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "キューに入れる"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ដាក់ជួរ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "대기열"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Sett i kø"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Kolejkuj"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Enfileirar"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "В очередь"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เข้าคิว"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Sıraya al"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "У чергу"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Xếp hàng"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "排队"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "排隊"}}
+      }
+    },
     "settings.sidebarSection.more": {
       "comment": "Settings window sidebar: the header of the last section, which starts closed and holds the pages a person opens less often (New Tab, Menus, Keys, Privacy, Advanced, ...). A click opens or closes it.",
       "extractionState": "manual",
@@ -15853,133 +15961,395 @@
         }
       }
     },
+    "settings.editor.default": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open in Editor"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فتح في المحرر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvori u uređivaču"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbn i editor"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Im Editor öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir en el editor"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ouvrir dans l’éditeur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apri nell’editor"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エディタで開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើកក្នុងកម្មវិធីកែ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "편집기에서 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpne i redigerer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otwórz w edytorze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir no editor"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Открыть в редакторе"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดในโปรแกรมแก้ไข"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Düzenleyicide Aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкрити в редакторі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mở trong trình soạn thảo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在编辑器中打开"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在編輯器中開啟"
+          }
+        }
+      }
+    },
+    "settings.editor.default.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The app Open in Editor opens a folder or file in; Text Editor, when set, opens files and picks it here. One not installed uses the first editor found."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التطبيق الذي يفتح فيه «فتح في المحرر» مجلدًا أو ملفًا؛ محرر النصوص، عند تعيينه، يفتح الملفات ويُختار هنا. إذا لم يكن مثبتًا، يُستخدم أول محرر يُعثر عليه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aplikacija u kojoj Otvori u uređivaču otvara mapu ili datoteku; Uređivač teksta, kada je postavljen, otvara datoteke i bira se ovdje. Ako nije instalirana, koristi se prvi pronađeni uređivač."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den app, Åbn i editor åbner en mappe eller fil i; Teksteditor åbner filer, når den er angivet, og vælges her. Er den ikke installeret, bruges den første editor, der findes."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die App, in der „Im Editor öffnen“ einen Ordner oder eine Datei öffnet; ein festgelegter Texteditor öffnet Dateien und wird hier gewählt. Ist sie nicht installiert, wird der erste gefundene Editor verwendet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La app en la que Abrir en el editor abre una carpeta o un archivo; el Editor de texto, si está definido, abre los archivos y se elige aquí. Si no está instalada, se usa el primer editor encontrado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’app dans laquelle Ouvrir dans l’éditeur ouvre un dossier ou un fichier ; l’Éditeur de texte, s’il est défini, ouvre les fichiers et est choisi ici. Si elle n’est pas installée, le premier éditeur trouvé est utilisé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’app in cui Apri nell’editor apre una cartella o un file; l’Editor di testo, se impostato, apre i file e viene scelto qui. Se non è installata, si usa il primo editor trovato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「エディタで開く」でフォルダやファイルを開くアプリ。テキストエディタを設定すると、ファイルはそれで開き、ここでも選ばれます。インストールされていない場合は、最初に見つかったエディタを使います。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីដែល បើកក្នុងកម្មវិធីកែ បើកថត ឬឯកសារ។ កម្មវិធីកែអត្ថបទ ពេលកំណត់ នឹងបើកឯកសារ ហើយត្រូវបានជ្រើសនៅទីនេះ។ បើមិនបានដំឡើងទេ នឹងប្រើកម្មវិធីកែដំបូងដែលរកឃើញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "편집기에서 열기가 폴더나 파일을 여는 앱입니다. 텍스트 편집기를 설정하면 파일은 그 앱으로 열리고 여기서도 선택됩니다. 설치되어 있지 않으면 처음 찾은 편집기를 사용합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Appen Åpne i redigerer åpner en mappe eller fil i; Tekstredigerer åpner filer når den er angitt, og velges her. Er den ikke installert, brukes den første redigereren som finnes."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aplikacja, w której Otwórz w edytorze otwiera folder lub plik; ustawiony Edytor tekstu otwiera pliki i jest wybierany tutaj. Jeśli nie jest zainstalowana, używany jest pierwszy znaleziony edytor."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O app em que Abrir no editor abre uma pasta ou um arquivo; o Editor de texto, quando definido, abre os arquivos e é escolhido aqui. Se não estiver instalado, é usado o primeiro editor encontrado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Приложение, в котором «Открыть в редакторе» открывает папку или файл; заданный «Текстовый редактор» открывает файлы и выбирается здесь. Если оно не установлено, используется первый найденный редактор."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แอปที่ เปิดในโปรแกรมแก้ไข ใช้เปิดโฟลเดอร์หรือไฟล์ โปรแกรมแก้ไขข้อความ เมื่อตั้งไว้ จะเปิดไฟล์และถูกเลือกที่นี่ หากไม่ได้ติดตั้งไว้ จะใช้โปรแกรมแก้ไขแรกที่พบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Düzenleyicide Aç'ın bir klasörü veya dosyayı açtığı uygulama; Metin Düzenleyici ayarlıysa dosyaları açar ve burada seçilir. Yüklü değilse bulunan ilk düzenleyici kullanılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Застосунок, у якому «Відкрити в редакторі» відкриває папку чи файл; заданий «Текстовий редактор» відкриває файли й вибирається тут. Якщо його не встановлено, використовується перший знайдений редактор."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ứng dụng mà Mở trong trình soạn thảo dùng để mở thư mục hoặc tệp; Trình soạn thảo văn bản, khi được đặt, sẽ mở tệp và được chọn ở đây. Nếu chưa cài, trình soạn thảo đầu tiên tìm thấy sẽ được dùng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“在编辑器中打开”用来打开文件夹或文件的 App；设置了“文本编辑器”时，文件用它打开，这里也选它。未安装时，使用找到的第一个编辑器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「在編輯器中開啟」用來開啟資料夾或檔案的 App；設定了「文字編輯器」時，檔案用它開啟，這裡也選它。未安裝時，使用找到的第一個編輯器。"
+          }
+        }
+      }
+    },
     "settings.files.textEditor.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "An app name, bundle ID or app path. Empty uses your source code app."
+            "value": "An app name, bundle ID or app path. Empty uses Open in Editor's app, else your source code app."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "اسم تطبيق أو معرّف حزمة أو مسار تطبيق. الفارغ يستخدم تطبيق الشفرة المصدرية."
+            "value": "اسم تطبيق أو معرّف حزمة أو مسار تطبيق. الفارغ يستخدم تطبيق «فتح في المحرر»، وإلا تطبيق الشفرة المصدرية."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Naziv aplikacije, ID paketa ili putanja aplikacije. Prazno koristi vašu aplikaciju za izvorni kod."
+            "value": "Naziv aplikacije, ID paketa ili putanja aplikacije. Prazno koristi aplikaciju za Otvori u uređivaču, inače vašu aplikaciju za izvorni kod."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Et appnavn, et bundle-id eller en appsti. Tom bruger din app til kildekode."
+            "value": "Et appnavn, bundle-id eller en appsti. Tom bruger appen til Åbn i editor, ellers din kildekodeapp."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ein App-Name, eine Bundle-ID oder ein App-Pfad. Leer verwendet deine App für Quellcode."
+            "value": "Ein App-Name, eine Bundle-ID oder ein App-Pfad. Leer verwendet die App von „Im Editor öffnen“, sonst deine Quellcode-App."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Un nombre de app, ID de paquete o ruta de app. Vacío usa tu app de código fuente."
+            "value": "Un nombre de app, un ID de paquete o una ruta de app. Vacío usa la app de Abrir en el editor o, si no, tu app de código fuente."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Un nom d'app, un identifiant de bundle ou le chemin d'une app. Vide utilise l'app du code source."
+            "value": "Un nom d’app, un identifiant de paquet ou un chemin d’app. Vide utilise l’app d’Ouvrir dans l’éditeur, sinon votre app de code source."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Un nome di app, un ID bundle o il percorso di un'app. Vuoto usa l'app che apre il codice sorgente."
+            "value": "Un nome di app, un ID bundle o un percorso dell’app. Vuoto usa l’app di Apri nell’editor, altrimenti la tua app per il codice sorgente."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "アプリ名、バンドル ID、またはアプリのパス。空の場合はソースコードを開くアプリを使います。"
+            "value": "アプリ名、バンドル ID、またはアプリのパス。空の場合は「エディタで開く」のアプリ、なければソースコード用のアプリを使います。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ឈ្មោះកម្មវិធី លេខសម្គាល់បណ្ដុំ ឬផ្លូវរបស់កម្មវិធី។ ទទេប្រើកម្មវិធីកូដប្រភពរបស់អ្នក។"
+            "value": "ឈ្មោះកម្មវិធី លេខសម្គាល់បណ្ដុំ ឬផ្លូវកម្មវិធី។ ទទេ ប្រើកម្មវិធីរបស់ បើកក្នុងកម្មវិធីកែ បើមិនមាន ប្រើកម្មវិធីកូដប្រភពរបស់អ្នក។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "앱 이름, 번들 ID 또는 앱 경로. 비워 두면 소스 코드를 여는 앱을 사용합니다."
+            "value": "앱 이름, 번들 ID 또는 앱 경로입니다. 비워 두면 편집기에서 열기의 앱을, 없으면 소스 코드 앱을 사용합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Et appnavn, en pakke-ID eller banen til en app. Tom bruker appen for kildekode."
+            "value": "Et appnavn, en pakke-ID eller en appbane. Tom bruker appen til Åpne i redigerer, ellers kildekodeappen din."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nazwa aplikacji, identyfikator pakietu lub ścieżka aplikacji. Puste używa aplikacji do kodu źródłowego."
+            "value": "Nazwa aplikacji, identyfikator pakietu lub ścieżka aplikacji. Puste używa aplikacji z Otwórz w edytorze, a w przeciwnym razie aplikacji do kodu źródłowego."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Um nome de app, ID de pacote ou caminho de app. Vazio usa o app de código-fonte."
+            "value": "Um nome de app, ID de pacote ou caminho de app. Vazio usa o app de Abrir no editor, senão seu app de código-fonte."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Имя приложения, идентификатор пакета или путь к приложению. Пусто — приложение для исходного кода."
+            "value": "Имя приложения, идентификатор пакета или путь к приложению. Пустое значение — приложение «Открыть в редакторе», иначе приложение для исходного кода."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ชื่อแอป Bundle ID หรือพาธของแอป ว่างไว้จะใช้แอปที่เปิดซอร์สโค้ด"
+            "value": "ชื่อแอป รหัสบันเดิล หรือพาธของแอป ถ้าว่างจะใช้แอปของ เปิดในโปรแกรมแก้ไข หรือแอปซอร์สโค้ดของคุณ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bir uygulama adı, paket kimliği veya uygulama yolu. Boş bırakılırsa kaynak kodu uygulamanız kullanılır."
+            "value": "Bir uygulama adı, paket kimliği veya uygulama yolu. Boş bırakılırsa Düzenleyicide Aç'ın uygulaması, yoksa kaynak kod uygulamanız kullanılır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Назва програми, ідентифікатор пакета або шлях до програми. Порожньо — програма для вихідного коду."
+            "value": "Назва застосунку, ідентифікатор пакета або шлях до застосунку. Порожнє — застосунок «Відкрити в редакторі», інакше застосунок для вихідного коду."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tên ứng dụng, ID gói hoặc đường dẫn ứng dụng. Để trống sẽ dùng ứng dụng mở mã nguồn."
+            "value": "Tên ứng dụng, ID gói hoặc đường dẫn ứng dụng. Để trống sẽ dùng ứng dụng của Mở trong trình soạn thảo, nếu không thì ứng dụng mã nguồn của bạn."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "App 名称、Bundle ID 或 App 路径。留空则使用打开源代码的 App。"
+            "value": "App 名称、Bundle ID 或 App 路径。留空则使用“在编辑器中打开”的 App，否则使用你的源代码 App。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "App 名稱、Bundle ID 或 App 路徑。留空則使用開啟原始碼的 App。"
+            "value": "App 名稱、Bundle ID 或 App 路徑。留空則使用「在編輯器中開啟」的 App，否則使用你的原始碼 App。"
           }
         }
       }
@@ -193463,6 +193833,270 @@
         }
       }
     },
+    "settings.home.clipboardHistory": {
+      "comment": "Settings toggle (home.clipboardHistory): the Chief composer's + menu lists recently copied text and images.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clipboard History in the + Menu"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zwischenablageverlauf im +-Menü"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Historique du presse-papiers dans le menu +"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سجل الحافظة في قائمة +"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Historial del portapapeles en el menú +"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 + 選單中顯示剪貼板歷史記錄"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 + 菜单中显示剪贴板历史记录"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ 메뉴의 클립보드 기록"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ メニューのクリップボード履歴"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Historija međuspremnika u meniju +"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Udklipshistorik i +-menuen"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cronologia appunti nel menu +"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រវត្តិឃ្លីបបតក្នុងម៉ឺនុយ +"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utklippshistorikk i +-menyen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Historia schowka w menu +"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Histórico da área de transferência no menu +"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "История буфера обмена в меню +"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ประวัติคลิปบอร์ดในเมนู +"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ Menüsünde Pano Geçmişi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Історія буфера обміну в меню +"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lịch sử bảng nhớ tạm trong menu +"
+          }
+        }
+      }
+    },
+    "settings.home.clipboardHistory.help": {
+      "comment": "Help for the home.clipboardHistory toggle: what the Chief's + menu shows, that the list stays local and skips passwords, and that off means no clipboard reads.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Chief's + menu lists text and images you copied recently, so you can add one with a click. The list stays in memory on this Mac and skips passwords. When off, cmux doesn't read your clipboard for it."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das +-Menü des Chiefs listet Texte und Bilder auf, die du kürzlich kopiert hast, sodass du sie mit einem Klick hinzufügen kannst. Die Liste bleibt im Arbeitsspeicher dieses Mac und lässt Passwörter aus. Wenn deaktiviert, liest cmux deine Zwischenablage dafür nicht."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le menu + du Chief liste les textes et images que vous avez copiés récemment, pour en ajouter un d’un clic. La liste reste en mémoire sur ce Mac et ignore les mots de passe. Désactivé, cmux ne lit pas votre presse-papiers pour cela."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعرض قائمة + الخاصة بـ Chief النصوص والصور التي نسختها مؤخرًا، لتضيف أيًّا منها بنقرة. تبقى القائمة في ذاكرة هذا الـ Mac وتتجاوز كلمات المرور. عند إيقافها، لا يقرأ cmux الحافظة لهذا الغرض."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El menú + del Chief muestra el texto y las imágenes que copiaste hace poco, para añadir uno con un clic. La lista se queda en la memoria de este Mac y omite las contraseñas. Si está desactivado, cmux no lee el portapapeles para esto."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 的 + 選單會列出你最近拷貝的文字和圖片，按一下即可加入。此列表只保存在這部 Mac 的記憶體中，並會略過密碼。關閉後，cmux 不會為此讀取你的剪貼板。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 的 + 菜单会列出你最近拷贝的文本和图片，点按一下即可添加。此列表只保存在这台 Mac 的内存中，并会跳过密码。关闭后，cmux 不会为此读取你的剪贴板。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief의 + 메뉴에 최근에 복사한 텍스트와 이미지가 표시되어 클릭 한 번으로 추가할 수 있습니다. 목록은 이 Mac의 메모리에만 남고 암호는 건너뜁니다. 끄면 cmux는 이를 위해 클립보드를 읽지 않습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief の + メニューに最近コピーしたテキストと画像が表示され、クリックで追加できます。リストはこの Mac のメモリ内にのみ保持され、パスワードは除外されます。オフにすると、cmux はこのためにクリップボードを読み取りません。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Meni + Chiefa prikazuje tekst i slike koje ste nedavno kopirali, pa jedan možete dodati jednim klikom. Lista ostaje u memoriji na ovom Macu i preskače lozinke. Kada je isključeno, cmux za to ne čita vaš međuspremnik."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiefs +-menu viser tekst og billeder, du har kopieret for nylig, så du kan tilføje et med ét klik. Listen bliver i hukommelsen på denne Mac og springer adgangskoder over. Når den er slået fra, læser cmux ikke din udklipsholder til den."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il menu + del Chief elenca testo e immagini copiati di recente, così puoi aggiungerne uno con un clic. L'elenco resta in memoria su questo Mac e salta le password. Se disattivato, cmux non legge gli appunti per questo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ឺនុយ + របស់ Chief បង្ហាញអត្ថបទ និងរូបភាពដែលអ្នកបានចម្លងថ្មីៗ ដូច្នេះអ្នកអាចបន្ថែមមួយដោយចុចតែម្តង។ បញ្ជីនៅក្នុងអង្គចងចាំលើ Mac នេះ ហើយរំលងពាក្យសម្ងាត់។ ពេលបិទ cmux មិនអានឃ្លីបបតរបស់អ្នកសម្រាប់វាទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiefs +-meny viser tekst og bilder du nylig har kopiert, så du kan legge til ett med ett klikk. Listen blir i minnet på denne Macen og hopper over passord. Når den er av, leser ikke cmux utklippstavlen din for den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Menu + Chiefa pokazuje ostatnio skopiowany tekst i obrazy, więc możesz dodać jeden jednym kliknięciem. Lista pozostaje w pamięci tego Maca i pomija hasła. Gdy wyłączone, cmux nie odczytuje do tego schowka."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O menu + do Chief lista textos e imagens que você copiou recentemente, para você adicionar um com um clique. A lista fica na memória deste Mac e ignora senhas. Desativado, o cmux não lê sua área de transferência para isso."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Меню + у Chief показывает недавно скопированные текст и изображения, чтобы добавить их одним щелчком. Список хранится в памяти этого Mac и пропускает пароли. Если выключено, cmux не читает для этого буфер обмена."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เมนู + ของ Chief แสดงข้อความและรูปภาพที่คุณคัดลอกล่าสุด คุณจึงเพิ่มได้ในคลิกเดียว รายการอยู่ในหน่วยความจำบน Mac เครื่องนี้และข้ามรหัสผ่าน เมื่อปิด cmux จะไม่อ่านคลิปบอร์ดของคุณสำหรับเมนูนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief'in + menüsü yakın zamanda kopyaladığınız metin ve görüntüleri listeler, böylece birini tek tıkla ekleyebilirsiniz. Liste bu Mac'te bellekte kalır ve parolaları atlar. Kapalıyken cmux bunun için panonuzu okumaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Меню + у Chief показує нещодавно скопійовані текст і зображення, щоб додати їх одним клацанням. Список зберігається в пам'яті цього Mac і пропускає паролі. Якщо вимкнено, cmux не читає для цього буфер обміну."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Menu + của Chief liệt kê văn bản và hình ảnh bạn sao chép gần đây để bạn thêm bằng một cú nhấp. Danh sách chỉ nằm trong bộ nhớ trên máy Mac này và bỏ qua mật khẩu. Khi tắt, cmux không đọc bảng nhớ tạm của bạn cho mục này."
+          }
+        }
+      }
+    },
     "settings.sidebar.workspacesAsTabs": {
       "extractionState": "manual",
       "localizations": {
@@ -202013,6 +202647,399 @@
         }
       }
     },
+    "settings.remote.agentShareIdleMinutes": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إيقاف مشاركة الوكيل بعد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dijeljenje agenta se isključuje nakon"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentdeling slås fra efter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentenfreigabe endet nach"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Sharing Turns Off After"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El uso compartido de agentes se desactiva tras"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le partage par un agent s’arrête après"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La condivisione degli agenti si disattiva dopo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントの共有をオフにするまで"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការចែករំលែករបស់ភ្នាក់ងារបិទបន្ទាប់ពី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 공유 자동 끄기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentdeling slås av etter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udostępnianie przez agenta wyłącza się po"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O compartilhamento do agente desativa após"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступ от агента выключается через"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การแชร์ของเอเจนต์ปิดหลังจาก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan paylaşımı şu süre sonra kapanır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступ від агента вимикається через"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chia sẻ của tác tử tắt sau"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能体共享关闭时间"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理共享關閉時間"
+          }
+        }
+      }
+    },
+    "settings.remote.agentShareIdleMinutes.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عندما يشغّل أحد وكلائك المشاركة لجهاز Mac هذا، تتوقف مجددًا بعد هذا العدد من الدقائق دون أن يشاهده أو يتحكم فيه أي جهاز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada jedan od vaših agenata uključi dijeljenje za ovaj Mac, ono se ponovo isključuje nakon ovoliko minuta bez uređaja koji ga gleda ili kontroliše."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når en af dine agenter slår deling til for denne Mac, slås den fra igen efter så mange minutter, uden at en enhed ser eller styrer den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn einer deiner Agenten die Freigabe für diesen Mac einschaltet, endet sie wieder nach so vielen Minuten, in denen kein Gerät zusieht oder steuert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When one of your agents turns sharing on for this Mac, it turns off again after this many minutes with no device viewing or controlling it."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuando uno de tus agentes activa el uso compartido de este Mac, se desactiva de nuevo tras estos minutos sin que ningún dispositivo lo vea ni lo controle."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quand l’un de vos agents active le partage de ce Mac, il s’arrête après ce nombre de minutes sans appareil qui le regarde ou le contrôle."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando uno dei tuoi agenti attiva la condivisione di questo Mac, si disattiva dopo questi minuti senza dispositivi che lo guardano o lo controllano."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントがこのMacの共有をオンにしたとき、この分数のあいだどのデバイスも閲覧・操作しなければ、再びオフになります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅពេលភ្នាក់ងាររបស់អ្នកបើកការចែករំលែកសម្រាប់ Mac នេះ វានឹងបិទវិញបន្ទាប់ពីចំនួននាទីនេះដែលគ្មានឧបករណ៍មើល ឬគ្រប់គ្រងវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트가 이 Mac의 공유를 켜면, 이 시간(분) 동안 보거나 제어하는 기기가 없을 때 다시 꺼집니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når en av agentene dine slår på deling for denne Macen, slås den av igjen etter så mange minutter uten at en enhet ser på eller styrer den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdy jeden z Twoich agentów włączy udostępnianie tego Maca, wyłączy się ono po tylu minutach, w których żadne urządzenie go nie ogląda ani nim nie steruje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando um dos seus agentes ativa o compartilhamento deste Mac, ele é desativado de novo após estes minutos sem nenhum dispositivo vendo ou controlando."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда один из ваших агентов открывает доступ к этому Mac, доступ выключается через столько минут, если ни одно устройство его не смотрит и не управляет им."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อเอเจนต์ของคุณเปิดการแชร์ Mac เครื่องนี้ การแชร์จะปิดอีกครั้งหลังจากไม่มีอุปกรณ์ใดดูหรือควบคุมตามจำนวนนาทีนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajanlarınızdan biri bu Mac için paylaşımı açtığında, hiçbir aygıt izlemez veya denetlemezse bu kadar dakika sonra yeniden kapanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Коли один із ваших агентів відкриває доступ до цього Mac, доступ вимикається через стільки хвилин, якщо жоден пристрій його не переглядає й не керує ним."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi một tác tử của bạn bật chia sẻ cho máy Mac này, chia sẻ sẽ tắt lại sau số phút này nếu không có thiết bị nào xem hoặc điều khiển."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当你的智能体为这台 Mac 开启共享后，如果这么多分钟内没有设备观看或控制，共享会再次关闭。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當你的代理為這台 Mac 開啟共享後，若這麼多分鐘內沒有裝置觀看或控制，共享會再次關閉。"
+          }
+        }
+      }
+    },
+    "settings.remote.agentShareIdleMinutes.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عدد الدقائق دون مشاهد قبل إيقاف مشاركة الوكيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minute bez gledalaca prije isključivanja dijeljenja agenta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minutter uden seere, før en agents deling slås fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minuten ohne Zuschauer, bis die Freigabe eines Agenten endet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minutes with no viewer before an agent's sharing turns off"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minutos sin público hasta apagar lo que compartió un agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minutes sans spectateur avant l’arrêt du partage d’un agent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minuti senza pubblico, poi si spegne la condivisione agente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントの共有がオフになるまでの視聴者なしの分数"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នាទីគ្មានអ្នកមើល មុនពេលការចែករំលែករបស់ភ្នាក់ងារបិទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 공유가 꺼지기까지 보는 사람이 없는 시간(분)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minutter uten seere før en agents deling slås av"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minuty bez widzów do wyłączenia udostępniania agenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minutos sem público até desligar o que o agente compartilhou"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Минуты без зрителей до выключения доступа от агента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จำนวนนาทีที่ไม่มีผู้ดูก่อนการแชร์ของเอเจนต์จะปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir ajanın paylaşımı kapanmadan önce izleyensiz dakika"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хвилини без глядачів до вимкнення доступу від агента"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Số phút không có người xem trước khi chia sẻ của tác tử tắt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无人观看多少分钟后关闭智能体共享"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無人觀看多少分鐘後關閉代理共享"
+          }
+        }
+      }
+    },
     "settings.remote.endSharingOnQuit": {
       "extractionState": "manual",
       "localizations": {
@@ -204216,127 +205243,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Tools for Agents in cmux"
+            "value": "Give Agents cmux’s Tools"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أدوات cmux للوكلاء في cmux"
+            "value": "منح الوكلاء أدوات cmux"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux alati za agente u cmuxu"
+            "value": "Daj agentima cmux alate"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-værktøjer til agenter i cmux"
+            "value": "Giv agenter cmux’ værktøjer"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-Werkzeuge für Agenten in cmux"
+            "value": "Agenten die cmux-Tools geben"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Herramientas de cmux para agentes en cmux"
+            "value": "Dar a los agentes las herramientas de cmux"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Outils cmux pour les agents dans cmux"
+            "value": "Donner aux agents les outils de cmux"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Strumenti di cmux per gli agenti in cmux"
+            "value": "Dai agli agenti gli strumenti di cmux"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 内のエージェント用 cmux ツール"
+            "value": "エージェントに cmux のツールを提供"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ឧបករណ៍ cmux សម្រាប់ភ្នាក់ងារក្នុង cmux"
+            "value": "ផ្តល់ឧបករណ៍ cmux ដល់ភ្នាក់ងារ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 내 에이전트용 cmux 도구"
+            "value": "에이전트에 cmux 도구 제공"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-verktøy for agenter i cmux"
+            "value": "Gi agenter cmux-verktøyene"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Narzędzia cmux dla agentów w cmux"
+            "value": "Daj agentom narzędzia cmux"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ferramentas do cmux para agentes no cmux"
+            "value": "Dar aos agentes as ferramentas do cmux"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Инструменты cmux для агентов в cmux"
+            "value": "Дать агентам инструменты cmux"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เครื่องมือของ cmux สำหรับเอเจนต์ใน cmux"
+            "value": "ให้เอเจนต์ใช้เครื่องมือของ cmux"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux’taki ajanlar için cmux araçları"
+            "value": "Ajanlara cmux araçlarını ver"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Інструменти cmux для агентів у cmux"
+            "value": "Надати агентам інструменти cmux"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Công cụ cmux cho tác tử trong cmux"
+            "value": "Cho tác tử dùng công cụ của cmux"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 中智能体的 cmux 工具"
+            "value": "为智能体提供 cmux 工具"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 中代理的 cmux 工具"
+            "value": "為代理程式提供 cmux 工具"
           }
         }
       }
@@ -204601,6 +205628,534 @@
           "stringUnit": {
             "state": "translated",
             "value": "你在 cmux 中啟動的智慧代理是否取得 cmux 的工具"
+          }
+        }
+      }
+    },
+    "settings.agents.cmuxMcpClaude": {
+      "comment": "Settings > Agents > cmux Tools: the switch that lets Claude Code started in cmux get cmux's tools while they are on (agents.cmuxMcpClaude)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use in Claude Code"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام في Claude Code"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koristi u Claude Code"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug i Claude Code"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In Claude Code verwenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar en Claude Code"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser dans Claude Code"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa in Claude Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code で使用"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រើក្នុង Claude Code"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code에서 사용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk i Claude Code"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Używaj w Claude Code"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar no Claude Code"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использовать в Claude Code"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้ใน Claude Code"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code’da kullan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використовувати в Claude Code"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dùng trong Claude Code"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Claude Code 中使用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Claude Code 中使用"
+          }
+        }
+      }
+    },
+    "settings.agents.cmuxMcpClaude.help": {
+      "comment": "Settings > Agents > cmux Tools: help under the Claude Code switch (agents.cmuxMcpClaude)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off: Claude Code you start in cmux never gets cmux’s tools, even when they are on."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند الإيقاف: لا يحصل Claude Code الذي تشغّله في cmux على أدوات cmux أبدًا، حتى عند تشغيلها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Isključeno: Claude Code koji pokrenete u cmuxu nikad ne dobija cmux alate, čak ni kad su uključeni."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fra: Claude Code, du starter i cmux, får aldrig cmux’ værktøjer, heller ikke når de er slået til."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus: Claude Code, das du in cmux startest, erhält die cmux-Tools nie, auch wenn sie eingeschaltet sind."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desactivado: Claude Code iniciado en cmux nunca recibe las herramientas de cmux, aunque estén activadas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivé : Claude Code lancé dans cmux ne reçoit jamais les outils de cmux, même s’ils sont activés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disattivato: Claude Code avviato in cmux non riceve mai gli strumenti di cmux, anche quando sono attivi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ：cmux で起動した Claude Code は、cmux のツールがオンでも使えません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទ៖ Claude Code ដែលអ្នកចាប់ផ្ដើមក្នុង cmux មិនដែលទទួលបានឧបករណ៍ cmux ទេ ទោះបីវាបើកក៏ដោយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끔: cmux에서 시작한 Claude Code은(는) cmux 도구가 켜져 있어도 사용하지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Av: Claude Code du starter i cmux får aldri cmux-verktøyene, selv når de er på."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyłączone: Claude Code uruchomiony w cmux nigdy nie dostaje narzędzi cmux, nawet gdy są włączone."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desativado: o Claude Code iniciado no cmux nunca recebe as ferramentas do cmux, mesmo quando estão ativadas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выключено: Claude Code, запущенный в cmux, никогда не получает инструменты cmux, даже когда они включены."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิด: Claude Code ที่คุณเริ่มใน cmux จะไม่ได้รับเครื่องมือของ cmux แม้จะเปิดอยู่ก็ตาม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapalı: cmux’ta başlattığınız Claude Code, araçlar açık olsa bile cmux araçlarını hiç almaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вимкнено: Claude Code, запущений у cmux, ніколи не отримує інструменти cmux, навіть коли їх увімкнено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tắt: Claude Code bạn khởi động trong cmux không bao giờ nhận công cụ của cmux, kể cả khi chúng đang bật."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭：在 cmux 中启动的 Claude Code 不会获得 cmux 的工具，即使这些工具已开启。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉：在 cmux 中啟動的 Claude Code 不會取得 cmux 的工具，即使這些工具已開啟。"
+          }
+        }
+      }
+    },
+    "settings.agents.cmuxMcpCodex": {
+      "comment": "Settings > Agents > cmux Tools: the switch that lets Codex started in cmux get cmux's tools while they are on (agents.cmuxMcpCodex)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use in Codex"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام في Codex"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koristi u Codexu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug i Codex"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In Codex verwenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar en Codex"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser dans Codex"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa in Codex"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex で使用"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រើក្នុង Codex"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex에서 사용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk i Codex"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Używaj w Codex"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar no Codex"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использовать в Codex"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้ใน Codex"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex’te kullan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використовувати в Codex"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dùng trong Codex"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Codex 中使用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Codex 中使用"
+          }
+        }
+      }
+    },
+    "settings.agents.cmuxMcpCodex.help": {
+      "comment": "Settings > Agents > cmux Tools: help under the Codex switch (agents.cmuxMcpCodex)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off: Codex you start in cmux never gets cmux’s tools, even when they are on."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند الإيقاف: لا يحصل Codex الذي تشغّله في cmux على أدوات cmux أبدًا، حتى عند تشغيلها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Isključeno: Codex koji pokrenete u cmuxu nikad ne dobija cmux alate, čak ni kad su uključeni."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fra: Codex, du starter i cmux, får aldrig cmux’ værktøjer, heller ikke når de er slået til."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus: Codex, das du in cmux startest, erhält die cmux-Tools nie, auch wenn sie eingeschaltet sind."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desactivado: Codex iniciado en cmux nunca recibe las herramientas de cmux, aunque estén activadas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivé : Codex lancé dans cmux ne reçoit jamais les outils de cmux, même s’ils sont activés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disattivato: Codex avviato in cmux non riceve mai gli strumenti di cmux, anche quando sono attivi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ：cmux で起動した Codex は、cmux のツールがオンでも使えません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទ៖ Codex ដែលអ្នកចាប់ផ្ដើមក្នុង cmux មិនដែលទទួលបានឧបករណ៍ cmux ទេ ទោះបីវាបើកក៏ដោយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끔: cmux에서 시작한 Codex은(는) cmux 도구가 켜져 있어도 사용하지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Av: Codex du starter i cmux får aldri cmux-verktøyene, selv når de er på."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyłączone: Codex uruchomiony w cmux nigdy nie dostaje narzędzi cmux, nawet gdy są włączone."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desativado: o Codex iniciado no cmux nunca recebe as ferramentas do cmux, mesmo quando estão ativadas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выключено: Codex, запущенный в cmux, никогда не получает инструменты cmux, даже когда они включены."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิด: Codex ที่คุณเริ่มใน cmux จะไม่ได้รับเครื่องมือของ cmux แม้จะเปิดอยู่ก็ตาม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapalı: cmux’ta başlattığınız Codex, araçlar açık olsa bile cmux araçlarını hiç almaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вимкнено: Codex, запущений у cmux, ніколи не отримує інструменти cmux, навіть коли їх увімкнено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tắt: Codex bạn khởi động trong cmux không bao giờ nhận công cụ của cmux, kể cả khi chúng đang bật."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭：在 cmux 中启动的 Codex 不会获得 cmux 的工具，即使这些工具已开启。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉：在 cmux 中啟動的 Codex 不會取得 cmux 的工具，即使這些工具已開啟。"
           }
         }
       }
@@ -230599,6 +232154,534 @@
         }
       }
     },
+    "settings.experiments.menuStyleV2": {
+      "comment": "Settings > Experimental row title: the second version of cmux's menu look.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نمط القوائم v2"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stil menija v2"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menustil v2"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menüstil v2"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menu Style v2"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estilo de menú v2"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Style des menus v2"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stile dei menu v2"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メニュースタイル v2"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រចនាប័ទ្មម៉ឺនុយ v2"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메뉴 스타일 v2"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menystil v2"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Styl menu v2"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estilo de menu v2"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стиль меню v2"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สไตล์เมนู v2"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menü Stili v2"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стиль меню v2"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kiểu menu v2"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "菜单样式 v2"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選單樣式 v2"
+          }
+        }
+      }
+    },
+    "settings.experiments.menuStyleV2.help": {
+      "comment": "Settings > Experimental > Menu Style v2 help: menus get a new look.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قوائم بمظهر جديد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menije s novim izgledom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menuer med nyt udseende."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neu gestaltete Menüs."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restyled menus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menús con un nuevo estilo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menus restylés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menu con un nuovo stile."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいデザインのメニュー。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ឺនុយដែលមានរចនាប័ទ្មថ្មី។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새로운 스타일의 메뉴."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menyer med nytt utseende."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menu w nowym stylu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menus com novo estilo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Меню в новом стиле."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมนูที่ปรับสไตล์ใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni stilde menüler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Меню в новому стилі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menu với kiểu mới."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新设计样式的菜单。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新設計樣式的選單。"
+          }
+        }
+      }
+    },
+    "settings.experiments.menuRowStates": {
+      "comment": "Settings > Experimental row title: menu rows show why they are unavailable and the progress of work they start.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حالات صفوف القوائم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stanja redova menija"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilstande for menurækker"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zustände von Menüzeilen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menu Row States"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estados de las filas de menú"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "États des lignes de menu"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stati delle righe dei menu"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メニュー行の状態"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្ថានភាពជួរម៉ឺនុយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메뉴 행 상태"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilstander for menyrader"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stany wierszy menu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estados das linhas do menu"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Состояния строк меню"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สถานะแถวเมนู"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menü Satırı Durumları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стани рядків меню"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trạng thái dòng menu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "菜单行状态"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選單列狀態"
+          }
+        }
+      }
+    },
+    "settings.experiments.menuRowStates.help": {
+      "comment": "Settings > Experimental > Menu Row States help: an unavailable menu row says why; a row that starts work shows its progress.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تذكر صفوف القوائم غير المتاحة السبب، وتعرض الصفوف التي تبدأ عملًا تقدّمه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nedostupni redovi menija kažu zašto, a redovi koji pokreću posao prikazuju njegov napredak."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menurækker, der ikke er tilgængelige, fortæller hvorfor, og rækker, der starter arbejde, viser fremskridtet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht verfügbare Menüzeilen sagen, warum, und Zeilen, die eine Arbeit starten, zeigen ihren Fortschritt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menu rows that are unavailable say why, and rows that start work show their progress."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las filas de menú no disponibles dicen por qué, y las que inician trabajo muestran su progreso."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les lignes de menu indisponibles disent pourquoi, et celles qui lancent une tâche affichent sa progression."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le righe dei menu non disponibili spiegano perché, e quelle che avviano un lavoro ne mostrano l'avanzamento."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用できないメニュー行は理由を示し、処理を開始する行は進行状況を表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជួរម៉ឺនុយដែលមិនអាចប្រើបាន ប្រាប់មូលហេតុ ហើយជួរដែលចាប់ផ្តើមការងារ បង្ហាញវឌ្ឍនភាពរបស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용할 수 없는 메뉴 행은 이유를 알려 주고, 작업을 시작하는 행은 진행 상황을 보여 줍니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menyrader som ikke er tilgjengelige, forteller hvorfor, og rader som starter arbeid, viser fremdriften."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niedostępne wiersze menu mówią dlaczego, a wiersze uruchamiające pracę pokazują jej postęp."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Linhas de menu indisponíveis dizem por quê, e linhas que iniciam trabalho mostram o progresso."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недоступные строки меню объясняют причину, а строки, запускающие работу, показывают её ход."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แถวเมนูที่ใช้ไม่ได้จะบอกเหตุผล และแถวที่เริ่มงานจะแสดงความคืบหน้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanılamayan menü satırları nedenini söyler, iş başlatan satırlar ilerlemesini gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недоступні рядки меню пояснюють причину, а рядки, що запускають роботу, показують її перебіг."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các dòng menu không khả dụng cho biết lý do, và các dòng bắt đầu công việc hiển thị tiến độ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不可用的菜单行会说明原因，开始工作的行会显示进度。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法使用的選單列會說明原因，開始工作的列會顯示進度。"
+          }
+        }
+      }
+    },
     "settings.labs.agentCustomization": {
       "comment": "Settings > Advanced > Labs: toggle that shows and edits Claude Code's and Codex's own MCP servers, skills and commands (product names, never translated)",
       "extractionState": "manual",
@@ -232969,6 +235052,270 @@
         }
       }
     },
+    "settings.choice.groupBackgroundCard": {
+      "comment": "Group background choice: each group one rounded tinted card around its header and members.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cards"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "بطاقات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kort"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Karten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tarjetas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cartes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schede"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "カード"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កាត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "카드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kort"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cartões"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Карточки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การ์ด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kartlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Картки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thẻ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "卡片"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "卡片"
+          }
+        }
+      }
+    },
+    "settings.choice.groupBackgroundChip": {
+      "comment": "Group background choice: each group a slim colored chip on its header, a colored rail beside its members, no indent.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chips"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "شارات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Čipovi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chips"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chips"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Etiquetas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pastilles"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Etichette"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チップ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឈីប"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "칩"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brikker"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Znaczniki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Etiquetas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Метки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ชิป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Etiketler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Мітки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhãn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "标签"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "標籤"
+          }
+        }
+      }
+    },
     "settings.choice.groupBackgroundFolder": {
       "comment": "Group background choice: no background, each group a plain folder with its members indented under it.",
       "extractionState": "manual",
@@ -234602,6 +236949,138 @@
         "vi": {"stringUnit": {"state": "translated", "value": "Rộng"}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "宽"}},
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "寬"}}
+      }
+    },
+    "settings.choice.groupBackgroundTree": {
+      "comment": "Group background choice: each group a plain folder with its members indented under it and a thin guide line.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tree"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "شجرة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stablo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Træ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Baum"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Árbol"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arborescence"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Albero"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ツリー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដើមឈើ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "트리"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Drzewo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Árvore"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дерево"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ต้นไม้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ağaç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дерево"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cây"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "树状"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "樹狀"
+          }
+        }
       }
     },
     "settings.notifications.delivery.permissionRequest": {
@@ -241801,7 +244280,7 @@
       }
     },
     "settings.agentPane.composerLook": {
-      "comment": "Settings > Agent Chat > Message Box: the row that picks the composer's look (Automatic, Codex or Claude)",
+      "comment": "Settings > Agent Chat > Message Box: the row that picks the composer's look (Automatic or Studio)",
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -242329,7 +244808,7 @@
       }
     },
     "settings.choice.composerLookAuto": {
-      "comment": "Settings > Agent Chat > Composer Look choice: the look the chat's look dots picked, else the default",
+      "comment": "Settings > Agent Chat > Composer Look choice: the app's own composer, with the model and access in the row under the box",
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -244306,6 +246785,60 @@
             "value": "已安裝的擴充功能可以在代理聊天中已完成的工具呼叫下方顯示一張卡片。"
           }
         }
+      }
+    },
+    "settings.customize.doctorNotice": {
+      "comment": "Settings > Personalization: toggle title for the toast that names files or layers changing the person's customization",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Customization notices"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "إشعارات التخصيص"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Obavještenja o prilagođavanju"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Meddelelser om tilpasning"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Hinweise zu Anpassungen"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Avisos de personalización"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Avis de personnalisation"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Avvisi di personalizzazione"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "カスタマイズの通知"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ការជូនដំណឹងអំពីការប្ដូរតាមបំណង"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "사용자화 알림"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Varsler om tilpasning"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Powiadomienia o dostosowaniach"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Avisos de personalização"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Уведомления о настройке"}},
+        "th": {"stringUnit": {"state": "translated", "value": "การแจ้งเตือนการปรับแต่ง"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Özelleştirme bildirimleri"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Сповіщення про налаштування"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Thông báo tùy chỉnh"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "自定义通知"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "自訂通知"}}
+      }
+    },
+    "settings.customize.doctorNotice.summary": {
+      "comment": "Settings > Personalization: summary of the Customization notices toggle",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Tell me when a file or layer changes my setup"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "أخبرني عندما يغيّر ملف أو طبقة إعداداتي"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Obavijesti me kada datoteka ili sloj promijeni moje postavke"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Fortæl mig, når en fil eller et lag ændrer min opsætning"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Mich informieren, wenn eine Datei oder Ebene meine Einrichtung ändert"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Avisarme cuando un archivo o una capa cambie mi configuración"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Me prévenir quand un fichier ou une couche modifie ma configuration"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Avvisami quando un file o un livello modifica la mia configurazione"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ファイルやレイヤーが設定を変えたときに知らせる"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ប្រាប់ខ្ញុំនៅពេលឯកសារ ឬស្រទាប់ផ្លាស់ប្ដូរការរៀបចំរបស់ខ្ញុំ"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "파일이나 레이어가 내 설정을 바꾸면 알림"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Si fra når en fil eller et lag endrer oppsettet mitt"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Powiadamiaj, gdy plik lub warstwa zmienia moją konfigurację"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Avisar quando um arquivo ou camada mudar minha configuração"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Сообщать, когда файл или слой меняет мою настройку"}},
+        "th": {"stringUnit": {"state": "translated", "value": "แจ้งฉันเมื่อไฟล์หรือเลเยอร์เปลี่ยนการตั้งค่าของฉัน"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Bir dosya veya katman düzenimi değiştirdiğinde bana haber ver"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Повідомляти, коли файл або шар змінює моє налаштування"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Báo cho tôi khi một tệp hoặc lớp thay đổi thiết lập của tôi"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "当文件或图层更改我的设置时通知我"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "當檔案或圖層變更我的設定時通知我"}}
       }
     },
     "settings.appearance.liquidGlass": {

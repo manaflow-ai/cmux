@@ -87,7 +87,7 @@ import type { RunMode, SandboxRun, SandboxTab } from "../sandboxRun";
 import type { CloudEnvironmentPick } from "../cloudEnvironmentChoice";
 import type { CloudChatHintState } from "../cloudChatHintModel";
 import type { MachineHarnessCheck } from "../machineHarnesses";
-import type { CloudSignIn } from "../cloudAgentLogin";
+import { type CloudSignIn, refusedStartSignIn } from "../cloudAgentLogin";
 import type { HarnessHealth, UpdateOffer } from "../harnessHealthNoticeModel";
 import type { ForumRule } from "../rulesNoticeModel";
 import type { ShareNudgeState } from "../share/shareNudgeModel";
@@ -130,6 +130,8 @@ type WorktreeError = {
 
 /// What AcpmuxPane's render hands its composer tree: each value as the render worked it out.
 export type PaneComposerDeps = {
+  /// The dock's focus edge (App.tsx `markDockEdge`): the composer reports focus-visible in its card.
+  markDockEdge: (lit: boolean) => void;
   readOnlySubagent: boolean;
   subagentDraftKey: string;
   shownSubagentTarget: SubagentTarget | undefined;
@@ -165,6 +167,8 @@ export type PaneComposerDeps = {
     cloudSignIn: CloudSignIn | undefined;
     apiKeySignIn: CloudSignIn | undefined;
     refusedSignIn: CloudSignIn | undefined;
+    localRefusedSignIn: CloudSignIn | undefined;
+    healthSignIn: CloudSignIn | undefined;
   };
   switchLoginCommand: string | undefined;
   composerHandle: React.RefObject<ComposerHandle | null>;
@@ -358,6 +362,7 @@ export type PaneComposerDeps = {
 /// The pane's composer tree: a subagent pane's SubagentComposer, or (unless reviewing) the bottom
 /// stack of notices, the hat and the Composer.
 export function drawPaneComposer({
+  markDockEdge,
   readOnlySubagent,
   subagentDraftKey,
   shownSubagentTarget,
@@ -552,6 +557,7 @@ export function drawPaneComposer({
   return readOnlySubagent ? (
     <SubagentComposer
       key={subagentDraftKey}
+      onFocusEdge={markDockEdge}
       subagent={shownSubagentTarget?.name ?? t("tray.kind.subagent")}
       chat={chatName}
       draftKey={subagentDraftKey}
@@ -602,9 +608,14 @@ export function drawPaneComposer({
               // Install runs the installer in a terminal tab of this Mac: never for a chat elsewhere.
               installs={!startsElsewhere}
               // An agent not signed in: on another machine its sign-in runs there, in the card; on
-              // this Mac its login runs in a terminal tab, then Retry starts it (hq#11225).
-              {...(startsElsewhere && chatSignIns.refusedSignIn && { agentSignIn: chatSignIns.refusedSignIn })}
-              runsLogin={!startsElsewhere && switchLoginCommand !== undefined}
+              // this Mac in the in-place card where acpmux has one, else its login in a terminal
+              // tab; then Retry starts it (hq#11225; refusedStartSignIn).
+              {...refusedStartSignIn({
+                startsElsewhere,
+                elsewhereCard: chatSignIns.refusedSignIn,
+                localCard: chatSignIns.localRefusedSignIn,
+                loginCommand: switchLoginCommand,
+              })}
               onRetry={() => void callNative("chat.harness.retry")}
               // The refused prompt is back in the composer; a chat on another machine starts only
               // with a send, so the share's retry sends it again (as Trust's answer does).
@@ -658,6 +669,7 @@ export function drawPaneComposer({
               void callNative("tab.open", params).catch(() => undefined);
             }}
             native={callNative}
+            {...(chatSignIns.healthSignIn && { signIn: chatSignIns.healthSignIn })}
             turnRunning={snapshot.isWorking}
             onUpdated={recheckHealth}
             onOffer={setUpdateOffer}
@@ -840,6 +852,7 @@ export function drawPaneComposer({
         {/* An attached image opens in the chat's image viewer, as a transcript image does. */}
         <ImageViewerContext.Provider value={openImage}>
           <Composer
+            onFocusEdge={markDockEdge}
             cloudStarting={cloudStarting}
             snapshot={composerDrawn}
             guestHarnesses={guestsHere ? composerSnapshot.catalog : undefined}

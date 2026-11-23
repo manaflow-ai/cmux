@@ -12,6 +12,7 @@
 import type { AcpmuxUsageLimits } from "../../agent-session/acpmux/model";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 import type { WorktreeRecipe } from "../../worktreeRecipe";
+import type { AccountFamily, AccountRowWire, SignInFinishWire, SignInStartWire } from "../shared/signIn/accountSignIn";
 import { OWNER_SENTENCE } from "../shared/userMessage";
 
 /** A museum search result (cmux.settings.art.search); its thumbnail is at `museum/<key>`. */
@@ -780,6 +781,10 @@ export type AccountsState = {
   cmux: AccountsCmux;
   removeTitle: string;
   groups: Array<{ id: string; title: string; rows: AccountsRow[] }>;
+  /** The daemon's sign-in accounts (`account.list` rows: GitHub, ChatGPT and Claude, several each).
+   * Present only from a host that signs in in place (shared/signIn/accountSignIn.ts); without it the
+   * page keeps the terminal sign-in. */
+  signInAccounts?: AccountRowWire[] | null;
 };
 
 /**
@@ -793,6 +798,19 @@ export type AccountsRun = {
   secret?: string;
   team?: string;
   name?: string;
+  /** The in-place sign-in's gestures (ACCOUNT_ACTIONS): its login, a pasted code, a new account's family. */
+  loginId?: string;
+  code?: string;
+  family?: AccountFamily;
+};
+
+/** `cmux.settings.accounts.run`'s answer. A sign-in gesture adds the daemon's answer: `signIn` for
+ * a start, `finished` for a finish, `reason` for a refusal (SignInFailure). */
+export type AccountsRunReply = {
+  error?: string;
+  signIn?: SignInStartWire;
+  finished?: SignInFinishWire;
+  reason?: string;
 };
 
 /** One Settings > Agents row: a harness acpmux knows (never its command line or env). */
@@ -984,7 +1002,9 @@ export type HarnessesRun = {
   id?: string;
   /** With every account gesture but `accountAdd`: a listed account id. */
   account?: string;
-  /** With `accountAdd`: the provider family (`codex`, `claude`) that gets a new account. */
+  /** With `accountAdd`: the provider family (`codex`, `claude`) that gets a new account; `github`
+   * (way `new` only) types gh's own `gh auth login` into a terminal tab, the in-place sign-in's
+   * fallback for a daemon without `_acpmux/account/sign_in`. */
   family?: string;
   /** With `accountAdd`: `new` signs in a login folder of its own, `key` adds an API key. */
   way?: "new" | "key";
@@ -1085,16 +1105,100 @@ export type LibraryConflict = { kind: string; key: string; winner: string; loser
 /** The library, top first. */
 export type LibraryListing = { entries: LibraryEntry[]; conflicts: LibraryConflict[] };
 
-/** A library verb the page runs. `order` takes `position` (`top`, `bottom` or a number from 1). */
+/** A library verb the page runs. `order` takes `position` (`top`, `bottom` or a number from 1). The
+ * `doctor` verbs are `cmux customize doctor` (read), `doctor fix ID KIND`, `doctor dismiss ID`, and
+ * `doctor-open`, which the host runs itself: it reveals or opens the finding's `path`. */
 export type LibraryRun =
   | { verb: "list" }
   | { verb: "on" | "off" | "remove"; name: string }
-  | { verb: "order"; name: string; position: string };
+  | { verb: "order"; name: string; position: string }
+  | DoctorRun;
+
+/** A customize doctor verb: params are exactly `{verb, id?, fix?}`. */
+export type DoctorRun =
+  | { verb: "doctor" }
+  | { verb: "doctor-fix"; id: string; fix: DoctorFixKind }
+  | { verb: "doctor-dismiss" | "doctor-open"; id: string }
+  | { verb: "doctor-recover" };
+
+/** A fix the CLI runs (`open` has no CLI verb: the host opens the path). `restore` puts back the
+ * last version of a broken file that loaded, the broken text moved aside first; `follow-default` drops
+ * the person's value of a setting so it follows the default (a copy of the settings file is kept). */
+export type DoctorFixKind = "off" | "remove" | "restore" | "follow-default";
+
+/** The report's way back (`cmux customize doctor recover`): the layers it turns off, whether it
+ * turns the web-dev overlay off, the generation it puts back; `said` is the plan in one sentence. */
+export type DoctorRecover = {
+  layers: string[];
+  overlay: boolean;
+  generation: number | null;
+  generation_label: string | null;
+  said: string;
+};
+
+/** What `doctor recover` did; `said` is one line per change. */
+export type DoctorRecovered = {
+  turned_off: string[];
+  overlay_off: boolean;
+  restored: number | null;
+  kept_as: number | null;
+  said: string[];
+};
+
+/** What a finding is about (cmux-customize `library/doctor.rs`). */
+export type DoctorFindingKind =
+  | "layer-on"
+  | "web-dev-overlay"
+  | "broken"
+  | "ignored"
+  | "shadowed"
+  | "leftover"
+  | "unknown-key"
+  | "wrong-folder"
+  | "old-build"
+  | "override"
+  | "not-default";
+
+/** One fix of a finding; the first is the main one, and every `remove` has `confirm: true`. */
+export type DoctorFix = { kind: "open" | DoctorFixKind | (string & {}); label: string; confirm: boolean };
+
+/** One errant file, key or layer that affects the person's customizations. */
+export type DoctorFinding = {
+  id: string;
+  kind: DoctorFindingKind | (string & {});
+  /** `warning`: it changes what the person sees now; `info`: it does not. */
+  level: "warning" | "info" | (string & {});
+  title: string;
+  detail: string;
+  place: string;
+  path: string | null;
+  line: number | null;
+  fixes: DoctorFix[];
+  fingerprint: string;
+  /** Hidden until it changes: still listed (muted), out of `line` and `announce`. */
+  dismissed: boolean;
+};
+
+/** `cmux --json customize doctor`'s `doctor`: `line` is null when nothing is left to say. */
+export type DoctorReport = {
+  findings: DoctorFinding[];
+  line: string | null;
+  announce: string | null;
+  /** Null (or absent, an older CLI) when there is nothing to recover. */
+  recover?: DoctorRecover | null;
+};
+
+/** What a `doctor fix` did: `kept` is the copy a remove keeps; `said` one line in the CLI's words. */
+export type DoctorFixed = { id: string; kind: DoctorFixKind; kept: string | null; said: string };
 
 /** `cmux --json customize library …` as the host answers it: a listing (`library`), and for a
- * change what it did; a refusal is the CLI's error envelope (`code`, `message`). */
+ * change what it did; a doctor verb answers `doctor` (and a fix `fixed`); a refusal is the CLI's
+ * error envelope (`code`, `message`). */
 export type LibraryAnswer = {
   library?: LibraryListing;
+  doctor?: DoctorReport;
+  fixed?: DoctorFixed;
+  recovered?: DoctorRecovered;
   generation?: unknown;
   code?: string;
   message?: string;
@@ -1217,7 +1321,8 @@ export type DevicesState = {
   thisDevice: DevicesDevice | null;
   others: DevicesDevice[];
   /** "Allow Mac Screen on this Mac"; null until this Mac is registered. */
-  sharing: { on: boolean; busy: boolean; permissions: DevicesPermission[] } | null;
+  /** `agentsMayShare`: the account's "My agents can turn screen sharing and control on my machines" (device hub). */
+  sharing: { on: boolean; busy: boolean; permissions: DevicesPermission[]; agentsMayShare: boolean } | null;
   relays: DevicesRelay[];
   /** Newest first. */
   history: DevicesHistoryRow[];
@@ -1298,6 +1403,8 @@ export type DevicesLabels = {
   sharingSection: string;
   sharingToggle: string;
   sharingDetail: string;
+  agentsToggle: string;
+  agentsDetail: string;
   openSettings: string;
   allowed: string;
   relaysSection: string;
@@ -1360,6 +1467,7 @@ export type DevicesRun =
   | { action: "remove"; id: string }
   | { action: "setAccess"; id: string; scope: DevicesScope }
   | { action: "setSharing"; on: boolean }
+  | { action: "setAgentsMayShare"; on: boolean }
   | { action: "openPermission"; id: DevicesPermissionId }
   | { action: "saveRelay"; relay: DevicesRelayDraft }
   | { action: "checkRelay"; id?: string; relay?: DevicesRelayDraft }
@@ -1577,15 +1685,21 @@ export type AgentSkillsState =
       /** `files` (cmux read the folders) or `app-server` (Codex's own list). */
       sources: { claude: string; codex: string } | null;
       elapsedMs: number | null;
-      /** The CLI's refusal of the last switch ("" with no words of its own). */
+      /** The CLI's refusal of the last switch ("" with no words of its own); `path` is `new-command` for
+       * a New Command the CLI refused. */
       refusal: { path: string; message: string } | null;
+      /** The command New Command last saved: what to type and its file. */
+      added?: { agent: "claude" | "codex" | "cmux"; invocation: string; path: string } | null;
     };
 
 /** One Skills gesture; on and off run only on a click. */
 export type AgentSkillsRun =
   | { action: "refresh" }
   | { action: "open" | "reveal"; path: string }
-  | { action: "on" | "off"; path: string; agent: "claude" | "codex" };
+  | { action: "on" | "off"; path: string; agent: "claude" | "codex" }
+  /** New Command (`cmux agent-config commands add NAME --prompt TEXT --agent A`): a saved prompt in the
+   * agent's own folder, or cmux's (`cmux`, in every chat's `/` menu); only on a click. */
+  | { action: "add"; agent: "claude" | "codex" | "cmux"; name: string; prompt: string; description?: string };
 
 /** One MCP server Claude Code or Codex starts, from its own config files (`cmux agent-config mcp
  * list --json`, cmux-agent-customize `mcp.rs`). Never a secret: env and header values are names only. */
@@ -1861,7 +1975,7 @@ export type SettingsOps = {
   /** Native: the Accounts part (providers, linked accounts, forms). */
   "cmux.settings.accounts.state": [Record<string, never>, AccountsState];
   /** Native: one Accounts gesture; a failed Keychain save answers its message. */
-  "cmux.settings.accounts.run": [AccountsRun, { error?: string }];
+  "cmux.settings.accounts.run": [AccountsRun, AccountsRunReply];
   /** Native: Settings > Agents, the harnesses acpmux knows and the last doctor answers. */
   "cmux.settings.agents.state": [Record<string, never>, AgentsState];
   /** Native: one Agents gesture; a daemon refusal rejects with `cmux.agents.<code>` and its text. */
