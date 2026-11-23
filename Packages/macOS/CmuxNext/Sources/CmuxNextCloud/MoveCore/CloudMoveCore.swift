@@ -123,9 +123,12 @@ extension CloudMachineRequest {
     /// the folder needs past `size`'s own (``chatDiskMb``). `plan`: the start's ledger, whose sent create keeps its
     /// route for every retry (none kept: the relay, ``createRoute(personsOwnCreate:team:)``). `planMax` and `bytes`:
     /// the plan's largest size and the folder's bytes, which keep the vCPUs and memory asked within the plan (``atLeast(cpu:memoryMb:diskMb:)``).
+    /// `environment`: the Cloud environment the chat picked (`env_…`), which boots the machine in it (`cloud.environment.boot`,
+    /// never the person's generic spare); nil (the chip's Auto) keeps the plain create.
     public init(startChatKey key: String, sizedFor pick: CloudWorkPick?, team: String?, size: CloudChatSize? = nil, diskMb: Int? = nil,
-                planMax: CloudChatSize? = nil, bytes: Int64? = nil, plan: CloudMoveCLI.StartChatPlan? = nil) {
+                planMax: CloudChatSize? = nil, bytes: Int64? = nil, plan: CloudMoveCLI.StartChatPlan? = nil, environment: String? = nil) {
         self.init()
+        self.environment = environment
         autosize = pick?.autosize
         chatSize = size
         chatDiskMb = diskMb
