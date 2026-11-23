@@ -479,6 +479,11 @@ pub struct Session {
     /// The running turn's tool calls that have not ended (`stalled_turn.rs`): a turn quiet
     /// inside one gets longer before it counts as stalled.
     pub(super) open_tools: StdMutex<std::collections::HashSet<String>>,
+    /// The session's own tool calls whose live updates logged no end, bounded (`hub/tap.rs`): a
+    /// load's replay of one's end is the only replayed record kept of a tool call
+    /// (`unread_records.rs`), as a cut turn's continuation counts it ended (`restart_resume.rs`).
+    /// Unlike [`Self::open_tools`], a new agent for the turn keeps them.
+    pub(super) unclosed_tools: StdMutex<std::collections::HashSet<String>>,
     /// Bounded completed tool attempts used to identify a repeated failing call
     /// (`loop_detector.rs`).
     pub(super) loop_detector: StdMutex<super::loop_detector::LoopDetector>,
