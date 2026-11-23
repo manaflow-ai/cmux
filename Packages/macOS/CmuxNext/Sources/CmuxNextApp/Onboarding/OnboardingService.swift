@@ -67,7 +67,7 @@ final class OnboardingService {
 
     /// The Agents step's sign-ins: Settings > Agents > Harnesses' reader over this Mac's acpmux.
     private(set) lazy var signInHarnesses = SettingsHarnesses(environment: { [weak services] in services.flatMap(QuitAgents.environment) },
-        openTerminal: { [weak self] line in await self?.openSignIn(line) ?? false }, openSignInPage: { [weak services] url in _ = services?.linkOpener.openWeb(url, from: nil, background: true, revealing: true) })
+        openTerminal: { [weak self] line in await self?.openSignIn(line) ?? false }, openSignInPage: { [weak services] url in services?.linkOpener.openSignInPage(url, beside: nil) })
     private(set) lazy var agentTools = AgentToolsStepModel.cliSource(cli: { [bundled = services.bundledCLI] in await bundled.resolve() }, settings: { [weak services] in services?.settings })
     /// Make cmux Yours' choices over the settings owner; density goes through its action, which also applies the tokens.
     private(set) lazy var firstRunChoices = FirstRunChoicesSettingsSource(settings: { [weak services] in services?.settings }, setDensity: { [weak services] preset in
