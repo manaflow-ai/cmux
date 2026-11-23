@@ -21,7 +21,7 @@ afterEach(() => {
   page = null;
 });
 
-const SECRET = "sk-test-0123456789abcdef";
+const SECRET = "not-a-real-key";
 
 async function open(setup?: (provider: MockSettingsProvider) => void, values?: Record<string, unknown>) {
   page = await renderCard(<DictationProviderCard />, { setup, mock: values ? { values } : undefined });

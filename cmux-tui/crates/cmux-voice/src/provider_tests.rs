@@ -125,7 +125,7 @@ async fn each_status_maps_to_its_code() {
 
 #[tokio::test]
 async fn the_key_is_scrubbed_from_the_detail() {
-    let key = "sk-live-0123456789abcdef";
+    let key = "not-a-real-key";
     let body =
         format!(r#"{{"error":{{"message":"Incorrect API key provided: {key}. Bearer {key}"}}}}"#);
     let served = serve(vec![answer(401, &body)]).await;
