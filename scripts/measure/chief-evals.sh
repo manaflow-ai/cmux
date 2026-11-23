@@ -4,7 +4,7 @@
 # chief_eval.rs: the real native engine and production prompt) at two refs,
 # runs the same model cases (evals/cases/*.json from THIS checkout, so both
 # sides answer the same questions) on both on one worker, and diffs them with
-# chief_eval's --baseline: pass rate per group before and after, and the cases
+# the harness's `chief_eval diff`: pass rate per group before and after, and the cases
 # that regressed, improved, are new or are missing. A regressed case is a good
 # behavior the after ref lost.
 #
@@ -76,6 +76,12 @@ build_side() {
   cp "$CARGO_TARGET_DIR/release/examples/chief_eval" "$work/chief_eval-$side"
   echo "CHIEF-EVALS-BUILD $side $sha"
 }
+# The harness's own runner scores both sides (`chief_eval diff`): a refusal
+# by the model route (HTTP 429/5xx) is infra, not a lost behavior, even at
+# refs whose runner predates that rule.
+(cd "$root/Native/OptChat/optchat-chief" && cargo build --release --locked --example chief_eval)
+cp "$CARGO_TARGET_DIR/release/examples/chief_eval" "$work/chief_eval-harness"
+echo "CHIEF-EVALS-BUILD harness $(git rev-parse HEAD)"
 build_side before "$before"
 "$work/chief_eval-before" preflight || { echo "CHIEF-EVALS the route $base_url does not answer Claude requests" >&2; exit 1; }
 if [[ -n "$after" && "$after" != "$before" ]]; then
@@ -96,8 +102,8 @@ run_side() {
 }
 run_side before
 if [[ -n "$after" ]]; then
-  run_side after --baseline "$work/before/summary.json"
-  if [[ -f "$work/after/diff.json" ]]; then
+  run_side after
+  if [[ -f "$work/after/rows.jsonl" ]] && "$work/chief_eval-harness" diff "$work/before" "$work/after" >/dev/null; then
     echo "CHIEF-EVALS-DIFF $(python3 -c 'import json,sys;print(json.dumps(json.load(open(sys.argv[1])),separators=(",",":")))' "$work/after/diff.json")"
     cat "$work/after/diff.md"
   else

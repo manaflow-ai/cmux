@@ -6,6 +6,7 @@
 //!   cargo run --example chief_eval -- [--cases DIR] [--only PREFIX] [--out DIR]
 //!       [--jobs N] [--model M] [--effort E] [--judge-model M] [--compactor api|fake]
 //!       [--repeat N] [--min-pass F] [--baseline SUMMARY_JSON_OR_DIR]
+//!   chief_eval diff BEFORE_DIR AFTER_DIR   (two runs' diff, rescored)
 //!   chief_eval shim NAME ARGS...   (the stubs on a turn's PATH call this)
 //!
 //! What a turn sends is what a production Chief turn on a Claude harness
@@ -1025,6 +1026,56 @@ impl CaseRun<'_> {
     }
 }
 
+/// A failed run is infra when a failed check is a route error.
+fn route_failed(turns: &[Value]) -> bool {
+    turns.iter().any(|t| {
+        t["checks"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|c| c["pass"] == false && route_error(c["why"].as_str().unwrap_or("")))
+    })
+}
+
+/// A run's summary.json with its per-case results recounted from its
+/// rows.jsonl under this runner's infra rule, so a run written by an older
+/// runner (no `infra` field) is scored like a new one.
+fn rescored_summary(dir: &Path) -> Result<Value, String> {
+    let read = |name: &str| {
+        std::fs::read_to_string(dir.join(name))
+            .map_err(|e| format!("{}: {e}", dir.join(name).display()))
+    };
+    let mut summary: Value =
+        serde_json::from_str(&read("summary.json")?).map_err(|e| e.to_string())?;
+    let rows: Vec<Value> = read("rows.jsonl")?
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str(l).map_err(|e| e.to_string()))
+        .collect::<Result<_, _>>()?;
+    let rows: Vec<Value> = rows
+        .into_iter()
+        .map(|mut r| {
+            let infra = r["pass"] != true
+                && route_failed(r["turns"].as_array().map_or(&[][..], |t| t.as_slice()));
+            r["infra"] = json!(infra);
+            r
+        })
+        .collect();
+    let cases = case_counts(&rows);
+    summary["case_results"] = cases
+        .iter()
+        .map(|(id, (g, p, n, i))| {
+            (
+                id.clone(),
+                json!({"group": g, "passed": p, "runs": n, "infra": i}),
+            )
+        })
+        .collect::<serde_json::Map<_, _>>()
+        .into();
+    summary["infra_runs"] = json!(cases.values().map(|c| c.3).sum::<u32>());
+    Ok(summary)
+}
+
 /// A check failure that is the model route's, not Chief's: the turn's or the
 /// judge's request ended in HTTP 429 or 5xx (send's retryable statuses).
 fn route_error(why: &str) -> bool {
@@ -1486,14 +1537,7 @@ fn run_case(case: &Case, opts: &Opts, root: &Path) -> Value {
     // A failed run whose turn or judge the model route refused (429, 5xx:
     // an exhausted account pool, a gateway outage) says nothing about Chief:
     // it is infra, counted in neither the pass rate nor a baseline diff.
-    let infra = !pass
-        && turns.iter().any(|t| {
-            t["checks"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .any(|c| c["pass"] == false && route_error(c["why"].as_str().unwrap_or("")))
-        });
+    let infra = !pass && route_failed(&turns);
     json!({"id": case.id, "group": case.group, "owner": case.owner, "about": case.about,
            "pass": pass, "infra": infra, "settle_ms": settle_ms, "dream_ms": dream_ms,
            "memory_files": memory_files, "turns": turns})
@@ -1541,6 +1585,35 @@ fn main() {
             }
             Err(e) => {
                 eprintln!("dream: {e}");
+                std::process::exit(1)
+            }
+        }
+    }
+    // `diff BEFORE_DIR AFTER_DIR`: the baseline diff of two finished runs,
+    // both rescored by this runner (scripts/measure/chief-evals.sh runs it
+    // with the harness's build, so refs older than a scoring rule still get
+    // it). Writes AFTER_DIR/diff.json and diff.md.
+    if args.first().map(String::as_str) == Some("diff") {
+        let [_, before, after] = args.as_slice() else {
+            eprintln!("usage: chief_eval diff BEFORE_DIR AFTER_DIR");
+            std::process::exit(2)
+        };
+        let (before, after) = (Path::new(before), Path::new(after));
+        match (rescored_summary(before), rescored_summary(after)) {
+            (Ok(base), Ok(now)) => {
+                let d = baseline_diff(&now, &base);
+                let md = diff_markdown(&d, &before.join("summary.json").display().to_string());
+                std::fs::write(
+                    after.join("diff.json"),
+                    serde_json::to_string_pretty(&d).unwrap(),
+                )
+                .unwrap();
+                std::fs::write(after.join("diff.md"), &md).unwrap();
+                println!("{md}");
+                std::process::exit(0)
+            }
+            (Err(e), _) | (_, Err(e)) => {
+                eprintln!("diff: {e}");
                 std::process::exit(1)
             }
         }
@@ -2174,6 +2247,40 @@ mod tests {
         let md = diff_markdown(&d, "base/summary.json");
         assert!(md.contains("Unscored (the model route refused every run on a side: no verdict): links-a, links-b"), "{md}");
         assert!(!md.contains("Improved"), "{md}");
+    }
+
+    #[test]
+    fn rescoring_marks_an_older_runners_route_failures_infra() {
+        let dir = std::env::temp_dir().join(format!("chief-eval-rescore-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let failed = |why: &str| {
+            json!({"id": "links-a", "group": "links", "pass": false,
+            "turns": [{"checks": [{"type": "turn", "pass": false, "why": why}]}]})
+        };
+        let rows = [
+            failed("HTTP 503: no non-exhausted claude accounts available"),
+            json!({"id": "links-b", "group": "links", "pass": false,
+                "turns": [{"checks": [{"type": "judge", "pass": false, "why": "FAIL: no link"}]}]}),
+        ];
+        std::fs::write(
+            dir.join("rows.jsonl"),
+            rows.iter().map(|r| format!("{r}\n")).collect::<String>(),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("summary.json"),
+            r#"{"model": "m", "case_results": {}}"#,
+        )
+        .unwrap();
+        let s = rescored_summary(&dir).unwrap();
+        assert_eq!(s["infra_runs"], 1);
+        assert_eq!(
+            s["case_results"]["links-a"],
+            json!({"group": "links", "passed": 0, "runs": 0, "infra": 1})
+        );
+        assert_eq!(s["case_results"]["links-b"]["runs"], 1);
+        assert_eq!(s["model"], "m");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
