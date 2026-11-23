@@ -67,7 +67,6 @@ LEGACY = {
     "nightly_next_ring.py": 1,
     "nightly_next_train.py": 1,
     "nightly_publish_guard.py": 1,
-    "nightly_sign_yield.py": 2,
     "nightly_version.py": 1,
     "notify-indexnow.py": 1,
     "owned_pool_rescue.py": 1,
