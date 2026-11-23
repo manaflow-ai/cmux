@@ -108,6 +108,9 @@ pub fn decode_chunk(file: &[u8]) -> Result<(u8, Vec<u8>)> {
     Ok((kind, payload))
 }
 
+/// How the error for a chunk the store lacks starts; the chunk's id follows it.
+pub const MISSING: &str = "this store lacks chunk ";
+
 /// A store's folder.
 #[derive(Debug, Clone)]
 pub struct Store {
@@ -149,7 +152,11 @@ impl Store {
     /// Chunk `id`'s file, as it is on disk.
     pub fn stored(&self, id: &Id) -> Result<Vec<u8>> {
         let path = self.chunk_path(id);
-        fs::read(&path).map_err(|e| format!("{}: {e}", path.display()).into())
+        fs::read(&path).map_err(|e| match e.kind() {
+            // A store that began from a session's tail lacks older chunks until it asks for them.
+            std::io::ErrorKind::NotFound => format!("{MISSING}{}", hex(id)).into(),
+            _ => format!("{}: {e}", path.display()).into(),
+        })
     }
 
     /// Chunk `id`'s bytes before compression.
