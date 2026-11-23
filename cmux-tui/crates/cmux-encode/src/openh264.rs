@@ -1055,7 +1055,8 @@ mod linux_host_tests {
         let host = OpenH264Options::linux_host();
         assert_eq!(host.usage, Usage::Camera);
         let enc = OpenH264::with_options(&cfg, OpenH264Api::from_source(), &host).expect("encoder");
-        assert!(enc.name().contains("camera-realtime usage=camera"), "{}", enc.name());
+        assert!(enc.name().contains("camera-realtime"), "{}", enc.name());
+        assert!(enc.name().ends_with("usage=camera"), "{}", enc.name());
         let screen = OpenH264Options::parse_over(host, "usage=screen").expect("parse");
         assert_eq!(screen, OpenH264Options { usage: Usage::Screen, ..OpenH264Options::default() });
         let enc =
