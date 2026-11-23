@@ -241,7 +241,7 @@ import json, sys
 r = json.loads(sys.argv[3]); r.update(json.loads(sys.argv[4] or "{}"))
 r.update(app_name=sys.argv[5], scenario=sys.argv[1], rep=int(sys.argv[2]), load=float(sys.argv[6]), profile=sys.argv[7])
 others = [int(p) for p in sys.argv[8].split()]
-if others:  # a copy of the app this run did not start was up (Safari's own, on a shared Mac): the row says so
+if others:  # a copy of the app this run did not start was up (on a shared Mac, Safari): the row says so
     r["other_instance_pids"] = others
 print(json.dumps(r, sort_keys=True))' "$1" "$2" "$3" "${4:-{\}}" "$NAME" "$(load1)" "$KIND" "${LM_OTHERS:-}")"
   echo "LM-RUN $json"
