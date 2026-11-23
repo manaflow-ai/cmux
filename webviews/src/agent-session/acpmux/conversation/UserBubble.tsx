@@ -423,8 +423,11 @@ export const SentImage = memo(function SentImage({
   // (conversation.css), never past the bubble's edge.
   const shape = { width, aspectRatio: `${width} / ${height}` };
   // The failed slot keeps the image's known shape, so the row does not reflow when it fails.
-  if (shown.src !== undefined && failed === shown.src && fallback !== null) return <>{fallback}</>;
-  if (shown.src !== undefined && failed === shown.src)
+  // A read never answered failed too (imageEntries.ts IMAGE_READ_MS): its slot says so, never a blank
+  // square that waits forever.
+  const broken = shown.status === "failed" || (shown.src !== undefined && failed === shown.src);
+  if (broken && fallback !== null) return <>{fallback}</>;
+  if (broken)
     return (
       <span className="cv-user__image-failed" style={shape}>
         <ImageIcon size={16} />

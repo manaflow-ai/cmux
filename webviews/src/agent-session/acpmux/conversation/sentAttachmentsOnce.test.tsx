@@ -216,3 +216,68 @@ test("(b) one video attached once is one tile", async () => {
   expect(videoTiles(container)).toBe(1);
   expect(chipText(container).some((text) => text.includes(".mov"))).toBe(false);
 });
+
+test("(c) a played video that never gets data fails once instead of spinning", async () => {
+  installDom();
+  const { watchPlaybackStall } = await import("../chips/replyMediaModel");
+  const video = dom!.window.document.createElement("video");
+  let paused = true;
+  let ready = 0;
+  Object.defineProperty(video, "paused", { get: () => paused });
+  Object.defineProperty(video, "readyState", { get: () => ready });
+  let stalls = 0;
+  const stop = watchPlaybackStall(video, () => (stalls += 1), 20);
+  // Paused (never asked to play): no clock.
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  expect(stalls).toBe(0);
+  // Asked to play, no data ever: it fails once.
+  paused = false;
+  video.dispatchEvent(new dom!.window.Event("play"));
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  video.dispatchEvent(new dom!.window.Event("waiting"));
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  expect(stalls).toBe(1);
+  stop();
+  // A player that gets its data in time never fails.
+  const fine = dom!.window.document.createElement("video");
+  Object.defineProperty(fine, "paused", { get: () => false });
+  Object.defineProperty(fine, "readyState", { get: () => ready });
+  let fineStalls = 0;
+  const stopFine = watchPlaybackStall(fine, () => (fineStalls += 1), 30);
+  fine.dispatchEvent(new dom!.window.Event("play"));
+  ready = 4;
+  fine.dispatchEvent(new dom!.window.Event("canplay"));
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  expect(fineStalls).toBe(0);
+  stopFine();
+});
+
+test("(c) a sent image whose read never answers says it failed, not a blank slot forever", async () => {
+  const { useStableImage, IMAGE_READ_MS } = await import("./imageEntries");
+  expect(IMAGE_READ_MS).toBeLessThanOrEqual(15_000);
+  const container = installDom();
+  const view = dom!.window as unknown as typeof globalThis;
+  // Run the slot's deadline now: the fake clock fires every timer of IMAGE_READ_MS at once.
+  const realTimeout = globalThis.setTimeout;
+  (globalThis as { setTimeout: unknown }).setTimeout = ((fn: () => void, ms?: number) =>
+    realTimeout(fn, ms === IMAGE_READ_MS ? 0 : ms)) as typeof setTimeout;
+  let status = "";
+  function Probe() {
+    status = useStableImage({ id: "never-answers", read: () => new Promise<never>(() => {}) }).status;
+    return null;
+  }
+  try {
+    await act(async () => {
+      root = createRoot(container);
+      root.render(<Probe />);
+    });
+    expect(status).toBe("loading");
+    await act(async () => {
+      await new Promise((resolve) => realTimeout(resolve, 10));
+    });
+    expect(status).toBe("failed");
+  } finally {
+    (globalThis as { setTimeout: unknown }).setTimeout = realTimeout;
+  }
+  void view;
+});
