@@ -7927,7 +7927,7 @@ export class AcpmuxDirectClient {
     // does not take `afterSeq`, as every one before Leo's 2026-11-22 report): asked again for the
     // newest page, as every reconnect did before #47119, which `attachWatched` lays as that page. A
     // reconnect is recoverable, never "cmux blocked opening this chat" over the composer.
-    const attaching =
+    const attachingUnplanted =
       this.capabilities?.has(SETTLED_ATTACH_CAPABILITY) && !hold && afterSeq === undefined
         ? ask(true).catch((error: unknown) => {
             if (!settledAttachFailed(error)) throw error;
@@ -7940,6 +7940,11 @@ export class AcpmuxDirectClient {
               return ask(false, false);
             })
           : ask(false);
+    // THROWAWAY PLANT (do not merge): 50 ms after acpmux answers the attach, to prove the chat-open perf report sees it.
+    const attaching = attachingUnplanted.then(async (reply) => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      return reply;
+    });
     const out = { sessionId };
     this.attachOut = out;
     const settled = () => {
