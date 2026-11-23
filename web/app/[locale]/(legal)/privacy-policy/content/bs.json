@@ -2,13 +2,13 @@
   "metadataTitle": "Politika privatnosti — cmux",
   "metadataDescription": "Politika privatnosti za cmux",
   "title": "Politika privatnosti",
-  "lastUpdated": "Posljednje ažuriranje: 1. septembra 2026",
+  "lastUpdated": "Posljednje ažuriranje: 17. novembar 2026.",
   "sections": [
     {
       "paragraphs": [
-        "Manaflow („Kompanija“) je posvećena održavanju robusne zaštite privatnosti za svoje korisnike. Ova Politika privatnosti objašnjava kako prikupljamo, koristimo i štitimo informacije koje nam dostavite.",
+        "Manaflow, Inc. („Kompanija“) je posvećena održavanju robusne zaštite privatnosti za svoje korisnike. Ova Politika privatnosti objašnjava kako prikupljamo, koristimo i štitimo informacije koje nam dostavite.",
         "U ovoj politici, \"Site\" označava web stranicu Kompanije na adresi [cmux.com](https://cmux.com). \"Aplikacija\" znači cmux desktop aplikaciju za macOS i cmux mobilnu aplikaciju za iPhone i iPad. \"Usluga\" označava stranicu i aplikaciju zajedno. \"Mi\", \"nas\" i \"naš\" znači Kompanija. \"Vi\" znači korisnik naše usluge.",
-        "Korištenjem naše usluge, prihvatate ovu Politiku privatnosti i naše [Uslove korištenja](https://cmux.com/terms-of-service), te pristajete na prikupljanje, skladištenje, korištenje i otkrivanje ovdje opisanih."
+        "Ova Politika privatnosti vam govori kako prikupljamo, koristimo i otkrivamo informacije. To je obavještenje: ne traži vaš pristanak osim ako to izričito ne kaže. Naši [Uslovi korištenja](https://cmux.com/terms-of-service) primjenjuju se na vaše korištenje Usluge."
       ]
     },
     {
@@ -71,7 +71,7 @@
         "Slack: privatne interne obavijesti. Ako se pridružite listi čekanja platforme, e-pošta i platforme koje pošaljete šalju se u naš privatni radni prostor Slack."
       ],
       "afterBullets": [
-        "Svaki servis ima svoju politiku privatnosti. Kada treća strana obrađuje lične podatke za cmux, zahtijevamo zaštitne mjere barem jednako zaštitne kao ova politika i ograničavamo upotrebu na pružanje usluga za cmux."
+        "Svaki servis ima svoju politiku privatnosti. Osim kako to navodi odjeljak cmux Cloud, kada treća strana obrađuje lične podatke za cmux, zahtijevamo zaštitne mjere barem jednako zaštitne kao ova politika i ograničavamo upotrebu na pružanje usluga za cmux."
       ]
     },
     {

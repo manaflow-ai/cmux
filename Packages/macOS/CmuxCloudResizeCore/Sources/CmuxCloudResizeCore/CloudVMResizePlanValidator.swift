@@ -82,6 +82,14 @@ public struct CloudVMResizePlanValidator: Sendable {
     /// Creates a stateless resize evaluator.
     public init() {}
 
+    /// Largest machine the provider can run; the only bound applied on top of
+    /// server-published ceilings.
+    public static let providerMaxMemoryMb = 64 * 1_024
+    /// Largest vCPU count the provider can run.
+    public static let providerMaxVcpus = 32
+    /// Largest disk the provider can attach.
+    public static let providerMaxDiskMb = 256 * 1_024
+
     /// Decodes server plan limits, applying conservative fallbacks for older
     /// control-plane responses that omit explicit resize ceilings.
     ///
@@ -94,40 +102,54 @@ public struct CloudVMResizePlanValidator: Sendable {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
             .flatMap { $0.isEmpty ? nil : $0 }
             ?? "free"
-        let maxMemoryFromLadder = (rawLimits["memoryOptionsMb"] as? [Any])?
-            .compactMap(positiveLimit)
-            .max()
-        // Older control planes sometimes published the whole ladder as
-        // `memoryOptionsMb` (or a stale 32 GiB Pro ceiling). Never let that
-        // compatibility path expand a plan beyond the current product tier.
-        let productMemoryCeiling: Int
+        // The server owns plan policy. A current control plane (one that
+        // sends `lockedMemoryOptionsMb`) computes `maxMemoryMb`, `maxVcpus`
+        // and `maxDiskMb` per plan, including team deals above the tier
+        // (#41335), so the client takes them as-is, bounded only by the
+        // provider's largest machine. A plan change on the server then needs
+        // no client release (#47612: a hard-coded Plus table capped disk at
+        // 16 GiB though the server allowed 128 GiB).
+        //
+        // The per-plan table is only for older control planes, which could
+        // publish stale ceilings (the whole ladder, or a 32 GiB Pro limit) or
+        // omit them. It fails closed to the free tier for unknown plans.
+        let isCurrentControlPlane = rawLimits["lockedMemoryOptionsMb"] is [Any]
+        let legacyMemoryCeiling: Int
         switch planID {
         case "max":
-            productMemoryCeiling = 64 * 1_024
-        case "go":
-            productMemoryCeiling = 4 * 1_024
-        case "pro", "team", "founders", "founders-edition":
-            productMemoryCeiling = 16 * 1_024
+            legacyMemoryCeiling = 64 * 1_024
+        case "go", "pro", "team", "founders", "founders-edition":
+            legacyMemoryCeiling = 16 * 1_024
         default:
-            // A missing or unknown plan must fail closed to the free tier;
-            // treating it as Pro would let a stale/malformed list response
-            // preflight sizes the server will reject for that account.
-            productMemoryCeiling = 8 * 1_024
+            legacyMemoryCeiling = 8 * 1_024
         }
-        let advertisedMemoryMb = positiveLimit(rawLimits["maxMemoryMb"])
-            ?? maxMemoryFromLadder
-            ?? productMemoryCeiling
-        let maxMemoryMb = min(advertisedMemoryMb, productMemoryCeiling)
-        let advertisedVcpus = positiveLimit(rawLimits["maxVcpus"])
-            ?? max(1, maxMemoryMb / 2_048)
-        let maxVcpus = min(advertisedVcpus, max(1, maxMemoryMb / 2_048))
-        let productDiskCeiling = planID == "max"
-            ? 256 * 1_024
-            : planID == "go" ? 16 * 1_024 : 128 * 1_024
-        let maxDiskMb = min(
-            positiveLimit(rawLimits["maxDiskMb"]) ?? productDiskCeiling,
-            productDiskCeiling
-        )
+        let legacyDiskCeiling = planID == "max" ? 256 * 1_024 : 128 * 1_024
+        let explicitMemoryMb = positiveLimit(rawLimits["maxMemoryMb"])
+        let explicitVcpus = positiveLimit(rawLimits["maxVcpus"])
+        let explicitDiskMb = positiveLimit(rawLimits["maxDiskMb"])
+
+        let maxMemoryMb: Int
+        if isCurrentControlPlane, let explicitMemoryMb {
+            maxMemoryMb = min(explicitMemoryMb, Self.providerMaxMemoryMb)
+        } else {
+            let ladderMax = (rawLimits["memoryOptionsMb"] as? [Any])?
+                .compactMap(positiveLimit)
+                .max()
+            maxMemoryMb = min(explicitMemoryMb ?? ladderMax ?? legacyMemoryCeiling, legacyMemoryCeiling)
+        }
+        let maxVcpus: Int
+        if isCurrentControlPlane, let explicitVcpus {
+            maxVcpus = min(explicitVcpus, Self.providerMaxVcpus)
+        } else {
+            let ratioVcpus = max(1, maxMemoryMb / 2_048)
+            maxVcpus = min(explicitVcpus ?? ratioVcpus, ratioVcpus)
+        }
+        let maxDiskMb: Int
+        if isCurrentControlPlane, let explicitDiskMb {
+            maxDiskMb = min(explicitDiskMb, Self.providerMaxDiskMb)
+        } else {
+            maxDiskMb = min(explicitDiskMb ?? legacyDiskCeiling, legacyDiskCeiling)
+        }
         let resourcePool = try resourcePool(from: rawLimits)
         return CloudVMResizePlan(
             id: planID,

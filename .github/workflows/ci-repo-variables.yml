@@ -37,16 +37,23 @@ on:
 permissions:
   contents: read
 
+# One run at a time and at most one waiting (GitHub replaces an older waiting run with a newer one),
+# so scheduled runs never pile up after an outage; a running one is never cut short
+# (tests/test_ci_cron_concurrency.py).
 concurrency:
   group: ci-repo-variables-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
   check:
     name: Check repository variables
     if: ${{ github.repository == 'manaflow-ai/cmux' }}
     # The linux pool, not LINUX_RUNNER: this job checks LINUX_RUNNER, so it must not wait on it.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -85,6 +92,8 @@ jobs:
           CMUX_CI_RUNNER_VARIABLES: |
             CI_CONTROL_RUNNER=${{ vars.CI_CONTROL_RUNNER }}
             CI_LIGHT_LANE_RUNNER=${{ vars.CI_LIGHT_LANE_RUNNER }}
+            CI_LINUX_GATE_OWNED_RUNNER=${{ vars.CI_LINUX_GATE_OWNED_RUNNER }}
+            CI_LINUX_HOSTED_RUNNER=${{ vars.CI_LINUX_HOSTED_RUNNER }}
             CI_NIGHTLY_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_TRUSTED_RUNNER }}
             CI_NIGHTLY_NEXT_BUILD_RUNNER=${{ vars.CI_NIGHTLY_NEXT_BUILD_RUNNER }}
             CI_NIGHTLY_NEXT_TRUSTED_POOL=${{ vars.CI_NIGHTLY_NEXT_TRUSTED_POOL }}
@@ -92,11 +101,14 @@ jobs:
             CI_PR_POOL_ORDER=${{ vars.CI_PR_POOL_ORDER }}
             CI_SEED_TRUSTED_POOL=${{ vars.CI_SEED_TRUSTED_POOL }}
             CI_SIDE_LANE_RUNNER=${{ vars.CI_SIDE_LANE_RUNNER }}
+            CI_SIDE_LANE_LABELS=${{ vars.CI_SIDE_LANE_LABELS }}
             CI_TRUSTED_RUNNER=${{ vars.CI_TRUSTED_RUNNER }}
             CMUX_CI_RUNNER_FLEET=${{ vars.CMUX_CI_RUNNER_FLEET }}
             CMUX_CI_RUNNER_OVERRIDES=${{ vars.CMUX_CI_RUNNER_OVERRIDES }}
             LINUX_ARM64_RUNNER=${{ vars.LINUX_ARM64_RUNNER }}
+            LINUX_BUILD_RUNNER=${{ vars.LINUX_BUILD_RUNNER }}
             LINUX_RUNNER=${{ vars.LINUX_RUNNER }}
+            LINUX_RUNNER_DARWIN_CROSS=${{ vars.LINUX_RUNNER_DARWIN_CROSS }}
             MACOS_RUNNER_15=${{ vars.MACOS_RUNNER_15 }}
             MACOS_RUNNER_26=${{ vars.MACOS_RUNNER_26 }}
             MACOS_RUNNER_26_LARGE=${{ vars.MACOS_RUNNER_26_LARGE }}
@@ -134,6 +146,7 @@ jobs:
           RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
           LINUX_RUNNER: ${{ vars.LINUX_RUNNER }}
           CI_CLOUD_OVERFLOW_SAVED: ${{ vars.CI_CLOUD_OVERFLOW_SAVED }}
+          CI_LINUX_HOSTED_RUNNER: ${{ vars.CI_LINUX_HOSTED_RUNNER }}
         run: python3 scripts/ci/runner_pools.py --check
 
       # No runs-on waits on one machine through a variable's value
@@ -152,11 +165,15 @@ jobs:
           # its own frozen copy of ios-internal-nightly.yml).
           ROUTE_BRANCHES: main feat-cmux-next nightly-next rc/cnx-ios-builder
           CMUX_CI_RUNS_ON_VARIABLES: |
+            CI_BLACKSMITH_MACOS=${{ vars.CI_BLACKSMITH_MACOS }}
             CI_CLASSIC_NIGHTLY_MINI=${{ vars.CI_CLASSIC_NIGHTLY_MINI }}
             CI_CLOUD_OVERFLOW_SAVED=${{ vars.CI_CLOUD_OVERFLOW_SAVED }}
             CI_COMPILE_CHECK_GATEWAY=${{ vars.CI_COMPILE_CHECK_GATEWAY }}
             CI_CONTROL_RUNNER=${{ vars.CI_CONTROL_RUNNER }}
+            CI_DEPLOY_SKIP_FLEET=${{ vars.CI_DEPLOY_SKIP_FLEET }}
             CI_EVAL_STEP_GATEWAY=${{ vars.CI_EVAL_STEP_GATEWAY }}
+            CI_FFI_RELEASE_POOL=${{ vars.CI_FFI_RELEASE_POOL }}
+            CI_GATE_SKIP_FLEET=${{ vars.CI_GATE_SKIP_FLEET }}
             CI_IOS_INTERNAL_RUNNER=${{ vars.CI_IOS_INTERNAL_RUNNER }}
             CI_LIGHT_LANE_RUNNER=${{ vars.CI_LIGHT_LANE_RUNNER }}
             CI_LINUX_GATE_OWNED_RUNNER=${{ vars.CI_LINUX_GATE_OWNED_RUNNER }}
@@ -171,13 +188,21 @@ jobs:
             CI_NIGHTLY_ONLY_RUNNER=${{ vars.CI_NIGHTLY_ONLY_RUNNER }}
             CI_NIGHTLY_SIGN_RUNNER=${{ vars.CI_NIGHTLY_SIGN_RUNNER }}
             CI_NIGHTLY_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_TRUSTED_RUNNER }}
+            CI_OVERFLOW_LINUX=${{ vars.CI_OVERFLOW_LINUX }}
             CI_PAID_MACOS_OVERFLOW=${{ vars.CI_PAID_MACOS_OVERFLOW }}
             CI_PERF_CRON_GATEWAY=${{ vars.CI_PERF_CRON_GATEWAY }}
             CI_PIN_DAEMON_POOL=${{ vars.CI_PIN_DAEMON_POOL }}
+            CI_PR_CONTROL_SKIP_FLEET=${{ vars.CI_PR_CONTROL_SKIP_FLEET }}
             CI_PR_POOL_OWNED=${{ vars.CI_PR_POOL_OWNED }}
+            CI_QUEUE_RESERVED=${{ vars.CI_QUEUE_RESERVED }}
+            CI_QUEUE_JANITOR_ON_FLEET=${{ vars.CI_QUEUE_JANITOR_ON_FLEET }}
+            CI_RD_HOST_GATEWAY=${{ vars.CI_RD_HOST_GATEWAY }}
+            CI_RELEASE_PIN_SLOT=${{ vars.CI_RELEASE_PIN_SLOT }}
+            CI_REPAIR_SKIP_FLEET=${{ vars.CI_REPAIR_SKIP_FLEET }}
             CI_SEED_TRUSTED_POOL=${{ vars.CI_SEED_TRUSTED_POOL }}
             CI_SESSION_LABEL=${{ vars.CI_SESSION_LABEL }}
             CI_SESSION_LANE_RUNNER=${{ vars.CI_SESSION_LANE_RUNNER }}
+            CI_SIDE_LANE_LABELS=${{ vars.CI_SIDE_LANE_LABELS }}
             CI_SIDE_LANE_RUNNER=${{ vars.CI_SIDE_LANE_RUNNER }}
             CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY=${{ vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY }}
             CI_TEST_COMPILE_GATEWAY=${{ vars.CI_TEST_COMPILE_GATEWAY }}
