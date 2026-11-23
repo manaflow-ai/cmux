@@ -29,11 +29,10 @@
 //!
 //! 16-color schemes (`scheme.rs`): base16 YAML, iTerm2 `.itermcolors`,
 //! Windows Terminal JSON, VS Code color themes and Ghostty theme files, read
-//! into one [`Scheme`] and written back in any of them. A whole scheme from a
-//! canvas and an accent color (`derive_scheme.rs`), held to the contrast
-//! floors. A scheme from a background image
+//! into one [`Scheme`] and written back in any of them. A scheme from a background image
 //! (`image_palette.rs`): median cut over the caller's decoded pixels, held
 //! to the spec's contrast floors.
+//! A whole scheme from two colors, a canvas and an accent (`two_color.rs`).
 //!
 //! ```no_run
 //! use cmux_theme_tokens::{Appearance, Env, ThemeTokens, load};
@@ -51,12 +50,12 @@
 mod app_theme;
 mod colors;
 mod config;
-mod derive_scheme;
 mod image_palette;
 mod rgb;
 mod scheme;
 mod spec;
 mod tokens;
+mod two_color;
 
 pub use app_theme::{
     AppTheme, AppToken, Oklch, ThemeAccent, fit_contrast, from_oklch, mix_oklab, oklch,
@@ -66,7 +65,6 @@ pub use config::{
     Appearance, DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, Env, Loaded, THEME_ACCENT_KEY,
     THEME_OVERRIDE_MAX_CHARS, load, theme_file_accent, theme_for, theme_override_value,
 };
-pub use derive_scheme::{DerivedScheme, scheme_from_colors};
 pub use image_palette::{
     ImageError, ImagePalette, MAX_SAMPLES, Pixels, SWATCHES, decode_ppm, palette_from_image,
 };
@@ -79,6 +77,7 @@ pub use scheme::{
 /// token and how it derives (`cmux customize schema` lists them).
 pub use spec::DESIGN_TOKENS;
 pub use tokens::*;
+pub use two_color::{TwoColorTheme, theme_from_two_colors};
 
 /// Loads the process's Ghostty config for `appearance` and derives the
 /// tokens under `borders`.
