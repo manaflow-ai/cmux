@@ -28,6 +28,6 @@ regexes = [
   '''^(0123456789abcdef)+$''',
   # The same for acpmux's (cmux#49122): a made-up ghp_ token the audit redaction test masks, and two test strings.
   '''^ghp_aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jSaZ3k$''',
-  '''ghs_secret0123''',
+  '''^ghs_(secret|minted)0123'''
   '''same-length-secret-001''',
 ]
