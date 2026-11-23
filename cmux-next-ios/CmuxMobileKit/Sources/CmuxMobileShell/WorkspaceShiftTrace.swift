@@ -22,7 +22,7 @@ public final class WorkspaceShiftTrace {
 
     private init?() {
         let url = FrameLogFile.url(in: .cachesDirectory, "workspace-shift.jsonl")
-        guard FileManager.default.createFile(atPath: url.path, contents: nil),
+        guard (try? Data().write(to: url, options: .atomic)) != nil,
               let handle = try? FileHandle(forWritingTo: url) else { return nil }
         self.handle = handle
         probe.isUserInteractionEnabled = false

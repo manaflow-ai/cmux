@@ -24,6 +24,20 @@ extension AppStore {
             }),
         ]
         func ago(_ minutes: Double) -> Date { now.addingTimeInterval(-minutes * 60) }
+        // The shift gate's browser fixture is self-contained so it exercises
+        // the native WKWebView and its page input without a network or Mac
+        // server. Other mock launches retain the localhost preview address.
+        let shiftBrowserFixture = ProcessInfo.processInfo.arguments.contains("-cmux-mobile-workspace-shift-trace")
+        let blogPageURL: URL?
+        let blogSubtitle: String
+        if shiftBrowserFixture {
+            let blogPageHTML = "<!doctype html><html><head><meta name=viewport content='width=device-width,initial-scale=1'></head><body><h1>Offline blog preview</h1><p>Workspace fixture</p><input style='font-size:16px' aria-label='Page input' placeholder='Write a note'></body></html>"
+            blogPageURL = URL(string: "data:text/html;charset=utf-8," + (blogPageHTML.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? blogPageHTML))
+            blogSubtitle = "offline fixture"
+        } else {
+            blogPageURL = URL(string: "http://localhost:4321")
+            blogSubtitle = "localhost:4321"
+        }
         // Needs you (2), working (2), done (1), idle, then the asleep MacBook Pro's.
         let workspaces = [
             Workspace(
@@ -82,8 +96,8 @@ extension AppStore {
             ),
             Workspace(
                 id: "ws-blog", macID: "mac-studio", title: "blog", directory: "~/Development/blog", branch: "main",
-                tabs: [WorkspaceTab(id: "t-blog", kind: .browser, title: "Preview", subtitle: "localhost:4321",
-                                    url: URL(string: "http://localhost:4321"))],
+                tabs: [WorkspaceTab(id: "t-blog", kind: .browser, title: "Preview", subtitle: blogSubtitle,
+                                    url: blogPageURL)],
                 lastActivityAt: ago(26 * 60)
             ),
             Workspace(
