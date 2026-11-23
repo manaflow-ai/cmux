@@ -45,6 +45,20 @@ final class ChatTallAnswerUITests: XCTestCase {
         return !frame.isEmpty && app.windows.firstMatch.frame.contains(frame)
     }
 
+    /// The list's offset, top and content height (the rig's `list.scroll.probe`).
+    @MainActor
+    private func offset(_ app: XCUIApplication) -> (y: CGFloat, top: CGFloat, h: CGFloat)? {
+        let probe = app.descendants(matching: .any)["list.scroll.probe"].firstMatch
+        guard probe.exists else { return nil }
+        var values: [String: CGFloat] = [:]
+        for part in probe.label.split(separator: " ") {
+            let pair = part.split(separator: "=")
+            if pair.count == 2, let value = Double(pair[1]) { values[String(pair[0])] = CGFloat(value) }
+        }
+        guard let y = values["y"], let top = values["top"], let h = values["h"] else { return nil }
+        return (y, top, h)
+    }
+
     @MainActor
     func testATallAnswerScrollsThroughWithoutAJump() {
         XCUIDevice.shared.orientation = .portrait
@@ -55,6 +69,10 @@ final class ChatTallAnswerUITests: XCTestCase {
         app.launchEnvironment["CMUX_MOBILE_LIST_PASSES"] = "0"
         app.launchEnvironment["CMUX_MOBILE_LIST_SETTLE"] = "0"
         app.launchEnvironment["CMUX_MOBILE_LIST_TALL_ANSWER"] = "1"
+        // The rig leaves the chat at its newest turn (by default it jumps to the top a few seconds
+        // after the open, as a reader leaving the newest turn: that jump read as a reset, 8cbc6b30).
+        app.launchEnvironment["CMUX_MOBILE_LIST_LEAVE_NEWEST"] = "0"
+        app.launchEnvironment["CMUX_MOBILE_LIST_SCROLL_PROBE"] = "1"
         app.launchEnvironment["CMUX_MOBILE_STALL_WATCHDOG"] = "1"
         app.launchEnvironment["CMUX_MOBILE_STALL_LOG"] = stallLog
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-no-restore"]
@@ -64,38 +82,54 @@ final class ChatTallAnswerUITests: XCTestCase {
         // The newest answer is the log: the chat opens on it.
         let log = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "frame header mismatch")).firstMatch
         XCTAssertTrue(log.waitForExistence(timeout: 60), "the chat opens on its newest answer, the log\n\(app.debugDescription)")
+        XCTAssertTrue(app.descendants(matching: .any)["list.scroll.probe"].waitForExistence(timeout: 20), "the rig's scroll probe shows")
         attach(app, "chat-tall-1-end")
         // The prompt above the log (MockStressContent.prompt(2)).
         let prompt = app.staticTexts["Add tests for the transport switch"].firstMatch
-        func held() -> CGFloat? { log.exists && !log.frame.isEmpty ? log.frame.minY : nil }
+
+        // Nothing moves the transcript but the test's swipes: a still screen stays still.
+        var stray: [String] = []
+        if let start = offset(app) {
+            pause(3)
+            if let later = offset(app), abs(later.y - start.y) > 0.5 {
+                stray.append("before any swipe: y \(start.y) -> \(later.y)")
+            }
+        }
+        var lines: [String] = []
         var largest: CGFloat = 0
-        var holds = 0
-        // Reading up, the log's text only moves down the screen; a jump to the end moves it up.
-        var lastTop: CGFloat?
         var jump: CGFloat = 0
-        for _ in 0..<60 where !onScreen(app, prompt) {
+        var holds = 0
+        let screen = app.windows.firstMatch.frame.height
+        for swipe in 0..<80 where !onScreen(app, prompt) {
+            guard let before = offset(app) else { break }
             app.swipeDown()
             pause(1)
-            let top = held()
-            if let top, let lastTop, lastTop - top > jump { jump = lastTop - top }
-            lastTop = top ?? lastTop
-            guard let before = held() else { continue }
+            guard let landed = offset(app) else { break }
+            // Held still: no gesture, so no move.
             pause(1)
-            guard let after = held() else { continue }
+            guard let held = offset(app) else { break }
             holds += 1
-            largest = max(largest, abs(after - before))
+            let still = abs(held.y - landed.y)
+            largest = max(largest, still)
+            lines.append("swipe \(swipe): y \(before.y) -> \(landed.y), held \(held.y), content \(landed.h) pt")
+            if still > 0.5 { stray.append("swipe \(swipe): moved \(held.y - landed.y) pt while held still (y \(held.y), top \(held.top))") }
+            // Reading up, the offset only goes down; a swipe moves at most about three screens.
+            if landed.y - before.y > jump { jump = landed.y - before.y }
+            if before.y - landed.y > 3 * screen { stray.append("swipe \(swipe): moved \(before.y - landed.y) pt, more than a swipe moves") }
         }
-        let line = "chat tall row: largest move of a still reader's row \(largest) pt over \(holds) holds; largest jump toward the end in a swipe \(jump) pt"
-        print("CMUX_CHAT_TALL_ROW \(line)")
-        let note = XCTAttachment(string: line)
+        let summary = "chat tall row: largest move of a still reader \(largest) pt over \(holds) holds; largest move toward the end in a swipe \(jump) pt; stray moves \(stray.count)"
+        print("CMUX_CHAT_TALL_ROW \(summary)")
+        for line in lines { print("CMUX_CHAT_TALL_ROW \(line)") }
+        let note = XCTAttachment(string: ([summary] + stray + lines).joined(separator: "\n"))
         note.name = "chat-tall-shift"
         note.lifetime = .keepAlways
         add(note)
         attach(app, "chat-tall-2-prompt")
-        XCTAssertTrue(onScreen(app, prompt), "scrolled up past the tall answer to its prompt\n\(app.debugDescription)")
-        XCTAssertLessThanOrEqual(jump, 4, "a swipe up the chat never moves it back toward its end: \(line)")
-        XCTAssertGreaterThan(holds, 3, "the reader held still on the way: \(line)")
-        XCTAssertLessThanOrEqual(largest, 0.5, line)
+        XCTAssertTrue(stray.isEmpty, "the transcript moved without a gesture (a rig or director scroll, or a reset): \(stray)")
+        XCTAssertTrue(onScreen(app, prompt), "scrolled up past the tall answer to its prompt: \(summary)\n\(app.debugDescription)")
+        XCTAssertLessThanOrEqual(jump, 4, "a swipe up the chat never moves it back toward its end: \(summary)")
+        XCTAssertGreaterThan(holds, 3, "the reader held still on the way: \(summary)")
+        XCTAssertLessThanOrEqual(largest, 0.5, summary)
         XCTAssertEqual(app.state, .runningForeground, "no crash")
     }
 }
