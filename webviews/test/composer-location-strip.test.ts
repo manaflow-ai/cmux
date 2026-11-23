@@ -547,12 +547,15 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     });
 
   // The strip's steps (composerLocation.css): the computer drops its name only where the strip's own
-  // width (a container query) leaves no room for it. Beside the folder and the branch that is under a
-  // 314 px strip, a 364 px pane here; it keeps its laptop icon, label and tooltip. At a 340 px pane
+  // width (a container query) leaves no room for it. The chat composer's branch is in the row under
+  // the draft (ComposerBranch), so its strip holds the folder and the computer alone, and the
+  // computer keeps its name down to a 238 px strip (a 50 px narrower pane than before: 364 px
+  // beside the branch's 314 px step). It keeps its laptop icon, label and tooltip. At a 340 px pane
   // the folder cuts in the middle and keeps both ends. The branch keeps its name at every step.
   for (const [width, iconOnly] of [
     [364, false],
-    [363, true],
+    [290, false],
+    [286, true],
   ] as const)
     test(`the chat composer at ${width} px: the computer ${iconOnly ? "shows its icon alone" : "keeps its name"}`, async () => {
       const page = await open("agent-pane.composer-strip", "project", width);
@@ -663,7 +666,8 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       expect(marks.tailText).toBe("checkout");
       expect(tail.width).toBeGreaterThan(0);
       expect(tail.right).toBeLessThanOrEqual(strip.right);
-      expect(marks.computerLabelShown).toBe(false);
+      // With no branch beside it (ComposerBranch), the computer keeps its name at this width.
+      expect(marks.computerLabelShown).toBe(true);
       expect(marks.branchClipped).toBe(false);
     });
 
