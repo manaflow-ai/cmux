@@ -497,6 +497,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // own frame, over the area's top while the keyboard clips it.
         tuiHeader.isHidden = true
         tuiHeader.isUserInteractionEnabled = false
+        tuiHeader.isAccessibilityElement = true
+        tuiHeader.accessibilityIdentifier = "terminal.tui.header"
+        tuiHeader.accessibilityTraits = .staticText
         tuiHeader.layer.contentsGravity = .resize
         tuiHeader.layer.masksToBounds = true
         tuiHeaderRule.backgroundColor = UIColor.separator.cgColor
@@ -4529,7 +4532,8 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
         // The host's first rows, where they would sit unclipped: host point
         // (x, y) is surface point (x, y) - surface.frame.origin, then the
         // presented layer's own point.
-        let source = CGRect(x: -surface.frame.minX - frameLayer.frame.minX, y: -surface.frame.minY - frameLayer.frame.minY,
+        let source = CGRect(x: -surface.frame.minX - frameLayer.frame.minX,
+                            y: -surface.frame.minY - frameLayer.frame.minY,
                             width: width, height: height)
         let unit = CGRect(x: source.minX / frameLayer.bounds.width, y: source.minY / frameLayer.bounds.height,
                           width: source.width / frameLayer.bounds.width, height: source.height / frameLayer.bounds.height)
