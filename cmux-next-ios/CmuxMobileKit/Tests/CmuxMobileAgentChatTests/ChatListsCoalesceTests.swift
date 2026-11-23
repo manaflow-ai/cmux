@@ -627,6 +627,34 @@ import Testing
         rows.setHolding(false, journal: journal)
     }
 
+    /// A long hold under a stream keeps no more than the journal does (EVT-13): 5000 arrivals
+    /// of large records over the 500 limit and the byte budget; the count is all 5000, held
+    /// storage stays within the limit plus 64 slots, and no dropped record's body is kept.
+    @Test func aLongHoldKeepsOnlyWhatTheJournalKeeps() {
+        let journal = journal()
+        let rows = EventInspectorRows(offMainAbove: .max)
+        for n in 0..<100 { journal.record(Self.record(n)) }
+        _ = rows.rows(journal)
+        rows.setHolding(true, journal: journal)
+        let big = String(repeating: "tool output line\n", count: 1500)
+        var worstStorage = 0
+        for n in 1000..<6000 {
+            journal.record(Self.record(n, body: n % 10 == 0 ? big : nil))
+            worstStorage = max(worstStorage, rows.heldStorage)
+            if n % 40 == 0 { _ = rows.rows(journal) }
+        }
+        _ = rows.rows(journal)
+        #expect(rows.arrivedWhileHeld == 5000)
+        #expect(NewEventsPill(arrived: rows.arrivedWhileHeld).text == "500+ new events")
+        #expect(worstStorage <= AgentEventJournal.limit + 64,
+                "held storage reached \(worstStorage) slots for a journal of \(AgentEventJournal.limit)")
+        #expect(rows.heldCount <= journal.count, "held \(rows.heldCount), the journal keeps \(journal.count)")
+        #expect(rows.heldBytes <= journal.keptBytes,
+                "held slots keep \(rows.heldBytes) bytes, the journal \(journal.keptBytes): dropped bodies were kept")
+        rows.setHolding(false, journal: journal)
+        #expect(rows.rows(journal).map(\.id) == brute(journal, ""))
+    }
+
     /// The pill reads its limit from the journal's one constant: another limit moves the "+".
     @Test func thePillsLimitIsTheJournals() {
         #expect(NewEventsPill(arrived: 1).cap == AgentEventJournal.limit)

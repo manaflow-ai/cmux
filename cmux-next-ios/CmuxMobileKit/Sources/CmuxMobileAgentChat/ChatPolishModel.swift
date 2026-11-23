@@ -188,8 +188,9 @@ public final class AgentEventJournal {
     @ObservationIgnored private(set) var moved = 0
     /// Bumped by Clear: a memo of the rows starts over.
     @ObservationIgnored private(set) var generation = 0
-    /// Called with each record as it is kept, before older ones drop for it (a held list counts
-    /// every arrival, also those the limit drops before the next frame's read).
+    /// Called with each record as it is kept, once older ones have dropped for it (a held list
+    /// counts every arrival, also those the limit drops before the next frame's read, and keeps
+    /// only what the journal keeps).
     @ObservationIgnored private var taps: [Int: @MainActor (AgentInspectorEvent) -> Void] = [:]
     @ObservationIgnored private var nextTap = 0
 
@@ -246,7 +247,6 @@ public final class AgentEventJournal {
         storage.append(event)
         bytes += event.line.utf8.count
         next += 1
-        for each in taps.values { each(event) }
         // The oldest go first, past the row limit or the byte budget (the newest always stays).
         while storage.count - start > 1, storage.count - start > Self.limit || bytes > Self.maxBytes {
             bytes -= storage[start].line.utf8.count
@@ -261,6 +261,8 @@ public final class AgentEventJournal {
             baseID += start
             start = 0
         }
+        // After the drops: a held list counts the record and lets go of what was just dropped.
+        for each in taps.values { each(event) }
         changed()
     }
 
@@ -332,6 +334,8 @@ final class EventInspectorRows {
     /// read. They land together when the hold ends (the pill, or the reader back at the top).
     @ObservationIgnored private(set) var holding = false
     /// Records that came while holding and match the shown query, oldest first, from `heldHead`.
+    /// Bounded by the journal: records it drops leave at once (`compactHeld`), so a long hold
+    /// under a stream keeps no dropped bodies; the pill's count is `arrivedWhileHeld`.
     @ObservationIgnored private var held: [AgentInspectorEvent] = []
     @ObservationIgnored private var heldHead = 0
     /// While holding: rows of `matched` before this one the journal dropped, kept as stubs.
@@ -346,6 +350,10 @@ final class EventInspectorRows {
     private var landed = 0
     /// Held records (the pill's count; read after `rows`, which brings it up to date).
     var heldCount: Int { held.count - heldHead }
+    /// Slots in `held`, kept or emptied (tests: bounded by the journal, not by the arrivals).
+    var heldStorage: Int { held.count }
+    /// The bytes of every slot of `held` (tests: emptied slots keep no body).
+    var heldBytes: Int { held.reduce(0) { $0 + $1.line.utf8.count } }
     /// Records that arrived while holding and match the shown query, counted as they come and
     /// never lowered when the journal later drops one (the pill's real count; what lands is the
     /// kept ones, `heldCount`).
@@ -394,6 +402,24 @@ final class EventInspectorRows {
         }
         held.append(event)
         arrivedWhileHeld += 1
+        // The journal keeps the newest `limit` (and its byte budget): records before its first
+        // kept one are gone there, so they go here too, bodies and all.
+        if let journal = tappedJournal { compactHeld(first: journal.firstID) }
+    }
+
+    /// Lets go of held records the journal no longer keeps: their slots are emptied at once (the
+    /// body goes with them), and the emptied front is reclaimed in bulk.
+    private func compactHeld(first: Int) {
+        while heldHead < held.count, held[heldHead].id < first {
+            held[heldHead] = AgentEventJournal.emptied
+            heldHead += 1
+        }
+        // Every 64: `held` stays within the journal's limit plus 64 slots (a move of at most the
+        // limit per 64 drops).
+        if heldHead >= 64 {
+            held.removeFirst(heldHead)
+            heldHead = 0
+        }
     }
 
     /// A new query's rows include every record: nothing is held any more.
@@ -512,7 +538,7 @@ final class EventInspectorRows {
         if holding {
             // Only counted (each record matched once, as it comes); the rows stay as they are.
             let first = journal.firstID
-            while heldHead < held.count, held[heldHead].id < first { heldHead += 1 }
+            compactHeld(first: first)
             // A dropped record's row stays (nothing moves under the reader), its body let go.
             while stubHead < matched.count, matched[stubHead].id < first {
                 matched[stubHead] = matched[stubHead].stub
