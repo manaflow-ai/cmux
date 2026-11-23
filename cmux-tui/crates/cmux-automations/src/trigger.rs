@@ -29,6 +29,19 @@ pub enum Trigger {
     /// Whenever the named event happens (`--when agent-idle`): a watch whose
     /// command cmux supplies ([`crate::events`]), `cmux automation events NAME`.
     Event { event: String, debounce_seconds: u64 },
+    /// Whenever a signed POST reaches the runner's local listener at
+    /// `/hooks/<id>` and meets every filter (`--webhook`, [`crate::webhook`]).
+    /// A delivery id seen in the last `dedupe_seconds` starts nothing.
+    Webhook {
+        #[serde(default)]
+        filters: Vec<crate::webhook::WebhookFilter>,
+        #[serde(default = "default_dedupe")]
+        dedupe_seconds: u64,
+    },
+}
+
+fn default_dedupe() -> u64 {
+    crate::webhook::DEFAULT_DEDUPE_SECONDS
 }
 
 /// A watch's default debounce: a burst of lines inside it is one event.
@@ -100,6 +113,9 @@ impl Trigger {
                      no longer); space runs out with --cooldown"
                 )))
             }
+            Trigger::Webhook { filters, dedupe_seconds } => {
+                crate::webhook::validate(filters, *dedupe_seconds).map_err(ScheduleError)
+            }
             _ => Ok(()),
         }
     }
@@ -121,7 +137,10 @@ impl Trigger {
                 Ok(Some(anchor + ((t - anchor) / step + 1) * step))
             }
             Trigger::At { at } => Ok((*at > t).then_some(*at)),
-            Trigger::Manual | Trigger::Watch { .. } | Trigger::Event { .. } => Ok(None),
+            Trigger::Manual
+            | Trigger::Watch { .. }
+            | Trigger::Event { .. }
+            | Trigger::Webhook { .. } => Ok(None),
         }
     }
 
@@ -141,6 +160,11 @@ impl Trigger {
                 Some(kind) => kind.label.to_string(),
                 None => format!("when {event}"),
             },
+            Trigger::Webhook { filters, .. } if filters.is_empty() => "webhook".into(),
+            Trigger::Webhook { filters, .. } => format!(
+                "webhook ({})",
+                filters.iter().map(|f| f.describe()).collect::<Vec<_>>().join(" ")
+            ),
         }
     }
 
