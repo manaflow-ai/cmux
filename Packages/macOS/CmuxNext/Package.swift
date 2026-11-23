@@ -191,7 +191,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: 3142513ee35346ec0b6c4d120a02cd6158019ed79caf27df0f2989e4e20799e7
+// app-ffi-pin-checksum: f8195c5b7317d2ff376b6a12ca08e3c75c4ebe0fd0ab5edfaeef629c0a6149ba
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -218,6 +218,14 @@ let appFFI: Target = .binaryTarget(
 // pulling in the app composition root.
 let uiLayerPreviewProducts: [Product] = [
     .library(name: "CmuxNextUiLayerPreview", targets: ["CmuxNextUiLayerPreview"]),
+    // The UI shell (Prototypes/UiLayerHost --shoot) draws these modules' playground windows
+    // without the app: leaf UI modules only, no Daemon, Bridge, Browser, Terminal or App.
+    .library(name: "CmuxNextUiShellModules", targets: [
+        "CmuxNextDesign",
+        "CmuxNextDesignTokens",
+        "CmuxNextSidebar",
+        "CmuxNextTabs",
+    ]),
 ]
 
 // Debug-only: the preview leaf and its tests share this one condition.
@@ -1785,6 +1793,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDaemon",
                 "CmuxNextDaemonService",
                 "CmuxNextDesign",
+                "CmuxNextDesignTokens",
                 "CmuxNextDevices",
                 "CmuxNextPalette",
                 "CmuxNextRemoteView",
