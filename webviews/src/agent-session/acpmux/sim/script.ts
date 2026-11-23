@@ -369,6 +369,76 @@ export class SimBuilder {
     return this.record("mux", "status", { status: "ready" }, 10, "status ready");
   }
 
+  /** The agent's checklist (ACP `plan`): each entry `[content, status]`; none clears it. */
+  plan(entries: [string, "pending" | "in_progress" | "completed"][], after = 300): this {
+    return this.record(
+      "in",
+      "plan",
+      update("plan", { entries: entries.map(([content, status]) => ({ content, status, priority: "medium" })) }),
+      after,
+      `plan: ${entries.filter(([, status]) => status === "completed").length}/${entries.length}`,
+    );
+  }
+
+  /** acpmux asks the person to allow call `id`, and `ms` later records the answer (`allow`, or `null`: still waiting). */
+  permission(id: string, { ms = 4_000, allow = true as boolean | null, after = 100 } = {}): this {
+    const permissionId = `perm-${id}`;
+    const options = [
+      { optionId: "allow", name: "Allow", kind: "allow_once" },
+      { optionId: "reject", name: "Deny", kind: "reject_once" },
+    ];
+    this.record(
+      "mux",
+      "permission_request",
+      { permissionId, request: { sessionId: "agent-1", toolCall: { toolCallId: id, title: id }, options } },
+      after,
+      `permission asked: ${id}`,
+    );
+    if (allow === null) return this;
+    return this.record(
+      "mux",
+      "permission_decision",
+      { permissionId, outcome: { outcome: "selected", optionId: allow ? "allow" : "reject" } },
+      ms,
+      `permission ${allow ? "allowed" : "denied"}: ${id}`,
+    );
+  }
+
+  /** The person's Stop: acpmux's `stopping`, each running call of `calls` ends interrupted (as the harness
+   *  ends them), then the turn ends cancelled `ms` later. */
+  stop({ calls = [] as string[], ms = 600, after = 300 } = {}): this {
+    this.record("mux", "stopping", { turnId: this.turnId }, after, "stopping");
+    for (const id of calls)
+      this.toolEnd(id, { ms: 200, status: "failed", output: "[Request interrupted by user for tool use]" });
+    return this.turnEnd("cancelled", ms);
+  }
+
+  /** The turn fails: acpmux's `turn_error`, then a failed `turn_result` carrying the error. */
+  fail(error: string, after = 500): this {
+    this.record("mux", "turn_error", { turnId: this.turnId, error }, after, "turn_error");
+    this.record(
+      "mux",
+      "turn_result",
+      { status: "failed", turnId: this.turnId, promptId: this.promptId, error, errorText: error },
+      20,
+      "turn_result",
+    );
+    return this.record("mux", "status", { status: "ready" }, 10, "status ready");
+  }
+
+  /** The model cannot be reached: acpmux retries the turn's request, and `ms` later hears it again. */
+  retry({ ms = 8_000, attempts = 2, after = 400 } = {}): this {
+    for (let attempt = 1; attempt <= attempts; attempt += 1)
+      this.record(
+        "mux",
+        "turn_retrying",
+        { turnId: this.turnId, attempt, maxAttempts: 10, delayMs: ms / attempts, error: "overloaded" },
+        attempt === 1 ? after : ms / attempts,
+        `turn_retrying ${attempt}`,
+      );
+    return this.record("mux", "turn_heard", { turnId: this.turnId }, ms / attempts, "turn_heard");
+  }
+
   /** The reader scrolls (`top`, `bottom`, or by px) or opens a fold (its row id, `worked-user-12`), `after` ms from now. */
   reader(action: ReaderAction, after = 200): this {
     this.now += after;
