@@ -1,6 +1,7 @@
 // Browser-only host for the cmux-next web development loop. This file is imported by the Vite
 // dev entry, never by the shipped pane entry. It keeps the native bridge shape while letting the
 // real pane transport use the local acpmux WebSocket directly.
+import { noteChatTheme } from "../agent-session/acpmux/chatSnapshot/live";
 
 export type DevHostParams = {
   endpoint: string;
@@ -61,7 +62,13 @@ export function devHostParams(hash: string): DevHostParams | undefined {
   };
 }
 
-type DevHostKept = { tails: Record<string, unknown>; anchors: Record<string, unknown> };
+type DevHostKept = {
+  tails: Record<string, unknown>;
+  anchors: Record<string, unknown>;
+  /// Each chat's drawn copy (`chat.snapshot.put`), which a test serves to the next page as the
+  /// app's `__snapshot/chat.js` does.
+  snapshots?: Record<string, unknown>;
+};
 
 /// The app host's per-chat tails and reading places, in this page (`cmuxDevHostKept`).
 function keptReply(method: string, params: Record<string, unknown>): DevHostReply {
@@ -75,6 +82,17 @@ function keptReply(method: string, params: Record<string, unknown>): DevHostRepl
       return { ok: true, value: null };
     case "chat.tail.get":
       return { ok: true, value: kept.tails[sessionId] ?? null };
+    case "chat.snapshot.put": {
+      // As the app keeps it: a copy whole, a miss as its reason and the composer's prompt.
+      const { sessionId: _chat, ...snapshot } = params;
+      const held = typeof snapshot.html === "string" ? snapshot : { miss: snapshot.miss, draft: snapshot.draft };
+      kept.snapshots = { ...kept.snapshots, [sessionId]: held };
+      return { ok: true, value: { kept: true } };
+    }
+    case "chat.snapshot.get": {
+      const held = kept.snapshots?.[sessionId] as { html?: unknown } | undefined;
+      return { ok: true, value: typeof held?.html === "string" ? held : null };
+    }
     case "chat.scrollAnchor":
       kept.anchors[sessionId] = { rowId: params.rowId, offset: params.offset };
       return { ok: true, value: null };
@@ -265,6 +283,8 @@ export function devHostReply(host: DevHostParams, request: Request): DevHostRepl
     case "chat.tail.get":
     case "chat.scrollAnchor":
     case "chat.scrollAnchor.get":
+    case "chat.snapshot.put":
+    case "chat.snapshot.get":
       return keptReply(method, request.params ?? {});
     default:
       return unsupported(method);
@@ -309,6 +329,9 @@ async function pageReply(host: DevHostParams, message: unknown): Promise<unknown
 export function installDevHost(host: DevHostParams): void {
   if (typeof window === "undefined") return;
   installGestures();
+  // A page that keeps what the host keeps writes its drawn copy too: the app keys one by the theme
+  // its `theme` event names, which this host sends none of.
+  if ((globalThis as { cmuxDevHostKept?: unknown }).cmuxDevHostKept) noteChatTheme("dev-host");
   const current = (window.webkit ?? {}) as NonNullable<Window["webkit"]>;
   const handlers = (current.messageHandlers ?? {}) as Record<string, unknown>;
   if (!handlers.agentSession) {
