@@ -123,7 +123,28 @@ public final class KeyboardPinTrace: NSObject {
         let link = CADisplayLink(target: self, selector: #selector(tick(_:)))
         link.add(to: .main, forMode: .common)
         self.link = link
+        // Main-thread busy time between ticks: awake (after-waiting) to asleep (before-waiting).
+        let observer = CFRunLoopObserverCreateWithHandler(
+            nil, CFRunLoopActivity.afterWaiting.rawValue | CFRunLoopActivity.beforeWaiting.rawValue, true, 0
+        ) { [weak self] _, activity in
+            guard let self else { return }
+            let now = CACurrentMediaTime()
+            MainActor.assumeIsolated {
+                if activity == .afterWaiting {
+                    self.awakeSince = now
+                    self.wakes += 1
+                } else if let since = self.awakeSince {
+                    self.busy += now - since
+                    self.awakeSince = nil
+                }
+            }
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
     }
+
+    private var awakeSince: CFTimeInterval?
+    private var busy: CFTimeInterval = 0
+    private var wakes = 0
 
     /// Notes every touch the window gets and never takes one: it fails at once.
     private final class TouchMarker: UIGestureRecognizer {
@@ -189,6 +210,13 @@ public final class KeyboardPinTrace: NSObject {
         parts.append("orient=\(window.windowScene?.effectiveGeometry.interfaceOrientation.rawValue ?? 0)")
         parts.append("hw=\(GCKeyboard.coalesced == nil ? 0 : 1)")
         parts.append("rz=\(TerminalModel.debugResizesSentTotal)")
+        // Busy ms and wakeups since the last tick; the open stretch counts up to now.
+        let now = CACurrentMediaTime()
+        let open = awakeSince.map { now - $0 } ?? 0
+        parts.append(String(format: "mtb=%.1f mtw=%d", (busy + open) * 1000, wakes))
+        busy = 0
+        wakes = 0
+        if awakeSince != nil { awakeSince = now }
         if let keyboard = Self.keyboardRect(in: window) {
             parts.append(String(format: "kb=%.2f kbx=%.1f kbw=%.1f kbh=%.1f", keyboard.minY, keyboard.minX, keyboard.width, keyboard.height))
         } else {
