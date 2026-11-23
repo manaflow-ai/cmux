@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR d4620ae5ef2f31fb3496ff3e335215bbdb2dbdc0d8773a665782acba1faf17ba.
+// cmux-tui mux protocol 12, IR 7eed693cd83d030d5989cefd7e02559857b9c96dd8ca0cdd674587cb5b53d4c7.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1358,6 +1358,40 @@ pub struct ConversationRunsResult {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ConversationScheduledListRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub conversation: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationScheduledListResult {
+    pub scheduled: Vec<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationScheduledOpRequest {
+    pub op: Nullable<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ConversationScheduledOpResult {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub change: Option<T::JsonValue>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub removed: Option<T::JsonValue>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub replayed: Option<bool>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub rev: Option<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub scheduled: Optional<T::JsonValue>,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConversationSearchRequest {
     pub limit: u32,
@@ -2003,15 +2037,39 @@ pub struct HistorySearchResult {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct HomeInboxRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub ids: Optional<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub limit: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub offset: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub owners: Optional<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub scope: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub since: Optional<u64>,
 }
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HomeInboxResult {
     pub cloud: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub full: Option<bool>,
     pub me: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub offset: Option<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub order: Option<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub removed: Option<Vec<String>>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub revision: Option<u64>,
     pub rows: Vec<T::HomeInboxRow>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub total: Option<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub window: Option<bool>,
 }
 
 #[rustfmt::skip]
@@ -4905,6 +4963,14 @@ impl CmuxClient {
             self.require_capability_field("conversation-runs", "conversation-run-answers-v1")?;
         }
         self.execute(&CONVERSATION_RUNS_METADATA, &request)
+    }
+
+    pub fn conversation_scheduled_list(&mut self, request: ConversationScheduledListRequest) -> Result<ConversationScheduledListResult> {
+        self.execute(&CONVERSATION_SCHEDULED_LIST_METADATA, &request)
+    }
+
+    pub fn conversation_scheduled_op(&mut self, request: ConversationScheduledOpRequest) -> Result<ConversationScheduledOpResult> {
+        self.execute(&CONVERSATION_SCHEDULED_OP_METADATA, &request)
     }
 
     pub fn conversation_search(&mut self, request: ConversationSearchRequest) -> Result<ConversationSearchResult> {

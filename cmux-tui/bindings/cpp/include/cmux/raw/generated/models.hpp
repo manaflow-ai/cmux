@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "d4620ae5ef2f31fb3496ff3e335215bbdb2dbdc0d8773a665782acba1faf17ba";
+inline constexpr std::string_view kProtocolIrSha256 = "7eed693cd83d030d5989cefd7e02559857b9c96dd8ca0cdd674587cb5b53d4c7";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -384,6 +384,10 @@ struct ConversationRunAppendRequest;
 struct ConversationRunAppendResult;
 struct ConversationRunsRequest;
 struct ConversationRunsResult;
+struct ConversationScheduledListRequest;
+struct ConversationScheduledListResult;
+struct ConversationScheduledOpRequest;
+struct ConversationScheduledOpResult;
 struct ConversationSearchRequest;
 struct ConversationSearchResult;
 struct ConversationSnapshotRequest;
@@ -663,6 +667,7 @@ struct ConversationDraftEvent;
 struct ConversationInboxChangedEvent;
 struct ConversationLiveEvent;
 struct ConversationRunChangedEvent;
+struct ConversationScheduledChangedEvent;
 struct ConversationTypingEvent;
 struct DaemonShutdownEvent;
 struct DetachedEvent;
@@ -2606,6 +2611,38 @@ struct ConversationRunsResult {
     friend bool operator==(const ConversationRunsResult&, const ConversationRunsResult&) = default;
 };
 
+struct ConversationScheduledChangedEvent {
+    std::string conversation{};
+    std::string participant{};
+    std::optional<JsonValue> removed{};
+    std::optional<JsonValue> scheduled{};
+    friend bool operator==(const ConversationScheduledChangedEvent&, const ConversationScheduledChangedEvent&) = default;
+};
+
+struct ConversationScheduledListRequest {
+    Field<std::string> conversation{};
+    friend bool operator==(const ConversationScheduledListRequest&, const ConversationScheduledListRequest&) = default;
+};
+
+struct ConversationScheduledListResult {
+    std::vector<JsonValue> scheduled{};
+    friend bool operator==(const ConversationScheduledListResult&, const ConversationScheduledListResult&) = default;
+};
+
+struct ConversationScheduledOpRequest {
+    std::optional<JsonValue> op{};
+    friend bool operator==(const ConversationScheduledOpRequest&, const ConversationScheduledOpRequest&) = default;
+};
+
+struct ConversationScheduledOpResult {
+    std::optional<JsonValue> change{};
+    std::optional<JsonValue> removed{};
+    std::optional<bool> replayed{};
+    std::optional<std::uint64_t> rev{};
+    Field<JsonValue> scheduled{};
+    friend bool operator==(const ConversationScheduledOpResult&, const ConversationScheduledOpResult&) = default;
+};
+
 struct ConversationSearchHit {
     std::string author{};
     std::string conversation{};
@@ -3432,7 +3469,12 @@ enum class HomeInboxKind {
 };
 
 struct HomeInboxRequest {
+    Field<std::vector<std::string>> ids{};
+    Field<std::uint64_t> limit{};
+    Field<std::uint64_t> offset{};
     Field<std::vector<std::string>> owners{};
+    Field<std::string> scope{};
+    Field<std::uint64_t> since{};
     friend bool operator==(const HomeInboxRequest&, const HomeInboxRequest&) = default;
 };
 
@@ -3441,6 +3483,7 @@ struct HomeInboxRow {
     std::optional<std::string> chief{};
     std::optional<HomeChiefState> chief_state{};
     std::string id{};
+    std::optional<std::uint64_t> index{};
     HomeInboxKind kind{};
     std::optional<std::string> last_author{};
     bool marked_unread{};
@@ -3456,8 +3499,15 @@ struct HomeInboxRow {
 
 struct HomeInboxResult {
     std::string cloud{};
+    std::optional<bool> full{};
     std::string me{};
+    std::optional<std::uint64_t> offset{};
+    std::optional<std::string> order{};
+    std::optional<std::vector<std::string>> removed{};
+    std::optional<std::uint64_t> revision{};
     std::vector<HomeInboxRow> rows{};
+    std::optional<std::uint64_t> total{};
+    std::optional<bool> window{};
     friend bool operator==(const HomeInboxResult&, const HomeInboxResult&) = default;
 };
 
@@ -8934,6 +8984,30 @@ struct Codec<ConversationRunsResult> {
 };
 
 template <>
+struct Codec<ConversationScheduledListRequest> {
+    static Result<Json> encode(const ConversationScheduledListRequest& value);
+    static Result<ConversationScheduledListRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationScheduledListResult> {
+    static Result<Json> encode(const ConversationScheduledListResult& value);
+    static Result<ConversationScheduledListResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationScheduledOpRequest> {
+    static Result<Json> encode(const ConversationScheduledOpRequest& value);
+    static Result<ConversationScheduledOpRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationScheduledOpResult> {
+    static Result<Json> encode(const ConversationScheduledOpResult& value);
+    static Result<ConversationScheduledOpResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<ConversationSearchRequest> {
     static Result<Json> encode(const ConversationSearchRequest& value);
     static Result<ConversationSearchRequest> decode(const Json& value);
@@ -10605,6 +10679,12 @@ template <>
 struct Codec<ConversationRunChangedEvent> {
     static Result<Json> encode(const ConversationRunChangedEvent& value);
     static Result<ConversationRunChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationScheduledChangedEvent> {
+    static Result<Json> encode(const ConversationScheduledChangedEvent& value);
+    static Result<ConversationScheduledChangedEvent> decode(const Json& value);
 };
 
 template <>

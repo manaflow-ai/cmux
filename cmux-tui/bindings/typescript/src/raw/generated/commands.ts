@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d4620ae5ef2f31fb3496ff3e335215bbdb2dbdc0d8773a665782acba1faf17ba. */
+/* cmux-tui mux protocol 12, IR 7eed693cd83d030d5989cefd7e02559857b9c96dd8ca0cdd674587cb5b53d4c7. */
 
 
 import type * as T from "./types.js";
@@ -957,6 +957,28 @@ export type ConversationRunsResult = {
 };
 
 /** Protocol v12; authority: local-admin. */
+export interface ConversationScheduledListRequest extends CmuxRequestBase {
+  cmd: "conversation-scheduled-list";
+  "conversation"?: (string) | null;
+}
+export type ConversationScheduledListResult = {
+  "scheduled": Array<T.JsonValue>;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface ConversationScheduledOpRequest extends CmuxRequestBase {
+  cmd: "conversation-scheduled-op";
+  "op": (T.JsonValue) | null;
+}
+export type ConversationScheduledOpResult = {
+  "change"?: T.JsonValue;
+  "removed"?: T.JsonValue;
+  "replayed"?: boolean;
+  "rev"?: bigint;
+  "scheduled"?: (T.JsonValue) | null;
+};
+
+/** Protocol v12; authority: local-admin. */
 export interface ConversationSearchRequest extends CmuxRequestBase {
   cmd: "conversation-search";
   "limit": number;
@@ -1400,12 +1422,24 @@ export type HistorySearchResult = {
 /** Protocol v12; authority: local-admin. */
 export interface HomeInboxRequest extends CmuxRequestBase {
   cmd: "home-inbox";
+  "ids"?: (Array<string>) | null;
+  "limit"?: (bigint) | null;
+  "offset"?: (bigint) | null;
   "owners"?: (Array<string>) | null;
+  "scope"?: (string) | null;
+  "since"?: (bigint) | null;
 }
 export type HomeInboxResult = {
   "cloud": string;
+  "full"?: boolean;
   "me": string;
+  "offset"?: bigint;
+  "order"?: string;
+  "removed"?: Array<string>;
+  "revision"?: bigint;
   "rows": Array<T.HomeInboxRow>;
+  "total"?: bigint;
+  "window"?: boolean;
 };
 
 /** Protocol v5; authority: control. */
@@ -3208,6 +3242,8 @@ export type CmuxRequest =
   | ConversationRunRequest
   | ConversationRunAppendRequest
   | ConversationRunsRequest
+  | ConversationScheduledListRequest
+  | ConversationScheduledOpRequest
   | ConversationSearchRequest
   | ConversationSnapshotRequest
   | ConversationThreadRequest
@@ -4126,6 +4162,22 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "conversation-runs-v1";
+    stream: null;
+  };
+  "conversation-scheduled-list": {
+    request: ConversationScheduledListRequest;
+    result: ConversationScheduledListResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "conversation-scheduled-v1";
+    stream: null;
+  };
+  "conversation-scheduled-op": {
+    request: ConversationScheduledOpRequest;
+    result: ConversationScheduledOpResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "conversation-scheduled-v1";
     stream: null;
   };
   "conversation-search": {
