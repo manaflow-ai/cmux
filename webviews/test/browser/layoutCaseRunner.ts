@@ -217,6 +217,15 @@ export async function runLayoutCase(id: string, host: CaseHost): Promise<LayoutC
       case "duplicate-redelivery":
         await judged(step, kind, () => draw(clone(rows)));
         return;
+      case "planted-jump":
+        return judged(step, kind, () => {
+          const port = scroller()?.getBoundingClientRect();
+          const row = [...root.querySelectorAll<HTMLElement>(TRANSCRIPT_ROW)].findLast((element) => {
+            const rect = element.getBoundingClientRect();
+            return rect.height > 0 && (!port || (rect.top >= port.top && rect.bottom <= port.bottom));
+          });
+          if (row) row.style.marginLeft = "24px";
+        });
       case "scroll-burst":
         await judged(step, kind, async () => {
           const el = scroller();
