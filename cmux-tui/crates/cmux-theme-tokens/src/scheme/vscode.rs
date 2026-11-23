@@ -113,8 +113,7 @@ pub(super) fn strip_jsonc(text: &str) -> String {
     let mut in_string = false;
     // The last `,` outside a string with only blanks and comments since.
     let mut pending_comma: Option<usize> = None;
-    while i < bytes.len() {
-        let b = bytes[i];
+    while let Some(&b) = bytes.get(i) {
         if in_string {
             match b {
                 b'\\' => i += 1,
@@ -126,14 +125,15 @@ pub(super) fn strip_jsonc(text: &str) -> String {
         }
         match (b, bytes.get(i + 1).copied()) {
             (b'/', Some(b'/')) => {
-                let end =
-                    bytes[i..].iter().position(|&c| c == b'\n').map_or(bytes.len(), |n| i + n);
+                let rest = bytes.get(i..).unwrap_or_default();
+                let end = rest.iter().position(|&c| c == b'\n').map_or(bytes.len(), |n| i + n);
                 blank(&mut out, i, end);
                 i = end;
                 continue;
             }
             (b'/', Some(b'*')) => {
-                let end = text[i + 2..].find("*/").map_or(bytes.len(), |n| i + 2 + n + 2);
+                let rest = text.get(i + 2..).unwrap_or_default();
+                let end = rest.find("*/").map_or(bytes.len(), |n| i + 2 + n + 2);
                 blank(&mut out, i, end);
                 i = end;
                 continue;
@@ -144,8 +144,8 @@ pub(super) fn strip_jsonc(text: &str) -> String {
             }
             (b',', _) => pending_comma = Some(i),
             (b'}' | b']', _) => {
-                if let Some(at) = pending_comma.take() {
-                    out[at] = b' ';
+                if let Some(byte) = pending_comma.take().and_then(|at| out.get_mut(at)) {
+                    *byte = b' ';
                 }
             }
             (c, _) if c.is_ascii_whitespace() => {}
@@ -337,17 +337,21 @@ pub(super) fn parse_vscode(text: &str, file: &str) -> Result<Scheme, SchemeError
         .and_then(|s| vscode_color(s, background));
 
     let mut palette = declared;
-    for (slot, hue) in HUES {
-        let bright = slot + 8;
-        palette[slot] = palette[slot]
-            .or_else(|| declared[bright].map(|b| quantized(b.mixed(background, 0.15))))
-            .or_else(|| nearest(hue))
-            .or(Some(Rgb::hex(defaults[slot])));
-    }
-    for (slot, _) in HUES {
-        let bright = slot + 8;
-        palette[bright] =
-            palette[bright].or_else(|| palette[slot].map(|n| quantized(n.mixed(foreground, 0.2))));
+    {
+        // ANSI 0...7 and their brights 8...15: slot `n`'s bright is `brights[n]`.
+        let (normals, brights) = palette.split_at_mut(8);
+        for (slot, hue) in HUES {
+            let (Some(normal), Some(bright)) = (normals.get_mut(slot), brights.get_mut(slot))
+            else {
+                continue;
+            };
+            let default = defaults.get(slot).map(|&hex| Rgb::hex(hex));
+            *normal = normal
+                .or_else(|| bright.map(|b| quantized(b.mixed(background, 0.15))))
+                .or_else(|| nearest(hue))
+                .or(default);
+            *bright = bright.or_else(|| normal.map(|n| quantized(n.mixed(foreground, 0.2))));
+        }
     }
     let mix = |a: Rgb, b: Rgb, t: f64| quantized(a.mixed(b, t));
     let (black, white, bright_white) = if light {
