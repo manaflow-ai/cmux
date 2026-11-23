@@ -11,8 +11,11 @@ import Foundation
 // the still goes once that frame is on screen. The page decides when it is back; the host only holds the
 // picture and never waits past ``swapCoverLimit``.
 extension PageWebView {
-    /// The longest a swap's still stays over a page that never says it is back (the page's own cap is 1.5 s).
-    static let swapCoverLimit: Duration = .milliseconds(2500)
+    /// The longest a swap's still stays over a page whose new document never says it is back. The new
+    /// document's own cap is 1.5 s once its script runs (REVEAL_CAP_MS); before that, a cold dev server
+    /// may take many seconds to answer its first module, and a still that left at 2.5 s then showed an
+    /// empty view until it did (cmux#50535's fleet run: about 20 s of a blank chat).
+    static let swapCoverLimit: Duration = .seconds(20)
 
     /// Reloads the page into the web now active, keeping what it shows (see above). A page that never
     /// loaded, or one whose process ended, reloads as before.
@@ -21,8 +24,12 @@ extension PageWebView {
         guard loaded, !isParkedSpare else { return reloadPage() }
         let prepared = await callPageFunction(Self.swapPrepareScript, timeout: .milliseconds(400)) as? Bool == true
         guard !isClosed else { return }
-        // A page without the hand-off (an older bundle, a page outside the desktop layer) reloads as before.
-        guard prepared, isShownForHealth, let still = await swapStill(), !isClosed else { return reloadPage() }
+        // A page out of sight reloads with no still; one in sight always reloads under its still, with the
+        // hand-off or without it (an older bundle: the still stays until the new document loaded).
+        guard isShownForHealth, let still = await swapStill(), !isClosed else {
+            if isShownForHealth { logger.notice("web swap: no still of \(self.pageID, privacy: .public) (prepared \(prepared)); reloading under no cover") }
+            return reloadPage()
+        }
         let cover = StillCover(frame: swapStillFrame)
         cover.image = still
         cover.imageScaling = .scaleAxesIndependently
@@ -65,20 +72,20 @@ extension PageWebView {
     }
 
     /// Marks the document it runs in as the old one and hands its state over; true when it did.
+    /// The mark goes on first, hand-off or not: the wait below tells the old document from the new one by it.
     static let swapPrepareScript = """
+        window.__cmuxSwapOld = true;
         const swap = window.cmuxWebSwap;
         if (!swap || typeof swap.prepare !== 'function') return false;
-        const kept = swap.prepare();
-        if (kept) window.__cmuxSwapOld = true;
-        return kept;
+        return !!swap.prepare();
         """
 
     /// "old" before the reload replaced the document, "boot" before the new one's page script ran, else
-    /// the probe (JSON, "null" when the new document had no hand-off).
+    /// the probe (JSON, "null" when the new document had no hand-off, or loaded with no hand-off code).
     static let swapRestoredScript = """
         if (window.__cmuxSwapOld) return 'old';
         const swap = window.cmuxWebSwap;
-        if (!swap || typeof swap.restored !== 'function') return 'boot';
+        if (!swap || typeof swap.restored !== 'function') return document.readyState === 'complete' ? 'null' : 'boot';
         return JSON.stringify(await swap.restored());
         """
 }

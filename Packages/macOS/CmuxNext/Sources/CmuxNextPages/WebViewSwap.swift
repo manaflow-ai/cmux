@@ -1,4 +1,5 @@
 public import AppKit
+import os
 public import WebKit
 
 // GRACEFUL-SWAP for a served WebKit view that is not a ``PageWebView``: the agent chat's pane
@@ -12,17 +13,26 @@ public import WebKit
 // frame is on screen.
 @MainActor
 public enum WebViewSwap {
-    /// The longest the still stays over a view whose document never says it is back.
-    static let coverLimit: Duration = .milliseconds(2500)
+    /// The longest the still stays over a view whose new document never says it is back: long enough
+    /// for a cold dev server's first compile (cmux#50535's fleet run: a chat whose still went at 2.5 s
+    /// showed an empty view for about 20 s, until the server's first answer).
+    static let coverLimit: Duration = PageWebView.swapCoverLimit
 
-    /// Reloads `webView` into the web now active, keeping what it shows. A document without the
-    /// hand-off (an older bundle) reloads as before; a view out of sight hands over and reloads with no still.
+    /// Reloads `webView` into the web now active, keeping what it shows. A view in sight always reloads
+    /// under a still of its last frame, with the hand-off or without it (an older bundle: the still stays
+    /// until the new document loaded); one out of sight hands over and reloads with no still.
     public static func reload(_ webView: WKWebView) async {
         let prepared = (try? await webView.callAsyncJavaScript(PageWebView.swapPrepareScript, arguments: [:],
                                                                 contentWorld: .page)) as? Bool == true
-        guard prepared, let host = webView.superview, webView.window != nil, !webView.isHiddenOrHasHiddenAncestor,
-              let still = await snapshot(webView)
-        else { _ = webView.reload(); return }
+        guard let host = webView.superview, webView.window != nil, !webView.isHiddenOrHasHiddenAncestor else {
+            _ = webView.reload()
+            return
+        }
+        guard let still = await snapshot(webView), webView.superview === host else {
+            log.notice("web swap: no still of an agent pane (prepared \(prepared)); reloading under no cover")
+            _ = webView.reload()
+            return
+        }
         // Over the view, not under it: a WebKit view paints its own background between the old
         // document and the new one's first script, which a still under it does not hide.
         let cover = StillCover(frame: webView.frame)
@@ -40,6 +50,8 @@ public enum WebViewSwap {
             webView.takeSnapshot(with: nil) { image, _ in done.resume(returning: image) }
         }
     }
+
+    private static let log = Logger(subsystem: "com.cmuxterm.app.next", category: "web-swap")
 
     /// Waits for the new document's `restored()`, at most ``coverLimit``; its probe as JSON.
     private static func waitForRestored(_ webView: WKWebView) async -> String? {
