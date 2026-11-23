@@ -1149,7 +1149,10 @@ body .nt-popover.nt-popover-focused.nt-popover-focused {
   top: 4px;
   right: var(--ds-space-3);
   z-index: var(--layer-raised, 1);
-  font: var(--weight-emphasis) 10px/12px ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  font-weight: var(--weight-emphasis);
   letter-spacing: 0.04em;
   color: var(--agent-text-secondary, color-mix(in srgb, var(--agent-text) 55%, transparent));
   pointer-events: none;
