@@ -43,6 +43,38 @@ import UniformTypeIdentifiers
         return (Int(data[0]), Int(data[1]), Int(data[2]))
     }
 
+    /// Under Frosted the art layer carries no Core Image filters (a clamped blur has no end, and
+    /// Core Animation drew it unscaled from the bottom-left corner): it shows a copy of the picture
+    /// blurred once, which its gravity aspect-fills. Pages still get the sharp still and the radius.
+    /// Back at blur 0 the layer shows the picture itself.
+    @Test func aFrostedPictureIsBlurredOnceNotByLayerFilters() async throws {
+        _ = NSApplication.shared
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("blur-bg-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = try Self.writeRedImage(in: folder)
+        let backdrop = WindowMaterialView(frame: NSRect(x: 0, y: 0, width: 900, height: 560),
+                                          images: BackdropImageStore(maxPixelSize: 1600), videos: BackdropVideoPlayers())
+        var frosted = WindowBackdrop(backgroundOpacity: 0.4, backgroundBlur: 20, liquidGlass: false)
+        frosted.selection = .file(path: file.path)
+        frosted.artBlurRadius = 20
+        backdrop.apply(frosted, tint: .black)
+        await backdrop.artLoad?.value
+        await backdrop.artBlurLoad?.value
+        let layer = try #require(backdrop.artView.layer)
+        #expect(layer.filters?.isEmpty ?? true, "the art layer carries Core Image filters: \(String(describing: layer.filters))")
+        let contents = try #require(layer.contents)
+        #expect(CFGetTypeID(contents as CFTypeRef) == CGImage.typeID, "the art layer shows no blurred copy: \(contents)")
+        #expect(contents as AnyObject !== backdrop.artImage)
+        #expect(layer.contentsGravity == .resizeAspectFill)
+        #expect(backdrop.artView.frame == backdrop.bounds)
+        #expect(backdrop.glassStill === backdrop.artImage, "pages lens the sharp picture and blur it themselves")
+        var sharp = frosted
+        sharp.artBlurRadius = 0
+        backdrop.apply(sharp, tint: .black)
+        #expect(layer.contents as AnyObject === backdrop.artImage, "at blur 0 the art layer shows the picture itself")
+    }
+
     @Test(.enabled("this host puts windows on screen") { await WindowScreenshotTests.hostShowsWindows() },
           arguments: [0, 20])
     func aFrostedCustomPictureFillsTheWholeWindowOnScreen(blur: Int) async throws {
@@ -73,6 +105,7 @@ import UniformTypeIdentifiers
         frosted.artBlurRadius = blur
         backdrop.apply(frosted, tint: .black)
         await backdrop.artLoad?.value
+        await backdrop.artBlurLoad?.value
         #expect(backdrop.artBlurRadius == blur)
         for size in [start.size, CGSize(width: 720, height: 460)] {
             window.setContentSize(size)

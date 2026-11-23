@@ -109,6 +109,12 @@ public final class WindowMaterialView: NSView {
     private(set) var hidesArt = false
     /// The blur on the art now (``WindowBackdrop/artBlurRadius``).
     private(set) var artBlurRadius = 0
+    /// The art blurred once for ``artBlurRadius`` (``artContents(_:)``), and the picture and
+    /// radius it was made from.
+    var blurredArt: (source: NSImage, radius: Int, image: CGImage)?
+    /// The picture and radius being blurred now, and the task blurring them; tests await its `value`.
+    var pendingArtBlur: (source: NSImage, radius: Int)?
+    var artBlurLoad: Task<Void, Never>?
 
     /// Creates an opaque backdrop (no material view, no tint).
     ///
@@ -288,6 +294,8 @@ public final class WindowMaterialView: NSView {
     ///   the backdrop's tint opacity.
     public func apply(_ backdrop: WindowBackdrop, tint: NSColor) {
         hidesArt = backdrop.isOpaque
+        // First, so a new picture shows (or crossfades in) blurred by the radius it is applied with.
+        applyArtBlur(backdrop.artBlurRadius)
         applied = (backdrop, tint)
         let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         let chosen = backdrop.selection ?? backdrop.art.map(BackdropSelection.art)
@@ -350,8 +358,6 @@ public final class WindowMaterialView: NSView {
                 addSubview(materialView, positioned: .below, relativeTo: glassTint.overlay)
             }
         }
-        // Frosted over art blurs the art itself (and a video over it), by the material's radius.
-        applyArtBlur(backdrop.artBlurRadius)
         let alpha = backdrop.tintOpacity * (1 - backdrop.tuning.glassTransparency)
         // Where the desktop shows through, the tint takes its picture's hue (appearance.wallpaperTint).
         let leaned = WallpaperTint.tint(tint, wallpaper: wallpaper.tint, enabled: wallpaper.tintEnabled,
@@ -390,17 +396,20 @@ public final class WindowMaterialView: NSView {
 
     func showArt(_ image: NSImage?) {
         artImage = image
-        artView.layer?.contents = artImage
+        artView.layer?.contents = artContents(artImage)
         artView.isHidden = hidesArt || artImage == nil
         noteGlassSourceChange()
     }
 
-    /// Blurs the art and the video over it by `radius` points (``WindowBackdrop/artBlurRadius``);
-    /// 0 clears the blur. Filters are made for each view: they are mutable objects.
+    /// Frosted over art blurs the art itself, and a video or living wallpaper over it, by `radius`
+    /// points (``WindowBackdrop/artBlurRadius``); 0 clears the blur. The picture shows a copy
+    /// blurred once (``artContents(_:)``); the video and shader layers, which always fill their
+    /// views, take Core Image filters, made for each view: they are mutable objects.
     private func applyArtBlur(_ radius: Int) {
         guard radius != artBlurRadius else { return }
         artBlurRadius = radius
-        for view in [artView, videoView as NSView, shaderView as NSView] {
+        if artImage != nil { artView.layer?.contents = artContents(artImage) }
+        for view in [videoView as NSView, shaderView as NSView] {
             if radius > 0 { view.layerUsesCoreImageFilters = true }
             // Clamped first: the blur then reads the edge pixels past the edge, not transparency,
             // so the picture keeps no translucent rim.
