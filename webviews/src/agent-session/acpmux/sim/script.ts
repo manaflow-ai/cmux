@@ -132,6 +132,32 @@ export class SimBuilder {
     return this.started(300);
   }
 
+  private steers = 0;
+
+  /** The person's message sent into the running turn (a steer), and, `readAfter` ms later, the agent
+   *  reading it (`steer_read`). Returns the builder. */
+  steer(value: string, { after = 500, readAfter = 1_500 }: { after?: number; readAfter?: number | false } = {}): this {
+    this.steers += 1;
+    const promptId = `steer-${this.steers}`;
+    this.record(
+      "mux",
+      "user_message",
+      {
+        text: value,
+        promptId,
+        turnId: this.turnId,
+        steer: true,
+        client: "pane",
+        _meta: { origin: { actor: "person" } },
+      },
+      after,
+      `steer: ${value.slice(0, 40)}`,
+    );
+    if (readAfter !== false)
+      this.record("mux", "steer_read", { promptId, turnId: this.turnId }, readAfter, "steer_read");
+    return this;
+  }
+
   /** Another agent's message (or a notice) that starts a turn (Leo's 2026-11-21 screenshot). */
   incoming(value: string, options: IncomingOptions = {}, after = 1_000): this {
     this.newTurn();
