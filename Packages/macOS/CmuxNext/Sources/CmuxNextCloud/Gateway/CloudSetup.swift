@@ -163,6 +163,31 @@ public final class CloudSetup {
         public init(team: String?, serves: Set<String>? = nil, errorCode: String? = nil) {
             (self.team, self.serves, self.errorCode) = (team, serves, errorCode)
         }
+
+        /// The gate's reads, each team once: the install team with the install token the app holds, so the CLI mints none
+        /// (hq#19758), then the person's own team through the CLI's own mint (#51322). `install` is the read a refusal carries
+        /// (``noInstallToken`` with no token); each unread answer logs why.
+        public static func serves(cli: CloudMoveCLI, install: (team: String, token: String)?, personal: String?, apiOrigin: URL) async -> (serves: Set<String>?, install: GatewayRead) {
+            let log = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud") // the app's cloud log, where the gate's other lines go
+            var installRead = GatewayRead(team: nil, errorCode: noInstallToken), asked: Set<String> = [], serves: Set<String>?
+            for team in [install?.team, personal].compactMap({ $0 }) where asked.insert(team).inserted {
+                let read: (serves: Set<String>?, why: String?)
+                if let install, team == install.team {
+                    installRead = await cli.inferenceGatewayStatus(team: team, token: install.token, apiOrigin: apiOrigin)
+                    read = (installRead.serves, installRead.errorCode)
+                } else {
+                    read = await cli.inferenceGatewayRead(team: team)
+                }
+                if let answer = read.serves {
+                    log.info("cloud start gate: team \(team, privacy: .public) gateway serves [\(answer.sorted().joined(separator: ","), privacy: .public)]")
+                    serves = (serves ?? []).union(answer)
+                } else {
+                    log.error("cloud start gate: team \(team, privacy: .public) gateway unread: \(read.why ?? "-", privacy: .public)")
+                }
+            }
+            if asked.isEmpty { log.error("cloud start gate: gateway unread: no team to ask") }
+            return (serves, installRead)
+        }
     }
     /// Runs one of the card's ways in (Settings > Models' `cmux.settings.models.run` actions
     /// `connectChatGPT`, `claudeSetupToken`; `addKey` and `openSettings` open Settings > Models).

@@ -330,31 +330,12 @@ extension CloudStartChat {
         } catch {
             log.error("cloud start gate: install token: \(String(describing: error), privacy: .public)")
         }
-        services.cloud.setup.gatewayRead = CloudSetup.GatewayRead(team: nil, errorCode: CloudSetup.GatewayRead.noInstallToken)
         let auth = services.cloud.auth
         // The person's own team too (#51322): production makes a start's machine there while the install token names another.
         let personal = auth.managedTeamID == nil ? auth.user.map { GitHubConnections.personalTeam(user: GitHubConnections.backendUser(project: auth.configuration.stackProjectID, stackUser: $0.id)) } : nil
-        let cli = CloudMoveCLI(binary: binary)
-        var asked: Set<String> = [], serves: Set<String>?
-        for team in [installTeam, personal].compactMap({ $0 }) where asked.insert(team).inserted {
-            // The install team is read with the install token the app holds, so the CLI mints none (hq#19758); a refusal carries this read.
-            let read: (serves: Set<String>?, why: String?)
-            if team == installTeam, let installToken {
-                let held = await cli.inferenceGatewayStatus(team: team, token: installToken, apiOrigin: services.cloud.configuration.ownerAPIBaseURL())
-                services.cloud.setup.gatewayRead = held
-                read = (held.serves, held.errorCode)
-            } else {
-                read = await cli.inferenceGatewayRead(team: team)
-            }
-            if let answer = read.serves {
-                log.info("cloud start gate: team \(team, privacy: .public) gateway serves [\(answer.sorted().joined(separator: ","), privacy: .public)]")
-                serves = (serves ?? []).union(answer)
-            } else {
-                log.error("cloud start gate: team \(team, privacy: .public) gateway unread: \(read.why ?? "-", privacy: .public)")
-            }
-        }
-        if asked.isEmpty { log.error("cloud start gate: gateway unread: no team to ask") }
-        return serves
+        let read = await CloudSetup.GatewayRead.serves(cli: CloudMoveCLI(binary: binary), install: installTeam.flatMap { team in installToken.map { (team, $0) } }, personal: personal, apiOrigin: services.cloud.configuration.ownerAPIBaseURL())
+        services.cloud.setup.gatewayRead = read.install
+        return read.serves
     }
 
     @MainActor static func wireSetup(_ services: AppServices) {
