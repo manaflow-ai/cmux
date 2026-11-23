@@ -121,6 +121,7 @@
           "scripts/ci/bun-install.sh",
           "tests/test_react_doctor_gate.py",
           "scripts/ci/receipt_input_key.py",
+          "scripts/ci/receipt_signed.py",
           "scripts/ci/check-paths.txt"
         ],
         "not_inputs": {

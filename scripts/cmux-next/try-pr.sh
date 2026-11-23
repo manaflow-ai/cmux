@@ -16,7 +16,7 @@
 #   ios-only    the Mac app does not change
 #
 #   try-pr.sh PR [--here] [--from APP] [--front] [--no-build] [--dry-run] [--port N] [--fork]
-#                [--live-code LOG]
+#                [--live-code LOG] [--dev-backend]
 #   try-pr.sh PR --stop             quit and remove the PR's side instance and its dev server
 #
 # By default the PR opens in a side instance, "cmux PR #N" (side-instance.sh pr-N): a copy of APP
@@ -31,6 +31,10 @@
 # verdict and the commands it would run. --port and --fork go to web-overlay.sh follow; a side
 # instance's dev server takes the first free port from 20000 + N % 10000 (and keeps it) unless --port
 # names one.
+#
+# The dev build you open is built for you, so it targets production (cmux.com, production sign-in), where
+# your own account signs in (cmux-ci build cmux --production). --dev-backend builds it with the offline dev
+# backend instead, as agents' builds and a build taken only for its daemon always are.
 #
 # --live-code LOG: APP is a live code build (docs/cmux-next/live-code.md) and LOG its reload.sh log.
 # A swift-live PR whose changes are edits to existing Swift files of the CmuxNext modules is then applied with
@@ -55,13 +59,14 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 usage() { awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit "${1:-0}"; }
 
 pr="${1:-}"; [[ "$pr" =~ ^[0-9]+$ ]] || usage 1; shift
-dry="" here="" front="" nobuild="" stop="" port="" from="/Applications/cmux NEXT.app" follow=() live_log=""
+dry="" here="" front="" nobuild="" stop="" port="" from="/Applications/cmux NEXT.app" follow=() live_log="" dev_backend=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) dry=1; shift ;;
     --here) here=1; shift ;;
     --front) front=1; shift ;;
     --no-build) nobuild=1; shift ;;
+    --dev-backend) dev_backend=1; shift ;;
     --build) shift ;;  # the default now; kept so older commands still run
     --stop) stop=1; shift ;;
     --from) [[ $# -ge 2 ]] || usage 1; from="${2%/}"; shift 2 ;;
@@ -436,7 +441,18 @@ case "$verdict" in
     ci="${CMUX_CI:-$HOME/.local/bin/cmux-ci}"
     [[ -n "$dry" || -x "$ci" ]] || { echo "no cmux-ci client at $ci (CMUX_CI names another)" >&2; exit 1; }
     # A later push with the same tag and workspace supersedes a queued build of an older head.
-    build=(build cmux --ref "$head" --tag "pr-$pr" --backend-mode local --workspace "try-pr:$pr:$(id -un)")
+    build=(build cmux --ref "$head" --tag "pr-$pr" --workspace "try-pr:$pr:$(id -un)")
+    # A build a person opens targets production, where their own account signs in (Leo: "why is the stuff so
+    # weird to log in to dev builds?"). An agent's build, a build taken only for its daemon, and --dev-backend
+    # keep the offline dev backend (and the Linux pool: production builds run on the Mac fleet).
+    agent=""; if [[ -n "${CLAUDECODE:-}" || -n "$(compgen -e | grep '^CODEX_' || true)" ]]; then agent=1; fi
+    if [[ -z "$dev_backend" && -z "$agent" && "$rust_code" != 2 ]]; then
+      build+=(--production)
+      echo "backend: production (cmux.com, your own account signs in); --dev-backend for the dev backend"
+    else
+      build+=(--backend-mode local)
+      echo "backend: local dev backend (offline: no Cloud or sign-in)"
+    fi
     # Build ahead (cmuxterm-hq build_ahead.go): the fleet may already have built this head's tree
     # (a prebuild, or anyone's equal build under another tag). Take it: the side instance opens
     # whatever .app the job holds. An older client without --any-tag still matches tag pr-N.

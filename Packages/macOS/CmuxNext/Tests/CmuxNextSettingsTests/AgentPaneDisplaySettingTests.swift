@@ -90,6 +90,27 @@ struct AgentPaneDisplaySettingTests {
         #expect(AgentPaneDisplaySetting(fileRoot: invalid).values[key] == nil)
     }
 
+    /// The transcript look (docs/cmux-next/transcript-customization.md): a theme file's look and
+    /// tokens reach the page (the effective root), and the tokens row takes an object of strings and
+    /// numbers only.
+    @Test func theTranscriptLookComesFromTheEffectiveRootAndTheTokensAreAnObject() {
+        let look = "agentPane.display.transcriptLook", tokens = "agentPane.display.transcriptTokens"
+        let file: JSONValue = ["agentPane": ["display": ["width": .number(900)]]]
+        let themed: JSONValue = ["agentPane": ["display": [
+            "width": .number(1200), "transcriptLook": .string("studio"),
+            "transcriptTokens": .object(["userMessage.radius": .number(20), "timestamps": .string("always")]),
+        ]]]
+        let display = AgentPaneDisplaySetting(fileRoot: file, lookRoot: themed)
+        #expect(display.values[look] == .string("studio"))
+        #expect(display.values[tokens] == .object(["userMessage.radius": .number(20), "timestamps": .string("always")]))
+        #expect(display.values["agentPane.display.width"] == .number(900))
+        #expect(AgentPaneDisplaySetting(fileRoot: file).values[look] == nil)
+        #expect(!TranscriptTokensSetting.accepts(.array([])))
+        #expect(!TranscriptTokensSetting.accepts(.object(["fill": .bool(true)])))
+        let bad: JSONValue = ["agentPane": ["display": ["transcriptLook": .string("retro")]]]
+        #expect(AgentPaneDisplaySetting(fileRoot: bad).values[look] == nil)
+    }
+
     @Test(arguments: rows)
     func eachRowHasThePageDefaultAndRange(_ row: Row) throws {
         let path = row.key.split(separator: ".").map(String.init)

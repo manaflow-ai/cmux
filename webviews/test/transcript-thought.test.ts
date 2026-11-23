@@ -1,6 +1,6 @@
 // cmux-web-test-timeout: 240
 // A finished thought is one quiet row, its brain glyph and its words on one line with no tooltip
-// (Codex parity), that opens to "Thought for 12s" over its text; thoughts side by side are one row;
+// (Codex parity), that opens to the rest of its text under that line; thoughts side by side are one row;
 // a quiet one draws none (Leo 2026-10-20).
 // The transcript gallery's plays check it in Chromium; this checks they passed.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
