@@ -57,6 +57,8 @@ nonisolated struct LiveWallpaperFrame: Sendable {
     var still = false
     var colors: LiveWallpaperColors
     var params: [Float] = []
+    /// The tritone grade, 0 (off) to 1 (`appearance.liveWallpaperGrade`); the library clamps it.
+    var grade: Float = 0
 
     /// The Frame uniform: ``floats`` floats. `trail` (the pointer's, in backing pixels) fills
     /// `Frame.trail` at `now`, scaled by `scale` to rendered pixels; nil leaves it empty (a still
@@ -77,6 +79,7 @@ nonisolated struct LiveWallpaperFrame: Sendable {
         input.velocity_y = velocity.y
         input.presence = presence
         input.since_moved = sinceMoved
+        input.grade = grade
         input.ink = (colors.ink.x, colors.ink.y, colors.ink.z)
         input.paper = (colors.paper.x, colors.paper.y, colors.paper.z)
         input.accent = (colors.accent.x, colors.accent.y, colors.accent.z)

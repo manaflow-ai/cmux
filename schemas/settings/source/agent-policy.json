@@ -265,6 +265,7 @@
         "appearance.inactiveWindowDim",
         "appearance.wallpaperTint",
         "appearance.liveWallpaperFrameRate",
+        "appearance.liveWallpaperGrade",
         "appearance.background",
         "appearance.backgroundRotation",
         "appearance.backgroundLight",

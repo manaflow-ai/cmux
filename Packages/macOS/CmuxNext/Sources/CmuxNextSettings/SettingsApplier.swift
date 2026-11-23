@@ -79,6 +79,7 @@ public final class SettingsApplier {
         if design.liveWallpaperFrameRate != snapshot.liveWallpaperFrameRate {
             design.liveWallpaperFrameRate = snapshot.liveWallpaperFrameRate
         }
+        if design.liveWallpaperGrade != snapshot.liveWallpaperGrade { design.liveWallpaperGrade = snapshot.liveWallpaperGrade }
         if design.agentGlowEnabled != snapshot.agentGlow { design.agentGlowEnabled = snapshot.agentGlow }
         if design.previousGlass != snapshot.previousGlass { design.previousGlass = snapshot.previousGlass }
         let hoverCardDelay = Duration.milliseconds(Int(snapshot.hoverCards.delayMilliseconds.rounded()))

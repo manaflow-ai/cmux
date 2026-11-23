@@ -41,9 +41,21 @@ extension AccentSetting {
     public nonisolated static let fallback: ThemeAccent = .neutral
 }
 
+extension SelectionSetting {
+    /// `appearance.selection`: Off by default: accent is today's rule (the accent's tint when appearance.accent or the theme names one). neutral keeps the gray card whatever the accent (ThemeInput.selection).
+    public nonisolated static let configPath = ["appearance", "selection"]
+    public nonisolated static let fallback: ThemeSelection = .accent
+}
+
 extension ThemeFileSetting {
     /// `appearance.themeFile`.
     public nonisolated static let configPath = ["appearance", "themeFile"]
+}
+
+extension ThemeFileExceptionsSetting {
+    /// `appearance.themeFileExceptions`.
+    public nonisolated static let configPath = ["appearance", "themeFileExceptions"]
+    public nonisolated static let fallback: [String] = []
 }
 
 extension HighlightColorSetting {
@@ -77,6 +89,8 @@ extension BackdropSelectionSetting {
     public nonisolated static let dynamicDefault: BackdropDynamicMode = .appearance
     /// `appearance.backgroundLocation`: LAT,LON in degrees for sun events and solar frames; unset: the system time zone's coordinates from /usr/share/zoneinfo/zone.tab (no location permission).
     public nonisolated static let locationPath = ["appearance", "backgroundLocation"]
+    /// `appearance.backgroundMemory`: What Background's modes last showed, so switching modes never loses one (Leo, 2026-11-19: "it lost the folder ... i couldn't get back into it"): rotate is Rotate's last shuffle (daily or folder:<path>), folder the last folder it shuffled, off the picture Off last showed (none for No Wallpaper). The Settings page's Background card writes it when the background moves to another mode and reads it back in a new page or after a restart; the app's engine never reads it.
+    public nonisolated static let memoryPath = ["appearance", "backgroundMemory"]
     /// `appearance.displayBackgrounds`.
     public nonisolated static let displayBackgroundsPath = ["appearance", "displayBackgrounds"]
     /// `appearance.displayBackgroundRotations`.
@@ -92,6 +106,18 @@ extension PaneBackgroundsSetting {
 extension ReducedBackgroundsSetting {
     /// `ui.reducedBackgrounds`.
     public nonisolated static let configPath = ["ui", "reducedBackgrounds"]
+    public nonisolated static let fallback = false
+}
+
+extension AgentGlowSetting {
+    /// `appearance.agentGlow`.
+    public nonisolated static let configPath = ["appearance", "agentGlow"]
+    public nonisolated static let fallback = false
+}
+
+extension PreviousGlassSetting {
+    /// `appearance.previousGlass`: Web pages only: on sends glassLevels "previous" with the web theme (WebTheme), data-glass-levels="previous" on <html>, and webviews ui/glass/glass.css (PREVIOUS GLASS) restores the glass numbers from before the one glass system (design/glass-system.md, cmux#48174). Off (default) draws the one glass system.
+    public nonisolated static let configPath = ["appearance", "previousGlass"]
     public nonisolated static let fallback = false
 }
 
@@ -125,6 +151,13 @@ extension LiveWallpaperFrameRateSetting {
     public nonisolated static let configPath = ["appearance", "liveWallpaperFrameRate"]
     public nonisolated static let fallback = "30"
     public nonisolated static let values = ["15", "30", "60"]
+}
+
+extension LiveWallpaperGradeSetting {
+    /// `appearance.liveWallpaperGrade`.
+    public nonisolated static let configPath = ["appearance", "liveWallpaperGrade"]
+    public nonisolated static let fallback: Double = 0
+    public nonisolated static let range: ClosedRange<Double> = 0...1
 }
 
 extension AppearanceTuningSetting {
@@ -172,12 +205,12 @@ extension UIScaleSetting {
 extension InterfaceSizeSetting {
     /// `appearance.metrics.chromeFontSize`.
     public nonisolated static let configPath = ["appearance", "metrics", "chromeFontSize"]
-    public nonisolated static let range: ClosedRange<Double> = 10...16
+    public nonisolated static let range: ClosedRange<Double> = 10...20
     public nonisolated static let placeholder: Double = 12
 }
 
 extension FontSmoothingSetting {
-    /// `appearance.fontSmoothing`: How cmux's text draws, in the CSS model (-webkit-font-smoothing), native and web. Native: AppleFontSmoothing in the app's domain, written at launch and on each change for the next launch (ProcessFontSmoothing). Web: the web theme's data-cmux-font-smoothing, live (WebTheme). Ghostty's font-thicken is not affected.
+    /// `appearance.fontSmoothing`: How cmux's text draws, in the CSS model (-webkit-font-smoothing), native and web. Native: AppleFontSmoothing in the app's domain, written at launch and on each change for the next launch (ProcessFontSmoothing). Web: the web theme's data-cmux-font-smoothing, live (WebTheme). Chrome text cmux draws itself (ChromeLabel, ChromeTextLayer: the sidebar, tabs) follows live too (ProcessFontSmoothing.chrome). Ghostty's font-thicken is not affected.
     public nonisolated static let configPath = ["appearance", "fontSmoothing"]
     public nonisolated static let fallback: FontSmoothing = .auto
 }
@@ -255,6 +288,18 @@ extension TitleAreaContrastSetting {
     public nonisolated static let fallback: Double = 1
     public nonisolated static let range: ClosedRange<Double> = 0...2
     public nonisolated static let placeholder: Double = 1
+}
+
+extension TwoToneSetting {
+    /// `appearance.twoTone`: A toggle under any chrome style and any theme: the sidebar and the tab bar in tone A, the content panes (terminal, agent pane, New Tab page, Home) in tone B, the accent fitted to both. Off (the default), From Theme (auto) or a curated pairing; the colors and the pairing table are Rust (cmux-config theme_file::two_tone; the Swift TwoTone mirrors it, checked against the Rust fixture TwoToneTests has Rust write at test time). An explicit appearance.surfaces.<surface>.color wins. Leo 2026-11-19: the two-tone is just one of the toggles you can have; what would actually look good and not eyesore-ish.
+    public nonisolated static let configPath = ["appearance", "twoTone"]
+    public nonisolated static let fallback: TwoTone = .off
+}
+
+extension CornerFlushSetting {
+    /// `appearance.cornerFlush`: How the selected tab meets the content card (CornerFlush, CmuxNextDesign). A missing key is the default, flush with no goo, drawn only over the stock chrome (CornerFlush.defaultFits); a set value draws over any chrome, as a Debug Settings pick of chrome.cornerFlush does, which still overrides it in DEV and NIGHTLY. Compact density keeps the pill under every value. Leo 2026-11-13: "lawrence wanted no goo by default"; Leo 2026-11-18: the gooey look is a toggle a theme or a setup can pick.
+    public nonisolated static let configPath = ["appearance", "cornerFlush"]
+    public nonisolated static let fallback: CornerFlush = .flush
 }
 
 extension PaneAnimationsSetting {
