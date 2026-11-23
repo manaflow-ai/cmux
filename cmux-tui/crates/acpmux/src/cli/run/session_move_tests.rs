@@ -361,6 +361,7 @@ async fn move_dry_run_reports_running_and_dirty_together_without_changing_the_ch
             dry_run: true,
             resume_there: false,
             from: None,
+            from_snapshot: false,
         };
         let outcome = move_one(&client, "chat", &args, repo.path(), &mut targets).await;
         assert_eq!(outcome.error_code, expected);
@@ -462,14 +463,14 @@ async fn move_from_reads_placement_from_the_initiating_daemon() {
 
 #[test]
 fn the_run_error_names_each_chat_that_did_not_move_and_why() {
-    let moved = outcome("a1", None);
-    let mut refused = outcome("x", Some("a turn is running; the move takes it along"));
-    refused.session = "claude-13".into();
-    refused.name = "claude-13".into();
-    let mut lost = outcome("optchat", Some("transfer.busy: the running turn did not stop"));
-    lost.session = "s-2".into();
+    let moved = Outcome::new("a1");
+    let mut refused = Outcome::new("claude-13");
+    refused.error = Some("a turn is running; the move takes it along".into());
+    let mut lost = Outcome::new("s-2");
+    lost.name = "optchat".into();
+    lost.error = Some("transfer.busy: the running turn did not stop".into());
     assert!(not_moved(&[moved]).is_none(), "every chat moved");
-    let why = not_moved(&[outcome("a1", None), refused, lost]).unwrap().message;
+    let why = not_moved(&[Outcome::new("a1"), refused, lost]).unwrap().message;
     assert!(why.starts_with("2 of 3 chats did not move: "), "{why}");
     assert!(why.contains("claude-13 (claude-13): a turn is running"), "{why}");
     assert!(why.contains("optchat (s-2): transfer.busy: the running turn did not stop"), "{why}");
@@ -551,8 +552,9 @@ async fn after_turn_waits_at_most_its_timeout_and_names_the_chat_and_step() {
         dry_run: false,
         resume_there: false,
         from: None,
+        from_snapshot: false,
     };
-    let e = match begin_waiting(&client, "chat", "Chat", None, &args).await {
+    let e = match begin_waiting(&client, "chat", "Chat", None, &args, None).await {
         Ok(_) => panic!("a turn that outlasts --timeout must not move"),
         Err(e) => format!("{e:#}"),
     };
@@ -756,7 +758,7 @@ async fn a_move_ends_once_the_chat_is_listed_reachable_where_it_went() {
             {"sessionId": "s1", "peer": "t", "stale": stale, "peerState": state},
         ]})
     };
-    let replies = vec![
+    let replies = [
         json!({"rows": []}),
         row(true, "reconnecting"),
         row(false, "reconnecting"),

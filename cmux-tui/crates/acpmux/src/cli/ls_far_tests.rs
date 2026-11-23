@@ -36,7 +36,7 @@ async fn a_stalled_relay_misses_its_budget_and_is_not_listed_without_a_cache() {
 }
 
 #[tokio::test]
-async fn a_fresh_relay_listing_is_kept_and_served_stale_when_the_next_one_stalls() {
+async fn a_fresh_relay_listing_is_kept_and_the_next_ls_serves_it_without_waiting() {
     let dir = tempfile::tempdir().unwrap();
     let cache = dir.path().join(CACHE_FILE);
     let fresh = start_with(Some(sh_relay(ONE_ROW)), cache.clone(), None, Duration::from_secs(10))
@@ -50,8 +50,11 @@ async fn a_fresh_relay_listing_is_kept_and_served_stale_when_the_next_one_stalls
     assert!(fresh.line(0).is_none());
     assert!(cache.exists(), "the good listing is kept");
 
+    let started = std::time::Instant::now();
     let stale =
         start_with(Some(stalled_relay()), cache.clone(), None, FAR_BUDGET).finish().await.relay;
+    let took = started.elapsed();
+    assert!(took < Duration::from_millis(200), "a kept listing waited on the relay: {took:?}");
     let stale = stale.unwrap();
     let RemoteState::Stale { as_of_ms } = stale.state else { panic!("{:?}", stale.state) };
     assert_eq!(stale.rows.len(), 1);
@@ -61,8 +64,10 @@ async fn a_fresh_relay_listing_is_kept_and_served_stale_when_the_next_one_stalls
     let line = stale.line(as_of_ms + 180_000).unwrap();
     assert_eq!(
         line,
-        "acpmux: other machines' sessions through sh: not read within 1.5s; listed as of 3m ago"
+        "acpmux: other machines' sessions through sh: from the last listing, refreshing; listed as of 3m ago"
     );
+    // A listing kept under a minute ago reads as good as fresh in the text view.
+    assert!(stale.line(as_of_ms + 59_000).is_none());
     let remote = stale.json(as_of_ms + 1);
     assert_eq!(remote["state"], "stale");
     assert_eq!(remote["asOfMs"], as_of_ms);
@@ -70,17 +75,15 @@ async fn a_fresh_relay_listing_is_kept_and_served_stale_when_the_next_one_stalls
 }
 
 #[tokio::test]
-async fn a_failing_relay_serves_the_cache_and_names_the_failure() {
+async fn a_failing_relay_without_a_kept_listing_names_the_failure() {
     let dir = tempfile::tempdir().unwrap();
     let cache = dir.path().join(CACHE_FILE);
     write_cache(&cache, "sh", &[serde_json::json!({"peer": "p", "sessionId": "s"})], 1_000);
-    // The listing is a day and more old: not served.
+    // The listing is a day and more old: not served, so the relay is read.
     assert!(read_cache(&cache, 1_000 + CACHE_MAX_AGE_MS + 1).is_none());
-    let now = crate::store::now_ms();
-    write_cache(&cache, "sh", &[serde_json::json!({"peer": "p", "sessionId": "s"})], now);
     let relay =
         start_with(Some(sh_relay("exit 3")), cache, None, FAR_BUDGET).finish().await.relay.unwrap();
-    assert_eq!(relay.state, RemoteState::Stale { as_of_ms: now });
+    assert_eq!(relay.state, RemoteState::Missing);
     assert!(relay.missed.as_deref().unwrap().starts_with("failed ("), "{:?}", relay.missed);
 }
 
