@@ -9,6 +9,13 @@
 //! their logical paths (`keybindings.json`, `themes/NAME.json`,
 //! `customize/...`, `agent-pane/theme.css`), or inline in `files`.
 //!
+//! A setup may carry fonts for the agent chat the way a community theme
+//! does ([`crate::community::fonts`]): `fonts/*` beside `themes/`,
+//! `"fontLicense"` in [`SETUP_FILE`], the license text included, at most 8
+//! files of at most 2 MiB. Install copies them to
+//! `<config dir>/fonts/setup-OWNER-NAME/` and points the setup's theme files'
+//! `file:../fonts/NAME` faces there; remove deletes them.
+//!
 //! Installing one is a profile import like any other: checked whole before a
 //! byte is written, applied as one generation that the library keeps as one
 //! entry, so removing it takes off exactly that layer. What the setup did is
@@ -25,6 +32,7 @@ use cmux_config::{Schema, jsonc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::community::{self, fonts};
 use crate::profile::{Profile, Settled, Skipped};
 use crate::redact::find_secret;
 use crate::store::Kind;
@@ -119,6 +127,8 @@ pub struct Setup {
     pub manifest: Manifest,
     pub profile: Profile,
     pub sha256: String,
+    /// The fonts it carries in `fonts/` (none for most setups).
+    pub fonts: fonts::Fonts,
 }
 
 impl Setup {
@@ -199,6 +209,7 @@ pub fn read_dir(dir: &Path) -> Result<Setup, Error> {
     let mut value = jsonc::parse(&text)
         .map_err(|error| Error::Setup(format!("{SETUP_FILE} is not JSON: {error}")))?;
     crate::file_refs::resolve(&mut value, dir).map_err(Error::Setup)?;
+    let fonts = fonts::read_fonts(dir, &value).map_err(setup_refusal)?;
     let manifest: Manifest = serde_json::from_value(value).map_err(|error| {
         Error::Setup(format!("{SETUP_FILE} is not a cmux setup: {}", strip_value(&error)))
     })?;
@@ -216,6 +227,14 @@ pub fn read_dir(dir: &Path) -> Result<Setup, Error> {
             )));
         }
     }
+    if !fonts.files.is_empty() {
+        let entry = fonts_entry(&manifest.id);
+        for (path, text) in &mut files {
+            if path.starts_with("themes/") && path.ends_with(".json") {
+                *text = fonts::rewrite(text, path, &entry, &fonts).map_err(setup_refusal)?;
+            }
+        }
+    }
     let profile = Profile {
         version: manifest.profile_format,
         name: profile_name(&manifest.id),
@@ -225,12 +244,40 @@ pub fn read_dir(dir: &Path) -> Result<Setup, Error> {
         files,
     };
     let sha256 = {
-        let canonical =
-            serde_json::to_vec(&(&manifest.settings, &manifest.actions, &profile.files))
-                .map_err(std::io::Error::other)?;
+        let parts = (&manifest.settings, &manifest.actions, &profile.files);
+        let canonical = if fonts.files.is_empty() {
+            serde_json::to_vec(&parts)
+        } else {
+            // The font bytes are part of what it applies; a setup without
+            // fonts hashes as it always did.
+            let mut digests = Vec::new();
+            for path in fonts.files.iter().chain(&fonts.licenses) {
+                digests.push((path.as_str(), tree::sha256(&std::fs::read(dir.join(path))?)));
+            }
+            serde_json::to_vec(&(parts.0, parts.1, parts.2, &digests))
+        }
+        .map_err(std::io::Error::other)?;
         tree::sha256(&canonical)
     };
-    Ok(Setup { manifest, profile, sha256 })
+    Ok(Setup { manifest, profile, sha256, fonts })
+}
+
+/// The folder name a setup's fonts are copied to under `<config dir>/fonts/`:
+/// `setup-OWNER-NAME`, its library entry's name.
+pub fn fonts_entry(id: &str) -> String {
+    profile_name(id)
+}
+
+/// A font-pack refusal worded for a setup ([`fonts`] words it for a theme).
+fn setup_refusal(error: Error) -> Error {
+    match error {
+        Error::Community(why) => Error::Setup(
+            why.replace(community::THEME_MARKER, SETUP_FILE)
+                .replace("a community theme's", "a setup's")
+                .replace("a theme", "a setup"),
+        ),
+        other => other,
+    }
 }
 
 /// The serde message without the value it quotes.
@@ -353,6 +400,12 @@ pub struct Plan {
     pub extensions: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub requires: Option<String>,
+    /// The font files it copies into `<config dir>/fonts/setup-OWNER-NAME/`.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub fonts: Vec<String>,
+    /// Their `"fontLicense"`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub font_license: Option<String>,
     /// Settings it names by an older name, or set to a choice a row renamed:
     /// they install under the new name and value (`settings` lists those).
     pub renamed: Vec<Notice>,
@@ -647,6 +700,8 @@ impl Customize {
             actions,
             extensions: manifest.extensions.clone(),
             requires: manifest.engines.cmux.clone(),
+            fonts: setup.fonts.files.clone(),
+            font_license: setup.fonts.license.clone().filter(|_| !setup.fonts.files.is_empty()),
             renamed: settled
                 .notices
                 .iter()
@@ -716,6 +771,12 @@ impl Customize {
                 self.install_setup_locked(setup, &settled.profile, label, origin, now_ms)?;
             Ok(Installed { before: between, ..installed })
         });
+        // The install step replaced (or removed) the old fonts in place; an
+        // update to another id leaves the old folder behind, so it goes.
+        let old_fonts = fonts_entry(&old.id);
+        if replaced.is_ok() && old_fonts != fonts_entry(&setup.manifest.id) {
+            let _ = fonts::remove(&self.roots().config_dir, &old_fonts);
+        }
         if replaced.is_err() {
             let _ = self.library_write_back(library.as_deref());
             if let Some(n) = before {
@@ -760,6 +821,11 @@ impl Customize {
         now_ms: u64,
     ) -> Result<Installed, Error> {
         let had = self.library_names()?;
+        // The fonts first, so a theme file never points at fonts that are not
+        // there; until `keep`, a failed step puts the earlier ones back.
+        let config_dir = &self.roots().config_dir;
+        let entry = fonts_entry(&setup.manifest.id);
+        let staged_fonts = fonts::install(config_dir, &entry, &setup.fonts)?;
         self.preview_profile_locked(profile, origin, now_ms)?;
         let mut prior_actions = BTreeMap::new();
         if !setup.actions().is_empty() {
@@ -774,6 +840,13 @@ impl Customize {
             tree::write(self.roots(), SETTINGS, text.as_bytes(), false)?;
         }
         let applied = self.apply_locked(Some(label), origin, now_ms)?;
+        match staged_fonts {
+            Some(staged) => staged.keep(),
+            // An update that no longer carries fonts: the old copy goes.
+            None => {
+                fonts::remove(config_dir, &entry)?;
+            }
+        }
         let applied = applied.recorded.then_some(applied);
         // An apply that matched an entry you already had names that entry:
         // it is yours, and removing the setup only turns it off.
@@ -798,7 +871,9 @@ impl Customize {
         self.no_preview_open()?;
         self.ensure_baseline(now_ms)?;
         let _lock = self.store().lock()?;
-        self.remove_setup_locked(receipt, origin, now_ms)
+        let removed = self.remove_setup_locked(receipt, origin, now_ms)?;
+        fonts::remove(&self.roots().config_dir, &fonts_entry(&receipt.id))?;
+        Ok(removed)
     }
 
     fn remove_setup_locked(
