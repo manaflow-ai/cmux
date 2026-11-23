@@ -1052,6 +1052,7 @@ struct HomeTile: View, Identifiable {
             if working {
                 TypingBubble()
                     .offset(x: -14)
+                    .transition(Self.bubbleTransition)
             } else if let bubble {
                 Text(bubble)
                     .font(.caption2)
@@ -1065,13 +1066,15 @@ struct HomeTile: View, Identifiable {
                     // Up to 100 pt wide, though the overlay offers the avatar's 72.
                     .frame(width: 100, alignment: .leading)
                     .offset(x: -24)
+                    .transition(Self.bubbleTransition)
             }
         }
         .fixedSize(horizontal: false, vertical: true)
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { bubbleHeight = $0 }
         .alignmentGuide(.top) { $0[.bottom] - Self.bubbleTuck }
-        .transition(.scale(scale: 0.6, anchor: .bottomTrailing).combined(with: .opacity))
     }
+
+    private static let bubbleTransition: AnyTransition = .scale(scale: 0.6, anchor: .bottomTrailing).combined(with: .opacity)
 
     private var tile: some View {
         VStack(spacing: 6) {
