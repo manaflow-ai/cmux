@@ -24,7 +24,7 @@ use sha2::{Digest as _, Sha256};
 fn version(breakdown: &Value) -> Option<String> {
     let bytes = serde_json::to_vec(breakdown).ok()?;
     let digest = format!("{:x}", Sha256::digest(&bytes));
-    Some(digest[..16].to_owned())
+    digest.get(..16).map(str::to_owned)
 }
 
 /// Names the reply's breakdown copy (null when it has none) and leaves it out when `params`
