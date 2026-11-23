@@ -2188,8 +2188,10 @@ async fn dispatch_request_with_identity(
                     .then(|| mux_meta(&params).and_then(|m| m.get("messageSender")))
                     .flatten()
                     .and_then(|sender| {
-                        let sender: crate::protocol::MessageSender =
+                        let mut sender: crate::protocol::MessageSender =
                             serde_json::from_value(sender.clone()).ok()?;
+                        sender.display_name =
+                            sender.display_name.filter(|n| crate::session_handle::valid(n));
                         (!sender.name.is_empty() && !sender.session_id.is_empty())
                             .then(|| serde_json::to_value(sender).ok())
                             .flatten()
@@ -3125,7 +3127,7 @@ async fn dispatch_request_with_identity(
             reply
         }
         name if super::account_sign_in::METHODS.contains(&name) => {
-            heap(|| super::account_sign_in::handle(hub, conn.origin, name, &params)).await
+            heap(|| super::account_sign_in::handle(hub, conn, name, &params)).await
         }
         method::MUX_ACCOUNTS | method::MUX_ACCOUNT_SET | method::MUX_ACCOUNT_USAGE => {
             let reply = heap(|| super::accounts::handle(hub, conn.origin, m, &params)).await;
@@ -3276,7 +3278,10 @@ async fn dispatch_request_with_identity(
             // A binding belongs to the resolved recipient.  The person's connection may manage
             // it, or the recipient's own agent may manage its own threads; no other session may
             // claim an owner by putting a different id in the request.
-            let person = conn.is_person() || (conn.origin == Origin::Local && !conn.agent_side());
+            // The app's own pane (`person_asks`) is the person too: it never sends
+            // `_acpmux/person_prove`, so a gate on `is_person` alone refused the pane's held
+            // messages panel ("Couldn't read the held messages", Leo 2026-11-22).
+            let person = person_asks(conn) || (conn.origin == Origin::Local && !conn.agent_side());
             if !person && conn.caller() != Some(s.id.as_str()) {
                 let other = RpcError::invalid_params(
                     "inbox_subscription.other_session: only the person or the chat's own agent manages its bindings",
@@ -3307,7 +3312,10 @@ async fn dispatch_request_with_identity(
             // The person's, or the chat's own agent's: no other session reads or answers for it.
             // An old acpmux CLI or an agent's shell that declared no terminal is an agent's too
             // (`cli_caller.rs`).
-            let person = conn.is_person() || (conn.origin == Origin::Local && !conn.agent_side());
+            // The app's own pane (`person_asks`) is the person too: it never sends
+            // `_acpmux/person_prove`, so a gate on `is_person` alone refused the pane's held
+            // messages panel ("Couldn't read the held messages", Leo 2026-11-22).
+            let person = person_asks(conn) || (conn.origin == Origin::Local && !conn.agent_side());
             if !person && conn.caller() != Some(s.id.as_str()) {
                 let other = RpcError::invalid_params(
                     "inbox.other_session: only the person or the chat's own agent reads its inbox",
@@ -3333,7 +3341,13 @@ async fn dispatch_request_with_identity(
                         .await
                         .map_err(|e| RpcError::internal(format!("inbox search stopped: {e}")))?
                 }
-                method::MUX_INBOX_THREADS => Ok(hub.inbox_threads(&s)),
+                method::MUX_INBOX_THREADS => {
+                    // Its held count reads the surge journal's tail from the log.
+                    let hub = Arc::clone(hub);
+                    tokio::task::spawn_blocking(move || Ok(hub.inbox_threads(&s)))
+                        .await
+                        .map_err(|e| RpcError::internal(format!("inbox listing stopped: {e}")))?
+                }
                 method::MUX_INBOX_THREAD => {
                     let mark = params.get("markRead").and_then(Value::as_bool).unwrap_or(false);
                     let (hub, thread) = (Arc::clone(hub), thread()?.to_owned());
@@ -3610,16 +3624,41 @@ async fn dispatch_request_with_identity(
         }
         method::MUX_RENAME => {
             let s = hub.resolve(session_key(&params)?)?;
-            if let Some(handle) = params.get("newHandle") {
-                let handle = handle
-                    .as_str()
-                    .ok_or_else(|| RpcError::invalid_params("newHandle must be a string"))?;
+            // `newIcon`: the icon every surface draws for it (`session_icon.rs`), alone or with a
+            // new handle; null or "none" clears it.
+            let icon = match params.get("newIcon") {
+                None => None,
+                Some(Value::Null) => Some(None),
+                Some(Value::String(raw)) if crate::session_icon::clears(raw) => Some(None),
+                Some(Value::String(raw)) => {
+                    let (id, name) = s.read_meta(|m| {
+                        (m.id.clone(), m.handle.clone().unwrap_or_else(|| m.name.clone()))
+                    });
+                    let name = params.get("newHandle").and_then(Value::as_str).unwrap_or(&name);
+                    Some(Some(
+                        crate::session_icon::SessionIcon::parse(raw, &id, name)
+                            .map_err(RpcError::invalid_params)?,
+                    ))
+                }
+                Some(_) => {
+                    return Err(RpcError::invalid_params("newIcon must be a string or null"));
+                }
+            };
+            if params.get("newHandle").is_some() || icon.is_some() {
                 if params.get("newName").is_some() || params.get("to").is_some() {
                     return Err(RpcError::invalid_params(
-                        "rename a name or a handle in one request",
+                        "rename a name, or set a handle and an icon, in one request",
                     ));
                 }
-                hub.rename_spoken_handle(&s, handle)?;
+                if let Some(handle) = params.get("newHandle") {
+                    let handle = handle
+                        .as_str()
+                        .ok_or_else(|| RpcError::invalid_params("newHandle must be a string"))?;
+                    hub.rename_spoken_handle(&s, handle)?;
+                }
+                if let Some(icon) = icon {
+                    hub.set_session_icon(&s, icon)?;
+                }
                 return Ok(hub.session_summary(&s));
             }
             let name = str_param(&params, "newName")
@@ -3673,7 +3712,9 @@ async fn dispatch_request_with_identity(
             heap(|| hub.wake(&s)).await
         }
         method::MUX_WATCH_TAKE_OVER => super::chats::watch_take_over(hub, &params).await,
-        method::MUX_RELEASE_TO_WATCH => super::chats::release_to_watch(hub, &params).await,
+        method::MUX_RELEASE_TO_WATCH => {
+            super::chats::release_to_watch(hub, &params, conn.origin, conn.socket_peer).await
+        }
         method::MUX_QUEUE_EDIT => {
             let s = hub.resolve(session_key(&params)?)?;
             // The queue a restart rebuilds from the logs.
@@ -3831,6 +3872,21 @@ async fn dispatch_request_with_identity(
                 tracing::warn!("{why}");
                 return Err(RpcError::new(-32000, why)
                     .with_data(json!({"reason": "shutdown.refused_client"})));
+            }
+            // `swapIfReplaced` (the app, for a daemon whose bundle an update replaced): swap to the
+            // installed build make-before-break instead of stopping, so this daemon serves until
+            // the new one asks for the home, and serves on if it never does. A stop here left
+            // every chat without a daemon until the app's next one started (2026-11-22 23:44Z).
+            // A daemon from before this ignores the flag and stops, as the app asked before.
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
+            if params.get("swapIfReplaced").and_then(Value::as_bool) == Some(true)
+                && let Some(why) = crate::daemon::exe_swap::request_swap()
+            {
+                tracing::warn!(
+                    reason = %shutdown_reason(&params),
+                    "a client asked this daemon to stop; {why}: swapping make-before-break instead of stopping"
+                );
+                return Ok(json!({"swapping": true, "why": why}));
             }
             // Name who stopped it and why: the log's "a client asked it to" alone cannot tell an
             // app's update from another build's or a script's stop. `reason` is the client's own
