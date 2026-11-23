@@ -716,7 +716,11 @@ fn run_case(step: &str, kill: &str, seed: u64) -> (Outcome, Trace) {
     match ran {
         1 => {}
         0 => out.lost.push("queued prompt never ran".into()),
-        n => out.lost.push(format!("queued prompt ran {n} times")),
+        n => out.lost.push(format!(
+            "queued prompt ran {n} times (mac {}, cloud {})",
+            turn_results(&mac_events, QUEUED_ID),
+            turn_results(&vm_events, QUEUED_ID)
+        )),
     }
     if count(live_events, "user_message", USER_TEXT, HISTORY) != 1 {
         out.lost.push(format!("history missing on the {live_name} side"));
