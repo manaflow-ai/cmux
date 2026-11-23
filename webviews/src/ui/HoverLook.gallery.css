@@ -1,0 +1,27 @@
+.hover-look-gallery {
+  display: grid;
+  gap: var(--ds-space-4);
+  justify-items: start;
+  padding: var(--ds-space-4);
+  color: var(--cmux-text, CanvasText);
+  font-family: var(--font-ui);
+}
+
+.hover-look-gallery-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: start;
+  gap: var(--ds-space-4);
+}
+
+.hover-look-gallery .ui-tooltip,
+.hover-look-gallery .ui-title-tooltip {
+  position: static;
+}
+
+.hover-look-gallery-card {
+  display: grid;
+  gap: var(--grid-base);
+  max-width: calc(var(--grid-base) * 80);
+  font-size: var(--text-detail);
+}
