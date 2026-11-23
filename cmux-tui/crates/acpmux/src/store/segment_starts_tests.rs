@@ -71,6 +71,36 @@ fn a_page_past_after_reads_the_heads_of_log_n_segments_once_then_none() {
 }
 
 #[test]
+fn an_old_reverse_page_does_not_open_every_newer_segment() {
+    let (_home, store) = chat("reverse", 7000);
+    let segments = store.segments("reverse").unwrap().len();
+    let read = || {
+        let mut seqs = Vec::new();
+        store
+            .scan_back("reverse", 0, 20, &|_, _| false, &mut |record| {
+                seqs.push(record.seq);
+                seqs.len() < 5
+            })
+            .unwrap();
+        assert_eq!(seqs, vec![19, 18, 17, 16, 15]);
+    };
+    let copies = segment_table::PATH_COPIES.with(std::cell::Cell::get);
+    let before = head_reads(&store);
+    read();
+    let copied = segment_table::PATH_COPIES.with(std::cell::Cell::get) - copies;
+    let cold = head_reads(&store) - before;
+    eprintln!(
+        "reverse segment table: {segments} segments, {cold} heads read, {copied} paths copied"
+    );
+    assert!(copied <= 2, "a five-record old page copied {copied} segment paths");
+    let bound = u64::from(usize::BITS - segments.leading_zeros()) + 2;
+    assert!(cold <= bound, "{cold} heads read for an old page in {segments} segments");
+    let before = head_reads(&store);
+    read();
+    assert_eq!(head_reads(&store), before);
+}
+
+#[test]
 fn the_cost_of_a_page_does_not_grow_with_the_log() {
     // Ten times the segments, the same page: at most a few more heads (log n), never 10x.
     let (_small_home, small) = chat("small", 700);

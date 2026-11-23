@@ -3,7 +3,6 @@ import { act, StrictMode, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { noChat, session } from "../../../gallery/fixtures/acpmux";
-import { showsFirstRunStarters } from "./FirstRunStarters";
 import { translateNewTab } from "./strings";
 import { ClosedList } from "./ClosedList";
 import { NewTabScreen } from "./NewTabScreen";
@@ -16,7 +15,7 @@ import type { MarkdownFieldElement } from "../MarkdownField";
 import { proseMirrorGlobals } from "../promptFieldTesting";
 import { inlineToken, type ComposerAttachment } from "../attachments";
 import { translate } from "../i18n";
-import { CMUX_PASS_THROUGH } from "../cmuxCommands";
+import { CMUX_PASS_THROUGH, CmuxCommandRefused } from "../cmuxCommands";
 import { seedLastPicks } from "../lastPick";
 import { EMPTY_OMNIBAR } from "../omnibar";
 import { CloudTypingPrewarm, CLOUD_TYPING_PREWARM_REFRESH_MS, cloudTypingMachineID } from "../cloudTypingPrewarm";
@@ -25,6 +24,7 @@ import { setNativeHost } from "../native";
 import { resetToastAvoidanceReports } from "../toastAvoidance";
 import { settleReact } from "../../../../test/support/domTeardown";
 import { Popover } from "../../../ui/Popover";
+import { noteReplaced } from "../sessionIndex";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -128,6 +128,12 @@ async function openMachines(button: HTMLElement) {
   await act(async () => item!.click());
 }
 
+/// The Down presses from the field to drawn row `index`: one more while no row is lit, as when the prompt
+/// leads with no row of its own (David Beyer 2026-11-20).
+function downsTo(index: number) {
+  return index + (document.querySelector(".nt-row.is-selected") ? 0 : 1);
+}
+
 function promptValue(field = container.querySelector<MarkdownFieldElement>(".nt-field")) {
   return (field?.acpmuxMarkdownField?.plainText() ?? "").replace(/\n$/, "");
 }
@@ -157,12 +163,47 @@ test.each(["minimal", "default"] as const)("%s home offers creation only as matc
     const index = rows.findIndex((row) => row.textContent?.includes(translateNewTab(`create.${kind}`)));
     expect(index).toBeGreaterThanOrEqual(0);
     if (kind !== "chat") continue;
-    for (let i = 0; i < index; i++) await press(field, "ArrowDown");
+    const downs = downsTo(index);
+    for (let i = 0; i < downs; i++) await press(field, "ArrowDown");
     await press(field, "Enter");
   }
   expect(asks.length).toBe(1);
   expect(asks[0]?.[1]).toBe("");
   expect(creates).toEqual([]);
+});
+
+// Lucas 2026-11-20: a hovered row and the arrow keys' row lit up at once. The pointer moves the one selection.
+test("the pointer and the arrow keys move one selection in the suggestions", async () => {
+  await act(async () => root!.render(<NewTabScreen {...firstRunProps} snapshot={noChat()} />));
+  const field = await typePrompt("ls");
+  const rows = () => [...document.querySelectorAll<HTMLElement>(".nt-popover .nt-row")];
+  const selected = () => rows().flatMap((row, index) => (row.classList.contains("is-selected") ? [index] : []));
+  const last = rows().length - 1;
+  expect(last).toBeGreaterThanOrEqual(1);
+  expect(selected()).toEqual([0]);
+  const move = (index: number, screenY: number) =>
+    act(async () => {
+      rows()[index]!.dispatchEvent(new dom!.window.MouseEvent("mousemove", { bubbles: true, screenX: 40, screenY }));
+    });
+  // WebKit's mousemove when the list opens or scrolls under a still pointer: the first move only records the spot.
+  await move(last, 100);
+  expect(selected(), "a first move does not take the selection").toEqual([0]);
+  await move(last, 101);
+  expect(selected(), "the hovered row is the selection").toEqual([last]);
+  expect(rows()[last]!.getAttribute("aria-selected")).toBe("true");
+  await press(field, "ArrowUp");
+  expect(selected(), "the arrow keys go on from the hovered row").toEqual([last - 1]);
+  // The same spot after the list scrolls under a still pointer keeps the keys' row.
+  await move(last, 101);
+  expect(selected(), "a still pointer does not take the selection back").toEqual([last - 1]);
+  await move(last, 102);
+  expect(selected(), "a moved pointer does").toEqual([last]);
+  // Closed and opened again under a pointer that moved while it was closed: its first move only records the spot.
+  await typePrompt("");
+  await typePrompt("ls");
+  const before = selected();
+  await move(before[0] === 0 ? last : 0, 300);
+  expect(selected(), "a reopened list keeps its selection on the first move").toEqual(before);
 });
 
 test.each(["terminal", "browser", "chat"] as const)(
@@ -199,7 +240,8 @@ test.each(["terminal", "browser", "chat"] as const)(
       (row) => row.dataset.type === "create" && row.textContent?.includes(translateNewTab(`create.${kind}`)),
     );
     expect(index).toBeGreaterThanOrEqual(0);
-    for (let i = 0; i < index; i++) await press(field, "ArrowDown");
+    const downs = downsTo(index);
+    for (let i = 0; i < downs; i++) await press(field, "ArrowDown");
     await press(field, "Enter");
     expect(creates).toEqual(kind === "chat" ? [] : [kind]);
     expect(asks.length).toBe(kind === "chat" ? 1 : 0);
@@ -397,7 +439,7 @@ test("in the stage layout the composer card at the page's foot is what the app's
     await act(async () => root!.render(<NewTabScreen {...firstRunProps} />));
     await nextTurns();
     expect(container.querySelector('[data-layout="stage"] .nt-composer')).toBeTruthy();
-    expect(reports.at(-1)).toEqual([{ left: 40, top: 620, right: 860, bottom: 710 }]);
+    expect(reports.at(-1)).toEqual([{ left: 40, top: 620, right: 860, bottom: 710, zoom: 1 }]);
     // The page goes: the toasts stop avoiding a composer that left.
     act(() => root!.unmount());
     root = undefined;
@@ -538,74 +580,22 @@ test("a fresh New Tab exposes the no-project path in its environment card", asyn
   expect(container.querySelector('.nt-env .nt-stage-row[aria-pressed="true"]')).toBeTruthy();
 });
 
-test("first run: the starters show only once acpmux answered with an agent and no chat exists", () => {
-  expect(showsFirstRunStarters(noChat([]), { allChats: false })).toBe(true);
-  // Before acpmux answers, an empty chat list proves nothing about a first run.
-  expect(showsFirstRunStarters(noChat([], { catalog: [] }), { allChats: false })).toBe(false);
-  expect(showsFirstRunStarters(noChat([session({ sessionId: "s1" })]), { allChats: false })).toBe(false);
-  expect(showsFirstRunStarters(noChat([]), { allChats: true })).toBe(false);
-  // A cached catalog can come before the chats are listed: no starters until they are.
-  expect(showsFirstRunStarters(noChat([]), { allChats: false, chatsPending: true })).toBe(false);
-  // Chats the host indexed on this device show as recent chats: that Mac is not on a first run.
-  expect(showsFirstRunStarters(noChat([]), { allChats: false, deviceChats: 2 })).toBe(false);
-});
-
-test("while the chats are still being listed, New Tab draws no starters", async () => {
+// First-run cuts (Lawrence 2026-11-20, "drastically simplify"; David Beyer 2026-11-20: "make the initial
+// experience beautiful and simple"): a first run's New Tab is the composer and its chips, with no "Try
+// one" starter rows under it. The placeholder already says what to type.
+test("a first run's New Tab draws the composer alone: no starter rows under it", async () => {
   await act(async () => {
-    root!.render(<NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat([])} chatsPending />);
+    root!.render(<NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat([])} />);
   });
   await promptField();
   expect(container.querySelector(".nt-starters")).toBeNull();
-});
-
-test("a starter picked in shell mode leaves shell mode, so Return asks the agent", async () => {
-  let shellRuns = 0;
-  await act(async () => {
-    root!.render(
-      <NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat([])} onShell={() => void shellRuns++} />,
-    );
-  });
-  const field = await typePrompt("!");
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-  expect(container.querySelector(".nt-screen[data-shell]")).toBeTruthy();
-  const fix = container.querySelector<HTMLButtonElement>('.nt-starter[data-starter="fix"]')!;
-  await act(async () => fix.click());
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-  expect(container.querySelector(".nt-screen[data-shell]")).toBeNull();
-  expect(promptValue(field)).toBe(translateNewTab("starters.fix"));
-  await press(field, "Enter");
-  expect(shellRuns).toBe(0);
-});
-
-test("a first-run starter fills the composer, sends nothing, and the rows stay while it is edited", async () => {
-  let asked = 0;
-  await act(async () => {
-    root!.render(
-      <NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat([])} onAsk={() => void asked++} />,
-    );
-  });
-  const field = await promptField();
-  const rows = [...container.querySelectorAll<HTMLButtonElement>(".nt-starters .nt-starter")];
-  expect(rows.map((row) => row.textContent)).toEqual([
-    translateNewTab("starters.explain"),
-    translateNewTab("starters.fix"),
-    translateNewTab("starters.review"),
-  ]);
-  await act(async () => rows[1]!.click());
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-  expect(promptValue(field)).toBe(translateNewTab("starters.fix"));
-  expect(asked).toBe(0);
-  expect(container.querySelectorAll(".nt-starters .nt-starter")).toHaveLength(3);
-});
-
-test("with a chat on this Mac, New Tab draws no starters", async () => {
-  await act(async () => {
-    root!.render(
-      <NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat([session({ sessionId: "s1" })])} />,
-    );
-  });
-  await promptField();
-  expect(container.querySelector(".nt-starters")).toBeNull();
+  // Nothing follows the composer on the page: no rows of prompts to try under it.
+  const composer = container.querySelector(".nt-composer")!;
+  expect(composer).not.toBeNull();
+  let next = composer.nextElementSibling;
+  while (next && next.textContent?.trim() === "") next = next.nextElementSibling;
+  expect(next).toBeNull();
+  expect(container.textContent).not.toContain("Try one");
 });
 
 test("No folder, then a remote machine with a folder: location and send name that folder", async () => {
@@ -822,7 +812,7 @@ test("Return navigates the page's tab and Option-Return asks for a new tab besid
 // A last pick names the chip's harness before acpmux lists its harnesses (or when that read failed
 // and nothing has read again), so the chip read "Opus 5.5" over a list with no Ask row, and Return
 // took the prompt to Google. Whatever the chip names, Return asks.
-test("with a remembered pick and no catalog, the Ask row leads and Return asks instead of searching", async () => {
+test("with a remembered pick and no catalog, Return asks instead of searching", async () => {
   const asked: string[] = [];
   const searched: string[] = [];
   saved.set("localStorage", scope.localStorage);
@@ -844,7 +834,8 @@ test("with a remembered pick and no catalog, the Ask row leads and Return asks i
     field.acpmuxMarkdownField!.type("look at the ios connection failures");
   });
   const rows = [...document.querySelectorAll(".nt-row")].map((row) => row.textContent ?? "");
-  expect(rows[0]).toContain("Claude Code");
+  // The prompt is Return's with no row of its own (David Beyer 2026-11-20); the web search is a row.
+  expect(document.querySelector('.nt-row[data-type="ask"]')).toBeNull();
   expect(rows.some((row) => row.includes("Search the web"))).toBe(true);
   await press(field, "Enter");
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
@@ -990,7 +981,7 @@ test("shell mode asks for no command list and starts no chat for a path in its c
   expect(container.querySelector(".nt-field .acpmux-slash-token")).toBeNull();
 });
 
-test("a cleared draft forgets the row the arrows chose: the same word typed again and Return sends", async () => {
+test("a listed row is always highlighted: Return picks it, and after Esc Return sends the word", async () => {
   const asks: unknown[][] = [];
   const skill = { name: "review-pr", description: "", source: "skill" as const };
   await act(async () => {
@@ -1002,15 +993,22 @@ test("a cleared draft forgets the row the arrows chose: the same word typed agai
       />,
     );
   });
+  // Leo, 2026-11-20: "i click enter and it should do it".
   let field = await typePrompt("fix /pr");
   expect(container.querySelector("#acpmux-slash-menu")).not.toBeNull();
-  await press(field, "ArrowDown");
-  await typePrompt("");
-  field = await typePrompt("fix /pr");
-  // The same word typed again opens the list again.
-  expect(container.querySelector("#acpmux-slash-menu")).not.toBeNull();
+  // One completion UI: the system's spelling and inline predictions are off while the list shows.
+  const editor = () => field.querySelector<HTMLElement>("[contenteditable]")!;
+  expect(editor().getAttribute("spellcheck")).toBe("false");
+  expect(editor().getAttribute("writingsuggestions")).toBe("false");
   await press(field, "Enter");
-  expect(promptValue()).not.toContain("/review-pr");
+  expect(promptValue()).toContain("/review-pr");
+  expect(container.querySelector("#acpmux-slash-menu")).toBeNull();
+  expect(editor().getAttribute("writingsuggestions")).toBeNull();
+  expect(asks).toEqual([]);
+  field = await typePrompt("fix /pr");
+  expect(container.querySelector("#acpmux-slash-menu")).not.toBeNull();
+  await press(field, "Escape");
+  await press(field, "Enter");
   expect(asks.map((ask) => ask[1])).toEqual(["fix /pr"]);
 });
 
@@ -1835,34 +1833,6 @@ test("Open in Profile…: a search no profile is named makes one with that name;
   expect(made).toEqual([["https://example.com", "Client X"]]);
 });
 
-test("a first-run starter picked in the profile search leaves it, so Return asks the agent", async () => {
-  const made: unknown[] = [];
-  let asked = 0;
-  await act(async () => {
-    root!.render(
-      <NewTabScreen
-        {...firstRunProps}
-        template="minimal"
-        snapshot={noChat([])}
-        omnibar={profileOmnibar}
-        onAsk={() => void asked++}
-        onOpenInProfile={(url, id) => made.push([url, id])}
-        onOpenInNewProfile={(url, name) => made.push([url, name])}
-      />,
-    );
-  });
-  const field = await typePrompt("example.com");
-  await press(field, "ArrowDown");
-  await press(field, "Enter");
-  const fix = container.querySelector<HTMLButtonElement>('.nt-starter[data-starter="fix"]')!;
-  await act(async () => fix.click());
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-  expect(promptValue(field)).toBe(translateNewTab("starters.fix"));
-  await press(field, "Enter");
-  expect(made).toEqual([]);
-  expect(asked).toBe(1);
-});
-
 test("Open in New Profile from the address's rows makes a profile with the default name", async () => {
   const made: [string, string | undefined][] = [];
   await act(async () => {
@@ -2188,6 +2158,106 @@ test("Return runs a typed shell command in a terminal; Cmd-Return still asks the
   expect(asks.map((ask) => ask[1])).toEqual(["git status"]);
 });
 
+// David Beyer 2026-11-20 (first-run call): "the Ask Claude code thing is confusing 'cause it's not clear that I'm ...
+// already set on Claude Code". The prompt for the chip's own agent is what Return does with plain text, which the
+// chip and Send already say: the suggestions draw it as no row, nothing is highlighted, and Return asks.
+test("a prompt for the chip's agent is no suggestion row: nothing is highlighted and Return asks", async () => {
+  const asks: unknown[][] = [];
+  const searches: string[] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        template="minimal"
+        snapshot={noChat([])}
+        onAsk={(...args) => void asks.push(args)}
+        onSearch={(text) => void searches.push(text)}
+      />,
+    );
+  });
+  const field = await typePrompt("fix the failing test");
+  expect(document.querySelector('.nt-row[data-type="ask"]'), "no Ask row for the chip's own agent").toBeNull();
+  expect(document.querySelector(".nt-row.is-selected"), "no row is Return's").toBeNull();
+  expect(document.querySelector(".nt-row-return"), "no row shows Return's keycap").toBeNull();
+  expect(document.querySelector(".nt-send")?.getAttribute("data-returns"), "Send is the prompt's arrow").toBeNull();
+  await press(field, "Enter");
+  expect(asks.map((ask) => ask[1])).toEqual(["fix the failing test"]);
+  expect(searches).toEqual([]);
+});
+
+test("Down from the prompt highlights the first drawn row, Up goes back to the prompt", async () => {
+  const asks: unknown[][] = [];
+  const searches: string[] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        template="minimal"
+        snapshot={noChat([])}
+        onAsk={(...args) => void asks.push(args)}
+        onSearch={(text) => void searches.push(text)}
+      />,
+    );
+  });
+  const field = await typePrompt("fix the failing test");
+  const rows = () => [...document.querySelectorAll<HTMLElement>(".nt-popover .nt-row")];
+  expect(rows().length).toBeGreaterThan(0);
+  await press(field, "ArrowDown");
+  expect(rows()[0]!.classList.contains("is-selected"), "the first drawn row").toBe(true);
+  expect(rows()[0]!.querySelector(".nt-row-return"), "Return's keycap on it").toBeTruthy();
+  await press(field, "ArrowUp");
+  expect(document.querySelector(".nt-row.is-selected"), "back on the prompt").toBeNull();
+  // The prompt is one stop: one more Up wraps to the last drawn row, and Down from it comes back.
+  await press(field, "ArrowUp");
+  expect(rows().at(-1)!.classList.contains("is-selected"), "the last drawn row").toBe(true);
+  await press(field, "ArrowDown");
+  expect(document.querySelector(".nt-row.is-selected"), "the prompt again").toBeNull();
+  await press(field, "Enter");
+  expect(asks.map((ask) => ask[1])).toEqual(["fix the failing test"]);
+  expect(searches).toEqual([]);
+});
+
+// David Beyer 2026-11-20: words he typed into New Tab ran as a shell command on Return. What Return does shows
+// before Return: the highlighted row ends in ↩ and Send takes that row's glyph and name.
+test("a shell command's Run row shows Return's keycap and Send names it", async () => {
+  await act(async () => {
+    root!.render(<NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat([])} />);
+  });
+  await typePrompt("ls -la");
+  const run = document.querySelector<HTMLElement>('.nt-row[data-type="run"]');
+  expect(run?.getAttribute("aria-selected")).toBe("true");
+  expect(run?.querySelector(".nt-row-return")).toBeTruthy();
+  const send = document.querySelector<HTMLElement>(".nt-send");
+  expect(send?.getAttribute("data-returns")).toBe("run");
+  expect(send?.getAttribute("aria-label")).toBe(translateNewTab("row.runInTerminal"));
+  expect(send?.querySelector('svg[data-icon="terminal"]')).toBeTruthy();
+});
+
+test("a lone word that also names a program asks on Return, Run in Terminal is one row down", async () => {
+  const shells: string[] = [];
+  const asks: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        template="minimal"
+        snapshot={noChat([])}
+        onShell={(command) => void shells.push(command)}
+        onAsk={(...args) => void asks.push(args)}
+      />,
+    );
+  });
+  let field = await typePrompt("test");
+  expect(document.querySelector('.nt-row[data-type="run"]')?.getAttribute("aria-selected")).toBe("false");
+  await press(field, "Enter");
+  expect(shells).toEqual([]);
+  expect(asks.map((ask) => ask[1])).toEqual(["test"]);
+  field = await typePrompt("test");
+  await press(field, "ArrowDown");
+  await press(field, "Enter");
+  expect(shells).toEqual(["test"]);
+});
+
 // Lawrence 2026-11-19 (New Tab typing lag): a key in the New Tab field renders what the key changed, never the
 // composer chips (the agent and model pickers, the folder and machine chips, each with its own menus): on cmux21
 // they rendered again on every key, about 2 ms of page work a key, because the screen handed them new props each render.
@@ -2213,4 +2283,89 @@ test("a key in the New Tab field renders the chips no more", async () => {
     renders.length - before,
     `chips rendered again for 4 keys, props that changed: ${JSON.stringify(changed)}`,
   ).toBe(0);
+});
+
+// User 2026-11-20: "resuming claude sessions needs to 'just work'". `/resume <id>` in the New Tab field
+// offered `file:///resume%20<id>` on top; a click on it opened a file tab, and a refused resume said "This
+// command requires an active chat" instead of why. The Resume row leads; Return and a click on it run the
+// one /resume path, and its refusal says what the app said.
+test("/resume <id> resumes through the cmux command, by Return or the Resume row, and a refusal says why", async () => {
+  const id = "3224ed6e-c1e0-4741-bc35-60295c2878fb";
+  const commands: unknown[][] = [];
+  const opens: unknown[] = [];
+  const asks: unknown[] = [];
+  let answer: () => Promise<void> = () => Promise.resolve();
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        snapshot={noChat()}
+        onAsk={(...args) => void asks.push(args)}
+        onOpen={(url: string) => void opens.push(url)}
+        onCmuxCommand={(command, args) => (commands.push([command.action, args]), answer())}
+      />,
+    );
+  });
+  let field = await typePrompt(`/resume ${id}`);
+  const rows = [...document.querySelectorAll<HTMLElement>(".nt-row")];
+  expect(rows[0]?.dataset.type).toBe("resume");
+  expect(rows.some((row) => row.textContent?.includes("file://"))).toBe(false);
+  await press(field, "Enter");
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(commands).toEqual([["resume", id]]);
+  // A pasted session id: its Resume row, clicked, runs the same command.
+  field = await typePrompt(id);
+  const resume = document.querySelector<HTMLElement>('.nt-row[data-type="resume"]')!;
+  await act(async () =>
+    resume.dispatchEvent(new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true })),
+  );
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(commands).toEqual([
+    ["resume", id],
+    ["resume", id],
+  ]);
+  // No chat has the id: the page says the app's reason and keeps what was typed.
+  const unknown = "deadbeef-0000-4000-8000-000000000000";
+  answer = () => Promise.reject(new CmuxCommandRefused(`No chat on this Mac has the session ${unknown}.`));
+  field = await typePrompt(`/resume ${unknown}`);
+  await press(field, "Enter");
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(container.textContent).toContain(`No chat on this Mac has the session ${unknown}.`);
+  expect(container.textContent).not.toContain(translate("composer.cmuxUnavailable"));
+  expect(promptValue(field)).toBe(`/resume ${unknown}`);
+  expect(opens).toEqual([]);
+  expect(asks).toEqual([]);
+});
+
+// Leo, 2026-11-18: "Why should non visible thing even affect the renderer thread anyways?" Minimal
+// (an unset template) draws no chat list, so another chat's event must not make it read every chat:
+// counted field reads, not time, so a busy runner cannot fail it.
+test("a Minimal page reads only the changed chat when another chat changes", async () => {
+  let reads = 0;
+  const counted = (fields: Parameters<typeof session>[0]) =>
+    new Proxy(session(fields), {
+      get(target, key, receiver) {
+        if (key !== "sessionId") reads++;
+        return Reflect.get(target, key, receiver);
+      },
+    });
+  const sessions = Array.from({ length: 2_000 }, (_, index) =>
+    counted({
+      sessionId: `s${index}`,
+      cwd: `/Users/me/code/p${index % 40}`,
+      updatedAt: 1_000 + index,
+      ...(index % 4 === 1 ? { spawnedBy: `s${index - 1}` } : {}),
+    }),
+  );
+  await act(async () =>
+    root!.render(<NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat(sessions)} />),
+  );
+  await promptField();
+  const next = sessions.slice();
+  next[1_500] = counted({ sessionId: "s1500", cwd: "/Users/me/code/p20", updatedAt: 1_000 + 1_500, title: "Renamed" });
+  noteReplaced(sessions, next, [1_500]);
+  reads = 0;
+  await act(async () => root!.render(<NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat(next)} />));
+  // A pass over the list reads thousands; the page's own lists read the one changed chat.
+  expect(reads).toBeLessThan(400);
 });

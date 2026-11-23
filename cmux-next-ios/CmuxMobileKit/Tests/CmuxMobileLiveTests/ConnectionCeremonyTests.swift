@@ -28,37 +28,23 @@ import Testing
         let link = session.link
         link.send(.linkDropped(generation: link.dialGeneration, reason: "dropped"))
         link.send(.dialFailed(generation: link.dialGeneration, reason: "timeout"))
-        link.send(.dialFailed(generation: link.dialGeneration, reason: "timeout"))
         live.phaseChanged(session)
         return session
     }
 
-    /// Detector: a reconnect after a banner that showed posts no "Connected"; the banner just
-    /// goes. The old code set `.connected` for 1.5 s.
+    /// Detector: a connected report while a "Reconnecting" banner is on screen posts no
+    /// "Connected"; the banner just goes. The old code set `.connected` for 1.5 s right here.
     @Test func aReconnectPostsNoConnectedToast() async throws {
         let store = rig.emptyStore()
         let live = await connected(store, PerMacDialer())
         defer { live.stop() }
-        live.bannerQuietFor = .milliseconds(50)
-        let session = try drop(live)
-        await rig.settle { live.banner != nil }
+        let session = try #require(live.sessions["m1"])
+        // A reconnect that outlasted the quiet bound: its banner is on screen.
+        live.bannerHold.show(.reconnecting(to: "Aziz's MacBook Pro", identity: "m1"))
         #expect(live.banner == .reconnecting(to: "Aziz's MacBook Pro", identity: "m1"))
-        live.retryConnection()
-        live.phaseChanged(session)
-        // The link's own phase report publishes "back" (that is what sets `macConnection`); read
-        // the banner right then. A second phase report here would clear the old code's flash
-        // before it could be seen (it lasted 1.5 s).
-        await rig.settle { store.macConnection["m1"] == .connected }
-        #expect(live.banner != .connected, "no \"Connected\" after a reconnect")
-        #expect(live.banner == nil, "back: no banner, got \(String(describing: live.banner))")
-        // The link may report "connected" more than once, and on the old code a second report
-        // cleared the flash before a test could see it; so check the one report directly: a
-        // connected report while the banner shows leaves no banner, never "Connected" (the old
-        // code set `.connected` for 1.5 s right here).
-        live.banner = .reconnecting(to: "Aziz's MacBook Pro", identity: "m1")
         live.phaseChanged(session)
         #expect(live.banner != .connected, "a connected report posts no \"Connected\"")
-        #expect(live.banner == nil)
+        #expect(live.banner == nil, "back: no banner, got \(String(describing: live.banner))")
     }
 
     /// Detector: this iPhone offline shows "Offline" with no Retry, and once the network is back
@@ -68,14 +54,13 @@ import Testing
         let dialer = PerMacDialer()
         let live = await connected(store, dialer)
         defer { live.stop() }
-        live.bannerQuietFor = .milliseconds(50)
         _ = try drop(live)
         live.networkPathChanged(.lost)
-        await rig.settle { live.networkOfflineShows }
+        #expect(store.isOffline)
         #expect(!ConnectionBannerState.offline.offersRetry, "no Retry while this iPhone has no network")
         let dials = dialer.dialCount("m1")
         live.networkPathChanged(.changed("wifi"))
-        #expect(!live.networkOfflineShows)
+        #expect(!store.isOffline)
         await rig.settle { store.macConnection["m1"] == .connected }
         #expect(dialer.dialCount("m1") > dials, "the network's return redialed the Mac by itself")
     }

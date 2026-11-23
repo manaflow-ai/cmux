@@ -1,1 +1,2 @@
-/arguments # macScreen.open gains autoconnect (lane/mac-screen-autoconnect)
+# Leo 2026-11-17 (ask-5a353e9fa1): macScreen.open takes scope (view | full), ahead of the pinned app FFI
+/arguments # macScreen.open gains scope (lane/mac-screens-hub-phase)
