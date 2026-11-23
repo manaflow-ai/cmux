@@ -256,7 +256,9 @@ jobs:
         with:
           cache-bin: false
           workspaces: cmux-tui -> target
-          shared-key: cmux-next-fast-tier-cargo
+          # The fast tier's key (cmux-next.yml, docs/ci/cmux-next-workflow-notes.md#note-210): same hash, same toggle.
+          shared-key: cmux-next-fast-tier-cargo-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
+          add-rust-environment-hash-key: false
           save-if: false
 
       - name: Run the car's guards

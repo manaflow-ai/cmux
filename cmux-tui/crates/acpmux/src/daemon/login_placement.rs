@@ -207,6 +207,23 @@ pub(crate) fn placement(
     }
 }
 
+/// [`placement`] for a starter that runs below the daemon's CPU tier (`lowered`,
+/// `qos::lowered_priority`): a daemon it starts in place inherits its clamp or nice, so the
+/// person's own home goes to the login-session job, where launchd starts it at `Interactive`,
+/// also from inside the login session. A keyed start (the app's) stays where it is.
+pub(crate) fn placement_lowered(
+    in_login_session: Option<bool>,
+    own_home: bool,
+    gui_login: bool,
+    keyed: bool,
+    lowered: bool,
+) -> Placement {
+    match placement(in_login_session, own_home, gui_login, keyed) {
+        Placement::InPlace if lowered && own_home && !keyed && gui_login => Placement::LoginJob,
+        other => other,
+    }
+}
+
 /// Whether `home` is the person's own acpmux home (`default`, or a per-build home under it).
 /// Both are resolved first (`..`, links): a home that leads elsewhere is not the person's own.
 /// Either one unreadable: not.
@@ -280,6 +297,18 @@ mod tests {
         let line = keyed_in_place_warning();
         assert!(line.contains(KEYED_IN_PLACE), "{line}");
         assert!(line.contains("keychain"), "{line}");
+    }
+
+    #[test]
+    fn a_lowered_starter_moves_the_persons_own_daemon_to_the_login_job() {
+        // In the login session, own home, a GUI login: lowered goes to the job, not in place.
+        assert_eq!(placement_lowered(Some(true), true, true, false, true), Placement::LoginJob);
+        assert_eq!(placement_lowered(Some(true), true, true, false, false), Placement::InPlace);
+        // Not the person's own home, a keyed start, or no GUI login: as before.
+        assert_eq!(placement_lowered(Some(true), false, true, false, true), Placement::InPlace);
+        assert_eq!(placement_lowered(Some(false), true, true, true, true), Placement::KeyedInPlace);
+        assert_eq!(placement_lowered(Some(true), true, false, false, true), Placement::InPlace);
+        assert_eq!(placement_lowered(Some(false), true, false, false, true), Placement::NoGuiLogin);
     }
 
     #[test]

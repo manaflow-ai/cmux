@@ -72,6 +72,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case worktreeSetup
         /// Settings > Cloud > Models for Cloud: whether Claude, ChatGPT and an API key are set up for Cloud chats (a connection with serves_cloud), each with its Set up way in (Settings > Models' Add a Connection steps) and a plain note when only a This Mac only login exists (cmux-tui/docs/model-connections.md Revision 2); deep links #/settings/cloud?focus=cloud.claude, cloud.chatgpt, cloud.apiKey.
         case cloudModels
+        /// Settings > Customize: every customization one click away (Leo 2026-11-22: "it should just be as easy as a click toggle"): the experiments.* and labs.* switches, the Customization Library's entries (`cmux customize library`), the verified looks (examples/looks, `cmux setup install`), then every other switch the page shows, collapsed; one search over all of them. Rows come from the schema export, so a new toggle row shows with no edit. Deep link: #/settings/customize.
+        case customizeChecklist
         /// Settings > Models: the person's connections (Mac logins, ChatGPT plan, API keys) in the order a thread uses them, Spread usage, the organization's shared keys, and the members policy (cmux-tui/docs/model-connections.md); `cmux.settings.models.*`.
         case models
     }

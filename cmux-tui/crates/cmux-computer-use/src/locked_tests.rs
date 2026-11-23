@@ -11,6 +11,7 @@ use crate::policy::PolicyConfig;
 fn table() -> Vec<(&'static str, Value, Kind)> {
     vec![
         ("status", json!({}), Kind::Engine),
+        ("list_displays", json!({}), Kind::Engine),
         ("list_machines", json!({}), Kind::Engine),
         ("list_apps", json!({}), Kind::Inventory),
         ("list_windows", json!({}), Kind::Inventory),
@@ -19,6 +20,10 @@ fn table() -> Vec<(&'static str, Value, Kind)> {
         ("screenshot", json!({"display": "1"}), Kind::Display),
         ("wait", json!({"window_id": "1"}), Kind::WindowLook),
         ("wait", json!({}), Kind::Display),
+        ("record", json!({"seconds": 1}), Kind::Display),
+        ("record", json!({"action": "start"}), Kind::Display),
+        ("record", json!({"action": "read", "recording_id": "r"}), Kind::Display),
+        ("record", json!({"action": "stop"}), Kind::Engine),
         ("get_ui_tree", json!({"window_id": "1"}), Kind::WindowLook),
         ("click", json!({"window_id": "1"}), Kind::WindowInput),
         ("click", json!({"window_id": "1", "delivery": "background"}), Kind::WindowInput),

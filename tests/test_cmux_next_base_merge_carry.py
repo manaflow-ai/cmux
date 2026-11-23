@@ -29,6 +29,8 @@ import cmux_next_base_merge_carry as carry  # noqa: E402
 # tests/git_fixture_env.py, loaded by path (`python3 -I` puts no script folder on sys.path): git's auto maintenance
 # off in the fixture repositories and in the scratch bare repository clean_merge_tree makes.
 import importlib.util as _git_fixture_importlib  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from cmux_next_step_text import step_run  # noqa: E402
 _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
     "git_fixture_env", Path(__file__).resolve().parent / "git_fixture_env.py")
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
@@ -250,7 +252,7 @@ class Workflow(unittest.TestCase):
         cls.step = next(step for step in cls.route_job["steps"] if step.get("id") == "route")
 
     def test_route_step_asks_the_carry_after_the_router(self):
-        run = self.step["run"]
+        run = step_run(self.step)
         router = run.index("scripts/ci/cmux_next_route.py")
         asked = run.index("scripts/ci/cmux_next_base_merge_carry.py")
         self.assertLess(router, asked)

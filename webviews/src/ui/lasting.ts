@@ -107,11 +107,12 @@ export function useConnectionQuietFrom(
   else seen.current ??= now();
   const from = since ?? seen.current;
   const grace = defaultGrace <= 0 ? 0 : CONNECTION_QUIET_MS;
-  const left = down && from !== undefined ? from + grace - now() : 0;
+  const due = down && from !== undefined ? from + grace : undefined;
+  const lasted = due === undefined || due <= now();
   useEffect(() => {
-    if (left <= 0) return;
-    const timer = setTimeout(() => redraw((n) => n + 1), left);
+    if (lasted || due === undefined) return;
+    const timer = setTimeout(() => redraw((n) => n + 1), Math.max(0, due - now()));
     return () => clearTimeout(timer);
-  }, [down, from, left > 0]);
-  return down && left <= 0;
+  }, [due, lasted, now]);
+  return down && lasted;
 }

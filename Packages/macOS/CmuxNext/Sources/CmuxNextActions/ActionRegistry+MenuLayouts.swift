@@ -29,8 +29,13 @@ extension ActionRegistry {
         return item
     }
 
-    /// Ends `menu` with Customize Menu… after a separator (``customizeMenuItem(for:)``).
-    public func appendCustomizeItem(to menu: NSMenu, for context: ActionMenuContext) {
+    /// Ends a whole menu on `target`: the rows apps add to it (``contributedMenuItems``) as one
+    /// group, then Customize Menu… after a separator (``customizeMenuItem(for:)``).
+    public func appendCustomizeItem(to menu: NSMenu, for context: ActionMenuContext, target: ActionTargetRef? = nil) {
+        if let target, let rows = contributedMenuItems?(context, target), !rows.isEmpty {
+            if menu.items.last.map({ !$0.isSeparatorItem }) == true { menu.addItem(.separator()) }
+            rows.forEach(menu.addItem)
+        }
         guard menu.items.contains(where: { !$0.isSeparatorItem }), let item = customizeMenuItem(for: context) else { return }
         if menu.items.last?.isSeparatorItem == false { menu.addItem(.separator()) }
         menu.addItem(item)

@@ -517,6 +517,8 @@ async fn hub_carrier_a_dial_to_a_machine_whose_carrier_is_off_says_so_fast() {
     };
     assert!(started.elapsed() < Duration::from_secs(2), "the dial waited {:?}", started.elapsed());
     assert!(said.contains("carrier.not_serving"), "{said}");
+    // The hub scopes the ticket to the caller's team: the words name it, not the far carrier.
+    assert!(said.contains("another of your teams"), "{said}");
 }
 
 /// The node key is WireGuard's static key and the carrier's Noise static key; the acpmux owner

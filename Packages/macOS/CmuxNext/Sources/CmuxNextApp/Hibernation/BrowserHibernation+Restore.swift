@@ -138,7 +138,7 @@ extension BrowserHibernation {
 
     /// A fresh picture (never one from an earlier sleep), compressed whole into `snapshots`.
     func snapshot(_ tab: any BrowserTab, key: String) async -> HibernationSnapshots.Picture? {
-        guard let image = await capture(tab) ?? cache.flatMap({ $0.pageThumbnailVersions[key] == tab.state.pictureVersion ? $0.pageThumbnails.image(for: key) : nil }) else { return nil } // Chromium: its current leave picture
+        guard let image = await capture(tab) ?? cache.flatMap({ $0.pageThumbnailURLs[key].map { $0 == tab.state.url?.absoluteString } == true ? $0.pageThumbnails.image(for: key) : nil }) else { return nil } // Chromium: its leave picture of the URL it has now (its title, load state aside)
         return await HibernationSnapshots.compress(image)
     }
 }

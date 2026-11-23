@@ -248,7 +248,7 @@
     },
     "portable-checks": {
       "needs": "any",
-      "description": "Static checks and stdlib Python, bash and bun tests that run the same on Linux and macOS: fleet Linux first, then a free owned mini with no nightly job waiting, Blacksmith Linux last (scripts/ci/portable_job_placement.py)."
+      "description": "Static checks and stdlib Python, bash and bun tests that run the same on Linux and macOS. Own-branch jobs take the one label cmux-linux."
     }
   },
   "macos_jobs": {
@@ -260,10 +260,6 @@
       "reads no picker output and so waits on one fixed label (scripts/ci/runner_routing_table.py). All three",
       "lists only shrink."
     ],
-    "ci-guards.yml#guard-status": "portable-checks",
-    "cmux-next-fast-gates.yml#resolve": "portable-checks",
-    "cmux-next-fast-gates.yml#post": "portable-checks",
-    "cmux-next-fast-gates.yml#receipt": "portable-checks",
     "agent-brands.yml#swift-test": {
       "class": "apple-swift-tests",
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
@@ -345,7 +341,6 @@
     "cmux-next-dev-daily.yml#verify": "apple-signing-release",
     "cmux-next-fast-tier-seed.yml#seed": "apple-app-build",
     "cmux-next-frame-pacing.yml#bench": "apple-gui",
-    "cmux-next-guards.yml#tooling-tests": "portable-checks",
     "cmux-next-ios-kit.yml#kit-tests": "apple-swift-tests",
     "cmux-next-iphone-clips.yml#record": {
       "class": "apple-gui",
@@ -359,6 +354,10 @@
     "cmux-next-perf-bench.yml#bench": {
       "class": "apple-gui",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+    },
+    "cmux-next-stress-bench.yml#measure": {
+      "class": "apple-gui",
+      "picker_followup": "runs-on is the build-fleet gateway runner, which only hands the stress runs to the bench Mac with cmux-ci run"
     },
     "screen-stream-eval.yml#eval": {
       "class": "apple-gui",
@@ -492,6 +491,7 @@
     "nightly.yml#republish-nightly-next": {"class": "portable-checks"},
     "nightly.yml#runner-preflight": {"class": "portable-checks"},
     "nightly.yml#decide": {"class": "portable-checks"},
+    "nightly.yml#pick-nightly-next-signer": {"class": "portable-checks"},
     "nightly.yml#await-release-surface-ack": {"class": "portable-checks"},
     "nightly.yml#pick-nightly-sign-runner": {"class": "portable-checks"},
     "nightly.yml#published-in": {"class": "portable-checks"},
@@ -515,7 +515,7 @@
     "nightly.yml#await-nightly-tree-marker": "portable-checks",
     "nightly.yml#build-nightly-ghostty-cli-helper": "apple-app-build",
     "nightly.yml#build-sign-notarize-nightly": "apple-signing-release",
-    "nightly.yml#nightly-next-one": {"class": "apple-signing-release", "picker_followup": "the literal signer label by design: keychain rule 7 and the owned-Mac guard refuse a signing job whose runner a variable or picker output can choose; any Mac carrying glaeda-trusted-next-signing takes it"},
+    "nightly.yml#nightly-next-one": "apple-signing-release",
     "nightly.yml#build-nightly-deltas": "apple-signing-release",
     "nightly.yml#generate-nightly-deltas": "apple-signing-release",
     "nightly.yml#recover-nightly-next-notarization": "apple-signing-release",

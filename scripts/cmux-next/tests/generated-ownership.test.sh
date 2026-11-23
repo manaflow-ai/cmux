@@ -37,15 +37,21 @@ drift "$schema" docs/mdm/managed-preferences.md \
 # A setting declared outside CmuxNextSettings (CmuxNextDesign's AttentionSettings) changes the exports too.
 drift "$schema" docs/mdm/com.manaflow.cmux.plist Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/AttentionSettings.swift \
   || fail "a setting declared in another CmuxNext module causes the settings exports"
+# The defaults snapshot is bot-only too (RFD 0045): nothing at a pull request head reads it.
 drift schemas/defaults/cmux-next.json Packages/macOS/CmuxNext/Sources/CmuxNextActions/KeyBindingDefaults.swift \
-  || fail "a default binding change causes the defaults snapshot"
+  && fail "the defaults snapshot is bot-only, even with a default binding change"
+grep -q "only the base autofix writes it" "$tmp/out" || fail "the bot-only snapshot says so"
+# pr-autofix-apply.sh reads the bot-only list from the table, so the two cannot disagree.
+printf '%s\n' schemas/defaults/cmux-next.json "$graph" "$schema" | python3 "$OUTPUTS" bot-only > "$tmp/out"
+[[ "$(cat "$tmp/out")" == "$(printf '%s\n' schemas/defaults/cmux-next.json "$graph")" ]] \
+  || fail "bot-only names the snapshot and the graph, not the settings export"
 drift cmux-tui/bindings/go/.cmux-resource-api.json cmux-tui/spec/resource-operations-v2.json || fail "a spec change causes the SDK files"
 drift "$cap" Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonEndpoint.swift \
   || fail "a capability source change causes the daemon export"
 drift "$cap" scripts/cmux-next/base-autofix.sh \
   && fail "the capability export is drift without its source"
-# An output never causes another output: the exports alone do not own the defaults snapshot.
-drift schemas/defaults/cmux-next.json "$schema" && fail "the settings export alone must not cause the defaults snapshot"
+# An output never causes another output: the exports alone do not own the action exports.
+drift plans/cmux-next/actions.md "$schema" && fail "the settings export alone must not cause the action exports"
 # Every output the autofix may push is in the table, so the push never drops a repair the
 # pull request caused (the Java SDK sources and the namespace ratchet were missing once).
 for path in cmux-tui/bindings/java/src/com/cmux/raw/Client.java cmux-tui/bindings/go/raw/generated_ops.go \
@@ -124,7 +130,7 @@ rows=(
   "1e1'|web/data/next-docs/settings-reference.generated.json|1|1|none"  # without --docs-shortcuts
   "1e2|cmux-tui/crates/cmux-app-host/generated/scopes.json|1|1|out"
   "1e2|Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/scopes.json|1|1|none"
-  "1e3|schemas/defaults/cmux-next.json|1|-|out"                   # bot-only: apply drops it
+  "1e3|schemas/defaults/cmux-next.json|1|-|out"                   # bot-only: apply drops it (generated_outputs.py bot-only)
   "1e4|-"                                                          # a no-op: the display suite list is derived where read
   "1f|scripts/lint-namespace-types-ratchet.txt|1|1|out"
   "1f'|Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift|1|-|none"  # a source rewrite, not an output

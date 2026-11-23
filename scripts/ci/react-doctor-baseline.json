@@ -422,7 +422,7 @@
    "src/agent-session/acpmux/threadMinimap/ThreadMinimap.tsx::react-doctor/no-ref-current-in-render": 4,
    "src/agent-session/acpmux/threadMinimap/ThreadMinimap.tsx::react-hooks-js/immutability": 2,
    "src/agent-session/acpmux/threadMinimap/ThreadMinimap.tsx::react-hooks-js/preserve-manual-memoization": 2,
-   "src/agent-session/acpmux/threadMinimap/ThreadMinimap.tsx::react-hooks-js/refs": 33,
+   "src/agent-session/acpmux/threadMinimap/ThreadMinimap.tsx::react-hooks-js/refs": 32,
    "src/agent-session/acpmux/threadMinimap/ThreadMinimap.tsx::react-hooks-js/todo": 1,
    "src/agent-session/acpmux/threadMinimap/useRailPlacement.ts::react-hooks-js/preserve-manual-memoization": 1,
    "src/agent-session/acpmux/trustHeld.ts::react-doctor/no-ref-current-in-render": 2,

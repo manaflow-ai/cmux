@@ -56,6 +56,10 @@ pub enum DatagramKind {
     /// upstream media frame, viewer to host: microphone, camera or screen
     /// share (rd change C4; cap `up_media`).
     UpMedia = 11,
+    /// One frame's host times for the stage ledger ([`crate::FrameTimes`]), sent after the
+    /// frame's last shard; the header names its stream and frame (host to viewer; cap
+    /// `ledger`).
+    FrameTimes = 12,
 }
 
 impl DatagramKind {
@@ -73,6 +77,7 @@ impl DatagramKind {
             9 => Self::ClockPing,
             10 => Self::ClockPong,
             11 => Self::UpMedia,
+            12 => Self::FrameTimes,
             other => return Err(DecodeError::Kind(other)),
         })
     }

@@ -31,6 +31,10 @@ struct CmuxMobileApp: App {
         // setting (mock data, a scripted demo, relay only) an earlier Debug
         // or Demo install left in this container, before anything reads them.
         DeveloperOptions.removeStoredValues()
+        #else
+        // A UI test's `-cmuxMobile.setupComplete NO` starts setup; setup's
+        // own last page must still be able to finish it.
+        DeveloperOptions.seedLaunchArguments()
         #endif
         // The build's dev tag (Info.plist CmuxMobileDevTag, Debug configuration only): its cloud
         // requests carry `X-Cmux-Build-Space: dev:<slug>` so dev builds never share cloud data. A
@@ -57,6 +61,8 @@ struct CmuxMobileApp: App {
             .notice("launch: isReduceMotionEnabled=\(UIAccessibility.isReduceMotionEnabled, privacy: .public)")
         // Screenshot rig: CMUX_MOBILE_FEED_LIVE_FIXTURE=1 fills the Feed from a fixed Mac.
         LiveFeedFixture.shared.startIfRequested()
+        // Input responsiveness: main-thread hitches with stacks, keyboard windows, key and send latency.
+        InputLatencyTrace.startIfRequested()
         // CMUX_MOBILE_FEED_TERMINAL_FIXTURE=1 (or =before): terminal agents' events from a fixed Mac.
         TerminalFeedFixture.shared.startIfRequested()
         #endif
@@ -76,6 +82,8 @@ struct CmuxMobileApp: App {
                 ShellScreenSharingLink()
             } else if TerminalFloodBenchRoot.isRequested {
                 TerminalFloodBenchRoot()
+            } else if TerminalHistoryWindowDemoRoot.isRequested {
+                TerminalHistoryWindowDemoRoot()
             } else if TerminalResizeDemoRoot.isRequested {
                 TerminalResizeDemoRoot()
             } else if AgentCLIHybridBenchRoot.isRequested {
@@ -93,6 +101,7 @@ struct CmuxMobileApp: App {
             #if DEBUG
             // `CMUX_MOBILE_LAUNCH_MARKS=1`: the launch marks for LaunchTTIUITests.
             .overlay(alignment: .topLeading) { LaunchMarksProbe() }
+            .overlay(alignment: .topTrailing) { InputLatencyProbe() }
             #endif
             .modifier(ChiefCallCover(
                 controller: ChiefVoice.controller,

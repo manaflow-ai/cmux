@@ -112,8 +112,8 @@
     },
     {
       "path": "AttachSurfaceRequest.java",
-      "sha256": "6cf71de707488adc3923eaadef7c54fff9faea9f1ba123ab2ec0172ba3c4ee27",
-      "size": 13654
+      "sha256": "b37fbeb5b3560f81868dc392e6ceab4a0b992f8e6755430ea3f8ca196a9ccd5a",
+      "size": 15244
     },
     {
       "path": "AttachSurfaceRequestMode.java",
@@ -787,8 +787,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "8a38fea26181c44fdad0aa699601258748f33065046fa4ff8223a3c8963d1d25",
-      "size": 85636
+      "sha256": "13a6a7a3896436c56ec8cfdb4493dfceaf13667cb3c81271edd1f4507ff95517",
+      "size": 85740
     },
     {
       "path": "ComputerUseApprovalsRequest.java",
@@ -2252,7 +2252,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "9c6216e46a4e4773fc54ffe3537eb96c1bfa0b441a52cab1b0c75e519dc58ad8",
+      "sha256": "c006b29fd188427d1b66fc85f63e8dce5db0e336df050416fff44665c6092bbe",
       "size": 8407
     },
     {
@@ -3792,7 +3792,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "a28892b8ded1c742cc506178615cfc80feb9c473a8835f5666d3efca73936095",
+  "ir_sha256": "2e0877c88adc3bd75bf9e49964f9345f01e89bccf21a8b32cbba5f203a9bd76f",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

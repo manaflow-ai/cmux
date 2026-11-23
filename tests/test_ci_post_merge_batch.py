@@ -4,6 +4,7 @@ judgement and the bisect, plus the manifest, the caller jobs and the callees kep
 
 from __future__ import annotations
 
+import importlib.util
 import subprocess
 import sys
 import tempfile
@@ -18,6 +19,10 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+_git_fixture_spec = importlib.util.spec_from_file_location("git_fixture_env", ROOT / "tests" / "git_fixture_env.py")
+git_fixture_env = importlib.util.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 import post_merge_batch as pmb  # noqa: E402
 
@@ -47,6 +52,14 @@ class TickTest(unittest.TestCase):
         runs.append(run(2, "b" * 40, "2026-11-21T09:00:00Z", status="queued"))
         self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 120)[0], "skip")
         self.assertEqual(pmb.tick_decision("a" * 40, runs[:1], NOW, 120)[0], "dispatch")
+
+    def test_redispatches_a_tip_batch_with_no_verdict_once(self) -> None:
+        # Drill-8 run 44966393364: the plan lost its runner, so the tip was never tested.
+        runs = [run(1, "a" * 40, "2026-11-21T11:50:00Z")]
+        self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 120, judged=lambda rid: False)[0], "dispatch")
+        self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 120, judged=lambda rid: True)[0], "skip")
+        runs.insert(0, run(2, "a" * 40, "2026-11-21T11:55:00Z"))
+        self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 120, judged=lambda rid: False)[0], "skip")
 
     def test_window_value(self) -> None:
         self.assertEqual(pmb.window_minutes(""), 120)
@@ -214,17 +227,25 @@ class BisectTest(unittest.TestCase):
         probe = pmb.Probe("s", "s / j", "j", "c3", "g", "", "1")
         self.assertEqual(pmb.next_step(probe, "success", ["c1", "c2", "c3"])[0], "flake")
 
-    def test_a_probe_without_verdict_retries_once(self) -> None:
+    def test_a_probe_without_verdict_retries_then_stops(self) -> None:
         probe = pmb.Probe("s", "s / j", "j", "c1", "g", "c3", "1")
-        step, again = pmb.next_step(probe, "cancelled", ["c1", "c2", "c3"])
-        self.assertEqual((step, again.tries), ("retry", 1))
-        self.assertEqual(pmb.next_step(again, "cancelled", ["c1", "c2", "c3"])[0], "lost")
+        for n in range(1, pmb.MAX_PROBE_RETRIES + 1):
+            step, probe = pmb.next_step(probe, "cancelled", ["c1", "c2", "c3"])
+            self.assertEqual((step, probe.tries), ("retry", n))
+        self.assertEqual(pmb.next_step(probe, "", ["c1", "c2", "c3"])[0], "lost")
+
+    def test_a_probe_judge_runs_when_its_plan_died(self) -> None:
+        # Drill-8 probe run 44980687386: the plan job lost its runner and the bisect stopped with no judge.
+        judge = yaml.safe_load(WORKFLOW.read_text())["jobs"]["judge"]
+        self.assertIn("inputs.mode == 'probe'", judge["if"])
+        self.assertIn("!cancelled()", judge["if"])
 
     def test_first_parent_range_on_a_real_repo(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             def g(*argv: str) -> str:
-                return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *argv], cwd=tmp, check=True, capture_output=True, text=True).stdout.strip()
-            g("init", "-q")
+                return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *argv], cwd=tmp, check=True,
+                                      capture_output=True, text=True, env=git_fixture_env.fixture_env()).stdout.strip()
+            git_fixture_env.init_repo(tmp)
             shas = []
             for i in range(4):
                 Path(tmp, "f").write_text(str(i))
@@ -264,6 +285,29 @@ class WiringTest(unittest.TestCase):
                 gate = str(callee["jobs"][job_id].get("if", ""))
                 self.assertIn(f"inputs.only == '{job_id}'", gate, f"{key}/{job_id}")
             self.assertIn("inputs.sha", (WORKFLOW.parent / suite.workflow).read_text(), key)
+
+    def test_a_hung_checkout_is_bounded_and_tried_once_more(self) -> None:
+        """A fetch that hangs must not take the job's whole budget and its verdict with it (plan job
+        137288423007 and judge job 137302455752, 2026-11-22: cancelled in "Fetching the repository")."""
+        for key in ("plan", "judge", "revert"):
+            job = self.workflow["jobs"][key]
+            steps = [s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/checkout@")]
+            self.assertEqual(len(steps), 2, f"{key}: one checkout and one retry")
+            first, again = steps
+            self.assertTrue(first.get("continue-on-error"), key)
+            self.assertEqual(again.get("if"), f"steps.{first.get('id')}.outcome != 'success'", key)
+            self.assertEqual(first["with"], again["with"], key)
+            self.assertEqual(first["uses"], again["uses"], key)
+            bound = first.get("timeout-minutes", 0) + again.get("timeout-minutes", 0)
+            self.assertTrue(0 < first.get("timeout-minutes", 0) and 0 < again.get("timeout-minutes", 0), key)
+            history = next(s for s in job["steps"] if s.get("name") == "Fetch this ref's history")
+            self.assertGreater(job["steps"].index(history), job["steps"].index(again), key)
+            bound += history["timeout-minutes"]
+            self.assertLess(bound, job["timeout-minutes"], f"{key}: every try fits inside the job's budget")
+            # Only this ref: fetch-depth 0 fetches every branch of the repository, which is what hung.
+            self.assertNotIn("fetch-depth", first["with"], key)
+            self.assertIn('origin "$(git rev-parse HEAD)"', history["run"], key)
+            self.assertIn("--unshallow", history["run"], key)
 
 
 class GuardTest(unittest.TestCase):

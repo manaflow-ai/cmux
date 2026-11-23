@@ -1628,6 +1628,17 @@
   align-items: center;
   height: var(--acpmux-composer-control);
 }
+.acpmux-composer-extension-tools,
+.acpmux-composer-extension-buttons {
+  display: inline-flex;
+  align-items: center;
+}
+.acpmux-composer-extension-buttons {
+  max-inline-size: 25vw;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.acpmux-composer-extension-buttons > * { flex-shrink: 0; }
 .acpmux-composer-inner > .acpmux-composer-actions {
   grid-column: 3;
   grid-row: 2;
@@ -1789,7 +1800,7 @@
    its composer. The default is the icon and the short name. */
 .acpmux-location-picker[data-face="icon"] .acpmux-location-button > :not(svg) { display: none; }
 .acpmux-location-picker[data-face="chip"] .acpmux-location-button {
-  box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--agent-text) 18%, transparent);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--agent-text) 18%, transparent);
   border-radius: var(--ds-radius-control);
   padding-inline: 8px;
 }
@@ -1836,7 +1847,7 @@
   position: absolute;
   inset-inline: 0;
   top: -5px;
-  border-top: .5px solid color-mix(in srgb, var(--agent-text) 14%, transparent);
+  border-top: var(--cmux-hairline, 0.5px) solid color-mix(in srgb, var(--agent-text) 14%, transparent);
   pointer-events: none;
 }
 /* No folder is a settled choice, never dimmed (composerContextModel emptyFolderLabel, Leo 2026-11-09). */

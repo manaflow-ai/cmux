@@ -136,7 +136,9 @@ jobs:
   # A coalesced run covers every commit since the last one. When its webview tests go red, the first red commit of
   # each new red file is found by re-running only those files, only on the commits the run covered whose webview
   # inputs changed (scripts/ci/web_coalesce.py bisect, a binary search of at most 6 probes). It reports and never
-  # fails: its lines are what base-red-watch names the first red commit and its pull request from.
+  # fails: its lines are what base-red-watch names the first red commit and its pull request from, and the report's
+  # `culprits` (each pinned commit, its pull request and the files it broke) is what an auto-revert reads from the
+  # web-bisect artifact.
   web-bisect:
     name: web bisect
     needs: [coalesce, web]
@@ -239,7 +241,8 @@ jobs:
           python3 -I "$WEB_BISECT_RUNNER/web_coalesce.py" bisect --base "$BASE" --head "$GITHUB_SHA" \
             --last-known-green "${{ steps.lkg.outputs.sha }}" \
             --results "${results[@]}" --history "$RUNNER_TEMP/webviews-test-history/history.json" \
-            --probe "$WEB_BISECT_RUNNER/web-bisect-probe.sh" --report "$RUNNER_TEMP/web-bisect/report.json"
+            --probe "$WEB_BISECT_RUNNER/web-bisect-probe.sh" --report "$RUNNER_TEMP/web-bisect/report.json" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           git checkout -q --force --detach "$GITHUB_SHA"
 
       - name: Upload the bisect report

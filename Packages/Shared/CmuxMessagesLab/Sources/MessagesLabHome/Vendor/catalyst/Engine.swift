@@ -191,7 +191,8 @@ enum Reducer {
     }
     /// Pure state transition. `now` stamps new records; `newID` names them.
     static func reduce(_ s: inout AppState, _ action: Action, now: Date, newID: () -> ID) -> Message? {
-        let stamp = Instant.format(now)
+        // cmux: formatted only by an action that stamps a record: a draft key formatted a date every key.
+        lazy var stamp = Instant.format(now)
         switch action {
         case let .setDraft(text):
             s.ui.draft.text = text

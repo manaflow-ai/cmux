@@ -125,6 +125,7 @@ RELEASE_JOBS_FORK_GATED = {
     "republish-nightly-deltas": "re-uploads deltas to the release; starts with the owner fork branch",
     "publish-release-notes": "publishes release notes; runs on GitHub-hosted ubuntu-24.04 behind the owner fork branch",
     "nightly-next-one": "builds, signs, notarizes and publishes nightly-next on the signing Mac; starts with the owner fork branch",
+    "sign-live-code-variant": "signs, notarizes and publishes the live code variant on the signing Mac; starts with the owner fork branch",
 }
 
 
@@ -176,7 +177,18 @@ TRUSTED_RUNNER_EXPRESSION = (
     + json.dumps(list(TRUSTED_RUNNER_LABELS), separators=(",", ":"))
     + "'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
 )
-TRUSTED_RUNNER_LINE = re.compile(r"^\s*runs-on:\s*" + re.escape(TRUSTED_RUNNER_EXPRESSION) + r"\s*(?:#.*)?$")
+# The pull-request and issue bots hold write tokens and may be started by an outsider's event, so they lead with the
+# PR control label (cmux-gcp-pr-control-jit-x64: one-job JIT VMs, deleted after the job, no persistent runner
+# registers it) after the fork branch, behind their own switch; the repair workflows lead with the repair label the
+# same way (main's copies, tests/test_ci_write_token_jit_label.py). Either operand turns off with its variable and
+# leaves the trusted selector after it unchanged, so it can only ever add that one literal label.
+PR_CONTROL_FIRST_OPERAND = "vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || "
+REPAIR_FIRST_OPERAND = "vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || "
+TRUSTED_RUNNER_EXPRESSIONS = (TRUSTED_RUNNER_EXPRESSION, *(
+    TRUSTED_RUNNER_EXPRESSION.replace("'ubuntu-24.04' || ", "'ubuntu-24.04' || " + operand, 1)
+    for operand in (PR_CONTROL_FIRST_OPERAND, REPAIR_FIRST_OPERAND)))
+TRUSTED_RUNNER_LINE = re.compile(
+    r"^\s*runs-on:\s*(?:" + "|".join(map(re.escape, TRUSTED_RUNNER_EXPRESSIONS)) + r")\s*(?:#.*)?$")
 # The one named exception: language-boundaries.yml keeps the selector that still admits ubuntu-24.04, because its
 # own guard refuses a change to it without Leo's leo-approved-port label; a follow-up PR carries it. Only that file.
 LEGACY_TRUSTED_RUNNER_EXPRESSION = TRUSTED_RUNNER_EXPRESSION.replace("('[", "('[\"ubuntu-24.04\",", 1)

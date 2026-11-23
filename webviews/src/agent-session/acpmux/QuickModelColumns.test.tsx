@@ -294,14 +294,17 @@ const click = async (node: HTMLElement) => {
   await settle();
 };
 
-test("the Starred tab is always first; an empty one shows a blank avatar with no badge", async () => {
+// First-run cuts (2026-11-21): a corner with no account to show draws nothing, not an empty person
+// ring. The rail's fill still runs up through it.
+test("the Starred tab is always first; an empty one draws no avatar in the corner", async () => {
   await openMenu();
   expect(tabs()[0]!.getAttribute("aria-label")).toBe("Starred");
   await click(tabs()[0]!);
   expect(popup().querySelector(".acpmux-cols-note")?.textContent).toBe("No starred models");
   const corner = popup().querySelector(".acpmux-cols-corner")!;
-  expect(corner.querySelector("[data-blank]")).not.toBeNull();
-  expect(corner.querySelector(".acpmux-cols-avatar-badge")).toBeNull();
+  expect(corner).not.toBeNull();
+  expect(corner.querySelector(".acpmux-cols-profile")).toBeNull();
+  expect(corner.querySelector(".acpmux-cols-avatar")).toBeNull();
   expect(corner.querySelector("button")).toBeNull();
 });
 
@@ -866,12 +869,15 @@ test("the account card lists only the other accounts, then Add account…", asyn
   expect(calls.added).toHaveLength(0);
 });
 
-test("a harness this Mac does not have shows a blank avatar", async () => {
+test("a harness this Mac does not have draws no avatar in the corner", async () => {
   await openMenu();
   await click(tab("Gemini"));
   const corner = popup().querySelector(".acpmux-cols-corner")!;
-  expect(corner.querySelector("[data-blank]")).not.toBeNull();
-  expect(corner.querySelector(".acpmux-cols-avatar-badge")).toBeNull();
+  expect(corner.querySelector(".acpmux-cols-profile")).toBeNull();
+  expect(corner.querySelector(".acpmux-cols-avatar")).toBeNull();
+  // Back on the chat's harness, the account switcher is there (Leo 2026-10-29: it stays).
+  await click(tab("Claude"));
+  expect(popup().querySelector("button.acpmux-cols-profile")).not.toBeNull();
 });
 
 test("Escape clears a search before it closes the menu", async () => {

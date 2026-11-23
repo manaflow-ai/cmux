@@ -42,6 +42,12 @@ class HeadlessDebugDaemon(unittest.TestCase):
         self.consumer_doc = load("cmux-tui-sdks.yml")
         self.consumer = self.consumer_doc["jobs"]["conformance"]
 
+    def test_a_newer_push_does_not_cancel_a_running_build(self) -> None:
+        # A build outlasts the gap between feat-cmux-next pushes, so cancelling in
+        # progress let no run finish (91 of 100 cancelled, 2026-11-22).
+        concurrency = self.producer_doc["concurrency"]
+        self.assertIs(concurrency["cancel-in-progress"], False)
+
     def test_the_key_and_path_match_conformance(self) -> None:
         key = "Key the headless cmux-tui build"
         self.assertEqual(step(self.producer, key)["run"], step(self.consumer, key)["run"])

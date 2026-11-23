@@ -7,8 +7,7 @@
 # and dev ran 2026-11-13 code for a week after build spaces (#43648) landed, so a tagged dev phone
 # still listed every dev build's Mac. The env is fixed to `dev`: this workflow has no input that
 # picks one and no production target.
-# `cmux-mobile-api-prod` stays a hand deploy
-# (cmux-next-ios/backend/README.md, "Test and deploy").
+# `cmux-mobile-api-prod` deploys only when asked, through mobile-worker-prod-deploy.yml.
 #
 # The job runs the README's gates first (frozen install, typecheck, the vitest suite on
 # workerd), then `wrangler deploy --env dev` with the wrangler pinned in the package's

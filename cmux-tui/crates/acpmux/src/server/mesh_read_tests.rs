@@ -418,6 +418,7 @@ async fn a_prompt_to_a_listed_hub_chat_runs_there_through_the_hub() {
         harness: "fake".into(),
         state: "idle".into(),
         last_seen_at: 1,
+        ..Default::default()
     };
     a.set_mesh_book(hosts, vec![row]);
 
@@ -520,6 +521,489 @@ async fn call_error(hub: &Arc<Hub>, m: &str, params: Value) -> Value {
             return value.get("error").cloned().unwrap_or_else(|| panic!("no error: {value}"));
         }
     }
+}
+
+// A browser is its own enrolled device on the mesh hub (RFD 0005). A web connection reads and
+// prompts a chat the hub lists only with the device credential it presented on that connection
+// (`_acpmux/device_hello`), never with this daemon's own hub identity (`may_read` holds).
+
+/// The daemon's own hub identity, which no web connection may use: every call is counted and
+/// refused.
+#[derive(Default)]
+struct DaemonIdentity {
+    calls: std::sync::atomic::AtomicUsize,
+}
+
+impl DaemonIdentity {
+    fn used(&self) -> usize {
+        self.calls.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    fn call<T>(&self) -> Result<T, HubError> {
+        self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Err(HubError::unavailable("the daemon's own identity was used"))
+    }
+}
+
+impl MeshHub for DaemonIdentity {
+    fn inbox(&self, _: Duration, _: usize) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+
+    fn ack<'a>(&'a self, _: &'a str, _: &'a Ack) -> BoxFuture<'a, Result<(), HubError>> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn heartbeat<'a>(
+        &'a self,
+        _: &'a crate::mesh::Heartbeat,
+    ) -> BoxFuture<'a, Result<crate::mesh::HeartbeatReply, HubError>> {
+        Box::pin(async { Err(HubError::unavailable("unused")) })
+    }
+
+    fn send<'a>(&'a self, _: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        Box::pin(async { self.call() })
+    }
+
+    fn receipt<'a>(&'a self, _: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        Box::pin(async { self.call() })
+    }
+
+    fn answer<'a>(&'a self, _: &'a str, _: Duration) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        Box::pin(async { self.call() })
+    }
+}
+
+/// One request the fake HTTP hub saw: its request line, its bearer and its JSON body.
+#[derive(Debug, Clone)]
+struct Seen {
+    line: String,
+    bearer: String,
+    body: Value,
+}
+
+type Respond = Box<dyn Fn(usize, &Seen) -> (u16, Value) + Send + Sync>;
+
+/// The mesh hub over HTTP on a loopback port: it records every request and answers each with
+/// `respond(index, request)`. Its URL goes in the daemon's `meshRelay`.
+async fn http_hub(respond: Respond) -> (String, Arc<Mutex<Vec<Seen>>>) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let seen = Arc::new(Mutex::new(Vec::<Seen>::new()));
+    let log = Arc::clone(&seen);
+    tokio::spawn(async move {
+        while let Ok((mut stream, _)) = listener.accept().await {
+            let mut bytes = Vec::new();
+            let (head_len, body_len) = loop {
+                let mut chunk = [0; 4096];
+                let n = stream.read(&mut chunk).await.unwrap_or(0);
+                if n == 0 {
+                    break (0, 0);
+                }
+                bytes.extend_from_slice(&chunk[..n]);
+                if let Some(end) = bytes.windows(4).position(|s| s == b"\r\n\r\n") {
+                    let headers = String::from_utf8_lossy(&bytes[..end]);
+                    let length = headers
+                        .lines()
+                        .find_map(|line| {
+                            let (key, value) = line.split_once(':')?;
+                            key.eq_ignore_ascii_case("content-length")
+                                .then(|| value.trim().parse::<usize>().unwrap_or(0))
+                        })
+                        .unwrap_or(0);
+                    break (end + 4, length);
+                }
+            };
+            if head_len == 0 {
+                continue;
+            }
+            while bytes.len() < head_len + body_len {
+                let mut chunk = [0; 4096];
+                let n = stream.read(&mut chunk).await.unwrap_or(0);
+                if n == 0 {
+                    break;
+                }
+                bytes.extend_from_slice(&chunk[..n]);
+            }
+            let head = String::from_utf8_lossy(&bytes[..head_len]).into_owned();
+            let bearer = head
+                .lines()
+                .find_map(|line| {
+                    let (key, value) = line.split_once(':')?;
+                    key.eq_ignore_ascii_case("authorization").then(|| value.trim().to_owned())
+                })
+                .unwrap_or_default();
+            let body = bytes
+                .get(head_len..head_len + body_len)
+                .and_then(|b| serde_json::from_slice(b).ok())
+                .unwrap_or(Value::Null);
+            let request = Seen { line: head.lines().next().unwrap_or("").to_owned(), bearer, body };
+            let index = {
+                let mut log = log.lock().unwrap();
+                log.push(request.clone());
+                log.len() - 1
+            };
+            let (status, answer) = respond(index, &request);
+            let answer = answer.to_string();
+            let reply = format!(
+                "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{answer}",
+                answer.len(),
+            );
+            let _ = stream.write_all(reply.as_bytes()).await;
+        }
+    });
+    (url, seen)
+}
+
+/// The hub's answer to a mesh message, as cmux-platform gives it: a send (a read's `control` or
+/// a prompt) is queued; the read's answer comes on the sender's wait for its receipt
+/// (`GET /v1/mesh/messages/:id?waitSeconds=N`), with `info` as its result.
+fn mesh_answer(seen: &Seen, info: &Value) -> (u16, Value) {
+    if let Some(rest) = seen.line.strip_prefix("GET /v1/mesh/messages/") {
+        let id = rest.split(['?', ' ']).next().unwrap_or_default();
+        let result = info.to_string();
+        return (
+            200,
+            json!({"messageId": id, "state": "delivered", "createdAt": 1, "result": result}),
+        );
+    }
+    let id = format!("msg_{}", uuid::Uuid::now_v7().simple());
+    (200, json!({"messageId": id, "state": "queued", "createdAt": 1}))
+}
+
+const LISTED: &str = "019a5d1e-8f00-7000-8000-0000000000b1";
+const DEVICE: &str = "cmm_web_device_credential_for_tests";
+
+/// Daemon A, on the hub at `url`, its own identity `own`, and machine-b's chat `LISTED` in the
+/// address book its own heartbeat read.
+fn daemon_a(url: &str, own: Arc<DaemonIdentity>) -> Arc<Hub> {
+    let mut config: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+        "defaultHarness": "fake",
+        "permissionPolicy": "approve-all",
+        "meshRelay": {"url": url, "tokenCommand": ["/nonexistent/must-not-run"]}
+    }))
+    .unwrap();
+    config.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+    let a = Hub::new(config, store);
+    let _ = a.mesh.set(own);
+    let hosts = std::collections::BTreeMap::from([("machine-b".to_owned(), 1)]);
+    let row = crate::mesh::BookSession {
+        name: "own-e2e".into(),
+        session_id: LISTED.into(),
+        host: "machine-b".into(),
+        daemon_id: "inst_b".into(),
+        harness: "fake".into(),
+        state: "idle".into(),
+        last_seen_at: 1,
+        ..Default::default()
+    };
+    a.set_mesh_book(hosts, vec![row]);
+    a
+}
+
+/// One connection to a daemon, as a browser on its web listener holds it (`Origin::Web`, the
+/// listener token proven at the upgrade), or as `origin` says.
+struct Client {
+    tx: mpsc::Sender<String>,
+    rx: mpsc::Receiver<String>,
+    next: u64,
+}
+
+impl Client {
+    fn connect(hub: &Arc<Hub>, origin: Origin) -> Self {
+        let (tx, in_rx) = mpsc::channel(16);
+        let (out_tx, rx) = mpsc::channel(4096);
+        tokio::spawn(crate::server::serve_connection_with(hub.clone(), in_rx, out_tx, origin));
+        Self { tx, rx, next: 1 }
+    }
+
+    /// The reply's result, or its error object.
+    async fn request(&mut self, m: &str, params: Value) -> Result<Value, Value> {
+        let id = self.next;
+        self.next += 1;
+        self.tx.send(crate::rpc::Message::request(id, m, params).to_line()).await.unwrap();
+        loop {
+            let line = tokio::time::timeout(Duration::from_secs(30), self.rx.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            let value: Value = serde_json::from_str(&line).unwrap();
+            if value.get("id") == Some(&json!(id)) {
+                return match value.get("error") {
+                    Some(error) => Err(error.clone()),
+                    None => Ok(value["result"].clone()),
+                };
+            }
+        }
+    }
+
+    async fn read(&mut self) -> Result<Value, Value> {
+        self.request(method::MUX_INFO, json!({"sessionId": format!("machine-b/{LISTED}")})).await
+    }
+
+    async fn prompt(&mut self) -> Result<Value, Value> {
+        let prompt = json!([{"type": "text", "text": "hello from a browser"}]);
+        self.request(method::SESSION_PROMPT, json!({"sessionId": LISTED, "prompt": prompt})).await
+    }
+}
+
+fn reason(error: &Value) -> &str {
+    error.pointer("/data/reason").and_then(Value::as_str).unwrap_or_default()
+}
+
+/// The invariant `may_read` keeps: a browser with no device of its own reads and prompts nothing
+/// through the hub, and nothing it asks is sent with this daemon's identity.
+#[tokio::test]
+async fn a_web_connection_without_a_device_never_uses_the_daemons_identity() {
+    let (url, seen) =
+        http_hub(Box::new(|_, s| mesh_answer(s, &json!({"sessionId": LISTED})))).await;
+    let own = Arc::new(DaemonIdentity::default());
+    let a = daemon_a(&url, Arc::clone(&own));
+    let mut web = Client::connect(&a, Origin::Web);
+    assert!(web.read().await.is_err(), "a web read with no device was answered");
+    assert!(web.prompt().await.is_err(), "a web prompt with no device was sent");
+    assert_eq!(own.used(), 0, "a web connection used the daemon's hub identity");
+    assert!(seen.lock().unwrap().is_empty(), "the hub was reached with no device credential");
+}
+
+/// A browser's own device credential reads and prompts machine-b's chat; the hub sees only that
+/// credential, never the daemon's, and the credential is never echoed back.
+#[tokio::test]
+async fn a_web_device_reads_and_prompts_with_its_own_credential() {
+    let info = json!({"sessionId": LISTED, "name": "own-e2e"});
+    let (url, seen) = http_hub(Box::new(move |_, s| mesh_answer(s, &info))).await;
+    let own = Arc::new(DaemonIdentity::default());
+    let a = daemon_a(&url, Arc::clone(&own));
+
+    // Only a web connection presents a device: the app's pane and the unix socket keep the
+    // daemon's identity and need none.
+    for origin in [Origin::LocalApp, Origin::Local] {
+        let mut other = Client::connect(&a, origin);
+        let refused = other.request("_acpmux/device_hello", json!({"credential": DEVICE})).await;
+        assert!(refused.is_err(), "{origin:?} presented a web device: {refused:?}");
+    }
+
+    let mut web = Client::connect(&a, Origin::Web);
+    let hello = web.request("_acpmux/device_hello", json!({"credential": DEVICE})).await.unwrap();
+    assert!(!hello.to_string().contains(DEVICE), "the credential was echoed: {hello}");
+    assert_eq!(hello["auth"], "webDevice", "{hello}");
+    // Once per connection: a second device never replaces the first.
+    let again =
+        web.request("_acpmux/device_hello", json!({"credential": "cmm_another_device"})).await;
+    assert!(again.is_err(), "a second device_hello was taken: {again:?}");
+
+    let read = web.read().await.unwrap();
+    assert_eq!((read["sessionId"].as_str(), read["via"].as_str()), (Some(LISTED), Some("hub")));
+    assert_eq!(read["peer"], "machine-b");
+    let sent = web.prompt().await.unwrap();
+    assert_eq!(sent["via"], "mesh", "{sent}");
+
+    let seen = seen.lock().unwrap().clone();
+    assert!(seen.len() >= 2, "{seen:?}");
+    for request in &seen {
+        assert_eq!(request.bearer, format!("Bearer {DEVICE}"), "{}", request.line);
+    }
+    assert!(seen.iter().any(|s| s.body["kind"] == "prompt"), "{seen:?}");
+    // The read went as cmux-platform takes it: a `read` control, then the sender's wait on its
+    // receipt. Nothing registered the device (no heartbeat, no inbox).
+    assert!(seen.iter().any(|s| s.body["op"] == "read"), "{seen:?}");
+    assert!(seen.iter().any(|s| s.line.contains("waitSeconds=")), "{seen:?}");
+    assert!(
+        !seen.iter().any(|s| s.line.contains("/heartbeat") || s.line.contains("/inbox")),
+        "{seen:?}"
+    );
+    assert_eq!(own.used(), 0, "the daemon's own identity was used");
+
+    // Another browser on the same daemon has no device of its own: nothing is shared.
+    let mut stranger = Client::connect(&a, Origin::Web);
+    assert!(stranger.read().await.is_err());
+    assert_eq!(own.used(), 0);
+}
+
+/// The hub revokes the device: its next call is answered `device.revoked`, the connection drops
+/// the device, and no later call on it reaches the hub or falls back to the daemon's identity.
+#[tokio::test]
+async fn a_revoked_device_is_dropped() {
+    let info = json!({"sessionId": LISTED});
+    let (url, seen) = http_hub(Box::new(move |index, s| {
+        // The first read's send and its receipt wait; then the hub revokes the device.
+        if index < 2 {
+            mesh_answer(s, &info)
+        } else {
+            (401, json!({"code": "machine.revoked", "message": "revoked"}))
+        }
+    }))
+    .await;
+    let own = Arc::new(DaemonIdentity::default());
+    let a = daemon_a(&url, Arc::clone(&own));
+    let mut web = Client::connect(&a, Origin::Web);
+    web.request("_acpmux/device_hello", json!({"credential": DEVICE})).await.unwrap();
+    web.read().await.unwrap();
+
+    let revoked = web.read().await.unwrap_err();
+    assert_eq!(reason(&revoked), "device.revoked", "{revoked}");
+    let reached = seen.lock().unwrap().len();
+    for _ in 0..2 {
+        let again = web.read().await.unwrap_err();
+        assert_eq!(reason(&again), "device.revoked", "{again}");
+        let prompt = web.prompt().await.unwrap_err();
+        assert_eq!(reason(&prompt), "device.revoked", "{prompt}");
+    }
+    assert_eq!(seen.lock().unwrap().len(), reached, "a revoked device reached the hub again");
+    // Nor may the connection present another device after the revoke.
+    let after = web.request("_acpmux/device_hello", json!({"credential": "cmm_next"})).await;
+    assert!(after.is_err(), "{after:?}");
+    assert_eq!(own.used(), 0, "the daemon's own identity was used after the revoke");
+}
+
+/// A credential the hub does not know is refused by the hub (cmux-platform: a junk bearer is 401
+/// `mesh.unauthorized`, an unknown `cmm_` one 401 `machine.revoked`); the browser learns
+/// `device.unauthorized` or `device.revoked`, the device is dropped after one call, and nothing
+/// falls back to the daemon's identity.
+#[tokio::test]
+async fn a_strangers_credential_is_refused() {
+    for (code, expected, stranger) in [
+        ("mesh.unauthorized", "device.unauthorized", "a-junk-bearer-for-tests"),
+        ("machine.revoked", "device.revoked", "cmm_a_strangers_credential"),
+    ] {
+        let (url, seen) =
+            http_hub(Box::new(move |_, _| (401, json!({"code": code, "message": "no"})))).await;
+        let own = Arc::new(DaemonIdentity::default());
+        let a = daemon_a(&url, Arc::clone(&own));
+        let mut web = Client::connect(&a, Origin::Web);
+        web.request("_acpmux/device_hello", json!({"credential": stranger})).await.unwrap();
+        for refused in [web.read().await.unwrap_err(), web.prompt().await.unwrap_err()] {
+            assert_eq!(reason(&refused), expected, "{refused}");
+            assert!(!refused.to_string().contains(stranger), "{refused}");
+        }
+        let seen = seen.lock().unwrap().clone();
+        assert_eq!(seen.len(), 1, "the hub was asked again after it refused: {seen:?}");
+        assert!(seen.iter().all(|s| s.bearer == format!("Bearer {stranger}")), "{seen:?}");
+        assert_eq!(own.used(), 0, "the daemon's own identity was used as a fallback");
+    }
+}
+
+/// A browser's device client registers nothing at the hub: no heartbeat (so no session rows) and
+/// no inbox or ack, refused before any request (cmux-platform answers each 403 for a web caller).
+#[tokio::test]
+async fn a_web_devices_hub_client_never_registers() {
+    let (url, seen) = http_hub(Box::new(|_, _| (200, json!({})))).await;
+    let hub =
+        crate::mesh_http::HttpHub::with_credential(url, zeroize::Zeroizing::new(DEVICE.into()))
+            .unwrap();
+    let inbox = hub.inbox(Duration::from_secs(1), 1).await.unwrap_err();
+    assert_eq!(inbox.code.as_deref(), Some("mesh.forbidden"), "{inbox:?}");
+    let ack = hub.ack("msg_1", &Ack::refused("x")).await.unwrap_err();
+    assert_eq!(ack.code.as_deref(), Some("mesh.forbidden"), "{ack:?}");
+    assert!(seen.lock().unwrap().is_empty(), "a device client called the hub");
+}
+
+/// `_acpmux/device_enroll` mints a join token with the person's access token and redeems it as a
+/// `web` machine with the browser's public key, as a new machine joins; it returns the device
+/// credential to that connection alone and writes no join record.
+#[tokio::test]
+async fn a_web_device_enrolls_through_the_join_path() {
+    let key = base64::engine::general_purpose::STANDARD.encode([7u8; 32]);
+    let (url, seen) = http_hub(Box::new(|_, s| {
+        if s.line.contains("/v1/machines/join-tokens/redeem") {
+            // cmux-platform's web redeem answer: the hub mints the device's credential.
+            (
+                200,
+                json!({"credential": "cmm_minted_by_the_hub", "machineId": "mch_web_1",
+                       "joinTokenId": "join_1", "teamId": "team_1",
+                       "wgPublicKey": s.body["wgPublicKey"],
+                       "expiresAt": "2027-11-17T12:00:00.000Z", "userId": "user_1"}),
+            )
+        } else if s.line.contains("/v1/machines/join-tokens") {
+            (
+                200,
+                json!({"joinTokenId": "join_1", "token": "cmj_minted_for_web", "teamId": "team_1",
+                       "expiresAt": "2026-11-17T12:10:00.000Z"}),
+            )
+        } else {
+            (404, json!({}))
+        }
+    }))
+    .await;
+    let own = Arc::new(DaemonIdentity::default());
+    let a = daemon_a(&url, Arc::clone(&own));
+    let mut web = Client::connect(&a, Origin::Web);
+    let access = "person-access-token-for-tests";
+    let enrolled = web
+        .request("_acpmux/device_enroll", json!({"accessToken": access, "publicKey": key}))
+        .await
+        .unwrap();
+    assert_eq!(enrolled["credential"], "cmm_minted_by_the_hub", "{enrolled}");
+    assert_eq!(
+        (enrolled["machineId"].as_str(), enrolled["userId"].as_str()),
+        (Some("mch_web_1"), Some("user_1"))
+    );
+    assert!(!enrolled.to_string().contains(access), "{enrolled}");
+    let seen = seen.lock().unwrap().clone();
+    assert_eq!(seen.len(), 2, "{seen:?}");
+    assert_eq!(seen[0].bearer, format!("Bearer {access}"));
+    let redeem = &seen[1].body;
+    assert_eq!(redeem["platform"], "web", "{redeem}");
+    assert_eq!(redeem["wgPublicKey"], key.as_str(), "{redeem}");
+    assert_eq!(redeem["token"], "cmj_minted_for_web", "{redeem}");
+    assert!(redeem["hostname"].as_str().is_some_and(|h| !h.is_empty()), "{redeem}");
+    // The hub mints the credential; no client proposal and no name go with a web redeem.
+    assert!(redeem.get("proposedCredential").is_none() && redeem.get("name").is_none(), "{redeem}");
+    assert_eq!(own.used(), 0);
+    // A malformed key is refused before the hub is asked.
+    let bad = web
+        .request("_acpmux/device_enroll", json!({"accessToken": access, "publicKey": "nope"}))
+        .await;
+    assert!(bad.is_err(), "{bad:?}");
+}
+
+/// A prompt's `mesh:` delivery id goes back to the browser, and the browser may ask its status.
+/// That status read goes with the device's credential alone: never with this daemon's identity,
+/// neither after the hub revoked the device nor for a web connection that has no device.
+#[tokio::test]
+async fn a_web_devices_send_status_uses_its_own_credential_and_ends_with_the_revoke() {
+    let info = json!({"sessionId": LISTED});
+    let (url, seen) = http_hub(Box::new(move |index, s| {
+        // The prompt and one status read go through; then the hub revokes the device.
+        if index < 2 {
+            mesh_answer(s, &info)
+        } else {
+            (401, json!({"code": "machine.revoked", "message": "revoked"}))
+        }
+    }))
+    .await;
+    let own = Arc::new(DaemonIdentity::default());
+    let a = daemon_a(&url, Arc::clone(&own));
+    let mut web = Client::connect(&a, Origin::Web);
+    web.request("_acpmux/device_hello", json!({"credential": DEVICE})).await.unwrap();
+    let sent = web.prompt().await.unwrap();
+    let id = sent["deliveryId"].as_str().unwrap().to_owned();
+    assert!(id.starts_with("mesh:"), "{sent}");
+    let status = json!({"deliveryId": id});
+
+    web.request(method::MUX_SEND_STATUS, status.clone()).await.unwrap();
+    assert_eq!(own.used(), 0, "a web device's status read used the daemon's identity");
+    assert!(
+        seen.lock().unwrap().iter().all(|s| s.bearer == format!("Bearer {DEVICE}")),
+        "{:?}",
+        seen.lock().unwrap()
+    );
+
+    let revoked = web.request(method::MUX_SEND_STATUS, status.clone()).await.unwrap_err();
+    assert_eq!(reason(&revoked), "device.revoked", "{revoked}");
+    let reached = seen.lock().unwrap().len();
+    let again = web.request(method::MUX_SEND_STATUS, status.clone()).await.unwrap_err();
+    assert_eq!(reason(&again), "device.revoked", "{again}");
+    assert_eq!(seen.lock().unwrap().len(), reached, "a revoked device reached the hub again");
+    assert_eq!(own.used(), 0, "the daemon's identity answered a revoked device's status read");
+
+    // A web connection with no device asks the same id: nothing goes with the daemon's identity.
+    let mut stranger = Client::connect(&a, Origin::Web);
+    assert!(stranger.request(method::MUX_SEND_STATUS, status).await.is_err());
+    assert_eq!(own.used(), 0, "a web connection with no device used the daemon's identity");
 }
 
 /// Which hub call a [`Flaky`] failure stands in for.

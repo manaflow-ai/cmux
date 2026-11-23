@@ -145,6 +145,7 @@ mod secrets;
 mod serve;
 mod serve_machine;
 mod serve_policy;
+mod serve_quiet;
 mod source;
 mod ssh;
 mod state_root;

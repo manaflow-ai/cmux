@@ -83,13 +83,6 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
-        "board",
-        &[
-            ("The local branch board (Labs > Show Preview Features)", "acpmux board"),
-            ("The same board as JSON", "acpmux board --json"),
-        ],
-    ),
-    (
         "gc",
         &[
             ("What acpmux would end as orphaned, and what it refuses and why", "acpmux gc"),

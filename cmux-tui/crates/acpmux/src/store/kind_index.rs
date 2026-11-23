@@ -72,6 +72,7 @@ pub const INDEXED_KINDS: &[&str] = &[
     "transferred",
     // A log load's restored inbox (`hub/inbox.rs` `restore_inbox`).
     "inbox",
+    "inbox_triaged",
     "inbox_noticed",
     "inbox_returned",
     "inbox_answered",
@@ -107,6 +108,10 @@ pub const INDEXED_KINDS: &[&str] = &[
     "prompt_retracted",
     "turn_end",
     "turn_error",
+    // A chat's thread owners, read by each surge triage pass (`hub/surge_triage.rs`).
+    "inbox_subscription",
+    // A recipient's grants of its threads to owners, read with them.
+    "inbox_owner_grant",
 ];
 
 /// The folder of a chat's copies, beside its `events`.
@@ -349,14 +354,17 @@ impl LocalStore {
             }
             true
         };
-        for (index, path) in self.segments(id)?.into_iter().rev() {
-            if self.segment_starts.first_seq(id, index, &path)?.is_some_and(|first| first >= before)
+        let segments = self.segments(id)?;
+        let end = self.segment_starts.end(id, &segments, before)?;
+        for (index, path) in segments[..end].iter().rev() {
+            let index = *index;
+            if self.segment_starts.first_seq(id, index, path)?.is_some_and(|first| first >= before)
             {
                 continue;
             }
-            let mut file = crate::config::private_state_file(&path)?;
+            let mut file = crate::config::private_state_file(path)?;
             let copy =
-                if indexed { self.copy_for_read_back(id, index, &path, &file)? } else { None };
+                if indexed { self.copy_for_read_back(id, index, path, &file)? } else { None };
             match copy {
                 // A copy covers the segment's first `from` bytes, whole lines: what was written
                 // after them (none in a segment a log load sealed and copied, at most the segment

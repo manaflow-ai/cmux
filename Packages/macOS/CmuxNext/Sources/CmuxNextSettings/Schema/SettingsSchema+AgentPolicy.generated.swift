@@ -25,7 +25,7 @@ extension SettingsSchema {
 
     /// Keys an agent may set and reset.
     public static let agentSettableKeys: Set<String> = [
-        "window.titlebar",
+        "agentPane.links.openCitationsInEditor", "window.titlebar",
         "shortcuts.showModifierHoldHints",
         // Whether the window offers the Customize Inspector and right-click Customize…: looks only, and off is the default.
         "customize.fromTheApp",
@@ -34,8 +34,8 @@ extension SettingsSchema {
         "window.titlebarButtons", "tabs.plusButton", "tabs.barPosition", "tabs.barOrder", "tabs.toolbarButtons",
         "browser.toolbarPosition", "navigation.historyScope", "navigation.history.scope", "sidebar.minimalMode",
         "sidebar.minimal", "sidebar.density", "sidebar.textSize", "sidebar.detailedStatusIcons",
-        "sidebar.showTimestamps", "sidebar.settleFinished", "sidebar.showColors", "sidebar.showLocalMachine",
-        "workspaceColors.indicatorStyle",
+        "sidebar.showTimestamps", "sidebar.settleFinished", "sidebar.showAutomaticSessions", "sidebar.showColors",
+        "sidebar.showLocalMachine", "workspaceColors.indicatorStyle",
         // Sidebar control visibility (looks only)
         "sidebar.controlsOnHover", "sidebar.floatOnHover",
         "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background",
@@ -54,7 +54,7 @@ extension SettingsSchema {
         "app.showMenuBarIcon",
         // The language cmux's own text is in; ends no work.
         "app.language",
-        "tabs.overflow",
+        "tabs.overflow", "tabs.shellIconTheme",
         // How tabs are listed (looks only)
         "tabs.verticalTabs", "tabs.verticalTabsExpandOnHover",
         // Whether a lone chat's tab draws (looks only)
@@ -68,7 +68,7 @@ extension SettingsSchema {
         // The cmux model router's default model is the same choice exposed by its Settings and MCP pickers.
         "agents.modelRouter.model",
         "layout.minimumPaneWidth", "layout.minimumPaneHeight", "appearance.theme", "appearance.appTheme",
-        "appearance.accent",
+        "appearance.accent", "appearance.selection",
         // Cosmetic icon preference; the reserved Neko value currently falls back to default artwork
         "appearance.iconTheme",
         // The app's one selected-text color (looks only)
@@ -123,9 +123,9 @@ extension SettingsSchema {
         "sidebar.nowPlaying.enabled", "tabs.newTabNowPlaying", "media.pictureInPicture.enabled", "sidebar.showProjects",
         "sidebar.showSpaces", "sidebar.showProfileControl", "sidebar.showSearchButton",
         "sidebar.showNewWorkspaceChooser", "sidebar.workspacesAsTabs", "sidebar.chromeGroups", "sidebar.sideBySide",
-        "sidebar.groupBy", "sidebar.priorityView.enabled", "sidebar.priorityView.shown", "browser.defaultEngine",
-        "browser.siteEngines", "browser.newTabPage", "browser.showBookmarksBar", "browser.vimKeys",
-        "browser.showLoadingBar",
+        "sidebar.groupBy", "sidebar.nav", "sidebar.priorityView.enabled", "sidebar.priorityView.shown",
+        "browser.defaultEngine", "browser.siteEngines", "browser.newTabPage", "browser.showBookmarksBar",
+        "browser.vimKeys", "browser.showLoadingBar",
         // Whether browser tabs offer to import cookies: the card reads nothing until the person clicks Import.
         "browser.import.cookieBanner",
         "browser.toolbarButtons", "browser.hibernation", "browser.hibernationExclusions", "browser.hibernatePinnedTabs",
@@ -147,7 +147,7 @@ extension SettingsSchema {
         "labs.previewFeatures",
         // Experiments are taste prototypes of how a surface looks (looks only), each off by default.
         "experiments.glassToolbarGroups", "experiments.composerV2", "experiments.agentBadges",
-        "experiments.agentBadgesBeam",
+        "experiments.agentBadgesBeam", "experiments.toastsV2",
         // Which Home entries the sidebar shows (looks only; `cmux home enable-channels` runs as an agent writer).
         "home.channelsEnabled",
         // The floating Chief pet and its character: a display the person can hide again; its reply box types only what the person writes.
@@ -157,7 +157,9 @@ extension SettingsSchema {
         // Needs you in the agent chat header (an App Store item): a display the person can hide again.
         "agentPane.needsYou.enabled",
         // Start New Chats In (This Mac or Cloud): the person asks an agent to set it (Leo, 2026-10-31); a new chat's composer can still change it for that chat.
-        "agentPane.newChatsIn",
+        "agentPane.newChatsIn", "agentPane.sessionWorktrees",
+        // The composer's look and where an empty chat's composer sits: layout choices a profile or the person's agent may set, like the chat's other looks.
+        "agentPane.composerLook", "agentPane.emptyChatComposerPosition",
         // The default `cmux chat` target (`cmux config set on cloud`): where the CLI starts a chat when neither --on nor CMUX_ON names one; the person may ask an agent to set it.
         "chat.on",
         "updates.notify", "updates.showWhatsNew",
@@ -243,11 +245,12 @@ extension SettingsSchema {
         "agentPane.display.font.faces", "agentPane.display.font.size", "agentPane.display.font.lineHeight",
         "agentPane.display.code.family", "agentPane.display.code.scale", "agentPane.display.sessionInfo.placement",
         "agentPane.display.environment.placement", "agentPane.display.minimap", "agentPane.display.transcriptView",
-        "agentPane.display.presentation", "agentPane.display.promptCoach", "agentPane.display.statusVerbs.mode",
-        "agentPane.display.statusVerbs.custom", "agentPane.display.thinking.shimmer",
-        "agentPane.display.thinking.shimmerPeriod", "agentPane.display.thinking.shimmerBand",
-        "agentPane.display.thinking.jumpButton", "agentPane.display.harnessPlacement", "agentPane.display.rail.side",
-        "agentPane.display.commandLabels",
+        "agentPane.display.presentation", "agentPane.display.transcriptLook", "agentPane.display.transcriptTokens",
+        "agentPane.display.promptCoach", "agentPane.display.statusVerbs.mode", "agentPane.display.statusVerbs.custom",
+        "agentPane.display.thinking.shimmer", "agentPane.display.thinking.shimmerPeriod",
+        "agentPane.display.thinking.shimmerBand", "agentPane.display.thinking.jumpButton",
+        "agentPane.display.harnessPlacement", "agentPane.display.rail.side", "agentPane.display.rail.show",
+        "agentPane.display.rail.control", "agentPane.display.commandLabels",
         // The code editor's looks and editing behavior (diff-host S7); editor.importFrom is the person's.
         "editor.fontFamily", "editor.fontSize", "editor.fontWeight", "editor.fontLigatures", "editor.lineHeight",
         "editor.letterSpacing", "editor.tabSize", "editor.insertSpaces", "editor.detectIndentation", "editor.wordWrap",

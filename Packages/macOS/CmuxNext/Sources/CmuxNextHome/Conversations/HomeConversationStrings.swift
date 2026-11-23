@@ -228,6 +228,10 @@ enum HomeConversationStrings {
     // MARK: New Chief
 
     static var chiefTitle: String { String(localized: "home.chief.new.title", defaultValue: "New Chief", bundle: .localizedModule) }
+    /// A Chief row's preview before its first message (classic cmux's `chief.list.emptyPreview`).
+    static var chiefEmptyPreview: String {
+        String(localized: "home.chief.emptyPreview", defaultValue: "Ask Chief anything", bundle: .localizedModule)
+    }
     static var chiefBody: String {
         String(localized: "home.chief.new.body",
                defaultValue: "A Chief is an agent with its own conversation and memory. Chiefs are optional.", bundle: .localizedModule)
@@ -235,6 +239,8 @@ enum HomeConversationStrings {
     static var chiefName: String { String(localized: "home.chief.new.name", defaultValue: "Name", bundle: .localizedModule) }
     static var chiefCreate: String { String(localized: "home.chief.new.create", defaultValue: "Create", bundle: .localizedModule) }
     static var chiefBackend: String { String(localized: "home.chief.new.backend", defaultValue: "Backend", bundle: .localizedModule) }
+    /// New Chief's opt-in: a Claude Chief made on this Mac's Chief owner instead of the cloud `chief.create`.
+    static var chiefThisMac: String { String(localized: "home.chief.new.thisMac", defaultValue: "Make it on this Mac", bundle: .localizedModule) }
 
     // MARK: Sidebar previews
 

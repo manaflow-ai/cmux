@@ -1,6 +1,7 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "action.agent.moveToMachine": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"نقل المحادثة إلى جهاز…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Premjesti razgovor na računar…"}},"da":{"stringUnit":{"state":"needs_review","value":"Flyt chat til maskine…"}},"de":{"stringUnit":{"state":"needs_review","value":"Chat auf einen Rechner verschieben…"}},"en":{"stringUnit":{"state":"translated","value":"Move Chat to Machine…"}},"es":{"stringUnit":{"state":"needs_review","value":"Mover chat a una máquina…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Déplacer la conversation vers une machine…"}},"it":{"stringUnit":{"state":"needs_review","value":"Sposta chat su una macchina…"}},"ja":{"stringUnit":{"state":"translated","value":"チャットをマシンに移動…"}},"km":{"stringUnit":{"state":"needs_review","value":"ផ្លាស់ទីការជជែកទៅម៉ាស៊ីន…"}},"ko":{"stringUnit":{"state":"needs_review","value":"채팅을 다른 머신으로 이동…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Flytt chat til en maskin…"}},"pl":{"stringUnit":{"state":"needs_review","value":"Przenieś czat na maszynę…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Mover conversa para uma máquina…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Переместить чат на машину…"}},"th":{"stringUnit":{"state":"needs_review","value":"ย้ายแชตไปยังเครื่อง…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Sohbeti bir makineye taşı…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Перемістити чат на машину…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Chuyển cuộc trò chuyện sang máy…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"将聊天移至机器…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"將聊天移至機器…"}}}},
     "action.agentPane.composer.addMenu": {
       "extractionState": "manual",
       "localizations": {
@@ -19240,6 +19241,399 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "更改背景…"
+          }
+        }
+      }
+    },
+    "action.appearance.adjustBackground": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adjust Background…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "背景を調整…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ضبط الخلفية…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podesi pozadinu…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Juster baggrund…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hintergrund anpassen…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajustar fondo…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajuster l’arrière-plan…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Regola sfondo…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កែសម្រួលផ្ទៃខាងក្រោយ…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "배경 조정…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Juster bakgrunn…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dostosuj tło…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajustar fundo…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Настроить фон…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปรับพื้นหลัง…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arka Planı Ayarla…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Налаштувати фон…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Điều chỉnh hình nền…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "调整背景…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "調整背景…"
+          }
+        }
+      }
+    },
+    "action.appearance.background.fill": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Background: Fill Window"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "背景：ウインドウいっぱいに表示"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الخلفية: ملء النافذة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pozadina: ispuni prozor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Baggrund: Udfyld vindue"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hintergrund: Fenster füllen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fondo: llenar la ventana"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arrière-plan : remplir la fenêtre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sfondo: riempi la finestra"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទៃខាងក្រោយ៖ បំពេញបង្អួច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "배경: 윈도우 채우기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bakgrunn: Fyll vinduet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tło: wypełnij okno"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fundo: preencher a janela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Фон: заполнить окно"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พื้นหลัง: เต็มหน้าต่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arka Plan: Pencereyi Doldur"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Фон: заповнити вікно"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hình nền: Lấp đầy cửa sổ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "背景：填满窗口"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "背景：填滿視窗"
+          }
+        }
+      }
+    },
+    "action.appearance.background.fit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Background: Fit Window"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "背景：ウインドウに合わせる"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الخلفية: ملاءمة النافذة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pozadina: uklopi u prozor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Baggrund: Tilpas til vindue"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hintergrund: An Fenster anpassen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fondo: ajustar a la ventana"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arrière-plan : adapter à la fenêtre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sfondo: adatta alla finestra"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទៃខាងក្រោយ៖ សមនឹងបង្អួច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "배경: 윈도우에 맞추기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bakgrunn: Tilpass vinduet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tło: dopasuj do okna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fundo: ajustar à janela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Фон: вписать в окно"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พื้นหลัง: พอดีหน้าต่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arka Plan: Pencereye Sığdır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Фон: вписати у вікно"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hình nền: Vừa cửa sổ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "背景：适合窗口"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "背景：符合視窗"
           }
         }
       }

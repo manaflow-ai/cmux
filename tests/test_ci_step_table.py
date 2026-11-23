@@ -533,6 +533,24 @@ class PipelineTest(unittest.TestCase):
         wf = yaml.safe_load((ROOT / ".github/workflows/coderouter-ci.yml").read_text())
         self.assertEqual(wf.get("on", wf.get(True))["pull_request"]["branches-ignore"], ["feat-cmux-next"])
         self.assertEqual(steps["coderouter"].job, "linux")
+        # So did web-complexity.yml.
+        wf = yaml.safe_load((ROOT / ".github/workflows/web-complexity.yml").read_text())
+        self.assertEqual(wf.get("on", wf.get(True))["pull_request"]["branches-ignore"], ["feat-cmux-next"])
+        self.assertEqual(steps["web-complexity"].job, "linux")
+        # cmux-vm-clients.yml keeps its rust job's pull requests; its moved sdk job skips only feat-cmux-next's.
+        wf = yaml.safe_load((ROOT / ".github/workflows/cmux-vm-clients.yml").read_text())
+        self.assertEqual(wf["jobs"]["sdk"]["if"],
+                         "${{ github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' }}")
+        self.assertNotIn("if", wf["jobs"]["rust"])
+        self.assertEqual(steps["cmux-vm-sdk"].job, "linux")
+        # ci-guards.yml's submodule guard skips only feat-cmux-next's pull requests; every gitlink routes its step.
+        wf = yaml.safe_load((ROOT / ".github/workflows/ci-guards.yml").read_text())
+        self.assertEqual(wf["jobs"]["workflow-guard-submodule-forward-only"]["if"],
+                         "${{ github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' }}")
+        self.assertEqual(steps["submodule-forward-only"].job, "linux")
+        gitlinks = re.findall(r"^\s*path = (\S+)$", (ROOT / ".gitmodules").read_text(), re.M)
+        self.assertTrue(gitlinks)
+        self.assertLessEqual({".gitmodules", *gitlinks}, set(steps["submodule-forward-only"].inputs))
         # These workflows keep the pull_request trigger for a macOS job; the moved Linux job skips it, and
         # a pull request runs it as a step of the table with the same command.
         jobs = {("agent-brands.yml", "drift"): "agent-brands-drift",
@@ -550,8 +568,8 @@ class PipelineTest(unittest.TestCase):
         # on the linux job's PATH, and the runner image is not assumed to hold either.
         table = ci_steps.load()
         self.assertEqual(sorted(table.tools), ["bun", "go", "node", "rust"])
-        wants_bun = {"app-platform", "mux", "automation-bench", "cloud-vm-image-lock"}
-        wants_node = {"ci-artifact-worker", "coderouter"}
+        wants_bun = {"app-platform", "mux", "automation-bench", "cloud-vm-image-lock", "cmux-vm-sdk", "web-complexity"}
+        wants_node = {"ci-artifact-worker", "coderouter", "web-complexity"}
         self.assertEqual(table.steps["coderouter"].needs, ("rust", "node"))
         self.assertEqual(table.steps["remote-daemon-packaging"].needs, ("go",))
         for name, step in table.steps.items():

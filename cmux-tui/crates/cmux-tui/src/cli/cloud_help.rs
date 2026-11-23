@@ -724,6 +724,7 @@ list` lists it.
 
 /// The CLI's own cleanup verbs, not app actions (cloud_retention.rs runs them).
 pub(super) const KEEP: &str = "keep-machine";
+pub(super) const PAUSE_ALL_USAGE: &str = "usage: cmux vm pause-all [--json] [--idempotency-key KEY]\nPause all Cloud machines you manage. Automatic wakes stay stopped until you resume each machine with cmux vm resume NAME.\n";
 pub(super) const ARCHIVE: &str = "archive-machine";
 
 pub(super) const KEEP_USAGE: &str = "\
@@ -799,9 +800,9 @@ pub(super) fn overview(japanese: bool) -> String {
         "\nCHAT REPOSITORIES (use --socket for the Cloud machine)\n  repo list --session CHAT [--query NAME]\n  repo add --session CHAT --repo NAME [--ref REF]\n  repo wait-github --session CHAT [--timeout-ms N]\n  repo attached --session CHAT\n  repo local\n  repo sync --repos-json JSON [--recent-json JSON] [--install-url URL] [--complete true|false]\n"
     });
     text.push_str(if japanese {
-        "\nクリーンアップ\n  keep-machine --target vm:VM_ID [--off]       自動で削除されないよう保持\n  archive-machine --target vm:VM_ID --yes      一時停止中のマシンをアーカイブして削除 (--yes)\n"
+        "\nクリーンアップ\n  pause-all                                管理する全マシンを一時停止し、自動再開を停止\n  keep-machine --target vm:VM_ID [--off]       自動で削除されないよう保持\n  archive-machine --target vm:VM_ID --yes      一時停止中のマシンをアーカイブして削除 (--yes)\n"
     } else {
-        "\nCLEANUP\n  keep-machine --target vm:VM_ID [--off]       Keep a machine from automatic deletion\n  archive-machine --target vm:VM_ID --yes      Archive a paused machine's disk, then delete it (--yes)\n"
+        "\nCLEANUP\n  pause-all                                Pause all managed machines; hold automatic wakes\n  keep-machine --target vm:VM_ID [--off]       Keep a machine from automatic deletion\n  archive-machine --target vm:VM_ID --yes      Archive a paused machine's disk, then delete it (--yes)\n"
     });
     text.push('\n');
     text.push_str(if japanese { OUTRO_JA } else { OUTRO_EN });
@@ -821,6 +822,9 @@ pub(super) fn verb_help(name: &str, japanese: bool) -> Option<String> {
     }
     if name == KEEP {
         return Some(KEEP_USAGE.to_owned());
+    }
+    if name == "pause-all" {
+        return Some(PAUSE_ALL_USAGE.to_owned());
     }
     if name == ARCHIVE {
         return Some(ARCHIVE_USAGE.to_owned());

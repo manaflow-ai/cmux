@@ -99,6 +99,7 @@ jobs:
       build: ${{ steps.judge.outputs.build }}
       verdict: ${{ steps.judge.outputs.verdict }}
       why: ${{ steps.judge.outputs.why }}
+      blind: ${{ steps.judge.outputs.blind }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -163,6 +164,7 @@ jobs:
           print(f"action={r['action']}")
           print(f"build={r['health']['build']}")
           print(f"verdict={r['health']['verdict']}")
+          print(f"blind={'true' if r.get('blind') else 'false'}")
           print("why=" + " ".join(r["why"].split()))
           PY
             fi
@@ -208,6 +210,49 @@ jobs:
           if [ "$VERDICT" = unknown ]; then
             echo "::warning title=nightly-next health::build $BUILD has no health verdict: $WHY"
           fi
+
+  # A gate that cannot read Sentry can never pull a build (every verdict unknown, as from 2026-11-19 to
+  # 2026-11-22 on HTTP 403). This reports it: one issue (an open one is never repeated) and a red run. It
+  # refuses nothing and holds no feed token; the verdicts are already written.
+  blind:
+    needs: judge
+    if: needs.judge.outputs.blind == 'true' && !inputs.drill
+    permissions:
+      issues: write
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BUILD: ${{ needs.judge.outputs.build }}
+      WHY: ${{ needs.judge.outputs.why }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/nightly_next_health.py
+          sparse-checkout-cone-mode: false
+
+      - name: Open one issue and end red
+        run: |
+          set -euo pipefail
+          python3 - > result.json <<'PY'
+          import json, os
+          print(json.dumps({"health": {"build": os.environ["BUILD"]}, "why": os.environ["WHY"]}))
+          PY
+          python3 -I scripts/ci/nightly_next_health.py blind-report --result result.json --run-url "$RUN_URL" > report.json
+          title="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["title"])' report.json)"
+          python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["body"])' report.json > body.md
+          open="$(gh issue list -R "$GITHUB_REPOSITORY" --state open --search "in:title \"$title\"" --json number,title \
+            --jq "[.[] | select(.title == \"$title\")][0].number // empty")"
+          if [ -z "$open" ]; then
+            gh issue create -R "$GITHUB_REPOSITORY" --title "$title" --body-file body.md
+          else
+            echo "issue #$open is open already"
+          fi
+          echo "::error title=nightly-next health::the gate is blind: build $BUILD was not judged ($WHY)"
+          exit 1
 
   rollback:
     needs: judge

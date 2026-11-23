@@ -8,6 +8,26 @@ extension SidebarSettingsSchema {
         let group = SettingsText.keyed("settings.group.sidebar", "Sidebar")
         return [
             SettingDescriptor(
+                SidebarSectionsSetting.groupHeaderMemberCountPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.groupHeader.memberCount", "Show Group Member Count"),
+                help: SettingsText.keyed("settings.sidebar.groupHeader.memberCount.help", "A collapsed group shows how many workspaces it holds."),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.groupHeaderMemberCountDefault),
+                keywords: ["sidebar", "group", "groups", "count", "members", "workspaces", "number", "header"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.groupHeaderUnreadCountPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.groupHeader.unreadCount", "Show Group Unread Count"),
+                help: SettingsText.keyed("settings.sidebar.groupHeader.unreadCount.help", "A collapsed group shows its unread notification count."),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.groupHeaderUnreadCountDefault),
+                keywords: ["sidebar", "group", "groups", "unread", "badge", "notifications", "count", "header"]
+            ),
+            SettingDescriptor(
                 SidebarSectionsSetting.groupHeaderBackgroundPath,
                 section: .appearance,
                 group: group,

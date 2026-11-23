@@ -346,6 +346,56 @@
           ]
         },
         {
+          "key": "appearance.selection",
+          "note": "Off by default: accent is today's rule (the accent's tint when appearance.accent or the theme names one). neutral keeps the gray card whatever the accent (ThemeInput.selection).",
+          "title": {
+            "key": "settings.appearance.selection",
+            "text": "Selection"
+          },
+          "help": {
+            "key": "settings.appearance.selection.help",
+            "text": "Accent tints the selected row and tab with the accent. Neutral keeps them gray."
+          },
+          "summary": {
+            "key": "settings.appearance.selection.summary",
+            "text": "Color of the selected row and tab"
+          },
+          "kind": "choice",
+          "swift_owner": "SelectionSetting",
+          "swift_enum": {
+            "name": "ThemeSelection",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "accent",
+              "title": {
+                "key": "settings.choice.selection.accent",
+                "text": "Accent"
+              }
+            },
+            {
+              "value": "neutral",
+              "title": {
+                "key": "settings.choice.selection.neutral",
+                "text": "Neutral"
+              }
+            }
+          ],
+          "default": "accent",
+          "keywords": [
+            "selection",
+            "selected",
+            "row",
+            "highlight",
+            "accent",
+            "gray",
+            "neutral",
+            "sidebar"
+          ]
+        },
+        {
           "key": "appearance.themeFile",
           "title": {
             "key": "settings.appearance.themeFile",

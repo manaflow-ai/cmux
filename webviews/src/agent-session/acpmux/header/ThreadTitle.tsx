@@ -1,4 +1,5 @@
 import { useExperimentSwitch } from "../../../experiments/switches";
+import { intl } from "../../../ui/intl";
 import { usePaneLanguage, useT } from "../i18n";
 import { GLASS_TOOLBAR_SWITCH } from "./glassToolbar.experiment";
 import { useHeaderState } from "./headerState";
@@ -26,7 +27,7 @@ export function ThreadTitle({ title, onRename, glass }: { title: string; onRenam
         <span className="acpmux-glass-title-detail">
           {t("header.glassChats", {
             n: workspace.chats,
-            count: new Intl.NumberFormat(language).format(workspace.chats),
+            count: intl.NumberFormat(language).format(workspace.chats),
           })}
         </span>
       </span>

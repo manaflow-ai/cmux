@@ -395,6 +395,8 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
       const until = Date.now() + 20_000;
       while (!faded && Date.now() < until) {
         await page.mouse.wheel(0, -600);
+        // fixed-wait: the timing is the behaviour under test: a reader who keeps wheeling, one wheel every
+        // 40ms, inside the 250ms a scroll takes to settle, so the late page lands while the reader moves.
         await page.waitForTimeout(40);
         faded = await page.evaluate(() => (window as unknown as { __olderGaps: number[] }).__olderGaps.length > 0);
       }

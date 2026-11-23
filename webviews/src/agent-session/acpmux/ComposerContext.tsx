@@ -857,8 +857,10 @@ export function ComposerContext({
   // on its own, for the shared bound (ui/lasting.ts CONNECTION_QUIET_MS, schemas/notice-timing): a
   // blip draws no ring and no "Not connected" (Leo, 2026-11-14: "i also want all our connectivity stuff
   // to shut up and load faster"; 2026-11-16: "obviously if it isn't interactive im not connected").
-  // A refused sign-in or an update the machine needs, and a Cloud machine asleep, show at once.
-  const computerState = currentComputer?.state;
+  // A refused sign-in or an update the machine needs, and a Cloud machine asleep, show at once. The
+  // whole link word (`peerLinks`) comes first: a daemon folds authFailed, updateRequired and paused
+  // into the older `state` word "offline" (acpmux protocol/peer_state.rs MachineLink::folded).
+  const computerState = (currentComputer ? peerLinks[currentComputer.id]?.link : undefined) ?? currentComputer?.state;
   const computerDipping =
     currentComputer !== undefined &&
     !environmentReady(currentComputer) &&

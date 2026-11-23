@@ -107,6 +107,13 @@ const CURSOR_PAGE: &str = method::MUX_SESSIONS;
 const LS_STEP_DEADLINE: Duration = Duration::from_secs(4);
 pub(crate) const LS_TOTAL_DEADLINE: Duration = Duration::from_secs(15);
 
+/// How long before the total the reads of other machines' rows (the send relay's `lsArgv`, a
+/// down peer's ssh listing) give up. They cost a warning when slow, never this machine's list:
+/// one that ran to the total failed the whole `ls` as `read step stalled after 15s`, though
+/// the daemon had answered (gcp-codex-swarm-02/03, 2026-11-22, a broker still reading the
+/// fleet behind `lane-gh sessions`).
+const LS_EXTRAS_RESERVE: Duration = Duration::from_secs(2);
+
 #[derive(Clone)]
 struct ListBudget {
     deadline: tokio::time::Instant,
@@ -124,6 +131,12 @@ impl ListBudget {
             machine: machine.to_owned(),
             route: if remote { "hub/carrier" } else { "local daemon" },
         }
+    }
+
+    /// When the best-effort reads of other machines' rows end: [`LS_EXTRAS_RESERVE`] before
+    /// the total, so the rows already read are printed.
+    fn extras_deadline(&self) -> tokio::time::Instant {
+        self.deadline.checked_sub(LS_EXTRAS_RESERVE).unwrap_or(self.deadline)
     }
 }
 
@@ -277,6 +290,9 @@ async fn scoped_output_with_budget(
         || named
         || cursor.is_some()
         || archived;
+    // Other machines' rows (the send relay, down peers over ssh; below) end before the total,
+    // so a slow one costs only its rows.
+    let extras_deadline = budget.map(ListBudget::extras_deadline);
     // The text view says which peers are down; read alongside the list.
     let mut peers = (budget.is_none() && !json_out && fields.is_none()).then(|| {
         let client = client.clone();
@@ -511,30 +527,40 @@ async fn scoped_output_with_budget(
     // for one page (`--cursor`) or this machine alone.
     let mut merged = 0;
     if !one_page && !rows.local_only() {
-        let far: Vec<Value> = crate::cli::send_relay::relay_rows_with_deadline(
-            false,
-            budget.map(|budget| budget.deadline),
-        )
-        .await
-        .into_iter()
-        .filter(|s| {
-            keeps(s)
-                && cutoff
-                    .is_none_or(|at| s.get("updatedAt").and_then(Value::as_u64).unwrap_or(0) >= at)
-        })
-        .collect();
+        let far: Vec<Value> =
+            crate::cli::send_relay::relay_rows_with_deadline(false, extras_deadline)
+                .await
+                .into_iter()
+                .filter(|s| {
+                    keeps(s)
+                        && cutoff.is_none_or(|at| {
+                            s.get("updatedAt").and_then(Value::as_u64).unwrap_or(0) >= at
+                        })
+                })
+                .collect();
         merged = crate::cli::send_relay::merge_rows(&mut sessions, far);
         // A down `ssh://` peer's rows are the ones its link left: read again over ssh, at most
         // `ls_ssh::LS_DEADLINE`, and put in their place (`cli/ls_ssh.rs`).
         // Each peer's url and link state (`_acpmux/peers`, the read `machine ls` makes).
-        let known = request_bounded(client, "_acpmux/peers", json!({}), budget).await.ok();
-        let peers = known
-            .as_ref()
-            .and_then(|s| s.get("peers"))
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        let (hosts, far) = crate::cli::ls_ssh::rows(&peers, false).await;
+        let ssh = async {
+            let known = request_bounded(client, "_acpmux/peers", json!({}), budget).await.ok();
+            let peers = known
+                .as_ref()
+                .and_then(|s| s.get("peers"))
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            crate::cli::ls_ssh::rows(&peers, false, extras_deadline).await
+        };
+        let (hosts, far) = match extras_deadline {
+            Some(at) => tokio::time::timeout_at(at, ssh).await.unwrap_or_else(|_| {
+                eprintln!(
+                    "acpmux: down peers' sessions over ssh were not read before the listing's deadline"
+                );
+                (Vec::new(), Vec::new())
+            }),
+            None => ssh.await,
+        };
         if !hosts.is_empty() {
             let far: Vec<Value> = far
                 .into_iter()
@@ -730,6 +756,31 @@ mod timeout_tests {
         assert!(error.contains("joined-vm"));
         assert!(error.contains("hub/carrier"));
         assert!(error.contains("read step stalled after 15s"));
+    }
+
+    /// A send relay listing that never answers ends at the extras deadline, so the total does
+    /// not fire and `ls` prints this machine's rows (gcp-codex-swarm-02/03, 2026-11-22).
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_relay_listing_that_never_answers_gives_up_before_the_total() {
+        let budget = ListBudget {
+            deadline: tokio::time::Instant::now() + LS_EXTRAS_RESERVE + Duration::from_secs(1),
+            machine: "local".to_owned(),
+            route: "local daemon",
+        };
+        let relay = crate::cli::send_relay::SendRelay {
+            argv: vec!["true".into()],
+            ls_argv: Some(vec!["sh".into(), "-c".into(), "sleep 30".into()]),
+        };
+        let at = budget.extras_deadline();
+        let read = bounded_total(
+            &budget,
+            "read",
+            tokio::task::spawn_blocking(move || crate::cli::send_relay::relay_ls(&relay, Some(at))),
+        )
+        .await;
+        let relay = read.expect("the relay listing outlived the listing's total").unwrap();
+        assert!(relay.is_err(), "a relay that never answers is a warning, not rows");
     }
 }
 

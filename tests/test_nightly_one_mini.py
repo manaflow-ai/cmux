@@ -18,7 +18,8 @@ take an ephemeral one-job JIT VM (cmux-gcp-nightly-jit-x64) on every attempt, ne
 nothing in manaflow-ai; Leo, 2026-11-21: "the ci must flow") and never Blacksmith, and they run only outside the push
 group. republish-nightly-deltas takes the signer only on nightly-next; classic and RC runs take the JIT VM
 (test_nightly_owned_minis_only.NIGHTLY_NEXT_ONLY_OWNED), as their release uploads may wait out the rate limit.
-Every Mac job (build, sign, notarize, verify, publish) runs on the mini.
+Every Mac job (build, sign, notarize, verify, publish) runs on the mini. The light Linux jobs that hold no key
+(LINUX_POOL_JOBS) take cmux-linux, the one label of every own-branch Linux job, in this mode too.
 The nightly visual gate needs a GUI session runner, which the mini has not, so it skips in this mode.
 """
 from __future__ import annotations
@@ -40,8 +41,11 @@ MODE = {"vars.CI_NIGHTLY_MINI": MINI, "vars.CI_NIGHTLY_MINI_BUILDER": BUILDER, "
 # glaeda scripts/glaeda-cmux-runner-hook SIGNING_JOBS, nightly.yml entries: the jobs that take the whole Mac.
 SIGNING = {"promote-nightly-next", "build-sign-notarize-nightly", "recover-nightly-next-notarization",
            "publish-nightly", "sign-nightly-identity-legacy", "generate-nightly-deltas",
-           "promote-nightly-next-acked", "keep-published-dsyms", "republish-nightly-deltas", "nightly-next-one"}
+           "promote-nightly-next-acked", "keep-published-dsyms", "republish-nightly-deltas", "nightly-next-one",
+           "sign-live-code-variant"}
 VISUAL_GATE = {"route-visual-gate-nightly"}
+LINUX_POOL_JOBS = {"resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-cli-helper",
+                   "prepare-nightly-variant-primary", "prepare-nightly-variant", "await-nightly-tree-marker"}
 WORKFLOWS = Path(__file__).resolve().parents[1] / ".github/workflows"
 
 
@@ -59,6 +63,8 @@ def want(name: str, ref: str = "refs/heads/nightly-next", attempt: object = 2) -
         return SIGN
     if name == "build-nightly-app":
         return BUILDER
+    if name in LINUX_POOL_JOBS:
+        return "cmux-linux"
     # A tail or loop job takes the JIT nightly label on every attempt (test_nightly_owned_minis_only.hosted_route).
     return hosted_route(name, attempt) if name in HOSTED_TAIL_JOBS or name in HOSTED_LOOP_JOBS or name in HOSTED_PREFLIGHT_JOBS else MINI
 

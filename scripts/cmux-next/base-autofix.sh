@@ -59,6 +59,9 @@
 #     lock stale through a path dependency: eb4f3eb1d94 (a direct push) changed
 #     cmux-tui/Cargo.toml, and cmux-app-ffi's lock failed --locked on every pull
 #     request until #40883. Only Cargo.lock files are written.
+#   - undeclared pull request jobs: each job no router declares its inputs to is
+#     recorded as runs-always in scripts/ci/job-inputs-always.json
+#     (scripts/ci/job_inputs.py fix; with --job-inputs). Only that file is written.
 # Dependency order: the docs shortcuts and app-host files are rewritten from
 # action-surfaces.json, so they run after --generated copied the regenerated
 # exports in. With --unverified-exports (the exports' inputs changed but their
@@ -76,10 +79,10 @@
 # Prints one line per change ("fixed: ..."), skip ("skipped (frozen): ...") or
 # repair left to a person ("left: ...").
 #
-# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--no-fmt] REPO
+# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--job-inputs] [--no-fmt] REPO
 set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-generated="" package_dump="" sdk=0 capabilities=0 docs_shortcuts=0 app_host=0 app_host_committed=0 unverified_exports=0 unverified_settings=0 ratchets=0 cloud_clients=0 webviews_patch="" locks=0 fmt=1
+generated="" package_dump="" sdk=0 capabilities=0 docs_shortcuts=0 app_host=0 app_host_committed=0 unverified_exports=0 unverified_settings=0 ratchets=0 cloud_clients=0 webviews_patch="" locks=0 job_inputs=0 fmt=1
 while (( $# > 1 )); do
   case "$1" in
     --generated) generated="$2"; shift 2 ;;
@@ -96,11 +99,12 @@ while (( $# > 1 )); do
     --cloud-clients) cloud_clients=1; shift ;;
     --webviews-fmt-patch) webviews_patch="$2"; shift 2 ;;
     --locks) locks=1; shift ;;
+    --job-inputs) job_inputs=1; shift ;;
     --no-fmt) fmt=0; shift ;;
-    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--no-fmt] REPO" >&2; exit 2 ;;
+    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--job-inputs] [--no-fmt] REPO" >&2; exit 2 ;;
   esac
 done
-repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--no-fmt] REPO}" && pwd)"
+repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--job-inputs] [--no-fmt] REPO}" && pwd)"
 frozen_list="$script_dir/base-autofix-frozen.txt"
 
 frozen() { # repository-relative path -> 0 when frozen; a "!" line exempts a path
@@ -490,6 +494,18 @@ if (( locks )); then
     python3 -I "$script_dir/cargo-locks.py" fix --repo "$repo" | grep -E '^(fixed|left): ' || true
   else
     echo "left: Cargo locks not checked (no cargo on PATH)"
+  fi
+fi
+
+# 6. Undeclared pull request jobs (scripts/ci/job_inputs.py fix): a job no router declares is recorded in
+# scripts/ci/job-inputs-always.json as running on every pull request, with the paths its steps read, never refused.
+# The fixer writes only that file. Leo, 2026-11-21: "we have auto fixers and we have the fucking like proper fucking
+# routers ourselves."
+if (( job_inputs )) && [[ -f "$script_dir/../ci/job_inputs.py" ]]; then
+  if out="$(python3 -I "$script_dir/../ci/job_inputs.py" --root "$repo" fix 2>&1)"; then
+    sed -n 's/^added: \(.*\)/fixed: recorded \1 as runs-always in scripts\/ci\/job-inputs-always.json/p; s/^dropped: \(.*\)/fixed: dropped \1 from scripts\/ci\/job-inputs-always.json/p' <<<"$out"
+  else
+    echo "left: job_inputs.py fix failed: $(tail -n 1 <<<"$out")"
   fi
 fi
 exit 0

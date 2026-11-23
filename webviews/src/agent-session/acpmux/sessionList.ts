@@ -100,6 +100,10 @@ export type AcpmuxSessionEntry = {
    *  subsession_send.rs `waiting_on`); a summary that does not leaves it unknown. */
   waitingOn?: SessionWaiting;
   forkSeq?: number;
+  /** acpmux forks and edits it through any completed turn, not only its latest (`forksAnyTurn`:
+   *  its harness cuts a conversation at a turn, by kind, whatever its family is named). Unset
+   *  from an older acpmux. */
+  forksAnyTurn?: boolean;
   /** Completed turns, the copied ones of a fork included. */
   turnCount?: number;
   /** Nothing was sent in it yet (acpmux names no last prompt, no turn, nothing queued or waiting on
@@ -358,6 +362,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     doingTool: session.lane?.state === "working" ? text(session.turn?.activity) : undefined,
     waitingOn: sessionWaiting(session),
     forkSeq: typeof session.forkSeq === "number" ? session.forkSeq : undefined,
+    ...(typeof session.forksAnyTurn === "boolean" && { forksAnyTurn: session.forksAnyTurn }),
     turnCount: typeof session.turnCount === "number" ? session.turnCount : undefined,
     unsent:
       session.lastPrompt === null &&
@@ -524,6 +529,15 @@ export function isAgentHome(cwd: string | undefined): boolean {
   return /\/Library\/Application Support\/cmux\/agent-home(?:\/|$)/.test(cwd ?? "");
 }
 
+/**
+ * A system temporary folder (`/tmp`, `/private/tmp`, `/var/folders`, anything under `/private/var`):
+ * a harness's scratchpad or a script's chat runs there, so it is never a project (cmux#49610: the
+ * New Tab composer started on "tmp", the folder of the newest agent chat, instead of the last one used).
+ */
+export function isTemporaryFolder(cwd: string | undefined): boolean {
+  return /^\/(?:tmp|var\/tmp|var\/folders|private\/tmp|private\/var)(?:\/|$)/.test(cwd ?? "");
+}
+
 /// The folder of the most recently used chat on this Mac (Leo 2026-10-18): where a New Tab with no
 /// folder of its own starts. Not a private agent-home folder, the home folder or `/`, and not a chat
 /// on another machine (a peer or a Cloud host). With `known` (the host's project list, which drops
@@ -629,9 +643,9 @@ export function recentLocalFolders(sessions: readonly AcpmuxSessionEntry[], limi
   return folders.slice(0, limit).map(([cwd]) => cwd);
 }
 
-/// The first of `folders` (newest first) a New Tab may start in: not the home folder, and with
-/// `known` (the host's project list; absent or empty is not loaded yet) one in it. `null`: the host
-/// answered and lists no project (every one removed or missing), so no folder is one.
+/// The first of `folders` (newest first) a New Tab may start in: not the home folder or a temporary
+/// folder, and with `known` (the host's project list; absent or empty is not loaded yet) one in it.
+/// `null`: the host answered and lists no project (every one removed or missing), so no folder is one.
 export function firstProject(
   folders: readonly string[],
   home?: string,
@@ -640,7 +654,7 @@ export function firstProject(
   if (known === null) return undefined;
   const projects = known?.length ? new Set(known.map((path) => path.replace(/(.)\/+$/, "$1"))) : undefined;
   const homeFolder = home?.replace(/\/+$/, "");
-  return folders.find((cwd) => cwd !== homeFolder && (!projects || projects.has(cwd)));
+  return folders.find((cwd) => cwd !== homeFolder && !isTemporaryFolder(cwd) && (!projects || projects.has(cwd)));
 }
 
 /**

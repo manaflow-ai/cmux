@@ -2526,30 +2526,11 @@ def test_cmux_tui_artifacts_never_drops_a_feat_cmux_next_push() -> None:
     # claim, not the group, keeps the two runs from building the tree twice.
     assert evaluate("push", nightly, "a" * 40) != evaluate("push", feat, "a" * 40)
 
-def test_cmux_next_daemon_tests_take_blacksmith_linux_and_the_mac_shadow_never_the_promote_pool() -> None:
-    # 2026-10-26 (Leo: "I THOUGHT THESE COULD JUST GO ON LINUX"): the
-    # promotion gate runs on Blacksmith Linux on every event and attempt; the
-    # macOS-only tests run in a shadow that gates nothing and never takes the
-    # promote pool or the nightly label (tests/test_cmux_tui_daemon_tests_gate.py).
+def test_cmux_next_daemon_tests_take_linux_and_the_mac_shadow_never_the_promote_pool() -> None:
     document = yaml.load(workflow("cmux-tui-artifacts.yml"), Loader=yaml.BaseLoader)
     jobs = document["jobs"]
     daemon_cells = workflow_jobs.runs_on_cells(jobs["cmux-next-daemon-tests"])
-    assert daemon_cells, "cmux-next-daemon-tests: runs-on reads a matrix value nothing resolves, or is missing"
-    # Every label it can resolve to is Blacksmith Linux or the GCP fleet Linux label, which tree-preflight's
-    # linux-placement step emits only when the runner census shows an idle Linux member; size and overflow
-    # wiring are free to change.
-    import sys
-    sys.path.insert(0, str(Path(__file__).resolve().parent))  # tests/ itself: `python3 -I` puts no script folder on sys.path
-    from runs_on_labels import disallowed_labels
-    fleet_linux = "cmux-gcp-lane-build-x64"  # the persistent GCP build lane (cmux-fleet-linux-x64 had no runner, 2026-11-19)
-    picker = next(step for step in jobs["tree-preflight"]["steps"] if step.get("id") == "linux-placement")
-    assert picker["env"]["FLEET_LINUX"] == fleet_linux, picker["env"]
-    assert picker["env"]["LINUX_ONLY"] == "cmux-next-daemon-tests", picker["env"]
-    assert picker["env"]["FLEET_LINUX_VOUCHED"] == "1", picker["env"]
-    assert picker["env"]["REQUIRE_LIVE_CAPACITY"] == "1", picker["env"]
-    for daemon in daemon_cells:
-        placed = daemon.replace("needs.tree-preflight.outputs.linux_runner", f"'{fleet_linux}'")
-        assert set(disallowed_labels(placed)) <= {fleet_linux}, (daemon, disallowed_labels(placed))
+    assert daemon_cells == ["${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"]
     assert "cmux-next-daemon-macos-shadow" not in jobs
     shadow_doc = yaml.load(workflow("cmux-next-daemon-macos-shadow.yml"), Loader=yaml.BaseLoader)
     shadow_cells = workflow_jobs.runs_on_cells(shadow_doc["jobs"]["cmux-next-daemon-macos-shadow"])
