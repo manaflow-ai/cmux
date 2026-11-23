@@ -23,14 +23,15 @@ import Testing
         }
     }
 
-    /// The bug this replaced: a nested `UIView.animate` over the notified
-    /// 0.383 s with curve 7 as a timing function settled well after the
-    /// keyboard's spring.
+    /// Curve 7 rides the keyboard's spring, never a timing function over the
+    /// notified 0.383 s. Both end within one 120 Hz frame of each other (the
+    /// spring is within 0.5 pt of rest at 0.375 s), so the two differ in shape
+    /// mid-move, not in when they finish: the simulator bench saw no change in
+    /// finish time (#51536).
     @Test func keyboardCurveIsNeverATimingFunctionOverTheNotifiedDuration() {
         let ride = MobileKeyboardRide(duration: 0.383, curve: 7)
         #expect(ride.motion != .timed(duration: 0.383, curve: 7))
-        let oldSettle: TimeInterval = 0.383
-        #expect(oldSettle - ride.settleSeconds > oneFrame)
+        #expect(abs(0.383 - ride.settleSeconds) <= oneFrame)
     }
 
     @Test func otherCurvesUseTheNotifiedDurationAndCurveExactly() {
