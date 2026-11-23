@@ -193,6 +193,12 @@ fn opening_11k_rows_from_disk_reaches_first_window_under_200ms() {
         drop(hub);
     }
     let (spent, wall) = opens.iter().copied().min().unwrap();
+    // Printed on a pass too, so a green run's log keeps the number a later red compares to
+    // (straight to stderr: libtest captures `eprintln!` of a passing test).
+    let _ = writeln!(
+        std::io::stderr(),
+        "disk startup: {spent:?} of this thread's CPU ({wall:?} wall) at best of {opens:?}"
+    );
     assert!(
         spent < Duration::from_millis(200),
         "disk startup took {spent:?} of this thread's CPU ({wall:?} wall) at best of {opens:?}"
