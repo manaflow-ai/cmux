@@ -128,6 +128,7 @@ impl Answer {
                 "themes": roots.config_dir.join("themes"),
                 "views": roots.customize_dir,
                 "styles": roots.config_dir.join("agent-pane/theme.css"),
+                "layout": roots.config_dir.join("agent-pane/layout.json"),
                 "automations": roots.config_dir.join("automations"),
                 "profiles": roots.profiles_dir(),
                 "generations": roots.state_dir,

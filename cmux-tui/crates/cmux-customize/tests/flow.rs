@@ -993,3 +993,84 @@ fn a_mode_change_after_an_agents_turn_is_by_hand() {
         [("customize/run.sh", ChangeKind::Added, true)]
     );
 }
+
+const LAYOUT: &str = "{\n  \"quickActions\": [{ \"id\": \"terminal\", \"mode\": \"open\" }, \"browser\", \"files\"]\n}\n";
+
+/// The agent pane's layout (the chat header's quick actions) travels in a
+/// profile like a stylesheet: saved, used as a draft, applied into a
+/// generation and rolled back.
+#[test]
+fn a_profile_carries_the_agent_pane_layout() {
+    let mine = Home::new();
+    mine.write("cmux-next.json", COZY);
+    mine.write("agent-pane/layout.json", LAYOUT);
+    let saved = mine.customize().save_profile("header", "", 2).unwrap();
+    assert_eq!(saved.files, ["agent-pane/layout.json".to_owned()], "{:?}", saved.left_out);
+
+    let theirs = Home::new();
+    theirs.write("cmux-next.json", COZY);
+    theirs.write("agent-pane/layout.json", "{ \"quickActions\": [] }\n");
+    let other = theirs.customize();
+    let profile = other.load_profile(saved.path.to_str().unwrap()).unwrap();
+    assert_eq!(profile.files["agent-pane/layout.json"], LAYOUT);
+    other.preview_profile(&profile, "cli", 10).unwrap();
+    assert_eq!(theirs.read("agent-pane/layout.json").unwrap(), LAYOUT);
+    let status = other.status().unwrap();
+    assert_eq!(paths(&status.changes), [("agent-pane/layout.json", ChangeKind::Modified, false)]);
+    assert_eq!(status.changes[0].part, Part::Styles);
+    let applied = other.apply(None, "cli", 11).unwrap();
+    assert_eq!(applied.generation.parts, [Part::Styles]);
+    // Saved again on their side, it round-trips byte for byte.
+    let again = other.save_profile("header-again", "", 12).unwrap();
+    assert_eq!(other.load_profile("header-again").unwrap().files, profile.files, "{again:?}");
+    other.rollback(None, "cli", 13).unwrap();
+    assert_eq!(theirs.read("agent-pane/layout.json").unwrap(), "{ \"quickActions\": [] }\n");
+}
+
+/// A layout the pane would drop (not JSON, JSON with comments, not an
+/// object, a hidden character) is refused whole: nothing is written, the
+/// profile's other files included. One with a credential in it stays out of
+/// a saved profile.
+#[test]
+fn a_malformed_agent_pane_layout_is_refused_whole() {
+    let home = Home::new();
+    home.write("cmux-next.json", COZY);
+    let customize = home.customize();
+    for layout in [
+        "{ \\\"quickActions\\\": [ }",
+        "{ // mine\\n \\\"quickActions\\\": [] }",
+        "[\\\"terminal\\\"]",
+        "{ \\\"quickActions\\\": [\\\"termi\u{202E}nal\\\"] }",
+    ] {
+        let profile = profile_of(
+            "{}",
+            &format!(
+                "{{\"themes/night.json\":\"{{}}\\n\",\"agent-pane/layout.json\":\"{layout}\"}}"
+            ),
+        );
+        match customize.preview_profile(&profile, "cli", 1) {
+            Err(Error::Invalid(problems)) => {
+                assert!(
+                    problems.iter().all(|problem| problem.path == "agent-pane/layout.json"),
+                    "{layout}: {problems:?}"
+                );
+            }
+            other => panic!("{layout}: {:?}", other.map(|begun| begun.baseline)),
+        }
+    }
+    assert_eq!(home.read("themes/night.json"), None);
+    assert_eq!(home.read("agent-pane/layout.json"), None);
+    assert_eq!(customize.generations().unwrap().generations.len(), 0);
+
+    home.write(
+        "agent-pane/layout.json",
+        "{\n  \"quickActions\": [\"terminal\"],\n  \"token\": \"ghp_abcdefghijklmnopqrstuvwxyz0123456789\"\n}\n",
+    );
+    let saved = customize.save_profile("leaky", "", 2).unwrap();
+    assert!(saved.files.is_empty(), "{:?}", saved.files);
+    assert!(
+        saved.left_out.join("\n").contains("agent-pane/layout.json: line 3 looks like a secret"),
+        "{:?}",
+        saved.left_out
+    );
+}

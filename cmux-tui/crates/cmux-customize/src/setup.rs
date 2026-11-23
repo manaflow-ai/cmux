@@ -7,7 +7,8 @@
 //! description, screenshots, `engines.cmux`, `extensions`) and the
 //! cmux-next.json `actions` it adds. The setup's files sit in the repo at
 //! their logical paths (`keybindings.json`, `themes/NAME.json`,
-//! `customize/...`, `agent-pane/theme.css`), or inline in `files`.
+//! `customize/...`, `agent-pane/theme.css`, `agent-pane/layout.json`), or
+//! inline in `files`.
 //!
 //! Installing one is a profile import like any other: checked whole before a
 //! byte is written, applied as one generation that the library keeps as one
@@ -280,6 +281,10 @@ fn repo_files(dir: &Path) -> Result<BTreeMap<String, String>, Error> {
         if std::fs::symlink_metadata(&css).is_ok() {
             take(format!("{surface}/theme.css"), &css)?;
         }
+    }
+    let layout = dir.join(tree::AGENT_PANE_LAYOUT);
+    if std::fs::symlink_metadata(&layout).is_ok() {
+        take(tree::AGENT_PANE_LAYOUT.to_owned(), &layout)?;
     }
     for part in ["themes", "customize"] {
         let mut listed = Vec::new();

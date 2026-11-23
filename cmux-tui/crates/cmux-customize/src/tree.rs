@@ -33,6 +33,10 @@ pub enum Part {
     Keybindings,
     Themes,
     Views,
+    /// Per-surface stylesheets and the agent pane's layout file. A file the
+    /// pane reads joins this part rather than making a new one: the part is
+    /// written into every generation, and a cmux from before a new part
+    /// could not read its history back.
     Styles,
     Automations,
 }
@@ -67,7 +71,9 @@ impl Part {
             Part::Views => {
                 "your own views app (sidebar sections, panes, widgets, commands): cmux-app.json + main.js"
             }
-            Part::Styles => "per-surface stylesheets (agent-pane/theme.css and the like)",
+            Part::Styles => {
+                "per-surface stylesheets (agent-pane/theme.css and the like) and the agent pane's layout"
+            }
             Part::Automations => "automations (when X happens, do Y): one automation.json each",
         }
     }
@@ -87,6 +93,11 @@ impl Part {
 
 /// The settings file's logical path, whatever the file is called on disk.
 pub const SETTINGS: &str = "settings.json";
+/// The agent pane's layout file (`<config dir>/agent-pane/layout.json`): the
+/// JSON object the pane hands its registry's `configure`, whose
+/// `quickActions` set the chat header's buttons (CmuxNextAgentPane
+/// `AgentPaneCustomization`, webviews `header/quickActions.ts`).
+pub const AGENT_PANE_LAYOUT: &str = "agent-pane/layout.json";
 /// Surfaces with a user stylesheet (`<config dir>/<surface>/theme.css`).
 pub(crate) const STYLE_SURFACES: &[&str] =
     &["agent-pane", "markdown", "diff", "picker", "fileViewer"];
@@ -155,6 +166,7 @@ pub fn locate(roots: &Roots, path: &str) -> Option<PathBuf> {
         (surface, "theme.css") if STYLE_SURFACES.contains(&surface) => {
             Some(roots.config_dir.join(surface).join("theme.css"))
         }
+        ("agent-pane", "layout.json") => Some(roots.config_dir.join(AGENT_PANE_LAYOUT)),
         _ => None,
     }
 }
@@ -302,6 +314,7 @@ pub fn scan(roots: &Roots) -> io::Result<Scan> {
             &roots.config_dir.join(surface).join("theme.css"),
         )?;
     }
+    add_file(&mut scan, AGENT_PANE_LAYOUT, &roots.config_dir.join(AGENT_PANE_LAYOUT))?;
     let automations = roots.config_dir.join("automations");
     for name in sorted_names(&automations)? {
         if name.starts_with('.') {
