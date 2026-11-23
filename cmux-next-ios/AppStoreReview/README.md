@@ -14,6 +14,7 @@ a reviewer or a customer for the app lives here, beside the app it describes.
 | `metadata/app-info/<locale>.json` | name, subtitle, privacy policy URL | `asc metadata apply --dir cmux-next-ios/AppStoreReview/metadata` |
 | `metadata/version/<version>/<locale>.json` | description, keywords, promotional text, marketing and support URLs | the same `asc metadata apply`; `asc_review_package.py sync-listing` then sets and reads back every locale's Support URL |
 | `reviewer-setup.md` | the review path, where each live value lives, what must be true before a submission | read by people |
+| `common-rejections.json` | the common rejections public repos list, each mapped to what the app does and the gate check that catches it (or why none can) | read by `app_review_gate.py lint`, which fails on a detector that does not exist |
 
 ## Script
 

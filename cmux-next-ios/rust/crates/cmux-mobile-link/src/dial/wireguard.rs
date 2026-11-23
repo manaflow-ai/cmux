@@ -259,16 +259,17 @@ impl StunClock {
     }
 }
 
-/// The TURN allocation beside a [`StunClock`]: at once when `eager`, else
-/// only once UDP looks blocked. It tells the clock when it took a TCP or
-/// TLS carrier.
+/// The TURN allocation beside a [`StunClock`]: at once when `eager`, its
+/// TCP or TLS attempt too (relay first, as the dial wants a relayed path
+/// ready whatever UDP does), else only once UDP looks blocked. It tells the
+/// clock when it took a TCP or TLS carrier.
 async fn turn_beside(options: &DialOptions, eager: bool, side: TurnSide) -> Option<TurnCarrier> {
     let TurnSide { mut udp_silent, stream_ready } = side;
     if !eager && udp_silent.wait_for(|silent| *silent).await.map(|_| ()).is_err() {
         // The STUN wait ended without UDP looking blocked.
         return None;
     }
-    let turn = TurnCarrier::allocate_with(options, Some(udp_silent)).await;
+    let turn = TurnCarrier::allocate_with(options, Some(udp_silent), eager).await;
     if turn.as_ref().is_some_and(|turn| turn.transport.is_stream()) {
         let _ = stream_ready.send(true);
     }
@@ -770,6 +771,8 @@ struct HybridUnderlay {
     /// When a datagram last arrived relayed (through a TURN server).
     last_relayed_arrival: Option<Instant>,
     path: watch::Sender<LinkPath>,
+    /// The direct path's peer address, beside `path` ([`super::route_name`]).
+    peer: watch::Sender<Option<IpAddr>>,
     /// The peer address plain UDP on the current route goes to (none on
     /// this side's own TURN allocation): which local interface carries the
     /// session ([`route_destinations`]).
@@ -889,6 +892,7 @@ impl HybridUnderlay {
             last_on_route: None,
             last_relayed_arrival: None,
             path: spec.path,
+            peer: watch::channel(None).0,
             route_to: spec.route_to,
             control: spec.control,
             stun: Vec::new(),
@@ -1513,6 +1517,8 @@ impl HybridUnderlay {
             roam.mark(if path == LinkPath::Direct { "roam_direct" } else { "roam_turn" });
         }
         self.path.send_if_modified(|current| std::mem::replace(current, path) != path);
+        let peer = self.direct.filter(|_| path == LinkPath::Direct).map(|route| route.addr.ip());
+        self.peer.send_if_modified(|current| std::mem::replace(current, peer) != peer);
     }
 
     fn demote(&mut self, why: &str) {
@@ -1956,6 +1962,7 @@ impl Drop for Guard {
 struct Tunnel {
     session: Arc<Session>,
     path: watch::Receiver<LinkPath>,
+    peer: super::PeerAddr,
 }
 
 /// What a side knows when it starts its tunnel.
@@ -2057,6 +2064,7 @@ fn start_tunnel(
         peer_addresses: vec![IpAddr::V4(spec.peer_ip)],
         ultra: ultra_for_dial(options.ultra),
     };
+    let peer = underlay.peer.subscribe();
     let net = WgNet::start_with_underlay(config, underlay).map_err(transport_error)?;
     let session = Session::register(roam::SessionParts {
         session_id: spec.session_id.to_owned(),
@@ -2075,7 +2083,7 @@ fn start_tunnel(
         turn_dead,
         route_to,
     });
-    Ok(Tunnel { session, path: path_rx })
+    Ok(Tunnel { session, path: path_rx, peer })
 }
 
 /// The running tunnel, unless `bye` already dropped it.
@@ -2261,6 +2269,7 @@ impl Dialer for WireGuardDialer {
             Ok(Dialed {
                 stream: Box::new(stream),
                 path: tunnel.path,
+                peer: tunnel.peer,
                 guard: Box::new(guard),
                 lane,
                 media,
@@ -2428,6 +2437,7 @@ impl Dialer for WireGuardDialer {
             Ok(Dialed {
                 stream: Box::new(stream),
                 path: tunnel.path,
+                peer: tunnel.peer,
                 guard: Box::new(guard),
                 lane,
                 webrtc_media,
@@ -3003,8 +3013,45 @@ mod tests {
         drop(silent);
     }
 
-    /// Where STUN answers, nothing changes: the allocation stays on UDP and
-    /// no TLS connection opens; a Mac (not eager) takes no allocation.
+    /// Relay first: the dial's TLS attempt starts with the gather, not once
+    /// STUN has been silent for STUN_SILENT, so on a network that drops UDP
+    /// the TLS connection and the silence overlap instead of adding up
+    /// (the hotel row of the connectivity lab, about 506 ms before). A Mac
+    /// answering still waits for the silence.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_dial_opens_its_tls_attempt_before_stun_goes_silent() {
+        let turn = crate::testing::TestTurn::start().await;
+        turn.set_udp_blocked(true);
+        let silent = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let mut ice = turn.ice.clone();
+        ice.urls.push(format!("stun:{}", silent.local_addr().unwrap()));
+        let options = DialOptions {
+            ice_servers: vec![ice],
+            turn_tls_roots: Some(std::sync::Arc::clone(&turn.roots)),
+            include_loopback: true,
+            ..DialOptions::default()
+        };
+        for (eager, want) in [(false, 0), (true, 1)] {
+            let before = turn.stream_connections();
+            let options = options.clone();
+            let gather = tokio::spawn(async move { gather_beside_turn(&options, eager).await });
+            tokio::time::sleep(STUN_SILENT / 2).await;
+            let opened = turn.stream_connections() - before;
+            assert_eq!(opened, want, "eager {eager}: {opened} TLS connections before STUN went silent");
+            let (_, carrier, took) = gather.await.unwrap();
+            assert!(carrier.expect("a TURN allocation over TLS").transport.is_stream(), "eager {eager}");
+            assert!(
+                took >= STUN_SILENT,
+                "eager {eager}: the gather ended before STUN went silent ({took:?})"
+            );
+        }
+        drop(silent);
+    }
+
+    /// Where STUN answers, the allocation stays on UDP. The dial (eager)
+    /// opens its TLS attempt beside UDP from the start (relay first) and
+    /// drops it when UDP wins; a Mac (not eager) takes no allocation and
+    /// opens no TLS connection.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_network_that_answers_stun_opens_no_tls_connection() {
         let turn = crate::testing::TestTurn::start().await;
@@ -3017,14 +3064,23 @@ mod tests {
             include_loopback: true,
             ..DialOptions::default()
         };
+        let (gathered, carrier, _) = gather_beside_turn(&options, false).await;
+        assert_eq!(gathered.answered, 1, "{gathered:?}");
+        assert!(carrier.is_none(), "a Mac whose STUN answered took an allocation");
+        assert_eq!(
+            turn.stream_connections(),
+            0,
+            "a Mac on a network that passes UDP opened a TLS connection"
+        );
         let (gathered, carrier, _) = gather_beside_turn(&options, true).await;
         assert_eq!(gathered.answered, 1, "{gathered:?}");
         let carrier = carrier.expect("a TURN allocation over UDP");
         assert!(!carrier.transport.is_stream(), "{:?}", carrier.transport);
-        let (gathered, carrier, _) = gather_beside_turn(&options, false).await;
-        assert_eq!(gathered.answered, 1, "{gathered:?}");
-        assert!(carrier.is_none(), "a Mac whose STUN answered took an allocation");
-        assert_eq!(turn.stream_connections(), 0, "a network that passes UDP opened a TLS connection");
+        assert!(
+            turn.stream_connections() <= 1,
+            "a dial opened {} TLS connections",
+            turn.stream_connections()
+        );
     }
 
     #[test]

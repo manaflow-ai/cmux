@@ -144,6 +144,15 @@ pub fn process_start(pid: u32) -> Option<u64> {
     }
 }
 
+/// Blocks until `pid` exits, or was already gone, or `still_ours` says once the watch holds the
+/// process that `pid` names another one now. Unsupported where the kernel has no exit event.
+pub(crate) fn wait_process_exit(
+    pid: u32,
+    still_ours: impl FnOnce() -> bool,
+) -> std::io::Result<()> {
+    imp::wait_exit(pid, still_ours)
+}
+
 fn owner_pid(value: Option<&str>) -> Option<u32> {
     let pid = value?.trim().parse::<u32>().ok()?;
     (pid > 1 && pid != std::process::id() && i32::try_from(pid).is_ok()).then_some(pid)

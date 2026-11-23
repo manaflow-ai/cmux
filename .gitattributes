@@ -101,8 +101,8 @@ webviews/src/pages/diff/generated/localeLoaders.ts merge=cmux-generated-v1
 # action catalog and the settings schema). Every settings pull request rewrites
 # the settings reference, so two of them always collided there.
 # regenerate-web-bundles.sh rebuilds it with no build, and
-# regenerate-swift-exports.sh again after the exports it follows;
-# web/tests/next-docs.test.ts fails on a stale copy.
+# regenerate-swift-exports.sh again after the exports it follows; only the
+# base autofix commits it to feat-cmux-next (RFD 0048, bot-only).
 web/data/next-docs/*.generated.json merge=cmux-generated-v1
 # Every other generated file: the source of truth for which files are generated
 # is the generated-files check (scripts/ci/generated-files.json, the
@@ -191,8 +191,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextIcons/IconName+Members.swift merge=cmux-
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt.swift merge=cmux-generated-v1
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt+Entries.swift merge=cmux-generated-v1
 cmux-tui/crates/acpmux/src/chats/brand/table.rs merge=cmux-generated-v1
-webviews/src/protocol/generated/** merge=cmux-generated-v1
-webviews/src/agent-session/acpmux/protocol/generated/** merge=cmux-generated-v1
 webviews/src/pages/shared/generated/pageRouter.ts merge=cmux-generated-v1
 cmux-tui/bindings/go-pane/internal/richpane/*.go merge=cmux-generated-v1
 cmux-tui/bindings/go-pane/examples/hello/hellopane/*.go merge=cmux-generated-v1

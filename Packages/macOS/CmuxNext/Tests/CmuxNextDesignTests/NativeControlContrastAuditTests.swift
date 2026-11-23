@@ -243,6 +243,10 @@ import CmuxNextDesignTokens
         container.layoutSubtreeIfNeeded()
         for view in allViews(container) { view.viewDidChangeEffectiveAppearance(); view.needsDisplay = true }
         container.layoutSubtreeIfNeeded()
+        // A SwiftUI control learns the ground it sits on from the view tree once it is in the window, and takes it after
+        // the frame commit (`AfterFrameCommit`): run the main run loop through one pass, then lay out again.
+        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        container.layoutSubtreeIfNeeded()
         // The veil was added to the panel's content while it had no size, and draws in updateLayer, which
         // cacheDisplay does not run: it takes its content's bounds and draws now.
         for view in allViews(container) where view is GlassMenuVeilView {
@@ -294,17 +298,13 @@ import CmuxNextDesignTokens
 
     private static func allViews(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(allViews) }
 
-    /// The theme's glass tint at the menu level, as a menu panel tints its glass.
-    static func menuTint(_ tokens: ThemeTokens) -> ThemeRGB {
-        tokens.glassTint.withAlpha(min(1, tokens.glassTint.alpha * GlassMenuMaterial.level.tintStrength))
-    }
-
-    /// A menu panel's glass over `page`: the tint, then the theme veil (``GlassMenuMaterial/veil``).
+    /// A menu panel's glass over `page`: the tint, then the theme's veil (``GlassMenuMaterial/veil(for:)``).
     static func menuGlass(_ tokens: ThemeTokens, over page: ThemeRGB) -> ThemeRGB {
-        tokens.surfaceBackground.withAlpha(Double(GlassMenuMaterial.veil)).composited(over: menuTint(tokens).composited(over: page))
+        GlassMenuMaterial.glass(tokens, veil: GlassMenuMaterial.veil(for: tokens), over: page)
     }
 
-    /// Every shared button look, as the app constructs it.
+    /// Every shared button look, as the app constructs it. Nothing marks SwiftUI content as on a menu panel's glass: a
+    /// control finds the panel in its view tree, as each AppKit control does (``NSView/buttonGround(_:)``).
     static func catalog(scope: ThemeScope, disabled: Bool) -> [Sample] {
         let enabled = !disabled
         func appKit(_ name: String, _ button: NSControl, icon: Bool = false) -> Sample {
