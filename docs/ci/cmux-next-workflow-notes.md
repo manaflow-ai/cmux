@@ -260,10 +260,21 @@ Above `compile-status` in `.github/workflows/cmux-next.yml`.
 The pull request's Release compile gate: the commit status cmux-next/compile on the exact
 head. The build fleet's controller compiles every feat-cmux-next head and same-repository PR
 head (SwiftPM Release at -Onone); this job reads that one result and publishes it.
-The controller holds no GitHub key and posts nothing: the status comes only from here, with
-a cmux-bot token (statuses: write) minted from the repository secret. Any other route that
-compiles the head (a Blacksmith job of this repository) posts the same context with the
-same mapping.
+This job posts with a cmux-bot token (statuses: write) minted from the repository secret.
+Any other route that compiles the head (a Blacksmith job of this repository) posts the same
+context with the same mapping.
+
+The controller posts it too, on the same-repository pull request heads it compiles, as the
+manaflow-checks App (the statuses: write App the pool's required checks already post from;
+cmuxterm-hq `build-fleet/cmd/controller/compile_status_poster.go`), with the same mapping at
+each receipt transition. Its receipt then says `"status_poster": "controller"`, and this job
+ends as soon as it reads that on a queued or running receipt, instead of holding a runner
+through the compile (77.7 runner-hours in 6 h on the pull request leg, 2026-11-22 17:00-23:00Z).
+A pull request head's first read takes the receipt as it is (`wait=1`), so the mark is seen at
+once; the recipe check runs first, so a marked receipt of another recipe is still a mismatch.
+A receipt without it (a push head, or a
+controller that does not post) is waited for and relayed as before. The landing gates trust
+both posters (`scripts/ci/base_red_excuse.py` `COMPILE_STATUS_POSTERS`).
 
 Mapping, fail closed: pass is success; fail is failure with the compile log as its link;
 unavailable, no result by the deadline, a result for another sha, repo, configuration or
@@ -453,20 +464,6 @@ beyond GATEWAY_JOBS', or placement lists nothing (side_lane_placement.fleet_gate
 and daemon-test are not cascade jobs, so placement never lists them; daemon-test also needs the
 same-tree cmux-tui daemon, which a fleet suite step reports as no result.
 
-## note-25
-
-Above `portable-placement` in `.github/workflows/cmux-next.yml`.
-
-cmux-next checks' runner.
-Jobs that need neither Linux nor Blacksmith take fleet Linux (vars.LINUX_RUNNER when it names our
-own Linux runner), else a mini idle now with no nightly job waiting on its pool, else their
-Blacksmith label (scripts/ci/portable_job_placement.py; Leo, 2026-10-31: "i mean the linux things
-cant our minis just run them"). Every step fails open: no output keeps each job's Blacksmith route.
-The placement code comes from the base branch, as macos-placement's does.
-This bootstrap must start independently of the labels it validates: Blacksmith 2 vCPU
-(RUNNER_POOLS.linux_2) on every attempt, like the other placement bootstraps. It took hosted Ubuntu on
-attempt 1 until 2026-11-18, when GitHub-hosted runners left it queued for hours (cmux#45735). Its consumers take live fleet capacity from its outputs.
-
 ## note-26
 
 Above `checks: needs` in `.github/workflows/cmux-next.yml`.
@@ -480,7 +477,6 @@ its commit range: the previous base tier run's tip to this one ("Previous checke
 "Pushed commits add no violations" sweeps and base_red_checks.py compares against.
 vars.CMUX_NEXT_BASE_TIER_COALESCE = '0' puts it back on every push, with the base tier.
 Earlier (Leo, 2026-10-19; cx-g34i had dropped it) each push ran it so a direct push's red showed on that push.
-!cancelled(): a skipped or failed portable-placement (a fork, a re-run, a base tier run) leaves the Blacksmith route.
 
 ## note-27
 
@@ -4802,12 +4798,6 @@ Above `if [ -z "$route" ] && [[ "$SIDE_LABEL" == glaeda-side-* ]] && [ "$GITHUB_
 
 The rescue's re-run writes no owned route (side_lane_placement.rerun_main()).
 
-## note-532
-
-Above `if [ ! -f scripts/ci/portable_job_placement.py ]; then` in `.github/workflows/cmux-next.yml`.
-
-A base branch that predates the script places nothing: every job keeps its Blacksmith route.
-
 ## note-533
 
 Above `if ! command -v timeout >/dev/null; then` in `.github/workflows/cmux-next.yml`.
@@ -4928,3 +4918,14 @@ instead (cmuxterm-hq cmux_next_tip_debounce.go), skips its fleet compile and the
 the preflight already found superseded does. The branch head is read again first; a head that has not
 moved, or one that cannot be read, compiles as before. 2026-11-22 05-09Z: 120 pushes, 97 push-tip checks
 (432 machine-min), 91 of them inside the 10-minute window, each queued by its own push run's read.
+
+## note-552
+
+Above `CMUX_LAN_CACHE_TIMEOUT: "480"` in `.github/workflows/cmux-next.yml`.
+
+A base seed restore waits at most 8 minutes for the LAN cache host, then downloads the seed itself.
+lan_cache_fetch.py's own bound is 5,420 s, longer than the 60-minute jobs that restore a seed. On
+2026-11-22 a stalled cache host held fast-tier seed restores 14 minutes before the broker gave up
+("LAN cache host unavailable (...: stalled)"), and the direct download then took 9 more: restores of
+1,289-1,600 s, in jobs cancelled at the 60-minute limit while still building CmuxNext. A healthy host
+serves the 3.6 GB seed in about 40 s, or 343 s when it first fills it from the bucket (wait 304 s).

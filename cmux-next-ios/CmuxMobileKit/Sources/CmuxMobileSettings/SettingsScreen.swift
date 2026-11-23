@@ -292,7 +292,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
         case .terminal: TerminalPage(settings: settings)
         case .terminalSizing: TerminalSizingMacsPage(store: store)
         case .terminalSizingMac(let macID): TerminalSizingMacPage(macID: macID, store: store, service: sizing)
-        case .composer: ComposerPage(settings: settings)
+        case .composer: ComposerPage(settings: settings, voice: callPreferences)
         case .accentColor: AccentColorPage(accents: accentTheme)
         case .notifications: NotificationsPage(settings: settings, macs: store.notificationMacs,
                                                        permission: notificationPermission)
