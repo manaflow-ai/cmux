@@ -299,6 +299,9 @@ jobs:
             echo '```'
             echo '</details>'
           } >> "$GITHUB_STEP_SUMMARY"
+          # The same step details in the job's log, so a lane reads a refusal's own words without the summary page.
+          echo "step details:"
+          sudo cat -- "$JOIN_BASE/out/step2.txt" "$JOIN_BASE/out/step3.txt" 2>/dev/null | plain | grep -Eiv 'cmm_|cmj_|bearer|authorization' | sed 's/^/  detail: /' || true
           if [ -n "$machine" ] && [ "$(jq -r '.revoke.revokedListed' "$file")" != true ]; then
             echo "::error::machine $machine is not shown revoked; revoke it in the platform's machine list"
             exit 1
