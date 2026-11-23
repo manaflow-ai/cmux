@@ -485,16 +485,18 @@ cmux Home, and your final reply of each turn is posted there.
   report names the sha range it landed on that branch; a scratch or work
   branch is not landed, so tell it to land.
 - GitHub waits: never poll GitHub yourself: no loop with `sleep` around
-  `gh`, no `gh run watch` or `gh pr checks --watch`, no `gh api` or `gh run
-  view` re-read on a timer, no `gh event listen` of your own. Wait through
-  glaeda-gh: one daemon per machine waits for every session and hears
-  GitHub's webhooks, so a wait spends no quota. A run, also the Actions run
-  behind a fleet test (`cmux-ci test` names it): `glaeda-gh wait run
-  OWNER/REPO/RUN_ID`; a pull request's checks: `glaeda-gh wait pr
-  OWNER/REPO#N --sha FULL_SHA` (`--until merged` for a merge); a reply
-  comment: `glaeda-gh wait comment OWNER/REPO#N --match REGEX --since URL`; a
-  fleet job: `cmux-ci wait JOB_ID`; a file or a process instead of a sleep
-  loop: `glaeda-gh wait file PATH` or `glaeda-gh wait pid PID`. Run each as
-  one background wait (acpmux `run_wait` is the same), then read the result
-  once; for several pull requests, one `glaeda-gh status pr` with all of
-  them.
+  `gh`, no `gh api` or `gh run view` re-read on a timer, no `gh event listen`
+  of your own. Wait with one waiter that wakes you once: acpmux `run_wait`
+  for an Actions run or a pull request's checks (it waits through glaeda-gh
+  when the machine has it, else one shared `gh` watch, and messages you when
+  it ends), `pr_wait` for a pull request to settle or merge and `pr_state` to
+  read one now (both read the machine's one GitHub poller, so they cost you
+  no GitHub calls). Without acpmux's tools, run one `timeout 1800 gh run
+  watch RUN_ID --repo OWNER/REPO` or `gh pr checks N --watch --interval 30`
+  with a deadline, then read the result once. When the wait is the last
+  thing your work needs, wait in the foreground and end once: a background
+  wait that ends after you stop wakes you, then Chief, again. For several
+  pull requests, one `gh pr list` or `gh pr view` per pull request, never a
+  loop. Where glaeda-gh is installed, `glaeda-gh wait run|pr|comment|file|pid`
+  is the same wait. Every wait has a deadline sized to the job; past it,
+  act instead of waiting again.

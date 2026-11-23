@@ -427,22 +427,27 @@ summaries dropped.";
 /// 2026-11-19: "glaeda-gh wait pr|run|comment is in everyone's agent rules ...
 /// are we using this properly too?"; that evening sleep loops around `gh` and
 /// `gh run watch` still spent most of the host's GitHub calls).
+/// Base Chief ships to people without glaeda-gh or cmux-ci, so the rule leads with acpmux's
+/// `run_wait`/`pr_wait` (glaeda-gh when present, else one shared `gh` watch) and a plain `gh`
+/// wait with a deadline (the user, 2026-11-23: "let's go improve the base chief").
 macro_rules! github_wait_rule {
     () => {
         "- GitHub waits: never poll GitHub yourself: no loop with `sleep` around
-  `gh`, no `gh run watch` or `gh pr checks --watch`, no `gh api` or `gh run
-  view` re-read on a timer, no `gh event listen` of your own. Wait through
-  glaeda-gh: one daemon per machine waits for every session and hears
-  GitHub's webhooks, so a wait spends no quota. A run, also the Actions run
-  behind a fleet test (`cmux-ci test` names it): `glaeda-gh wait run
-  OWNER/REPO/RUN_ID`; a pull request's checks: `glaeda-gh wait pr
-  OWNER/REPO#N --sha FULL_SHA` (`--until merged` for a merge); a reply
-  comment: `glaeda-gh wait comment OWNER/REPO#N --match REGEX --since URL`; a
-  fleet job: `cmux-ci wait JOB_ID`; a file or a process instead of a sleep
-  loop: `glaeda-gh wait file PATH` or `glaeda-gh wait pid PID`. Run each as
-  one background wait (acpmux `run_wait` is the same), then read the result
-  once; for several pull requests, one `glaeda-gh status pr` with all of
-  them."
+  `gh`, no `gh api` or `gh run view` re-read on a timer, no `gh event listen`
+  of your own. Wait with one waiter that wakes you once: acpmux `run_wait`
+  for an Actions run or a pull request's checks (it waits through glaeda-gh
+  when the machine has it, else one shared `gh` watch, and messages you when
+  it ends), `pr_wait` for a pull request to settle or merge and `pr_state` to
+  read one now (both read the machine's one GitHub poller, so they cost you
+  no GitHub calls). Without acpmux's tools, run one `timeout 1800 gh run
+  watch RUN_ID --repo OWNER/REPO` or `gh pr checks N --watch --interval 30`
+  with a deadline, then read the result once. When the wait is the last
+  thing your work needs, wait in the foreground and end once: a background
+  wait that ends after you stop wakes you, then Chief, again. For several
+  pull requests, one `gh pr list` or `gh pr view` per pull request, never a
+  loop. Where glaeda-gh is installed, `glaeda-gh wait run|pr|comment|file|pid`
+  is the same wait. Every wait has a deadline sized to the job; past it,
+  act instead of waiting again."
     };
 }
 
@@ -1199,7 +1204,7 @@ pub const REMEMBER_DESCRIPTION: &str = "Keep a lasting preference or correction 
 pub const SLEEP_DESCRIPTION: &str = "End your turn and wake later: after `seconds` (30 to 86400) a message \"[wake] <note>\" starts a new turn with the whole view. Use it to look at a run, deploy or subagent again instead of waiting or polling. until: event lets a user message or subagent report that comes first replace the wake. seconds 0 clears every pending wake. Never call it to wait for a subagent's report alone: reports always wake you.";
 
 /// The `watch` tool's description (optchat-chief brain/watches.rs).
-pub const WATCH_DESCRIPTION: &str = "Wait for something outside your turn: the host runs `command` (sh -c) on this machine in the background and wakes you once with a message \"[watch w<N>] <note>: <what happened>\" and its last output lines, when an output line matches the regex `until`, when the command exits (no `until`), or at `timeout_seconds` (default 1800). A short check that exits without a match runs again every 15 s, so `aws sts get-caller-identity && echo SIGNED_IN` with until SIGNED_IN waits for a sign-in, and `glaeda-gh wait run OWNER/REPO/ID` with no until waits for a run. Never poll GitHub: with glaeda on the host, the host runs a GitHub wait it recognises (a run's status, `gh run watch`, a PR's checks or merge, a comment) as one `glaeda-gh wait run|pr|comment`, and a file or pid check or sleep loop as `glaeda-gh wait file|pid`; a GitHub poll it cannot say as one wait (a loop, several targets, no OWNER/REPO) is refused with the command to use instead. Your turn goes on: tell the user what you wait for, then end it. Use it whenever you would say you are watching or will continue when something finishes. cancel: a watch id or all. No arguments: lists the pending watches. At most 8 at once.";
+pub const WATCH_DESCRIPTION: &str = "Wait for something outside your turn: the host runs `command` (sh -c) on this machine in the background and wakes you once with a message \"[watch w<N>] <note>: <what happened>\" and its last output lines, when an output line matches the regex `until`, when the command exits (no `until`), or at `timeout_seconds` (default 1800). A short check that exits without a match runs again every 15 s, so `aws sts get-caller-identity && echo SIGNED_IN` with until SIGNED_IN waits for a sign-in, and `gh run watch ID --repo OWNER/REPO --exit-status` with no until waits for a run. Never poll GitHub: with glaeda on the host, the host runs a GitHub wait it recognises (a run's status, `gh run watch`, a PR's checks or merge, a comment) as one `glaeda-gh wait run|pr|comment`, and a file or pid check or sleep loop as `glaeda-gh wait file|pid`; a GitHub poll it cannot say as one wait (a loop, several targets, no OWNER/REPO) is refused with the command to use instead. Your turn goes on: tell the user what you wait for, then end it. Use it whenever you would say you are watching or will continue when something finishes. cancel: a watch id or all. No arguments: lists the pending watches. At most 8 at once.";
 
 /// The `automation` tool's description (optchat-chief automations.rs).
 pub const AUTOMATION_DESCRIPTION: &str = "The user's scheduled and event-triggered tasks on this Mac. add: name, prompt (the whole task, standing alone) and either cron (five fields in this Mac's time zone: \"0 9 * * *\" every day at 9) or event (agent_done: one of your subagents finished; a GitHub event such as CI failing is not one). Each fire starts a turn of yours with \"[automation <id> \\\"<name>\\\"] <prompt>\"; do the task and post the result in this chat. An event fires it once. list; pause, resume, delete, run (now) by id. The user sees, pauses and deletes them in Chief settings. A run missed while this computer slept or cmux was closed runs once as soon as it is back; a job that must run on time while it sleeps is a cloud automation (`cmux automation create NAME --target cloud`).";
