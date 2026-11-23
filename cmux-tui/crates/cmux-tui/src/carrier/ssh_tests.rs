@@ -923,6 +923,22 @@ fn a_failed_routes_line_says_why_in_fixed_codes_only() {
     let said = "x; ssh stderr: \"a; carrier ssh key: b\"; relay: timed out";
     assert_eq!(why_codes(said).as_deref(), Some("other,timeout"));
     assert_eq!(why_codes("  "), None);
+    // Which of ssh-endpoint's refusals dropped the route, or failed the key:
+    // the platform's status and fixed code, never other text.
+    assert_eq!(
+        why_codes("carrier ssh route dropped: cmux-platform answered 403 auth.forbidden")
+            .as_deref(),
+        Some("ssh_refused_403_auth_forbidden")
+    );
+    assert_eq!(
+        why_codes("carrier ssh key: cmux-platform answered 409 cloud.machine.not_running; relay: connection closed")
+            .as_deref(),
+        Some("ssh_key_409_cloud_machine_not_running,closed")
+    );
+    assert_eq!(
+        why_codes("carrier ssh route dropped: cmux-platform answered 403 Token=abc").as_deref(),
+        Some("ssh_refused")
+    );
     let line = routes_line(MACHINE, Phase::Resume, None, None, Some(Step::Relay), Some(all));
     assert_eq!(
         line,

@@ -491,7 +491,9 @@ pub(super) fn routes_line(
 /// in the order the routes failed. A carrier ssh failure says which of its
 /// steps stopped it (`ssh_refused`: the platform dropped the route;
 /// `ssh_key_timeout`/`ssh_key`: the key was not authorized; `killed`: the
-/// route was killed); anything else is its [`detail_code`]. A captured ssh
+/// route was killed), followed by the platform's refusal when it named one
+/// (`ssh_refused_403_auth_forbidden`, [`platform_refusal`]); anything else
+/// is its [`detail_code`]. A captured ssh
 /// stderr tail is left out: it has its own quoted field.
 pub(super) fn why_codes(detail: &str) -> Option<String> {
     const MAX_WHY_CODES: usize = 4;
@@ -516,7 +518,10 @@ pub(super) fn why_codes(detail: &str) -> Option<String> {
         ]
         .into_iter()
         .find(|(marker, _)| lower.contains(marker))
-        .map(|(_, code)| code.to_string())
+        .map(|(_, code)| match platform_refusal(&lower) {
+            Some(refusal) => format!("{code}_{refusal}"),
+            None => code.to_string(),
+        })
         .or_else(|| detail_code(part));
         if let Some(code) = code.filter(|code| !codes.contains(code)) {
             codes.push(code);
@@ -524,6 +529,25 @@ pub(super) fn why_codes(detail: &str) -> Option<String> {
     }
     codes.truncate(MAX_WHY_CODES);
     (!codes.is_empty()).then(|| codes.join(","))
+}
+
+/// The platform's refusal in a carrier ssh failure (`cmux-platform answered
+/// 403 auth.forbidden`, [`super::answer::read_ssh_endpoint`]) as one code,
+/// `403_auth_forbidden`: which of ssh-endpoint's refusals dropped the route.
+/// Only a 3-digit status and a code of `[a-z0-9._]` (cmux-platform's own
+/// fixed codes) are kept; anything else is no code.
+fn platform_refusal(lower: &str) -> Option<String> {
+    const MAX_REFUSAL_CODE: usize = 40;
+    let (_, rest) = lower.split_once("cmux-platform answered ")?;
+    let (status, rest) = rest.split_once(' ')?;
+    let code = rest.split(|c: char| c.is_whitespace() || c == ';').next()?;
+    let status_ok = status.len() == 3 && status.bytes().all(|b| b.is_ascii_digit());
+    let code_ok = !code.is_empty()
+        && code.len() <= MAX_REFUSAL_CODE
+        && code
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'.' || b == b'_');
+    (status_ok && code_ok).then(|| format!("{status}_{}", code.replace('.', "_")))
 }
 
 /// The most of a captured ssh stderr line a `carrier.routes` line keeps:
