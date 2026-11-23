@@ -69,20 +69,29 @@ export type SurfaceProps = Omit<ElementProps, "role"> & {
 
 const TitleId = createContext<string | undefined>(undefined);
 
-export function Surface({ role, as: Tag = "div", tone, hostGlass, className, children, ...rest }: SurfaceProps) {
+/** The shell of a role: its classes and data attributes, for the one element that is a surface only part
+ * of the time (the question card's wrapper, a surface while it is open and a bare row while folded), where
+ * swapping the element for `<Surface>` would remount what is inside it. Everything else renders `<Surface>`. */
+export function surfaceShell(role: SurfaceRole, className?: string) {
   const material = surfaceMaterial(role);
-  const hosted = material === "floating" && hostGlass;
+  return {
+    className: cx(
+      "ui-surface",
+      material === "floating" && "ui-glass ui-glass-transient",
+      material === "content" && "ui-glass ui-glass-content",
+      className,
+    ),
+    "data-surface-role": role,
+    "data-surface-material": material,
+  } as const;
+}
+
+export function Surface({ role, as: Tag = "div", tone, hostGlass, className, children, ...rest }: SurfaceProps) {
+  const hosted = surfaceMaterial(role) === "floating" && hostGlass;
   return (
     <Tag
       {...rest}
-      className={cx(
-        "ui-surface",
-        material === "floating" && "ui-glass ui-glass-transient",
-        material === "content" && "ui-glass ui-glass-content",
-        className,
-      )}
-      data-surface-role={role}
-      data-surface-material={material}
+      {...surfaceShell(role, className)}
       data-tone={tone && tone !== "neutral" ? tone : undefined}
       data-host-glass={hosted ? hostGlass : undefined}
       data-host-glass-cover={hosted ? "" : undefined}

@@ -230,9 +230,13 @@ test("Next moves tab by tab before anything is answered, and the button is never
 
 test("the button's label is drawn in a color the theme always sets", () => {
   // --agent-page-bg is transparent in a translucent window, which drew the label invisible.
-  const css = readFileSync(path.join(import.meta.dir, "../src/agent-session/acpmux/styles.css"), "utf8");
-  const rule = css.match(/\.acpmux-question-submit\{[^}]*\}/)?.[0] ?? "";
-  expect(rule).not.toBe("");
+  // The button is the ask role's primary now (ui/Button solid): it has no rule of its own, and the
+  // solid's ink is the accent's own.
+  const own = readFileSync(path.join(import.meta.dir, "../src/agent-session/acpmux/styles.css"), "utf8");
+  expect(own.match(/\.acpmux-question-submit\{[^}]*\}/)).toBeNull();
+  const css = readFileSync(path.join(import.meta.dir, "../src/ui/controls.css"), "utf8");
+  const rule = css.match(/\.ui-btn\[data-variant="solid"\] \{[^}]*\}/)?.[0] ?? "";
+  expect(rule).toContain("color: var(--ds-color-on-accent)");
   expect(rule).not.toContain("--agent-page-bg");
 });
 

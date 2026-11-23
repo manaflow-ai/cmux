@@ -1,0 +1,103 @@
+{
+  "shots": [
+    {
+      "name": "question-prompt-card",
+      "entry": "agent-pane.question-card",
+      "variant": "pending-single",
+      "width": 760,
+      "height": 460,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "question-multi",
+      "entry": "agent-pane.question-card",
+      "variant": "pending-multi",
+      "width": 760,
+      "height": 460,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "question-consent",
+      "entry": "agent-pane.question-card",
+      "variant": "folder-trust",
+      "width": 760,
+      "height": 320,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "question-preview",
+      "entry": "agent-pane.question-card",
+      "variant": "pending-with-preview",
+      "width": 760,
+      "height": 520,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "ask-card",
+      "entry": "agent-pane.permission-card",
+      "variant": "external-access",
+      "width": 760,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "question-skipped",
+      "entry": "agent-pane.question-card",
+      "variant": "skipped",
+      "width": 760,
+      "height": 260,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "memory-offer",
+      "entry": "agent-pane.memory-offer",
+      "variant": "diff",
+      "width": 760,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "next-step",
+      "entry": "agent-pane.next-step-card",
+      "variant": "box-choices",
+      "width": 760,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "preset-approval",
+      "entry": "agent-pane.preset-approval",
+      "variant": "card",
+      "width": 760,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    }
+  ]
+}
