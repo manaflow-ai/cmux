@@ -190,6 +190,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 
 | name | what it measures | ticket / owner | last touched | status |
 |---|---|---|---|---|
+| `lan-dial.sh` | From a fleet step, a LAN HTTP service reached directly and through the lan-dial relay (`scripts/lan-dial/demo.sh`). | lan-dial | 2026-11-23 | active |
 | `screen-stream-eval.sh` | Every screen stream through the same fixed scenarios on one Mac. | HQ#7146 G0 | 2026-11-15 | active |
 | `screen-stream-eval` | Harness, scenarios and target interface for the screen stream eval. | HQ#7146 | 2026-11-16 | active |
 | `codec-bench.sh` | Screen-share codec encode and decode ms per frame on Apple silicon. | - | 2026-11-14 | active |
