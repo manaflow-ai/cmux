@@ -6473,6 +6473,7 @@
           "type": "string"
         },
         "nameGiven": {
+          "default": false,
           "description": "Someone gave `name` (at the start, a fork's or a rename), not the daemon's `HARNESS-N`\ndefault. Absent otherwise, from a session named before it was kept, and from a peer on an\nolder acpmux.",
           "type": "boolean"
         },
@@ -7248,6 +7249,7 @@
           "type": "string"
         },
         "nameGiven": {
+          "default": false,
           "description": "Someone gave `name` (at the start, a fork's or a rename), not the daemon's `HARNESS-N`\ndefault. Absent otherwise, from a session named before it was kept, and from a peer on an\nolder acpmux.",
           "type": "boolean"
         },
