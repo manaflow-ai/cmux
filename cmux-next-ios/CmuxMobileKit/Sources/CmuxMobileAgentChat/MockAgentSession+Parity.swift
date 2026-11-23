@@ -241,4 +241,21 @@ extension MockAgentSession {
 
     public var artifactSource: any ArtifactSource { MockArtifactSource() }
 }
+
+extension MockAgentSession {
+    /// A finished turn whose last step was the agent's wrap-up call: its recap draws as the card
+    /// under the answer (WrapUp.swift), the turn-summary card of #51353.
+    func replayWrapUpTurn(at start: Date) {
+        let turnID = "history-wrap-up"
+        emit(.userMessage(text: "Why is the fleet Release compile red on this PR?", promptId: "p-wrap", turnId: turnID, attachments: [], at: start))
+        emit(.turnStarted(turnId: turnID, at: start))
+        emit(.update(.agentMessageChunk(
+            text: "The one failing check isn't caused by this PR. The `cmux-tui-core` crate defines `signal_due` twice on the base branch; the fix is already open.",
+            messageId: "m-wrap")))
+        emit(.update(.toolCall(ACPToolCall(
+            id: "tu-wrap", title: "mcp__acpmux__wrap_up", kind: .other, status: .completed,
+            rawInput: .object(["recap": .string("The one red check is from the base branch, not this PR. Every other check at this head passed, and the red clears once the fix lands. Not merged.")])))))
+        emit(.turnResult(turnId: turnID, status: .completed, errorText: nil, at: start.addingTimeInterval(209)))
+    }
+}
 #endif

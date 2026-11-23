@@ -256,6 +256,16 @@ struct DemoDriver {
             }
             shell.tab = .home
             shell.homePath.append(AgentChatDestination(workspaceID: "ws-cmux", tabID: "t-claude"))
+        case "wrap-up-chat":
+            // An idle chat whose last turn ended on the agent's wrap-up recap (#51353): the card
+            // under the answer, with its dismiss.
+            AgentSessionDirectory.shared.makeSource = { summary in
+                var summary = summary
+                summary.status = .idle
+                return MockAgentSession(summary: summary, richFirstTurn: false, history: true, endsOnWrapUp: true)
+            }
+            shell.tab = .home
+            shell.homePath.append(AgentChatDestination(workspaceID: "ws-cmux", tabID: "t-claude"))
         case "slow-history-chat":
             // An existing chat whose Mac answers 4 s late (AgentChatLoadingUITests): the chat
             // shows its loading state, never the new-chat screen, until the history lands.
