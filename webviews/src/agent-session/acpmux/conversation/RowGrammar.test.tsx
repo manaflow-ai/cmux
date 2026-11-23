@@ -267,7 +267,8 @@ test("a subagent's line with no harness known draws the subagent mark, not the c
 
 // Leo, 2026-11-04: "these all being claude": a subagent of the chat's own family draws its toned
 // subagent mark, not the chat's harness mark on every line.
-test("a subagent of the chat's own family draws its toned subagent mark", async () => {
+test("a subagent of the chat's own family wears the chat's mark with its toned badge, never the sparkle alone", async () => {
+  // Leo, 2026-11-22: "when did we decide to omit the claude/codex or whatever icons and only do the diamonds?"
   const container = await render(
     <SubagentHarnessContext.Provider value="claude">
       <SubagentDoneLine row={subagentRow} />
@@ -275,7 +276,9 @@ test("a subagent of the chat's own family draws its toned subagent mark", async 
   );
   const icon = container.querySelector(".cv-tool__icon")!;
   expect(icon.querySelector('[data-icon="agent.session"]')).toBeNull();
-  expect(icon.querySelector('[data-agent-tone] [data-icon="task.ai"]')).not.toBeNull();
+  expect(icon.querySelector('[data-icon="task.ai"]')).toBeNull();
+  expect(icon.querySelector(".cv-sender-icon[data-badged]")).not.toBeNull();
+  expect(icon.querySelector('[data-badge="diamond"] [data-agent-tone]')).not.toBeNull();
 });
 
 test("a subagent of another family than the chat's draws its harness's mark", async () => {
