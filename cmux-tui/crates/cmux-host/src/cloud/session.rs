@@ -30,6 +30,9 @@ pub struct Session {
     stream_live: bool,
     /// The workload probe's last reported result (`workload.rs`); None while it is unknown.
     workload: Option<Workload>,
+    /// The applied machine.toml's idle window (cmux-cloud-start-core `machine_config::idle`), read
+    /// on each workload probe; None while the file declares none.
+    idle_window: Option<u64>,
     /// This service is the restart a flip or a rollback queued: the reports say degraded until
     /// the restarted session host answers `identify` ([`Session::after_restart`]).
     awaiting_daemon: bool,
@@ -156,6 +159,7 @@ impl Session {
             acp: AcpActivity::default(),
             stream_live: false,
             workload: None,
+            idle_window: None,
             awaiting_daemon: false,
         }
     }
@@ -254,6 +258,7 @@ impl Session {
             self.acp.last_person_prompt_at,
         );
         activity.workload = self.workload.as_ref().map(Workload::to_json);
+        activity.idle_window_seconds = self.idle_window;
         activity
     }
 
@@ -280,6 +285,17 @@ impl Session {
         }
         self.workload = next;
         self.reporter.replace_daemon(self.daemon_now());
+        let activity = self.activity();
+        self.reporter.set_activity(activity, true, now).into_iter().collect()
+    }
+
+    /// The applied machine.toml's idle window as it stands (`machine_config::idle::read`). A report
+    /// goes when it changed: the Cloud's pause owner uses it as this machine's idle window.
+    pub fn idle_window(&mut self, seconds: Option<u64>, now: u64) -> Vec<OpRequest> {
+        if seconds == self.idle_window {
+            return Vec::new();
+        }
+        self.idle_window = seconds;
         let activity = self.activity();
         self.reporter.set_activity(activity, true, now).into_iter().collect()
     }

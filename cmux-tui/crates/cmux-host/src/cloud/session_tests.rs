@@ -484,6 +484,38 @@ fn the_workload_reaches_the_report_and_only_a_change_of_state_is_reported() {
     assert!(s.workload(None, 160_000).is_empty());
 }
 
+/// A lane's machine.toml window (300 s) rides in every report's activity once read, and a
+/// report goes only when it changes.
+#[test]
+fn the_idle_window_reaches_the_report_and_only_a_change_is_reported() {
+    let mut s = session();
+    let send = |s: &mut Session, mut r: Vec<OpRequest>, now: u64| {
+        r.extend(s.fire(now));
+        for req in &r {
+            s.answered(req, &ok(), now, 0.5);
+        }
+        r
+    };
+    let start = s.start(0);
+    let r = send(&mut s, start, 0);
+    assert!(r[0].params["activity"].get("idle_window_seconds").is_none());
+    assert!(s.idle_window(None, 10_000).is_empty(), "none declared, none before");
+    let r = s.idle_window(Some(300), 20_000);
+    let r = send(&mut s, r, 20_000);
+    assert_eq!(r.len(), 1);
+    assert_eq!(r[0].params["activity"]["idle_window_seconds"], 300);
+    assert!(s.idle_window(Some(300), 40_000).is_empty(), "nothing changed");
+    // Another report (the workload) still carries it.
+    let r = s.workload(Some(Workload::default()), 60_000);
+    let r = send(&mut s, r, 60_000);
+    assert_eq!(r[0].params["activity"]["idle_window_seconds"], 300);
+    // The file no longer declares one: a report without it.
+    let r = s.idle_window(None, 80_000);
+    let r = send(&mut s, r, 80_000);
+    assert_eq!(r.len(), 1);
+    assert!(r[0].params["activity"].get("idle_window_seconds").is_none());
+}
+
 /// Relayed only when every daemon says so; turns from every daemon.
 #[test]
 fn the_machine_phases_join_every_daemon() {

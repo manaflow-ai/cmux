@@ -6,10 +6,12 @@
 //! environment-specific Keychain namespace owned by the app.
 
 mod client_config;
+mod state_root;
 
 pub use client_config::{
     ADVANCED_CREATE_FIELDS, ClientConfig, ConfigSource, check_create_capabilities,
 };
+pub use state_root::{STATE_ROOT_ENV, run_segment, state_root, state_root_from_env};
 
 use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
@@ -287,16 +289,35 @@ impl Deref for Selection {
 pub struct Resolver {
     bundle_id: String,
     home: PathBuf,
+    /// The launch's state root's run segment ([`state_root::run_segment`]), when it has one.
+    run: Option<String>,
 }
 
 impl Resolver {
+    /// The resolver of `bundle_id` for `home`, or for this process's state root
+    /// ([`STATE_ROOT_ENV`]) when it has one.
     pub fn new(bundle_id: &str, home: &Path) -> Result<Self, String> {
+        Self::with_state_root(bundle_id, home, state_root_from_env().as_deref())
+    }
+
+    /// The resolver of `bundle_id` for `home`; with `state_root`, the root stands for the home and
+    /// every selection's sign-in namespace carries the root's run segment.
+    pub fn with_state_root(
+        bundle_id: &str,
+        home: &Path,
+        state_root: Option<&Path>,
+    ) -> Result<Self, String> {
         validate_bundle_id(bundle_id)?;
+        let home = state_root.unwrap_or(home);
         if !home.is_absolute() {
             return Err("home path must be absolute".into());
         }
         move_from_classic(home, bundle_id);
-        Ok(Self { bundle_id: bundle_id.into(), home: home.to_path_buf() })
+        Ok(Self {
+            bundle_id: bundle_id.into(),
+            home: home.to_path_buf(),
+            run: state_root.map(run_segment),
+        })
     }
 
     /// This launch's backend, in order: `seed` (the launch's `--cloud-backend`, else its
@@ -555,7 +576,12 @@ impl Resolver {
                 }
                 _ => false,
             };
-        let auth_namespace = format!("{}-{revision}", namespace(&configuration.api_origin));
+        let mut auth_namespace = format!("{}-{revision}", namespace(&configuration.api_origin));
+        // A state root's run signs in on its own: never the account's earlier, unscoped storage.
+        let legacy_storage = legacy_storage && self.run.is_none();
+        if let Some(run) = &self.run {
+            auth_namespace = state_root::scoped_namespace(&auth_namespace, run);
+        }
         let auth_storage_namespace = if legacy_storage {
             (self.bundle_id == "com.cmuxterm.app.debug.next")
                 .then(|| configuration.stack_project_id.clone())
