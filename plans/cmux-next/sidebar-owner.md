@@ -2,6 +2,7 @@
 
 - 2026-11-22 (lane/agent-identity-icons): Sidebar-Look: Leo, 2026-11-22: "RENAMES NEED TO BE PROPAGATED TO THE VISIBLE AREAS AND IT SHOULD ALL BE REFLECTED". An agent chat's row takes its given name (acpmux `displayName`) after the person's own rename and before the chat title, and its own icon before the harness mark; the hover card's agent line adds "fka OLD".
 - 2026-11-22 (sidebar-group-looks): Sidebar-Look: Leo, 2026-11-22: "if we're willing to push in directions, we might as well push harder into what we believe", of the Folders look. `sidebar.groupHeader.background` gains three opt-in values, no default change (Folders stays the default): Chips (`chip`: Chromium's tab group, a slim colored chip hugging the name, a colored rail beside the members, no indent), Tree (`tree`: the folder glyph and indent with a thin guide line under the glyph, the group's color held to 3:1) and Cards (`card`: one rounded tinted card around the whole group, the members on the loose rows' x inside it, a folded group its header's card). Each respects light and dark, a group with no color, folding, hover and drops; the tab strip's chips keep the automatic look. Regression: `SidebarGroupLooksTests`. Capture tour: `sidebar-group-looks`.
+- 2026-11-23 (a590 footer margin): Sidebar-Look: Leo 2026-10-20 (the footer line ends on the bottom margin) and #44449 (every density is Default scaled, so the margin is 3.5 pt at Compact). A 1x screen cannot end a line between two pixels: the footer line ended at 596 at Compact and at 596.5 at Comfortable and Expanded in a 600 pt window. `SidebarFooterBand` now ends the line on `bottomMargin`, the margin rounded up to whole device pixels (3.5 at 2x, 4 at 1x), and draws the Search button whole pixels tall (`searchSide`: 30 for the 29.5 pt side at 1x). A 2x screen is unchanged. Regression: `SidebarFooterAlignmentTests.theAccountAndSearchShareOneLineAboveTheBottomMargin`.
 - 2026-11-22 (lane/sidebar-text-tokens): Sidebar-Look: Leo, 2026-10-27: "5 different font colors in sidebar (opacity?)". Text on the sidebar's own background takes three inks, `SidebarStyle.TextInk`: `title` (a workspace's, an item's and a folder group's name: `titleInk`, so a folder's name no longer reads in the brighter `textPrimary`), `secondary` (a section header's or a quiet group's name) and `tertiary` (every detail, count and machine word). No label carries an opacity of its own: an archived name drops to `tertiary` instead of its ink at 45%, and a group's member count drops to `tertiary` instead of the name's ink at 70% (`groupHeaderCountInkAlpha` is gone). On a group's colored fill (band, glass, tinted) the count and machine words take the name's readable ink at full strength. Icons, bars and pills still dim by `archivedAlpha`. Regression: `SidebarTextInkCountTests` (counts the distinct resolved text colors of a section, folder group, member, loose and archived row; prints `INKS|`).
 - 2026-11-22 (lane/split-preview-menus, ask-890db939a2): Sidebar-Look: Leo, 2026-11-22: "i dont think the shaped preview of the splits has merged/been written yet. like, e.g. i have this layout. so. the preview should be able to depict that." A workspace's hover card draws its shown screen's splits under the title (`WorkspacePaneShapeView`, 64 pt tall, the text column's width): one rounded tile per pane at its real share of the screen (the daemon's split ratios, and scrolling columns at their widths), the front tab's kind mark (agent, terminal, page) centered where it fits with room, the focused pane outlined in the accent. The shape is read in the row mapping (`SidebarMapping.paneShape`, ratios to hundredths) as `SidebarWorkspace.paneShape`; a one-pane or zoomed workspace has none and its card is unchanged. VoiceOver reads "Panes: N". Regression: `SidebarPaneShapeTests`.
 - 2026-11-22 (lane/split-preview-menus, ask-890db939a2): Sidebar-Look: Leo "pick a fucking option" / "why is there even a remove from top option. just move it yourself. you can drag it anywhere you want." The + button's right-click and chooser show only the rows that make something (the background keeps its view rows); a top row's menu (the Chief's too) has no Remove from Top and a workspace row's has no Add to Top: drag in and out. Regression: `TopRowMenuDragTests`.
@@ -181,6 +182,16 @@
   and `agentChip` never says done, so rows carry `agentDone` (the Priority view's done: idle, unread, not marked
   read) for the pill alone; the chip and the blue dot are unchanged. Tour `agent-badges` records
   Running, Needs approval and Done. `SidebarRowStatusTests.aFinishedUnseenChatMarksItsRowDoneForThePill`.
+- 2026-11-19 (lane/sidebar-subagents-rows, #46963): Sidebar-Look: Leo, 2026-11-19: "for claude there's the font and
+  the nested sessions and whatever". A chat's subagents list under its workspace row, as the Claude desktop app's
+  Code tab nests a chat's tasks: with the session tree on, an open row draws one line per subagent (status mark and
+  title, at most five, then "N more"), a folded one a single stacked line ("2 running"); with the tree off, the
+  stacked line shows only while one runs. The lines draw inside the row (`SidebarSubagentsView`, from
+  `rowContent`), so every placement gets them; selection and hover fill only the row's head. A press opens the
+  subagent's pane beside its chat. Debug `sidebar.subagents.look` compares rows / stacked / both (default both).
+  Regression: `SidebarSubagentRowsTests`.
+  The stacked line's "N done" leaves out stopped subagents (cancelled, disconnected): a chat whose subagents were all
+  stopped never reads "N done" (review follow-up F2).
 - 2026-11-18 (a590, hover card grid base red): Sidebar-Look: the workspace hover card's tab rows line up with its
   header again, icons on one column and text on one edge, as before #44449. d8917c9 (#44449) scaled every density
   from Default by one factor, so the card's padding (7.5 pt), its icon-to-text gap and the tab rows' fill outset
@@ -190,6 +201,20 @@
   `HoverCardRowView.iconGap` (`space2` rounded), sets the header's and the activity row's spacing, the fact rows' gap,
   `WorkspaceHoverCardView.textInset` and `WorkspaceTabHoverCardRow.fillOutset`. At Default: 8 pt padding, 4 pt gap.
   Regression: `WorkspaceHoverCardGridTests.everyIconSharesOneColumnAndEveryTextOneEdge` (red on base since d8917c9).
+
+- 2026-11-23 (lane/look-tab-shapes, look polish part 2): Sidebar-Look: Leo, 2026-11-18: "the blockiness of tabs both
+  horizontal the the vertical ones in the sidebar should be customized/customizable too. like the "gooey" is each tab
+  looking like it's morphing into the visible pane. the two tone thing." `appearance.tabShape` (a look setting, theme
+  files too): `block`, the default, draws today's rows unchanged; `rounded` makes every row fill a capsule (half the
+  row's height, capped at half a tab's, `TabShape.fillCornerRadius`). The gooey look is not a third shape: it is
+  `appearance.cornerFlush` `flush-goo`, which on a block shape (`CornerFlush.sidebarRowFlows`) runs the selected row
+  into the content card as the selected tab does: the window's shade (`CornerFlushChrome.sidebarFolderPath`) leaves out the row's shape
+  out to the card with a concave fillet above and below at the card's edge, and the row paints the content's fill
+  (`Palette.folderTabFill`) square on the card's side, on two tones (goo tones the frame under One Color too). Only a
+  row whole in the viewport and clear of the card's rounded corners runs in; others keep their own fill. The list
+  reports the selected row after an apply, a selection patch and a scroll (`SidebarListView.reportGooeySelection`), so
+  the flare moves with the selection in that pass and no row moves. Regression: `TabShapeTests`,
+  `AATabShapeGalleryTests.switchingUnderGooeyMovesNoTabOrRow`; gallery `AATabShapeGalleryTests.renderGallery`.
 
 - 2026-11-18 (lane/sidebar-customize-stress, ask-2b329124aa): Sidebar-Look: no visual change. Sidebar customization
   (`sidebar.sections`, `sidebar.workspaces`) under stress. A selection change re-projects the sidebar only when it shows
@@ -1526,6 +1551,7 @@ A workspace close removes only the workspace. The daemon close path and remote-c
 | Group header | The `group` surface role: its veil tinted by the group's color (chroma x1.3, 44% dark / 34% light) and its rim; the name in the theme's ink at the rows' title size, regular weight (Lawrence 2026-11-05: "group fonts should not be bold"). Debug `sidebar.groupGlass`: `vivid` (default), `glass`, `frost`, `solid`. | Leo 2026-11-05 ("just make it glassier"; "Why does it not have any sort of rim at all?") |
 | Group with no color | The `group` surface role untinted behind the header and its members (its veil and rim), the header's width, no hue and no indent; rows' hover and selection draw over it. Debug `sidebar.noColorGroup`: `glass` (default), `tray`, `lit`, `plain`. | Leo 2026-11-05 ("a grouped up thing"; "we're not necessarily into that indentation thing") |
 | Left bar: an even capsule | The group rail beside member rows (`GroupLineView`, every place it draws: the list's lines, a no-color group's block and a lifted group's card): both ends the same round cap, the layer's corner clip (half the bar's width), so it follows the rows' spring; the body a plain bar; a `joined` rail keeps its top square where it leaves the bar. Under the band it sits centred in its lane, half the rail's gap in from the header bar's left edge, on the rows' half-point grid. A no-color group's rail is its header bar's own pane (`GroupGlassPaint`, the solid band's neutral without glass). In light and dark, at every density and text size, in the line look and the connected (Chrome-Style Groups) look. Neither end is clipped by the row, the scroll edge or a neighbour row. | Lawrence 2026-11-17 ("group left bar is not pixel perfect, it needs proper even roundness, and have slight padding on left as well, and identical color/texture to the workspace group"; replaces Leo's 2026-11-08 katana tip); Lawrence msg 19775 (the bottom cap); SidebarGroupRailKatanaTests, GroupRailPolishTests |
+| Row shape (`appearance.tabShape`) | block (default): the fill's corner is the tab's. rounded: a capsule. Under `appearance.cornerFlush` flush-goo on block: the selected row runs into the content card with fillets, in the content's fill, on two tones; the other rows as block. | Leo 2026-11-18 ("the blockiness of tabs both horizontal the the vertical ones in the sidebar should be customized/customizable too") |
 | Row text | As far left as it originally was. A row with no icon starts its title at the row inset; no empty icon slot pushes it right. A top-level group's rows keep the ungrouped rows' left edge. Only nested groups step in. | Lawrence 11405 ("text needs to be as left as possible (how it originally was)"); #23975 |
 | Row title ink | Every workspace row's title draws in the sidebar title ink (`Palette.sidebarTitle`), named or not: "workspace-1", "workspace-2" and a shell at "~" read like a named row, idle or busy. Takes back the secondary ink #22840 gave idle unnamed rows. | Lucas 2026-11-12 ("we also need to make "workspace-1" "workspace-2" (unnamed workspaces) be white colour text on the left sidebar"); SidebarUnnamedRowInkTests |
 | Home unread | A blue dot, the same dot as other unread rows. No count badge. | Lawrence 11384 |
@@ -2752,6 +2778,12 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   on a tab, so the row keeps the tab bar's balance. Fitting every favicon's ink to the glyphs' side had drawn it about
   1.4x smaller than on its tab.
   Sidebar-Look: "the icon sizes should be the same size as the horizontal tabs... the icon sizes need to be kind of standardized"
+- 2026-11-23 (Updated card, ask-33e37575cb): the "Updated to Nightly" card is one line, "Updated to Nightly" with
+  What's New ↗ at its end, at the composer's one-line height (48) and material (the art share over background
+  pictures), at the layout grid's card corner (`card-radius`, 16: a third of the box) instead of the composer's
+  round-control corner (22), which made it a two-line capsule. The single-change second line is gone: every change is
+  one hover away. Gallery: `card-shape-*` in updateSurfaces.gallery.tsx.
+  Sidebar-Look: "the fuck is a pill with 2 lines supposed to be for anyways? the fuck kind of information are you showing with a single fucking line of content?"
   2026-11-22 (follow-up to #49591): a favicon's raster box grows with its larger optical side, so its bitmap holds the
   pixels its frame draws (SidebarFaviconLegibilityTests: 32 px drawn as 17 pt). The gap test measures a favicon from
   its own square's end: it starts on the glyphs' edge and fills the tab's side, so it ends nearer its title by design.
