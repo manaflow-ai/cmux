@@ -1156,6 +1156,21 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-palette-menu .ui-separator{flex:none;height:0;margin:4px 8px;border:0;border-top:var(--cmux-hairline,.5px) solid var(--agent-border);background:none}
 /* The composer's + (Picker) splits its groups with the same hairline, on the group itself. */
 .acpmux-composer-plus .acpmux-menu-section+.acpmux-menu-section,.acpmux-menu.acpmux-composer-plus .acpmux-menu-section+.acpmux-menu-section{margin-top:4px;padding-top:4px;box-shadow:none;border-top:var(--cmux-hairline,.5px) solid var(--agent-border)}
+/* What Return does, on the highlighted row (PaletteMenu `returnLook`): the shared Keycap at the row's end, after
+   any shortcut, with the verb before it in the description's quiet voice. It takes no room from other rows. */
+.acpmux-palette-return{flex:none;margin-left:auto;display:inline-flex;align-items:center;gap:var(--ds-space-1,4px);color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-palette-return .acpmux-keycap{margin-right:0}
+/* The composer's + (Picker `returnHint`): the same verb and keycap, at the end of the highlighted row only. Every row
+   carries it hidden, so the highlight moving re-renders nothing; a hidden one takes no room. */
+.acpmux-menu-return{display:none;flex:none;margin-left:auto;align-items:center;gap:var(--ds-space-1,4px);color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-menu-item[data-highlighted] .acpmux-menu-return{display:inline-flex}
+.acpmux-menu-return .acpmux-keycap{margin-right:0}
+.acpmux-menu-hint+.acpmux-menu-return{margin-left:var(--ds-space-2,8px)}
+/* The `footer` look: the outcome with its target in one quiet line under the list, no rule above it (space and
+   fill, not lines). */
+.acpmux-palette-outcome{flex:none;display:flex;align-items:center;gap:var(--ds-space-1,4px);min-width:0;padding:var(--ds-space-1,4px) var(--cmux-menu-icon-x) var(--ui-popup-padding);color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-palette-outcome .acpmux-keycap{flex:none;margin-right:0}
+.acpmux-palette-outcome-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-palette-empty{padding:var(--ui-row-height) var(--ui-row-padding-inline);color:var(--agent-muted);text-align:center}
 
 /* Keep search rows on the same shared menu metrics. */
