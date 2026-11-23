@@ -6,6 +6,118 @@ extension AgentPaneDisplaySettingsSchema {
         let group = SettingsText.keyed("settings.group.agentChat", "Agent Chat")
         return [
             SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.minimapPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.minimap", "Chat Minimap"),
+                help: SettingsText.keyed("settings.agentPane.display.minimap.help", "What runs down the chat's edge."),
+                kind: .choice([
+                    SettingChoice("compact", SettingsText.keyed("settings.choice.agentChatMinimapRail", "Rail")),
+                    SettingChoice("full", SettingsText.keyed("settings.choice.agentChatMinimapFull", "Full Map")),
+                    SettingChoice("off", SettingsText.keyed("settings.choice.off", "Off")),
+                ]),
+                default: .string(AgentPaneDisplaySettingsSchema.minimapDefault),
+                keywords: ["agent", "chat", "acp", "display", "reading", "minimap", "thread minimap", "map", "overview", "scroll", "vscode", "rail", "tick", "ticks", "wave", "prompt rail", "scroll rail", "prompts"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.transcriptViewPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.transcriptView", "Transcript View"),
+                help: SettingsText.keyed("settings.agentPane.display.transcriptView.help", "How much of each turn a chat shows. A chat's ··· menu sets its own."),
+                kind: .choice([
+                    SettingChoice("normal", SettingsText.keyed("settings.choice.transcriptViewNormal", "Normal")),
+                    SettingChoice("thinking", SettingsText.keyed("settings.choice.transcriptViewThinking", "Thinking")),
+                    SettingChoice("verbose", SettingsText.keyed("settings.choice.transcriptViewVerbose", "Verbose")),
+                ]),
+                default: .string(AgentPaneDisplaySettingsSchema.transcriptViewDefault),
+                keywords: ["agent", "chat", "acp", "display", "reading", "transcript", "view", "verbose", "thinking", "thoughts", "reasoning", "tool output", "expand", "collapse", "fold", "details"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.presentationPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.presentation", "Chat Presentation"),
+                kind: .choice([
+                    SettingChoice("transcript", SettingsText.keyed("settings.choice.agentChatPresentationTranscript", "Transcript")),
+                    SettingChoice("messages", SettingsText.keyed("settings.choice.agentChatPresentationMessages", "Messages")),
+                ]),
+                default: .string(AgentPaneDisplaySettingsSchema.presentationDefault),
+                keywords: ["agent", "chat", "acp", "display", "reading", "presentation", "messages", "bubbles", "chat", "tools"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.transcriptLookPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.transcriptLook", "Transcript Look"),
+                help: SettingsText.keyed("settings.agentPane.display.transcriptLook.help", "How messages, cards and spacing look."),
+                kind: .choice([
+                    SettingChoice("cmux", "cmux"),
+                    SettingChoice("claude", "Claude"),
+                    SettingChoice("codex", "Codex"),
+                    SettingChoice("studio", "Studio"),
+                ]),
+                default: .string(AgentPaneDisplaySettingsSchema.transcriptLookDefault),
+                keywords: ["agent", "chat", "acp", "display", "reading", "look", "style", "preset", "claude", "codex", "studio", "bubble", "density", "spacing"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.transcriptTokensPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.transcriptTokens", "Transcript Look Tokens"),
+                help: SettingsText.keyed("settings.agentPane.display.transcriptTokens.help", "Token values that override the transcript look."),
+                kind: .text,
+                default: AgentPaneDisplaySettingsSchema.transcriptTokensDefault,
+                keywords: ["agent", "chat", "acp", "display", "reading", "look", "token", "theme", "bubble", "radius", "spacing"]
+            ).hiddenFromSettingsPage("an object of look tokens, edited in cmux-next.json or a theme file"),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.promptCoachPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.promptCoach", "Prompt Coach"),
+                help: SettingsText.keyed("settings.agentPane.display.promptCoach.help", "After a chat with many corrections, shows a better first prompt."),
+                kind: .toggle,
+                default: .bool(AgentPaneDisplaySettingsSchema.promptCoachDefault),
+                keywords: ["agent", "chat", "acp", "prompt", "coach", "rewrite", "corrections", "tips", "one shot", "first prompt", "copy"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.statusVerbsModePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.statusVerbs", "Working Status Verbs"),
+                help: SettingsText.keyed("settings.agentPane.display.statusVerbs.help", "Choose whether the live status line rotates through verbs or stays on Thinking."),
+                kind: .choice([
+                    SettingChoice("thinking", SettingsText.keyed("settings.choice.agentChatStatusVerbsThinking", "Thinking only")),
+                    SettingChoice("rotate", SettingsText.keyed("settings.choice.agentChatStatusVerbsRotate", "Rotate")),
+                    SettingChoice("custom", SettingsText.keyed("settings.choice.agentChatStatusVerbsCustom", "Custom")),
+                ]),
+                default: .string(AgentPaneDisplaySettingsSchema.statusVerbsModeDefault),
+                keywords: ["agent", "chat", "acp", "display", "reading", "status", "working", "verbs", "thinking", "spinner", "rotate", "custom"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.statusVerbsCustomPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.statusVerbs.custom", "Custom Working Verbs"),
+                help: SettingsText.keyed("settings.agentPane.display.statusVerbs.custom.help", "Comma-separated -ing verbs for the live status line."),
+                kind: .text,
+                default: nil,
+                keywords: ["agent", "chat", "acp", "display", "reading", "status", "working", "verbs", "custom", "comma", "thinking"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.thinkingShimmerPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.thinking.shimmer", "Thinking Shimmer"),
+                help: SettingsText.keyed("settings.agentPane.display.thinking.shimmer.help", "How the light band moves across the live status line."),
+                kind: .choice([
+                    SettingChoice("cadenced", SettingsText.keyed("settings.choice.thinkingShimmerCadenced", "Every Few Seconds")),
+                    SettingChoice("continuous", SettingsText.keyed("settings.choice.thinkingShimmerContinuous", "Continuous")),
+                ]),
+                default: .string(AgentPaneDisplaySettingsSchema.thinkingShimmerDefault),
+                keywords: ["agent", "chat", "acp", "display", "thinking", "shimmer", "status", "animation", "sweep", "claude"]
+            ),
+            SettingDescriptor(
                 AgentPaneDisplaySettingsSchema.thinkingShimmerPeriodPath,
                 section: .appearance,
                 group: group,

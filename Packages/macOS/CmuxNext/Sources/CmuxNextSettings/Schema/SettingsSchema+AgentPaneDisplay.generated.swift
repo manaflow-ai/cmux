@@ -77,6 +77,39 @@ extension AgentPaneDisplaySettingsSchema {
     nonisolated static let sessionInfoPlacementPath = ["agentPane", "display", "sessionInfo", "placement"]
     nonisolated static let sessionInfoPlacementDefault = "overlay"
     nonisolated static let sessionInfoPlacementValues = ["push", "overlay"]
+    /// `agentPane.display.sessionInfo.sections.environment`: Whether Session Info (the chat's thread details) shows its Environment section (webviews/src/agent-session/acpmux/session-info/shownSections.ts). On by default: off, the section is not drawn at all.
+    nonisolated static let sessionInfoShowsEnvironmentPath = ["agentPane", "display", "sessionInfo", "sections", "environment"]
+    nonisolated static let sessionInfoShowsEnvironmentDefault = true
+    /// `agentPane.display.sessionInfo.sections.context`: Whether Session Info (the chat's thread details) shows its Context section (webviews/src/agent-session/acpmux/session-info/shownSections.ts). On by default: off, the section is not drawn at all.
+    nonisolated static let sessionInfoShowsContextPath = ["agentPane", "display", "sessionInfo", "sections", "context"]
+    nonisolated static let sessionInfoShowsContextDefault = true
+    /// `agentPane.display.sessionInfo.sections.progress`: Whether Session Info (the chat's thread details) shows its Progress section (webviews/src/agent-session/acpmux/session-info/shownSections.ts). On by default: off, the section is not drawn at all.
+    nonisolated static let sessionInfoShowsProgressPath = ["agentPane", "display", "sessionInfo", "sections", "progress"]
+    nonisolated static let sessionInfoShowsProgressDefault = true
+    /// `agentPane.display.sessionInfo.sections.subagents`: Whether Session Info (the chat's thread details) shows its Subagents section (webviews/src/agent-session/acpmux/session-info/shownSections.ts). On by default: off, the section is not drawn at all.
+    nonisolated static let sessionInfoShowsSubagentsPath = ["agentPane", "display", "sessionInfo", "sections", "subagents"]
+    nonisolated static let sessionInfoShowsSubagentsDefault = true
+    /// `agentPane.display.sessionInfo.sections.tasks`: Whether Session Info (the chat's thread details) shows its Background Tasks section (webviews/src/agent-session/acpmux/session-info/shownSections.ts). On by default: off, the section is not drawn at all.
+    nonisolated static let sessionInfoShowsTasksPath = ["agentPane", "display", "sessionInfo", "sections", "tasks"]
+    nonisolated static let sessionInfoShowsTasksDefault = true
+    /// `agentPane.display.sessionInfo.sections.sources`: Whether Session Info (the chat's thread details) shows its Sources section (webviews/src/agent-session/acpmux/session-info/shownSections.ts). On by default: off, the section is not drawn at all.
+    nonisolated static let sessionInfoShowsSourcesPath = ["agentPane", "display", "sessionInfo", "sections", "sources"]
+    nonisolated static let sessionInfoShowsSourcesDefault = true
+    /// `agentPane.display.sessionInfo.sections.outputs`: Whether Session Info (the chat's thread details) shows its Outputs section (webviews/src/agent-session/acpmux/session-info/shownSections.ts). On by default: off, the section is not drawn at all.
+    nonisolated static let sessionInfoShowsOutputsPath = ["agentPane", "display", "sessionInfo", "sections", "outputs"]
+    nonisolated static let sessionInfoShowsOutputsDefault = true
+    /// `agentPane.display.sessionInfo.sections.alsoHere`: Whether Session Info (the chat's thread details) shows its Also Here section (webviews/src/agent-session/acpmux/session-info/shownSections.ts). On by default: off, the section is not drawn at all.
+    nonisolated static let sessionInfoShowsAlsoHerePath = ["agentPane", "display", "sessionInfo", "sections", "alsoHere"]
+    nonisolated static let sessionInfoShowsAlsoHereDefault = true
+    /// `agentPane.display.sessionInfo.sections.changes`: Whether Session Info (the chat's thread details) shows its Pull Requests section (webviews/src/agent-session/acpmux/session-info/shownSections.ts). On by default: off, the section is not drawn at all.
+    nonisolated static let sessionInfoShowsChangesPath = ["agentPane", "display", "sessionInfo", "sections", "changes"]
+    nonisolated static let sessionInfoShowsChangesDefault = true
+    /// `agentPane.display.sessionInfo.sections.usage`: Whether Session Info (the chat's thread details) shows its Usage section (webviews/src/agent-session/acpmux/session-info/shownSections.ts). On by default: off, the section is not drawn at all.
+    nonisolated static let sessionInfoShowsUsagePath = ["agentPane", "display", "sessionInfo", "sections", "usage"]
+    nonisolated static let sessionInfoShowsUsageDefault = true
+    /// `agentPane.display.sessionInfo.sections.connectors`: Whether Session Info (the chat's thread details) shows its Connectors section (webviews/src/agent-session/acpmux/session-info/shownSections.ts). On by default: off, the section is not drawn at all.
+    nonisolated static let sessionInfoShowsConnectorsPath = ["agentPane", "display", "sessionInfo", "sections", "connectors"]
+    nonisolated static let sessionInfoShowsConnectorsDefault = true
     /// `agentPane.display.environment.placement`: The machine and folder chip below the tab row (webviews/.../header/EnvironmentLine.tsx).
     nonisolated static let environmentPlacementPath = ["agentPane", "display", "environment", "placement"]
     nonisolated static let environmentPlacementDefault = "left"

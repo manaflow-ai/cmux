@@ -48,6 +48,7 @@ import {
   resolveChatFontFaces,
 } from "./chatFontFaces";
 import { configureStatusVerbs } from "./statusVerbs";
+import { hiddenSessionInfoSections, type PickableSessionInfoSection } from "./session-info/shownSections";
 import { configureThinkingLook } from "./conversation/thinkingLook";
 import { isUnreadBannerMode, type UnreadBannerMode } from "./conversation/unreadState";
 import {
@@ -527,6 +528,9 @@ let presentation: Presentation = "transcript";
 let featureTipsOn = false;
 let commandLabels = "null";
 let promptCoachOn = true;
+/// The Session Info sections the person turned off (session-info/shownSections.ts), none by default.
+const NO_HIDDEN_SECTIONS: readonly PickableSessionInfoSection[] = [];
+let sessionInfoHidden: readonly PickableSessionInfoSection[] = NO_HIDDEN_SECTIONS;
 let highContrastArm: keyof typeof highContrastLook.arms = "off";
 /// The faces value last applied (CHAT_FONT_FACES_KEY), by its cheap key (chatFontFacesKey).
 let appliedFacesKey = "";
@@ -594,6 +598,8 @@ export function setChatDisplay(value: unknown): void {
   const tips = raw[FEATURE_TIPS_KEY] === true;
   const labels = JSON.stringify(raw[COMMAND_LABELS_KEY] ?? null);
   const coach = raw[PROMPT_COACH_KEY] !== false;
+  const hiddenSections = hiddenSessionInfoSections(raw);
+  const sameHiddenSections = hiddenSections.join(",") === sessionInfoHidden.join(",");
   const same = JSON.stringify(next) === JSON.stringify(current);
   const sameLook = nextHighContrastArm === highContrastArm;
   // A font pack's faces (chatFontFaces.ts): a new map replaces the declared faces, and once they
@@ -625,9 +631,11 @@ export function setChatDisplay(value: unknown): void {
     nextPresentation === presentation &&
     tips === featureTipsOn &&
     labels === commandLabels &&
-    coach === promptCoachOn
+    coach === promptCoachOn &&
+    sameHiddenSections
   )
     return;
+  if (!sameHiddenSections) sessionInfoHidden = hiddenSections.length === 0 ? NO_HIDDEN_SECTIONS : hiddenSections;
   commandLabels = labels;
   promptCoachOn = coach;
   minimapOn = minimap;
@@ -753,6 +761,11 @@ export const promptCoachEnabled = (): boolean => promptCoachOn;
 const promptCoachSnapshot = () => promptCoachOn;
 export const usePromptCoachOn = (): boolean =>
   useSyncExternalStore(subscribe, promptCoachSnapshot, promptCoachSnapshot);
+const sessionInfoHiddenSnapshot = () => sessionInfoHidden;
+/// The Session Info sections the person turned off (`agentPane.display.sessionInfo.sections.<id>`
+/// false): SessionInfo.tsx draws none of them. Not part of ChatDisplay: no transcript row moves.
+export const useSessionInfoHiddenSections = (): readonly PickableSessionInfoSection[] =>
+  useSyncExternalStore(subscribe, sessionInfoHiddenSnapshot, sessionInfoHiddenSnapshot);
 const pinnedPlanSnapshot = () => pinnedPlanOn;
 /// Whether the running turn's todo list is pinned in the transcript (PINNED_PLAN_KEY) instead of the hat.
 export const useChatPinnedPlan = (): boolean => useSyncExternalStore(subscribe, pinnedPlanSnapshot, pinnedPlanSnapshot);

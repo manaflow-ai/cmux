@@ -258,6 +258,116 @@ extension AgentPaneDisplaySettingsSchema {
                 keywords: ["agent", "chat", "acp", "display", "reading", "session", "info", "inspector", "panel", "side", "right", "overlay", "push", "details"]
             ),
             SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.sessionInfoShowsEnvironmentPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.sessionInfo.sections.environment", "Session Info: Environment"),
+                help: SettingsText.keyed("settings.agentPane.display.sessionInfo.sections.environment.help", "Where the chat runs: this Mac or Cloud, its folder and branch."),
+                kind: .toggle,
+                default: .bool(AgentPaneDisplaySettingsSchema.sessionInfoShowsEnvironmentDefault),
+                keywords: ["agent", "chat", "acp", "display", "session", "info", "thread", "details", "section", "show", "hide", "machine", "folder", "branch", "cloud"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.sessionInfoShowsContextPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.sessionInfo.sections.context", "Session Info: Context"),
+                help: SettingsText.keyed("settings.agentPane.display.sessionInfo.sections.context.help", "How full the context window is, and what fills it."),
+                kind: .toggle,
+                default: .bool(AgentPaneDisplaySettingsSchema.sessionInfoShowsContextDefault),
+                keywords: ["agent", "chat", "acp", "display", "session", "info", "thread", "details", "section", "show", "hide", "context", "tokens", "window"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.sessionInfoShowsProgressPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.sessionInfo.sections.progress", "Session Info: Progress"),
+                help: SettingsText.keyed("settings.agentPane.display.sessionInfo.sections.progress.help", "The plan's steps while the agent works through them."),
+                kind: .toggle,
+                default: .bool(AgentPaneDisplaySettingsSchema.sessionInfoShowsProgressDefault),
+                keywords: ["agent", "chat", "acp", "display", "session", "info", "thread", "details", "section", "show", "hide", "plan", "progress", "steps", "todo"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.sessionInfoShowsSubagentsPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.sessionInfo.sections.subagents", "Session Info: Subagents"),
+                help: SettingsText.keyed("settings.agentPane.display.sessionInfo.sections.subagents.help", "The subagents and chats this chat started."),
+                kind: .toggle,
+                default: .bool(AgentPaneDisplaySettingsSchema.sessionInfoShowsSubagentsDefault),
+                keywords: ["agent", "chat", "acp", "display", "session", "info", "thread", "details", "section", "show", "hide", "subagents", "agents", "children"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.sessionInfoShowsTasksPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.sessionInfo.sections.tasks", "Session Info: Background Tasks"),
+                help: SettingsText.keyed("settings.agentPane.display.sessionInfo.sections.tasks.help", "The commands, servers and scheduled jobs the chat runs."),
+                kind: .toggle,
+                default: .bool(AgentPaneDisplaySettingsSchema.sessionInfoShowsTasksDefault),
+                keywords: ["agent", "chat", "acp", "display", "session", "info", "thread", "details", "section", "show", "hide", "tasks", "background", "commands", "servers"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.sessionInfoShowsSourcesPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.sessionInfo.sections.sources", "Session Info: Sources"),
+                help: SettingsText.keyed("settings.agentPane.display.sessionInfo.sections.sources.help", "The files and pages the agent read."),
+                kind: .toggle,
+                default: .bool(AgentPaneDisplaySettingsSchema.sessionInfoShowsSourcesDefault),
+                keywords: ["agent", "chat", "acp", "display", "session", "info", "thread", "details", "section", "show", "hide", "sources", "files", "read"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.sessionInfoShowsOutputsPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.sessionInfo.sections.outputs", "Session Info: Outputs"),
+                help: SettingsText.keyed("settings.agentPane.display.sessionInfo.sections.outputs.help", "The documents and files the chat made for you."),
+                kind: .toggle,
+                default: .bool(AgentPaneDisplaySettingsSchema.sessionInfoShowsOutputsDefault),
+                keywords: ["agent", "chat", "acp", "display", "session", "info", "thread", "details", "section", "show", "hide", "outputs", "files", "documents"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.sessionInfoShowsAlsoHerePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.sessionInfo.sections.alsoHere", "Session Info: Also Here"),
+                help: SettingsText.keyed("settings.agentPane.display.sessionInfo.sections.alsoHere.help", "Other chats in the same worktree or on the same branch."),
+                kind: .toggle,
+                default: .bool(AgentPaneDisplaySettingsSchema.sessionInfoShowsAlsoHereDefault),
+                keywords: ["agent", "chat", "acp", "display", "session", "info", "thread", "details", "section", "show", "hide", "also here", "worktree", "branch", "other chats"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.sessionInfoShowsChangesPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.sessionInfo.sections.changes", "Session Info: Pull Requests"),
+                help: SettingsText.keyed("settings.agentPane.display.sessionInfo.sections.changes.help", "The chat's pull requests and their checks."),
+                kind: .toggle,
+                default: .bool(AgentPaneDisplaySettingsSchema.sessionInfoShowsChangesDefault),
+                keywords: ["agent", "chat", "acp", "display", "session", "info", "thread", "details", "section", "show", "hide", "changes", "pull request", "pr", "checks"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.sessionInfoShowsUsagePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.sessionInfo.sections.usage", "Session Info: Usage"),
+                help: SettingsText.keyed("settings.agentPane.display.sessionInfo.sections.usage.help", "Tokens, cost and time this chat used."),
+                kind: .toggle,
+                default: .bool(AgentPaneDisplaySettingsSchema.sessionInfoShowsUsageDefault),
+                keywords: ["agent", "chat", "acp", "display", "session", "info", "thread", "details", "section", "show", "hide", "usage", "tokens", "cost", "time"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.sessionInfoShowsConnectorsPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.sessionInfo.sections.connectors", "Session Info: Connectors"),
+                help: SettingsText.keyed("settings.agentPane.display.sessionInfo.sections.connectors.help", "The MCP servers and connectors the chat has."),
+                kind: .toggle,
+                default: .bool(AgentPaneDisplaySettingsSchema.sessionInfoShowsConnectorsDefault),
+                keywords: ["agent", "chat", "acp", "display", "session", "info", "thread", "details", "section", "show", "hide", "connectors", "mcp", "servers"]
+            ),
+            SettingDescriptor(
                 AgentPaneDisplaySettingsSchema.environmentPlacementPath,
                 section: .appearance,
                 group: group,
@@ -270,118 +380,6 @@ extension AgentPaneDisplaySettingsSchema {
                 ]),
                 default: .string(AgentPaneDisplaySettingsSchema.environmentPlacementDefault),
                 keywords: ["agent", "chat", "acp", "display", "reading", "session", "info", "chip", "environment", "machine", "folder", "placement", "left", "right", "off"]
-            ),
-            SettingDescriptor(
-                AgentPaneDisplaySettingsSchema.minimapPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.agentPane.display.minimap", "Chat Minimap"),
-                help: SettingsText.keyed("settings.agentPane.display.minimap.help", "What runs down the chat's edge."),
-                kind: .choice([
-                    SettingChoice("compact", SettingsText.keyed("settings.choice.agentChatMinimapRail", "Rail")),
-                    SettingChoice("full", SettingsText.keyed("settings.choice.agentChatMinimapFull", "Full Map")),
-                    SettingChoice("off", SettingsText.keyed("settings.choice.off", "Off")),
-                ]),
-                default: .string(AgentPaneDisplaySettingsSchema.minimapDefault),
-                keywords: ["agent", "chat", "acp", "display", "reading", "minimap", "thread minimap", "map", "overview", "scroll", "vscode", "rail", "tick", "ticks", "wave", "prompt rail", "scroll rail", "prompts"]
-            ),
-            SettingDescriptor(
-                AgentPaneDisplaySettingsSchema.transcriptViewPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.agentPane.display.transcriptView", "Transcript View"),
-                help: SettingsText.keyed("settings.agentPane.display.transcriptView.help", "How much of each turn a chat shows. A chat's ··· menu sets its own."),
-                kind: .choice([
-                    SettingChoice("normal", SettingsText.keyed("settings.choice.transcriptViewNormal", "Normal")),
-                    SettingChoice("thinking", SettingsText.keyed("settings.choice.transcriptViewThinking", "Thinking")),
-                    SettingChoice("verbose", SettingsText.keyed("settings.choice.transcriptViewVerbose", "Verbose")),
-                ]),
-                default: .string(AgentPaneDisplaySettingsSchema.transcriptViewDefault),
-                keywords: ["agent", "chat", "acp", "display", "reading", "transcript", "view", "verbose", "thinking", "thoughts", "reasoning", "tool output", "expand", "collapse", "fold", "details"]
-            ),
-            SettingDescriptor(
-                AgentPaneDisplaySettingsSchema.presentationPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.agentPane.display.presentation", "Chat Presentation"),
-                kind: .choice([
-                    SettingChoice("transcript", SettingsText.keyed("settings.choice.agentChatPresentationTranscript", "Transcript")),
-                    SettingChoice("messages", SettingsText.keyed("settings.choice.agentChatPresentationMessages", "Messages")),
-                ]),
-                default: .string(AgentPaneDisplaySettingsSchema.presentationDefault),
-                keywords: ["agent", "chat", "acp", "display", "reading", "presentation", "messages", "bubbles", "chat", "tools"]
-            ),
-            SettingDescriptor(
-                AgentPaneDisplaySettingsSchema.transcriptLookPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.agentPane.display.transcriptLook", "Transcript Look"),
-                help: SettingsText.keyed("settings.agentPane.display.transcriptLook.help", "How messages, cards and spacing look."),
-                kind: .choice([
-                    SettingChoice("cmux", "cmux"),
-                    SettingChoice("claude", "Claude"),
-                    SettingChoice("codex", "Codex"),
-                    SettingChoice("studio", "Studio"),
-                ]),
-                default: .string(AgentPaneDisplaySettingsSchema.transcriptLookDefault),
-                keywords: ["agent", "chat", "acp", "display", "reading", "look", "style", "preset", "claude", "codex", "studio", "bubble", "density", "spacing"]
-            ),
-            SettingDescriptor(
-                AgentPaneDisplaySettingsSchema.transcriptTokensPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.agentPane.display.transcriptTokens", "Transcript Look Tokens"),
-                help: SettingsText.keyed("settings.agentPane.display.transcriptTokens.help", "Token values that override the transcript look."),
-                kind: .text,
-                default: AgentPaneDisplaySettingsSchema.transcriptTokensDefault,
-                keywords: ["agent", "chat", "acp", "display", "reading", "look", "token", "theme", "bubble", "radius", "spacing"]
-            ).hiddenFromSettingsPage("an object of look tokens, edited in cmux-next.json or a theme file"),
-            SettingDescriptor(
-                AgentPaneDisplaySettingsSchema.promptCoachPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.agentPane.display.promptCoach", "Prompt Coach"),
-                help: SettingsText.keyed("settings.agentPane.display.promptCoach.help", "After a chat with many corrections, shows a better first prompt."),
-                kind: .toggle,
-                default: .bool(AgentPaneDisplaySettingsSchema.promptCoachDefault),
-                keywords: ["agent", "chat", "acp", "prompt", "coach", "rewrite", "corrections", "tips", "one shot", "first prompt", "copy"]
-            ),
-            SettingDescriptor(
-                AgentPaneDisplaySettingsSchema.statusVerbsModePath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.agentPane.display.statusVerbs", "Working Status Verbs"),
-                help: SettingsText.keyed("settings.agentPane.display.statusVerbs.help", "Choose whether the live status line rotates through verbs or stays on Thinking."),
-                kind: .choice([
-                    SettingChoice("thinking", SettingsText.keyed("settings.choice.agentChatStatusVerbsThinking", "Thinking only")),
-                    SettingChoice("rotate", SettingsText.keyed("settings.choice.agentChatStatusVerbsRotate", "Rotate")),
-                    SettingChoice("custom", SettingsText.keyed("settings.choice.agentChatStatusVerbsCustom", "Custom")),
-                ]),
-                default: .string(AgentPaneDisplaySettingsSchema.statusVerbsModeDefault),
-                keywords: ["agent", "chat", "acp", "display", "reading", "status", "working", "verbs", "thinking", "spinner", "rotate", "custom"]
-            ),
-            SettingDescriptor(
-                AgentPaneDisplaySettingsSchema.statusVerbsCustomPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.agentPane.display.statusVerbs.custom", "Custom Working Verbs"),
-                help: SettingsText.keyed("settings.agentPane.display.statusVerbs.custom.help", "Comma-separated -ing verbs for the live status line."),
-                kind: .text,
-                default: nil,
-                keywords: ["agent", "chat", "acp", "display", "reading", "status", "working", "verbs", "custom", "comma", "thinking"]
-            ),
-            SettingDescriptor(
-                AgentPaneDisplaySettingsSchema.thinkingShimmerPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.agentPane.display.thinking.shimmer", "Thinking Shimmer"),
-                help: SettingsText.keyed("settings.agentPane.display.thinking.shimmer.help", "How the light band moves across the live status line."),
-                kind: .choice([
-                    SettingChoice("cadenced", SettingsText.keyed("settings.choice.thinkingShimmerCadenced", "Every Few Seconds")),
-                    SettingChoice("continuous", SettingsText.keyed("settings.choice.thinkingShimmerContinuous", "Continuous")),
-                ]),
-                default: .string(AgentPaneDisplaySettingsSchema.thinkingShimmerDefault),
-                keywords: ["agent", "chat", "acp", "display", "thinking", "shimmer", "status", "animation", "sweep", "claude"]
             ),
         ]
     }
