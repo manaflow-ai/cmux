@@ -7,8 +7,8 @@ extension MacScreenHomeSnapshot.Device {
     /// The SF Symbol its row draws (a record from before platforms is a Mac, or a phone when `isPhone`).
     var glyph: String { MacScreenHomeView.glyph(platform ?? (isPhone ? .ios : .macos)) }
 
-    /// This Mac can open its screen: a Mac or a Linux desktop (``DevicePlatform/hostsScreenThisMacViews``).
-    var viewable: Bool { (platform ?? .macos).hostsScreenThisMacViews }
+    /// False only for a Windows PC, which cmux can't view yet; every other row keeps the state it had before.
+    var viewable: Bool { platform != .windows }
 }
 
 extension MacScreenHomeView {
