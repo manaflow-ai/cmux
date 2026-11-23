@@ -17,7 +17,7 @@ function attributeValues(root: Element): string[] {
   return [root, ...root.querySelectorAll("*")].flatMap((node) => [...node.attributes].map((attr) => attr.value));
 }
 
-async function open(setup?: Parameters<typeof renderPage>[0]["setup"]) {
+async function open(setup?: NonNullable<Parameters<typeof renderPage>[0]>["setup"]) {
   return renderPage({
     path: "/settings/accounts",
     setup: (provider) => {
@@ -79,9 +79,13 @@ test("a code that runs out shows New code, which starts a fresh sign-in", async 
     section().querySelector<HTMLButtonElement>('[data-sign-in-add="codex"] [data-sign-in-row-action="add"]')!.click(),
   );
   await settle();
-  await act(async () => await new Promise((resolve) => setTimeout(resolve, 60)));
-  await settle();
   const card = () => section().querySelector<HTMLElement>(".signin")!;
+  // The code runs out 30 ms after the start answers, whenever that is on a busy machine: wait for
+  // the card to say so (2 s at most), never a fixed time measured from the click.
+  for (const deadline = Date.now() + 2000; card()?.dataset.state !== "expired" && Date.now() < deadline;) {
+    await act(async () => await new Promise((resolve) => setTimeout(resolve, 20)));
+    await settle();
+  }
   expect(card().dataset.state).toBe("expired");
   expect(card().textContent).not.toContain("K7QX-29PF");
   const actions = [...card().querySelectorAll<HTMLElement>("[data-sign-in-action]")].map(

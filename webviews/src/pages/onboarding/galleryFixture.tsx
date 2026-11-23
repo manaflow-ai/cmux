@@ -20,7 +20,7 @@ import table from "./generated/strings.json";
 import { MockOnboardingProvider } from "./mockProvider";
 import { OnboardingPage } from "./Onboarding";
 import { OnboardingStore } from "./store";
-import { READINESS, type ReadinessFixture } from "../shared/signIn/galleryFixtures";
+import { READINESS, type ReadinessFixture, type ReadinessFixtureCase } from "../shared/signIn/galleryFixtures";
 
 export type OnboardingGalleryProps = {
   step?: "agents" | "importData" | "computerUse" | "agentTools" | "makeItYours";
@@ -69,7 +69,8 @@ export function OnboardingGallery({
     // The page follows the mock host's changes (a finished sign-in turns the row ready).
     void store.start();
     // The sign-in the case shows, started the way a click starts it: held on its code, or refused.
-    const signIn: { family: string; refusal?: string } | undefined = READINESS[readiness].signIn;
+    const fixture: ReadinessFixtureCase = READINESS[readiness];
+    const signIn = fixture.signIn;
     if (signIn) {
       if (signIn.refusal) mock.provider.signIn.refusal = signIn.refusal;
       else mock.provider.signIn.hold = new Promise<void>(() => {});

@@ -1,5 +1,5 @@
-// The one place that knows the daemon's account sign-in wire (cmux-tui `account.sign_in`, being
-// built beside this) and turns it into what the sign-in card draws. Leo, 2026-11-22: "we likewise
+// The one place that knows the daemon's account sign-in wire (acpmux `_acpmux/account/sign_in`,
+// `server/account_sign_in.rs`) and turns it into what the sign-in card draws. Leo, 2026-11-22: "we likewise
 // want gh auth or device stuff to be much more convienient ui/ux wise ... this is simply logins,
 // done righr." When a wire name or field changes, change it here and nowhere else.
 //
