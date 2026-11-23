@@ -64,7 +64,6 @@
 import {
   type CSSProperties,
   type FocusEvent,
-  Fragment,
   memo,
   type PointerEvent as ReactPointerEvent,
   type ReactElement,
@@ -112,7 +111,7 @@ import { StopButton } from "./SubagentGroup";
 import { ResumeControl, type ResumeActions } from "./ResumeControl";
 import { SubagentHarnessContext, ticking } from "./subagentGroupModel";
 import { Elapsed } from "./Elapsed";
-import { commandStatus, trayItemKey, type TrayItem } from "./runningTray";
+import { commandStatus, itemStart, trayItemKey, type TrayItem } from "./runningTray";
 import { longestRunningFirst, runSince } from "./trayHeadOrder";
 import { attentionFirst, type TrayCard } from "./trayAttention";
 import { actionDetail, latestLine, namedAction } from "./trayDetail";
@@ -128,6 +127,7 @@ import { trayHead, trayHeadParts, type TrayHeadPart } from "./trayHeadKinds";
 import { trayHeadHeightLook } from "./trayHeadHeight.experiment";
 import { COMMAND_KIND_ICON, commandKind } from "./trayCommandKinds";
 import { KIND_LINE_SEPARATOR, trayKindLineLook } from "./trayKindLine.experiment";
+import { trayHeadClockLook } from "./trayHeadClock.experiment";
 import { traySurfaceLook } from "./traySurface.experiment";
 import { trayLatestLook } from "./trayLatest.experiment";
 import { hatChevronLook, hatDoneCheckPlace, hatDoneLook, hatRowMotionLook } from "./hatParts.experiment";
@@ -310,6 +310,7 @@ export const SubagentTray = memo(function SubagentTray({
   const [headHeight] = useState(() => experimentArm(trayHeadHeightLook));
   const [stopLook] = useState(() => experimentArm(trayStopLook));
   const [opensArm] = useState(() => experimentArm(trayOpenLook));
+  const [headClock] = useState(() => experimentArm(trayHeadClockLook));
   const [kindsArm] = useState(() => experimentArm(trayHeadKindsLook));
   const [kindLine] = useState(() => experimentArm(trayKindLineLook));
   const [latestAt] = useState(() => experimentArm(trayLatestLook));
@@ -537,6 +538,11 @@ export const SubagentTray = memo(function SubagentTray({
   const [runStart, setRunStart] = useState<number | undefined>(undefined);
   const since = runSince(runStart, items);
   if (since !== runStart) setRunStart(since);
+  // A header over several items: no time (`none`, each line has its own), the longest still-running
+  // item's (`running`), or the run's (`run`, before). Leo, 2026-11-22, on "… 5 stopped 1h 23m 25s":
+  // "what the fuck are you timing man" (trayHeadClock.experiment.ts).
+  const leadStart = leading[0] === undefined ? undefined : itemStart(leading[0]);
+  const headSince = headClock === "run" ? since : headClock === "running" ? leadStart : undefined;
   const ordered = useMemo(() => attentionFirst(items, finished, waiting), [items, finished, waiting]);
   // A lone item's header draws its own mark, as its line does.
   const headMarks = useMemo(
@@ -924,8 +930,8 @@ export const SubagentTray = memo(function SubagentTray({
               )}
             </span>
           ) : // The clock is the time element itself, so a range over it holds only its text.
-          since !== undefined ? (
-            <Elapsed clock="acpmux-summary-meta acpmux-running-tray__time" since={since} />
+          headSince !== undefined ? (
+            <Elapsed clock="acpmux-summary-meta acpmux-running-tray__time" since={headSince} />
           ) : (
             <span className="acpmux-summary-meta acpmux-running-tray__time" aria-hidden />
           )}
@@ -1474,10 +1480,13 @@ function HeadKinds({
         </span>
       )}
       {parts.map((part, index) => (
-        <Fragment key={part.key}>
+        // A kind and the separator before it are one unit, so a kind that does not fit drops whole
+        // onto the hidden second line, never cut mid-word (subagents.css; Leo, 2026-11-22: "this
+        // should not be cutting off so harshly like this. we basically never want that kinda shit").
+        <span key={part.key} className="acpmux-running-tray__kind-unit">
           {(plan || index > 0) && <span className="acpmux-running-tray__kind-sep">{separator}</span>}
           <HeadKind t={t} part={part} chatHarness={chatHarness} faced={faces !== undefined} />
-        </Fragment>
+        </span>
       ))}
     </span>
   );
