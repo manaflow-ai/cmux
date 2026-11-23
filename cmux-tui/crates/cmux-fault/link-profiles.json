@@ -26,7 +26,13 @@
       "up_kbit": 12000,
       "rtt_ms": 70,
       "loss_percent": 0.5,
-      "disruption": { "kind": "address_change", "stall_ms": [1000, 3000] },
+      "disruption": {
+        "kind": "address_change",
+        "stall_ms": [
+          1000,
+          3000
+        ]
+      },
       "source": "The 'lte' row's link (low-band 5G NSA anchors on LTE; its higher peak rate does not move time to first content at these sizes), plus an address change mid-stream and a 1-3 s stall drawn from the seed, per the lane brief. Live connections go silent for good (the peer's packets go to the old address); new ones flow after the stall."
     },
     {
@@ -56,7 +62,10 @@
       "up_kbit": 12000,
       "rtt_ms": 70,
       "loss_percent": 0.5,
-      "disruption": { "kind": "blackout", "duration_ms": 30000 },
+      "disruption": {
+        "kind": "blackout",
+        "duration_ms": 30000
+      },
       "source": "The 'lte' row's link, then 30 s with nothing through and the same link back, per the lane brief (the elevator). Bytes sent into the dark retransmit on TCP's doubling backoff (200 ms min RTO, RFC 6298), so recovery lands after the window, not at its end."
     },
     {
@@ -81,8 +90,18 @@
       "down_kbit": 300000,
       "up_kbit": 300000,
       "rtt_ms": 4,
-      "disruption": { "kind": "internet_down" },
+      "disruption": {
+        "kind": "internet_down"
+      },
       "source": "The 'lan' row's link with the internet path dead (the home router's uplink is out): on Shaper::open_internet_path (TCP: signaling, token and ICE-config endpoints) live connections fall silent and new ones are refused, and on UdpShaper::open_internet_path (STUN, TURN) every datagram is dropped, while the LAN link keeps the 'lan' numbers and never drops."
+    },
+    {
+      "name": "relay-80",
+      "version": 1,
+      "down_kbit": 50000,
+      "up_kbit": 50000,
+      "rtt_ms": 80,
+      "source": "RFD 0049's relayed path (cmuxterm-hq docs/rfd/0049-what-is-our-network.md, 'TURN, 80 ms relay' row): phone and Mac both reach one TURN relay, 80 ms round trip end to end through it. Rate: 50 Mbit/s each way, a relay leg's share on a home uplink (a planning figure, not a measurement). No jitter or loss: the relay's own cost alone."
     }
   ]
 }
