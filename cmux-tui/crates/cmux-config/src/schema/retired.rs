@@ -92,6 +92,32 @@ pub fn replaced_by_row(path: &[String]) -> impl Iterator<Item = &'static Replace
     replaced_keys().iter().filter(move |replaced| replaced.row == path)
 }
 
+/// The dotted names of every retired key a row replaced, so a managed profile or
+/// team policy that still sets one is read (Swift `EffectiveSettings.replacedOldKeys`).
+pub fn replaced_old_keys() -> impl Iterator<Item = String> {
+    replaced_keys().iter().map(|replaced| replaced.old.join("."))
+}
+
+/// `values` (dotted keys, one settings layer) with each row an old key it replaced
+/// answers for set from that old key when the layer leaves the row unset, the first
+/// listed old key winning: a profile forcing `updates.checkAutomatically: false`
+/// forces and locks `updates.automatic: "off"`.
+pub fn aliasing_replaced(
+    values: &std::collections::BTreeMap<String, Value>,
+) -> std::collections::BTreeMap<String, Value> {
+    let mut out = values.clone();
+    for replaced in replaced_keys() {
+        let row = replaced.row.join(".");
+        if out.contains_key(&row) {
+            continue;
+        }
+        if let Some(to) = values.get(&replaced.old.join(".")).and_then(|v| replaced.read(v)) {
+            out.insert(row, to.clone());
+        }
+    }
+    out
+}
+
 /// What the retired keys the row at `path` replaced read as in `root`: the first
 /// of them whose value the table lists, else `None`.
 pub fn replaced_value(path: &[String], root: &Value) -> Option<&'static Value> {

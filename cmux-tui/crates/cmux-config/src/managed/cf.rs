@@ -29,7 +29,10 @@ pub struct CfManagedReader {
 impl CfManagedReader {
     /// The `com.manaflow.cmux` domain with every published key.
     pub fn new(schema: &Schema) -> CfManagedReader {
-        CfManagedReader { domain: DOMAIN.to_string(), keys: published_keys(schema) }
+        // And the retired keys a row replaced, so an older profile keeps its value and its lock.
+        let mut keys = published_keys(schema);
+        keys.extend(crate::schema::replaced_old_keys().filter(|old| !keys.contains(old)));
+        CfManagedReader { domain: DOMAIN.to_string(), keys }
     }
 }
 

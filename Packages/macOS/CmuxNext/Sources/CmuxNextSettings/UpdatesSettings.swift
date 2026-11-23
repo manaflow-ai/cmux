@@ -34,11 +34,9 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
     public var meteredNetwork = UpdatesSettings.meteredNetworkDefault
     /// Web UI updates between app updates (plans/cmux-next/web-ota.md); NIGHTLY builds only.
     public var web = UpdatesSettings.webDefault
-    /// Whether cmux.json sets `updates.web`; unset, the web UI follows Automatic Updates (``webInEffect``).
-    public var webSet = false
-    /// The web UI updates that apply: `updates.web` when set, else none under Automatic Updates Off (a hot
-    /// swap needs no relaunch, so every other choice takes them as the channel has them).
-    public var webInEffect: UpdatesWebSetting { webSet || automatic != .off ? web : .off }
+    /// The web UI updates that apply: none under Automatic Updates Off (Off means cmux fetches nothing by
+    /// itself), else `updates.web` (a hot swap needs no relaunch, so no idle gate).
+    public var webInEffect: UpdatesWebSetting { automatic == .off ? .off : web }
     /// Pages and agent panes load from the server or overlay `~/.config/cmux/web-dev.json` names
     /// (the live web loop, docs/cmux-next/hot-reload.md); every build, on by default.
     public var liveWebReload = UpdatesSettings.liveWebReloadDefault
@@ -76,10 +74,7 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
             settings.notify = value
         }
         if let value = reader.choice("meteredNetwork", UpdatesMeteredSetting.self) { settings.meteredNetwork = value }
-        if let value = reader.choice("web", UpdatesWebSetting.self) {
-            settings.web = value
-            settings.webSet = true
-        }
+        if let value = reader.choice("web", UpdatesWebSetting.self) { settings.web = value }
         if let value = reader.bool("liveWebReload") { settings.liveWebReload = value }
         if let value = reader.number("keepPreviousVersions", range: keepPreviousVersionsRange) { settings.keepPreviousVersions = Int(value) }
         if let value = reader.bool("showWhatsNew") { settings.showWhatsNew = value }

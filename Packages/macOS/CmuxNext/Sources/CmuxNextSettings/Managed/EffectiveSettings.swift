@@ -24,6 +24,7 @@ public nonisolated struct TeamPolicyLayer: Sendable, Equatable {
     /// Only keys the settings catalog lists, and their older names (``EffectiveSettings/legacyKeys``).
     public func limitedToCatalog() -> TeamPolicyLayer {
         let ids = Set(SettingsSchema.all.map(\.id)).union(EffectiveSettings.legacyKeys.keys)
+            .union(EffectiveSettings.replacedOldKeys)
         var copy = self
         copy.defaults = defaults.filter { ids.contains($0.key) }
         copy.enforced = enforced.filter { ids.contains($0.key) }
@@ -109,10 +110,23 @@ public nonisolated struct EffectiveSettings: Sendable, Equatable {
             AgentPaneDisplaySettingsSchema.sessionInfoPlacementPath.joined(separator: "."),
     ]
 
+    /// The dotted names of the retired keys a row replaced (retired-keys.json `replaced_by`), read from
+    /// managed profiles and team policies too, so an older profile keeps its value and its lock.
+    public static var replacedOldKeys: [String] {
+        SettingsSchema.replacedKeys.values.flatMap { $0.map { $0.old.joined(separator: ".") } }.sorted()
+    }
+
     static func aliasingLegacyKeys(_ values: [String: JSONValue]) -> [String: JSONValue] {
         var values = values
         for (old, new) in legacyKeys where values[new] == nil {
             if let value = values[old] { values[new] = value }
+        }
+        // A retired key answers for its row in the same layer as the table maps it (the first listed
+        // wins): a forced `updates.checkAutomatically: false` forces and locks `updates.automatic` Off.
+        for (row, olds) in SettingsSchema.replacedKeys where values[row.joined(separator: ".")] == nil {
+            if let value = olds.lazy.compactMap({ old in values[old.old.joined(separator: ".")].flatMap { old.values[$0] } }).first {
+                values[row.joined(separator: ".")] = value
+            }
         }
         return values
     }
@@ -121,6 +135,9 @@ public nonisolated struct EffectiveSettings: Sendable, Equatable {
         var root = root
         for (old, new) in legacyKeys where root.value(at: path(new)) == nil {
             if let value = root.value(at: path(old)) { root = root.setting(value, at: path(new)) }
+        }
+        for row in SettingsSchema.replacedKeys.keys where root.value(at: row) == nil {
+            if let value = RenamedSettingKeys.legacyValue(for: row, in: root) { root = root.setting(value, at: row) }
         }
         return root
     }

@@ -66,4 +66,19 @@ import Testing
             #expect(settings.snapshot.updates.automatic == .download, "an opt-in on stable was lost: \(json)")
         }
     }
+
+    /// A profile or team policy that still forces an old update toggle forces and locks the choice
+    /// (greptile on cmux#51125), and the readers ask for the old names.
+    @Test func aForcedOldToggleForcesAndLocksTheChoice() {
+        let file: JSONValue = .object(["updates": .object(["automatic": .string("download")])])
+        let merged = EffectiveSettings.merge(file: file, managed: ManagedPreferences(forced: ["updates.checkAutomatically": .bool(false)]),
+                                             team: .none)
+        #expect(merged.root.value(at: UpdatesSettings.automaticPath) == .string("off"))
+        #expect(merged.managedKeys["updates.automatic"] == .device)
+        let team = EffectiveSettings.merge(file: .object([:]), managed: ManagedPreferences(),
+                                           team: TeamPolicyLayer(teamName: "T", enforced: ["updates.downloadAutomatically": .bool(false)]))
+        #expect(team.root.value(at: UpdatesSettings.automaticPath) == .string("notify"))
+        #expect(team.managedKeys["updates.automatic"] == .team("T"))
+        #expect(CFManagedPreferenceReader.readKeys.contains("updates.checkAutomatically"))
+    }
 }

@@ -136,3 +136,44 @@ fn a_row_that_replaced_several_keys_reads_them_in_order_and_removes_all() {
         assert_eq!(root.pointer("/updates/channel"), Some(&json!("dev")));
     }
 }
+
+/// A managed profile or team policy that still forces an old update toggle
+/// forces and locks `updates.automatic` in that layer (greptile on cmux#51125).
+#[test]
+fn a_forced_old_update_toggle_forces_and_locks_the_choice() {
+    let schema = Schema::embedded();
+    let mut managed = ManagedPreferences::default();
+    managed.forced.insert("updates.checkAutomatically".into(), json!(false));
+    let file = json!({"updates": {"automatic": "download"}});
+    let merged = cmux_config::EffectiveSettings::merge(
+        &file,
+        &managed,
+        &TeamPolicyLayer::default(),
+        &schema,
+    );
+    assert_eq!(merged.root.pointer("/updates/automatic"), Some(&json!("off")));
+    assert!(merged.managed_keys.contains_key("updates.automatic"), "{:?}", merged.managed_keys);
+
+    let mut team = TeamPolicyLayer::default();
+    team.enforced.insert("updates.downloadAutomatically".into(), json!(false));
+    let merged = cmux_config::EffectiveSettings::merge(
+        &json!({}),
+        &ManagedPreferences::default(),
+        &team,
+        &schema,
+    );
+    assert_eq!(merged.root.pointer("/updates/automatic"), Some(&json!("notify")));
+    assert!(merged.managed_keys.contains_key("updates.automatic"));
+
+    // A team default for the row does not beat the person's old toggle in their file.
+    let mut team = TeamPolicyLayer::default();
+    team.defaults.insert("updates.automatic".into(), json!("idle"));
+    let file = json!({"updates": {"checkAutomatically": false}});
+    let merged = cmux_config::EffectiveSettings::merge(
+        &file,
+        &ManagedPreferences::default(),
+        &team,
+        &schema,
+    );
+    assert_eq!(merged.root.pointer("/updates/automatic"), Some(&json!("off")));
+}
