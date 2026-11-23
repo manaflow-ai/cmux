@@ -933,6 +933,9 @@ pub struct Brain {
     landed_refused: bool,
     /// The subagents the running turn started (spawn_text.rs).
     turn_spawned: Vec<String>,
+    /// The newest top-level texts of the Chief conversation by seq, true for
+    /// a person's: the loop guard's count (budget_hold.rs).
+    guard_rows: std::collections::BTreeMap<u64, bool>,
     /// The running turn posted words by `send` or `reply` (spawn_text.rs).
     turn_said: bool,
     /// The running turn was queued by a silent spawn turn's note: it is not nudged again.
@@ -1279,6 +1282,7 @@ impl Brain {
             turn_posts: String::new(),
             landed_refused: false,
             turn_spawned: Vec::new(),
+            guard_rows: Default::default(),
             turn_said: false,
             spawn_text_nudged: false,
             owner_stopped: false,
