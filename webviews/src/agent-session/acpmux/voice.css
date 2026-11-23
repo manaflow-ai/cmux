@@ -18,8 +18,8 @@
 }
 .acpmux-voice-dot {
   flex: none;
-  width: 5px;
-  height: 5px;
+  width: var(--ds-space-1);
+  height: var(--ds-space-1);
   border-radius: 50%;
   background: currentColor;
 }

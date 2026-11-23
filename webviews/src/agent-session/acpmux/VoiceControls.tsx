@@ -37,7 +37,7 @@ export function VoiceButton({ state, command = send }: { state: VoiceState; comm
       aria-label={label}
       aria-pressed={active}
       aria-busy={state.state === "connecting" || undefined}
-      {...tooltipProps(label)}
+      {...tooltipProps(label, undefined)}
       onMouseDown={(event) => event.preventDefault()}
       onClick={() => command(active ? "voice.cancel" : "voice.toggle")}
     >
