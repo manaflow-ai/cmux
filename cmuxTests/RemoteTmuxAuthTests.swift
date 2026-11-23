@@ -68,6 +68,42 @@ import Testing
         #expect(!RemoteTmuxETTransportProfile(port: 2022).authenticationIsSSHShaped)
     }
 
+    /// What a reconnect printed against a host that allows one session per connection while
+    /// the app's master still held its only session: the master refused the new session, ssh
+    /// could not take over the socket, and its fallback connection failed BatchMode auth.
+    private static let refusedByBusyMaster = """
+        mux_client_request_session: session request failed: Session open refused by peer
+        ControlSocket /Users/u/.cmux/ssh/tmux-host-0123456789abcdef.sock already exists, disabling multiplexing
+        u@host: Permission denied (publickey,keyboard-interactive).
+        """
+
+    /// A login cannot fix a busy master: the login ssh is refused by the same master, signs in on
+    /// a connection of its own and exits, and the next reconnect is refused again. Offering one
+    /// opened a sign-in prompt about once a minute.
+    @Test func aSessionRefusedByABusyMasterDoesNotOfferALogin() {
+        #expect(!RemoteTmuxSSHTransport.indicatesInteractiveRetryWillHelp(Self.refusedByBusyMaster))
+        #expect(RemoteTmuxReconnectDisposition.classify(
+            stderr: Self.refusedByBusyMaster, preControlOutput: "") != .authRequired)
+    }
+
+    @Test func aPlainPermissionDeniedStillOffersALogin() {
+        let stderr = "u@host: Permission denied (publickey,keyboard-interactive)."
+        #expect(RemoteTmuxSSHTransport.indicatesInteractiveRetryWillHelp(stderr))
+        #expect(RemoteTmuxReconnectDisposition.classify(stderr: stderr, preControlOutput: "") == .authRequired)
+    }
+
+    /// The release app, a nightly and a tagged build can mirror one host at the same time. On a
+    /// host that allows one session per connection, a master they shared would serve only the
+    /// first app's stream and refuse the others. The test host is a development build, so its
+    /// socket must not be the one the release app uses for the same host.
+    @Test func aDevelopmentBuildDoesNotShareTheReleaseAppsMaster() throws {
+        let bundleIdentifier = try #require(Bundle.main.bundleIdentifier)
+        try #require(bundleIdentifier != "com.cmuxterm.app")
+        let host = RemoteTmuxHost(destination: "user@host")
+        #expect(!host.controlSocketPath.hasSuffix("-\(host.connectionHash).sock"))
+        #expect(RemoteTmuxHost.controlSocketPathFitsUnixLimit(host.controlSocketPath))
+    }
+
     @Test func tmuxSocketPermissionErrorIsNotAnAuthPrompt() {
         // ssh authenticated fine here; tmux could not open its socket. listSessions
         // asks about auth before it asks about the server, so classifying this as
