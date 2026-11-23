@@ -57,6 +57,8 @@ final class ActionMenuPayload: NSObject {
     /// the item is enabled and runs with them added to the window's context, the same facts
     /// that showed it (a Files row's menu runs the explorer's actions while a terminal has the keyboard).
     let implied: ActionContext
+    /// The right-click menu the row is in (`ActionRegistry.makeContextMenu`), nil for any other menu.
+    var menu: ActionMenuContext?
 
     init(id: ActionID, target: ActionTargetRef?, arguments: [String: ActionValue] = [:], implied: ActionContext = []) {
         self.id = id
@@ -69,6 +71,7 @@ final class ActionMenuPayload: NSObject {
     func invocation(in registry: ActionRegistry, withArguments: Bool = true) -> ActionInvocation {
         var invocation = ActionInvocation(target: target, arguments: withArguments ? arguments : [:])
         invocation.targetMachineID = targetMachineID
+        invocation.menuContext = menu
         if !implied.isEmpty { invocation.keyContext = registry.context.union(implied) }
         return invocation
     }

@@ -60,10 +60,10 @@ pub unsafe fn process_main() -> Result<()> {
         unsafe { std::env::remove_var(key) };
     }
     crate::heap_profile::start();
-    // glibc builds: two malloc arenas, not eight per core (malloc_arenas.rs).
+    // glibc builds: sixteen malloc arenas, not eight per core (malloc_arenas.rs).
     // SAFETY: as above, before any thread exists.
     unsafe {
-        cmux_tui_platform::malloc_arenas::cap(cmux_tui_platform::malloc_arenas::DAEMON_ARENAS);
+        cmux_tui_platform::malloc_arenas::cap(cmux_tui_platform::malloc_arenas::ACPMUX_ARENAS);
     }
     main(std::env::args_os().skip(1).collect(), Invocation::default())
 }
@@ -185,6 +185,12 @@ pub const WORKER_STACK_BYTES: usize = 8 << 20;
 fn runtime(args: &[OsString]) -> std::io::Result<tokio::runtime::Runtime> {
     let mut builder = tokio::runtime::Builder::new_multi_thread();
     builder.thread_stack_size(WORKER_STACK_BYTES);
+    // The daemon outranks the work it supervises (`daemon_priority.rs`): its nice before any
+    // runtime thread starts (they inherit it), and each runtime thread's QoS on macOS.
+    if crate::daemon_priority::is_daemon_run(args) {
+        crate::daemon_priority::raise();
+        builder.on_thread_start(crate::daemon_priority::thread_start);
+    }
     if let Some(workers) = runtime_workers(args) {
         builder.worker_threads(workers);
     }
@@ -347,6 +353,8 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             // throttles 15-30x under another app's disk work (STATUS 11554): the daemon stays at
             // the default tier, and only its background threads yield.
             crate::qos::enter_daemon();
+            // Which priority knobs took, for the duress bench (`daemon_priority.rs`).
+            tracing::info!("{}", crate::daemon_priority::report().line());
             // Agents before the daemon for the OOM killer and earlyoom (`oom_rank.rs`).
             if let Some(p) = crate::oom_rank::protect_daemon() {
                 tracing::info!("{}", crate::oom_rank::describe(p));

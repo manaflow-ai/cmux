@@ -1,12 +1,10 @@
 // A turn that another agent's message started must hold still while it runs and when it ends
 // (Leo, 2026-11-17: "the jostles and shifts and spacing are still bad here"). Across the states of
 // agent-pane.turn-header-steady the header line ("Working for …", then "Worked for …") is there from
-// the first state and keeps its top and height, the prompt and each finished step keep theirs,
+// the first state and keeps its top and height, the prompt and the folded message run keep theirs,
 // the sender chip sits on the preview's baseline, and the timer keeps its width as its digits change.
-// Tops are read in the transcript's content (the scroller's top less its scrollTop): the shipped
-// live-turn-work arm `open` keeps every finished call on its own line until the turn ends (#48766,
-// 7a3104325dc: "i thought we dont fold while you're still going"), so in counts-grow the turn is
-// taller than the pane and the view follows its latest row; that scroll is not a row moving.
+// The header is one row (one id, kind and element) in every state, its chevron's slot held right
+// after its words from the start, and the sender's mark keeps one box.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
@@ -23,21 +21,27 @@ await requireBrowserLane("turn-header-steady-browser.test.ts", async () => {
   const RUNNING: State[] = STATES.filter((state) => state !== "ended");
   const WIDTHS = [640, 420] as const;
   const HEIGHT = 420;
-  const ROW_IDS = ["steady-prompt", "working-steady-prompt", "worked-steady-prompt", "steady-send", "thinking-live"];
-  const headerId = (state: State) => (state === "ended" ? "worked-steady-prompt" : "working-steady-prompt");
+  const ROW_IDS = ["steady-prompt", "worked-steady-prompt", "messageRun-steady-send", "thinking-live"];
+  // One row from the turn's start to its end: the running "Working for" and the ended "Worked for"
+  // are the same row (one id, kind and element) in two phases.
+  const headerId = (_state: State) => "worked-steady-prompt";
 
   type Box = { top: number; height: number };
   type Measured = {
     /** Every row in the scroller, top relative to the scroller's top. */
     rows: ({ id: string } & Box)[];
-    /** The scroller's scrollTop: the view following the latest row. */
-    scrollTop: number;
     /** The header row's inner `.cv-worked`. */
     worked: Box | null;
     /** The prompt row's chip and preview line. */
     baseline: { label: number; preview: number; chipMid: number; lineMid: number } | null;
     /** `.cv-worked__label-time` widths: as rendered, then with each substituted text. */
     timer: { text: string; width: number }[] | null;
+    /** The header row's kind class and its chevron's slot (there, hidden or not, in every state). */
+    headerKind: string | null;
+    /** `left`: from the words' right edge. */
+    chevron: { left: number; width: number } | null;
+    /** The prompt's sender mark: one fixed box, whatever picture comes. */
+    mark: { width: number; height: number } | null;
   };
 
   let server: Awaited<ReturnType<typeof import("vite").createServer>>;
@@ -87,8 +91,7 @@ await requireBrowserLane("turn-header-steady-browser.test.ts", async () => {
     const read = await page.evaluate(
       ({ header }) => {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
-        const scrollTop = scroller?.scrollTop ?? 0;
-        const origin = scroller ? scroller.getBoundingClientRect().top - scrollTop : 0;
+        const origin = scroller ? scroller.getBoundingClientRect().top : 0;
         const box = (el: Element | null) => {
           if (!el) return null;
           const r = el.getBoundingClientRect();
@@ -124,7 +127,18 @@ await requireBrowserLane("turn-header-steady-browser.test.ts", async () => {
                 lineMid: line.top + line.height / 2,
               }
             : null;
-        return { rows, worked, baseline, scrollTop };
+        const headerRow = document.querySelector<HTMLElement>(`[data-row-id="${header}"]`);
+        const headerKind = headerRow
+          ? ([...headerRow.classList].find((name) => /^acpmux-(worked|working)$/.test(name)) ?? null)
+          : null;
+        const chevronBox = headerRow?.querySelector(".cv-worked__chevron")?.getBoundingClientRect();
+        const labelBox = headerRow?.querySelector(".cv-worked__label")?.getBoundingClientRect();
+        // The chevron sits right after the words (conversation.css), so its slot is read from them.
+        const chevron =
+          chevronBox && labelBox ? { left: chevronBox.left - labelBox.right, width: chevronBox.width } : null;
+        const markBox = prompt?.querySelector(".cv-received__mark")?.getBoundingClientRect();
+        const mark = markBox ? { width: markBox.width, height: markBox.height } : null;
+        return { rows, worked, baseline, headerKind, chevron, mark };
       },
       { header: headerId(state) },
     );
@@ -175,7 +189,7 @@ await requireBrowserLane("turn-header-steady-browser.test.ts", async () => {
   /** Every row's top and height in every state, one line per row id, so a failure shows the shift. */
   function table(all: Map<State, Measured>, width: number): string {
     const ids = [...new Set([...ROW_IDS, ...[...all.values()].flatMap((m) => m.rows.map((r) => r.id))])];
-    const lines = [`width ${width}: top+height per state (in the content: .acpmux-scroll top less scrollTop)`];
+    const lines = [`width ${width}: top+height per state (relative to .acpmux-scroll top)`];
     lines.push(["row".padEnd(30), ...STATES.map((s) => s.padStart(14))].join(""));
     for (const id of ids) {
       const cells = STATES.map((state) => {
@@ -189,9 +203,6 @@ await requireBrowserLane("turn-header-steady-browser.test.ts", async () => {
       return (w ? `${fmt(w.top)}+${fmt(w.height)}` : "-").padStart(14);
     });
     lines.push(["(header .cv-worked)".padEnd(30), ...workedCells].join(""));
-    lines.push(
-      ["(scrollTop)".padEnd(30), ...STATES.map((state) => fmt(all.get(state)!.scrollTop).padStart(14))].join(""),
-    );
     return lines.join("\n");
   }
 
@@ -230,6 +241,21 @@ await requireBrowserLane("turn-header-steady-browser.test.ts", async () => {
         "header .cv-worked",
         STATES.map((state) => [state, all.get(state)!.worked]),
       );
+      // One kind in every state, and the chevron's slot held from the start, right after the words.
+      for (const state of STATES) {
+        const m = all.get(state)!;
+        if (m.headerKind !== "acpmux-worked") failures.push(`header kind in ${state}: ${m.headerKind}`);
+        if (!m.chevron) failures.push(`header chevron slot: missing in ${state}`);
+      }
+      const chevrons = STATES.flatMap((state) => {
+        const c = all.get(state)!.chevron;
+        return c ? [[state, c] as const] : [];
+      });
+      for (const [state, c] of chevrons.slice(1))
+        if (Math.abs(c.left - chevrons[0]![1].left) > 0.5 || Math.abs(c.width - chevrons[0]![1].width) > 0.5)
+          failures.push(
+            `header chevron: left ${fmt(c.left)} in ${state} vs ${fmt(chevrons[0]![1].left)} in ${chevrons[0]![0]}`,
+          );
       settle(all, width, failures);
     });
 
@@ -252,24 +278,17 @@ await requireBrowserLane("turn-header-steady-browser.test.ts", async () => {
       settle(all, width, failures);
     });
 
-    test(`${width}px: each finished step holds still as the turn grows`, async () => {
+    test(`${width}px: the folded message run holds still as the turn grows`, async () => {
       const all = await measureWidth(width);
       const failures: string[] = [];
-      // Under the shipped `open` arm nothing folds while the turn runs (#48766): each step keeps its own line
-      // from the state it first shows in.
-      const STEPS: [string, State][] = [
-        ["steady-send", "first-step"],
-        ["steady-recv-1", "ticking"],
-        ["steady-run-1", "ticking"],
-        ["steady-recv-2", "minutes"],
-        ["steady-run-2", "minutes"],
-      ];
-      for (const [id, from] of STEPS)
-        same(
-          failures,
-          id,
-          RUNNING.slice(RUNNING.indexOf(from)).map((state) => [state, rowIn(all.get(state)!, id)]),
-        );
+      same(
+        failures,
+        "messageRun-steady-send",
+        (["ticking", "minutes", "counts-grow"] as State[]).map((state) => [
+          state,
+          rowIn(all.get(state)!, "messageRun-steady-send"),
+        ]),
+      );
       settle(all, width, failures);
     });
 
@@ -287,6 +306,11 @@ await requireBrowserLane("turn-header-steady-browser.test.ts", async () => {
         if (Math.abs(b.chipMid - b.lineMid) > 1)
           failures.push(`chip centre in ${state}: ${fmt(b.chipMid)} vs line centre ${fmt(b.lineMid)}`);
       }
+      // The sender's mark is one fixed box in every state, so a picture that comes later swaps in place.
+      const marks = RUNNING.map((state) => [state, all.get(state)!.mark] as const);
+      for (const [state, m] of marks)
+        if (!m || Math.abs(m.width - marks[0]![1]!.width) > 0.5 || Math.abs(m.height - marks[0]![1]!.height) > 0.5)
+          failures.push(`sender mark in ${state}: ${m ? `${fmt(m.width)}x${fmt(m.height)}` : "missing"}`);
       settle(all, width, failures);
     });
 

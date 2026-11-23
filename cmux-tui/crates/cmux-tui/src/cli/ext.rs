@@ -56,6 +56,8 @@ pub(super) mod exit {
     pub const BUILD_FAILED: i32 = 5;
     /// `ext shot`: it loaded and rendered, but no picture was taken.
     pub const SHOT_FAILED: i32 = 6;
+    /// `ext shot --record`: the scenes could not be written to `preview/scenes.json`.
+    pub const RECORD_FAILED: i32 = 9;
     /// `ext add`: the source could not be fetched; `ext search`: GitHub did not answer.
     pub const FETCH_FAILED: i32 = 7;
     /// `ext share`: the folder cannot be shared yet.
@@ -86,7 +88,8 @@ cmux ext: make a cmux extension and watch it change as you work.
   cmux ext shot [DIR] [--out PNG] [--record] [--json]
                                one reload, then what it rendered: the view's outline, its design
                                warnings and a picture of the cmux window that shows it; exit 6
-                               no picture. --record writes the scene into DIR/preview/scenes.json
+                               no picture. --record writes the scene (a widget: each declared size)
+                               into DIR/preview/scenes.json; exit 9 when it cannot
   cmux ext add SOURCE [--no-install]
                                add someone's extension: a git URL, OWNER/NAME[@REF], a GitHub
                                /tree/REF/PATH link, URL#PATH, or a folder; again to update it
@@ -127,6 +130,8 @@ pub(super) struct DevOptions {
     pub build_timeout: std::time::Duration,
     /// `bun` for the packer (found on PATH; tests set none).
     pub bun: Option<PathBuf>,
+    /// Render a widget at every size it declares (`ext shot --record`; `ext dev` renders one).
+    pub every_size: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -241,6 +246,7 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                 build: None,
                 build_timeout: dev::BUILD_TIMEOUT,
                 bun: None,
+                every_size: false,
             };
             let mut dir = None;
             let mut words = rest.iter();
@@ -330,7 +336,10 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                 }
             }
             match parse(&dev)? {
-                Request::Dev(dev) => Ok(Request::Shot(shot::ShotOptions { dev, out, record })),
+                Request::Dev(mut dev) => {
+                    dev.every_size = record;
+                    Ok(Request::Shot(shot::ShotOptions { dev, out, record }))
+                }
                 _ => Err(usage("ext shot")),
             }
         }

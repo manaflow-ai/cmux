@@ -171,8 +171,10 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["top", "pin", "favorite", "home", "sidebar", "add to top", "remove from top"],
         category: "workspace",
         symbol: "pin.square",
-        surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("workspaceRow", "move", 206).folder("move")], ..SurfacePlan::DEFAULT },
+        // No menu row (Leo 2026-11-22, ask-890db939a2: "why is there even a remove from top option. just move it
+        // yourself. you can drag it anywhere you want."): a row is dragged into or out of the top rows.
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("dragGesture"), ..SurfacePlan::DEFAULT },
         targets: &["workspace"],
         cli_name: "workspace toggle-top",
         ..Action::DEFAULT
