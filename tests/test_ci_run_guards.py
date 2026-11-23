@@ -214,17 +214,19 @@ GUARD_FIXTURE = """jobs:
         group: [ci]
     steps:
       - name: Quick step
-        run: echo quick
+        run: while [ ! -e hung-started ]; do sleep 0.05; done; sleep 0.2; echo quick
       - name: Hung step
-        run: sleep 120
+        run: touch hung-started; sleep 120
 """
+# Quick step finishes only once Hung step runs, so a signal sent when Quick
+# step prints always finds Hung step still running (a fleet run raced it).
 
 
 class RunReportsTiming(unittest.TestCase):
     """A run prints each step as it finishes, and a run stopped by a signal
     (the job timeout) names the steps still running and how long they ran."""
 
-    def start_run(self, root: Path) -> subprocess.Popen[str]:
+    def start_run(self, root: Path, preexec_fn=None) -> subprocess.Popen[str]:
         (root / ".github/workflows").mkdir(parents=True)
         (root / ".github/workflows/ci-guards.yml").write_text(GUARD_FIXTURE)
         for args in (["init", "-q"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t",
@@ -233,8 +235,56 @@ class RunReportsTiming(unittest.TestCase):
         return subprocess.Popen(
             [sys.executable, str(ROOT / "scripts/ci/run_ci_guards.py"), "--root", str(root), "--jobs", "2"],
             cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-            env={**os.environ, "CMUX_GUARDS_BASE_SHA": "none"},
+            env={**os.environ, "CMUX_GUARDS_BASE_SHA": "none"}, preexec_fn=preexec_fn,
         )
+
+    def test_sigint_stops_a_run_started_with_sigint_ignored(self) -> None:
+        """A runner started in the background (Freestyle's cmux-linux VMs) hands
+        its jobs SIGINT ignored; the guard runner still stops on Ctrl-C."""
+        with tempfile.TemporaryDirectory() as temp:
+            proc = self.start_run(Path(temp), preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_IGN))
+            try:
+                assert proc.stdout is not None
+                for line in proc.stdout:
+                    if "Quick step" in line:
+                        break
+                proc.send_signal(signal.SIGINT)
+                output, _ = proc.communicate(timeout=20)
+            finally:
+                proc.kill()
+            self.assertEqual(proc.returncode, 130, output)
+            self.assertIn("1 still running:", output)
+
+    def test_steps_get_default_sighup_when_started_with_it_ignored(self) -> None:
+        """nohup leaves SIGHUP ignored; a step that tests its hangup handling
+        (verify-cmux-tui-hosted.sh) needs it back at its default."""
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / ".github/workflows").mkdir(parents=True)
+            (root / ".github/workflows/ci-guards.yml").write_text("""jobs:
+  workflow-guard-tests:
+    strategy:
+      matrix:
+        group: [ci]
+    steps:
+      - name: Reads its dispositions
+        run: grep -E '^Sig(Ign)' /proc/self/status > dispositions
+""")
+            for args in (["init", "-q"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t",
+                                                        "commit", "-qm", "fixture"]):
+                subprocess.run(["git", *args], cwd=root, check=True)
+            def ignore() -> None:
+                for signum in (signal.SIGINT, signal.SIGHUP, signal.SIGQUIT):
+                    signal.signal(signum, signal.SIG_IGN)
+            done = subprocess.run(
+                [sys.executable, str(ROOT / "scripts/ci/run_ci_guards.py"), "--root", str(root), "--jobs", "1"],
+                cwd=root, capture_output=True, text=True, timeout=60, preexec_fn=ignore,
+                env={**os.environ, "CMUX_GUARDS_BASE_SHA": "none"},
+            )
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            ignored = int((root / "dispositions").read_text().split()[1], 16)
+            for signum in (signal.SIGINT, signal.SIGHUP, signal.SIGQUIT):
+                self.assertFalse(ignored & (1 << (signum - 1)), f"{signum.name} still ignored: {ignored:#x}")
 
     def test_sigterm_names_the_steps_still_running(self) -> None:
         for signum in (signal.SIGTERM, signal.SIGINT):
@@ -289,6 +339,43 @@ class ParallelUnittest(unittest.TestCase):
                 self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
                 self.assertIn("fixture failure", result.stderr)
         self.assertIn("1 passed, 1 failed", self.run_fixture("2").stdout)
+
+
+ALONE_FIXTURE = """jobs:
+  workflow-guard-tests:
+    strategy:
+      matrix:
+        group: [ci]
+    steps:
+      - name: Scratch writer
+        run: touch scratch.txt && sleep 3 && rm scratch.txt
+      - name: Run canonical CMUX CI guard profile
+        run: sleep 1 && test -z "$(git status --porcelain --untracked-files=all)"
+"""
+
+
+@unittest.skipUnless(sys.platform == "linux", "off Linux the profile step runs its portable substitute")
+class CleanTreeStepRunsAlone(unittest.TestCase):
+    """The workload profile refuses a checkout with untracked files, so it must
+    not run beside a step that writes scratch files there (run 45122790288,
+    "checkout has non-ignored source changes")."""
+
+    def test_the_profile_step_waits_for_the_parallel_steps(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / ".github/workflows").mkdir(parents=True)
+            (root / ".github/workflows/ci-guards.yml").write_text(ALONE_FIXTURE)
+            for args in (["init", "-q"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t",
+                                                        "commit", "-qm", "fixture"]):
+                subprocess.run(["git", *args], cwd=root, check=True)
+            completed = subprocess.run(
+                [sys.executable, str(ROOT / "scripts/ci/run_ci_guards.py"), "--root", str(root), "--jobs", "4"],
+                cwd=root, capture_output=True, text=True, timeout=120,
+                env={**os.environ, "CMUX_GUARDS_BASE_SHA": "none"},
+            )
+            output = completed.stdout + completed.stderr
+            self.assertRegex(output, r"  ok .*: Run canonical CMUX CI guard profile", output)
+            self.assertLess(output.index("Scratch writer"), output.index("Run canonical CMUX CI guard profile"), output)
 
 
 class FastWorkflowReportsOnMainPush(unittest.TestCase):
