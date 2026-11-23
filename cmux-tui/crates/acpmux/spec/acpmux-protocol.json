@@ -501,6 +501,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/forum/digest",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/forum/digest_act",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/forum/post",
       "params": true,
       "result": true
