@@ -136,11 +136,15 @@ nonisolated final class MacScreenStreamProcess: Sendable {
     /// Serves one session in the started child: sends the setup with the windows its capture leaves
     /// out, relays `signaling` both ways, and returns when the child's session ends (it throws when
     /// that session failed, or the child ended without saying).
+    /// `afterSetup` runs once the setup is queued, so every line it sends (the exclusion watch's) reaches the
+    /// child after the setup's own list, never before it.
     func serve(_ signaling: any ScreenSignaling, name: String, viewOnly: Bool, excluded: Set<CGWindowID>,
+               afterSetup: () -> Void = {},
                events: @escaping @Sendable (MacScreenStreamLine.Event, String?) -> Void) async throws {
         // SECURITY: the list is on the setup's own line, applied before the capture starts.
         send(MacScreenStreamLine(setup: .init(name: name, viewOnly: viewOnly, endsSessionOnClose: signaling.endsSessionOnClose),
                                  excludeWindows: excluded.sorted()))
+        afterSetup()
         // task-owner: the viewer's signals to the child; cancelled when the child's session ends
         let inbound = Task { [weak self] in
             do {

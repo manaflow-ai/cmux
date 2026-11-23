@@ -29,10 +29,11 @@ import os
 import plistlib
 import re
 import secrets
-import select
+import queue
 import signal
 import struct
 import subprocess
+import threading
 import sys
 import time
 from pathlib import Path
@@ -447,12 +448,19 @@ class Run:
         self.started.append(p)
         lines: list[str] = []
         deadline = now() + 30
+        # One reader thread per child: select() on a buffered text pipe misses lines already in its buffer.
+        got_lines: queue.Queue = queue.Queue()
+        def pump() -> None:
+            for raw in p.stdout:
+                got_lines.put(raw)
+            got_lines.put("")
+        threading.Thread(target=pump, daemon=True).start()
         def read_until(pred) -> dict | None:
             while now() < deadline:
-                readable, _, _ = select.select([p.stdout], [], [], max(0.0, deadline - now()))
-                if not readable:
+                try:
+                    raw = got_lines.get(timeout=max(0.0, deadline - now()))
+                except queue.Empty:
                     break
-                raw = p.stdout.readline()
                 if not raw:
                     break
                 lines.append(raw.rstrip())
@@ -493,6 +501,11 @@ class Run:
         r["helper_executable"] = str(exe) if exe else None
         if not exe:
             r["error"] = "no staged helper copy"
+            return r
+        if b"__webrtc-host" not in exe.read_bytes():
+            # A build from before cmux#51431 has no WebRTC host child: nothing to prove, not a failure.
+            r["skipped"] = "this build's helper has no __webrtc-host (before cmux#51431)"
+            line(f"d: SKIP: {r['skipped']}")
             return r
         app_id = plistlib.loads((self.app / "Contents/Info.plist").read_bytes())["CFBundleIdentifier"]
         q = f"SELECT service, auth_value FROM access WHERE client='{app_id}';"
@@ -546,6 +559,8 @@ class Run:
                 except Exception as e:  # noqa: BLE001 - a part's crash is its verdict
                     res = {"pass": False, "error": f"{type(e).__name__}: {e}"}
                 self.report["parts"][name] = res
+                if res.get("skipped"):
+                    continue
                 verdicts.append(res.get("pass") is True)
                 if res.get("error"):
                     line(f"{name}: error: {res['error']}")
@@ -553,7 +568,8 @@ class Run:
         finally:
             self.teardown()
             self.save()
-        line("verdict " + " ".join(f"{k}={'PASS' if v.get('pass') else 'FAIL'}" for k, v in self.report["parts"].items()))
+        line("verdict " + " ".join(f"{k}={'SKIP' if v.get('skipped') else 'PASS' if v.get('pass') else 'FAIL'}"
+                                   for k, v in self.report["parts"].items()))
         return 0 if verdicts and all(verdicts) else 1
 
 

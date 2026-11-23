@@ -245,18 +245,21 @@ nonisolated final class MacScreenRdHost: Sendable {
         webRTCProcess.withLock { $0 = child }
         try await child.startInHelper(helper)
         // SECURITY: the child's capture leaves out the app's windows only the person at this Mac may
-        // see: the list now on the setup, then the whole list on every change while the session lasts.
-        let watch = Self.watchExcludedWindows { ids in child.exclude(ids) }
-        webRTCExclusions.withLock { previous in
-            previous?.cancel()
-            previous = watch
-        }
+        // see: one reading goes on the setup, and the watch, seeded with that same reading and started
+        // only once the setup is queued, sends the whole list on every later change. A watch with its
+        // own first reading could send a list the setup then replaces, and never resend it.
+        let excluded = CaptureExcludedWindows().windowIDs
         defer {
-            watch.cancel()
+            webRTCExclusions.withLock { $0 }?.cancel()
             child.stop()
         }
-        try await child.serve(signaling, name: session.name, viewOnly: session.viewOnly,
-                              excluded: CaptureExcludedWindows().windowIDs) { [weak self] event, message in
+        try await child.serve(signaling, name: session.name, viewOnly: session.viewOnly, excluded: excluded, afterSetup: {
+            let watch = Self.watchExcludedWindows(from: excluded) { ids in child.exclude(ids) }
+            webRTCExclusions.withLock { previous in
+                previous?.cancel()
+                previous = watch
+            }
+        }) { [weak self] event, message in
             switch event {
             case .viewerConnected: self?.emit(.viewerConnected)
             case .viewerEnded: self?.emit(.viewerEnded("the WebRTC viewer left"))
@@ -278,10 +281,12 @@ nonisolated final class MacScreenRdHost: Sendable {
 
     /// Reads the app's windows that ask not to be shared every `CaptureExcludedWindows.recheck` until
     /// cancelled, and calls `changed` with the list at once and on every change, in order.
-    private static func watchExcludedWindows(_ changed: @escaping @Sendable (Set<CGWindowID>) -> Void) -> Task<Void, Never> {
+    /// `from`: the list the receiver already has (it is sent again only once it changes).
+    private static func watchExcludedWindows(from known: Set<CGWindowID>? = nil,
+                                             _ changed: @escaping @Sendable (Set<CGWindowID>) -> Void) -> Task<Void, Never> {
         // task-owner: a capture's exclusion watch; cancelled when its session's capture ends
         Task {
-            var last: Set<CGWindowID>?
+            var last: Set<CGWindowID>? = known
             // wakeup-allow: runs only while a screen share's capture runs (itself up to 120 frames a second),
             // never idle; cancelled when the session's capture ends. No event says a window's sharing changed.
             // concurrency-allow: an unstructured task off the main actor; each pass is one window-list read.

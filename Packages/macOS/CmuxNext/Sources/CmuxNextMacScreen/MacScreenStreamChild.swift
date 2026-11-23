@@ -222,7 +222,8 @@ nonisolated public struct MacScreenStreamChild: Sendable, Equatable {
         }, finished: {
             // `done` and every line before it reach the app first.
             writes.blockingSync {}
-            exit(0)
+            // `_exit`: WebRTC and ScreenCaptureKit threads still run; static destructors must not.
+            _exit(0)
         })
         // What macOS checks for this process: the helper's grants (the fleet proof reads this line).
         write(MacScreenStreamLine(ready: .init(screenRecording: CGPreflightScreenCaptureAccess(), accessibility: AXIsProcessTrusted())))
@@ -242,14 +243,14 @@ nonisolated public struct MacScreenStreamChild: Sendable, Equatable {
             // concurrency-allow: the child process's own stdout queue, never the app's main thread.
             writes.asyncAfter(deadline: .now() + Self.exitGrace) {
                 log("cmux screen stream host: the session did not end within \(Self.exitGrace) s of its input closing")
-                exit(0)
+                _exit(0)
             }
         }
         reader.name = "screen-stream-host-input"
         reader.start()
         // The main run loop: display reconfiguration callbacks and the main actor run on it.
         CFRunLoopRun()
-        exit(0)
+        _exit(0)
     }
 }
 

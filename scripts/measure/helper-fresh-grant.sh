@@ -22,6 +22,7 @@
 #      `cmux-rd bench` viewer on this Mac (the loopback-bench.sh shape) that decodes its frames.
 #   d  the iPhone viewer's WebRTC host (the app's executable as the helper's `__webrtc-host` child) reads the
 #      helper's grants: denied with its rows removed, granted with them written, then serves a setup to `done`.
+#      A build whose helper has no `__webrtc-host` (before cmux#51431) skips d.
 # It refuses (exit 3) on a Mac with SIP on: agents write TCC.db only on a SIP-off CI fixture (cmuxterm-hq
 # docs/handbook/screen-share-grant-lost-on-a-fleet-mac.md). Exit 0 when a, b, c and d pass, 1 when one failed,
 # 3 when it could not run. Prints HFG lines; report.tgz holds report.json and the screenshots.

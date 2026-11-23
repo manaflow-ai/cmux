@@ -143,7 +143,9 @@ cmux NIGHTLY (app)                      MacScreenRdHost.serveWebRTC -> MacScreen
   └ disclaimed spawn: cmux-screen-sharing __webrtc-host <app executable> --screen-stream-host
        (the helper; its own responsible process)
        └ posix_spawn, suspended: <app executable> --screen-stream-host
-            runs only when its code is signed by the helper's own Team ID (SecCodeCheckValidity);
+            runs only when its code is signed by the helper's own Team ID (SecCodeCheckValidity),
+            its signing identifier is a cmux app's (com.cmuxterm.app*) and its only argument is
+            --screen-stream-host;
             the helper's ordinary child, so macOS checks the helper's grants
             MacScreenStreamChild: ScreenStreamHost + ScreenCaptureBackend, no NSApplication
 ```
@@ -154,6 +156,15 @@ lines on the child's stdio (`MacScreenStreamLine`): app to child `setup` (with t
 `CaptureExcludedWindows`) and `stop`; child to app `signal`, `ice_request`, `event`, `close` and
 `done`. Stop, or the app ending, closes the child's input and it exits. A build without the helper
 serves the viewer in the app, as before.
+
+The exclusion list has one reading: the one on the setup seeds the watch, which starts only once
+the setup is queued, so no watch line can reach the child before the setup and be replaced by it.
+
+SECURITY, the limit of the check: SecCodeCheckValidity covers the child's main executable (the
+app's stub). The code it loads from `Contents/Frameworks` is not checked again, and the app's
+entitlements disable library validation, so a copied cmux app with a replaced framework would run
+under the helper's grants. That is the app's own exposure today (it runs under the app's grants
+the same way); closing it means checking the whole bundle from a protected path.
 
 ## Left
 

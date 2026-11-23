@@ -11,12 +11,22 @@
 //!
 //! SECURITY: the child gets this helper's grants. When this helper is signed by a team (every
 //! NIGHTLY, RC and release), the child is started suspended and runs only when its running code
-//! satisfies `anchor apple generic` and this helper's own Team ID; otherwise it is killed before it
-//! runs an instruction. An ad hoc (local) helper has no team to compare and runs the child as is:
+//! satisfies `anchor apple generic` and this helper's own Team ID, its signing identifier is a cmux
+//! app's (`com.cmuxterm.app*`) and its only argument is `--screen-stream-host`; otherwise it is
+//! refused, or killed before it runs an instruction. The check covers the child's main executable
+//! (the app's stub); the code it loads from the bundle's frameworks is the app's own exposure too,
+//! since the app's entitlements disable library validation (a replaced framework in a copied app
+//! runs under the app's grants today as well). An ad hoc (local) helper has no team to compare and runs the child as is:
 //! its grants are keyed to its own cdhash, so they are a dev build's alone.
 
 /// The hidden mode word (the app's `MacScreenStreamProcess`).
 pub const MODE: &str = "__webrtc-host";
+
+/// The only argument a team-signed helper passes its child (the app's `MacScreenStreamChild.flag`).
+pub const CHILD_FLAG: &str = "--screen-stream-host";
+
+/// The signing identifiers a team-signed helper runs: cmux app builds (release, NIGHTLY, RC, tags).
+pub const CHILD_IDENTIFIER_PREFIX: &str = "com.cmuxterm.app";
 
 /// Runs the child to its end; the process exit code.
 pub fn run(args: &[String]) -> i32 {
@@ -90,6 +100,7 @@ mod platform {
     unsafe extern "C" {
         static kSecGuestAttributePid: CFTypeRef;
         static kSecCodeInfoTeamIdentifier: CFTypeRef;
+        static kSecCodeInfoIdentifier: CFTypeRef;
         fn SecCodeCopySelf(flags: u32, code: *mut CFTypeRef) -> OSStatus;
         fn SecCodeCopyStaticCode(code: CFTypeRef, flags: u32, out: *mut CFTypeRef) -> OSStatus;
         fn SecCodeCopySigningInformation(
@@ -143,13 +154,23 @@ mod platform {
     /// waits for it; its exit code (128 + the signal for a child a signal ended).
     pub(super) fn run(executable: &str, args: &[String]) -> Result<i32, String> {
         let team = own_team()?;
+        if team.is_some() && args != [super::CHILD_FLAG] {
+            // SECURITY: a signed helper lends its grants to the stream host only, never to any
+            // other mode of a team-signed program.
+            return Err(format!(
+                "refused: the child's arguments must be exactly {}",
+                super::CHILD_FLAG
+            ));
+        }
         let pid = spawn_suspended(executable, args)?;
         if let Some(team) = team.as_deref() {
             if let Err(e) = check_child(pid, team) {
                 // SAFETY: `pid` is our unreaped child; the kill cannot reach another process.
                 unsafe { libc::kill(pid, libc::SIGKILL) };
                 let _ = wait(pid);
-                return Err(format!("{executable} is not signed by this helper's team: {e}"));
+                return Err(format!(
+                    "{executable} is not signed by this helper's team: {e}"
+                ));
             }
         }
         // SAFETY: as above: our own unreaped, suspended child.
@@ -163,8 +184,10 @@ mod platform {
         for arg in args {
             argv_owned.push(CString::new(arg.as_str()).map_err(|_| "an argument holds a NUL")?);
         }
-        let mut argv: Vec<*mut c_char> =
-            argv_owned.iter().map(|arg| arg.as_ptr().cast_mut()).collect();
+        let mut argv: Vec<*mut c_char> = argv_owned
+            .iter()
+            .map(|arg| arg.as_ptr().cast_mut())
+            .collect();
         argv.push(ptr::null_mut());
         // SAFETY: plain C structures, initialized and destroyed in this scope; every pointer
         // passed (the path, argv, environ) is live and NUL-terminated for the call.
@@ -225,7 +248,10 @@ mod platform {
     fn own_team() -> Result<Option<String>, String> {
         let mut code: CFTypeRef = ptr::null();
         // SAFETY: the out-pointer is valid.
-        status(unsafe { SecCodeCopySelf(0, &raw mut code) }, "SecCodeCopySelf")?;
+        status(
+            unsafe { SecCodeCopySelf(0, &raw mut code) },
+            "SecCodeCopySelf",
+        )?;
         let code = Owned::new(code, "SecCodeCopySelf")?;
         let mut static_code: CFTypeRef = ptr::null();
         // SAFETY: `code.0` is live; the out-pointer is valid.
@@ -249,8 +275,12 @@ mod platform {
         let information = Owned::new(information, "SecCodeCopySigningInformation")?;
         // SAFETY: the dictionary is live and the key a framework constant; the value is borrowed
         // and copied before `information` drops.
-        let team =
-            unsafe { string(CFDictionaryGetValue(information.0, kSecCodeInfoTeamIdentifier)) };
+        let team = unsafe {
+            string(CFDictionaryGetValue(
+                information.0,
+                kSecCodeInfoTeamIdentifier,
+            ))
+        };
         match team {
             Some(team) if plain_team(&team) => Ok(Some(team)),
             Some(team) => Err(format!("unexpected Team ID {team:?}")),
@@ -260,7 +290,10 @@ mod platform {
 
     /// A Team ID is ten upper-case letters or digits; anything else never goes into a requirement.
     pub(super) fn plain_team(team: &str) -> bool {
-        team.len() == 10 && team.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
+        team.len() == 10
+            && team
+                .bytes()
+                .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
     }
 
     /// The suspended child's running code satisfies Apple's anchor and `team`.
@@ -311,7 +344,36 @@ mod platform {
         )?;
         let requirement = Owned::new(requirement, "SecRequirementCreateWithString")?;
         // SAFETY: both references are live owned objects.
-        status(unsafe { SecCodeCheckValidity(guest.0, 0, requirement.0) }, "SecCodeCheckValidity")
+        status(
+            unsafe { SecCodeCheckValidity(guest.0, 0, requirement.0) },
+            "SecCodeCheckValidity",
+        )?;
+        // The identifier is read only once the signature is valid, so it is the signed one.
+        let mut information: CFTypeRef = ptr::null();
+        // SAFETY: `guest.0` is live; the out-pointer is valid.
+        status(
+            unsafe { SecCodeCopySigningInformation(guest.0, 0, &raw mut information) },
+            "SecCodeCopySigningInformation",
+        )?;
+        let information = Owned::new(information, "SecCodeCopySigningInformation")?;
+        // SAFETY: the dictionary is live and the key a framework constant; the value is copied.
+        let identifier =
+            unsafe { string(CFDictionaryGetValue(information.0, kSecCodeInfoIdentifier)) };
+        match identifier {
+            Some(id) if cmux_app_identifier(&id) => Ok(()),
+            other => Err(format!(
+                "its signing identifier {other:?} is not a cmux app's"
+            )),
+        }
+    }
+
+    /// `com.cmuxterm.app` itself or one of its dotted children (`.nightly`, `.debug.TAG`).
+    pub(super) fn cmux_app_identifier(id: &str) -> bool {
+        let prefix = super::CHILD_IDENTIFIER_PREFIX;
+        id == prefix
+            || id
+                .strip_prefix(prefix)
+                .is_some_and(|rest| rest.starts_with('.'))
     }
 
     /// # Safety
@@ -358,6 +420,19 @@ mod tests {
         assert!(platform::plain_team("ABCDE12345"));
         assert!(!platform::plain_team("abcde12345"));
         assert!(!platform::plain_team("ABCDE\" or 1"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn only_a_cmux_app_identifier_is_a_child() {
+        assert!(platform::cmux_app_identifier("com.cmuxterm.app"));
+        assert!(platform::cmux_app_identifier("com.cmuxterm.app.nightly"));
+        assert!(platform::cmux_app_identifier(
+            "com.cmuxterm.app.debug.my-tag"
+        ));
+        assert!(!platform::cmux_app_identifier("com.cmuxterm.appx"));
+        assert!(!platform::cmux_app_identifier("com.cmuxterm.cli"));
+        assert!(!platform::cmux_app_identifier("cmux-server-helper"));
     }
 
     #[cfg(target_os = "macos")]
