@@ -91,8 +91,12 @@ import Testing
         var reads: [String] = []
         var adds: [String] = []
         var addStatus: OSStatus = errSecSuccess
+        /// No default keychain (a fresh `HOME`).
+        var missing = false
+        var missingChecks = 0
 
         static func key(_ service: String, _ account: String) -> String { service + "/" + account }
+        func defaultKeychainMissing() -> Bool { missingChecks += 1; return missing }
         func exists(service: String, account: String) -> Bool { items[Self.key(service, account)] != nil }
         func readWithoutUI(service: String, account: String) -> Data? {
             let key = Self.key(service, account)
@@ -150,6 +154,35 @@ import Testing
         #expect(CEFKeychainMigration.prepare(item: Self.item, profileRoot: try profile(true), keychain: keychain) == .sharedKeyNotReadable)
         #expect(keychain.reads == [Self.shared])
         #expect(keychain.adds.isEmpty)
+    }
+
+    /// cmux19, 2026-11-21 06:44Z: a throwaway NIGHTLY copy in a fresh `HOME` with no login keychain logged
+    /// "keychain item: freshProfile", then Chromium's `SecItemAdd` raised "Keychain Not Found" (Cancel, Help, Reset To
+    /// Defaults) that nobody answered. With no keychain nothing is looked up or added, and Chromium runs on the mock one.
+    @Test(arguments: [true, false])
+    func noKeychainMeansNoKeychainCallAndTheMockKeychain(hasProfile: Bool) throws {
+        let keychain = FakeKeychain()
+        keychain.missing = true
+        keychain.items = [Self.shared: Data("shared".utf8)]
+        keychain.trusted = [Self.shared]
+        let outcome = CEFKeychainMigration.prepare(item: Self.item, profileRoot: try profile(hasProfile), keychain: keychain)
+        #expect(outcome == .noKeychain)
+        #expect(keychain.reads.isEmpty && keychain.adds.isEmpty)
+        var switches = CEFSwitches.current(forkAPIVersion: 52, bundleIdentifier: Self.item.account, environment: [:])
+        #expect(CEFRuntime.applyNoKeychain(outcome, to: &switches))
+        #expect(switches.arguments.contains("use-mock-keychain"))
+        // The fork is then given no item: Chromium never reaches the real keychain.
+        Self.given = []
+        #expect(!CEFRuntime.applyKeychainItem(Self.item, to: &switches, set: Self.accept))
+        #expect(Self.given.isEmpty)
+    }
+
+    /// A keychain that exists keeps the real path: only the missing keychain turns to the mock one.
+    @Test(arguments: [CEFKeychainMigration.Outcome.freshProfile, .ownItemExists, .copiedSharedKey, .sharedKeyNotReadable, nil])
+    func everyOtherOutcomeKeepsTheRealKeychain(outcome: CEFKeychainMigration.Outcome?) {
+        var switches = CEFSwitches.current(forkAPIVersion: 52, bundleIdentifier: Self.item.account, environment: [:])
+        #expect(!CEFRuntime.applyNoKeychain(outcome, to: &switches))
+        #expect(!switches.useMockKeychain)
     }
 
     @Test func anotherProcessThatMadeTheItemFirstWins() throws {

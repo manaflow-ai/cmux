@@ -44,19 +44,19 @@ struct BookmarkEditView: View {
                 }
             }
             .font(Font(Typography.body))
-            HStack(spacing: Metrics.space4) {
-                Button(BookmarkStrings.more) { model.onMore() }
+            // Every button is a cmux dialog button (theme fill, 4.5:1 title on the glass over any page): stock ones drew
+            // AppKit's bezel, no fill and a dimmed title, and More… and Remove read as disabled (a1273).
+            HStack(spacing: Metrics.space2) {
+                CmuxDialogActionButton(BookmarkStrings.more, hint: nil) { model.onMore() }
+                    .accessibilityIdentifier("cmux.bookmarks.edit.more")
                 Spacer(minLength: Metrics.space6)
-                Button(BookmarkStrings.remove) { model.onRemove() }
+                CmuxDialogActionButton(BookmarkStrings.remove, hint: nil) { model.onRemove() }
                     .accessibilityIdentifier("cmux.bookmarks.edit.remove")
                 CmuxDialogActionButton(BookmarkStrings.done, hint: .return) { model.onDone() }
                     .accessibilityIdentifier("cmux.bookmarks.edit.done")
             }
-            .font(Font(Typography.body))
         }
         .padding(Metrics.space5)
         .frame(width: Metrics.paletteWidth * 0.5)
-        // The default button in the theme's selection fill, never the system blue (cx-wqn5).
-        .tint(model.colors.selection)
     }
 }

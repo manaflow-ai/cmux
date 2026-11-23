@@ -57,8 +57,28 @@ def server_command(arm: dict) -> list[str]:
 def mcp_config(arm: dict, env: dict[str, str]) -> dict:
     """The --mcp-config JSON for Claude Code (and the [mcp_servers] table for Codex)."""
     cmd = server_command(arm)
+    env = {**arm["mcp"].get("env", {}), **env}
+    if arm.get("adapter") == "cmux" and penv.platform_name() == "macos":
+        sock = mac_daemon_socket()
+        if sock and "CMUX_TUI_SOCKET" not in env:
+            env["CMUX_TUI_SOCKET"] = sock
     return {"mcpServers": {arm["mcp"]["server_name"]: {
-        "type": "stdio", "command": cmd[0], "args": cmd[1:], "env": {**arm["mcp"].get("env", {}), **env}}}}
+        "type": "stdio", "command": cmd[0], "args": cmd[1:], "env": env}}}
+
+
+def mac_daemon_socket() -> str | None:
+    """The cmux app's daemon socket on macOS. `cmux computer-use mcp` looks for the `main`
+    session's socket only (CMUX_TUI_SOCKET, else main), while the app's daemon serves
+    session cmux-app-<tag>; `cmux computer-use call` finds it, the MCP bridge does not
+    (1.0.0 dc165ee78a81). CUEVAL_CMUX_TUI_SOCKET overrides; CUEVAL_CMUX_TAG picks the tag."""
+    if os.environ.get("CUEVAL_CMUX_TUI_SOCKET"):
+        return os.environ["CUEVAL_CMUX_TUI_SOCKET"]
+    if os.environ.get("CMUX_TUI_SOCKET"):
+        return os.environ["CMUX_TUI_SOCKET"]
+    import tempfile
+    tag = os.environ.get("CUEVAL_CMUX_TAG", "nightly")
+    path = os.path.join(tempfile.gettempdir(), f"cmux-tui-{os.getuid()}", f"cmux-app-{tag}.sock")
+    return path if os.path.exists(path) else None
 
 
 def default_denied_apps() -> list[str]:
@@ -97,8 +117,21 @@ def apply_policy(arm: dict, task: dict, fake: bool = False) -> dict[str, str]:
         if denied is None:
             denied = default_denied_apps()
         if plat == "macos":
+            if not task.get("denied_apps"):
+                return {}  # a shared test Mac keeps its own deny list unless the task needs one
+            current = _macos_denied(pol)
+            mac_only = [d for d in denied if not d.endswith(".exe") and "gnome" not in d.lower()]
+            if all(d in current for d in mac_only):
+                return {}  # already denied (the default list): nothing to change
+            # Agents may not change computerUse.deniedApps (userOnly), so a task needing an app
+            # the Mac does not deny cannot run here; never work around that refusal.
+            _save_macos_denied(pol)
             cmd = [c.replace("{denied_json}", json.dumps(denied)) for c in pol["macos_command"]]
-            subprocess.run(cmd, check=True)
+            r = subprocess.run(cmd, capture_output=True, text=True)
+            if r.returncode != 0:
+                _MACOS_RESTORE.clear()
+                raise RuntimeError(f"cannot deny {sorted(set(mac_only) - set(current))} on this Mac: "
+                                   f"{(r.stderr or r.stdout).strip()[:200]}")
             return {}
         path = pol["paths"][plat]
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -106,6 +139,39 @@ def apply_policy(arm: dict, task: dict, fake: bool = False) -> dict[str, str]:
             json.dump({**pol["base"], "deniedApps": denied}, f, indent=2)
         return {}
     raise SystemExit(f"unknown policy method {method}")
+
+
+_MACOS_RESTORE: list[list[str]] = []
+
+
+def _macos_denied(pol: dict) -> list[str]:
+    r = subprocess.run([pol["macos_command"][0], "settings", "get", "computerUse.deniedApps", "--json"],
+                       capture_output=True, text=True, check=True)
+    cur = json.loads(r.stdout)
+    value = cur.get("value")
+    return value if isinstance(value, list) else (cur.get("row") or {}).get("default") or []
+
+
+def _save_macos_denied(pol: dict) -> None:
+    """Remember the Mac's deny list before a task changes it (restore_policy puts it back)."""
+    if _MACOS_RESTORE:
+        return
+    cli = pol["macos_command"][0]
+    r = subprocess.run([cli, "settings", "get", "computerUse.deniedApps", "--json"],
+                       capture_output=True, text=True, check=True)
+    cur = json.loads(r.stdout)
+    if cur.get("row", {}).get("customized"):
+        _MACOS_RESTORE.append([cli, "settings", "set", "computerUse.deniedApps", json.dumps(cur.get("value"))])
+    else:
+        _MACOS_RESTORE.append([cli, "settings", "reset", "computerUse.deniedApps"])
+
+
+def restore_policy() -> None:
+    while _MACOS_RESTORE:
+        cmd = _MACOS_RESTORE.pop()
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        if r.returncode != 0:
+            print(f"warning: restoring the deny list failed: {' '.join(cmd)}: {r.stderr.strip()}", file=sys.stderr)
 
 
 # ---------------------------------------------------------------- tool-tier adapters

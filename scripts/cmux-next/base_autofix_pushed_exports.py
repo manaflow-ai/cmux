@@ -157,6 +157,7 @@ class Api:
         return self.deadline - time.monotonic()
 
     def sleep(self, seconds: float) -> None:
+        # sleep-ok: the poll interval of the callers' deadline-bounded loops (tests replace it), capped by the deadline.
         time.sleep(max(0.0, min(seconds, self.left())))
 
     def json(self, path: str) -> dict:
@@ -486,9 +487,14 @@ def take_pr_pack(api: Api, run: dict, tree: str, sha: str, names: list[str], int
 
 
 def pr_lookup(api: Api, sha: str, tree: str, head_sha: str, pr: int, env: dict[str, str], names: list[str],
-              into: Path, poll: float, first_run_grace: float) -> dict[str, str]:
+              into: Path, poll: float, first_run_grace: float, defer: bool = False) -> dict[str, str]:
     """Take the PR pack of merge commit `sha` (tree `tree`) from pull request `pr`'s own cmux-next run at
-    `head_sha`. Waits while that run's generated-files job can still upload one; a miss otherwise."""
+    `head_sha`. Waits while that run's generated-files job can still upload one; a miss otherwise.
+
+    With `defer`, a generated-files job that is still coming (queued, running, or not listed yet in a
+    run that has not finished) ends the lookup at once with coming=true: that job regenerates the same
+    exports on its own Mac build of this merge commit (and uploads them, cmux-next-generated-patch),
+    so the PR autofix's Mac job does not build them a second time."""
     if not OID.match(sha) or not OID.match(tree) or not OID.match(head_sha):
         raise Miss(f"no merge commit ({sha!r}), tree ({tree!r}) or head ({head_sha!r})")
     if pr <= 0:
@@ -538,6 +544,10 @@ def pr_lookup(api: Api, sha: str, tree: str, head_sha: str, pr: int, env: dict[s
             if state == "skipped" or (state == "absent" and run.get("status") == "completed"):
                 reasons.append(f"run {run_id}: its {GENERATED_JOB} job did not run")
                 continue
+            if defer:
+                return {"hit": "false", "coming": "true", "source_run_id": str(run_id),
+                        "reason": f"run {run_id}: its {GENERATED_JOB} job is {state}; it regenerates these exports",
+                        "waited": str(int(max(0.0, budget - api.left())))}
             pending.append(f"run {run_id}: its {GENERATED_JOB} job is {state}")
         # cmux-next.yml's run of this event starts with this workflow's; until it lists, give it a grace.
         if not pending and not runs and budget - api.left() < first_run_grace:
@@ -602,7 +612,7 @@ def main(argv: list[str] | None = None) -> int:
                    help="auto: wait for the base tier run when the checkout has its kick (off: vars.CMUX_NEXT_BASE_TIER_COALESCE is 0)")
     f.add_argument("--skip", default="", help="a reason not to look (switched off)")
     f.add_argument("--summary", default=os.environ.get("GITHUB_STEP_SUMMARY"))
-    p = sub.add_parser("pr-lookup", help="the PR autofix: hit=, reason=, exports=, waited= for $GITHUB_OUTPUT")
+    p = sub.add_parser("pr-lookup", help="the PR autofix: hit=, coming=, reason=, exports=, waited= for $GITHUB_OUTPUT")
     p.add_argument("--out", required=True, help="the action-exports directory: changed exports at their paths")
     p.add_argument("--head-sha", required=True, help="the pull request's head commit")
     p.add_argument("--pr", required=True, type=int, help="the pull request's number")
@@ -611,6 +621,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--wait", type=float, default=7200, help="seconds to wait for the run's generated-files job")
     p.add_argument("--poll", type=float, default=120)
     p.add_argument("--first-run-grace", type=float, default=180)
+    p.add_argument("--defer-to-producer", action="store_true",
+                   help="end at once with coming=true while the run's generated-files job is still coming")
     p.add_argument("--skip", default="", help="a reason not to look (switched off)")
     p.add_argument("--summary", default=os.environ.get("GITHUB_STEP_SUMMARY"))
     args = parser.parse_args(argv)
@@ -687,8 +699,8 @@ def pr_main(args: argparse.Namespace, env: dict[str, str], root: Path) -> int:
         with tempfile.TemporaryDirectory(prefix="cmux-pr-exports-staged-") as scratch:
             staged = Path(scratch) / "staged"
             outputs = pr_lookup(api, sha, tree, args.head_sha, args.pr, env, names, staged, args.poll,
-                                args.first_run_grace)
-            changed = changed_exports(root, staged, wanted, Path(args.out))
+                                args.first_run_grace, defer=args.defer_to_producer)
+            changed = [] if outputs.get("coming") == "true" else changed_exports(root, staged, wanted, Path(args.out))
         outputs["exports"] = "true" if changed else "false"
         for rel in changed:
             print(f"regenerated: {rel}", file=sys.stderr)
@@ -698,7 +710,10 @@ def pr_main(args: argparse.Namespace, env: dict[str, str], root: Path) -> int:
         outputs = {"hit": "false", "reason": " ".join(f"lookup error: {type(error).__name__}: {error}".split())[:500]}
     if args.summary:
         server, repo = env.get("GITHUB_SERVER_URL", "https://github.com"), env.get("GITHUB_REPOSITORY", "")
-        if outputs.get("hit") == "true":
+        if outputs.get("coming") == "true":
+            line = (f"Swift exports: left to {server}/{repo}/actions/runs/{outputs['source_run_id']}'s "
+                    f"{GENERATED_JOB} job, which regenerates them for this merge commit. No Mac job.")
+        elif outputs.get("hit") == "true":
             line = (f"Swift exports: **taken** from {server}/{repo}/actions/runs/{outputs['source_run_id']} "
                     f"(the same merge commit); {'some differ' if outputs['exports'] == 'true' else 'all current'}. "
                     "No Mac job.")

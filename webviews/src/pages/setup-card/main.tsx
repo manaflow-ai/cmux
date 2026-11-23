@@ -3,7 +3,7 @@
 import "../shared/desktop";
 import { createRoot } from "react-dom/client";
 import { UiProvider, languageDirection } from "../../ui/UiProvider";
-import { cardStrings } from "../home-messages/cards/strings";
+import { cardStrings } from "./strings";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { SetupCardPage } from "./SetupCardPage";
 import { SetupCardStore } from "./store";

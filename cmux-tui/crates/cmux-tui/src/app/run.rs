@@ -359,7 +359,8 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
         default_hook(info);
     }));
 
-    let backend = CrosstermBackend::new(std::io::stdout());
+    let backend =
+        CrosstermBackend::new(super::host_frame_writer::host_frame_writer(std::io::stdout()));
     let mut terminal = match RatatuiTerminal::new(backend) {
         Ok(terminal) => terminal,
         Err(e) => {
@@ -598,6 +599,10 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
     }
 
     let result = app.event_loop(&mut terminal, rx);
+    // A draw that failed partway leaves the rest of its frame in the frame
+    // buffer; let it go out now, on the alternate screen the restore leaves,
+    // not on the person's own screen when `terminal` drops at the end.
+    drop(terminal);
     #[cfg(unix)]
     SIGNAL_WAKE.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
     app.shutdown_runtime_components();
@@ -662,8 +667,7 @@ pub(super) fn format_panic_diagnostic(info: &std::panic::PanicHookInfo<'_>) -> S
         .map(|location| location.to_string())
         .unwrap_or_else(|| "<unknown>".to_string());
     let mut diagnostic = format!("thread '{thread_name}' panicked at {location}:\n{payload}\n");
-    let backtrace = std::backtrace::Backtrace::capture();
-    if backtrace.status() == std::backtrace::BacktraceStatus::Captured {
+    if let Some(backtrace) = cmux_panic_log::backtrace::capture() {
         diagnostic.push_str(&format!("{backtrace}\n"));
     }
     diagnostic

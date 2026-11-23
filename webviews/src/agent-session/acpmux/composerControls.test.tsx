@@ -7,6 +7,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
+import { ComposerPlusMenu } from "./ComposerPlusMenu";
+import { composerPlusRegistry } from "./composerPlusRegistry";
 import { FolderPopover } from "./FolderPopover";
 import { openComposerControl, PLAN_TOGGLE_OPENER } from "./composerControls";
 import { translate } from "./i18n";
@@ -193,4 +195,38 @@ test("the Folder chip names its key with no folder picked too", async () => {
   // A picked folder: the tooltip still shows its whole path, which the strip may truncate.
   await draw("/Users/me/work/atlas-web");
   expect(container.querySelector(".acpmux-location-button")!.getAttribute("title")).toBe("/Users/me/work/atlas-web");
+});
+
+test("Toggle Plan Mode's key runs the + menu's Plan row, and the row names the key", async () => {
+  // Fleet check 2026-11-20: the app draws no Plan toggle chip (ComposerPickers showPlan={false});
+  // Plan/Build is the + menu's row, so ⌃⌥⌘P had no opener and did nothing, and no tooltip named it.
+  const container = installDom();
+  root = createRoot(container);
+  const entries = composerPlusRegistry({
+    translate,
+    planMode: { id: "plan", name: "Plan mode", description: "Plan before editing" },
+  });
+  const calls: string[] = [];
+  await act(async () =>
+    root!.render(
+      <ShortcutsContext.Provider value={{ "agentPane.composer.togglePlan": "⌃⌥⌘P" }}>
+        <ComposerPlusMenu
+          entries={entries}
+          onCommand={(id, modeId) => calls.push(`${id}:${modeId ?? ""}`)}
+          onSlash={() => undefined}
+        />
+      </ShortcutsContext.Provider>,
+    ),
+  );
+  await act(async () => {
+    expect(openComposerControl("togglePlan", translate)).toBe(true);
+  });
+  expect(calls).toEqual(["composer.planMode:plan"]);
+  await act(async () => {
+    expect(openComposerControl("addMenu", translate)).toBe(true);
+  });
+  const row = [...document.querySelectorAll<HTMLElement>("[role=option], [role=menuitem]")].find((el) =>
+    el.textContent?.includes("Plan mode"),
+  );
+  expect(row?.querySelector(".acpmux-menu-hint")?.textContent).toBe("⌃⌥⌘P");
 });

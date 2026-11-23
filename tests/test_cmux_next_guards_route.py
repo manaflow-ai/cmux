@@ -12,6 +12,7 @@ red there unseen).
 """
 
 import json
+import sys
 from pathlib import Path
 import unittest
 
@@ -47,7 +48,8 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
         self.assertIn("feat-cmux-next", push.get("branches") or [])
         self.assertFalse(push.get("paths"))
         job = workflow["jobs"]["release-notary"]
-        self.assertEqual(job["if"], "${{ !cancelled() && github.event_name != 'pull_request' }}")
+        # base-coalesce.yml: a push runs it once per 30-minute window on the tip (needs.coalesce.outputs.run).
+        self.assertEqual(job["if"], "${{ !cancelled() && needs.coalesce.outputs.run != 'false' && (github.event_name != 'pull_request') }}")
         self.assertEqual(job["timeout-minutes"], 15)
         script = next(step["run"] for step in job["steps"] if step.get("name") == "Run the release-notary guards")
         call = next(line for line in script.splitlines() if "scripts/ci/guards-local.sh" in line)
@@ -90,16 +92,25 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
         triggers = workflow.get(True) or workflow.get("on") or {}
         pull = triggers.get("pull_request") or {}
         self.assertIn("feat-cmux-next", pull.get("branches") or [])
-        # No workflow path filter: the CI guard group (a required check) runs on every pull request and routes
-        # release-notary inside it, so a change that skips the group still reports a pass.
-        self.assertFalse(pull.get("paths"), "a path filter would leave the CI guard group pending")
+        # No workflow path filter but the docs-only block (scripts/ci/docs_only_paths.py): the CI guard group runs on
+        # every pull request that changes more than prose and routes release-notary inside it, so a change that
+        # skips the group still reports a pass. The group is not a required check, so a docs-only pull request
+        # that starts no run leaves nothing pending (tests/test_ci_docs_only_prs.py).
+        sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+        import docs_only_paths  # noqa: PLC0415
+
+        self.assertEqual([str(p) for p in pull.get("paths") or []], list(docs_only_paths.DOCS_ONLY_PATHS),
+                         "the guards' only path filter is the docs-only block")
+        self.assertNotIn("paths-ignore", pull)
         jobs = workflow["jobs"]
         # nightly-guards runs on every event (the submodule forward-only guard, Guard status), never with the
         # release-notary matrix leg: a push runs the group in parallel in the release-notary job.
-        self.assertEqual(jobs["nightly-guards"]["if"], "${{ !cancelled() }}")
+        self.assertEqual(jobs["nightly-guards"]["if"], "${{ !cancelled() && needs.coalesce.outputs.run != 'false' }}")
         self.assertEqual(jobs["nightly-guards"]["with"]["linux_guard_tests"], "${{ 'false' }}")
         group = jobs["ci-guard-group"]
-        self.assertEqual(group["if"], "${{ !cancelled() }}")
+        self.assertEqual(group["if"], "${{ !cancelled() && needs.coalesce.outputs.run != 'false' && "
+                         "needs.fast-check-route.outputs.ci_guard_group != 'false' && "
+                         "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}")
         steps = {step.get("name"): step for step in group["steps"]}
         script = steps["Run the ci guard group and the routed groups"]["run"]
         calls = [line for line in script.splitlines() if "scripts/ci/guards-local.sh" in line and "--list" not in line]

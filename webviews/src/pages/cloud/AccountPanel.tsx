@@ -5,12 +5,14 @@
 // Ops the owner does not serve yet (team list, sign-out) show "Not available yet".
 import { useState } from "react";
 import type { Strings } from "../shared/i18n";
+import { Switch } from "../../ui/Switch";
 import { percent } from "./model";
 import { AccountOps, CloudOps, type CloudRetention, type RetentionOverrides } from "./ops";
 import { RETENTION_FIELDS, retentionLimit, type RetentionField } from "./retention";
 import { usd } from "./spendCap";
 import type { CloudState, CloudStore } from "./store";
 import { format, L } from "./strings";
+import { intl } from "../../ui/intl";
 
 /** "12.5 h" or "12.5 h / 40 h", with the unit from the string table. */
 function amount(
@@ -20,7 +22,7 @@ function amount(
   t: (key: string) => string,
   language: string,
 ) {
-  const number = new Intl.NumberFormat(language, { maximumFractionDigits: 1 });
+  const number = intl.NumberFormat(language, { maximumFractionDigits: 1 });
   const text = (n: number) => format(t(unit), { value: number.format(n) });
   return limit === undefined || limit === null ? text(value) : `${text(value)} / ${text(limit)}`;
 }
@@ -191,12 +193,12 @@ function CleanupSettings({
         </p>
       )}
       <label className="cloud-check cloud-cleanup-email">
-        <input
-          type="checkbox"
+        <Switch
+          size="sm"
           aria-label={t(L.cleanupEmail)}
           checked={retention.email_heads_up}
           disabled={saving}
-          onChange={(event) => void store.setEmailHeadsUp(event.target.checked)}
+          onCheckedChange={(on) => void store.setEmailHeadsUp(on)}
         />
         <span>{t(L.cleanupEmail)}</span>
       </label>

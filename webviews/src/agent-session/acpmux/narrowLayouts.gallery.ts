@@ -141,9 +141,16 @@ export function narrowProblems(document: Document): string[] {
           problems.push(`${name}: “${text.textContent.trim()}” is cut off`);
       }
     }
+  // Only the composer on screen is judged: New Tab keeps a premounted chat view laid out of the page
+  // (an <Activity mode="hidden">, display: none), whose model button has no box at all.
+  const pickers = [...document.querySelectorAll(MODEL_PICKER)].filter(visible);
+  const onScreen = (value: Element) => {
+    const model = value.closest(".acpmux-model");
+    return !model || pickers.some((button) => model.contains(button));
+  };
   // The effort is the model button's detail ("Opus 5.5  Medium", Leo 2026-10-20): it may shrink to
   // its short name, never go.
-  for (const button of document.querySelectorAll(MODEL_PICKER)) {
+  for (const button of pickers) {
     const details = [...button.querySelectorAll(".acpmux-model-detail")];
     if (details.length && !details.some(visible)) problems.push("the model button's effort is hidden");
   }
@@ -156,13 +163,13 @@ export function narrowProblems(document: Document): string[] {
     for (const value of document.querySelectorAll(
       ".acpmux-model-detail:not(.acpmux-fit-label), .acpmux-model-name:not([data-short]), .acpmux-model .acpmux-fit-label[data-fit-forms~='full']",
     ))
-      if (!visible(value) || value.scrollWidth > value.clientWidth + 1)
+      if (onScreen(value) && (!visible(value) || value.scrollWidth > value.clientWidth + 1))
         problems.push(`“${value.textContent?.trim()}” is not shown in full in a wide pane`);
   // The model goes to its mark alone only where the row cannot hold its name beside the other
   // controls (composerRowFit.ts modelMark, a composer under 370 px): wider, a name shows whole, in
   // full, without its vendor ("Opus 5.5") or as its family ("Opus").
   if (view.innerWidth >= 420)
-    for (const button of document.querySelectorAll(MODEL_PICKER)) {
+    for (const button of pickers) {
       const named = [button, ...button.querySelectorAll("*")].some(
         (part) =>
           visible(part) &&

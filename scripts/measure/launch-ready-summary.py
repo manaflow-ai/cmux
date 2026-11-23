@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""launch-ready.sh's summary: per side LR-MEDIAN, LR-REOPENED, LR-USABLE and LR-SURFACE, and LR-SURFACE-DIFF when an
-A/B's arms first showed different surfaces.
+"""launch-ready.sh's summary: per side LR-MEDIAN, LR-REOPENED, LR-USABLE and LR-SURFACE, LR-KEYS with --keys 1, and
+LR-SURFACE-DIFF when an A/B's arms first showed different surfaces.
 
   launch-ready-summary.py RUNS_JSONL [--state kept|bare] [--case update] [--daemon cold] [--snapshot unknown|foreign]
-                          [--front home|tab]
+                          [--front home|tab] [--keys 1]
 
 The launch reopens exactly where the person was, Home included (Leo, 2026-11-18: "fresh startup opening home is obv
 fine but if it's not first time and the user was on a workspace and a tab, obv just take them there"; "ofc reopening
@@ -15,6 +15,8 @@ home if they were prev on home is fine"). Each case's expectation is one entry o
   foreign  snapshot=foreign: no foreign windows drawn (no launch_snapshot_shown), then this home's own last front
   unknown  snapshot=unknown: the snapshot's front workspace no longer exists in the daemon, so Home
 front=home|tab seeds the priming launch's front; every measured launch is then judged against that front.
+keys=1 (--keys 1): LR-KEYS SIDE MEDIAN N/M, the side's median first_key_ms (the first key Home's box kept, ms from
+process start) over the measured launches whose sent message held a key, and how many of the M measured launches sent one.
 A front's compare key: Home when Home is in front (`home`, or topPage "home", or the focused tab's page "home-dock"),
 else (workspace, tab): the front window's shown workspace key and its focused pane's selected tab id.
 kept, cold and foreign judge every launch after the priming one (or the stress3 seed), the preruns included, against
@@ -69,14 +71,33 @@ def key(front):
     return ("home",) if is_home(front) else ("tab", (front or {}).get("workspace"), (front or {}).get("tab"))
 
 
+def unreadable(front):
+    """Why `front` names nothing a launch could reopen, or None. A window with no workspace, no tab and no Home in
+    front is no front: the app never loaded its daemon's tree. cmux#47182's A/B (2026-11-20): the head arm's daemon
+    never connected, every launch read {"tab": null, "workspace": null}, and equal nulls passed as reopened 5/5."""
+    if not front or "error" in front:
+        return str((front or {}).get("error") or "none read")
+    if not is_home(front) and not front.get("tab") and not front.get("workspace"):
+        return "no workspace, tab or Home in front: " + json.dumps(front, sort_keys=True)
+    return None
+
+
 def describe(front):
     k = key(front)
     return "Home" if k == ("home",) else f"workspace={k[1]} tab={k[2]}"
 
 
+# What a person sees of a tab: a terminal frame or the launch snapshot's windows. The window's own regions
+# (reveal.sidebar, reveal.tabs, reveal.pane) ready before Home's page in a fresh window too: they hold Home.
+TAB_DRAWN = ("launch_snapshot_shown", "first_terminal_frame", "launch.visible_terminals_drawn")
+
+
 def first_surface(row):
-    """What the launch showed first: home or tabs (a pane, restored tabs, the launch snapshot's windows), or none."""
+    """What the launch showed first: home or tabs (a terminal, restored tabs, the launch snapshot's windows), or none."""
     first, marks = row.get("first_reveal"), row.get("marks") or {}
+    home = marks.get("reveal.home", marks.get("home.first_page"))
+    if home is not None:
+        return "tabs" if any(marks.get(k, home) < home for k in TAB_DRAWN) else "home"
     if first:
         return "home" if first == "home" else "tabs"
     if "launch_snapshot_shown" in marks:
@@ -95,11 +116,11 @@ def judge(row, expect, prev):
         if first_surface(row) == "tabs":
             return f"on a tab with no saved state: first_reveal={row.get('first_reveal') or 'none'}"
         return None if "window_usable" in marks else "no window_usable: Home's message field never took keys"
-    if not front or "error" in front:
-        return "no front: " + str((front or {}).get("error") or row.get("error") or "none read")
+    if unreadable(front):
+        return "no front: " + str(row.get("error") if not front and row.get("error") else unreadable(front))
     if expect == "home":
         return None if is_home(front) else "on " + describe(front) + ", want Home"
-    if not prev or "error" in prev:
+    if unreadable(prev):
         return "no front for the launch before"
     if expect == "own" and "launch_snapshot_shown" in marks:
         return "drew windows from a foreign launch snapshot (launch_snapshot_shown)"
@@ -136,7 +157,52 @@ def fill_seed_fronts(rows, out):
                 r["front"] = json.load(handle)
 
 
-def summarize(rows, case="kept", seeded=""):
+def layout_of(row):
+    """One launch's settle from the app's layout.* marks (LaunchLayoutSettle), in ms after its own main_start: the
+    first frame the watch read, the last frame in which anything on screen moved, appeared or went away, their
+    difference, the largest move in points and the view that made it. None when the launch has no layout mark."""
+    marks = row.get("marks") or {}
+    main, first, settle = marks.get("main_start"), marks.get("layout.first_frame"), marks.get("layout.settle")
+    if first is None or settle is None:
+        return None
+    after = (lambda ms: round(ms - main, 1)) if main is not None else (lambda ms: None)
+    moved = next((k[len("layout.max_move."):] for k in marks if k.startswith("layout.max_move.")), "none")
+    return {"first_frame_ms": after(first), "settle_ms": after(settle), "settle_minus_first_frame_ms": round(settle - first, 1),
+            "max_move_pt": marks.get("layout.max_move", 0), "moved": moved,
+            "last": next((k[len("layout.last."):] for k in marks if k.startswith("layout.last.")), "none"),
+            "capped": "layout.capped" in marks, "web_settle_ms": after(marks["web.layout.settle"]) if "web.layout.settle" in marks else None,
+            "web_max_move_px": marks.get("web.layout.max_move")}
+
+
+def layout_line(side, runs, params=""):
+    """LR-LAYOUT SIDE: the side's settle, medians over its measured launches (Leo, 2026-11-18: "well did you guys have
+    more solution ideas tho for getting faster draws and settles?"). A side with no layout mark prints settle_ms=none;
+    each launch without one counts in n_missing."""
+    layouts = [lay for lay in (layout_of(r) for r in runs) if lay]
+
+    def med(name, q=None):
+        vals = sorted(lay[name] for lay in layouts if lay.get(name) is not None)
+        if not vals:
+            return "none"
+        return round(statistics.median(vals) if q is None else vals[min(len(vals) - 1, int(q * len(vals)))], 1)
+
+    def most(name):
+        named = Counter(lay[name] for lay in layouts if lay[name] != "none")
+        return ",".join(f"{k}:{v}" for k, v in named.most_common(3)) or "none"
+
+    fields = {"n": len(layouts), "n_missing": len(runs) - len(layouts), "first_frame_ms": med("first_frame_ms"),
+              "settle_ms": med("settle_ms"), "settle_minus_first_frame_ms": med("settle_minus_first_frame_ms"),
+              "settle_minus_first_frame_p90_ms": med("settle_minus_first_frame_ms", 0.9), "max_move_pt": med("max_move_pt"),
+              "max_move_pt_max": med("max_move_pt", 1.0), "moved": most("moved"), "last": most("last"),
+              "capped": sum(lay["capped"] for lay in layouts), "web_settle_ms": med("web_settle_ms"),
+              "web_max_move_px": med("web_max_move_px"),
+              # A launch whose chat page sent no report (it was still moving at the quit, or showed no chat page).
+              "web_n_missing": sum(lay["web_settle_ms"] is None for lay in layouts)}
+    print("LR-LAYOUT", side, (params + " " if params else "") + " ".join(f"{k}={v}" for k, v in fields.items()), flush=True)
+    return fields
+
+
+def summarize(rows, case="kept", seeded="", params="", keys=False):
     """Prints the summary; returns the lines' data: {side: {"failed": [...], "surface": first}}."""
     expect, result = EXPECT[case], {}
     print("LR-CASE", case, f"expect={expect}" + (f" front={seeded}" if seeded else ""), flush=True)
@@ -150,7 +216,8 @@ def summarize(rows, case="kept", seeded=""):
             med[name] = round(statistics.median(vals), 1) if vals else None
         # Which region each launch showed first, counted (a side that opens on a pane is not timed as Home).
         med["first_reveal"] = dict(sorted(Counter(r.get("first_reveal") or "none" for r in done).items()))
-        names = dict.fromkeys(name for r in done for name in r["marks"])
+        # The settle marks (points, counts) are not times: LR-LAYOUT reports them.
+        names = dict.fromkeys(name for r in done for name in r["marks"] if not name.startswith(("layout.", "web.layout.")))
         for name in sorted(names, key=lambda n: statistics.median([r["marks"][n] for r in done if n in r["marks"]])):
             med[name] = round(statistics.median([r["marks"][name] for r in done if name in r["marks"]]), 1)
         failed, prev, prev_label, measured, usable, anchor, skipped = [], None, None, 0, 0, None, 0
@@ -159,7 +226,7 @@ def summarize(rows, case="kept", seeded=""):
             prime = next((r for r in own if r["label"] == "prime"), {})
             anchor = prime.get("front")
             anchor_drew_home = "home.first_page" in (prime.get("marks") or {})
-            if not anchor or "error" in anchor or key(anchor)[0] != ("home" if seeded == "home" else "tab"):
+            if unreadable(anchor) or key(anchor)[0] != ("home" if seeded == "home" else "tab"):
                 print("LR-FAIL", side, "prime", f"front={seeded} not seeded: front " + json.dumps(anchor, sort_keys=True), flush=True)
                 failed.append("prime")
         # kept, cold, foreign: nothing between launches moves the front, so every launch after the priming one (or the
@@ -169,10 +236,12 @@ def summarize(rows, case="kept", seeded=""):
         # not judged at all: comparing with the launch before instead is the same blind spot.
         anchored = not seeded and case in PRIME_ANCHORED
         for r in own:
-            if anchored and r["label"] in ("prime", "seed"):
+            # The stress3 seed sets the front every later launch must reopen, with front= too: it makes the session
+            # and leaves its last workspace's tab (front=tab) in front, so the prime's front is no longer the anchor.
+            if (anchored and r["label"] in ("prime", "seed")) or (seeded and r["label"] == "seed"):
                 front = r.get("front")
-                if not front or "error" in front:
-                    not_judged = f"{r['label']} front unreadable: " + str((front or {}).get("error") or "none read")
+                if unreadable(front):
+                    not_judged = f"{r['label']} front unreadable: " + unreadable(front)
                     anchor = None
                 else:
                     anchor, not_judged = front, None
@@ -190,8 +259,8 @@ def summarize(rows, case="kept", seeded=""):
                 front, before = r.get("front"), None if case == "fresh" else (anchor if seeded else prev)
                 if anchored:
                     reason = None if not_judged else judge_against_anchor(r, expect, anchor, anchor_drew_home)
-                elif (expect != "home" and not seeded and not r.get("cross_arm") and front and "error" not in front
-                        and (not before or "error" in before)):
+                elif (expect != "home" and not seeded and not r.get("cross_arm") and not unreadable(front)
+                        and unreadable(before)):
                     skipped, reason = skipped + 1, None
                     print("LR-SKIP", side, r["label"], f"{prev_label or 'the launch before'} left no readable front:",
                           str((before or {}).get("error") or "none read"), flush=True)
@@ -217,8 +286,14 @@ def summarize(rows, case="kept", seeded=""):
         print("LR-MEDIAN", side, json.dumps(med), flush=True)
         print("LR-REOPENED", side, med["reopened"], f"case={case}", flush=True)
         print("LR-USABLE", side, med["usable"], flush=True)
+        if keys:
+            firsts = [r["first_key_ms"] for r in runs if r.get("first_key_ms") is not None]
+            landed = sum(1 for r in runs if (r.get("keys_landed") or 0) > 0)
+            median = round(statistics.median(firsts), 1) if firsts else None
+            print("LR-KEYS", side, median, f"{landed}/{len(runs)}", flush=True)
         mix = ",".join(f"{k}:{v}" for k, v in sorted(surfaces.items()))
         print("LR-SURFACE", side, f"first={first} home_page_drawn={drawn}/{measured} mix={mix}", flush=True)
+        layout = layout_line(side, [r for r in runs if r.get("window_on_screen") is not None], params)
         # layout=1: what moved after the first frame, per measured launch (moved_pt, changes) and its median and highest.
         laid = [r["layout"] for r in runs if r.get("layout")]
         if laid:
@@ -232,7 +307,7 @@ def summarize(rows, case="kept", seeded=""):
                                 "median_changes": statistics.median(changes) if changes else None,
                                 "launches_that_moved": f"{sum(1 for m in moved if m > 0)}/{len(seen)}"}
             print("LR-FRAMES", side, json.dumps(frames), flush=True)
-        result[side] = {"failed": failed, "surface": first, "judged": not not_judged}
+        result[side] = {"failed": failed, "surface": first, "layout": layout, "judged": not not_judged}
     # An A/B whose arms first showed different surfaces times different work: not like for like.
     firsts = {side: data["surface"] for side, data in result.items()}
     if len(set(firsts.values())) > 1:
@@ -256,12 +331,15 @@ def main(argv=None):
     parser.add_argument("--daemon", default="", choices=["", "warm", "cold"])
     parser.add_argument("--snapshot", default="own", choices=["own", "unknown", "foreign"])
     parser.add_argument("--front", default="", choices=["", "home", "tab"])
+    parser.add_argument("--keys", default="0", choices=["0", "1"])
     parser.add_argument("--out", default="", help="the step's output folder (the stress3 seed's front file)")
     args = parser.parse_args(argv)
     rows = [json.loads(line) for line in open(args.runs) if line.strip()]
     if args.out:
         fill_seed_fronts(rows, args.out)
-    summarize(rows, case_name(args.state, args.case, args.daemon, args.snapshot), args.front)
+    params = " ".join(f"{k}={v}" for k, v in (("state", args.state), ("case", args.case), ("daemon", args.daemon),
+                                                  ("snapshot", args.snapshot), ("front", args.front)) if v)
+    summarize(rows, case_name(args.state, args.case, args.daemon, args.snapshot), args.front, params, args.keys == "1")
     return 0
 
 

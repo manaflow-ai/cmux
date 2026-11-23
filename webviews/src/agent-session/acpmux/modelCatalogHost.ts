@@ -25,11 +25,15 @@ type State = { catalog: ModelCatalog; user: unknown; provisional: boolean };
 let state: State = { catalog: BUNDLED_MODEL_CATALOG, user: undefined, provisional: true };
 const listeners = new Set<() => void>();
 let pending: Promise<void> | undefined;
+let reload: Promise<void> | undefined;
 
 /** Folds a host answer or `models.catalog` event into the page's catalog. */
 export function receiveModelCatalog(value: unknown): void {
   const delivery = (value ?? {}) as ModelCatalogDelivery;
   const catalog = readModelCatalog(delivery.catalog);
+  // Older hosts can acknowledge a reload without a catalog. Once settled, that answer changes
+  // nothing: notifying the external store would force a synchronous pane render during startup.
+  if (!catalog && !state.provisional && state.user === (delivery.user ?? undefined)) return;
   const kind = delivery.delivery === "network" || delivery.delivery === "disk" ? delivery.delivery : undefined;
   state = {
     catalog: catalog ? { ...catalog, ...(kind ? { delivery: kind } : {}) } : state.catalog,
@@ -48,6 +52,7 @@ const ACPMUX_REFRESH_WAIT_MS = 45_000;
 function withinTime<T>(promise: Promise<T>, ms: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const late = new Promise<never>((_, reject) => {
+    // l10n-allow: a rejection the catalog loader handles, never drawn
     timer = setTimeout(() => reject(new Error(`no model catalog from acpmux in ${ms / 1000} s`)), ms);
   });
   return Promise.race([promise, late]).finally(() => clearTimeout(timer));
@@ -66,6 +71,7 @@ export function loadModelCatalog(refresh = false): Promise<void> {
       // Any host refusal (unserved, not connected) still has acpmux's copy, which beats the bundle.
       if (!acpmux) throw error;
       return withinTime(acpmux({ refresh }), refresh ? ACPMUX_REFRESH_WAIT_MS : ACPMUX_WAIT_MS).then((reply) => {
+        if (window.cmuxAcpmuxActions?.["models.catalog"] !== acpmux) return;
         const catalog = (reply as { catalog?: unknown } | undefined)?.catalog;
         // No catalog in the reply (an older acpmux) keeps the bundled one, still provisional.
         if (readModelCatalog(catalog)) receiveModelCatalog({ catalog, delivery: "network" });
@@ -75,6 +81,19 @@ export function loadModelCatalog(refresh = false): Promise<void> {
       pending = undefined;
     });
   return pending;
+}
+
+/** A connection or catalog event may arrive after an in-flight read took its snapshot. Read once
+ * more after it settles, including after a refusal; coalesce events waiting on that same read. */
+export function reloadModelCatalog(): Promise<void> {
+  if (!pending) return loadModelCatalog();
+  reload ??= pending
+    .catch(() => undefined)
+    .then(() => {
+      reload = undefined;
+      return loadModelCatalog();
+    });
+  return reload;
 }
 
 /** A host that does not know `models.catalog` (the app today) refuses it as an invalid request. */
@@ -106,6 +125,7 @@ export function modelCatalogStateForTests(): State {
 export function resetModelCatalogForTests(): void {
   state = { catalog: BUNDLED_MODEL_CATALOG, user: undefined, provisional: true };
   pending = undefined;
+  reload = undefined;
 }
 
 /**

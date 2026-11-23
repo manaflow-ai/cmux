@@ -202,6 +202,14 @@ fn scan(line: &str, found: &mut Detected) {
     if HANDOFF.as_ref().is_some_and(|re| re.is_match(line)) {
         add("a handoff heading");
     }
+    // The daemon's own sender trailer (`sent_by.rs`): `Sent-by: HOST/SESSION harness=...`.
+    if let Some(rest) = line.strip_prefix(crate::sent_by::PREFIX) {
+        let sender = rest.split_whitespace().next().unwrap_or_default();
+        add("a Sent-by line");
+        if !sender.is_empty() && sender.chars().count() <= SENDER_CHARS {
+            found.from.get_or_insert_with(|| sender.to_owned());
+        }
+    }
 }
 
 #[cfg(test)]
@@ -222,6 +230,15 @@ mod tests {
         ] {
             assert!(re.is_some());
         }
+    }
+
+    #[test]
+    fn a_sent_by_trailer_reads_as_an_agents() {
+        let text = "PR #1 is green.\n\nSent-by: devbox/lane-x harness=claude \
+                    model=claude-opus-5-5";
+        let found = detect(text);
+        assert_eq!(found.from.as_deref(), Some("devbox/lane-x"));
+        assert_eq!(found.signals, vec!["a Sent-by line"]);
     }
 
     #[test]

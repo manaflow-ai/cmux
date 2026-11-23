@@ -17,7 +17,7 @@ cmux-rd testapp --display :99 --workload marker|text|motion|idle
 ## macOS host
 
 ```
-cmux-rd host --owner USER --token-fd N [--display main|INDEX] [--max-fps N (default: the display's refresh rate, else 60)] [--profile high|baseline]
+cmux-rd host --owner USER --token-fd N [--display main|INDEX] [--max-fps N (default: the display's refresh rate, else 60)] [--profile high|baseline] [--encode-profile standard|ultra]
 ```
 
 The codec is always `videotoolbox`, fed the captured IOSurface with no copy. The process, or
@@ -58,6 +58,18 @@ scripts/screen-share-vs.py run --host SHARED_MAC --viewer VIEWING_MAC --host-ip 
   --tools ./tools --label after --cua-vnc PATH/cua-vnc \
   --vnc-user USER --vnc-password-file PATH_ON_VIEWING_MAC --out after.jsonl
 scripts/screen-share-vs.py compare before.jsonl after.jsonl
+```
+
+`--host-arg=ARG` adds a `cmux-rd serve` flag and `--viewer-arg=ARG` a `cmux-rd bench` flag, each
+repeatable and in the `=` form (the value starts with `-`). Only an allowlist passes
+(`--resolution-ladder`, `--max-qp N`, `--max-kbps N`; `--caps LIST`); anything else
+is refused. Both lists go into every output line and the table headers, so `compare` shows what
+differed. A head run with the resolution ladder on:
+
+```
+scripts/screen-share-vs.py run ... --label ladder --out ladder.jsonl \
+  --host-arg=--resolution-ladder --host-arg=--max-qp=40 --host-arg=--max-kbps=1000 \
+  --viewer-arg=--caps=video.scaled
 ```
 
 The shared Mac runs the rig (`screen-share-vs.py rig`) inside an app that holds Screen Recording
@@ -325,6 +337,17 @@ the glibc 2.31 floor. The archive holds `bin/cmux-rd`, `LICENSE` (GPL-3.0-or-lat
   NVENC, and VideoToolbox on macOS hosts) are later implementations of the same trait.
 - `--profile high` (default) is for the macOS pane's VideoToolbox decoder; the Linux bench
   decoder (openh264) needs `--profile baseline` on the host (scripts/loopback-bench.sh sets it).
+- `--encode-profile ultra` (`host` and `serve`; opt-in, standard is the default) stops saving
+  bandwidth on a fat link: frames at the viewer's rate (else the display's refresh) up to 120 fps,
+  a 150 Mbps ceiling unless `--max-kbps` names one. On VideoToolbox it holds frame rate first:
+  it runs the regular hardware encoder instead of the low-latency one (whose realtime encoder
+  refuses DataRateLimits and drops frames instead), and each frame gets one frame interval's
+  share of the target (DataRateLimits) but never more than 3 bits per pixel (about 0.78 MB at
+  1080p), with no QP ceiling and no QP floor (`CMUX_RD_VT_ULTRA_MIN_QP` sets one), so extra
+  rate buys fps before per-frame quality. A keyframe alone gets QP 30 or more. One frame
+  interval after the screen goes still, one refinement frame takes up to four frame budgets.
+  H.264 level 5.2 still bounds the frame rate at large sizes
+  (`mac::encoder_fps`): a 4K display encodes at most about 64 fps in H.264.
 
 ## Upstream media (development)
 
@@ -461,3 +484,20 @@ readback). Stage distributions include startup; sample vectors cap at 8192.
 Duration is bounded to 2–30 seconds, sockets have timeouts, and the host and
 viewer each have a deadline. Keep this harness and motion source unchanged
 when comparing before/after optimization results.
+
+The Windows host prefers DXGI Desktop Duplication and falls back to GDI if the
+primary output cannot be duplicated or access is lost. `--capture gdi` and
+`--capture dxgi` select a backend explicitly; forced DXGI fails by HRESULT rather
+than measuring GDI under the DXGI name. The workflow runs both through the same
+loopback harness and motion source. JSON `capture_details` identifies the backend,
+fallback reason, acquired frames and copied bytes.
+
+Duplication retains one CPU BGRA surface and one staging texture. It copies dirty
+rectangles and move destinations from the complete current desktop texture,
+respects row pitch, and uses a full copy for initialization or fragmented damage.
+It avoids full-frame hashing. Encoding still converts the full frame, so no
+unchanged-region conversion claim is made. An unchanged acquisition reuses the
+last surface when feedback requests a frame. Memory is bounded to a 256 MiB CPU
+surface plus the matching staging texture and at most 1 MiB metadata per list.
+The existing capture surface excludes a separately supplied hardware cursor;
+this preserves the GDI BitBlt behavior. Rotated outputs retain the GDI path.

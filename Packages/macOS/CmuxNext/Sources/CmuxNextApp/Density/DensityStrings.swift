@@ -3,7 +3,7 @@ import Foundation
 /// The density feedback and refusal texts (Handlers.xcstrings, 21 languages).
 enum DensityStrings {
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "Handlers", bundle: .module)
+        String(localized: key, defaultValue: value, table: "Handlers", bundle: .module.inAppLanguage)
     }
 
     private static func format(_ key: StaticString, _ value: String.LocalizationValue, _ argument: String) -> String {

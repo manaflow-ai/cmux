@@ -83,3 +83,57 @@ export function siteInitial(site: string): string {
   const name = site.replace(/^www\./, "");
   return (name.match(/[\p{L}\p{N}]/u)?.[0] ?? "?").toUpperCase();
 }
+
+/**
+ * The reply's rows, each one that did not change kept as the object the page already holds: a reply
+ * re-sends every list, and a memoized row draws again only for the row that changed.
+ */
+export function keepUnchanged<T extends { id: string }>(previous: readonly T[], next: readonly T[]): T[] {
+  if (!previous.length) return [...next];
+  const held = new Map(previous.map((row) => [row.id, row]));
+  return next.map((row) => {
+    const old = held.get(row.id);
+    return old && sameRow(old, row) ? old : row;
+  });
+}
+
+function sameRow<T extends object>(a: T, b: T): boolean {
+  const keys = Object.keys(a) as (keyof T)[];
+  return keys.length === Object.keys(b).length && keys.every((key) => a[key] === b[key]);
+}
+
+/** One windowed item of the saved logins: a site's header, or one of its logins. */
+export type LoginItem =
+  | { kind: "site"; site: string }
+  | { kind: "login"; site: string; row: SavedPassword; last: boolean; position: number };
+
+/** A windowed section's items, and an item's key to its index (a kept row is found without a scan). */
+export interface Windowed<T> {
+  items: T[];
+  keys: string[];
+  place: Map<string, number>;
+  /** The rows among the items: the screen reader's "3 of 1000". */
+  rows: number;
+}
+
+function windowed<T>(items: T[], key: (item: T) => string, rows: number): Windowed<T> {
+  const keys = items.map(key);
+  return { items, keys, place: new Map(keys.map((item, index) => [item, index])), rows };
+}
+
+/** Built once per reply, search or sort, not per render, scroll or focus. */
+export function loginList(groups: readonly SiteGroup[]): Windowed<LoginItem> {
+  const items: LoginItem[] = [];
+  let position = 0;
+  for (const group of groups) {
+    items.push({ kind: "site", site: group.site });
+    group.rows.forEach((row, index) =>
+      items.push({ kind: "login", site: group.site, row, last: index === group.rows.length - 1, position: ++position }),
+    );
+  }
+  return windowed(items, (item) => (item.kind === "site" ? `site:${item.site}` : `login:${item.row.id}`), position);
+}
+
+export function rowList<T extends { id: string }>(rows: T[], prefix: string): Windowed<T> {
+  return windowed(rows, (row) => `${prefix}:${row.id}`, rows.length);
+}

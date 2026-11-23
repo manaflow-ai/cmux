@@ -173,6 +173,17 @@
    "shot": false
   },
   {
+   "title": "Open a New Agent Chat tab",
+   "cmux": [
+    "agent",
+    "new-chat",
+    "--cwd",
+    "/tmp"
+   ],
+   "wait": 4,
+   "shot": false
+  },
+  {
    "title": "A New Agent Chat on Claude Code",
    "rpc": {
     "method": "debug.agent_pane",
@@ -213,7 +224,7 @@
     "method": "debug.agent_pane",
     "params": {
      "action": "click",
-     "selector": "button[data-menu='model']"
+     "selector": "button[data-menu='Model']"
     }
    },
    "wait": 1.5,
@@ -249,7 +260,7 @@
     "method": "debug.agent_pane",
     "params": {
      "action": "click",
-     "selector": "button[data-menu='model']"
+     "selector": "button[data-menu='Model']"
     }
    },
    "wait": 1,
@@ -362,7 +373,7 @@
     "method": "debug.agent_pane",
     "params": {
      "action": "click",
-     "selector": "button[data-menu='model']"
+     "selector": "button[data-menu='Model']"
     }
    },
    "wait": 1.5,
@@ -398,7 +409,7 @@
     "method": "debug.agent_pane",
     "params": {
      "action": "click",
-     "selector": "button[data-menu='model']"
+     "selector": "button[data-menu='Model']"
     }
    },
    "wait": 1,

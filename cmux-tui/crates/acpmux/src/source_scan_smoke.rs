@@ -177,6 +177,7 @@ fn tree_drift(scan: &Scan, known: &[String]) -> Vec<String> {
 
 #[test]
 fn the_tree_holds_no_new_instance_of_a_known_miss() {
+    // affected-reads: cmux-tui
     let checkout = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
     let roots: Vec<PathBuf> = vec![checkout.join("cmux-tui/crates")];
     let scan = scan_with(&checkout, &roots, spread_bounds).expect("cmux-tui/crates scans");

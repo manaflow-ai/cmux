@@ -6,10 +6,16 @@
 // so a script can perform it (NSSharingService.perform) and the person goes straight to the chat.
 import AppKit
 import UniformTypeIdentifiers
+import os
 
 @objc(CmuxShareViewController)
 final class ShareViewController: NSViewController {
+    // Each step of the handoff, under the extension's own bundle id: a share that never reaches the app says
+    // where it stopped (`log show --predicate 'subsystem == "<extension id>"'`).
+    private static let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "CmuxShare", category: "handoff")
+
     override func loadView() {
+        Self.log.notice("loadView")
         view = NSView(frame: .zero)
     }
 
@@ -28,6 +34,7 @@ final class ShareViewController: NSViewController {
     override func beginRequest(with context: NSExtensionContext) {
         super.beginRequest(with: context)
         let providers = (context.inputItems as? [NSExtensionItem] ?? []).flatMap { $0.attachments ?? [] }
+        Self.log.notice("beginRequest: \(providers.count, privacy: .public) attachment(s)")
         let group = DispatchGroup()
         let lock = NSLock()
         var found: [(Int, URL)] = []
@@ -35,7 +42,8 @@ final class ShareViewController: NSViewController {
             guard let type = [UTType.fileURL, UTType.image].map(\.identifier)
                 .first(where: { provider.hasItemConformingToTypeIdentifier($0) }) else { continue }
             group.enter()
-            provider.loadItem(forTypeIdentifier: type, options: nil) { item, _ in
+            provider.loadItem(forTypeIdentifier: type, options: nil) { item, error in
+                Self.log.notice("loadItem \(type, privacy: .public): \(String(describing: Swift.type(of: item)), privacy: .public) error \(String(describing: error), privacy: .public)")
                 var url = item as? URL
                 if url == nil, let data = item as? Data {
                     url = type == UTType.fileURL.identifier
@@ -54,6 +62,7 @@ final class ShareViewController: NSViewController {
         }
         group.notify(queue: .main) {
             let urls = found.sorted { $0.0 < $1.0 }.map(\.1)
+            Self.log.notice("opening \(urls.count, privacy: .public) file(s)")
             guard !urls.isEmpty else {
                 context.cancelRequest(withError: CocoaError(.fileReadNoSuchFile))
                 return
@@ -63,8 +72,10 @@ final class ShareViewController: NSViewController {
                 .deletingLastPathComponent()
             let configuration = NSWorkspace.OpenConfiguration()
             configuration.activates = true
+            Self.log.notice("open with \(app.path, privacy: .public)")
             NSWorkspace.shared.open(urls, withApplicationAt: app, configuration: configuration) { _, error in
                 DispatchQueue.main.async {
+                    Self.log.notice("open answered: \(String(describing: error), privacy: .public)")
                     if let error {
                         context.cancelRequest(withError: error)
                     } else {
