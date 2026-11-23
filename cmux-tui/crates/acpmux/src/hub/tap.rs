@@ -241,6 +241,9 @@ impl Hub {
                         // whole list of the tasks that still run.
                         if !muted && let Some(line) = params.as_ref() {
                             match method.as_str() {
+                                "claude.command_lifecycle" => {
+                                    tap_hub.command_lifecycle(&tap_session, line)
+                                }
                                 "claude.system.task_notification" => {
                                     tap_hub.subagent_task_notified(&tap_session, line)
                                 }

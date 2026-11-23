@@ -97,3 +97,99 @@ fn a_prompt_never_written_names_no_agent_times() {
     assert!(!turns[0].contains_key("firstModelMs"));
     assert!(!turns[0].contains_key("agentStart"));
 }
+
+fn lifecycle(seq: u64, at: u64, command: &str, state: &str) -> EventRecord {
+    rec(seq, at, "in", "claude.command_lifecycle", json!({"command_uuid": command, "state": state}))
+}
+
+fn compaction(seq: u64, at: u64, state: &str) -> EventRecord {
+    let update = json!({"sessionUpdate": "compaction", "state": state});
+    rec(seq, at, "in", "compaction", json!({"params": {"update": update}}))
+}
+
+/// An idle chat: Claude Code queues and starts the prompt line at once, so nothing waited.
+#[test]
+fn an_idle_prompt_waits_in_no_queue() {
+    let records = [
+        rec(1, 0, "mux", "user_message", json!({"text": "one"})),
+        rec(2, 3, "out", "session/prompt", json!({"id": 1})),
+        lifecycle(3, 5, "line-1", "queued"),
+        lifecycle(4, 6, "line-1", "started"),
+        rec(5, 2_406, "in", "claude.stream_event", json!({})),
+    ];
+    let t = &fold(&records)[0];
+    assert_eq!(t["queuedMs"], json!(0));
+    assert!(!t.contains_key("queuedOn"));
+    assert_eq!(t["firstModelMs"], json!(2_403));
+}
+
+/// A prompt written while Claude Code still ran a turn of its own (the finding's 476 s
+/// `acpmux info`): its line waits queued until that work ends, and MODEL is only what came after.
+/// The work's own tool call and a steered line's lifecycle are no part of it.
+#[test]
+fn a_prompt_during_a_running_turn_names_its_queue_apart_from_the_model() {
+    let records = [
+        rec(1, 0, "mux", "user_message", json!({"text": "[inbox] 1 new"})),
+        rec(2, 2, "out", "session/prompt", json!({"id": 7})),
+        lifecycle(3, 4, "line-7", "queued"),
+        lifecycle(4, 9_000, "steer-1", "queued"),
+        lifecycle(5, 9_001, "steer-1", "started"),
+        lifecycle(6, 148_002, "line-7", "started"),
+        rec(7, 150_402, "in", "claude.stream_event", json!({})),
+        rec(8, 151_000, "in", "tool_call", json!({})),
+    ];
+    let t = &fold(&records)[0];
+    assert_eq!(t["toAgentMs"], json!(2));
+    assert_eq!(t["queuedMs"], json!(148_000));
+    assert_eq!(t["queuedOn"], json!("busy"));
+    assert_eq!(t["firstModelMs"], json!(2_400));
+}
+
+/// A compaction Claude Code runs after the prompt is written and before its first output (Leo's
+/// own chat, 2026-11-23: 49 s of compaction, then the model 1 s later) is the prompt's queue,
+/// labeled compacting, though the line itself started at once.
+#[test]
+fn a_prompt_during_compaction_is_labeled_compacting() {
+    let records = [
+        rec(1, 0, "mux", "user_message", json!({"text": "two"})),
+        rec(2, 150, "out", "session/prompt", json!({"id": 3})),
+        lifecycle(3, 150, "line-3", "queued"),
+        lifecycle(4, 151, "line-3", "started"),
+        compaction(5, 307, "running"),
+        compaction(6, 30_326, "running"),
+        compaction(7, 49_413, "completed"),
+        rec(8, 50_455, "in", "claude.stream_event", json!({})),
+    ];
+    let t = &fold(&records)[0];
+    assert_eq!(t["queuedMs"], json!(49_263));
+    assert_eq!(t["queuedOn"], json!("compacting"));
+    assert_eq!(t["firstModelMs"], json!(1_042));
+}
+
+/// A compaction already running when the prompt is written holds it too; the next turn, after
+/// it ended, waits on nothing.
+#[test]
+fn a_compaction_running_at_the_write_holds_the_prompt_until_it_ends() {
+    let records = [
+        rec(1, 0, "mux", "user_message", json!({"text": "one"})),
+        rec(2, 1, "out", "session/prompt", json!({"id": 1})),
+        rec(3, 900, "in", "tool_call", json!({})),
+        compaction(4, 5_000, "running"),
+        rec(5, 6_000, "mux", "user_message", json!({"text": "two"})),
+        rec(6, 6_001, "out", "session/prompt", json!({"id": 2})),
+        lifecycle(7, 6_002, "line-2", "queued"),
+        compaction(8, 60_000, "completed"),
+        lifecycle(9, 60_010, "line-2", "started"),
+        rec(10, 62_011, "in", "claude.stream_event", json!({})),
+        rec(11, 70_000, "mux", "user_message", json!({"text": "three"})),
+        rec(12, 70_001, "out", "session/prompt", json!({"id": 3})),
+        rec(13, 71_001, "in", "claude.stream_event", json!({})),
+    ];
+    let turns = fold(&records);
+    assert_eq!(turns[0]["queuedMs"], json!(0));
+    assert_eq!(turns[1]["queuedMs"], json!(54_009));
+    assert_eq!(turns[1]["queuedOn"], json!("compacting"));
+    assert_eq!(turns[1]["firstModelMs"], json!(2_001));
+    assert_eq!(turns[2]["queuedMs"], json!(0));
+    assert_eq!(turns[2]["firstModelMs"], json!(1_000));
+}
