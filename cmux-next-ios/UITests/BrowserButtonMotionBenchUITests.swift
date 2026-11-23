@@ -88,8 +88,8 @@ final class BrowserButtonMotionBenchUITests: XCTestCase {
         m.name = "kbm-marks-browser.txt"
         m.lifetime = .keepAlways
         add(m)
-        if let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first,
-           let hitches = try? String(contentsOf: docs.appendingPathComponent("input-latency.jsonl"), encoding: .utf8) {
+        // The hitch log with stacks lives in the app's container (this test process has its own Documents).
+        if let file = InputLatencyUITests.traceFile(), let hitches = try? String(contentsOf: file, encoding: .utf8) {
             let h = XCTAttachment(string: hitches)
             h.name = "kbm-hitches-browser.txt"
             h.lifetime = .keepAlways
