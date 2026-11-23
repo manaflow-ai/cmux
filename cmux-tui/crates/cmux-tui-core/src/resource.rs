@@ -674,6 +674,8 @@ pub enum ResourceOperation {
     CloudMachineChatAccess,
     #[serde(rename = "cloud.machine.share_chat")]
     CloudMachineShareChat,
+    #[serde(rename = "cloud.machine.chief_start")]
+    CloudMachineChiefStart,
     #[serde(rename = "room.create")]
     RoomCreate,
     #[serde(rename = "room.delete")]
