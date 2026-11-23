@@ -16,7 +16,7 @@ import { tableActionsPlace } from "../agent-session/acpmux/conversation/tableAct
 import { expandRowLook } from "../agent-session/acpmux/conversation/expandRow.experiment";
 import { backgroundReactionLook } from "../agent-session/acpmux/conversation/backgroundReaction.experiment";
 import { backgroundTurnLook } from "../agent-session/acpmux/conversation/backgroundTurnLook.experiment";
-import { cloudStartLook } from "../agent-session/acpmux/cloudStart.experiment";
+import { cloudStartLook, cloudStartQuietLook } from "../agent-session/acpmux/cloudStart.experiment";
 import { cloudStartComposerLook } from "../agent-session/acpmux/cloudStartComposer.experiment";
 import { cloudProgressLook } from "../pages/cloud-progress/cloudProgress.experiment";
 import { startRecoveryLook } from "../agent-session/acpmux/startRecovery.experiment";
@@ -46,6 +46,7 @@ import { startedSessionCards } from "../agent-session/acpmux/started/startedSess
 import { agentDotGrid } from "../agent-session/acpmux/dotGrid/agentDotGrid.experiment";
 import { finishedTaskLook } from "../agent-session/acpmux/conversation/taskLine.experiment";
 import { claudeTurnFold } from "../agent-session/acpmux/conversation/claudeTurnFold.experiment";
+import { turnEndFoldLook } from "../agent-session/acpmux/conversation/turnEndFoldLook.experiment";
 import { commandLabelLook } from "../agent-session/acpmux/conversation/commandLabel.experiment";
 import { liveTurnWork } from "../agent-session/acpmux/conversation/liveTurnWork.experiment";
 import { jumpUpButton } from "../agent-session/acpmux/jumpUp.experiment";
@@ -134,6 +135,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   followMotion,
   finishedTaskLook,
   claudeTurnFold,
+  turnEndFoldLook,
   commandLabelLook,
   liveTurnWork,
   jumpUpButton,
@@ -172,6 +174,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   backgroundReactionLook,
   backgroundTurnLook,
   cloudStartLook,
+  cloudStartQuietLook,
   cloudProgressLook,
   cloudStartAskLook,
   startRecoveryLook,

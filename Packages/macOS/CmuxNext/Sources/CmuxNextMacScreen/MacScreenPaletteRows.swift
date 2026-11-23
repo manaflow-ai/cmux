@@ -31,11 +31,12 @@ extension MacScreenPages {
                             perform: @escaping @MainActor (ActionInvocation) -> Void) -> [PaletteItem] {
         guard let actionTitle, !actionTitle.isEmpty else { return [] }
         let connect = L.t("macScreen.toolbar.connect", "Connect")
-        return devices.filter { !$0.name.isEmpty }.map { device in
+        // A Windows PC is listed on the page ("Can’t view yet") but has no screen to open from here yet.
+        return devices.filter { !$0.name.isEmpty && $0.platform != .windows }.map { device in
             PaletteItem(
                 id: "\(paletteProviderID):\(device.id)",
                 title: "\(actionTitle): \(device.name)",
-                symbol: device.platform == .ios ? "iphone" : "display",
+                symbol: MacScreenHomeView.glyph(device.platform ?? .macos),
                 keywords: [device.name, "screen sharing", "screen share", "share screen", "remote desktop", "vnc", "view", "device", "machine"],
                 primary: PaletteCommand(id: "open", title: connect, symbol: "return", effect: .perform {
                     perform(ActionInvocation(arguments: ["device": .string(device.id)], origin: .user))
