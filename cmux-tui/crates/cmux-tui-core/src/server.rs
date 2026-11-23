@@ -105,6 +105,7 @@ mod apps;
 #[cfg(unix)]
 pub use apps::start_apps_when_ready;
 pub use cmd_workspaces::WORKSPACE_NAME_SOURCE_CAPABILITY;
+pub use conversation_scheduled::start_scheduled_sender;
 #[cfg(unix)]
 mod browser_runtime;
 #[path = "server/image_paste.rs"]
@@ -206,6 +207,7 @@ mod conversation_attachments;
 mod conversation_live;
 mod conversation_resource;
 mod conversation_runs;
+mod conversation_scheduled;
 mod device_setup_command;
 mod remote_host_command;
 mod resource_trust;
@@ -339,7 +341,7 @@ use socket_path::default_socket_path_in_runtime_dir;
 pub(crate) use socket_path::unix_socket_path_fits;
 pub use socket_path::{
     default_socket_path, try_default_socket_path, try_default_socket_path_in_base,
-    validate_session_name,
+    try_default_socket_path_in_base_scoped, validate_session_name,
 };
 pub(crate) mod activity;
 mod browser_input;
@@ -2056,6 +2058,9 @@ enum Command {
     ConversationThread(conversations::ThreadParams),
     ConversationLinkResolve(conversations::LinkResolveParams),
     ConversationInboxOp(conversations::InboxOpParams),
+    /// Send Later (`conversation-scheduled-v1`, server/conversation_scheduled.rs).
+    ConversationScheduledList(conversation_scheduled::ListParams),
+    ConversationScheduledOp(conversation_scheduled::OpParams),
     /// The Home list rows (`home-inbox-v1`, server/conversations.rs).
     HomeInbox(conversations::HomeInboxParams),
     ConversationSearch(conversations::SearchParams),

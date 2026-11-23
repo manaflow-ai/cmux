@@ -97,6 +97,7 @@ public final class BrowserToolbarButtonsView: NSStackView {
         let view = ChromeIconButton(icon: .placeholder, label: "", action: #selector(pressed(_:)), target: self, toolbar: true)
         view.setAccessibilityIdentifier(button.identifier)
         view.rightClickPresses = button.opensMenu
+        view.opensOnPress = button.followsPress
         // One ⋮ in the pane: More draws the tab bar's glyph at its size (Lawrence msg 19627).
         if button == .overflow { view.iconSide = { OverflowButton.paneGlyphSize } }
         let order = BrowserToolbarButton.allCases
