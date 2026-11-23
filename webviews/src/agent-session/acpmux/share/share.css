@@ -170,3 +170,6 @@
 .share-dialog__role > .ui-select-button {
   width: calc(3 * var(--ds-space-6));
 }
+.share-dialog__status[data-hint] {
+  color: var(--ui-fg-2);
+}

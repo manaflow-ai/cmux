@@ -186,3 +186,28 @@ test("a pending invitee's row says they haven't opened it yet", async () => {
   );
   expect(hints).toEqual([null, translate("share.notJoined"), translate("share.inChatNow"), null]);
 });
+
+// A result that is not a refusal (a role change) shows muted on the status line, not as an alert.
+test("a notice shows muted on the status line", async () => {
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ShareDialogBody
+        chat="Add retries"
+        view={shared}
+        notice="@sam changed to Can send."
+        onInvite={() => {}}
+        onRole={() => {}}
+        onRemove={() => {}}
+        onGeneral={() => {}}
+        onCopy={() => {}}
+        onDone={() => {}}
+      />,
+    );
+  });
+  const line = container.querySelector(".share-dialog__status")!;
+  expect(line.textContent).toBe("@sam changed to Can send.");
+  expect(line.getAttribute("role")).toBeNull();
+  expect(line.hasAttribute("data-hint")).toBe(true);
+});

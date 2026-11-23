@@ -20,6 +20,8 @@ export interface ShareDialogProps {
   view: ShareView;
   /** Why the last step did not finish; null when it did. */
   status?: string | null;
+  /// A result that is not a refusal ("…changed to Can send"): the status line, muted.
+  notice?: string | null;
   /** A step runs: the controls that start one wait. */
   busy?: boolean;
   onInvite(account: string, role: ShareRole): void;
@@ -36,6 +38,7 @@ export function ShareDialogBody({
   chat,
   view,
   status = null,
+  notice = null,
   busy = false,
   onInvite,
   onRole,
@@ -86,8 +89,10 @@ export function ShareDialogBody({
           {t("share.invite")}
         </Button>
       </form>
-      <p className="share-dialog__status" role={status ? "alert" : undefined}>
-        {status ?? ""}
+      {/* One fixed line under the field: a refusal or a result when there is one, else what "Can
+          send" means (each message waits for the owner), so the label stays short. */}
+      <p className="share-dialog__status" role={status ? "alert" : undefined} data-hint={status ? undefined : ""}>
+        {status ?? notice ?? (role === "talk" ? t("share.role.talkHint") : "")}
       </p>
       <section className="share-dialog__section" aria-label={t("share.peopleWithAccess")}>
         <h3 className="share-dialog__heading">{t("share.peopleWithAccess")}</h3>
