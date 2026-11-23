@@ -9,7 +9,7 @@
 // composer) left that whole height kept under the live line for the rest of the turn: every row the
 // turn brought landed above it, so the band never closed. The kept room is space the rows fill.
 import { expect, test } from "bun:test";
-import { roomUnderRows } from "../src/agent-session/acpmux/VirtualTranscript";
+import { roomUnderRows } from "../src/agent-session/acpmux/transcript/arrivals";
 
 const STACK = 96; // the stack's room once the steer went: the composer card and the rest gap
 const HELD = 380; // the room held while scrolled up: composer + two image previews + a queued steer card

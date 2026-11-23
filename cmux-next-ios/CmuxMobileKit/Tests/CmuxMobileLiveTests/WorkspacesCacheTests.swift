@@ -8,7 +8,7 @@ import Testing
 // before any link, reading only each Mac's first screen, so a 5,000-workspace cache costs what a
 // 100-workspace one does; a cache of another version or a corrupt one falls back to none, never a
 // crash; the rest joins below the first screen without moving it; sign-out deletes it all.
-// Leo, 2026-11-10: "your recent shit, like, should be fucking showing. And it should just be like,
+// Leo, 2026-11-10: "your recent s***, like, should be f***ing showing. And it should just be like,
 // okay, we load, like, nigh instantly."
 
 enum CacheFixture {

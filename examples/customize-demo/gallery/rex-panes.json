@@ -1,0 +1,15 @@
+{
+  "cmuxProfile": 1,
+  "name": "setup-manaflow-ai-rex-panes",
+  "description": "Terminal-scoped directional splits, focus, pane swaps, zoom, floating and balance. Uses existing cmux actions; see README.md for source mappings and limits.",
+  "created_ms": 0,
+  "settings": {},
+  "files": {
+    "keybindings.json": "[\n  {\n    \"key\": \"cmd+d\",\n    \"command\": \"splitRight\",\n    \"when\": \"terminalFocused\"\n  },\n  {\n    \"key\": \"cmd+shift+right\",\n    \"command\": \"splitRight\",\n    \"when\": \"terminalFocused\"\n  },\n  {\n    \"key\": \"cmd+shift+d\",\n    \"command\": \"splitDown\",\n    \"when\": \"terminalFocused\"\n  },\n  {\n    \"key\": \"cmd+shift+down\",\n    \"command\": \"splitDown\",\n    \"when\": \"terminalFocused\"\n  },\n  {\n    \"key\": \"cmd+shift+left\",\n    \"command\": \"splitLeft\",\n    \"when\": \"terminalFocused\"\n  },\n  {\n    \"key\": \"cmd+shift+up\",\n    \"command\": \"splitUp\",\n    \"when\": \"terminalFocused\"\n  },\n  {\n    \"key\": \"cmd+opt+left\",\n    \"command\": \"focusLeft\",\n    \"when\": \"terminalFocused\"\n  },\n  {\n    \"key\": \"cmd+opt+right\",\n    \"command\": \"focusRight\",\n    \"when\": \"terminalFocused\"\n  },\n  {\n    \"key\": \"cmd+opt+up\",\n    \"command\": \"focusUp\",\n    \"when\": \"terminalFocused\"\n  },\n  {\n    \"key\": \"cmd+opt+down\",\n    \"command\": \"focusDown\",\n    \"when\": \"terminalFocused\"\n  },\n  {\n    \"key\": \"cmd+rightbracket\",\n    \"command\": \"focusNextPane\",\n    \"when\": \"terminalFocused\"\n  },\n  {\n    \"key\": \"cmd+leftbracket\",\n    \"command\": \"focusPreviousPane\",\n    \"when\": \"terminalFocused\"\n  },\n  {\n    \"key\": \"cmd+opt+shift+left\",\n    \"command\": \"swapPaneLeft\",\n    \"when\": \"terminalFocused\"\n  },\n  {\n    \"key\": \"cmd+opt+shift+right\",\n    \"command\": \"swapPaneRight\",\n    \"when\": \"terminalFocused\"\n  },\n  {\n    \"key\": \"cmd+opt+shift+up\",\n    \"command\": \"swapPaneUp\",\n    \"when\": \"terminalFocused\"\n  },\n  {\n    \"key\": \"cmd+opt+shift+down\",\n    \"command\": \"swapPaneDown\",\n    \"when\": \"terminalFocused\"\n  },\n  {\n    \"key\": \"cmd+shift+enter\",\n    \"command\": \"toggleSplitZoom\",\n    \"when\": \"terminalFocused\"\n  },\n  {\n    \"key\": \"cmd+opt+enter\",\n    \"command\": \"toggleFloatingPane\",\n    \"when\": \"terminalFocused\"\n  },\n  {\n    \"key\": \"ctrl+cmd+=\",\n    \"command\": \"equalizeSplits\",\n    \"when\": \"terminalFocused\"\n  }\n]\n"
+  },
+  "x-setup": {
+    "id": "manaflow-ai/rex-panes",
+    "name": "Rex Panes",
+    "source": "looks/rex/panes"
+  }
+}
