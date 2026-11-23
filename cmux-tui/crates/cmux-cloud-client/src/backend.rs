@@ -13,6 +13,29 @@
 
 use cmux_cloud_environment as env;
 
+/// The variable that names cmux-platform's origin (the hub), for every cmux and acpmux command.
+pub const PLATFORM_ORIGIN_ENV: &str = "CMUX_PLATFORM_ORIGIN";
+/// Its older name, which the cmux CLI read alone: read only when [`PLATFORM_ORIGIN_ENV`] is
+/// unset or empty.
+pub const PLATFORM_ORIGIN_ALIAS_ENV: &str = "CMUX_PLATFORM_URL";
+
+/// The platform origin the environment names (`env` reads one variable): `CMUX_PLATFORM_ORIGIN`,
+/// else `CMUX_PLATFORM_URL`, trimmed, an empty one unset. The one reading both crates use: with
+/// only one of them set, the cmux CLI and acpmux never ask two hubs (Door A timing run,
+/// 2026-11-16: acpmux joined the staging hub while chat's account read went to production).
+pub fn platform_origin_from(env: impl Fn(&str) -> Option<String>) -> Option<String> {
+    [PLATFORM_ORIGIN_ENV, PLATFORM_ORIGIN_ALIAS_ENV]
+        .into_iter()
+        .filter_map(&env)
+        .map(|value| value.trim().to_owned())
+        .find(|value| !value.is_empty())
+}
+
+/// [`platform_origin_from`] of this process's environment.
+pub fn platform_origin_env() -> Option<String> {
+    platform_origin_from(|key| std::env::var(key).ok())
+}
+
 /// A NEXT Cloud environment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Backend {
@@ -69,5 +92,43 @@ impl Backend {
 }
 
 #[cfg(test)]
-#[path = "backend_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn names_round_trip_and_origins_are_bare_https() {
+        for b in [Backend::Production, Backend::Staging, Backend::Development] {
+            assert_eq!(Backend::parse(b.name()), Some(b));
+            assert_eq!(Backend::of_platform(b.platform()), Some(b));
+            for origin in [b.platform(), b.owner_api()] {
+                assert!(cmux_cloud_config::origin::is_bare_https_origin(origin), "{origin}");
+            }
+        }
+        assert_eq!(Backend::parse("prod"), Some(Backend::Production));
+        assert_eq!(Backend::parse("moon"), None);
+    }
+
+    /// One name, one alias, one precedence: `CMUX_PLATFORM_ORIGIN` wins, `CMUX_PLATFORM_URL`
+    /// counts only when it is unset or empty.
+    #[test]
+    fn the_platform_origin_is_one_variable_with_one_alias() {
+        let read = |origin: Option<&str>, url: Option<&str>| {
+            platform_origin_from(|key| match key {
+                PLATFORM_ORIGIN_ENV => origin.map(str::to_owned),
+                PLATFORM_ORIGIN_ALIAS_ENV => url.map(str::to_owned),
+                _ => None,
+            })
+        };
+        assert_eq!(read(Some("https://o.example"), None).as_deref(), Some("https://o.example"));
+        assert_eq!(read(None, Some("https://u.example")).as_deref(), Some("https://u.example"));
+        assert_eq!(
+            read(Some(" https://o.example "), Some("https://u.example")).as_deref(),
+            Some("https://o.example")
+        );
+        assert_eq!(
+            read(Some(" "), Some("https://u.example")).as_deref(),
+            Some("https://u.example")
+        );
+        assert_eq!(read(None, None), None);
+    }
+}
