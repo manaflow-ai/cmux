@@ -107,6 +107,8 @@ enum Strings {
     static func taskNext(_ step: String) -> String { String(localized: "sidebar.tasks.next", defaultValue: "Next: \(step)", bundle: .localizedModule) }
     /// The hover card's line for a workspace whose idle terminals were freed (`workspaces.freeing.*`).
     static func freedTerminals(_ value: Int) -> String { String(localized: "sidebar.hoverCard.freedTerminals", defaultValue: "Freed terminals: \(value). They start again when you open this workspace.", bundle: .localizedModule) }
+    /// The hover card's split miniature, for VoiceOver.
+    static func paneCount(_ value: Int) -> String { String(localized: "sidebar.a11y.paneCount", defaultValue: "Panes: \(value)", bundle: .localizedModule) }
     static func tabCount(_ value: Int) -> String { String(localized: "sidebar.a11y.tabCount", defaultValue: "Tabs: \(value)", bundle: .localizedModule) }
     /// The hover card's machine line on a workspace the Chief started for a subagent.
     /// Status entries a row folds past its limit.

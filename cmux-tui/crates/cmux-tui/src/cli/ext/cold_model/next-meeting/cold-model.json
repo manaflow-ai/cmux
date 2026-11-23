@@ -1,0 +1,5 @@
+{
+  "model": "claude-haiku-5-5",
+  "task": "A calendar widget: the next meeting today (sample: Design review at 14:00, in 25 minutes, room 4B), and in the medium size the rest of today's meetings with their times.",
+  "page": "skills/cmux-customization/references/extension-design.md"
+}

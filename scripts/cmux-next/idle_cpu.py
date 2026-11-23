@@ -151,7 +151,7 @@ PAGE_PROBE = """(() => {
     return {name, where, iterations: String(timing.iterations), duration: timing.duration};
   });
   const el = document.activeElement;
-  return JSON.stringify({visibility: document.visibilityState, focus: document.hasFocus(),
+  return JSON.stringify({visibility: document.visibilityState, focus: document.hasFocus(), ready: document.readyState,
     active: el ? el.tagName + (el.isContentEditable ? "[contenteditable]" : "") : null, animations: anims.slice(0, 20),
     animation_count: anims.length});
 })()"""
@@ -181,14 +181,20 @@ def page_activity(call, seconds: float = 10.0) -> list[dict]:
         reply = devtools(browser, "Performance.getMetrics")
         return {m["name"]: m["value"] for m in reply.get("metrics", [])} if "metrics" in reply else None
 
+    every = (call("debug.cef_pages") or {}).get("pages") or []
+    # Every page's load state, browser tabs and blank pages too: a page whose load never ends keeps Chrome's tab icon
+    # spinning (a compositor animation in the app at idle: "CompositorAnimationObserver is active for too long ...
+    # TabIcon" in the app log).
+    log("IDLE-CPU-LOADING " + json.dumps([{"browser": p.get("browser"), "origin": p.get("origin"), "path": p.get("path"),
+                                           "hidden": p.get("hidden"), "loading": p.get("loading")} for p in every]))
     # Hidden pages too: a hidden page's script runs on its renderer's main thread as a shown one's does.
-    pages = [page for page in (call("debug.cef_pages") or {}).get("pages") or []
-             if str(page.get("origin", "")).startswith("cmux-page://")]
+    pages = [page for page in every if str(page.get("origin", "")).startswith("cmux-page://")]
     out = []
     for page in pages:
         devtools(page["browser"], "Performance.enable")
         entry = {"browser": page["browser"], "origin": page.get("origin"), "path": page.get("path"),
-                 "hidden": bool(page.get("hidden")), "renderer_clients": page.get("renderer_clients")}
+                 "hidden": bool(page.get("hidden")), "loading": page.get("loading"),
+                 "renderer_clients": page.get("renderer_clients")}
         probe = devtools(page["browser"], "Runtime.evaluate", {"expression": PAGE_PROBE, "returnByValue": True})
         try:
             entry.update(json.loads(probe["result"]["value"]))
@@ -216,11 +222,18 @@ def page_activity(call, seconds: float = 10.0) -> list[dict]:
     return out
 
 
-def measure(app_pid: int, bundle: str, windows: int, window: float, each=None, threads=None) -> list[dict]:
+def renderer_pids(procs: dict) -> list[int]:
+    """The Chromium renderers among the app's processes (by the kind `bench_memory.owned` gives them)."""
+    return [pid for pid, (kind, _cmd) in procs.items() if kind.startswith("cef-renderer")]
+
+
+def measure(app_pid: int, bundle: str, windows: int, window: float, each=None, threads=None,
+            renderer_threads=None) -> list[dict]:
     """Per process: kind, command and each window's CPU %, wakeups/s, switches/s, then the medians. `each(rows, index)`,
     if given, runs after each window with that window's rows (busiest first); a new window starts after it returns, so
     its own work (a `sample`) is never inside a measured window. `threads`, if given, gets one `app_threads` list per
-    window (proc_pidinfo reads from outside the app: no call into it)."""
+    window (proc_pidinfo reads from outside the app: no call into it); `renderer_threads` gets one {pid: groups} per
+    window for every Chromium renderer (a renderer's CPU with no page script names its compositor or IO threads)."""
     procs = bench_memory.owned(app_pid, bundle)
 
     def mark():
@@ -229,11 +242,17 @@ def measure(app_pid: int, bundle: str, windows: int, window: float, each=None, t
     spans = []
     for index in range(windows):
         before_threads = bench_memory.thread_times(app_pid) if threads is not None else None
+        before_renderers = {pid: bench_memory.thread_times(pid) for pid in renderer_pids(procs)} \
+            if renderer_threads is not None else None
         start = mark()
         time.sleep(window)  # the measured idle window: no call into the app or its processes
         spans.append((start, mark()))
+        seconds = spans[-1][1][0] - start[0]
         if threads is not None:
-            threads.append(app_threads(before_threads, bench_memory.thread_times(app_pid), spans[-1][1][0] - start[0]))
+            threads.append(app_threads(before_threads, bench_memory.thread_times(app_pid), seconds))
+        if renderer_threads is not None:
+            renderer_threads.append({pid: app_threads(before, bench_memory.thread_times(pid), seconds)
+                                     for pid, before in before_renderers.items()})
         if each is not None:
             each(rows_of(procs, spans[-1:]), index)
     return rows_of(procs, spans)
@@ -539,16 +558,23 @@ def main(argv: list[str] | None = None) -> int:
                     f"cpu_pct={top['cpu_pct']} top_frame={top_frame(text)!r}")
 
         threads: list = []
+        renderer_threads: list = []
         rows = measure(process.pid, bundle, args.windows, args.window,
-                       each if args.sample_each_window and not args.no_sample else None, threads)
+                       each if args.sample_each_window and not args.no_sample else None, threads, renderer_threads)
         result["processes"] = rows
         result["app_threads"] = threads
+        result["renderer_threads"] = [{str(pid): groups for pid, groups in window.items()} for window in renderer_threads]
         result["pages"] = page_activity(lambda method, params=None: client.call(method, params, timeout=30))
         for entry in result["pages"]:
             log("IDLE-CPU-PAGE " + json.dumps(entry, sort_keys=True))
         for index, groups in enumerate(threads):
             log(f"IDLE-CPU-THREADS {index + 1}/{args.windows} app " + " ".join(
                 f"{entry['name']!r}x{entry['threads']}={entry['cpu_ms_per_s']}" for entry in groups[:16]))
+        for index, window in enumerate(renderer_threads):
+            for pid, groups in window.items():
+                if groups and sum(entry["cpu_ms_per_s"] for entry in groups) >= 0.5:  # quiet renderers: no line
+                    log(f"IDLE-CPU-THREADS {index + 1}/{args.windows} cef-renderer pid={pid} " + " ".join(
+                        f"{entry['name']!r}x{entry['threads']}={entry['cpu_ms_per_s']}" for entry in groups[:16]))
         for row in rows:
             log(f"IDLE-CPU {row['kind']} pid={row['pid']} cpu_pct={row['cpu_pct']} wakeups_per_s={row['wakeups_per_s']} "
                 f"switches_per_s={row['switches_per_s']} windows={json.dumps([[w['cpu_pct'], w['wakeups_per_s']] for w in row['windows']])}")
