@@ -12,6 +12,12 @@
 #   infinite-items-linux.sh before=hosts ...: first runs the same build with CMUX_TUI_TERMINAL_HOST_MODEL=hosts (a
 #     cmux-tui-host per terminal), then the product default (also hosts while the holder is off by default).
 #   infinite-items-linux.sh ... --terminal-host-model=holder: measures the one holder (the harness ignores the caller's env).
+#   infinite-items-linux.sh live=1 ...: first runs the same build with idle hibernation off (ACPMUX_IDLE_CHILD_SECS=0, so
+#     every chat keeps its agent) and no simulated day (LIVE lines): what an item costs live, beside what it costs
+#     hibernated, from one build on one runner in one job. live_counts=50,200 gives the live pass its own counts
+#     (each live chat holds an agent host and an agent, so 1,000 of them need tens of GB).
+#   infinite-items-linux.sh freed=1 ...: last, runs the same build with every tab parked after the open and each day
+#     (--park-idle, FREED lines): what an item costs once the app's freeing tier (workspaces.freeing, a day idle) took it.
 #   infinite-items-linux.sh musl=1 ...: builds the shipped musl flavor (cargo-zigbuild, x86_64-unknown-linux-musl) and
 #     measures those binaries (not with before=ref:, which builds REF for the host).
 # Builds release acpmux and cmux-tui (cmux-tui/), then prints INFINITE and PERF_ROW lines.
@@ -24,6 +30,9 @@ build_only=0
 before=""
 musl=0
 repeat=1
+live=0
+live_counts=""
+freed=0
 extra=()
 for arg in "$@"; do
   case "$arg" in
@@ -34,6 +43,9 @@ for arg in "$@"; do
     before=*) before="${arg#before=}" ;;
     musl=*) musl="${arg#musl=}" ;;
     repeat=*) repeat="${arg#repeat=}" ;;
+    live=*) live="${arg#live=}" ;;
+    live_counts=*) live_counts="${arg#live_counts=}" ;;
+    freed=*) freed="${arg#freed=}" ;;
     page_counts=*) page_counts="${arg#page_counts=}" ;;
     --*) extra+=("$arg") ;;
     *) echo "infinite-items-linux.sh: unknown argument $arg" >&2; exit 2 ;;
@@ -94,6 +106,12 @@ else
 fi
 status=0
 ulimit -n 65536 2>/dev/null || ulimit -n "$(ulimit -Hn)" || true
+if [[ "$live" == 1 ]]; then
+  echo "INFINITE-LIVE counts=${live_counts:-$counts} head=$(git rev-parse HEAD) mem_gb=$(awk '/MemTotal/ {printf "%.0f", $2 / 1048576}' /proc/meminfo)"
+  python3 scripts/measure/infinite-items.py --acpmux "$bin/acpmux" --tui "$bin/cmux-tui" \
+    --counts "${live_counts:-$counts}" --days 0 --idle-child-secs=0 ${extra[@]+"${extra[@]}"} 2>&1 \
+    | sed -u 's/^/LIVE /' || status=$?
+fi
 if [[ "$before" == own-exe ]]; then
   own_dir="$(mktemp -d)"
   cp "$bin/cmux-tui" "$own_dir/cmux-tui"
@@ -155,6 +173,10 @@ elif [ -n "$before" ]; then
 fi
 python3 scripts/measure/infinite-items.py --acpmux "$bin/acpmux" --tui "$bin/cmux-tui" \
   --counts "$counts" --days "$days" --out "$out/infinite-items.json" ${extra[@]+"${extra[@]}"} || status=$?
+if [[ "$freed" == 1 ]]; then
+  python3 scripts/measure/infinite-items.py --acpmux "$bin/acpmux" --tui "$bin/cmux-tui" \
+    --counts "$counts" --days "$days" --park-idle ${extra[@]+"${extra[@]}"} 2>&1 | sed -u 's/^/FREED /' || status=$?
+fi
 if [[ "$pages" == 1 ]]; then
   cd "$root/webviews"
   if command -v bun >/dev/null; then
