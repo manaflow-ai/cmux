@@ -396,18 +396,22 @@ impl Hub {
     /// The harness process ended and its background subagents with it (`work_below.rs`
     /// `end_background_subagents`): each top-level one acpmux saw running ends `disconnected`,
     /// resumable when acpmux has its brief.
-    pub(super) fn subagents_lost(&self, session: &Session) {
+    /// Returns the ones it ended.
+    pub(super) fn subagents_lost(&self, session: &Session) -> Vec<String> {
         let running: Vec<(String, Brief)> = {
             let all = self.subagent_resumes.lock();
             let subs = all.get(&session.id).into_iter().flatten();
             subs.filter(|(_, b)| b.state == "running" && b.background).cloned().collect()
         };
+        let mut lost = Vec::with_capacity(running.len());
         for (id, _) in running {
             let (_, now) =
                 self.subagent_resumes.apply(&session.id, &id, &json!({"state": "disconnected"}));
             let extra = json!({"resumable": now.resumable(), "reason": "harness_exit"});
             self.append_resume_entry(session, &id, "disconnected", extra);
+            lost.push(id);
         }
+        lost
     }
 
     /// A chat closed: nothing of it resumes.

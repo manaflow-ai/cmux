@@ -186,7 +186,14 @@ async fn exercise_selection_then_creation(
             let incoming = mac.accept().await.unwrap();
             services.spawn(serve(
                 Arc::clone(&config),
-                Peer { device_id: "test-phone".into(), session_id: "test-session".into(), video: None, session_exposure: None },
+                Peer {
+                    device_id: "test-phone".into(),
+                    session_id: "test-session".into(),
+                    video: None,
+                    session_exposure: None,
+                    route: None,
+                    path: None,
+                },
                 Arc::new(LinkAuth::default()),
                 incoming,
             ));
