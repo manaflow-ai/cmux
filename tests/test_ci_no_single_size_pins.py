@@ -64,6 +64,11 @@ EXCEPTIONS: dict[re.Pattern[str], str] = {
 }
 # Whole selections that keep their literal on purpose -> why.
 SELECTIONS_KEPT_LITERAL = {
+    ("relay-tls.yml", "jobs.system-keychain.runs-on"): (
+        "adds and removes a root CA in the System keychain under sudo and selects Xcode 16.2, so it needs a "
+        "disposable Blacksmith macOS 15 machine; on PR #51718 the macos_15 pool read sent it to an owned mini "
+        "(glaeda-std-xcode-26.6, job 137906049596), where Xcode 16.2 is absent and a keychain write would persist"
+    ),
     ("billing-nightly.yml", "jobs.alert.runs-on"): (
         "holds the billing health token, and main's billing guard keeps every secret job off a variable runner "
         "(tests/test_ci_billing_nightly.py test_secret_jobs_run_on_a_literal_runner)"
