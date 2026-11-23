@@ -339,6 +339,7 @@ fn move_sessions_takes_the_same_flags_as_session_move() {
         from: Some("mini-3".into()),
         slow_ok: false,
         abort: false,
+        from_snapshot: false,
     };
     for verb in [&["move-sessions"][..], &["session", "move"][..]] {
         for machine in ["--machine", "--host"] {

@@ -592,6 +592,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             from,
             slow_ok,
             abort,
+            from_snapshot,
         }) => {
             if abort {
                 return super::session_move::end_stale(&sessions, from.as_deref(), json_out).await;
@@ -610,6 +611,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 resume_there: false,
                 from,
                 slow_ok,
+                from_snapshot,
             };
             super::session_move::run(args, json_out).await
         }

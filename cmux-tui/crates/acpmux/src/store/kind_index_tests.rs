@@ -869,7 +869,9 @@ fn an_indexed_read_back_makes_the_copies_a_chat_that_ran_on_lacks() {
     store.flush().unwrap();
     let segments = store.segments("c").unwrap();
     assert!(segments.len() >= 4, "{} segments", segments.len());
-    assert!(!root.join("c").join(DIR).exists(), "no log load made a copy");
+    // The appends copied each segment they filled (`store/segment_writer.rs`); a chat written
+    // before that has none.
+    std::fs::remove_dir_all(root.join("c").join(DIR)).unwrap();
     let log_bytes: u64 = segments.iter().map(|(_, p)| std::fs::metadata(p).unwrap().len()).sum();
 
     let page = |store: &LocalStore| {
@@ -1049,4 +1051,45 @@ fn a_copy_carried_to_a_copied_segment_is_read_and_one_of_other_bytes_is_not() {
     assert!(!short, "a copy of more bytes than the file holds is not carried");
     let _ = std::fs::remove_dir_all(&from_root);
     let _ = std::fs::remove_dir_all(&to_root);
+}
+
+/// A chat written but never scanned (a new or seeded chat, one moved in) has a copy of every
+/// segment its appends filled, made at the rotation (`store/segment_writer.rs`), each saying all
+/// its lines read: its first strict scan, a first start's transfer authority, reads the copies
+/// and the open segment, not the history (a seeded 1 GB chat read 1.18 GB at its first start).
+#[test]
+fn a_chat_never_scanned_has_a_copy_of_every_filled_segment() {
+    let root = root();
+    let (store, log) = store_with_log(&root, 40);
+    let segments = store.segments("c").unwrap();
+    assert!(segments.len() > 8, "{} segments", segments.len());
+    let (open, filled) = segments.split_last().unwrap();
+    for (index, path) in filled {
+        let stamp = kind_index::Stamp::of(&std::fs::File::open(path).unwrap()).unwrap();
+        if stamp.id.2 == 0 {
+            return; // No birth time on this file system: no copies kept.
+        }
+        let (_, len, parsed) = store.read_kind_index("c", *index, &stamp).expect("a copy");
+        assert_eq!(len, stamp.len, "segment {index}: the copy covers it whole");
+        assert!(parsed, "segment {index}: the copy says every line read");
+    }
+    assert!(!root.join("c").join(DIR).join(format!("{:06}.ndjson", open.0)).exists());
+    let kinds = ["queued", "turn_result"];
+    let expected: Vec<EventRecord> =
+        log.iter().filter(|r| kinds.contains(&r.kind.as_str())).cloned().collect();
+    let log_bytes: u64 = segments.iter().map(|(_, p)| std::fs::metadata(p).unwrap().len()).sum();
+    let before = read_bytes();
+    let mut got = Vec::new();
+    store
+        .scan_kinds_strict("c", &kinds, &mut |r| {
+            got.push(r);
+            true
+        })
+        .unwrap();
+    let read = read_bytes() - before;
+    assert_eq!(got, expected);
+    if cfg!(target_os = "linux") {
+        assert!(read * 2 < log_bytes, "the first strict scan read {read} of {log_bytes} bytes");
+    }
+    let _ = std::fs::remove_dir_all(&root);
 }

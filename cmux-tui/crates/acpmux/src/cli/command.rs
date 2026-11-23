@@ -77,6 +77,12 @@ pub struct MoveSessionsArgs {
     /// frozen, and this says why.
     #[arg(long, conflicts_with_all = ["all_idle", "dry_run", "slow_ok"])]
     pub abort: bool,
+    /// Start the chats on the machine from this machine's copy of them, for a machine that does
+    /// not answer: their transcript (the newest records kept here) and name, in a new chat
+    /// there. Name each as MACHINE/CHAT, or pass --from MACHINE. The chat on the dead machine is
+    /// left as it is.
+    #[arg(long, conflicts_with_all = ["all_idle", "interrupt", "after_turn", "carry_changes", "leave_dirty"])]
+    pub from_snapshot: bool,
 }
 
 #[derive(Parser)]
