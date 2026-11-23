@@ -254,6 +254,18 @@ fn written_since(path: &Path, limit_ms: u64, only_with_bytes: bool) -> bool {
 /// So this does not see a folder that a rename moves to a name at or before
 /// the place, when nothing wrote its stores since. The reset command makes
 /// such a rename: [`in_reset`] is for it.
+///
+/// 2 limits. A session that counts as written in each pass is read in each
+/// pass: one with a link at a name that this looks at, and so a folder of
+/// the reset's form and a store that a daemon writes all the time. A check
+/// that needs more than 1 call comes to its numbers only when one call can
+/// read each such session in its pass. So the last call of a caller must
+/// have no end time: with an end time in each call, the check can answer
+/// `not_ready` in each call. And a second name of a store file in another
+/// folder (a hard link) is not seen: a write through that name goes to the
+/// `-wal` file next to that name, the 2 names that this looks at say
+/// nothing of it, and a read by the session's name does not read that
+/// `-wal` file.
 fn changed_since(session: &Path, since_ms: u64) -> bool {
     let limit_ms = since_ms.saturating_sub(FILE_TIME_MARGIN_MS);
     STORES.iter().any(|(_, file, _)| {
