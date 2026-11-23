@@ -260,6 +260,9 @@ public protocol TerminalSession: AnyObject {
     func noteReaderRowsFromEnd(_ rows: Int)
     /// The session itself, under any session wrapping it (the projection).
     var underlyingSession: AnyObject { get }
+    /// One pan of the screen ended: its frame intervals, for a session with a Mac to log
+    /// there (`phone-frames`). Others ignore it.
+    func reportScrollFrames(_ pan: TerminalPanFrames)
 }
 
 extension TerminalSession {
@@ -304,6 +307,7 @@ extension TerminalSession {
     public func noteReaderRowsFromEnd(_ rows: Int) {}
 
     public var underlyingSession: AnyObject { self }
+    public func reportScrollFrames(_ pan: TerminalPanFrames) {}
 
     public var hostGridOwnerName: String? { nil }
 }
