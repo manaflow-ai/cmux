@@ -125,7 +125,9 @@ jobs:
             // The artifacts run points the channel at a build before its publish job writes the manifest the roll
             // pins from (pin-cmux-tui.ts); a roll before then plans "not published for the image" and rolls nothing.
             const manifestUrl = `https://files.cmux.com/cmux-tui/${commit}/manifest.json`;
-            const manifestRes = await fetch(manifestUrl, { cache: 'no-store', signal: AbortSignal.timeout(30_000) });
+            // A query of its own: the edge can cache a 404, and the roll's pin-cmux-tui.ts reads the bare URL right
+            // after the publish (cmux-tui-artifacts.yml's own probes add one for the same reason).
+            const manifestRes = await fetch(`${manifestUrl}?catch-up=${context.runId}`, { cache: 'no-store', signal: AbortSignal.timeout(30_000) });
             if (manifestRes.status === 404) {
               core.notice(`cmux-tui ${commit.slice(0, 12)} is on the channel but not published yet (${manifestUrl}: 404); nothing to start`);
               return;

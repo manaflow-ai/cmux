@@ -42,7 +42,7 @@ beforeEach(() => {
   manifest = { status: 200, commit: NEW, lastModified: null };
   globalThis.fetch = async (url) => {
     fetched.push(String(url));
-    if (String(url).endsWith('/manifest.json')) {
+    if (String(url).includes('/manifest.json')) {
       return {
         ok: manifest.status === 200, status: manifest.status,
         headers: { get: (h) => (h === 'last-modified' ? manifest.lastModified : null) },
@@ -87,7 +87,7 @@ function fakeGitHub({ pending = {}, mode = 'live', pin = PIN, compare = 'ahead',
 
 async function runStep(github) {
   const core = { notices: [], warnings: [], notice(m) { this.notices.push(m); }, warning(m) { this.warnings.push(m); }, info() {} };
-  const context = { repo: { owner: 'o', repo: 'r' } };
+  const context = { repo: { owner: 'o', repo: 'r' }, runId: 4242 };
   const fakeProcess = { ...process, env: { ...process.env, GH_BUDGET_WAIT_JS: '' } };
   await new AsyncFunction('github', 'context', 'core', 'process', workflowScript())(github, context, core, fakeProcess);
   return core;
@@ -97,7 +97,7 @@ test('a channel build newer than the pin dispatches its roll on feat-cmux-next',
   const { github, calls } = fakeGitHub();
   const core = await runStep(github);
   assert.deepEqual(calls.dispatches, [{ owner: 'o', repo: 'r', workflow_id: 'cloud-vm-image-roll.yml', ref: 'refs/heads/feat-cmux-next', inputs: { commit: NEW } }]);
-  assert.deepEqual(fetched, ['https://files.cmux.com/cmux-tui/channels/cloud-machine.json', `https://files.cmux.com/cmux-tui/${NEW}/manifest.json`]);
+  assert.deepEqual(fetched, ['https://files.cmux.com/cmux-tui/channels/cloud-machine.json', `https://files.cmux.com/cmux-tui/${NEW}/manifest.json?catch-up=4242`]);
   assert.deepEqual(calls.compared, [`${PIN}...${NEW}`]);
   assert.ok(calls.files.every((f) => f.ref === 'refs/heads/feat-cmux-next'));
   const since = calls.listed.find((a) => a.status === 'completed');
