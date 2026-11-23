@@ -1,5 +1,5 @@
-//! The inbox reader (`inbox_reader.rs`): what it reads, its answer, the cache, the 2 s fail-open,
-//! and that a blocker never waits for it.
+//! The inbox reader (`inbox_reader.rs`): what it reads, its answer, the cache, and that no notice
+//! ever waits for it.
 
 use super::super::*;
 use super::*;
@@ -53,17 +53,6 @@ fn running(session: &Session) {
 fn went(session: &Session) -> bool {
     let inbox = session.inbox();
     inbox.in_flight.is_some() || inbox.refused_at != 0
-}
-
-async fn until_carried(session: &Session, within: Duration) -> Option<Duration> {
-    let started = Instant::now();
-    while started.elapsed() < within {
-        if went(session) {
-            return Some(started.elapsed());
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    None
 }
 
 #[test]
@@ -129,12 +118,15 @@ fn a_whole_notice_has_no_summaries() {
     let mut summaries = Summaries::new();
     summaries.insert("p-short".into(), Summary { score: 3, line: "s".into() });
     assert_eq!(render_read(&[&short], &summaries), render(&[&short]));
-    assert!(matches!(lookup("reader-unset-chat", &[&short]), Lookup::Ready(s) if s.is_empty()));
+    let (s, jobs) = lookup("reader-unset-chat", &[&short]);
+    assert!(s.is_empty() && jobs.is_empty());
 }
 
-/// The notice waits for a read that answers in time and shows it; a re-render reads no model.
+/// The notice goes at once with the plain previews while the reads run; once they end, a later
+/// notice of the same messages (one held back, refused and retried) shows their summaries, and
+/// reads no model again.
 #[tokio::test]
-async fn a_notice_waits_for_a_fast_summary_and_its_cache_serves_the_next() {
+async fn a_notice_never_waits_and_a_later_one_shows_the_cached_summary() {
     let (hub, session) = hub_with_chat("reader-fast");
     running(&session);
     let calls = Arc::new(AtomicUsize::new(0));
@@ -152,23 +144,31 @@ async fn a_notice_waits_for_a_fast_summary_and_its_cache_serves_the_next() {
     session.inbox().items.push(item("f-a", "ta", PromptClass::Fyi, now, &long("alpha")));
     session.inbox().items.push(item("f-b", "tb", PromptClass::Result, now, &long("beta")));
     hub.inbox_review(&session);
-    assert_eq!(carried(&session), None, "it waits for the reads");
-    let took = until_carried(&session, Duration::from_secs(3)).await.expect("delivered");
-    assert!(took < WAIT, "went once the reads ended, not at the deadline: {took:?}");
-    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    assert_eq!(carried(&session), Some(vec!["f-a".into(), "f-b".into()]), "it went at once");
     let new: Vec<Item> = vec![
         item("f-a", "ta", PromptClass::Fyi, now, &long("alpha")),
         item("f-b", "tb", PromptClass::Result, now, &long("beta")),
     ];
     let refs: Vec<&Item> = new.iter().collect();
-    let Lookup::Ready(s) = lookup(&session.id, &refs) else { panic!("cached") };
-    assert_eq!(s["f-a"].line, "alpha summarized");
-    assert_eq!(calls.load(Ordering::SeqCst), 2, "the re-render read no model");
+    let started = Instant::now();
+    loop {
+        let (s, jobs) = lookup(&session.id, &refs);
+        assert!(jobs.is_empty(), "the notice started both reads");
+        if s.len() == 2 {
+            assert_eq!(s["f-a"].line, "alpha summarized");
+            let (text, _) = render_read(&refs, &s);
+            assert!(text.contains("(summary) alpha summarized"), "{text}");
+            break;
+        }
+        assert!(started.elapsed() < Duration::from_secs(3), "reads ended");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 2, "the later notice read no model");
 }
 
-/// A read past 2 s: the notice goes with the plain preview at the deadline (fail open).
+/// A read that takes 5 s holds no notice up: it goes at once, a steer or a wake alike.
 #[tokio::test]
-async fn a_slow_reader_fails_open_at_two_seconds() {
+async fn a_slow_reader_holds_no_notice() {
     let (hub, session) = hub_with_chat("reader-slow");
     running(&session);
     set_test_summarizer(
@@ -180,12 +180,16 @@ async fn a_slow_reader_fails_open_at_two_seconds() {
     );
     let now = now_ms();
     session.inbox().items.push(item("s-a", "ta", PromptClass::Result, now, &long("alpha")));
-    hub.inbox_review(&session);
-    let took = until_carried(&session, Duration::from_secs(4)).await.expect("delivered");
-    assert!(
-        took >= WAIT - Duration::from_millis(50) && took < WAIT + Duration::from_millis(700),
-        "{took:?}"
+    hub.inbox_reader_prefetch(
+        &session,
+        "s-a",
+        "lane-a",
+        PromptClass::Result,
+        false,
+        &long("alpha"),
     );
+    hub.inbox_review(&session);
+    assert_eq!(carried(&session), Some(vec!["s-a".into()]), "it went at once");
 }
 
 /// A notice that carries a block, a question or a FIRE never waits for the reader.
@@ -256,7 +260,7 @@ fn inbox_reader_render_cost() {
         std::hint::black_box(render(&refs));
     });
     let read = time(&|| {
-        let Lookup::Ready(s) = lookup("bench", &refs) else { panic!() };
+        let (s, _) = lookup("bench", &refs);
         std::hint::black_box(render_read(&refs, &s));
     });
     println!(

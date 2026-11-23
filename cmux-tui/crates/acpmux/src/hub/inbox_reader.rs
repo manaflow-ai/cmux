@@ -14,10 +14,11 @@
 //!   first line past `PREVIEW_CHARS`) and that is no blocker (a block or a question) and no
 //!   FIRE. Those keep their words: a blocker's thread line is never a summary.
 //! - When: as the message comes ([`Hub::inbox_reader_prefetch`], called by `inbox_accept`), off
-//!   its path, so the summary is usually ready before the notice that carries it goes. A notice
-//!   that finds one not ready waits for it at most [`WAIT`] from its first try, then goes with
-//!   the plain preview (fail open). A notice that carries a blocker or a FIRE never waits: it
-//!   takes the summaries that are ready and goes at once.
+//!   its path. A notice NEVER waits for the reader: it goes when it would with the reader off,
+//!   with the summaries already cached, and the plain preview for the rest. A message a notice
+//!   carries before its read ends shows its preview there; a later notice that carries it again
+//!   (one held back, refused and retried) shows its summary. Speed over tokens (Leo, above): a
+//!   bench (`inbox_reader_latency`) showed a 2 s wait for the read put a steer 2 s late.
 //! - The model: `complete_own` on the `claude` harness (else the default one) with
 //!   `ModelFallback::SmallOnly`, so Claude's small model (the `haiku` alias, which is
 //!   claude-haiku-5-5 first-party, or the provider's Haiku the user maps) under the harness's
@@ -33,9 +34,7 @@ use super::*;
 use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
 
-/// The longest a notice waits for its summaries, from its first try.
-pub(in crate::hub) const WAIT: Duration = Duration::from_secs(2);
-/// The longest one read runs. Past [`WAIT`] it only fills the cache for a later notice.
+/// The longest one read runs. It only fills the cache: no notice waits for it.
 const READ_TIMEOUT: Duration = Duration::from_secs(15);
 /// The answer, in tokens: a score and one line.
 const MAX_TOKENS: u32 = 96;
@@ -63,8 +62,8 @@ pub(in crate::hub) struct Summary {
 pub(in crate::hub) type Summaries = HashMap<String, Summary>;
 
 enum Entry {
-    /// Being read; `waited` is when a notice first waited for it.
-    Pending { waited: Option<Instant> },
+    /// Being read.
+    Pending,
     /// Read: its summary, or none when the read failed.
     Done(Option<Summary>),
 }
@@ -91,9 +90,6 @@ impl Cache {
 static CACHE: std::sync::LazyLock<StdMutex<Cache>> = std::sync::LazyLock::new(Default::default);
 static READS: std::sync::LazyLock<tokio::sync::Semaphore> =
     std::sync::LazyLock::new(|| tokio::sync::Semaphore::new(SLOTS));
-/// Woken when a read ends.
-static READ_DONE: std::sync::LazyLock<tokio::sync::Notify> =
-    std::sync::LazyLock::new(tokio::sync::Notify::new);
 
 fn cache() -> std::sync::MutexGuard<'static, Cache> {
     CACHE.lock().unwrap_or_else(|e| e.into_inner())
@@ -193,14 +189,6 @@ pub(in crate::hub) struct Job {
     text: String,
 }
 
-/// What a notice of new messages does about its summaries ([`lookup`]).
-pub(in crate::hub) enum Lookup {
-    /// Go now with these.
-    Ready(Summaries),
-    /// Wait for the reads of `keys` (start `jobs` first) until `deadline`, then try again.
-    Wait { keys: Vec<(String, String)>, deadline: Instant, jobs: Vec<Job> },
-}
-
 /// The messages of `items` (the new ones) whose thread line a summary takes: the newest of each
 /// thread with no blocker, when the notice shows previews at all (not every message whole).
 fn summarized<'a>(items: &[&'a Item]) -> Vec<&'a Item> {
@@ -222,55 +210,35 @@ fn summarized<'a>(items: &[&'a Item]) -> Vec<&'a Item> {
         .collect()
 }
 
-/// The summaries the notice of `items` (chat `session_id`'s new messages) shows, or how long it
-/// waits for them first (module docs). Takes no model call itself: the jobs it returns do.
-pub(in crate::hub) fn lookup(session_id: &str, items: &[&Item]) -> Lookup {
-    if !on(session_id) {
-        return Lookup::Ready(Summaries::new());
-    }
-    let urgent = items.iter().any(|i| i.class.urgent() || i.fire);
-    let now = Instant::now();
+/// The summaries the notice of `items` (chat `session_id`'s new messages) shows: the ones
+/// cached, never a wait for one (module docs). With them, the reads to start for messages no
+/// read started for (one that came before a restart), marked started. Takes no model call.
+pub(in crate::hub) fn lookup(session_id: &str, items: &[&Item]) -> (Summaries, Vec<Job>) {
     let mut ready = Summaries::new();
-    let mut keys = Vec::new();
     let mut jobs = Vec::new();
-    let mut deadline = now;
+    if !on(session_id) {
+        return (ready, jobs);
+    }
     let mut cache = cache();
     for item in summarized(items) {
         let key = (session_id.to_owned(), item.prompt_id.clone());
-        match cache.map.get_mut(&key) {
+        match cache.map.get(&key) {
             Some(Entry::Done(Some(summary))) => {
                 ready.insert(item.prompt_id.clone(), summary.clone());
             }
-            Some(Entry::Done(None)) => {}
-            // A notice that carries a blocker never waits.
-            _ if urgent => {}
-            Some(Entry::Pending { waited }) => {
-                let until = *waited.get_or_insert(now) + WAIT;
-                if until > now {
-                    deadline = deadline.max(until);
-                    keys.push(key);
-                }
-            }
+            Some(_) => {}
             None => {
-                cache.insert(key.clone(), Entry::Pending { waited: Some(now) });
+                cache.insert(key, Entry::Pending);
                 jobs.push(Job {
                     session_id: session_id.to_owned(),
                     prompt_id: item.prompt_id.clone(),
                     from: item.from.clone(),
                     text: item.text.clone(),
                 });
-                deadline = deadline.max(now + WAIT);
-                keys.push(key);
             }
         }
     }
-    if keys.is_empty() { Lookup::Ready(ready) } else { Lookup::Wait { keys, deadline, jobs } }
-}
-
-/// Whether every read of `keys` ended.
-fn all_done(keys: &[(String, String)]) -> bool {
-    let cache = cache();
-    keys.iter().all(|k| !matches!(cache.map.get(k), Some(Entry::Pending { .. })))
+    (ready, jobs)
 }
 
 impl Hub {
@@ -295,7 +263,7 @@ impl Hub {
             if cache.map.contains_key(&key) {
                 return;
             }
-            cache.insert(key, Entry::Pending { waited: None });
+            cache.insert(key, Entry::Pending);
         }
         let job = Job {
             session_id: session.id.clone(),
@@ -307,7 +275,11 @@ impl Hub {
     }
 
     /// Runs `jobs`, each in a task of its own, caching each one's summary as it ends.
-    fn inbox_read_jobs(self: &Arc<Self>, session: &Arc<Session>, jobs: Vec<Job>) {
+    pub(in crate::hub) fn inbox_read_jobs(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        jobs: Vec<Job>,
+    ) {
         for job in jobs {
             let hub = Arc::clone(self);
             let goal = session.meta().goal.as_ref().map(|g| g.objective.clone());
@@ -329,7 +301,6 @@ impl Hub {
                     }
                 };
                 cache().insert((job.session_id, job.prompt_id), Entry::Done(summary));
-                READ_DONE.notify_waiters();
             });
         }
     }
@@ -363,34 +334,6 @@ impl Hub {
             Ok(Err(e)) => Err(e.reason().to_owned()),
             Err(_) => Err("timed out".into()),
         }
-    }
-
-    /// The notice of `session` waits for its summaries ([`Lookup::Wait`]): starts the reads it
-    /// needs, and looks at the inbox again once they end or `deadline` passes, whichever is
-    /// first. A message that comes meanwhile reviews the inbox as always (a blocker goes then).
-    pub(in crate::hub) fn inbox_reader_wait(
-        self: &Arc<Self>,
-        session: &Arc<Session>,
-        keys: Vec<(String, String)>,
-        deadline: Instant,
-        jobs: Vec<Job>,
-    ) {
-        self.inbox_read_jobs(session, jobs);
-        let hub = Arc::clone(self);
-        let session = Arc::clone(session);
-        self.scope.spawn_named("inbox-reader-wait", async move {
-            let deadline = tokio::time::Instant::from_std(deadline);
-            loop {
-                let done = READ_DONE.notified();
-                if all_done(&keys) {
-                    break;
-                }
-                if tokio::time::timeout_at(deadline, done).await.is_err() {
-                    break;
-                }
-            }
-            hub.inbox_review(&session);
-        });
     }
 }
 

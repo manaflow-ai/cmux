@@ -1743,7 +1743,7 @@ impl Hub {
     /// and answers their waiting `session/prompt`s with how it went in.
     fn deliver_notice(self: &Arc<Self>, session: &Arc<Session>, steer: bool) {
         let notice_id = format!("{NOTICE_ID_PREFIX}{}", uuid::Uuid::now_v7());
-        let (text, whole, parts, ids) = {
+        let (text, whole, parts, ids, reads) = {
             let mut inbox = session.inbox();
             if inbox.in_flight.is_some() {
                 return;
@@ -1751,18 +1751,12 @@ impl Hub {
             if inbox.items.iter().all(|i| i.noticed) {
                 return;
             }
-            // The reader's summaries (`inbox_reader.rs`): ready, or a short wait for them first.
-            let looked = {
+            // The reader's summaries that are cached (`inbox_reader.rs`): the notice never waits
+            // for one. `reads` are the ones no read started for yet (a message from before a
+            // restart), started once the lock is let go.
+            let (summaries, reads) = {
                 let new: Vec<&Item> = inbox.items.iter().filter(|i| !i.noticed).collect();
                 reader::lookup(&session.id, &new)
-            };
-            let summaries = match looked {
-                reader::Lookup::Ready(summaries) => summaries,
-                reader::Lookup::Wait { keys, deadline, jobs } => {
-                    drop(inbox);
-                    self.inbox_reader_wait(session, keys, deadline, jobs);
-                    return;
-                }
             };
             // The wake timer is done: this notice carries what it waited for.
             if let Some(timer) = inbox.timer.take() {
@@ -1815,8 +1809,9 @@ impl Hub {
             inbox.in_flight = Some((notice_id.clone(), ids.clone()));
             let carry = Carry { notice: notice_id.clone(), ids: ids.clone(), steer, waiters };
             inbox.carrying.push(carry);
-            (text, whole, parts, ids)
+            (text, whole, parts, ids, reads)
         };
+        self.inbox_read_jobs(session, reads);
         let provenance = json!({"kind": NOTICE_KIND, "noticeId": notice_id, "threads": parts});
         let opts = PromptOptions {
             prompt_id: Some(notice_id.clone()),
