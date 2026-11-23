@@ -1352,6 +1352,12 @@ export type AcpmuxSnapshot = {
     worktree?: string;
     title?: string;
     name?: string;
+    /** The name it was given (acpmux `displayName`, "Mango"): the header shows it first. */
+    displayName?: string;
+    /** Its names before its renames, oldest first (acpmux `formerNames`): the header's "fka". */
+    formerNames?: string[];
+    /** The icon it set (acpmux `icon`), drawn in place of its harness mark. */
+    icon?: HarnessIconSpec;
     /** Codex's persisted thread goal, when the harness reported one. */
     goal?: TaskGoal;
     /// The chat's task list across its turns (acpmux `taskList`, chatTaskList.ts): the harness's
@@ -1394,6 +1400,9 @@ export type AcpmuxSnapshot = {
     /// A watched Claude or Codex desktop session acpmux delivers replies into (`bridgedWatch`): a reply goes
     /// to the app and takes nothing over.
     bridged?: boolean;
+    /// A chat handed to a cmux terminal (`terminalWatch`): the terminal and the chat are two live views of one
+    /// session, so the chat takes prompts (into the terminal's harness) and shows no View Only banner.
+    terminal?: boolean;
     /// The MCP servers the harness says it loaded (acpmux `mcpServers`, from Claude Code's
     /// system/init); unset when it reports none (every ACP harness).
     mcpServers?: { name: string; status: "connected" | "failed" | "pending" }[];
@@ -1535,6 +1544,9 @@ export type AcpmuxSnapshot = {
   /// The mark of "New since you looked" drawn in the rows (`SINCE_DIVIDER`, its `key`): Jump to new
   /// follows it.
   sinceKey?: string;
+  /// A return placed that line (the chat picked, shown again, the reader back): the view opens at
+  /// it, not at the latest message (App.tsx). Unset for the line a scroll up placed.
+  sinceLands?: true;
   permission?: AcpmuxPermission;
   /// How many more asks wait behind `permission`, answered one at a time; absent when none do.
   permissionsWaiting?: number;
@@ -1797,13 +1809,18 @@ const topsIncomingTurn = (row: AcpmuxRow, prev: AcpmuxRow | undefined): boolean 
       row.steer === undefined));
 /// Whether `row` heads a turn another agent's line opened (transcriptGrid.ts MARK_HEADS_TURN): the
 /// running turn's live line right under that notice or message, or the notice or message itself right
-/// under the "Worked for" line of a turn that ended on work (its footer draws nothing), where it stood
-/// flush as that turn's last step. O(1).
+/// under the closed "Worked for" line of a turn that ended on work (its footer draws nothing), where it
+/// stood flush as that turn's last step. Under an opened "Worked for" the message is that fold's own
+/// entry (the message that opened its turn, folded in as its first entry, turns.ts `foldsPrompt`, or one
+/// received mid-turn): an activity row, flush as a tool row is there. With the head gap it stood 16
+/// under the fold's rule, over its "Sent to" (Leo, 2026-11-22 08:29Z, ST-02: "this one seems to have an
+/// unnecessary gap due to being a recieved message. these aren't categorized properly under our tool
+/// call formatting"; sim scenario `received-sent-as-activity`). O(1).
 const headsIncomingTurn = (row: AcpmuxRow, prev: AcpmuxRow | undefined): boolean =>
   prev !== undefined &&
   (prev.kind === "user"
     ? isLiveLine(row) && isStatusRow(prev)
-    : prev.kind === "worked" && row.kind === "user" && isStatusRow(row));
+    : prev.kind === "worked" && prev.foldOpen !== true && row.kind === "user" && isStatusRow(row));
 /// Whether `row` is the first tool row of a turn the agent ran on its own, right under the footer
 /// row of the turn before it: a background task's end woke the agent after that turn ended, and the
 /// task's line between them draws nothing (backgroundTurns.ts `drawsBackgroundLine`). O(1).
