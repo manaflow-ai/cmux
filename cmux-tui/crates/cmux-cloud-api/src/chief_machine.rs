@@ -382,12 +382,35 @@ pub fn create_params(start: &Start, size: ChiefSize) -> Value {
     })
 }
 
+impl ChiefSize {
+    const ALL: [Self; 4] = [Self::Included, Self::M, Self::L, Self::Xl];
+}
+
+/// `cloud.machine.create` under the start's key. A rerun whose plan read gave another size than
+/// the first run's (the plan changed, or this read failed) is refused `idempotency.conflict`: the
+/// key was sent at one of the four sizes, so the create is sent again at the others until it
+/// replays the machine the first run made. Never a second machine.
+async fn create<C: Cloud>(cloud: &C, start: &Start, size: ChiefSize) -> Result<Value, Failure> {
+    fn conflict(made: &Result<Value, Failure>) -> bool {
+        matches!(made, Err(Failure::Http { code: Some(code), .. }) if code == "idempotency.conflict")
+    }
+    let key = format!("chief-machine-{}-create", start.key);
+    let first = cloud.op("cloud.machine.create", create_params(start, size), &key).await;
+    if !conflict(&first) {
+        return first;
+    }
+    for other in ChiefSize::ALL.into_iter().filter(|s| *s != size) {
+        let made = cloud.op("cloud.machine.create", create_params(start, other), &key).await;
+        if !conflict(&made) {
+            return made;
+        }
+    }
+    first
+}
+
 /// The machine, made at `size` or found by its key, running with a host.
 async fn machine<C: Cloud>(cloud: &C, start: &Start, size: ChiefSize) -> Result<Value, Failure> {
-    let params = create_params(start, size);
-    let made = cloud
-        .op("cloud.machine.create", params, &format!("chief-machine-{}-create", start.key))
-        .await?;
+    let made = create(cloud, start, size).await?;
     let id = id_of(&made, "/machine/id")
         .ok_or_else(|| Failure::Decoding("cloud.machine.create: no machine id".into()))?;
     let mut waited = Duration::ZERO;

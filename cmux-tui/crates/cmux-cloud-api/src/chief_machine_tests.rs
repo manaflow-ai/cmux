@@ -35,9 +35,14 @@ impl Cloud for Fake {
             "cloud.machine.create" => {
                 let mut machines = self.machines.borrow_mut();
                 let n = machines.len();
-                let row = machines.entry(key.to_owned()).or_insert_with(
-                    || json!({ "id": format!("vm_{n:020}"), "name": params["name"] }),
-                );
+                let row = machines.entry(key.to_owned()).or_insert_with(|| {
+                    json!({ "id": format!("vm_{n:020}"), "name": params["name"],
+                            "size": params["size"] })
+                });
+                // The same key with another request: refused, as the platform does.
+                if row["size"] != params["size"] {
+                    return Err(Failure::http(409, Some("idempotency.conflict".into()), None));
+                }
                 Ok(json!({ "machine": row.clone() }))
             }
             "chief.create" => {
@@ -372,4 +377,23 @@ async fn a_failed_plan_read_still_starts_the_included_chief() {
     let answer = run(&cloud, &start(true)).await.unwrap();
     assert_eq!(answer["stage"], "machine");
     assert_eq!(*cloud.creates.borrow(), included_create());
+}
+
+#[tokio::test]
+async fn a_rerun_whose_plan_read_fails_finds_the_machine_the_first_run_made() {
+    let cloud = Recording::default();
+    *cloud.fake.plan.borrow_mut() = Some(json!({ "chief_size": "L" }));
+    let first = run(&cloud, &start(true)).await.unwrap();
+    // The rerun's plan read fails: its included-size create conflicts with the first run's key,
+    // and the create at the other sizes replays the L machine.
+    *cloud.fake.plan.borrow_mut() = None;
+    let second = run(&cloud, &start(true)).await.unwrap();
+    assert_eq!(first["machine"], second["machine"]);
+    assert_eq!(cloud.fake.machines.borrow().len(), 1);
+    assert_eq!(cloud.fake.machines.borrow().values().next().unwrap()["size"]["cpu"], 4);
+    // An upgrade between the runs finds it the same way.
+    *cloud.fake.plan.borrow_mut() = Some(json!({ "chief_size": "XL" }));
+    let third = run(&cloud, &start(true)).await.unwrap();
+    assert_eq!(first["machine"], third["machine"]);
+    assert_eq!(cloud.fake.machines.borrow().len(), 1);
 }
