@@ -1,0 +1,173 @@
+diff -ruN a/encoder/core/inc/cmux_ablate.h b/encoder/core/inc/cmux_ablate.h
+--- a/encoder/core/inc/cmux_ablate.h	1970-01-01 00:00:00.000000000 +0000
++++ b/encoder/core/inc/cmux_ablate.h	2026-11-23 05:23:26.973015292 +0000
+@@ -0,0 +1,33 @@
++/*!
++ * cmux measurement patch (cmux-tui/crates/cmux-codecs/openh264-ablation.patch), never shipped:
++ * CMUX_OH264_ABLATE holds a comma list of screen-content tools to turn off, one at a time or
++ * together, so codec-bench can say which one costs screen usage its encode time. Unset, the
++ * encoder is upstream's, unchanged.
++ *   scroll   no scroll detection (METHOD_SCROLL_DETECTION)
++ *   scd      no screen scene-change pass (METHOD_SCENE_CHANGE_DETECTION_SCREEN): every frame
++ *            is SIMILAR_SCENE against the closest reference, every 8x8 block NO_STATIC
++ *   pskip    no SCD P-skip decision (static and scrolled skip before motion search)
++ *   fme      no feature-based motion search (no FME preprocess, no ME_DIA_CROSS_FME)
++ *   cross    16x16 motion search is the camera's diamond, not ME_DIA_CROSS
++ *   staticme no static or scrolled 8x8 motion search shortcuts
++ *   finemd   camera's fine-partition mode decision, not WelsMdInterFinePartitionVaaOnScreen
++ *   mvrange  camera's motion vector range (64), not the expanded 504
++ *   fasti    the fast coding functions on I slices too, as camera usage has
++ */
++#ifndef CMUX_ABLATE_H
++#define CMUX_ABLATE_H
++#include <stdlib.h>
++#include <string.h>
++
++static inline bool CmuxAblate (const char* kpKey) {
++  const char* kpList = getenv ("CMUX_OH264_ABLATE");
++  if (kpList == NULL)
++    return false;
++  const size_t kiLen = strlen (kpKey);
++  for (const char* p = kpList; (p = strstr (p, kpKey)) != NULL; p += kiLen) {
++    if ((p == kpList || p[-1] == ',') && (p[kiLen] == '\0' || p[kiLen] == ','))
++      return true;
++  }
++  return false;
++}
++#endif
+diff -ruN a/encoder/core/src/encoder.cpp b/encoder/core/src/encoder.cpp
+--- a/encoder/core/src/encoder.cpp	2026-11-23 05:22:27.989559580 +0000
++++ b/encoder/core/src/encoder.cpp	2026-11-23 05:23:41.290774099 +0000
+@@ -52,6 +52,7 @@
+ #include "svc_enc_golomb.h"
+ #include "svc_base_layer_md.h"
+ #include "svc_mode_decision.h"
++#include "cmux_ablate.h"
+ #include "set_mb_syn_cavlc.h"
+ #include "crt_util_safe_x.h" // Safe CRT routines like utils for cross_platforms
+ #include "slice_multi_threading.h"
+@@ -205,7 +206,7 @@
+   WelsInitBGDFunc (pFuncList, pParam->bEnableBackgroundDetection);
+ 	WelsInitSCDPskipFunc (pFuncList, bScreenContent &&
+                         (pParam->bEnableSceneChangeDetect) &&
+-                        (pEncCtx->pSvcParam->iComplexityMode < HIGH_COMPLEXITY));
++                        (pEncCtx->pSvcParam->iComplexityMode < HIGH_COMPLEXITY) && !CmuxAblate ("pskip"));
+ 
+   // for pfGetVarianceFromIntraVaa function ptr adaptive by CPU features, 6/7/2010
+   InitIntraAnalysisVaaInfo (pFuncList, uiCpuFlag);
+diff -ruN a/encoder/core/src/encoder_ext.cpp b/encoder/core/src/encoder_ext.cpp
+--- a/encoder/core/src/encoder_ext.cpp	2026-11-23 05:22:27.989608734 +0000
++++ b/encoder/core/src/encoder_ext.cpp	2026-11-23 05:23:41.298963062 +0000
+@@ -47,6 +47,7 @@
+ #include "svc_base_layer_md.h"
+ #include "svc_encode_slice.h"
+ #include "svc_mode_decision.h"
++#include "cmux_ablate.h"
+ #include "decode_mb_aux.h"
+ #include "deblocking.h"
+ #include "ref_list_mgr_svc.h"
+@@ -1509,8 +1510,9 @@
+   ELevelIdc iMinLevelIdc = LEVEL_5_2;
+   int32_t iMinMv = 0;
+   int32_t iMaxMv = 0;
+-  int32_t iFixMvRange = pParam->iUsageType ? EXPANDED_MV_RANGE : CAMERA_STARTMV_RANGE;
+-  int32_t iFixMvdRange = (pParam->iUsageType ? EXPANDED_MVD_RANGE : ((pParam->iSpatialLayerNum == 1) ? CAMERA_MVD_RANGE :
++  const bool kbCmuxExpanded = pParam->iUsageType && !CmuxAblate ("mvrange");
++  int32_t iFixMvRange = kbCmuxExpanded ? EXPANDED_MV_RANGE : CAMERA_STARTMV_RANGE;
++  int32_t iFixMvdRange = (kbCmuxExpanded ? EXPANDED_MVD_RANGE : ((pParam->iSpatialLayerNum == 1) ? CAMERA_MVD_RANGE :
+                           CAMERA_HIGHLAYER_MVD_RANGE));
+   for (int32_t iLayer = 0; iLayer < pParam->iSpatialLayerNum; iLayer++) {
+     if (pParam->sSpatialLayers[iLayer].uiLevelIdc < iMinLevelIdc)
+@@ -2670,7 +2672,7 @@
+   SLogContext* pLogCtx = & (pCtx->sLogCtx);
+   /* function pointers conditional assignment under sWelsEncCtx, layer_mb_enc_rec (in stack) is exclusive */
+   if ((pCtx->pSvcParam->iUsageType == CAMERA_VIDEO_REAL_TIME && bFastMode) ||
+-      (pCtx->pSvcParam->iUsageType == SCREEN_CONTENT_REAL_TIME && P_SLICE == pCtx->eSliceType
++      (pCtx->pSvcParam->iUsageType == SCREEN_CONTENT_REAL_TIME && (P_SLICE == pCtx->eSliceType || CmuxAblate ("fasti"))
+        && bFastMode) //TODO: here is for sync with the origin code, consider the design again with more tests
+      ) {
+     SetFastCodingFunc (pFuncList);
+@@ -2709,6 +2711,8 @@
+     if (P_SLICE == pCtx->eSliceType) {
+       //MD related func pointers
+       pFuncList->pfInterFineMd = WelsMdInterFinePartitionVaaOnScreen;
++      if (CmuxAblate ("finemd"))
++        pFuncList->pfInterFineMd = bFastMode ? WelsMdInterFinePartitionVaa : WelsMdInterFinePartition;
+ 
+       //ME related func pointers
+       SVAAFrameInfoExt* pVaaExt = static_cast<SVAAFrameInfoExt*> (pCtx->pVaa);
+@@ -2722,8 +2726,12 @@
+       pFuncList->pfMotionSearch[NO_STATIC] = WelsMotionEstimateSearch;
+       pFuncList->pfMotionSearch[COLLOCATED_STATIC] = WelsMotionEstimateSearchStatic;
+       pFuncList->pfMotionSearch[SCROLLED_STATIC] = WelsMotionEstimateSearchScrolled;
++      if (CmuxAblate ("staticme")) {
++        pFuncList->pfMotionSearch[COLLOCATED_STATIC] = WelsMotionEstimateSearch;
++        pFuncList->pfMotionSearch[SCROLLED_STATIC] = WelsMotionEstimateSearch;
++      }
+       //ME16x16
+-      if (!SetMeMethod (ME_DIA_CROSS, pFuncList->pfSearchMethod[BLOCK_16x16])) {
++      if (!CmuxAblate ("cross") && !SetMeMethod (ME_DIA_CROSS, pFuncList->pfSearchMethod[BLOCK_16x16])) {
+         WelsLog (pLogCtx, WELS_LOG_WARNING, "SetMeMethod(BLOCK_16x16) ME_DIA_CROSS unsuccessful, switched to default search");
+       }
+       //ME8x8
+@@ -2737,6 +2745,8 @@
+         pFeatureSearchPreparation->bFMESwitchFlag = CalcFMESwitchFlag (pFeatureSearchPreparation->uiFMEGoodFrameCount,
+             pFeatureSearchPreparation->iHighFreMbCount * 100 / kiMbSize, pCtx->pVaa->sVaaCalcInfo.iFrameSad / kiMbSize,
+             pVaaExt->sScrollDetectInfo.bScrollDetectFlag);
++        if (CmuxAblate ("fme"))
++          pFeatureSearchPreparation->bFMESwitchFlag = false;
+ 
+         //PerformFMEPreprocess
+         SScreenBlockFeatureStorage* pScreenBlockFeatureStorage = pCurLayer->pRefPic->pScreenBlockFeatureStorage;
+diff -ruN a/encoder/core/src/wels_preprocess.cpp b/encoder/core/src/wels_preprocess.cpp
+--- a/encoder/core/src/wels_preprocess.cpp	2026-11-23 05:22:27.991284137 +0000
++++ b/encoder/core/src/wels_preprocess.cpp	2026-11-23 05:23:26.998649259 +0000
+@@ -31,6 +31,7 @@
+  */
+ 
+ #include "wels_preprocess.h"
++#include "cmux_ablate.h"
+ #include "picture_handle.h"
+ #include "encoder_context.h"
+ #include "utils.h"
+@@ -1182,8 +1183,10 @@
+ 
+       int32_t iMethodIdx = METHOD_SCROLL_DETECTION;
+ 
+-      m_pInterfaceVp->Set (iMethodIdx, (void*) (pScrollDetectInfo));
+-      ret = m_pInterfaceVp->Process (iMethodIdx, &sSrcMap, &sRefMap);
++      if (!CmuxAblate ("scroll")) {
++        m_pInterfaceVp->Set (iMethodIdx, (void*) (pScrollDetectInfo));
++        ret = m_pInterfaceVp->Process (iMethodIdx, &sSrcMap, &sRefMap);
++      }
+ 
+       if (ret == 0) {
+         m_pInterfaceVp->Get (iMethodIdx, (void*) (pScrollDetectInfo));
+@@ -1201,11 +1204,24 @@
+       sSceneChangeResult.sScrollResult = pVaaExt->sScrollDetectInfo;
+     }
+ 
+-    m_pInterfaceVp->Set (iSceneChangeMethodIdx, (void*) (&sSceneChangeResult));
+-    ret = m_pInterfaceVp->Process (iSceneChangeMethodIdx, &sSrcMap, &sRefMap);
++    const bool kbCmuxNoScd = CmuxAblate ("scd");
++    if (kbCmuxNoScd) {
++      // Every block NO_STATIC (0), the scene similar, no motion: the closest reference wins.
++      const int32_t kiCmuxBlocks = (((pCurPicture->iWidthInPixel + 15) >> 4) << 1) *
++                                   (((pCurPicture->iHeightInPixel + 15) >> 4) << 1);
++      memset (pCurBlockStaticPointer, 0, kiCmuxBlocks);
++      sSceneChangeResult.eSceneChangeIdc = SIMILAR_SCENE;
++      sSceneChangeResult.iMotionBlockNum = 0;
++      sSceneChangeResult.iFrameComplexity = 0;
++      ret = 0;
++    } else {
++      m_pInterfaceVp->Set (iSceneChangeMethodIdx, (void*) (&sSceneChangeResult));
++      ret = m_pInterfaceVp->Process (iSceneChangeMethodIdx, &sSrcMap, &sRefMap);
++    }
+ 
+     if (ret == 0) {
+-      m_pInterfaceVp->Get (iSceneChangeMethodIdx, (void*)&sSceneChangeResult);
++      if (!kbCmuxNoScd)
++        m_pInterfaceVp->Get (iSceneChangeMethodIdx, (void*)&sSceneChangeResult);
+ 
+       const int64_t iFrameComplexity = sSceneChangeResult.iFrameComplexity;
+       const int32_t iSceneDetectIdc = sSceneChangeResult.eSceneChangeIdc;
