@@ -13,6 +13,7 @@ import { Dialog } from "../../../ui/Dialog";
 import { NoticeStack, createNoticeQueue } from "../../../ui/NoticeStack";
 import { useT, translate } from "../i18n";
 import { copyTextResult } from "../conversation/clipboard";
+import { NativeError } from "../nativeError";
 import { ShareDialogBody } from "./ShareDialog";
 import {
   inviteStep,
@@ -41,6 +42,17 @@ export function shareFailureText(error: unknown): string {
   if (code === "share.limit") return translate("share.error.limit");
   if (code === "share.room_unreachable") return translate("share.error.offline");
   if (code === "share.room_refused") return translate("share.error.refused");
+  // The app's own sentence for a share refusal (AgentShareStrings: share.room_unconfigured's "This
+  // Cloud machine can't make share links yet…", share.not_owner's, …) arrives as a bridge
+  // error's message, already in the app's language: the person reads that, not the generic line.
+  if (
+    error instanceof NativeError &&
+    typeof code === "string" &&
+    code.startsWith("share.") &&
+    error.message.trim() !== "" &&
+    error.message !== translate("error.requestFailed")
+  )
+    return error.message;
   // Any other refusal is the daemon's or the server's English: the log keeps it, the status says
   // "That didn't finish. Try again." plus the refusal's code when it has one, so a report names it.
   console.warn("agent pane: sharing failed", error);
