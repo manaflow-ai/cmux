@@ -21,6 +21,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { agentPaneStylesheets } from "../../dev-server/galleryHost";
+import { GENERATED as FEATURE_TIPS, HIGHLIGHTS } from "../pages/gen-feature-tips.mjs";
+import { PAGES } from "../pages/gen-strings.mjs";
 import { galleryFiles, SRC } from "./entries";
 
 /** Repo paths that re-render every entry when they change. */
@@ -37,16 +39,50 @@ const EVERYTHING = [
   /^webviews\/package\.json$/,
   /^bun\.lock$/,
   /^scripts\/gallery-matrix\//,
-  // A string catalog gen-strings.mjs compiles into the strings every page loads; no import reaches it.
+  // A string catalog under webviews/src that gen-strings.mjs does not list (derivedTables() routes the
+  // ones it does): no import reaches it, and no table names it.
   /^webviews\/src\/.*\.xcstrings$/,
 ];
+
+/**
+ * The build-output tables (repo paths) each source file is compiled into, which entries import instead of
+ * the source: a string catalog becomes the `generated/strings.json` of every page gen-strings.mjs lists it
+ * for, a What's New highlight becomes the feature tips table (gen-feature-tips.mjs). A change to the
+ * source touches the entries that import one of its tables (or whose host's stage loads it), not every
+ * entry: a Settings catalog edit rendered all ~13,000 gallery cases before (cmux#49853).
+ */
+export function derivedTables(
+  changed: string[],
+  pages: Record<string, { out: string; catalogs: { file: string }[] }> = PAGES,
+): Map<string, string[]> {
+  const repo = path.resolve(SRC, "../..");
+  const highlights = `${path.relative(repo, HIGHLIGHTS)}/`;
+  const tips = path.relative(repo, FEATURE_TIPS);
+  const tables = new Map<string, string[]>();
+  for (const file of changed) {
+    const outs = Object.values(pages)
+      .filter((page) => page.catalogs.some((catalog) => catalog.file === file))
+      .map((page) => page.out);
+    if (file.startsWith(highlights) && file.endsWith(".md")) outs.push(tips);
+    if (outs.length) tables.set(file, [...new Set(outs)].sort());
+  }
+  return tables;
+}
 
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".js", ".mjs", ".css"];
 // `new URL("./x.png", import.meta.url)` loads an asset as surely as an import does (ChiefDock's mascots).
 const IMPORT = /(?:\bfrom\s*|\bimport\s*\(?\s*|\bnew\s+URL\s*\(\s*)["']([^"']+)["']/g;
 
 /** Why an entry is in the sample, closest first (the tier is the index here). */
-export const RANK_REASONS = ["own", "names", "imports", "same-folder", "host-stylesheet", "everything"] as const;
+export const RANK_REASONS = [
+  "own",
+  "names",
+  "imports",
+  "same-folder",
+  "host-stylesheet",
+  "host-table",
+  "everything",
+] as const;
 export type RankReason = (typeof RANK_REASONS)[number];
 /** One touched entry in ranked order: the changed file that put it there and, for imports, the hops. */
 export type RankedEntry = { id: string; tier: number; why: RankReason; file: string; distance: number };
@@ -55,6 +91,9 @@ export type TouchedEntries = {
   entries: string[];
   reasons: Record<string, string[]>;
   ranked: RankedEntry[];
+  /** Changed sources routed through the tables built from them: placed exactly, even on no entry
+   * (a catalog only an ungalleried page reads renders nothing), so unplaced.py does not fall back. */
+  derived: string[];
 };
 export type EntryRoots = { id: string; host: string; file: string; covers: string[] };
 
@@ -175,16 +214,35 @@ export function touchedEntries(
     repoRoot?: string;
     read?: (file: string) => string | undefined;
     paneStylesheets?: () => string[];
+    /** derivedTables() of `changed`, for a test's own pages. */
+    tables?: Map<string, string[]>;
   } = {},
 ): TouchedEntries {
   const src = options.src ?? SRC;
   const repoRoot = options.repoRoot ?? path.resolve(src, "../..");
-  const read = options.read ?? readSource;
+  const tables = options.tables ?? derivedTables(changed);
+  // The tables are build output, absent until gen-strings.mjs runs: an import of one resolves to its path
+  // whether or not it was written, so the routing never depends on the checkout's install.
+  const tableFiles = new Set([...tables.values()].flat().map((table) => path.join(repoRoot, table)));
+  const readFile = options.read ?? readSource;
+  const read = (file: string) => readFile(file) ?? (tableFiles.has(file) ? "" : undefined);
   const paneStylesheets = options.paneStylesheets ?? (() => agentPaneStylesheets());
   const ids = entries.map((entry) => entry.id).sort();
-  const broad = changed.filter((file) => EVERYTHING.some((pattern) => pattern.test(file)));
+  const broad = changed.filter((file) => !tables.has(file) && EVERYTHING.some((pattern) => pattern.test(file)));
   const specific = changed.filter((file) => !broad.includes(file));
-  const changedFull = new Map(specific.map((file) => [path.join(repoRoot, file), file]));
+  // Each changed file as the file an entry reaches: itself, or for a derived source the tables built from it.
+  const changedFull: [string, string][] = specific.flatMap((file) =>
+    (tables.get(file) ?? [file]).map((reached): [string, string] => [path.join(repoRoot, reached), file]),
+  );
+  // What each host's stage module loads for every entry it mounts (the pane's strings, a page's table).
+  const hostReach = new Map<string, Set<string>>();
+  const hostLoads = (host: string) => {
+    if (!hostReach.has(host)) {
+      const frame = HOST_FRAMES[host];
+      hostReach.set(host, frame ? closure([path.join(src, frame)], read) : new Set());
+    }
+    return hostReach.get(host)!;
+  };
   const reasons: Record<string, string[]> = {};
   const ranks = new Map<string, RankedEntry>();
   const sheets = new Map<string, string[]>();
@@ -218,18 +276,20 @@ export function touchedEntries(
       else if (hops.has(full)) why(2, "imports", hops.get(full)!);
       else if (source && folders.has(path.dirname(full))) why(3, "same-folder");
       else if (sheets.get(entry.host)!.includes(full)) why(4, "host-stylesheet");
+      else if (tableFiles.has(full) && hostLoads(entry.host).has(full)) why(5, "host-table");
     }
     if (hits.size) reasons[entry.id] = [...hits].sort();
   }
   if (broad.length)
     for (const id of ids) {
       reasons[id] = [...new Set([...(reasons[id] ?? []), ...broad.slice(0, 5)])].sort();
-      rank({ id, tier: 5, why: "everything", file: broad[0]!, distance: 0 });
+      rank({ id, tier: 6, why: "everything", file: broad[0]!, distance: 0 });
     }
   const ranked = [...ranks.values()].sort(
     (a, b) => a.tier - b.tier || a.distance - b.distance || a.id.localeCompare(b.id),
   );
-  return { all: broad.length > 0, entries: Object.keys(reasons).sort(), reasons, ranked };
+  const derived = specific.filter((file) => tables.has(file)).sort();
+  return { all: broad.length > 0, entries: Object.keys(reasons).sort(), reasons, ranked, derived };
 }
 
 /** The entries under src/ with the file each one comes from. */

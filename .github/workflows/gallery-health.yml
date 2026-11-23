@@ -76,6 +76,7 @@ on:
       - "webviews/bunfig.toml"
       - "webviews/tsconfig.json"
       - "config/vite-plus/**"
+      - "webviews/scripts/lint/aria-props.mjs"
       - "webviews/scripts/lint/effect-cleanup.mjs"
       - "webviews/scripts/lint/perf-footguns.mjs"
       - "webviews/scripts/lint/aria-props.mjs"

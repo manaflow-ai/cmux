@@ -609,6 +609,19 @@ class GalleryHealthPathRouting(unittest.TestCase):
             self.assertEqual(unplaced_tool.unplaced(paths, [path], touched), [path])
         self.assertEqual(unplaced_tool.unplaced(paths, [placed], touched), [])
 
+    def test_a_catalog_touched_ts_routed_through_its_table_is_placed(self) -> None:
+        # touched.ts routes a catalog gen-strings.mjs lists, and a What's New highlight, through the table built
+        # from it (cmux#49853): exact, so it renders the entries that import that table and none when no entry
+        # does, never every entry (a Settings catalog edit rendered all ~13,000 cases).
+        paths = triggers()["push"]["paths"]
+        catalog = "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Resources/Localizable.xcstrings"
+        highlight = "release-notes/next/highlights/prompt-rail-shows.md"
+        touched = {"all": False, "entries": [], "reasons": {}, "derived": [catalog, highlight]}
+        self.assertEqual(unplaced_tool.unplaced(paths, [catalog, highlight], touched), [])
+        # A catalog touched.ts did not route still renders every entry.
+        other = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings"
+        self.assertEqual(unplaced_tool.unplaced(paths, [catalog, other], touched), [other])
+
     def test_a_dispatch_renders_every_entry(self) -> None:
         # The nightly full render of the base: a main-side dispatcher starts it on feat-cmux-next, since a
         # schedule on this branch never fires.
