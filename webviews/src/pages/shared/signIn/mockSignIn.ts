@@ -25,6 +25,9 @@ export class MockAccountSignIn {
   refusal: string | null = null;
   /** How long a started sign-in's code lasts (tests shorten it to see the expiry). */
   expiresInMs = 15 * 60_000;
+  /** An older daemon (no `_acpmux/account/sign_in`): a start answers `{}`, as the host does on
+   * method not found, and the page runs its terminal sign-in. */
+  olderDaemon = false;
   private started = 0;
   private logins = new Map<string, { account: string; family: AccountFamily; added: boolean }>();
 
@@ -36,6 +39,7 @@ export class MockAccountSignIn {
     const set = (next: AccountRowWire[]) => this.host.set(next);
     switch (run.action) {
       case ACCOUNT_ACTIONS.start: {
+        if (this.olderDaemon) return {};
         if (this.refusal) {
           const reason = this.refusal;
           this.refusal = null;

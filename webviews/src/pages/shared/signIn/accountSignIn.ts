@@ -67,6 +67,8 @@ export type AccountRunParams = {
   loginId?: string;
   code?: string;
   family?: AccountFamily;
+  /** A new account's typed name (a start without `account`; the daemon keeps its first 128 characters). */
+  name?: string;
 };
 
 /** The host's answer to a sign-in gesture: `signIn` for a start, `finished` for a finish, `reason`

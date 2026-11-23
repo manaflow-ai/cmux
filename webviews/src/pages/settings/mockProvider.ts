@@ -1869,6 +1869,11 @@ export class MockSettingsProvider {
   /** Like the host's account gestures: a listed account only, and Add account for Codex and Claude (a
    * login folder under ~/.cmux/accounts, signed out until its sign-in runs, or an API key). */
   private runAccount(run: HarnessesRun): Record<string, never> {
+    // Like the host: GitHub's terminal sign-in is gh's own `gh auth login`, needing no account list.
+    if (run.action === "accountAdd" && run.family === "github" && run.way === "new") {
+      this.harnessRuns.push(run);
+      return {};
+    }
     const accounts = this.harnesses.accounts;
     if (!accounts) throw new ProtocolError("cmux.settings.invalid", "this daemon lists no accounts");
     if (run.action === "accountAdd") {

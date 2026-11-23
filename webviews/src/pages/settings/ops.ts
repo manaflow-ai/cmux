@@ -1002,7 +1002,9 @@ export type HarnessesRun = {
   id?: string;
   /** With every account gesture but `accountAdd`: a listed account id. */
   account?: string;
-  /** With `accountAdd`: the provider family (`codex`, `claude`) that gets a new account. */
+  /** With `accountAdd`: the provider family (`codex`, `claude`) that gets a new account; `github`
+   * (way `new` only) types gh's own `gh auth login` into a terminal tab, the in-place sign-in's
+   * fallback for a daemon without `_acpmux/account/sign_in`. */
   family?: string;
   /** With `accountAdd`: `new` signs in a login folder of its own, `key` adds an API key. */
   way?: "new" | "key";

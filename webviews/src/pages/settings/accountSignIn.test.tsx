@@ -94,6 +94,8 @@ test("a code that runs out shows New code, which starts a fresh sign-in", async 
   expect(actions).toEqual(["newCode"]);
   expect(page.provider.accountRuns.some((run) => run.action === "signInCancel")).toBe(true);
   const starts = page.provider.accountRuns.filter((run) => run.action === "signInStart").length;
+  // The fresh code lasts: at 30 ms it could run out again before the card is read.
+  page.provider.signInExpiresInMs = 60_000;
   await act(async () => card().querySelector<HTMLButtonElement>('[data-sign-in-action="newCode"]')!.click());
   await settle();
   expect(page.provider.accountRuns.filter((run) => run.action === "signInStart").length).toBe(starts + 1);
@@ -157,5 +159,19 @@ test("Use, Sign out and Remove run their gestures on the row", async () => {
   );
   await settle();
   expect(row("github-2")).toBeNull();
+  page.unmount();
+});
+
+test("GitHub's Add account on a daemon without the in-place sign-in types gh's own login in a terminal", async () => {
+  const page = await open((provider) => {
+    provider.signIn.olderDaemon = true;
+  });
+  const section = () => page.container.querySelector<HTMLElement>('[data-card="account-sign-in"]')!;
+  await act(async () =>
+    section().querySelector<HTMLButtonElement>('[data-sign-in-add="github"] [data-sign-in-row-action="add"]')!.click(),
+  );
+  await settle();
+  expect(page.provider.harnessRuns.at(-1)).toEqual({ action: "accountAdd", family: "github", way: "new" });
+  expect(section().querySelector(".signin")).toBeNull();
   page.unmount();
 });

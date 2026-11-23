@@ -38,14 +38,15 @@ export type AccountSignInController = {
   running: ActiveSignIn | null;
   /** The account a Use, Sign Out or Remove runs on. */
   busy: string | null;
-  start(family: AccountFamily, account: string | null): void;
+  /** `name`: a new account's typed name (only with no `account`). */
+  start(family: AccountFamily, account: string | null, name?: string): void;
   cancel(): void;
   gesture(action: string, account: AccountRowWire): void;
   /** The card's gestures for `running`. */
   card: Omit<DeviceSignInCardProps, "family" | "view" | "look">;
 };
 
-type Running = ActiveSignIn & { loginId: string | null; started: SignInStarted | null };
+type Running = ActiveSignIn & { loginId: string | null; started: SignInStarted | null; name?: string };
 
 export function useAccountSignIn(transport: AccountSignInTransport): AccountSignInController {
   const [running, setRunning] = useState<Running | null>(null);
@@ -62,10 +63,20 @@ export function useAccountSignIn(transport: AccountSignInTransport): AccountSign
   };
   useEffect(() => clearTimer, []);
 
-  const failed = useCallback((family: AccountFamily, account: string | null, reply: AccountRunResult) => {
-    const failure = reply.ok ? signInFailure({ reason: reply.value.reason }) : signInFailure(reply.error);
-    setRunning({ family, account, loginId: null, started: null, view: failedView(failure) });
-  }, []);
+  const failed = useCallback(
+    (family: AccountFamily, account: string | null, reply: AccountRunResult, name?: string) => {
+      const failure = reply.ok ? signInFailure({ reason: reply.value.reason }) : signInFailure(reply.error);
+      setRunning({
+        family,
+        account,
+        loginId: null,
+        started: null,
+        view: failedView(failure),
+        ...(name ? { name } : {}),
+      });
+    },
+    [],
+  );
 
   const finish = useCallback(
     async (run: Running, code?: string) => {
@@ -77,7 +88,7 @@ export function useAccountSignIn(transport: AccountSignInTransport): AccountSign
       current.current = null;
       const finished = reply.ok ? parseSignInFinish(reply.value.finished) : undefined;
       if (!reply.ok || !finished || !finished.signedIn || reply.value.reason) {
-        failed(run.family, run.account, reply);
+        failed(run.family, run.account, reply, run.name);
         return;
       }
       setRunning({
@@ -95,20 +106,22 @@ export function useAccountSignIn(transport: AccountSignInTransport): AccountSign
   );
 
   const start = useCallback(
-    async (family: AccountFamily, account: string | null) => {
+    async (family: AccountFamily, account: string | null, name?: string) => {
       clearTimer();
       const previous = current.current;
       current.current = null;
       if (previous) void via.current.run({ action: ACCOUNT_ACTIONS.cancel, loginId: previous });
+      const named = !account && name?.trim() ? name.trim() : undefined;
       setRunning({ family, account, loginId: null, started: null, view: { state: "starting" } });
       const reply = await via.current.run({
         action: ACCOUNT_ACTIONS.start,
         provider: family,
         family,
         ...(account ? { account } : {}),
+        ...(named ? { name: named } : {}),
       });
       if (!reply.ok || reply.value.reason) {
-        failed(family, account, reply);
+        failed(family, account, reply, named);
         return;
       }
       const started = parseSignInStart(reply.value.signIn);
@@ -125,6 +138,7 @@ export function useAccountSignIn(transport: AccountSignInTransport): AccountSign
         account: started.account,
         loginId: started.loginId,
         started,
+        ...(named ? { name: named } : {}),
         view: { state: "waiting", way: started.way, copied, url: started.url },
       };
       setRunning(run);
@@ -173,7 +187,7 @@ export function useAccountSignIn(transport: AccountSignInTransport): AccountSign
         );
       },
       onCancel: cancel,
-      onRetry: () => running && void start(running.family, running.account),
+      onRetry: () => running && void start(running.family, running.account, running.name),
       onDone: () => {
         clearTimer();
         setRunning(null);
@@ -190,7 +204,7 @@ export function useAccountSignIn(transport: AccountSignInTransport): AccountSign
   return {
     running,
     busy,
-    start: (family, account) => void start(family, account),
+    start: (family, account, name) => void start(family, account, name),
     cancel,
     gesture: (action, account) => void gesture(action, account),
     card,
