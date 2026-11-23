@@ -1,5 +1,5 @@
-//! Two-device chaos for projected folders (Leo, c-8bfc406eb8: "think of dropbox and google drive
-//! and icloud and ondrie. think of how to be fucking better than them and keep. fucking. going.").
+//! Two-device chaos for projected folders (Leo, c-8bfc406eb8, paraphrased: think of Dropbox, Google
+//! Drive, iCloud and OneDrive, and how to be better than them, and keep going).
 //! What a consumer drive is judged on: it never loses your stuff, and says clearly what is synced.
 //!
 //! The two ends are real: this Mac's folder is a slice of a real cmux checkout (this repository's
