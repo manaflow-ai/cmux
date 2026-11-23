@@ -1947,6 +1947,47 @@ class TuiBindingsTests(unittest.TestCase):
         self.assertIn("web lint passed", result.stderr)
         self.assertIn("check web", self.tool_log.read_text())
 
+    def snapshot_clone(self, *, remote_gone: bool) -> Path:
+        """As cmux-ci's fast-checks leaves it: a depth-2 checkout of a snapshot commit over the tested commit, which
+        sits a few commits over feat-cmux-next; detached, no remote-tracking ref, origin optionally unreachable."""
+        self.add_tui_packages()
+        self.git("push", "--quiet", "--no-verify", "origin", "HEAD:feat-cmux-next")
+        self.write("cmux-tui/frontends/web/src/branch.ts", "export const branch = 1;\n")
+        self.commit("branch 1")
+        for n in (2, 3):
+            self.write(f"branch-{n}.txt", f"{n}\n")
+            self.commit(f"branch {n}")
+        self.git("push", "--quiet", "--no-verify", "origin", "HEAD:refs/heads/snapshot")
+        shallow = self.root / "shallow"
+        subprocess.run(["git", "clone", "--quiet", "--depth", "2", "--branch", "snapshot",
+                        f"file://{self.origin}", str(shallow)], env=self.env, check=True, capture_output=True)
+        steps = [["checkout", "--quiet", "--detach"], ["update-ref", "-d", "refs/remotes/origin/snapshot"]]
+        if remote_gone:
+            steps.append(["remote", "set-url", "origin", str(self.root / "gone.git")])
+        for argv in steps:
+            subprocess.run(["git", *argv], cwd=shallow, env=self.env, check=True)
+        return shallow
+
+    def test_a_run_in_a_shallow_snapshot_clone_deepens_to_the_base_and_lints(self):
+        # cmux-ci test of #51464 (run 45105207823): `web-lint.sh` in fast-checks' depth-2 snapshot checkout refused in
+        # 0.08 s, "fetch ... and push again ... nothing was linted", though nobody pushes that snapshot.
+        shallow = self.snapshot_clone(remote_gone=False)
+        self.tool_log.write_text("")
+        result = subprocess.run(["scripts/web-lint.sh"], cwd=shallow, env=self.env, text=True, capture_output=True)
+        self.assertNotIn("nothing was linted", result.stderr)
+        self.assertNotIn("push again", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(": 3 own commit(s)", result.stderr)
+        self.assertIn("check web", self.tool_log.read_text())
+
+    def test_a_shallow_snapshot_clone_that_cannot_fetch_lints_what_it_has_and_says_so(self):
+        shallow = self.snapshot_clone(remote_gone=True)
+        self.tool_log.write_text("")
+        result = subprocess.run(["scripts/web-lint.sh"], cwd=shallow, env=self.env, text=True, capture_output=True)
+        self.assertNotIn("nothing was linted", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("linting every file changed over HEAD~1", result.stderr)
+
     def test_an_all_run_builds_the_bindings_before_the_frontend_check_and_is_clean(self):
         self.add_tui_packages()
 
