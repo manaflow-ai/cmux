@@ -41,7 +41,7 @@ struct AppOpenTargetTests {
     @Test func aShippedWidgetAppOpensTheNewTabPage() throws {
         let firstParty = Self.samples.deletingLastPathComponent().deletingLastPathComponent()
             .appending(path: "first-party-apps", directoryHint: .isDirectory)
-        for name in ["widget-clock", "widget-calendar"] {
+        for name in ["widget-clock", "widget-calendar", "widget-projects"] {
             let file = firstParty.appending(path: name).appending(path: "cmux-app.json")
             let manifest = try #require(AppManifest.decode(try Data(contentsOf: file)), "\(name) decodes")
             #expect(AppOpenTarget(manifest) == .widget, "\(name)")
