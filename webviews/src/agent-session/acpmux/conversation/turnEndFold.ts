@@ -107,11 +107,6 @@ export type TurnEndCapture = {
   /// The view's offset then.
   scrollTop: number;
   sessionId?: string;
-  /// The turn ended where the reader cannot see it: the swap draws at once and no fold plays
-  /// (captureTurnEnd, rule 1). Captured all the same, so the turn's end still settles the fold
-  /// before it, the follow motion and the tail glide's held clip: with nothing captured at all, a
-  /// paused clip stayed on and hid the reply's last lines (review of cmux#41034).
-  silent?: boolean;
 };
 
 /// What a fold plays, so a later one (or the transcript unmounting) can settle it first.
@@ -154,9 +149,11 @@ export function captureTurnEnd(
 ): TurnEndCapture | undefined {
   if (!thread || !scroller || foldMs(thread) <= 0) return undefined;
   const nodes = [...mounted(thread)];
-  const liveLine = (node: HTMLElement) =>
-    node.dataset.rowId === LIVE_LINE || node.classList.contains(`acpmux-${ACTIVITY_LINE}`);
-  if (!held && !nodes.some(liveLine)) return undefined;
+  if (
+    !held &&
+    !nodes.some((node) => node.dataset.rowId === LIVE_LINE || node.classList.contains(`acpmux-${ACTIVITY_LINE}`))
+  )
+    return undefined;
   // The ids the swap keeps, from the first mounted row on: rows before the window never matter.
   const first = Math.max(
     0,
@@ -167,32 +164,6 @@ export function captureTurnEnd(
   // under the answer, not that run moved: the run goes and the card comes in.
   for (let index = Math.min(first, after.length); index < after.length; index += 1)
     if (!after[index]!.merged) kept.add(after[index]!.id);
-  // The fold plays only where the reader can see it (cmuxterm-hq docs/design/transcript-animation-rules.md,
-  // rules 1 and 6): the running line, or a row the swap takes away, in the view. Mounted is not seen: the
-  // overscan holds viewports of rows above and below it. Out of sight, the swap draws at once and the
-  // anchor keeps the view (Leo, 2026-11-22: "i scroll down, some bullshit ABOVE folds...? and plays an
-  // animation!?"). A held Worked for (`held`) has no running line: its work in view is what folds.
-  const view = scroller.getBoundingClientRect();
-  /// A view of no height has not been laid out yet (a pane measured before its first layout): there
-  /// is no view to judge rows against, and reading it as a sliver at the top would swallow a fold the
-  /// reader is about to see. Everything counts as seen until the view has a height; nothing is
-  /// visible there anyway, so a fold that plays costs only the compositor.
-  const unmeasured = view.height === 0;
-  // Edges count: an empty slot (a turn of words alone keeps its running line's row at no height) at
-  // the view's bottom edge is where the reader is looking.
-  const seen = (node: HTMLElement) => {
-    if (unmeasured) return true;
-    const box = node.getBoundingClientRect();
-    return box.bottom >= view.top && box.top <= view.bottom;
-  };
-  const goes = (node: HTMLElement) => {
-    const id = node.dataset.rowId!;
-    if (kept.has(id)) return false;
-    // The live header stays as the ended one in its slot (below): it does not go.
-    return !(node.classList.contains(`acpmux-${WORKING}`) && kept.has(`${WORKED}-${id.slice(WORKING.length + 1)}`));
-  };
-  if (!nodes.some((node) => seen(node) && ((!held && liveLine(node)) || goes(node))))
-    return { rows: [], scrollTop: scroller.scrollTop, sessionId, silent: true };
   const rows = nodes.map((node) => {
     const box = node.getBoundingClientRect();
     const priorId = node.dataset.rowId!;
@@ -370,46 +341,6 @@ export function settleTurnEnd(thread: HTMLElement | null, fold: TurnEndFold | un
   thread?.removeAttribute(TURN_END_ATTR);
 }
 
-/// The reader's own scroll ends a fold in flight at once (cmuxterm-hq
-/// docs/design/transcript-animation-rules.md, rule 4): its rows drawn where they land, its copies gone.
-/// Played on, every pass would turn the scroll into motion (a row the scroll mounts faded in, the
-/// scroll's own distance read as a row's move). The fold's `scroll` listener stays for the view's own
-/// scrolls (the bottom kept pinned).
-const READER_SCROLLS = ["wheel", "touchmove", "pointerdown"] as const;
-/// The keys that scroll the view: a reader who reads by keyboard scrolls too (rule 4).
-const SCROLL_KEYS = new Set(["PageDown", "PageUp", "Home", "End", "ArrowDown", "ArrowUp", " ", "Spacebar"]);
-function endOnReaderScroll(
-  thread: HTMLElement,
-  scroller: HTMLElement | null | undefined,
-  fold: TurnEndFold,
-): () => void {
-  if (!scroller) return () => {};
-  // The input alone is not the reader's scroll. A wheel over a row's own scroller (a code block, a
-  // diff, a terminal), or at a bottom that cannot move, bubbles here while the view stays where it
-  // was; a press on the scroller is not only its scrollbar, since the space under a chat shorter than
-  // the view targets it too. So an input arms, and the view's own `scroll` from it ends the fold:
-  // the reader's scroll, never a reader who touched something else.
-  let from: number | undefined;
-  const arm = () => {
-    if (from === undefined) from = scroller.scrollTop;
-  };
-  const key = (event: Event) => {
-    if (SCROLL_KEYS.has((event as KeyboardEvent).key)) arm();
-  };
-  const moved = () => {
-    if (from === undefined || scroller.scrollTop === from) return;
-    settleTurnEnd(thread, fold);
-  };
-  for (const name of READER_SCROLLS) scroller.addEventListener(name, arm, { passive: true });
-  scroller.addEventListener("keydown", key, true);
-  scroller.addEventListener("scroll", moved, { passive: true });
-  return () => {
-    for (const name of READER_SCROLLS) scroller.removeEventListener(name, arm);
-    scroller.removeEventListener("keydown", key, true);
-    scroller.removeEventListener("scroll", moved);
-  };
-}
-
 /// Where `nodes` are laid out in the view, without any translate a fold plays on them: their offset
 /// parent's top plus their offsets. All are read before anything is written.
 function layoutTops(nodes: readonly HTMLElement[]): number[] {
@@ -452,9 +383,7 @@ export function playTurnEnd(
   sessionId: string | undefined,
   scroller?: HTMLElement | null,
 ): TurnEndFold | undefined {
-  // Out of the reader's view there is nothing to play: its caller has settled what the turn's end
-  // settles (the fold before it, the follow motion, the tail glide) and the swap is already drawn.
-  if (capture.silent || capture.sessionId !== sessionId || foldMs(thread) <= 0) return undefined;
+  if (capture.sessionId !== sessionId || foldMs(thread) <= 0) return undefined;
   const { ms: settleMs, easing: settleEasing } = settle(thread);
   // The fold's one clock: the settle's length, its curve flattened as a pass finds a longer move
   // (turnEndFoldTiming). Rows the virtualizer mounts above after the swap move the rows under them
@@ -932,12 +861,10 @@ export function playTurnEnd(
     passAgain();
   };
   scroller?.addEventListener("scroll", onScroll, { passive: true });
-  const unscroll = endOnReaderScroll(thread, scroller, fold);
   fold.stop = () => {
     if (firstFrame !== undefined) View?.cancelAnimationFrame(firstFrame);
     observer?.disconnect();
     scroller?.removeEventListener("scroll", onScroll);
-    unscroll();
   };
   // A hidden page suspends its animations: nothing of the fold outlasts its length.
   arm(lead);
