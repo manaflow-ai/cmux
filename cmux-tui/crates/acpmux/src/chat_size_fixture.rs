@@ -76,7 +76,7 @@ impl Rng {
             }
             pick -= weight;
         }
-        1 << buckets[0].0
+        buckets.first().map_or(1, |(bucket, _)| 1 << bucket)
     }
 }
 
@@ -91,7 +91,7 @@ static FILLER: LazyLock<String> = LazyLock::new(|| {
     let mut rng = Rng(7);
     let mut text = String::with_capacity(256 << 10);
     while text.len() < 256 << 10 {
-        text.push_str(WORDS[rng.next() as usize % WORDS.len()]);
+        text.push_str(WORDS.get(rng.next() as usize % WORDS.len()).copied().unwrap_or("the"));
         text.push(if rng.one_in(1, 12) { '\n' } else { ' ' });
     }
     text
@@ -102,7 +102,7 @@ fn text(rng: &mut Rng, len: usize) -> &'static str {
     let filler = FILLER.as_str();
     let len = len.min(filler.len());
     let at = rng.next() as usize % (filler.len() - len + 1);
-    &filler[at..at + len]
+    filler.get(at..at + len).unwrap_or_default()
 }
 
 /// Filler of a length in `lo..=hi`.
@@ -424,8 +424,10 @@ pub fn write_chat(home: &Path, work: &Path, bytes: u64) -> io::Result<Written> {
         written.last_seq,
         AT,
     );
-    meta["turnCount"] = json!(written.turns);
-    meta["updatedAt"] = json!(AT + written.last_seq * 40);
+    if let Some(fields) = meta.as_object_mut() {
+        fields.insert("turnCount".into(), json!(written.turns));
+        fields.insert("updatedAt".into(), json!(AT + written.last_seq * 40));
+    }
     let meta = serde_json::from_value(meta).map_err(io::Error::other)?;
     store.save(&meta).map_err(|e| io::Error::other(e.to_string()))?;
     store.flush().map_err(|e| io::Error::other(e.to_string()))?;
