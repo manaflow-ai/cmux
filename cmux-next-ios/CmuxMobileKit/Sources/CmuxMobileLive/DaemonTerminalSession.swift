@@ -137,7 +137,7 @@ public final class DaemonTerminalSession: TerminalSession {
     private var resyncAfterClose = false
     /// The session declares the hybrid capabilities: the setting is on and its frames did
     /// not fail twice.
-    private var hybridWanted: Bool { Self.agentCLIHybridEnabled(agentCLIHybridDefaults) && hybridFallbacks < 2 }
+    private var hybridWanted: Bool { Self.agentCLIHybridEnabled(self.agentCLIHybridDefaults) && hybridFallbacks < 2 }
     /// Where the setting is read (tests give each session its own).
     var agentCLIHybridDefaults: UserDefaults = .standard
     /// History rows the next attach asks for above the screen (nil: all of
@@ -1009,7 +1009,7 @@ public final class DaemonTerminalSession: TerminalSession {
             // One write: the client info (it opts into the size lease), identify
             // and, replacing a live attach, the attach.
             var info: [String: Any] = clientInfo
-            info["capabilities"] = Self.capabilities(agentCLIHybrid: hybridWanted)
+            info["capabilities"] = Self.capabilities(agentCLIHybrid: self.hybridWanted)
             // Which attach the Mac sends (byte stream, or lean frames at most one per 100 ms):
             // the setting this phone holds, read in its log beside the link's path and rtt.
             log.info("attach agent_cli_hybrid=\(Self.agentCLIHybridEnabled(self.agentCLIHybridDefaults), privacy: .public) wanted=\(self.hybridWanted, privacy: .public)")
