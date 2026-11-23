@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { TeamState } from "../src/domains/team.ts"
-import { inferencePlanOf, storePlan } from "../src/inference/plan.ts"
+import { grantTestPlan, inferencePlanOf, storePlan } from "../src/inference/plan.ts"
 import { stackServer, type StackServer } from "../src/stack-server.ts"
 import { PROJECT, teamStub } from "./team-stack-support.ts"
 import { inDO } from "./team-ssh-support.ts"
@@ -33,7 +33,7 @@ const personal = (stack: StackServer, before?: (sql: SqlStorage) => void) =>
 describe("inferencePlan next_plan (cmuxNextPlan)", () => {
   it("answers next_pro from the owner's user record, in the same single read as plan", async () => {
     const f = fakeHttp({ cmuxPlan: "pro", cmuxNextPlan: "next_pro" })
-    expect(await personal(stackServer(env, f.http)!)).toEqual({ ok: true, paid: true, user_limit_usd: expect.any(Number), plan: "pro", next_plan: "next_pro" })
+    expect(await personal(stackServer(env, f.http)!)).toEqual({ ok: true, paid: true, user_limit_usd: expect.any(Number), plan: "pro", next_plan: "next_pro", chief_addon: null })
     expect(f.sent).toEqual([{ method: "GET", path: "/users/stack-user" }])
   })
 
@@ -48,8 +48,8 @@ describe("inferencePlan next_plan (cmuxNextPlan)", () => {
   it("keeps paid, the limit and plan unchanged when only cmuxNextPlan is set", async () => {
     const withNext = await personal(stackServer(env, fakeHttp({ cmuxNextPlan: "next_max" }).http)!)
     const without = await personal(stackServer(env, fakeHttp({}).http)!)
-    expect(withNext).toEqual({ ok: true, paid: false, user_limit_usd: (without as any).user_limit_usd, plan: null, next_plan: "next_max" })
-    expect(without).toEqual({ ok: true, paid: false, user_limit_usd: (withNext as any).user_limit_usd, plan: null, next_plan: null })
+    expect(withNext).toEqual({ ok: true, paid: false, user_limit_usd: (without as any).user_limit_usd, plan: null, next_plan: "next_max", chief_addon: null })
+    expect(without).toEqual({ ok: true, paid: false, user_limit_usd: (withNext as any).user_limit_usd, plan: null, next_plan: null, chief_addon: null })
   })
 
   it("reads next_plan from the Stack team record for a shared team", async () => {
@@ -70,7 +70,7 @@ describe("inferencePlan next_plan (cmuxNextPlan)", () => {
       sql.exec(`CREATE TABLE inference_plan (id INTEGER PRIMARY KEY CHECK (id = 1), plan TEXT, checked_at INTEGER NOT NULL, failed_at INTEGER)`)
       sql.exec(`INSERT INTO inference_plan (id, plan, checked_at, failed_at) VALUES (1, 'pro', ?, NULL)`, Date.now())
     })
-    expect(answer).toEqual({ ok: true, paid: true, user_limit_usd: expect.any(Number), plan: "pro", next_plan: null })
+    expect(answer).toEqual({ ok: true, paid: true, user_limit_usd: expect.any(Number), plan: "pro", next_plan: null, chief_addon: null })
     expect(reads).toBe(0)
   })
 
@@ -90,6 +90,16 @@ describe("inferencePlan next_plan (cmuxNextPlan)", () => {
     expect(cached).toEqual(first)
     expect(reads).toBe(1)
     expect(afterStore).toMatchObject({ paid: true, plan: "pro", next_plan: null })
+  })
+
+  it("keeps next_plan when a Chief's test plan grant makes the answer paid", async () => {
+    const stack = { getUserPlans: async () => ({ plan: null, next_plan: "next_pro" }) } as unknown as StackServer
+    const answer = await inDO(teamStub(`personal-${crypto.randomUUID()}`), async (_i, state) => {
+      const sql = state.storage.sql
+      grantTestPlan(sql, "pro", "cs_test_1", "sub_1", Date.now())
+      return inferencePlanOf(sql, null, "entity", stack, "stack-user", "user", Date.now(), true)
+    })
+    expect(answer).toEqual({ ok: true, paid: true, user_limit_usd: expect.any(Number), plan: "pro", next_plan: "next_pro", chief_addon: null })
   })
 
   it("leaves the unavailable answer unchanged", async () => {

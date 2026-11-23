@@ -2,15 +2,16 @@ import AppKit
 @testable import CmuxNextDesign
 import Testing
 
-/// A toast's `detail` (the Stop all agents toast's refused subagents): a tooltip on the message
-/// and the toast's VoiceOver help, never more text in the toast itself.
+/// A toast's `detail` (the Stop all agents toast's refused subagents): VoiceOver's help on the message
+/// and the toast, never more text in the toast itself, and no tooltip on the message, which shows its own text.
 @MainActor
 struct CmuxToastDetailTests {
-    @Test func theDetailIsTheMessagesTooltipAndTheToastsHelp() throws {
+    @Test func theDetailIsTheMessagesAndTheToastsHelp() throws {
         let view = CmuxToastView(toast: CmuxToast(id: "t", message: "1 could not be stopped", detail: "a2: refused"))
         let label = try #require(view.messageLabel)
         #expect(label.stringValue == "1 could not be stopped")
-        #expect(label.themedToolTip == "a2: refused")
+        #expect(label.accessibilityHelp() == "a2: refused")
+        #expect(label.themedToolTip == nil)
         #expect(view.accessibilityHelp() == "a2: refused")
     }
 
@@ -18,7 +19,7 @@ struct CmuxToastDetailTests {
         for detail in [nil, ""] as [String?] {
             let view = CmuxToastView(toast: CmuxToast(id: "t", message: "Saved", detail: detail))
             #expect(view.toast.detail == nil)
-            #expect(try #require(view.messageLabel).themedToolTip == nil)
+            #expect(try #require(view.messageLabel).accessibilityHelp() == nil)
         }
     }
 

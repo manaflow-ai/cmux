@@ -1396,3 +1396,30 @@ fn a_base_url_in_a_state_saved_before_is_never_delivered_and_is_removed_at_load(
     assert!(!text.contains("ANTHROPIC_BASE_URL"), "{text}");
     assert!(!super::loaded_names().iter().any(|n| n == "ANTHROPIC_BASE_URL"));
 }
+
+/// A refusal that stays until someone acts (a join in a shared team, no grant, a lapsed grant)
+/// names its cause and next step; a passing failure names none, so it keeps warning each time.
+#[test]
+fn a_standing_vault_refusal_names_its_cause_and_next_step() {
+    let forbidden = super::standing_refusal("vault.forbidden").unwrap();
+    assert!(
+        forbidden.contains("personal team") && forbidden.contains("doctor --here"),
+        "{forbidden}"
+    );
+    assert!(super::standing_refusal("vault.not_granted").unwrap().contains("grant"));
+    assert!(super::standing_refusal("vault.grant_expired").unwrap().contains("renews"));
+    assert_eq!(super::standing_refusal("vault.unavailable"), None);
+    assert_eq!(super::standing_refusal("vault.revoked"), None);
+}
+
+/// Said once while it stays, again once something else failed or a pull went through.
+#[test]
+fn a_standing_refusal_is_explained_once_per_streak() {
+    let mut said = None;
+    super::log_pull_failure("vault.forbidden", 1, &mut said);
+    assert_eq!(said.as_deref(), Some("vault.forbidden"));
+    super::log_pull_failure("vault.forbidden", 2, &mut said);
+    assert_eq!(said.as_deref(), Some("vault.forbidden"));
+    super::log_pull_failure("vault.unavailable", 3, &mut said);
+    assert_eq!(said, None);
+}

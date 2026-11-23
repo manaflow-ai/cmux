@@ -39,9 +39,9 @@ extension WorkspaceRowView {
         return controls.contains { $0.intersects(ink) }
     }
 
-    /// The pull request badge, the roll-up chips, the unread mark and the keycap give way to a hover control drawn on
+    /// The pull request badge and the roll-up chips (both point-at targets) give way to a hover control drawn on
     /// them: where the layout left them room they stay beside the ✕ and the ⋮, and otherwise the ✕ takes their
-    /// place until the hover ends (https://github.com/manaflow-ai/cmux/issues/48363: the ✕ drew on top of the red
+    /// place until the hover ends. The unread mark and the keycap hide while any control shows (https://github.com/manaflow-ai/cmux/issues/48363: the ✕ drew on top of the red
     /// pull request glyph, the blue unread dot and the red error mark). The status marks give way in the layout's
     /// mark pass by the same test.
     func giveWayToControls(_ controls: [NSRect], fades: Bool) {
@@ -50,7 +50,9 @@ extension WorkspaceRowView {
         }
         // A pointer on the badge when it gave way is on the ✕ now: its card does not stay open.
         if pullRequests.alphaValue == 0 { pullRequests.pointerLeft() }
-        for mark in [badge, keycap] as [NSView] where Self.covers(controls, mark) && mark.alphaValue > 0 {
+        // The unread mark and the keycap hide while any control shows, beside it or under it (Leo 2026-11-22: "in all
+        // cases, the hovered buttons should just replace the other ones").
+        for mark in [badge, keycap] as [NSView] where !controls.isEmpty && mark.alphaValue > 0 {
             setHoverPainted(mark, false, fades: fades)
         }
     }

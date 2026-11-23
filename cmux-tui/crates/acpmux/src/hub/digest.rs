@@ -370,7 +370,10 @@ impl Hub {
             return Vec::new();
         }
         // A review box runs each agent message as its own prompt behind the review (`inbox.rs`).
-        if head.agent.is_none()
+        // The person's prompt joins none, but the one a held chat held: the person's prompts
+        // queued behind it join it (`person_hold.rs`).
+        let person = head.agent.is_none() && super::person_hold::folds(session, turn_id);
+        if (head.agent.is_none() && !person)
             || crate::prompt_provenance::is_trigger(head.provenance.as_ref())
             || super::forum::slash_command(&head.blocks).is_some()
             || crate::prompt_uploads::any(&head.blocks)
@@ -393,7 +396,7 @@ impl Hub {
                     i += 1;
                     continue;
                 }
-                let joins = q.run.agent.is_some()
+                let joins = q.run.agent.is_some() != person
                     && !crate::prompt_provenance::is_trigger(q.run.provenance.as_ref())
                     && super::forum::slash_command(&q.run.blocks).is_none()
                     && !crate::prompt_uploads::any(&q.run.blocks)

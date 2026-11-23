@@ -86,6 +86,10 @@ pub(crate) fn explicit_env(cmd: &std::process::Command) -> Vec<(String, Option<S
 /// Every spawn builds through [`harness_command_ready`], never this directly:
 /// the only direct callers are that function and tests that read the built
 /// command without starting it.
+///
+/// A `codex app-server` started in a checkout still filling gets the PreToolUse hook that holds
+/// each of its tools until the checkout is whole (`codex_repo_gate.rs`), when it can run one: the
+/// command is built, and built again with the hook.
 pub(crate) fn harness_command(
     name: &str,
     profile: &HarnessProfile,
@@ -93,6 +97,28 @@ pub(crate) fn harness_command(
     command_line: Option<(String, Vec<String>)>,
     session: Option<(&str, &str)>,
 ) -> Result<Command> {
+    let (cmd, codex) =
+        build_harness_command(name, profile, cwd, command_line.clone(), session, false)?;
+    let gate = codex.is_some_and(|(program, args)| {
+        crate::codex_repo_gate::wanted(&program, &args, cwd, &explicit_env(cmd.as_std()))
+    });
+    if !gate {
+        return Ok(cmd);
+    }
+    Ok(build_harness_command(name, profile, cwd, command_line, session, true)?.0)
+}
+
+/// [`harness_command`], with the repository hook when `repo_gate` (a local `codex app-server`
+/// launch only). Without it, a local `codex app-server` launch's program and arguments come
+/// back too, for [`crate::codex_repo_gate::wanted`].
+fn build_harness_command(
+    name: &str,
+    profile: &HarnessProfile,
+    cwd: &std::path::Path,
+    command_line: Option<(String, Vec<String>)>,
+    session: Option<(&str, &str)>,
+    repo_gate: bool,
+) -> Result<(Command, Option<(String, Vec<String>)>)> {
     // A session's Claude Code (a planned command line) gets cmux's browser
     // and computer use tools and skills (agent_tools.rs); a remote chain's
     // sandboxed plan carries --strict-mcp-config and gets none.
@@ -115,10 +141,16 @@ pub(crate) fn harness_command(
         ));
     }
     let owned = if let (true, Some((session_id, session_name))) = (claude_session, session) {
-        let extra =
+        let (extra, prompt) =
             crate::agent_tools::claude_args_for(false, &profile.env, &owned.1, session_id, cwd);
         let named = claude_name_args(&profile.env, &owned.1, session_name);
-        (owned.0, owned.1.into_iter().chain(extra).chain(named).collect())
+        let mut args = owned.1;
+        // acpmux's own servers' instructions, which they then leave out: in the system prompt
+        // every chat shares, not the first turn's (`AgentTools::instructions_in_prompt`).
+        if let Some(prompt) = prompt {
+            crate::agent_tools::append_system_prompt(&mut args, &prompt);
+        }
+        (owned.0, args.into_iter().chain(extra).chain(named).collect())
     } else {
         owned
     };
@@ -286,8 +318,17 @@ pub(crate) fn harness_command(
     // The durable store is bound by acpmux's profile spawn path; never
     // inherit a controller or shell value into another harness.
     cmd.env_remove("CMUX_HARNESS_SESSION_STORE_DIR");
-    cmd.args(crate::harness_limits::launch_args(codex_launch, args, session.map(|_| (cwd, &env))))
-        .envs(env.iter());
+    let launch =
+        crate::harness_limits::launch_args(codex_launch, args, session.map(|_| (cwd, &env)));
+    // A remote chain's sandboxed launch runs only what its plan checked: no hook.
+    let codex = (!remote_environment && codex_launch).then(|| (program.clone(), launch.clone()));
+    let (launch, codex) = match codex {
+        Some(_) if repo_gate => {
+            (crate::codex_repo_gate::gated_args(&launch).unwrap_or(launch), None)
+        }
+        codex => (launch, codex),
+    };
+    cmd.args(launch).envs(env.iter());
     // The subagent mark is the daemon's to give (a workflow runner a subagent started,
     // `hub/workflow_runs.rs`), never a profile's: an agent's MCP servers would send as it.
     cmd.env_remove(crate::sender_env::SUBAGENT_ENV);
@@ -377,7 +418,7 @@ pub(crate) fn harness_command(
     if remote_environment {
         crate::linux_sandbox::scrub_loader_env(&mut cmd);
     }
-    Ok(cmd)
+    Ok((cmd, codex))
 }
 
 /// OpenCode asked to ask (`opencode_ask.rs`): the `OPENCODE_CONFIG_CONTENT`
