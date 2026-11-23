@@ -1,6 +1,7 @@
 // The Mobile Pairing page (palette "Open Mobile Pairing", Settings > Accounts, the composer's
 // machine picker): three steps to a phone that reaches this Mac (sign in, iPhone connections, the
-// iPhone host), the button for the one missing step, then how to connect, the phones asking to
+// iPhone host) under a line on where the iPhone app comes from, the button for the one missing
+// step, then how to connect, the phones asking to
 // connect (Allow, Don't Allow) and the account's phones. A QR code shows only when the host sends
 // one; it sends none until cmux on iPhone opens a pairing link.
 import { useEffect, useSyncExternalStore } from "react";
@@ -27,6 +28,10 @@ export function MobilePairingPage({ store, strings }: { store: MobilePairingStor
       <header className="pairing-header">
         <h1 className="pairing-title">{strings.t("mobilePairing.page.title")}</h1>
         <p className="pairing-subtitle">{strings.t("mobilePairing.page.subtitle")}</p>
+        {/* A new user may not have the iPhone app yet: every state says where it comes from. */}
+        <p className="pairing-subtitle pairing-get-app" data-pairing="get-app">
+          {strings.t("mobilePairing.page.getApp")}
+        </p>
       </header>
       {snapshot.unavailable ? (
         <p className="pairing-message">{strings.t("mobilePairing.page.unavailable")}</p>

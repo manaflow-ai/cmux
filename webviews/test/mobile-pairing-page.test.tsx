@@ -1,8 +1,8 @@
 // The Mobile Pairing page (cmux-page://cmux.mobile-pairing/) over a fake host: it loads the
 // status, asks again on every change event, names the one missing step with its button, shows the
 // iPhone host's status, its waiting requests (Allow, Don't Allow) and phones once ready, shows a QR
-// code only when the host sends one, asks for a new code when the shown one expires, and a missing
-// host says so instead of loading forever.
+// code only when the host sends one, says in every state where the iPhone app comes from, asks for
+// a new code when the shown one expires, and a missing host says so instead of loading forever.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -183,6 +183,9 @@ test("the page names the missing step, then the host's status, requests and phon
   act(() => root!.render(<MobilePairingPage store={store} strings={createStrings(table, ["en"])} />));
   await act(async () => await store.start());
   expect(host.querySelector("h1")?.textContent).toBe("Pair your iPhone");
+  // A new user without the iPhone app reads where it comes from, signed out and in every later state.
+  const getApp = "No cmux on your iPhone yet? It’s in beta: get it through TestFlight.";
+  expect(host.querySelector("[data-pairing=get-app]")?.textContent).toBe(getApp);
   const signIn = host.querySelector<HTMLButtonElement>("[data-action=sign-in]");
   expect(signIn).not.toBeNull();
   await act(async () => signIn!.click());
@@ -243,10 +246,12 @@ test("the page names the missing step, then the host's status, requests and phon
     "data:image/png;base64,AAAA",
   );
   expect(host.querySelector(".pairing-how")).toBeNull();
+  expect(host.querySelector("[data-pairing=get-app]")?.textContent).toBe(getApp);
 
   fake.set({ ...BASE, state: "failed", allowed: true, account: "me@example.com", failure: "relay refused" });
   await act(async () => fake.emit());
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   expect(host.querySelector("img.pairing-qr")).toBeNull();
   expect(host.querySelector(".pairing-failure-detail")?.textContent).toBe("relay refused");
+  expect(host.querySelector("[data-pairing=get-app]")?.textContent).toBe(getApp);
 });
