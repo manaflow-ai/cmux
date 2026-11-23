@@ -993,8 +993,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             if status {
                 return crate::cli::cloud_join::status(hub, json_out).await;
             }
-            // A process-wide file lock protects the check, redeem and commit as one
-            // transaction. A second installer never redeems behind the first one.
+            // A symlinked home is refused by name; then a process-wide file lock protects the check, redeem
+            // and commit as one transaction. A second installer never redeems behind the first one.
+            crate::cli::join_input::refuse_symlinked_home()?;
             let _lock = crate::cli::cloud_join::join_lock().map_err(|e| {
                 crate::cli::errors::AppError::new(
                     crate::cli::errors::Code::Runtime,
