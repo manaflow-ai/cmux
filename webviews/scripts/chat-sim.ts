@@ -37,7 +37,7 @@ import {
 } from "../src/agent-session/acpmux/sim/capture";
 import type { EventRecord } from "../src/agent-session/acpmux/direct";
 import { runSimulation, summarize, type SimResult } from "../src/agent-session/acpmux/sim/run";
-import { DROPPED, parseRecords, sanitizeRecords } from "../src/agent-session/acpmux/sim/sanitize";
+import { DROPPED, sanitizeRecords } from "../src/agent-session/acpmux/sim/sanitize";
 import { replayScenario, type SimScenario } from "../src/agent-session/acpmux/sim/script";
 import { SCENARIOS, longRun, scenarioNames } from "../src/agent-session/acpmux/sim/scenarios";
 import { cutRecords, readRecords } from "./chat-sim-records";
