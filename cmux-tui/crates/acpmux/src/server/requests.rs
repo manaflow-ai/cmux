@@ -3058,10 +3058,10 @@ async fn dispatch_request_with_identity(
             hub.op_once
                 .run(m, &params, || async {
                     let s = hub.resolve(session_key(&params)?)?;
-                    let archived = params
-                        .get("archived")
-                        .and_then(Value::as_bool)
-                        .ok_or_else(|| RpcError::invalid_params("archived must be true or false"))?;
+                    let archived =
+                        params.get("archived").and_then(Value::as_bool).ok_or_else(|| {
+                            RpcError::invalid_params("archived must be true or false")
+                        })?;
                     // `hub/inactive_archive.rs`: nothing logged when nothing changes (an unarchive of a
                     // chat that is not archived); `changed` says which.
                     let changed = hub.set_archived(&s, archived, false)?;
