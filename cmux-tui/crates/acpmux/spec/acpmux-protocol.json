@@ -1506,6 +1506,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/keys_mint",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/person_prove",
       "params": true,
       "result": true

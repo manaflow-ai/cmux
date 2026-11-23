@@ -155,3 +155,20 @@ If a store fails, the new key is revoked at once and nothing is recorded as live
 
 `cmux keys revoke ID` deletes a minted token at Cloudflare, so every stored copy stops working. To rotate a
 minted key, mint again with the same `--store` (that overwrites the secrets), then revoke the old id.
+
+### Mint from a Linux machine
+
+The bootstrap token stays in the Mac's Keychain. A Linux machine that is an acpmux peer of that Mac asks the
+Mac's broker for a key instead, and gets back only the scoped key:
+
+```
+cmux keys mint cloudflare-r2 --via MAC --bucket cmux-ci-handoff --ro --ttl 30d --store vault:CI_HANDOFF_R2
+```
+
+- The ask goes to this machine's acpmux, then over the peer link to the Mac (`_acpmux/keys_mint`). The Mac
+  takes it only from a peer that proved its peer token or a `client` device credential, as Computer Use does.
+- The ask carries only the key's scope (bucket, access, ttl, account, bucket setup). The Mac mints with
+  `cmux keys mint ... --reply-to-machine NAME` and sends back the key's id, scope, expiry and its S3 pair,
+  and nothing else. The bootstrap never leaves the Mac.
+- This machine stores the pair in its own `--store`s (usually `vault:`) and records the key in its own
+  audit with `via`. The Mac's audit lists the key as delivered to `machine:NAME`. Revoke it on the Mac.

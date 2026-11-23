@@ -595,6 +595,9 @@ pub mod method {
     pub const MUX_COMPUTER_USE_MACHINES: &str = "_acpmux/computer_use_machines";
     /// Whether Computer Use is on here (asked by a peer for its machine list).
     pub const MUX_COMPUTER_USE_STATE: &str = "_acpmux/computer_use_state";
+    /// A scoped key minted by another of the person's machines, which keeps the provider's
+    /// bootstrap token (`server/keys_relay.rs`).
+    pub const MUX_KEYS_MINT: &str = "_acpmux/keys_mint";
     /// The person proof for this connection's challenge (`hub/person.rs`).
     pub const MUX_PERSON_PROVE: &str = "_acpmux/person_prove";
     pub const MUX_PERSON_HOLDS: &str = "_acpmux/person_holds";
