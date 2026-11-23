@@ -1,4 +1,5 @@
 public import CmuxNextPages
+public import CmuxNextSettings
 import Foundation
 
 /// Settings > Updates' App Update card: Go Back to Previous Build. Leo (2026-11-21): "we ought to
