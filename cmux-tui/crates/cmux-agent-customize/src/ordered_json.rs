@@ -50,7 +50,11 @@ impl Members {
     /// Sets `key` (in place when present, else at the end); `None` removes it.
     pub(crate) fn set(&mut self, key: &str, value: Option<Box<RawValue>>) {
         match (self.0.iter().position(|(k, _)| k == key), value) {
-            (Some(at), Some(value)) => self.0[at].1 = value,
+            (Some(at), Some(value)) => {
+                if let Some(entry) = self.0.get_mut(at) {
+                    entry.1 = value;
+                }
+            }
             (Some(at), None) => {
                 self.0.remove(at);
             }

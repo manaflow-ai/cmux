@@ -33,6 +33,8 @@ import { rememberRecentFolders } from "../newtab/recentProject";
 import { publishWarmNewTab } from "../newtab/warmSnapshot";
 import { drawPaneSnapshot, type PendingPaneDraw } from "../paneSnapshotLane";
 import { setBookmarkTransport } from "../threadMinimap/bookmarks";
+import { setSavedPromptsTransport } from "../savedPrompts";
+import { setStashTab, setStashTransport } from "../composer/draftStash";
 import {
   composerDraft,
   DRAFT_SETTLE_MS,
@@ -139,6 +141,7 @@ import {
   offersAcpmuxRestart,
   quickRetry,
   readHostRestoring,
+  troubleSinceAfterLoss,
 } from "../hostRetry";
 import { heldStartStop, sendsHeldForHost, untilHostAnswers } from "../sendWhenReady";
 import type { Subagent } from "../subagents/subagentFold";
@@ -188,6 +191,7 @@ import {
 } from "./sendHost";
 import { fetchScrollAnchor, postScrollAnchor } from "./scrollAnchorHost";
 import { readWake } from "./wake";
+import { togglePlace, togglePromptRow } from "../conversation/togglePlace";
 
 /** What AcpmuxPane's snapshot effect reads from the pane (App.tsx): its state, setters, refs and callbacks. */
 export type PaneSnapshotArgs = {
@@ -344,6 +348,8 @@ export type PaneSnapshotArgs = {
   untakenSends: React.RefObject<number>;
   pendingWake: React.RefObject<ComposerWake | undefined>;
   transcriptAnchor: React.RefObject<(() => ScrollAnchor | null | undefined) | undefined>;
+  /// The transcript's Toggle Terminal and Chat placement (VirtualTranscript `placeNow`).
+  placeTranscript: React.RefObject<((rowId: string | null) => boolean) | null>;
   setSends: React.Dispatch<React.SetStateAction<number>>;
   followingTranscript: React.RefObject<boolean>;
   setHostError: React.Dispatch<React.SetStateAction<string | undefined>>;
@@ -357,6 +363,8 @@ export type PaneSnapshotArgs = {
   setWaitingSince: React.Dispatch<React.SetStateAction<number | undefined>>;
   setRestartUnavailable: React.Dispatch<React.SetStateAction<boolean>>;
   setRelinkingSince: React.Dispatch<React.SetStateAction<number | undefined>>;
+  /// When the pane's trouble began (`troubleSince` below): bounds the bare "Reconnecting…".
+  setHostTroubleSince: React.Dispatch<React.SetStateAction<number | undefined>>;
   setHostRestoring: React.Dispatch<React.SetStateAction<HostRestoring | undefined>>;
   runPendingAdoption: React.RefObject<() => void>;
   freshRef: React.RefObject<boolean>;
@@ -483,6 +491,7 @@ export function paneSnapshotEffect({
   untakenSends,
   pendingWake,
   transcriptAnchor,
+  placeTranscript,
   setSends,
   followingTranscript,
   setHostError,
@@ -496,6 +505,7 @@ export function paneSnapshotEffect({
   setWaitingSince,
   setRestartUnavailable,
   setRelinkingSince,
+  setHostTroubleSince,
   setHostRestoring,
   runPendingAdoption,
   freshRef,
@@ -748,6 +758,14 @@ export function paneSnapshotEffect({
     revealTurn(turnId) {
       revealRef.current(turnId);
     },
+    togglePlace() {
+      return togglePlace(counted.current.transcriptRows, transcriptAnchor.current?.());
+    },
+    placeToggle(at, until) {
+      if (until !== undefined && Date.now() > until) return false;
+      const rowId = at === null ? null : togglePromptRow(counted.current.transcriptRows, at);
+      return rowId !== undefined && (placeTranscript.current?.(rowId) ?? false);
+    },
     applyCustomization(customization) {
       if ("themeCSS" in customization) {
         applyPaneThemeCSS(customization.themeCSS ?? "");
@@ -836,6 +854,10 @@ export function paneSnapshotEffect({
   /// When the handshakes began failing (cleared by a connect): a recovery is said only once it
   /// has failed for HOST_ERROR_DEADLINE_MS (hostRetry.ts).
   let failingSince: number | undefined;
+  /// When the pane's trouble began: unlike `failingSince`, a connect that is lost again within
+  /// CONNECTION_STABLE_MS does not end it (hostRetry.ts `troubleSinceAfterLoss`), so a chat that
+  /// never stays open stops being a bare "Reconnecting…" past SELF_RETRY_SAID_MS.
+  let troubleSince: number | undefined;
   let connecting = false;
   /// The user asked to retry while an attempt was in flight; run a full one when it ends.
   let retryPending = false;
@@ -949,7 +971,10 @@ export function paneSnapshotEffect({
       const host = received.host;
       if (received.folder) setHandedFolder(received.folder);
       // Before anything draws the chat: its Session Info is this tab's, not another tab's of the chat.
-      if (typeof host.tab === "string" && host.tab) setSessionInfoTab(host.tab);
+      if (typeof host.tab === "string" && host.tab) {
+        setSessionInfoTab(host.tab);
+        setStashTab(host.tab);
+      }
       acpmuxPerf.markAgent("handshakeReady");
       acpmuxPerf.markLaunch("handshakeReady");
       setCloudTeamMachine(host.cloudTeamMachine === true);
@@ -1215,6 +1240,8 @@ export function paneSnapshotEffect({
           // the handshakes fail past the deadline, then the waiting line or the failure.
           failingSince = Date.now();
           setRelinkingSince(failingSince);
+          troubleSince = troubleSinceAfterLoss(troubleSince, failingSince - connectedAt, failingSince);
+          setHostTroubleSince(troubleSince);
           // A client lost soon after it connected keeps the backoff growing: a daemon that drops
           // the pane right after every connect is not asked again every 250 ms. Jittered so the
           // tabs that lost one daemon together do not ask it again in lockstep.
@@ -1270,6 +1297,20 @@ export function paneSnapshotEffect({
       setBookmarkTransport({
         get: (id) => client.readBookmarks(id),
         set: (id, seq, on) => client.setBookmark(id, seq, on),
+      });
+      // Saved prompts live in acpmux, one list for every chat on the machine (savedPrompts.ts).
+      setSavedPromptsTransport({
+        list: () => client.listPrompts(),
+        save: (name, text) => client.savePrompt(name, text),
+        remove: (name) => client.deletePrompt(name),
+      });
+      // Stashed drafts live in acpmux too: the page's own storage is gone with it (draftStash.ts).
+      setStashTransport({
+        list: (chat) => client.listStash(chat),
+        push: (chat, text, attachments, replaces) => client.pushStash(chat, text, attachments, replaces),
+        get: (chat, id) => client.getStash(chat, id),
+        drop: (chat, id) => client.dropStash(chat, id),
+        move: (chat, to) => client.moveStash(chat, to),
       });
       // Every trust refusal (a new chat, a resumed one, a switch, a prewarm, a prompt) shows the
       // folder's one question above the composer; Trust re-runs the refused step (cx-nn3e).
@@ -1700,11 +1741,12 @@ export function paneSnapshotEffect({
             typeof sessionId === "string" && sessionId ? sessionId : undefined,
             annotations && typeof annotations === "object" ? (annotations as Record<string, unknown>) : undefined,
           ),
-        "chat.plan.build": ({ permissionId, target, sessionId }) =>
+        "chat.plan.build": ({ permissionId, target, sessionId, plan }) =>
           client.planBuild(
             String(permissionId),
             planBuildTarget(target),
             typeof sessionId === "string" && sessionId ? sessionId : undefined,
+            typeof plan === "string" && plan.trim() ? plan : undefined,
           ),
         "chat.plan.compare": ({ buildId, sessionId }) =>
           client.planCompare(String(buildId), typeof sessionId === "string" && sessionId ? sessionId : undefined),
@@ -2709,6 +2751,8 @@ export function paneSnapshotEffect({
         setHostFailure(error);
         setHostRestoring(readHostRestoring((error as { details?: unknown } | null)?.details, Date.now()));
         failingSince ??= Date.now();
+        troubleSince ??= failingSince;
+        setHostTroubleSince(troubleSince);
         const recovering = hostIsReconnecting(error);
         // A sleeping Cloud machine is never "Can't reach"; an SSH peer of the same name still is.
         const asleep = (peer: string | undefined) =>
@@ -2786,6 +2830,8 @@ export function paneSnapshotEffect({
     directClient.current?.close();
     directClient.current = undefined;
     setBookmarkTransport(undefined);
+    setSavedPromptsTransport(undefined);
+    setStashTransport(undefined);
     delete window.cmuxAcpmuxActions;
     notifyDraftActionsChanged();
   };
