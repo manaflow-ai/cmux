@@ -978,6 +978,10 @@ extension ShellModel {
             accountID: auth.user?.id
         )
         let service = ScreenSharingService(configuration: configuration)
+        // The Share <Mac> tap's carrier (cmuxterm-hq#18912): the device hub's share-approval route.
+        service.shareCarrier = { approval, target, hub in
+            try await hub.sendShareApproval(target: target.id, approvalJSON: approval)
+        }
         #if DEBUG
         if let demo = ScreenSharingService.demoMode() { service.useDemo(demo) }
         #endif

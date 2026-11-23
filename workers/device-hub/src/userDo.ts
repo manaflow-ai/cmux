@@ -39,6 +39,8 @@ export const HOST_PLATFORMS: readonly DevicePlatform[] = ["macos", "linux", "win
 export function isDevicePlatform(value: unknown): value is DevicePlatform {
   return (DEVICE_PLATFORMS as readonly unknown[]).includes(value);
 }
+/** The share approval format the hub carries (acpmux `share_approval::VERSION`). */
+export const SHARE_APPROVAL_VERSION = "cmux.share-approval.v1";
 
 export type PermissionScope = "none" | "ask" | "view" | "full";
 type SessionState = "pending" | "approved" | "live" | "ended";
@@ -630,6 +632,7 @@ export class UserDO extends DurableObject<Env> {
       if (n === 3 && d === "mac-screen" && m === "PUT") return this.setSharing(me, b!, this.parse(raw));
       if (n === 3 && d === "screen-share" && m === "PUT") return this.reportScreenShare(me, b!, this.parse(raw));
       if (n === 3 && d === "sign-out" && m === "POST") return this.signOut(me, b!);
+      if (n === 3 && d === "share-approval" && m === "POST") return this.carryShareApproval(me, b!, this.parse(raw), c);
     }
     if (a === "permissions") {
       if (n === 1 && m === "GET") return this.listPermissions(url.searchParams.get("host"));
@@ -892,6 +895,46 @@ export class UserDO extends DurableObject<Env> {
       this.broadcast({ type: "devices.changed" });
     }
     return json({ device: publicDevice(this.device(id)!, this.online(id)) });
+  }
+
+  /**
+   * `POST /v1/devices/:id/share-approval {approval}`: carries a signed `cmux.share-approval.v1`
+   * (acpmux `share_approval.rs`) from the device the person tapped on to the Mac it names, as a
+   * `share.approval` push (zero-touch Share This Mac, cmuxterm-hq#18912). The hub checks who
+   * sends it: a person's full session only (a host or machine session is refused before
+   * dispatch, so an agent's fleet or CLI token never sends one), as the device the approval
+   * names, on this account, to a live host of it. The target checks the signature against this
+   * account's device list, then turns its own sharing on (acpmux `share_host/approval.rs`).
+   */
+  private carryShareApproval(me: DeviceRow, id: string, body: Record<string, unknown>, c: CallContext): Response {
+    const raw = body.approval;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw badRequest("approval must be an object");
+    const f = raw as Record<string, unknown>;
+    if (f.v !== SHARE_APPROVAL_VERSION) throw badRequest(`approval.v must be ${SHARE_APPROVAL_VERSION}`);
+    const at = f.confirmed_at;
+    const atOk = (typeof at === "number" && Number.isSafeInteger(at) && at >= 0) || (typeof at === "string" && /^\d{1,15}$/.test(at));
+    if (!atOk) throw badRequest("approval.confirmed_at must be whole Unix seconds");
+    const name = (v: unknown, field: string) => (v === undefined || v === "" ? "" : str(v, field, 200));
+    const approval = {
+      v: SHARE_APPROVAL_VERSION,
+      target: str(f.target, "approval.target", 64),
+      target_name: name(f.target_name, "approval.target_name"),
+      asker: str(f.asker, "approval.asker", 64),
+      asker_name: name(f.asker_name, "approval.asker_name"),
+      confirmed_by: str(f.confirmed_by, "approval.confirmed_by", 200),
+      confirmed_at: at,
+      nonce: str(f.nonce, "approval.nonce", 128),
+      signature: str(f.signature, "approval.signature", 200),
+    };
+    if (approval.target !== id) throw badRequest("approval.target must be the device in the path");
+    if (id === me.id) throw badRequest("a device does not send an approval to itself");
+    if (approval.asker !== me.id) throw new ApiError(403, "not_asker", "only the device that signed an approval sends it");
+    if (approval.confirmed_by !== c.userId) throw new ApiError(403, "other_account", "the approval names another account");
+    const host = this.liveDevice(id);
+    if (!HOST_PLATFORMS.includes(host.platform)) throw new ApiError(403, "not_host", "only a Mac, a Linux desktop or a Windows PC shares its screen");
+    if (!this.online(id)) throw new ApiError(409, "host_offline", "the host is not connected");
+    this.send(id, { type: "share.approval", from: me.id, approval });
+    return json({ delivered: true, hostId: id });
   }
 
   // ---- permissions ----
@@ -1194,7 +1237,10 @@ export class UserDO extends DurableObject<Env> {
     const host = this.liveDevice(s.host_id);
     if (host.mac_screen_shared !== 1) throw new ApiError(403, "not_shared", "the host does not share its screen");
     if (!this.online(host.id)) throw new ApiError(409, "host_offline", "the host is not connected");
-    if (rank(this.permission(host.id, me.id)) < rank(s.scope)) throw new ApiError(403, "permission_none", "the host no longer allows this device");
+    // Lowering a permission ends the sessions it no longer allows (storePermission), so an open
+    // session below its stored permission was approved once (Ask, or View asking for Full): only
+    // None refuses its reattach.
+    if (this.permission(host.id, me.id) === "none") throw new ApiError(403, "permission_none", "the host no longer allows this device");
     const entitled = (await this.sessionEntitlement(s, c)) === "paid";
     const tickets = await this.issueTickets(s, c, entitled ? await mintTurn(this.env) : [], REATTACH_TTL_S, true);
     if (!tickets) throw new ApiError(409, "session_not_active", "session is not active");

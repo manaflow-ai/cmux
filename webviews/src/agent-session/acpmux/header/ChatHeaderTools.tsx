@@ -27,6 +27,7 @@ import { motionMode } from "../../../ui/motion/motionMode";
 import { menuLetter, type MenuTyping } from "./menuLetters";
 import { HEADER_ACTIONS } from "./headerActions";
 import { headerQuickTools, type HeaderQuickTool } from "./headerQuickTools";
+import { headerRelevance } from "./headerRelevance";
 import { useHeaderFold } from "./headerOverflow";
 import { nativeChatMenu, nativeCustomizeMenu } from "./nativeMenuBindings";
 import { HEADER_SYMBOLS } from "./headerSymbols";
@@ -225,7 +226,7 @@ function ChatHeaderToolsView({
   // header never moves its controls from Swift into the web page when the experiment is enabled.
   const glassSwitch = useExperimentSwitch(GLASS_TOOLBAR_SWITCH);
   const glassLook = glass ?? (glassSwitch ? experimentArm(glassToolbarLook) : "off");
-  const { lit, pullRequest, headerControls, headerMotion } = useHeaderState();
+  const { lit, pullRequest, headerControls, headerMotion, headerIcons: iconsPicked } = useHeaderState();
   const style = motion ?? headerMotion;
   // The glass capsule holds every split action (Split Down and New tab too, which the plain row keeps in
   // "..." by default); the saved list itself is not changed.
@@ -382,9 +383,16 @@ function ChatHeaderToolsView({
     onSideTabs,
     t,
   });
+  // The three controls and the glass toolbar draw their own sets; the contextual styles apply to the plain row.
+  const headerIcons = glassLook === "off" && (controls ?? headerControls) !== "trio" ? iconsPicked : "standard";
+  // The contextual styles draw only the icons relevant to the chat now (headerRelevance.ts).
+  const relevance = headerRelevance({ style: headerIcons, tools, lit, previewUrl });
   const customize = onCustomize
     ? new Map(tools.map(({ id }) => [id, nativeCustomizeMenu(customizeItems(actions, id, onCustomize, t, true))]))
     : undefined;
+  // The native row's "..." is built now, so its dormant icons go in before it is; the web row resets
+  // this below once it knows what folds. `standard` keeps today's order untouched.
+  if (headerIcons !== "standard") live.current.overflow = relevance.dormant;
   const chatRows = rows();
   const chatMenu = nativeChatMenu(chatRows);
   const nativeSearch: RowToolBinding[] =
@@ -403,7 +411,7 @@ function ChatHeaderToolsView({
           },
         ]
       : [];
-  const native = useNativeRowTools(nativeRowTools, tools, {
+  const native = useNativeRowTools(nativeRowTools, relevance.shown, {
     customize,
     glass: glassLook !== "off",
     extra: [
@@ -447,13 +455,21 @@ function ChatHeaderToolsView({
   // A pane too narrow for every button folds the trailing ones into "..." instead of cutting them off.
   const toolsRef = useRef<HTMLDivElement>(null);
   const webButtons = !native && !trio && tabTools && actions.length > 0;
-  const fold = useHeaderFold(toolsRef, webButtons ? tools.length : 0);
+  // Peek draws the rest hidden at the row's leading end, shown on hover; the native row has no hover
+  // layer of its own, so there they wait in "..." as in `contextual`.
+  const peek = headerIcons === "contextualPeek" && !native;
+  // Peek's dormant icons take room too: a narrow pane folds them first, then the trailing shown ones.
+  const candidates = peek ? [...relevance.shown, ...relevance.dormant] : relevance.shown;
+  const fold = useHeaderFold(toolsRef, webButtons ? candidates.length : 0);
+  const drawn = new Set(webButtons ? candidates.slice(0, candidates.length - fold) : []);
+  const folded = webButtons ? candidates.filter((tool) => !drawn.has(tool)) : [];
+  // Dormant icons wait at the top of "..." unless Peek draws them.
   live.current.overflow = trio
     ? tools.filter((tool) => tool.id !== "terminal" && tool.id !== "browser" && tool.id !== "newTab")
-    : webButtons && fold > 0
-      ? tools.slice(tools.length - fold)
-      : [];
-  const shown = webButtons ? tools.slice(0, tools.length - fold) : [];
+    : peek
+      ? folded
+      : [...relevance.dormant, ...folded];
+  const shown = relevance.shown.filter((tool) => drawn.has(tool));
   const shownIds = shown.map((tool) => tool.id);
   // Motion styles (headerMotion.ts): `still`, the default, adds nothing to the buttons.
   useIconArrivals(toolsRef, style, shownIds);
@@ -522,6 +538,17 @@ function ChatHeaderToolsView({
     );
   };
   const buttons = webButtons && shown.length > 0 && shown.map(renderTool);
+  // The inbox with no open asks is dormant too in the contextual styles.
+  const inboxDormant = headerIcons !== "standard" && !inboxRelevant;
+  const dormantTools = peek ? relevance.dormant.filter((tool) => drawn.has(tool)).map(renderTool) : [];
+  const dormant =
+    peek && (dormantTools.length > 0 || (inboxDormant && inbox)) ? (
+      // At the leading end, so the icons at rest never move when these fade in.
+      <div className="acpmux-header-tool-group acpmux-header-dormant" data-header-dormant="">
+        {inboxDormant && inbox}
+        {dormantTools}
+      </div>
+    ) : null;
   const chatMenuButton =
     native && glassLook !== "off" ? null : (
       <ChatMenu
@@ -605,12 +632,14 @@ function ChatHeaderToolsView({
       ref={toolsRef}
       className="acpmux-header-tools"
       onPointerEnter={onPointerEnter}
+      data-header-icons={headerIcons === "standard" ? undefined : headerIcons}
       data-header-motion={style === "still" ? undefined : style}
       data-motion-mode={style === "still" ? undefined : motionMode()}
       data-activity={cue?.cue}
       data-activity-on={cue?.on}
     >
       {preview && <HeaderToolPreview target={preview} />}
+      {dormant}
       {!native && worktree && (
         <WorktreePill ops={worktreeOps} worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />
       )}
@@ -620,7 +649,7 @@ function ChatHeaderToolsView({
       {/* The panel toggle leads the icons, as in Claude and ChatGPT desktop. */}
       {!native && sessionInfo}
       {typeof summary === "function" ? summary(native) : !native && summary}
-      {(!native || !nativeNeedsYouMenu) && inbox}
+      {(!native || !nativeNeedsYouMenu) && !inboxDormant && inbox}
       {buttons ? (
         <div className="acpmux-header-tool-group acpmux-header-tool-group-actions">
           {onCustomize ? (

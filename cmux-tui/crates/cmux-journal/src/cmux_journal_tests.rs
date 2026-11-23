@@ -757,6 +757,34 @@ fn a_panic_on_the_writer_thread_closes_the_journal() {
     assert!(journal.stats().failing.is_some(), "{:?}", journal.stats());
 }
 
+/// A full disk: appends fail with `StorageFull`, the space listener hears it once however often
+/// the writer retries, and when space returns the record becomes durable and the state clears.
+#[test]
+fn a_full_disk_tells_the_space_listener_once_and_clears_when_a_write_lands() {
+    let storage = SimStorage::new(58);
+    let (journal, _, _) = open(&storage);
+    let (sender, receiver) = std::sync::mpsc::channel();
+    journal.on_out_of_space(move || {
+        let _ = sender.send(());
+    });
+    storage.fail_all_appends(Some(std::io::ErrorKind::StorageFull));
+    assert_eq!(journal.append(1, Class::Ack, b"a"), Ok(1));
+    assert_eq!(receiver.recv_timeout(WAIT), Ok(()));
+    assert!(eventually(|| journal.stats().failures >= 3), "{:?}", journal.stats());
+    assert_eq!(receiver.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty));
+    assert!(journal.stats().out_of_space, "{:?}", journal.stats());
+    storage.fail_all_appends(None);
+    journal.wait_durable(1, WAIT).unwrap_or_else(|e| panic!("{e}"));
+    let stats = journal.stats();
+    assert!(!stats.out_of_space && stats.failing.is_none(), "{stats:?}");
+    // Another kind of failure is not a full disk.
+    storage.fail_all_syncs(Some(std::io::ErrorKind::Other));
+    assert_eq!(journal.append(1, Class::Ack, b"b"), Ok(2));
+    assert!(eventually(|| journal.stats().failing.is_some()), "{:?}", journal.stats());
+    assert!(!journal.stats().out_of_space, "{:?}", journal.stats());
+    assert_eq!(receiver.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty));
+}
+
 /// F4: a sync fails, so its pages never reach the disk, though a later sync on another descriptor
 /// reports success; the process is killed before the writer tries again. Every record acked after
 /// the restart survives a later OS crash.

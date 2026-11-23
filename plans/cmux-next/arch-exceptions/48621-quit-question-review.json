@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-22",
+  "row": "app_lines",
+  "allow": 3,
+  "why": "https://github.com/manaflow-ai/cmux/issues/48621 review threads: the quit question opens in the app-scope dialog panel when the window already shows a dialog (a `scope:` parameter on DestructiveConfirmation.present and the busy check in QuitCoordinator); the held-shortcut logic stays in CmuxNextDaemonService (QuitShortcutGuard).",
+  "author": "claude opus (48621-warn-before-quit)",
+  "owner": "48621-warn-before-quit",
+  "receipt": "Review (claude subagent, started by claude opus 48621-warn-before-quit): SHIP at dc6f0eb5ef185fcbc2f992e7fa66e79c56b47e20",
+  "expiry": "2026-12-22"
+}

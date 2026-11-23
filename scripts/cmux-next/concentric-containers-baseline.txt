@@ -94,7 +94,6 @@ webviews/src/pages/history/styles.css: .history-sheet { border-radius: 12px }
 webviews/src/pages/home-channels/chiefWork.css: .hc-chief-work__refresh, .hc-chief-work__close { border-radius: 6px }
 webviews/src/pages/home-channels/ledger.css: .lg-goal-strip { border-radius: var(--ds-radius-popup) }
 webviews/src/pages/home-channels/ledger.css: .lg-palette.ui-dialog, .lg-palette { border-radius: 12px }
-webviews/src/pages/home-messages/list/list.css: .hm-draft-close { border-radius: 50% }
 webviews/src/pages/keybindings/styles.css: .keys-notice { border-radius: 7px }
 webviews/src/pages/markdown/styles.css: .cmux-comment-card { border-radius: 10px }
 webviews/src/pages/passwords/styles.css: .pw-notice { border-radius: 7px }

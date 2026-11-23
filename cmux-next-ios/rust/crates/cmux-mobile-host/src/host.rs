@@ -272,6 +272,7 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
             identity: pairing.identity.clone(),
             activity: Arc::clone(&pairing.activity),
             links: Default::default(),
+            pairing: Some(pairing.clone()),
         });
         let path = crate::link_socket::socket_path(&services.daemon_socket());
         AbortTask(tokio::spawn(async move {
@@ -643,6 +644,7 @@ async fn answer_session(
         session_id: first.session_id.clone(),
         video: None,
         session_exposure: context.session_exposure.clone(),
+        path: None,
     };
     let session_id = first.session_id.clone();
     let timeline = Timeline::new();
@@ -678,6 +680,7 @@ async fn answer_session(
         }
     };
     let path = *connected.path.borrow();
+    peer.path = Some(connected.path.clone());
     if let Some(cmux_mobile_link::media::MediaLane::Out(video)) = connected.link.media() {
         peer.video = Some(video);
     }
