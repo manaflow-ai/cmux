@@ -29,7 +29,7 @@ struct TerminalComposer: View {
 
     var body: some View {
         #if DEBUG
-        let _ = InputLatencyTrace.shared?.count("terminal_composer_body")
+        let _ = InputLatencyTrace.shared?.count("composer_body")
         #endif
         VStack(alignment: .leading, spacing: 6) {
             if let notice = model.composerNotice {

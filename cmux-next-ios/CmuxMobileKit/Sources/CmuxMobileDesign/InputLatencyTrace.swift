@@ -119,6 +119,27 @@ public final class InputLatencyTrace {
         NextFrame.after(action)
     }
 
+    /// Runs `action` once, after this run-loop pass's Core Animation commit.
+    public func afterCommit(_ action: @escaping @MainActor () -> Void) {
+        let observer = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue,
+                                                          false, 2_000_001) { _, _ in
+            MainActor.assumeIsolated { action() }
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+    }
+
+    /// Counts of events (a view body built, a size asked), read per key as deltas
+    /// (`<field>_key_<name>`); counting writes nothing.
+    public private(set) var counters: [String: Int] = [:]
+
+    public func count(_ name: String) { counters[name, default: 0] += 1 }
+
+    /// The calling thread's CPU time (ms): the main thread's work per key, which a busy host
+    /// stretches far less than wall time.
+    public nonisolated static func threadCPUms() -> Double {
+        Double(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)) / 1_000_000
+    }
+
     // MARK: Run loop
 
     private func installRunLoopObserver() {

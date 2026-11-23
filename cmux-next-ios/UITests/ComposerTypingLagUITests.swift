@@ -29,6 +29,8 @@ final class ComposerTypingLagUITests: XCTestCase {
     static let field = "terminal.composer.field"
     /// Text laid out per key may cover the field's 14 lines and some slack, never the draft.
     static let maxLayoutUnitsPerKey = 4_096.0
+    /// SwiftUI asks a field's size a few times per pass (several widths); a key is one pass.
+    static let maxSizeQuestionsPerKey = 8.0
     static let keys = "the quick brown fox jumps over the lazy dog "
 
     override func setUp() {
@@ -108,12 +110,20 @@ final class ComposerTypingLagUITests: XCTestCase {
 
         guard !wholeDraft else { return }
         XCTAssertEqual(resizes, 0, "resizes sent to the Mac while typing: \(line)")
-        let commit = stats(board, "\(Self.field)_key_commit")
+        // Gated on what the app does per key, measured in the app: its main thread's CPU from
+        // the key to the frame committed, the composer bodies built and the size questions
+        // asked. Wall times (key to commit, key to next frame) are reported, not gated: on a
+        // shared simulator host they carry the host's load and XCUITest's key queue.
+        let cpu = stats(board, "\(Self.field)_key_cpu")
         let units = stats(board, "\(Self.field)_key_layout_units")
-        XCTAssertGreaterThanOrEqual(commit["n"] ?? 0, 30, "keys measured: \(line)")
-        XCTAssertLessThan(commit["p95"] ?? .infinity, 16, "key to frame committed, p95 (ms), \(chars) characters: \(line)")
+        let bodies = stats(board, "\(Self.field)_key_composer_body")
+        let questions = stats(board, "\(Self.field)_key_size_questions")
+        XCTAssertGreaterThanOrEqual(cpu["n"] ?? 0, 30, "keys measured: \(line)")
+        XCTAssertLessThan(cpu["p95"] ?? .infinity, 16, "main-thread CPU from key to frame committed, p95 (ms), \(chars) characters: \(line)")
         XCTAssertLessThanOrEqual(units["max"] ?? .infinity, Self.maxLayoutUnitsPerKey,
                                  "text laid out to measure the field for one key, \(chars) characters: \(line)")
+        XCTAssertLessThanOrEqual(bodies["p95"] ?? 0, 1, "composer bodies built per key: \(line)")
+        XCTAssertLessThanOrEqual(questions["p95"] ?? 0, Self.maxSizeQuestionsPerKey, "field size questions per key: \(line)")
     }
 
     @MainActor

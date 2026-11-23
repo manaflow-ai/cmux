@@ -212,6 +212,9 @@ open class ComposerReturnTextView: UITextView {
     public func fittingSize(proposedWidth: CGFloat?) -> CGSize {
         let width = proposedWidth ?? (bounds.width > 0 ? bounds.width : 240)
         #if DEBUG
+        InputLatencyTrace.shared?.count("size_questions")
+        #endif
+        #if DEBUG
         if Self.measuresWholeDraft {
             return CGSize(width: width, height: fieldHeight.height(contentHeight: contentHeight(width: width)))
         }
@@ -335,13 +338,18 @@ open class ComposerReturnTextView: UITextView {
     private func tracedInsert(_ text: String, trace: InputLatencyTrace) {
         let id = accessibilityIdentifier ?? "composer"
         let start = CACurrentMediaTime()
+        let cpu = InputLatencyTrace.threadCPUms()
         let units = Self.measuredUnits
         let calls = Self.measureCalls
         let seconds = Self.measureSeconds
+        let counters = trace.counters
         super.insertText(text)
         trace.sampleAtNextFrame("\(id)_key_frame", since: start)
         trace.sampleAfterCommit("\(id)_key_commit", since: start)
+        // The main thread's CPU from the key to its frame committed.
+        trace.afterCommit { trace.sample("\(id)_key_cpu", ms: InputLatencyTrace.threadCPUms() - cpu) }
         trace.atNextFrame {
+            for (name, value) in trace.counters { trace.sample("\(id)_key_\(name)", ms: Double(value - (counters[name] ?? 0))) }
             trace.sample("\(id)_key_layout_units", ms: Double(Self.measuredUnits - units))
             trace.sample("\(id)_key_measure_calls", ms: Double(Self.measureCalls - calls))
             trace.sample("\(id)_key_measure_ms", ms: (Self.measureSeconds - seconds) * 1_000)
