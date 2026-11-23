@@ -134,6 +134,9 @@ export default componentEntry<Props>({
     "agent-session/acpmux/conversation/AgentTag.tsx#AgentTag",
   ],
   load: async () => {
+    // This entry is about the chips' cards, so it keeps every name a chip (startedLineCrowd.experiment.ts
+    // `chips`); many starting at once read as icons and a count by default.
+    globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "subagent-started-crowd": "chips" };
     const { SubagentStartedLine } = await import("./SubagentStartedLine");
     const { SubagentDoneLine } = await import("./SubagentDoneLine");
     const { SubagentPreviewCard } = await import("./SubagentPreview");

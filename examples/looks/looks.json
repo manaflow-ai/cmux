@@ -14,6 +14,24 @@
       "pending": "An outside-only look: there is no built-in twin."
     },
     {
+      "id": "aurora",
+      "addon": "aurora",
+      "builtIn": null,
+      "pending": "An outside-only look: there is no built-in twin."
+    },
+    {
+      "id": "grove",
+      "addon": "grove",
+      "builtIn": null,
+      "pending": "An outside-only look: there is no built-in twin."
+    },
+    {
+      "id": "gel",
+      "addon": "gel",
+      "builtIn": null,
+      "pending": "An outside-only look on the flush corner with goo fillets: there is no built-in twin."
+    },
+    {
       "id": "claude",
       "surface": "composer",
       "addon": null,
@@ -26,6 +44,22 @@
       "addon": null,
       "builtIn": { "setting": "composerLook", "value": "codex" },
       "pending": "As claude: the default composer look, page storage only until #43272 or #45843 lands."
+    },
+    {
+      "id": "send-pop",
+      "surface": "transcript",
+      "setup": "claude-code/send-pop",
+      "addon": null,
+      "builtIn": null,
+      "pending": "An opt-in behavior preset, not a stylesheet look: it sets one setting and no agent-pane/theme.css. The pop is cmux#50293; the switch it needs, agentPane.display.sendPop (off by default, pop), is not in any build yet, so the setup carries it as a comment."
+    },
+    {
+      "id": "send-parity",
+      "surface": "transcript",
+      "setup": "codex/send-parity",
+      "addon": null,
+      "builtIn": null,
+      "pending": "An opt-in behavior preset, not a stylesheet look: no entrance on send and the sent prompt placed near the top with room for the reply, plus the builder New Tab page (customize/, cmux.newtab/1, tabs.newTabApp). Its placement switch, agentPane.sendPlacement (bottom by default, top), does not exist yet; agentPane.display.sendPop off arrives with cmux#50293."
     }
   ]
 }
