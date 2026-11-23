@@ -114,7 +114,7 @@ enum DebugObjectMenu {
             let events: [NSEvent]
             if let menu = services.debugFixtures.objectMenu {
                 // A menu this holds: Down to each folder's row, then Right, as a person's arrow keys would.
-                guard let keys = MenuArrowKeys.codes(folders, choose: choice, in: menu)?.flatMap({ arrow($0, window: window) }) else {
+                guard let keys = menu.arrowKeyCodes(to: folders, choose: choice)?.flatMap({ arrow($0, window: window) }) else {
                     return failure("no enabled \((folders + [choice].compactMap { $0 }).joined(separator: " > ")) in the open menu")
                 }
                 events = keys
