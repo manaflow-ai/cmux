@@ -1348,7 +1348,7 @@ export function playTurnEnd(
       let last = -1;
       for (let step = 0; step <= 200; step++) {
         const progress = progressAt(step / 200);
-        const overlaps = nodes.some((_, k) => {
+        const overlaps = nodes.some((other, k) => {
           if (k === index || drift[k] === 0 || arrives(other, k)) return false;
           const drawn = tops[k]! + drift[k]! * (1 - progress);
           return Math.min(bottom, drawn + heights[k]!) - Math.max(top, drawn) > 0.5;
