@@ -57,7 +57,7 @@
     "keyboard": ["keybindings.open", "palette.searchShortcuts"],
     "notifications": ["toasts.showHidden"],
     "accounts": ["accounts.refresh", "palette.mobileConnect"],
-    "rooms": ["space.new", "space.switch", "space.rename", "space.setTheme", "space.clearTheme"],
+    "rooms": ["space.new", "space.switch", "space.rename", "space.setTheme", "space.clearTheme", "palette.openCmuxSettingsFile"],
     "machines": ["device.add", "remote.connect", "newCloudMachine", "palette.auth.signIn"],
     "advanced": ["reloadConfiguration", "liveSwift.start", "liveSwift.stop"],
     "development": []
@@ -168,6 +168,9 @@
               "sidebar.showProjects", "sidebar.groupBy", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.settleFinished",
               "sidebar.showAutomaticSessions", "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupHeader.memberCount",
               "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background", "sidebar.priorityView.enabled", "sidebar.priorityView.shown"
+            ]},
+            {"title": {"key": "settings.pageGroup.sidebarSections", "text": "Sidebar Sections"}, "note": "Which sidebar sections show and which come first (customization matrix row sidebar-sections); their own card so the Sidebar card stays under max_rows_per_card.", "keys": [
+              "sidebar.sections.hidden", "sidebar.sections.order"
             ]},
             {"group": "settings.group.workspaceRows"},
             {"title": {"key": "settings.pageGroup.sidebarExtras", "text": "Sidebar Buttons and Spaces"}, "keys": [
@@ -322,7 +325,7 @@
             {"title": {"key": "settings.pageGroup.messageBox", "text": "Message Box"}, "keys": [
               "agentPane.showContextUsage", "agentPane.composerRing", "agentPane.showDictation", "agentPane.dictationSource", "agentPane.dictationShortcut", "agentPane.spellChecking",
               "agentPane.composerLook", "agentPane.emptyChatComposerPosition",
-              "agentPane.attachmentView", "agentPane.scrollToBottomOnSend", "agentPane.followUpMode", "agentPane.display.harnessPlacement",
+              "agentPane.attachmentView", "agentPane.scrollToBottomOnSend", "agentPane.followUpMode", "agentPane.display.harnessPlacement", "agentPane.display.modelChipIcon", "agentPane.display.queueing",
               "agentPane.display.promptCoach"
             ]},
             {"title": {"key": "settings.pageGroup.filesLinks", "text": "Files and Links"}, "keys": [
@@ -470,7 +473,7 @@
           "symbol": "plus.square",
           "groups": [
             {"title": {"key": "settings.pageGroup.newTabPage", "text": "New Tab Page"}, "keys": [
-              "tabs.newTabTemplate", "tabs.newTabApp", "tabs.nativeNewTabPage", "sidebar.showChats", "tabs.newTabNowPlaying"
+              "tabs.newTabTemplate", "tabs.newTabClock.show", "tabs.newTabClock.font", "tabs.newTabClock.weight", "tabs.newTabClock.color", "tabs.newTabClock.date", "tabs.newTabApp", "tabs.nativeNewTabPage", "sidebar.showChats", "tabs.newTabNowPlaying"
             ]}
           ]
         },
