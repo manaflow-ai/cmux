@@ -226,8 +226,10 @@ await requireBrowserLane("agent-chat-stream-no-shift-browser.test.ts", async () 
     fromEnd: number;
     /// The sent prompt's top against the transcript's top after the step.
     prompt: number | null;
-    /// Earlier rows (above the sent prompt) still in view after the step.
+    /// Earlier rows (above the sent prompt) wholly in view after the step.
     above: number;
+    /// The transcript's visible height, which `prompt` is measured within.
+    view: number;
   };
   const reports: Record<string, StepReport[]> = {};
 
@@ -273,7 +275,8 @@ await requireBrowserLane("agent-chat-stream-no-shift-browser.test.ts", async () 
       { text, rowSelector: TRANSCRIPT_ROW },
     );
 
-  /// The rows above the sent prompt that show in the transcript's view (a send keeps the earlier chat in view).
+  /// The rows above the sent prompt that show whole in the transcript's view (a send keeps the earlier chat in
+  /// view), and the view's height.
   const earlierInView = (page: Page, text: string) =>
     page.evaluate(
       ({ text, rowSelector }) => {
@@ -281,12 +284,13 @@ await requireBrowserLane("agent-chat-stream-no-shift-browser.test.ts", async () 
         const view = scroller.getBoundingClientRect();
         const rows = [...scroller.querySelectorAll<HTMLElement>(rowSelector)];
         const prompt = rows.find((each) => each.textContent?.includes(text));
-        if (!prompt) return 0;
+        if (!prompt) return { above: 0, view: view.height };
         const promptTop = prompt.getBoundingClientRect().top;
-        return rows.filter((each) => {
+        const above = rows.filter((each) => {
           const box = each.getBoundingClientRect();
-          return each !== prompt && box.height > 0 && box.bottom <= promptTop + 0.5 && box.bottom > view.top + 1;
+          return each !== prompt && box.height > 0 && box.top >= view.top - 0.5 && box.bottom <= promptTop + 0.5;
         }).length;
+        return { above, view: view.height };
       },
       { text, rowSelector: TRANSCRIPT_ROW },
     );
@@ -330,7 +334,7 @@ await requireBrowserLane("agent-chat-stream-no-shift-browser.test.ts", async () 
                 composer: Math.round(Math.abs((await composerTop(page)) - composerBefore) * 10) / 10,
                 fromEnd: await fromEnd(page),
                 prompt: await promptTop(page, `Find the retry loops (${turn})`),
-                above: await earlierInView(page, `Find the retry loops (${turn})`),
+                ...(await earlierInView(page, `Find the retry loops (${turn})`)),
               };
               report.push(entry);
               const short = (arm.at === "latest" ? entry.stray : entry.moves)
@@ -360,6 +364,9 @@ await requireBrowserLane("agent-chat-stream-no-shift-browser.test.ts", async () 
               const sent = report[0]!;
               expect(sent.prompt).not.toBeNull();
               expect(sent.fromEnd).toBeLessThanOrEqual(1);
+              // The prompt lands low in the view, over the composer, not pinned under the view's top
+              // (the jump held it 16 px down), and at least one earlier row shows whole above it.
+              expect(sent.prompt!).toBeGreaterThan(sent.view / 3);
               expect(sent.above).toBeGreaterThanOrEqual(1);
               // The view keeps following the reply to its end: the earlier chat scrolls up only by the
               // follow, never by a jump.
