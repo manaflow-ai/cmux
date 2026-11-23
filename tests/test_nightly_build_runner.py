@@ -936,7 +936,7 @@ class BuilderReadDeadline(unittest.TestCase):
     def test_a_slow_builder_read_takes_the_plain_label_within_the_deadline(self):
         import time as _time
         def slow(_token, _repo):
-            _time.sleep(5)
+            _time.sleep(5)  # sleep-ok: a simulated slow builder read, past the deadline under test
             return [{"status": "online", "busy": False, "labels": [{"name": picker.NIGHTLY_ONLY_BUILDER_LABEL}]}]
         with tempfile.TemporaryDirectory() as scratch:
             out = Path(scratch) / "output"
