@@ -2,6 +2,54 @@
 // schemas/settings/source/machines.json. Do not edit; edit the JSON and rerun.
 
 extension MachineSettingsSchema {
+    static var storage: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.storage", "Storage")
+        return [
+            SettingDescriptor(
+                MachineSettingsSchema.locationPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.worktrees.location", "Worktree Folder"),
+                help: SettingsText.keyed("settings.worktrees.location.help", "Where cmux makes worktrees for local chats, forks and lanes, one folder per project."),
+                kind: .text,
+                default: .string(MachineSettingsSchema.locationDefault),
+                keywords: ["git", "worktree", "folder", "location", "path", "disk", "storage"]
+            ),
+            SettingDescriptor(
+                MachineSettingsSchema.branchPrefixPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.worktrees.branchPrefix", "Worktree Branch Prefix"),
+                help: SettingsText.keyed("settings.worktrees.branchPrefix.help", "The start of each new worktree's branch name, such as cmux/."),
+                kind: .text,
+                default: .string(MachineSettingsSchema.branchPrefixDefault),
+                keywords: ["git", "worktree", "branch", "prefix", "name"]
+            ),
+            SettingDescriptor(
+                MachineSettingsSchema.autoCleanupPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.worktrees.autoCleanup", "Clean Up Agent Worktrees"),
+                help: SettingsText.keyed("settings.worktrees.autoCleanup.help", "Archive and remove worktrees agents finished with, and trim the build output of idle ones. Unpushed work is kept in git and comes back when the chat reopens."),
+                kind: .toggle,
+                default: .bool(MachineSettingsSchema.autoCleanupDefault),
+                keywords: ["disk", "storage", "cleanup", "worktree", "cache", "DerivedData", "free space"]
+            ),
+            SettingDescriptor(
+                MachineSettingsSchema.cleanBuildCachesPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.worktrees.cleanBuildCaches", "Clean Up Build Caches"),
+                help: SettingsText.keyed("settings.worktrees.cleanBuildCaches.help", "Also remove this Mac's build caches nobody used lately, such as Xcode DerivedData. Package caches go only when the disk is nearly full."),
+                kind: .toggle,
+                default: .bool(MachineSettingsSchema.cleanBuildCachesDefault),
+                keywords: ["disk", "storage", "cleanup", "worktree", "cache", "DerivedData", "free space"]
+            ),
+        ]
+    }
+}
+
+extension MachineSettingsSchema {
     static var mobile: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.mobile", "iPhone")
         return [

@@ -1054,6 +1054,14 @@
     },
     {
       "agent": "settable",
+      "why": "Where new worktrees go and how their branches start: only worktrees made afterwards follow it, and setting it back undoes it.",
+      "keys": [
+        "worktrees.location",
+        "worktrees.branchPrefix"
+      ]
+    },
+    {
+      "agent": "settable",
       "why": "Whether inactive chats are archived on their own, and after how long: reversible (Unarchive brings a chat back), it only moves chats off the lists.",
       "keys": [
         "agents.chats.archiveInactive"

@@ -65,6 +65,12 @@ extension CloudAgentStartSetting {
 }
 
 extension MachineSettingsSchema {
+    /// `worktrees.location`: Default ~/.cmux/worktrees, where cmux always put them. The shared folder of the worktrees cmux makes for local chats, forks and lanes, as <folder>/<project>/<name>: cmux-config worktree_names::location, read by git.worktree.create (cmux-tui-core git_ops/worktree.rs) and acpmux subsession_worktree.rs. A leading ~/ is the home folder; a value that is no absolute path is the default. agentPane.sessionWorktrees set to project keeps them inside the project instead.
+    nonisolated static let locationPath = ["worktrees", "location"]
+    nonisolated static let locationDefault = "~/.cmux/worktrees"
+    /// `worktrees.branchPrefix`: Default cmux/, the prefix cmux always used. The start of the branch name of each worktree cmux makes (cmux/fix-login): cmux-config worktree_names::branch_prefix, read by git.worktree.create and acpmux subsession_worktree.rs. Empty is no prefix; one git would not take at the start of a branch name is the default.
+    nonisolated static let branchPrefixPath = ["worktrees", "branchPrefix"]
+    nonisolated static let branchPrefixDefault = "cmux/"
     /// `worktrees.autoCleanup`: On by default. The acpmux daemon archives and removes the worktrees agents finished with and trims the build output of idle ones; unpushed work stays in git and comes back when the chat reopens (cmux-tui acpmux hub/worktree_care.rs, auto_cleanup_enabled, read from the settings file at each pass).
     nonisolated static let autoCleanupPath = ["worktrees", "autoCleanup"]
     nonisolated static let autoCleanupDefault = true
@@ -347,34 +353,6 @@ extension MachineSettingsSchema {
                 kind: .toggle,
                 default: .bool(CloudNewWorkspaceSetting.turnCheckpointsDefault),
                 keywords: ["cloud", "checkpoint", "snapshot", "undo", "rewind", "restore", "turn", "back", "machine"]
-            ),
-        ]
-    }
-}
-
-extension MachineSettingsSchema {
-    static var storage: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.storage", "Storage")
-        return [
-            SettingDescriptor(
-                MachineSettingsSchema.autoCleanupPath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.worktrees.autoCleanup", "Clean Up Agent Worktrees"),
-                help: SettingsText.keyed("settings.worktrees.autoCleanup.help", "Archive and remove worktrees agents finished with, and trim the build output of idle ones. Unpushed work is kept in git and comes back when the chat reopens."),
-                kind: .toggle,
-                default: .bool(MachineSettingsSchema.autoCleanupDefault),
-                keywords: ["disk", "storage", "cleanup", "worktree", "cache", "DerivedData", "free space"]
-            ),
-            SettingDescriptor(
-                MachineSettingsSchema.cleanBuildCachesPath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.worktrees.cleanBuildCaches", "Clean Up Build Caches"),
-                help: SettingsText.keyed("settings.worktrees.cleanBuildCaches.help", "Also remove this Mac's build caches nobody used lately, such as Xcode DerivedData. Package caches go only when the disk is nearly full."),
-                kind: .toggle,
-                default: .bool(MachineSettingsSchema.cleanBuildCachesDefault),
-                keywords: ["disk", "storage", "cleanup", "worktree", "cache", "DerivedData", "free space"]
             ),
         ]
     }
