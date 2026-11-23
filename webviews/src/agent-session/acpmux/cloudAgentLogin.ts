@@ -10,11 +10,12 @@ import type { AcpmuxDirectClient } from "./direct";
 /// only (saved to its `.gemini/.env`); the Grok CLI with its device flow only (`grok login
 /// --device-auth`: a page and a code, like Codex), its key coming from the person's vault; Cursor
 /// with its sign-in page only (Leo 2026-11-10: "if somebody has a ChatGPT subscription or a Cursor
-/// subscription").
-export type LoginAgent = "claude" | "codex" | "gemini" | "grok" | "cursor";
+/// subscription"); OpenCode (Zen and Go) with the key from opencode.ai/auth only (Leo: "or an
+/// OpenCode subscription and they're using one of OpenCode's models").
+export type LoginAgent = "claude" | "codex" | "gemini" | "grok" | "cursor" | "opencode";
 
 /// The agents ``cloudAgentLogin`` offers a sign-in for.
-export const LOGIN_AGENTS: readonly LoginAgent[] = ["claude", "codex", "gemini", "grok", "cursor"];
+export const LOGIN_AGENTS: readonly LoginAgent[] = ["claude", "codex", "gemini", "grok", "cursor", "opencode"];
 
 /// `value` as a ``LoginAgent``; else undefined.
 export function loginAgent(value: string | undefined): LoginAgent | undefined {
@@ -22,9 +23,22 @@ export function loginAgent(value: string | undefined): LoginAgent | undefined {
 }
 
 /// Whether the agent's own sign-in page runs on the machine (`_acpmux/agent_login/start`): every
-/// agent but Gemini, which takes a key only.
+/// agent but Gemini and OpenCode, which take a key only.
 export function signsInByPage(agent: LoginAgent): boolean {
-  return agent !== "gemini";
+  return agent !== "gemini" && agent !== "opencode";
+}
+
+/// The page that makes `agent`'s API key, linked beside its key field (OpenCode's, whose card has
+/// no sign-in page to point there). A fixed page this app names, so not one of ``SIGN_IN_HOSTS``,
+/// which check the pages a machine's sign-in names.
+export const KEY_PAGE: Partial<Record<LoginAgent, string>> = { opencode: "https://opencode.ai/auth" };
+
+/// Whether an OpenCode chat on `model` signs in with the key the card saves: Zen's and Go's models
+/// (`opencode/...`, `opencode-go/...`). Another provider's model (`anthropic/...`) needs that
+/// provider's own login, which the saved key would not repair. An unknown model keeps the card.
+function opencodeKeyServes(model: string | undefined): boolean {
+  const provider = model?.includes("/") ? model.split("/")[0] : undefined;
+  return provider === undefined || provider === "opencode" || provider === "opencode-go";
 }
 
 /// Whether the agent takes an API key saved on the machine (`_acpmux/agent_login/api_key`): every
@@ -232,6 +246,8 @@ type LoginOptions = {
   elsewhere?: boolean;
   sessionId: string | undefined;
   harness: string | undefined;
+  /// The chat's model (`provider/model` for OpenCode), when known.
+  model?: string;
   supported: boolean;
   /// A new chat with no session yet whose machine signs its agent in there anyway (the failed
   /// start's card, hq#11225; ``AcpmuxDirectClient/supportsMachineLogin``): with no `sessionId`, each
@@ -267,15 +283,51 @@ export function localApiKeyLogin(options: LoginOptions): CloudSignIn | undefined
   return agentLogin(options);
 }
 
+/// The in-place sign-in for an agent on this Mac (logins done right; Leo, 2026-11-22: "we likewise
+/// want gh auth or device stuff to be much more convienient ui/ux wise ... this is simply logins,
+/// done righr."): the signed-out notice's Log In and a start refused for its sign-in run the agent's
+/// own login here (`_acpmux/agent_login/*`, which this Mac's socket and app may ask) in the card, its
+/// page beside the chat and its code in the card, instead of a terminal tab. Undefined for a chat
+/// elsewhere (``cloudAgentLogin``'s) and wherever ``agentLogin`` is: a daemon without `agent_login`
+/// (or, with no chat, without `agent_login_machine`) keeps the terminal login. Only the built-in
+/// `claude` and `codex` harnesses, as ``localApiKeyLogin``: a route (`claude-cr`, `claude-sr`) signs
+/// in its own way (its health's login), which the built-in agent's login would never reach.
+export function localAgentLogin(options: LoginOptions): CloudSignIn | undefined {
+  const harness = options.harness?.split("/").pop();
+  if (options.machineID || options.elsewhere || (harness !== "claude" && harness !== "codex")) return undefined;
+  return agentLogin(options);
+}
+
+/// What a start refused for its sign-in offers (App.tsx's SwitchNotice props): a start on another
+/// machine takes that machine's card (``cloudAgentLogin``) and never a login on this Mac; one here
+/// takes this Mac's in-place card (``localAgentLogin``) when there is one, and keeps the terminal
+/// login (`runsLogin`) as its fallback either way (SwitchNotice's ``signInRoute`` picks the card).
+export function refusedStartSignIn(options: {
+  startsElsewhere: boolean;
+  elsewhereCard: CloudSignIn | undefined;
+  localCard: CloudSignIn | undefined;
+  loginCommand: string | undefined;
+}): { agentSignIn?: CloudSignIn; runsLogin: boolean } {
+  const card = options.startsElsewhere ? options.elsewhereCard : options.localCard;
+  return {
+    ...(card && { agentSignIn: card }),
+    runsLogin: !options.startsElsewhere && options.loginCommand !== undefined,
+  };
+}
+
 /// The agent's own login on the chat's machine, or undefined for a chat not connected, not one of
 /// ``LOGIN_AGENTS``, or on an acpmux that does not advertise `agent_login`.
 function agentLogin(options: LoginOptions): CloudSignIn | undefined {
   const { connected, sessionId, harness, supported, gesture, openURL, openOnMachine, isCurrent, currentClient } =
     options;
-  const agent = loginAgent(agentKey(harness?.split("/").pop()));
+  const leaf = harness?.split("/").pop();
+  const agent = loginAgent(agentKey(leaf));
   // A new chat's sign-in on its machine has no chat to name, and no prompt of its own to send again.
   const machine = !sessionId && options.machineLogin === true;
   if (!connected || !(sessionId || machine) || !supported || !agent) return undefined;
+  // OpenCode: only the `opencode` harness (acpmux signs in that family; `opencode-v2` is its own) on
+  // a Zen or Go model.
+  if (agent === "opencode" && (leaf !== "opencode" || !opencodeKeyServes(options.model))) return undefined;
   // A chat's card works only while the pane shows its chat; a new chat's signs in on its machine.
   const current = () => (sessionId ? isCurrent(sessionId) : true);
   const client = () => {
@@ -310,7 +362,8 @@ function agentLogin(options: LoginOptions): CloudSignIn | undefined {
         return started;
       }),
     open: (url) => {
-      const safe = signInURL(url);
+      // A machine's sign-in page on an allowed host, or this agent's own key page exactly.
+      const safe = signInURL(url) ?? (url === KEY_PAGE[agent] ? url : undefined);
       if (safe) openURL(safe);
     },
     openOnMachine: async (url) => {

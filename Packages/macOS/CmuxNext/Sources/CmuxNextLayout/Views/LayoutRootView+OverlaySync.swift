@@ -1,5 +1,6 @@
 public import CmuxNextDesign
 public import CmuxNextWakeups
+import AppKit
 import Foundation
 
 /// Keeps one overlay sync observer registered; removing it (or releasing
@@ -99,8 +100,17 @@ extension LayoutRootView {
         }
     }
 
+    /// A person's live resize of the window: every displayed screen's pane contents follow it as a divider drag
+    /// (`ScreenContentView+WindowLiveResize`). A resize nobody drags (a display change's one-shot frame) lays out once.
+    override public func viewWillStartLiveResize() {
+        super.viewWillStartLiveResize()
+        guard NSEvent.pressedMouseButtons != 0 else { return }
+        for screen in screenViews.values { screen.windowLiveResizeBegan() }
+    }
+
     override public func viewDidEndLiveResize() {
         super.viewDidEndLiveResize()
+        for screen in screenViews.values { screen.windowLiveResizeEnded() }
         runStillWork()
     }
 

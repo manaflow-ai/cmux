@@ -50,6 +50,10 @@ struct MacScreenFrameTimingsTests {
     @Test func shownFramesGiveDecodeAndPresentStages() throws {
         var timings = MacScreenFrameTimings()
         let ms: UInt64 = 1_000_000
+        let now = ContinuousClock.now
+        for (frame, released, decoded) in [(UInt32(1), 100 * ms, 103 * ms), (2, 200 * ms, 202 * ms), (3, 0, 302 * ms), (4, 403 * ms, 402 * ms)] {
+            timings.presented(frame: frame, releasedAtNanos: released, decodedAtNanos: decoded, nowNanos: decoded, now: now)
+        }
         timings.shown(RemoteViewerFrameTimes(frame: 1, releasedAtNanos: 100 * ms, decodedAtNanos: 103 * ms, presentedAtNanos: 111 * ms))
         timings.shown(RemoteViewerFrameTimes(frame: 2, releasedAtNanos: 200 * ms, decodedAtNanos: 202 * ms, presentedAtNanos: 206 * ms))
         timings.shown(RemoteViewerFrameTimes(frame: 3, releasedAtNanos: 0, decodedAtNanos: 302 * ms, presentedAtNanos: 306 * ms))
@@ -57,6 +61,27 @@ struct MacScreenFrameTimingsTests {
         #expect(timings.decode.summary == MacScreenRollingSamples.Summary(count: 2, p50: 2, p95: 3, max: 3))
         #expect(timings.glass.summary == MacScreenRollingSamples.Summary(count: 2, p50: 4, p95: 8, max: 8))
         #expect(timings.decodePresent.summary == MacScreenRollingSamples.Summary(count: 2, p50: 6, p95: 11, max: 11))
+    }
+
+    /// A static screen sends one keyframe. Decode has its value at decode time, before any
+    /// presented handler runs; a presented time of 0 (macOS recorded none) takes the handler's
+    /// own time, a real one is used as is, so Present and Decode + Present get a value either way.
+    @Test func oneKeyframeGivesEveryStageWithOrWithoutAPresentedTime() throws {
+        let ms: UInt64 = 1_000_000
+        for presentedAtMicros: UInt64 in [0, 30_000] {
+            let counter = MacScreenFrameCounter()
+            _ = counter.tick(frame: 1, releasedAtNanos: 20 * ms, decodedAtNanos: 24 * ms)
+            #expect(counter.timings.decode.summary?.p50 == 4, "decode is known before the frame is shown")
+            #expect(counter.timings.glass.summary == nil)
+            let times = RemoteViewerFrameTimes.shown(frame: 1, releasedAtNanos: 20 * ms, decodedAtNanos: 24 * ms,
+                                                     presentedAtMicros: presentedAtMicros, nowNanos: 29 * ms)
+            #expect(times.presentedAtNanos == (presentedAtMicros > 0 ? 30 * ms : 29 * ms))
+            counter.shown(times)
+            let timings = counter.timings
+            #expect(timings.decode.count == 1)
+            #expect(timings.glass.summary?.p50 == (presentedAtMicros > 0 ? 6 : 5))
+            #expect(timings.decodePresent.summary?.p50 == (presentedAtMicros > 0 ? 10 : 9))
+        }
     }
 
     /// The counter the pane's decoder ticks keeps the same timings, at most a window of samples.
@@ -67,6 +92,21 @@ struct MacScreenFrameTimingsTests {
         let timings = counter.timings
         #expect(timings.total == 500 && timings.dropped == 0)
         #expect(timings.intervals.count == MacScreenFrameTimings.window)
+    }
+}
+
+struct MacScreenHelperNoAnswerTests {
+    /// A helper that would not start, one ended at its deadline, one that exited and one killed
+    /// by a signal each say so in their own words; none reads as a grant that is off.
+    @Test func eachWayTheHelperGivesNoGrantsHasItsOwnWords() {
+        let causes: [MacScreenHelper.NoAnswer] = [.didNotStart("spawn failed"), .timedOut, .exited(status: 3 << 8), .exited(status: 9)]
+        let words = causes.map(\.reason)
+        #expect(Set(words).count == causes.count)
+        #expect(words[0].contains("did not start: spawn failed"))
+        #expect(words[1].contains("within 10 seconds"))
+        #expect(words[2].contains("exited (status 3)"))
+        #expect(words[3].contains("signal 9"))
+        #expect(words.allSatisfy { !$0.contains("not granted") })
     }
 }
 
@@ -133,19 +173,25 @@ struct MacScreenStateControlTests {
         #expect(try rows(pages).count == 1, "the home tab is not a screen")
         #expect(idle["tab"]?.stringValue == "a")
         #expect(idle["device_id"]?.stringValue == deviceID)
-        #expect(idle["phase"]?.stringValue == "ended")
+        // Opened by automation that waits for the person: the Connect card, no stream started yet.
+        #expect(idle["phase"] == CmuxNextSettings.JSONValue.null)
+        #expect(idle["hub_phase"]?.stringValue == "idle" && idle["state"]?.stringValue == "idle")
+        #expect(idle["started_by"] == CmuxNextSettings.JSONValue.null)
         #expect(idle["connected"]?.boolValue == false && idle["has_frame"]?.boolValue == false)
         #expect(idle["first_frame_ms"] == CmuxNextSettings.JSONValue.null && idle["connect_started_at"] == CmuxNextSettings.JSONValue.null)
         #expect(idle["frame_interval_ms"] == CmuxNextSettings.JSONValue.null)
+        // Nothing asked the hub: the read says so, rather than only "ended" and "no_answer".
+        #expect(idle["hub_phase"]?.stringValue == "idle")
+        #expect(idle["waits_to_show"]?.boolValue == false)
 
         let start = ContinuousClock.now
         session.timings.connectStarted(at: Date(timeIntervalSince1970: 1_700_000_000), start)
         session.timings.sampleRtt(18)
         let counter = MacScreenFrameCounter()
         session.frameCounter = counter
-        _ = counter.tick(frame: 1)
-        _ = counter.tick(frame: 4)
         let ms: UInt64 = 1_000_000
+        _ = counter.tick(frame: 1)
+        _ = counter.tick(frame: 4, releasedAtNanos: 10 * ms, decodedAtNanos: 13 * ms)
         counter.shown(RemoteViewerFrameTimes(frame: 4, releasedAtNanos: 10 * ms, decodedAtNanos: 13 * ms, presentedAtNanos: 21 * ms))
         session.framesCounted(counter)
         // An old transport's late batch is not this session's.
@@ -156,6 +202,7 @@ struct MacScreenStateControlTests {
         session.framePresented(size: CGSize(width: 1920, height: 1080))
 
         let live = try #require(try rows(pages, tab: "a").first)
+        #expect(live["phase"]?.stringValue == "ended", "a connect began: the phase is the session's")
         #expect(live["connect_started_at"]?.stringValue == "2023-11-14T22:13:20Z")
         // A picture showed: the read names the stage it reached and when each stage before it ended.
         #expect(live["connect_stage"]?.stringValue == "shown")
@@ -176,6 +223,24 @@ struct MacScreenStateControlTests {
         #expect(try rows(pages, tab: "other").isEmpty)
         pages.tabClosed("a")
         pages.tabClosed("home")
+    }
+
+    /// A device tab holding a scope until it is shown (`macScreen.open --autoconnect` into a tab that
+    /// was never selected) reads `waits_to_show`, and the hub request it then makes reads its phase.
+    @Test func aTabThatWaitsToBeShownSaysSo() throws {
+        let pages = makePages()
+        _ = pages.record(forDevice: deviceID, requesting: .view)
+        pages.prepare("a", record: MacScreenRecord(deviceID: deviceID), byPerson: true)
+        _ = pages.makeView(for: "a")
+        let waiting = try #require(try rows(pages, tab: "a").first)
+        #expect(waiting["hub_phase"]?.stringValue == "idle")
+        #expect(waiting["waits_to_show"]?.boolValue == true)
+        // Shown: the scope goes to the hub (with no hub signed in here, it is refused at once).
+        try #require(pages.tab("a")?.pane).resume()
+        let asked = try #require(try rows(pages, tab: "a").first)
+        #expect(asked["hub_phase"]?.stringValue == "refused")
+        #expect(asked["waits_to_show"]?.boolValue == false)
+        pages.tabClosed("a")
     }
 
     /// The method `cmux app mac-screens` sends is one the app registers in every build.

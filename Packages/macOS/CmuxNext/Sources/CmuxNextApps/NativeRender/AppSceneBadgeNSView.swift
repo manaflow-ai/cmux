@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextDesign
 
-/// `Badge`: `text` on a capsule of its `tone` (``AppSceneBadgeLabel``).
+/// `Badge`: `text` on a capsule of its `tone` (``AppSceneBadgeLabel``), in its variant.
 final class AppSceneBadgeNSView: AppSceneNodeNSView {
     private let badge = AppSceneBadgeLabel()
 
@@ -12,7 +12,7 @@ final class AppSceneBadgeNSView: AppSceneNodeNSView {
 
     override func configure(_ node: AppSceneNode) {
         super.configure(node)
-        badge.configure(text: node.string("text"), tone: node.props["tone"])
+        badge.configure(text: node.string("text"), tone: node.props["tone"], variant: node.componentVariant)
     }
 
     override func paint() { badge.applyColors() }

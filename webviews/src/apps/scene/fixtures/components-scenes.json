@@ -1,0 +1,606 @@
+{
+  "stats": [
+    {
+      "op": "create",
+      "id": "n1",
+      "type": "VStack",
+      "props": {
+        "spacing": 16,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n2",
+      "type": "HStack",
+      "props": {
+        "spacing": 24
+      }
+    },
+    {
+      "op": "create",
+      "id": "n3",
+      "type": "Stat",
+      "props": {
+        "value": "1,284",
+        "label": "Requests",
+        "delta": "+12%",
+        "trend": "up"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n4",
+      "type": "Stat",
+      "props": {
+        "value": "212 ms",
+        "label": "Latency",
+        "delta": "+8%",
+        "trend": "up",
+        "goodTrend": "down"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n5",
+      "type": "Stat",
+      "props": {
+        "value": "99.9%",
+        "label": "Uptime",
+        "delta": "0%",
+        "trend": "flat"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n6",
+      "type": "HStack",
+      "props": {
+        "spacing": 24
+      }
+    },
+    {
+      "op": "create",
+      "id": "n7",
+      "type": "Stat",
+      "props": {
+        "value": "42",
+        "label": "standard",
+        "variant": "standard"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n8",
+      "type": "Stat",
+      "props": {
+        "value": "42",
+        "label": "prominent",
+        "variant": "prominent"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n9",
+      "type": "Stat",
+      "props": {
+        "value": "42",
+        "label": "subtle",
+        "variant": "subtle"
+      }
+    },
+    {
+      "op": "children",
+      "id": "n1",
+      "children": ["n2", "n6"]
+    },
+    {
+      "op": "children",
+      "id": "n2",
+      "children": ["n3", "n4", "n5"]
+    },
+    {
+      "op": "children",
+      "id": "n6",
+      "children": ["n7", "n8", "n9"]
+    },
+    {
+      "op": "root",
+      "id": "n1"
+    }
+  ],
+  "charts": [
+    {
+      "op": "create",
+      "id": "n1",
+      "type": "VStack",
+      "props": {
+        "spacing": 12,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n2",
+      "type": "Text",
+      "props": {
+        "text": "Line",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n3",
+      "type": "Chart",
+      "props": {
+        "values": [12, 18, 9, 22, 30, 26, 34],
+        "kind": "line"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n4",
+      "type": "Text",
+      "props": {
+        "text": "Bar",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n5",
+      "type": "Chart",
+      "props": {
+        "values": [12, 18, 9, 22, 30, 26, 34],
+        "kind": "bar"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n6",
+      "type": "Text",
+      "props": {
+        "text": "Below zero",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n7",
+      "type": "Chart",
+      "props": {
+        "values": [4, -2, -6, 3, 8, -1],
+        "kind": "bar",
+        "color": "warning"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n8",
+      "type": "Text",
+      "props": {
+        "text": "Variants",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n9",
+      "type": "HStack",
+      "props": {
+        "spacing": 12
+      }
+    },
+    {
+      "op": "create",
+      "id": "n10",
+      "type": "Chart",
+      "props": {
+        "values": [12, 18, 9, 22, 30, 26, 34],
+        "kind": "line",
+        "variant": "standard",
+        "frame": {
+          "width": 96
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n11",
+      "type": "Chart",
+      "props": {
+        "values": [12, 18, 9, 22, 30, 26, 34],
+        "kind": "line",
+        "variant": "prominent",
+        "frame": {
+          "width": 96
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n12",
+      "type": "Chart",
+      "props": {
+        "values": [12, 18, 9, 22, 30, 26, 34],
+        "kind": "line",
+        "variant": "subtle",
+        "frame": {
+          "width": 96
+        }
+      }
+    },
+    {
+      "op": "children",
+      "id": "n1",
+      "children": ["n2", "n3", "n4", "n5", "n6", "n7", "n8", "n9"]
+    },
+    {
+      "op": "children",
+      "id": "n9",
+      "children": ["n10", "n11", "n12"]
+    },
+    {
+      "op": "root",
+      "id": "n1"
+    }
+  ],
+  "variants": [
+    {
+      "op": "create",
+      "id": "n1",
+      "type": "VStack",
+      "props": {
+        "spacing": 12,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n2",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n3",
+      "type": "Badge",
+      "props": {
+        "text": "standard",
+        "tone": "accent",
+        "variant": "standard"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n4",
+      "type": "Badge",
+      "props": {
+        "text": "prominent",
+        "tone": "accent",
+        "variant": "prominent"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n5",
+      "type": "Badge",
+      "props": {
+        "text": "subtle",
+        "tone": "accent",
+        "variant": "subtle"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n6",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n7",
+      "type": "Button",
+      "props": {
+        "title": "standard",
+        "variant": "standard"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n8",
+      "type": "Button",
+      "props": {
+        "title": "prominent",
+        "variant": "prominent"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n9",
+      "type": "Button",
+      "props": {
+        "title": "subtle",
+        "variant": "subtle"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n10",
+      "type": "Row",
+      "props": {
+        "title": "Row, standard",
+        "subtitle": "a detail",
+        "symbol": "star",
+        "variant": "standard"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n11",
+      "type": "Row",
+      "props": {
+        "title": "Row, prominent",
+        "subtitle": "a detail",
+        "symbol": "star",
+        "variant": "prominent"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n12",
+      "type": "Row",
+      "props": {
+        "title": "Row, subtle",
+        "subtitle": "a detail",
+        "symbol": "star",
+        "variant": "subtle"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n13",
+      "type": "ProgressView",
+      "props": {
+        "value": 0.6,
+        "variant": "standard"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n14",
+      "type": "ProgressView",
+      "props": {
+        "value": 0.6,
+        "variant": "prominent"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n15",
+      "type": "ProgressView",
+      "props": {
+        "value": 0.6,
+        "variant": "subtle"
+      }
+    },
+    {
+      "op": "children",
+      "id": "n1",
+      "children": ["n2", "n6", "n10", "n11", "n12", "n13", "n14", "n15"]
+    },
+    {
+      "op": "children",
+      "id": "n2",
+      "children": ["n3", "n4", "n5"]
+    },
+    {
+      "op": "children",
+      "id": "n6",
+      "children": ["n7", "n8", "n9"]
+    },
+    {
+      "op": "root",
+      "id": "n1"
+    }
+  ],
+  "states": [
+    {
+      "op": "create",
+      "id": "n1",
+      "type": "VStack",
+      "props": {
+        "spacing": 16,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n2",
+      "type": "HStack",
+      "props": {
+        "spacing": 24
+      }
+    },
+    {
+      "op": "create",
+      "id": "n3",
+      "type": "Stat",
+      "props": {
+        "value": "—",
+        "label": "Requests",
+        "state": "loading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n4",
+      "type": "Chart",
+      "props": {
+        "values": [],
+        "kind": "line",
+        "state": "loading",
+        "stateMessage": null,
+        "frame": {
+          "width": 120
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n5",
+      "type": "HStack",
+      "props": {
+        "spacing": 24
+      }
+    },
+    {
+      "op": "create",
+      "id": "n6",
+      "type": "Stat",
+      "props": {
+        "value": "—",
+        "label": "Requests",
+        "state": "error"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n7",
+      "type": "Chart",
+      "props": {
+        "values": [],
+        "kind": "line",
+        "state": "error",
+        "stateMessage": "Could not load",
+        "frame": {
+          "width": 120
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n8",
+      "type": "HStack",
+      "props": {
+        "spacing": 24
+      }
+    },
+    {
+      "op": "create",
+      "id": "n9",
+      "type": "Stat",
+      "props": {
+        "value": "—",
+        "label": "Requests",
+        "state": "empty"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n10",
+      "type": "Chart",
+      "props": {
+        "values": [],
+        "kind": "line",
+        "state": "empty",
+        "stateMessage": null,
+        "frame": {
+          "width": 120
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n11",
+      "type": "Row",
+      "props": {
+        "title": "Build",
+        "subtitle": "main",
+        "state": "loading",
+        "stateMessage": "Fetching checks"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n12",
+      "type": "Button",
+      "props": {
+        "title": "Deploy",
+        "state": "error",
+        "stateMessage": "Offline"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n13",
+      "type": "VStack",
+      "props": {
+        "spacing": 2,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n14",
+      "type": "ProgressView",
+      "props": {
+        "value": 0.4,
+        "state": "empty"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n15",
+      "type": "Text",
+      "props": {
+        "text": "Battery",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "children",
+      "id": "n1",
+      "children": ["n2", "n5", "n8", "n11", "n12", "n13"]
+    },
+    {
+      "op": "children",
+      "id": "n2",
+      "children": ["n3", "n4"]
+    },
+    {
+      "op": "children",
+      "id": "n5",
+      "children": ["n6", "n7"]
+    },
+    {
+      "op": "children",
+      "id": "n8",
+      "children": ["n9", "n10"]
+    },
+    {
+      "op": "children",
+      "id": "n13",
+      "children": ["n14", "n15"]
+    },
+    {
+      "op": "root",
+      "id": "n1"
+    }
+  ]
+}

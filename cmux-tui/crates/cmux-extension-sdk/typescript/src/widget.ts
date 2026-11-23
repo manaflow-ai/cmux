@@ -5,7 +5,7 @@
 // wiggle); a widget draws only what is inside. The helpers are plain views built on the scene
 // DSL: use them, mix them with VStack and Text, or ignore them.
 
-import { ForEach, HStack, Icon, ProgressView, Spacer, Text, VStack, type View, Circle, Line, ZStack } from "./index.ts"
+import { EmptyState, ForEach, HStack, Icon, ProgressView, Spacer, Text, VStack, type ComponentState, type View, Circle, Line, ZStack } from "./index.ts"
 
 /** A widget's size, as Apple's widget families: small is a 1x1 tile, medium 2x1, large 2x2. */
 export type WidgetSize = "small" | "medium" | "large"
@@ -57,37 +57,8 @@ export function bySize(context: Pick<WidgetContext, "size">, views: { small: () 
   return views.small()
 }
 
-/**
- * The type roles: each a point size and weight (Apple's widget text styles), drawn by the helper
- * named for it. Text goes through a role, not a size: `cmux ext dev` warns on a size that is not
- * one of these, and on more than four roles in one widget.
- */
-export const TYPE_ROLES = {
-  numeral: { size: 34, weight: "semibold" },
-  heading: { size: 20, weight: "semibold" },
-  title: { size: 15, weight: "semibold" },
-  label: { size: 13, weight: "semibold" },
-  body: { size: 13, weight: "regular" },
-  caption: { size: 12, weight: "regular" },
-  footnote: { size: 11, weight: "regular" },
-} as const
-export type TypeRole = keyof typeof TYPE_ROLES
-/** The type scale, in points (Apple's widget text styles): `TYPE_ROLES`' sizes. */
-export const WIDGET_TYPE = {
-  bigNumber: TYPE_ROLES.numeral.size,
-  title: TYPE_ROLES.title.size,
-  label: TYPE_ROLES.label.size,
-  body: TYPE_ROLES.body.size,
-  caption: TYPE_ROLES.caption.size,
-  footnote: TYPE_ROLES.footnote.size,
-} as const
-
-/**
- * The spacing scale, in points: every gap and padding is one of these (a 4 pt grid, with 2 and
- * 6 for tight rows). `cmux ext dev` warns on any other value and names the nearest step.
- */
-export const SPACE = { none: 0, hairline: 2, xxs: 4, xs: 6, s: 8, m: 12, l: 16, xl: 20, xxl: 24, xxxl: 32, huge: 48 } as const
-export type Space = (typeof SPACE)[keyof typeof SPACE]
+export { SPACE, TYPE_ROLES, WIDGET_TYPE, type Space, type TypeRole } from "./tokens.ts"
+import { SPACE, TYPE_ROLES, WIDGET_TYPE, type Space, type TypeRole } from "./tokens.ts"
 
 /** Text in a type role: its size and weight, one line unless `lines` says more. */
 export function TextIn(role: TypeRole, text: string | number | (() => string | number), options: { lines?: number } = {}): View {
@@ -172,9 +143,13 @@ export function WidgetSymbol(name: string | (() => string), options: { size?: nu
   return Icon(name).size(options.size ?? 20).color(options.tint ?? "primary")
 }
 
-/** A gauge: a 0 to 1 bar with an optional caption beside it (a battery, a progress, a ring's value). */
-export function Gauge(value: number | (() => number), options: { label?: string | (() => string); tint?: string } = {}): View {
-  const bar = ProgressView(value)
+/** A gauge: a 0 to 1 bar with an optional caption beside it (a battery, a progress, a ring's value).
+ * `state` draws the host's loading, error or empty state in place of the bar. */
+export function Gauge(
+  value: number | (() => number),
+  options: { label?: string | (() => string); tint?: string; state?: ComponentState | null | (() => ComponentState | null) } = {}
+): View {
+  const bar = options.state === undefined ? ProgressView(value) : ProgressView(value).state(options.state)
   const tinted = options.tint ? bar.color(options.tint) : bar
   if (options.label === undefined) return tinted
   return VStack({ spacing: 2, alignment: "leading" }, [tinted, Caption(options.label)])
@@ -189,10 +164,16 @@ export type ListItem = { id: string; title: string; detail?: string; trailing?: 
  * medium, 6 to 8 in a large), each a title, an optional detail under it and a trailing value.
  * Rows slide in and out as the list changes; the host animates it.
  */
-export function RowList(items: () => readonly ListItem[], options: { max?: number; spacing?: Space } = {}): View {
+export function RowList(
+  items: () => readonly ListItem[],
+  options: { max?: number; spacing?: Space; state?: () => ComponentState | null; stateMessage?: () => string | null } = {}
+): View {
   const max = options.max ?? 4
+  const state = options.state
   return VStack({ spacing: options.spacing ?? 6, alignment: "leading" }, [
-    ForEach({ items: () => (items() ?? []).slice(0, max), key: (item) => item.id }, (item) => {
+    // `state` (loading, error, empty) draws the host's state in the list's place: an EmptyState in it.
+    state ? () => (state() ? EmptyState({ title: "" }).state(state, options.stateMessage ?? null) : null) : null,
+    ForEach({ items: () => (state?.() ? [] : (items() ?? []).slice(0, max)), key: (item) => item.id }, (item) => {
       const leading = item().symbol
         ? Icon(() => item().symbol ?? "").size(WIDGET_TYPE.label).color(() => item().tint ?? "accent")
         : VStack([]).frame({ width: 3, minHeight: 28 }).background(() => item().tint ?? "accent").cornerRadius(1.5)

@@ -60,6 +60,12 @@ final class AppSceneProgressNSView: AppSceneNodeNSView {
 
     override func paint() {
         track.backgroundColor = Palette.hoverFill.cgColor
-        done.backgroundColor = (window?.isKeyWindow == true ? Palette.textPrimary : Self.inactiveInk).cgColor
+        // Prominent fills the done part in the accent, subtle in tertiary (webviews' accent-color).
+        let ink = switch node.componentVariant {
+        case .prominent: Palette.accentFill
+        case .subtle: Palette.textTertiary
+        case .standard: Palette.textPrimary
+        }
+        done.backgroundColor = (window?.isKeyWindow == true ? ink : Self.inactiveInk).cgColor
     }
 }

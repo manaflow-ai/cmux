@@ -2,7 +2,8 @@ import AppKit
 import CmuxNextDesign
 
 /// `Button`: its `title` (primary, or danger when `destructive`), or its children laid out in a row
-/// as the label. A click sends `tap`; hover and press paint the shared chrome fill.
+/// as the label. A click sends `tap`; hover and press paint the shared chrome fill. Prominent sets
+/// the title semibold in the accent over the control fill; subtle draws it in secondary.
 final class AppSceneButtonNSView: AppSceneNodeNSView {
     private let title = ChromeLabel(labelWithString: "")
     private let fill = CALayer()
@@ -31,7 +32,7 @@ final class AppSceneButtonNSView: AppSceneNodeNSView {
     override func configure(_ node: AppSceneNode) {
         super.configure(node)
         title.stringValue = node.string("title") ?? ""
-        title.font = Typography.body
+        title.font = node.componentVariant == .prominent ? Typography.bodyEmphasized : Typography.body
         title.isHidden = node.string("title") == nil
         setAccessibilityLabel(node.string("title") ?? node.string("help"))
     }
@@ -74,9 +75,12 @@ final class AppSceneButtonNSView: AppSceneNodeNSView {
 
     override func paint() {
         performWithTheme {
-            title.textColor = node.flag("destructive") ? Palette.danger : Palette.textPrimary
+            let variant = node.componentVariant
+            title.textColor = node.flag("destructive") ? Palette.danger
+                : variant == .prominent ? Palette.litGlyph : variant == .subtle ? Palette.textSecondary : Palette.textPrimary
             let state = ChromeHover.State(hovering: isHovered && isTappable, pressed: isPressed)
-            ChromeHover.paint(fill, ChromeHover.fillColor(state), animated: window != nil, pressed: isPressed)
+            let rest = variant == .prominent ? Palette.badgeFill : nil
+            ChromeHover.paint(fill, ChromeHover.fillColor(state, rest: rest), animated: window != nil, pressed: isPressed)
         }
     }
 

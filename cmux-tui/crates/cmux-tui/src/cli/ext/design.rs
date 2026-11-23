@@ -4,7 +4,9 @@
 //!
 //! The checks read the scene, not the source, so they hold for any way the view was built:
 //! - `type-size`: a point size that is not one of the system's type roles.
-//! - `type-style`: an Apple text style name the web and macOS renderers draw at different sizes.
+//! - `type-style`: a `font` name that is no type role: an Apple text style name off the roles
+//!   (`largeTitle`), named as the role at its size, or a name no renderer knows (it draws as body).
+//!   Both renderers draw a name from one table (`scene_type.rs`), so this is a rename hint.
 //! - `type-roles`: (widgets) more text styles in one tile than the system allows (4 in cmux's).
 //!   A pane or a specimen page may show more; a glanceable tile reads with few.
 //! - `spacing`: a gap or padding that is not on the system's spacing scale.
@@ -26,6 +28,7 @@ use serde_json::{Value, json};
 use super::design_components;
 use super::design_system::System;
 use super::scene::{self, Node};
+use super::scene_type;
 
 /// Findings printed at most; past it one line says how many more.
 const MAX_FINDINGS: usize = 20;
@@ -48,14 +51,6 @@ const COLOR_TOKENS: [&str; 12] = [
 
 /// Tokens that are accents: the rest are the text's own shades and the surface's.
 const ACCENT_TOKENS: [&str; 4] = ["accent", "success", "warning", "danger"];
-
-/// Apple text style names the two renderers draw at different sizes (web px, macOS pt).
-const DRIFTING_STYLES: [(&str, &str, &str); 4] = [
-    ("largeTitle", "15 px", "26 pt"),
-    ("title", "15 px", "22 pt"),
-    ("title2", "20 px", "17 pt"),
-    ("title3", "20 px", "15 pt"),
-];
 
 /// Props that hold a color.
 const COLOR_PROPS: [&str; 7] =
@@ -122,7 +117,7 @@ pub(super) fn check_in(batches: &[&Value], surface: Surface, system: &System) ->
     // Depth first with what each node sits on, as the outline walks it: cmux's two surfaces
     // until a hex background covers them (a translucent one is blended over what is behind).
     let surfaces: Behind =
-        SURFACES.iter().map(|(name, rgb)| (format!("cmux's {name} surface"), *rgb)).collect();
+        SURFACES.iter().map(|(name, rgb)| (format!("cmux's {name} background"), *rgb)).collect();
     let mut stack: Vec<(String, Behind)> = vec![(root, surfaces)];
     while let Some((id, behind)) = stack.pop() {
         let Some(node) = nodes.get(&id) else { continue };
@@ -138,7 +133,7 @@ pub(super) fn check_in(batches: &[&Value], surface: Surface, system: &System) ->
             Some((rgb, alpha)) => behind
                 .iter()
                 .map(|(name, under)| {
-                    let mixed = std::array::from_fn(|i| rgb[i] * alpha + under[i] * (1.0 - alpha));
+                    let mixed = over(rgb, alpha, *under);
                     let under = name.strip_prefix("its tinted background over ").unwrap_or(name);
                     (
                         format!("its tinted background over {}", under.trim_start_matches("its ")),
@@ -277,6 +272,201 @@ pub(super) fn run(
     if warned == 0 { super::exit::OK } else { super::exit::LOAD_FAILED }
 }
 
+/// Registry review's design check of one extension folder (RFD 0009 slice 6): its recorded
+/// scenes, against its own system. Any warning refuses the listing; `ext dev` never fails a
+/// load on one (an author mid-edit is never blocked).
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct Listing {
+    /// Each recorded scene's name and its findings, in the file's order.
+    pub scenes: Vec<(String, Vec<Finding>)>,
+    /// Why the folder cannot be checked (no recorded scenes, a file that does not ship), or
+    /// `None` when its scenes were.
+    pub missing: Option<String>,
+    /// What the check used that the author may not expect: a `cmux-design.json` the package
+    /// does not ship, so the scenes were checked against cmux's system, as review will.
+    pub note: Option<String>,
+}
+
+impl Listing {
+    /// Clean: every recorded scene was checked and none warns.
+    pub(super) fn ok(&self) -> bool {
+        self.missing.is_none() && self.scenes.iter().all(|(_, findings)| findings.is_empty())
+    }
+
+    /// The warnings, as one count.
+    pub(super) fn warnings(&self) -> usize {
+        self.scenes.iter().map(|(_, findings)| findings.len()).sum()
+    }
+
+    /// One line for `ext publish`'s check list: what was checked, or the refusal and its fix.
+    pub(super) fn summary(&self) -> String {
+        if let Some(missing) = &self.missing {
+            return missing.clone();
+        }
+        let count = self.scenes.len();
+        let scenes = format!("{count} recorded scene{}", if count == 1 { "" } else { "s" });
+        let note = self.note.as_ref().map(|note| format!(" ({note})")).unwrap_or_default();
+        if self.ok() {
+            return format!("{scenes} ({RECORDED}), no design warning{note}");
+        }
+        let warned = self.scenes.iter().filter(|(_, f)| !f.is_empty()).count();
+        let total = self.warnings();
+        format!(
+            "{total} design warning{} in {warned} of {scenes}; registry review refuses a listing with any. Fix each, then cmux ext shot --record again{note}",
+            if total == 1 { "" } else { "s" }
+        )
+    }
+
+    /// The refusal in full: each warned scene and its findings with their fixes.
+    pub(super) fn details(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        for (scene, findings) in &self.scenes {
+            if findings.is_empty() {
+                continue;
+            }
+            out.push(format!("{scene}:"));
+            out.extend(
+                lines(findings).into_iter().map(|text| format!("  {}", text.replace('\n', "\n  "))),
+            );
+        }
+        out
+    }
+
+    pub(super) fn to_json(&self) -> Value {
+        json!({
+            "ok": self.ok(),
+            "missing": self.missing,
+            "note": self.note,
+            "warnings": self.warnings(),
+            "scenes": self.scenes.iter().map(|(scene, findings)| json!({
+                "scene": scene,
+                "design": findings.iter().map(Finding::to_json).collect::<Vec<_>>(),
+            })).collect::<Vec<_>>(),
+        })
+    }
+}
+
+/// The recorded scenes' file, in an extension folder (`ext shot --record` writes it).
+pub(super) const RECORDED: &str = super::shot::RECORDED;
+
+/// Whether the manifest's `files` ship `rel` in the package (no `files`: every non-source file
+/// does, as `dev::package_files` reads it).
+fn shipped(manifest: &Value, rel: &str) -> bool {
+    let Some(files) = manifest.get("files").and_then(Value::as_array) else { return true };
+    files.iter().filter_map(Value::as_str).any(|entry| {
+        let entry = entry.trim_start_matches("./").trim_end_matches('/');
+        entry == rel || rel.starts_with(&format!("{entry}/"))
+    })
+}
+
+/// The surface a recorded scene draws on: its name's interface (`cmux.widget/1 small`), else
+/// the manifest's drawn one.
+fn surface_of(name: &str, drawn: Option<&str>) -> Surface {
+    match name.split_whitespace().next() {
+        Some(interface) if interface.starts_with("cmux.") && interface.contains('/') => {
+            Surface::of(interface)
+        }
+        _ => drawn.map_or(Surface::Other, Surface::of),
+    }
+}
+
+/// Registry review's design check of the folder `dir` with `manifest`: every scene in
+/// `preview/scenes.json`, against the folder's `cmux-design.json` over cmux's system (a file
+/// that does not read is a `system` warning on each scene). Only what the package ships is
+/// used, so the check here and on the unpacked release agree: an unshipped `cmux-design.json`
+/// is left out (and the listing says so). An extension that draws no view (a command, an
+/// opener) has nothing to check and passes.
+pub(super) fn listing(dir: &std::path::Path, manifest: &Value) -> Listing {
+    let drawn = super::dev::view_interface(manifest);
+    let missing = |why: String| Listing { scenes: Vec::new(), missing: Some(why), note: None };
+    let path = dir.join(RECORDED);
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(_) if drawn.is_none() => {
+            return Listing { scenes: Vec::new(), missing: None, note: None };
+        }
+        Err(_) => {
+            return missing(format!(
+                "no recorded scenes: run cmux ext shot --record (it writes {RECORDED}) for each size and state worth checking, so review can check its design"
+            ));
+        }
+    };
+    let value = match serde_json::from_str::<Value>(&text) {
+        Ok(value) => value,
+        Err(error) => {
+            return missing(format!(
+                "{RECORDED} does not read: {error}; record it again with cmux ext shot --record"
+            ));
+        }
+    };
+    let scenes = scenes_in(RECORDED, &value);
+    if scenes.is_empty() {
+        return missing(format!(
+            "{RECORDED} has no scene ops; record it again with cmux ext shot --record"
+        ));
+    }
+    if !shipped(manifest, RECORDED) {
+        return missing(format!(
+            "{RECORDED} is not in the package, so review cannot read it: add \"preview/\" to the manifest's files"
+        ));
+    }
+    let design_file = super::design_system::FILE;
+    let (system, problem, note) = if shipped(manifest, design_file) {
+        let (system, problem) = System::load(dir);
+        (system, problem, None)
+    } else {
+        let note = dir.join(design_file).is_file().then(|| {
+            format!(
+                "{design_file} is not in the package, so these scenes were checked against cmux's system, as review checks the release; add \"{design_file}\" to the manifest's files to check against yours"
+            )
+        });
+        (System::cmux(), None, note)
+    };
+    let scenes = scenes
+        .into_iter()
+        .map(|(name, ops)| {
+            let surface =
+                surface_of(name.trim_start_matches(&format!("{RECORDED}:")), drawn.as_deref());
+            let findings = if scene::apply(&[&ops]).0.is_none() {
+                vec![Finding {
+                    check: "scene",
+                    node: None,
+                    message: "the ops name no root, so there is no scene to check".into(),
+                    fix: "record it again with cmux ext shot --record".into(),
+                    count: 1,
+                }]
+            } else {
+                problem.clone().into_iter().chain(check_in(&[&ops], surface, &system)).collect()
+            };
+            (name, findings)
+        })
+        .collect();
+    Listing { scenes, missing: None, note }
+}
+
+/// `ext design --listing DIR [--json]`: [`listing`] for a folder; exit 0 clean, 1 refused,
+/// 4 when the folder has no manifest.
+pub(super) fn run_listing(dir: &std::path::Path, json_out: bool) -> i32 {
+    let manifest = ["cmux-app.json", "cmux-app.v2.json"]
+        .iter()
+        .find_map(|file| std::fs::read_to_string(dir.join(file)).ok())
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok());
+    let Some(manifest) = manifest else {
+        eprintln!("cmux: {}: no cmux-app.json that reads", dir.display());
+        return super::exit::MANIFEST_INVALID;
+    };
+    let review = listing(dir, &manifest);
+    if json_out {
+        println!("{}", review.to_json());
+    } else {
+        println!("{}", review.summary());
+        for line in review.details() {
+            println!("  {line}");
+        }
+    }
+    if review.ok() { super::exit::OK } else { super::exit::LOAD_FAILED }
+}
+
 /// Findings, merged by check and message so one repeated mistake is one line.
 #[derive(Default)]
 struct Findings {
@@ -316,7 +506,7 @@ fn text(
     findings: &mut Findings,
     styles: &mut BTreeSet<String>,
 ) {
-    let weight = node.props.get("weight").and_then(Value::as_str).unwrap_or("");
+    let mut weight = node.props.get("weight").and_then(Value::as_str).unwrap_or("");
     let font = node.props.get("font");
     let mut size = 13.0;
     match font {
@@ -336,20 +526,53 @@ fn text(
                 None => format!("{points} {}", if weight.is_empty() { "regular" } else { weight }),
             });
         }
-        Some(Value::String(name)) => {
-            if let Some((_, web, mac)) = DRIFTING_STYLES.iter().find(|(n, _, _)| n == name) {
+        Some(Value::String(name)) => match scene_type::named(name) {
+            Some(style) => {
+                size = style.size;
+                if style.role.is_some() && scene_type::exact_role(style).is_none() {
+                    let role = style.role.as_deref().and_then(scene_type::named);
+                    let (fix_role, call) = match role {
+                        Some(role) => (
+                            role.name.as_str(),
+                            role.helper
+                                .as_deref()
+                                .map(|h| format!(" or {h}(...)"))
+                                .unwrap_or_default(),
+                        ),
+                        None => ("body", String::new()),
+                    };
+                    findings.add(
+                        "type-style",
+                        Some(node),
+                        format!(
+                            "font \"{name}\" is no type role: it draws {} pt {} (the role at that size is \"{fix_role}\")",
+                            style.size, style.weight
+                        ),
+                        format!("rename it: font \"{fix_role}\"{call}"),
+                    );
+                }
+                let drawn = if weight.is_empty() { style.weight.as_str() } else { weight };
+                styles.insert(match system.role_of(style.size, drawn) {
+                    Some(role) => role.name.clone(),
+                    None => format!("{name} {drawn}"),
+                });
+                weight = drawn;
+            }
+            None => {
+                let roles: Vec<&str> =
+                    scene_type::roles().iter().map(|r| r.name.as_str()).collect();
                 findings.add(
                     "type-style",
                     Some(node),
-                    format!("font \"{name}\" draws {web} on the web and {mac} on macOS"),
-                    "use a type role: BigNumber(...) (34 pt), Heading(...) (20 pt) or Headline(...) (15 pt)".into(),
+                    format!("font \"{name}\" is no type role or text style, so it draws as body"),
+                    format!("use a type role: {}", roles.join(", ")),
                 );
+                styles.insert(format!(
+                    "body{}",
+                    if weight.is_empty() { String::new() } else { format!(" {weight}") }
+                ));
             }
-            styles.insert(format!(
-                "{name}{}",
-                if weight.is_empty() { String::new() } else { format!(" {weight}") }
-            ));
-        }
+        },
         _ => {
             styles.insert(format!(
                 "body{}",
@@ -363,7 +586,7 @@ fn text(
         let floor = if large { 3.0 } else { 4.5 };
         for (what, bg) in behind {
             // A translucent text color shows its background through: measure what is drawn.
-            let drawn = std::array::from_fn(|i| color[i] * alpha + bg[i] * (1.0 - alpha));
+            let drawn = over(color, alpha, *bg);
             let ratio = contrast(drawn, *bg);
             if ratio < floor {
                 findings.add(
@@ -446,13 +669,24 @@ fn hex(text: &str) -> Option<([f64; 3], f64)> {
     if !(digits.len() == 6 || digits.len() == 8) || !digits.chars().all(|c| c.is_ascii_hexdigit()) {
         return None;
     }
-    let channel =
-        |i: usize| u8::from_str_radix(&digits[i..i + 2], 16).ok().map(|v| f64::from(v) / 255.0);
+    let channel = |i: usize| {
+        let pair = digits.get(i..)?.get(..2)?;
+        u8::from_str_radix(pair, 16).ok().map(|v| f64::from(v) / 255.0)
+    };
     let alpha = if digits.len() == 8 { channel(6)? } else { 1.0 };
     Some(([channel(0)?, channel(2)?, channel(4)?], alpha))
 }
 
 /// WCAG 2 contrast ratio of two sRGB colors.
+/// `fg` at `alpha` drawn over `bg`: what the eye sees, channel by channel.
+fn over(fg: [f64; 3], alpha: f64, bg: [f64; 3]) -> [f64; 3] {
+    let mut drawn = bg;
+    for (out, top) in drawn.iter_mut().zip(fg) {
+        *out = top * alpha + *out * (1.0 - alpha);
+    }
+    drawn
+}
+
 fn contrast(a: [f64; 3], b: [f64; 3]) -> f64 {
     let luminance = |c: [f64; 3]| {
         let lin = |v: f64| if v <= 0.040_45 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) };

@@ -499,3 +499,101 @@
   top: var(--app-y);
   translate: -50% -50%;
 }
+
+/* The finished components' states and variants, and Stat and Chart (sceneComponents.tsx; the
+   AppKit twin draws the same: AppSceneComponentState.swift). A state draws in the component's
+   place: its glyph, the EmptyState's title, and one line of message, in secondary. */
+.cmux-app-scene-node[data-state] {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--grid-base);
+  min-width: 0;
+  min-height: var(--grid-row);
+  padding: var(--grid-base);
+  color: var(--agent-muted);
+  text-align: center;
+}
+.cmux-app-scene-state-message {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: var(--text-detail);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cmux-app-scene-badge[data-variant="prominent"] .cmux-app-scene-badge-label {
+  background: color-mix(in srgb, currentColor 28%, transparent);
+  font-weight: 600;
+}
+.cmux-app-scene-badge[data-variant="subtle"] .cmux-app-scene-badge-label {
+  padding-inline: 0;
+  background: none;
+}
+.cmux-app-scene-button[data-variant="prominent"] {
+  background: var(--agent-control);
+  color: var(--cmux-accent, var(--agent-text));
+  font-weight: 600;
+}
+.cmux-app-scene-button[data-variant="subtle"] {
+  color: var(--agent-muted);
+}
+.cmux-app-scene-row[data-variant="prominent"] .cmux-app-scene-row-title {
+  font-weight: 600;
+}
+.cmux-app-scene-row[data-variant="prominent"] .cmux-app-scene-row-icon {
+  color: var(--cmux-accent, var(--agent-text));
+}
+.cmux-app-scene-row[data-variant="subtle"] {
+  color: var(--agent-muted);
+}
+.cmux-app-scene-progressview[data-variant="prominent"] .cmux-app-scene-progress {
+  accent-color: var(--cmux-accent, var(--agent-text));
+}
+.cmux-app-scene-progressview[data-variant="subtle"] .cmux-app-scene-progress {
+  accent-color: color-mix(in srgb, var(--agent-text) 38%, transparent);
+}
+.cmux-app-scene-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--grid-half-step);
+  min-width: 0;
+}
+.cmux-app-scene-stat-value {
+  color: var(--agent-text);
+  font-size: var(--text-heading);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: var(--text-heading--line-height);
+  white-space: nowrap;
+}
+.cmux-app-scene-stat[data-variant="prominent"] .cmux-app-scene-stat-value {
+  color: var(--cmux-accent, var(--agent-text));
+}
+.cmux-app-scene-stat[data-variant="subtle"] .cmux-app-scene-stat-value {
+  color: var(--agent-muted);
+}
+.cmux-app-scene-stat-caption {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-1);
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  white-space: nowrap;
+}
+.cmux-app-scene-stat-delta {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.cmux-app-scene-chart {
+  width: 100%;
+  min-width: 24px;
+  height: 32px;
+}
+.cmux-app-scene-chart-marks {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}

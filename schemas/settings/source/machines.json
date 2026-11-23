@@ -1,5 +1,5 @@
 {
-  "$comment": "Settings rows of this Mac's machines, phones, Cloud and connectors (Computer Use, free model, SSH links, Cloud workspaces, iPhone, Mac Screen, cmux Remote, Device Hub, iMessage). Each list is one run of rows in SettingsSchema.all; gen-settings-sources.py writes the Swift (SettingsSchema+Machines*.generated.swift).",
+  "$comment": "Settings rows of this Mac's machines, phones, Cloud and connectors (Computer Use, free model, SSH links, Cloud workspaces, worktree and build cache cleanup, iPhone, Mac Screen, cmux Remote, Device Hub, iMessage). Each list is one run of rows in SettingsSchema.all; gen-settings-sources.py writes the Swift (SettingsSchema+Machines*.generated.swift).",
   "lists": [
     {
       "name": "computerUse",
@@ -312,7 +312,7 @@
               "note": "OpenAI's reference loop: no wait."
             }
           ],
-          "default": "adaptive",
+          "default": "openai",
           "swift_enum": {
             "name": "ComputerUseSettle"
           },
@@ -500,6 +500,41 @@
       ]
     },
     {
+      "name": "hosts",
+      "section": "machines",
+      "group": {
+        "key": "settings.group.sshLinks",
+        "text": "SSH Links"
+      },
+      "note": "Hosts declared by hand (CMUX-673): a label and the ssh endpoints tried in order, with an optional icon and id. cmux-config hosts.rs owns the rule; `cmux hosts list|check` reads them.",
+      "rows": [
+        {
+          "key": "machines.hosts",
+          "note": "A list of {label, endpoints | endpoint, icon?, id?}; labels are unique ignoring case. Edited in cmux-next.json, so it stays off the Settings page.",
+          "title": {
+            "key": "settings.machines.hosts",
+            "text": "Hosts"
+          },
+          "help": {
+            "key": "settings.machines.hosts.help",
+            "text": "Computers you reach over ssh, each a label and the addresses tried in order. cmux hosts check says which ones answer."
+          },
+          "kind": "text",
+          "swift_owner": "HostsSetting",
+          "default": [],
+          "keywords": [
+            "hosts",
+            "machines",
+            "computers",
+            "ssh",
+            "remote",
+            "endpoints"
+          ],
+          "page_hidden": "a list of host objects, edited in cmux-next.json"
+        }
+      ]
+    },
+    {
       "name": "cloud",
       "section": "machines",
       "group": {
@@ -633,6 +668,64 @@
             "turn",
             "back",
             "machine"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "storage",
+      "section": "general",
+      "group": {
+        "key": "settings.group.storage",
+        "text": "Storage"
+      },
+      "rows": [
+        {
+          "key": "worktrees.autoCleanup",
+          "name": "autoCleanup",
+          "note": "On by default. The acpmux daemon archives and removes the worktrees agents finished with and trims the build output of idle ones; unpushed work stays in git and comes back when the chat reopens (cmux-tui acpmux hub/worktree_care.rs, auto_cleanup_enabled, read from the settings file at each pass).",
+          "title": {
+            "key": "settings.worktrees.autoCleanup",
+            "text": "Clean Up Agent Worktrees"
+          },
+          "help": {
+            "key": "settings.worktrees.autoCleanup.help",
+            "text": "Archive and remove worktrees agents finished with, and trim the build output of idle ones. Unpushed work is kept in git and comes back when the chat reopens."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "disk",
+            "storage",
+            "cleanup",
+            "worktree",
+            "cache",
+            "DerivedData",
+            "free space"
+          ]
+        },
+        {
+          "key": "worktrees.cleanBuildCaches",
+          "name": "cleanBuildCaches",
+          "note": "Off by default. On: machine cleanup also removes this Mac's build caches nobody used lately (Xcode DerivedData and the like); package caches only when the disk is nearly full (cmux-tui cmux-worktree-care).",
+          "title": {
+            "key": "settings.worktrees.cleanBuildCaches",
+            "text": "Clean Up Build Caches"
+          },
+          "help": {
+            "key": "settings.worktrees.cleanBuildCaches.help",
+            "text": "Also remove this Mac's build caches nobody used lately, such as Xcode DerivedData. Package caches go only when the disk is nearly full."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "disk",
+            "storage",
+            "cleanup",
+            "worktree",
+            "cache",
+            "DerivedData",
+            "free space"
           ]
         }
       ]
@@ -819,6 +912,45 @@
       ]
     },
     {
+      "name": "macScreenViewing",
+      "section": "machines",
+      "group": {
+        "key": "settings.group.screenSharing",
+        "text": "Screen Sharing"
+      },
+      "rows": [
+        {
+          "key": "macScreen.onlyPersonStartsViewing",
+          "note": "Read by MacScreenPages.agentMayStartViewing: off (the default), an agent's or the CLI's macScreen.open with a device of the person's own starts viewing at once (MacScreenPages.isOwnDevice); on, it waits at the Connect card for the person's click, as before. Leo 2026-11-17: \"why should it get held only be aperson's click? i dont like that\".",
+          "title": {
+            "key": "settings.macScreen.onlyPersonStartsViewing",
+            "text": "Only Your Click Starts Viewing a Screen"
+          },
+          "help": {
+            "key": "settings.macScreen.onlyPersonStartsViewing.help",
+            "text": "On, a Screen Sharing tab an agent or the cmux CLI opens waits until you choose View Only or Full Control. Off, it starts viewing your own devices at once and says who started it. A device someone else owns always asks first."
+          },
+          "summary": {
+            "key": "settings.macScreen.onlyPersonStartsViewing.summary",
+            "text": "Agents can't start viewing your screens"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "screen sharing",
+            "mac screen",
+            "agents",
+            "automation",
+            "cli",
+            "view",
+            "control",
+            "click",
+            "approve"
+          ]
+        }
+      ]
+    },
+    {
       "name": "macScreenDebug",
       "section": "development",
       "group": {
@@ -885,6 +1017,39 @@
             "quit",
             "background",
             "device hub"
+          ]
+        },
+        {
+          "key": "remote.agentShareIdleMinutes",
+          "note": "Read by the daemon each time an owner's agent turns sharing on under the account's \"My agents can turn screen sharing and control on my machines\" (cmux-tui-util user_settings::agent_share_idle_minutes; cmux-tui-core remote_host/agent_share.rs AutoOff). The person's own sharing never turns itself off.",
+          "title": {
+            "key": "settings.remote.agentShareIdleMinutes",
+            "text": "Agent Sharing Turns Off After"
+          },
+          "help": {
+            "key": "settings.remote.agentShareIdleMinutes.help",
+            "text": "When one of your agents turns sharing on for this Mac, it turns off again after this many minutes with no device viewing or controlling it."
+          },
+          "summary": {
+            "key": "settings.remote.agentShareIdleMinutes.summary",
+            "text": "Minutes with no viewer before an agent's sharing turns off"
+          },
+          "kind": "number",
+          "range": {
+            "min": 1,
+            "max": 240,
+            "step": 1,
+            "unit": "minutes"
+          },
+          "default": 15,
+          "keywords": [
+            "cmux remote",
+            "screen sharing",
+            "mac screen",
+            "agents",
+            "idle",
+            "timeout",
+            "turn off"
           ]
         },
         {

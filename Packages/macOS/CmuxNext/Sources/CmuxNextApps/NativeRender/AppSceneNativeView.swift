@@ -148,7 +148,10 @@ final class AppSceneNativeView: NSView {
     private func view(for id: String, live: inout Set<String>) -> AppSceneNodeNSView? {
         guard let node = model.scene[id], live.insert(id).inserted else { return nil }
         let view: AppSceneNodeNSView
-        if let existing = views[id], existing.node.type == node.type {
+        // A finished component in a state draws AppSceneStateNSView in its place, so the view is
+        // reused only while it keeps both its type and whether it is in a state.
+        let inState = node.componentState != nil
+        if let existing = views[id], existing.node.type == node.type, (existing is AppSceneStateNSView) == inState {
             view = existing
             if existing.node != node { existing.configure(node) }
         } else {
@@ -158,7 +161,7 @@ final class AppSceneNativeView: NSView {
             view.configure(node)
             views[id] = view
         }
-        if Self.isContainer(node.type) {
+        if Self.isContainer(node.type), !inState {
             view.setChildren(model.scene.flattenedChildren(of: id).compactMap { self.view(for: $0, live: &live) })
         }
         return view
@@ -172,7 +175,8 @@ final class AppSceneNativeView: NSView {
     }
 
     private static func make(id: String, node: AppSceneNode) -> AppSceneNodeNSView {
-        switch node.type {
+        if node.componentState != nil { return AppSceneStateNSView(id: id, node: node) }
+        return switch node.type {
         case .row: AppSceneRowNSView(id: id, node: node)
         case .text: AppSceneTextNSView(id: id, node: node)
         case .icon: AppSceneIconNSView(id: id, node: node)
@@ -188,6 +192,8 @@ final class AppSceneNativeView: NSView {
         case .slider: AppSceneSliderNSView(id: id, node: node)
         case .textField: AppSceneTextFieldNSView(id: id, node: node)
         case .progressView: AppSceneProgressNSView(id: id, node: node)
+        case .stat: AppSceneStatNSView(id: id, node: node)
+        case .chart: AppSceneChartNSView(id: id, node: node)
         case .circle, .capsule, .rectangle, .roundedRectangle, .line: AppSceneShapeNSView(id: id, node: node)
         case .zStack: AppSceneZStackNSView(id: id, node: node)
         case .reorderable: AppSceneReorderableNSView(id: id, node: node)

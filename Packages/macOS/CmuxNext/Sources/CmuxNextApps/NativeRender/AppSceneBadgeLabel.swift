@@ -2,10 +2,12 @@ import AppKit
 import CmuxNextDesign
 
 /// A count or short label on a capsule of its tone at 14% (secondary by default), in the shortcut
-/// face with tabular digits: a Row's trailing `badge` and the `Badge` node.
+/// face with tabular digits: a Row's trailing `badge` and the `Badge` node. The `Badge` node's
+/// variant moves it: prominent is a 28% capsule in semibold, subtle is the text with no capsule.
 final class AppSceneBadgeLabel: NSView {
     private let label = ChromeLabel(labelWithString: "")
     private var tone: AppJSON?
+    private var variant: AppSceneComponentVariant = .standard
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -22,10 +24,12 @@ final class AppSceneBadgeLabel: NSView {
     nonisolated override var isFlipped: Bool { true }
 
     /// Shows `text` (hidden when nil or empty) in `tone`.
-    func configure(text: String?, tone: AppJSON?) {
+    func configure(text: String?, tone: AppJSON?, variant: AppSceneComponentVariant = .standard) {
         label.stringValue = text ?? ""
         isHidden = (text ?? "").isEmpty
         self.tone = tone
+        self.variant = variant
+        label.font = variant == .prominent ? Typography.system(size: Typography.shortcut.pointSize, weight: .semibold) : Typography.shortcut
         needsLayout = true
         applyColors()
     }
@@ -35,13 +39,19 @@ final class AppSceneBadgeLabel: NSView {
         performWithTheme {
             let color = tone?.sceneColor ?? Palette.textSecondary
             label.textColor = color
-            layer?.backgroundColor = color.withAlphaComponent(0.14).cgColor
+            let alpha: CGFloat = switch variant {
+            case .prominent: 0.28
+            case .subtle: 0
+            case .standard: 0.14
+            }
+            layer?.backgroundColor = color.withAlphaComponent(alpha).cgColor
         }
     }
 
     override var fittingSize: NSSize {
         let text = label.naturalSize
-        return NSSize(width: ceil(text.width) + 2 * Metrics.space2, height: max(Metrics.iconSize, ceil(text.height)))
+        let inset = variant == .subtle ? 0 : Metrics.space2
+        return NSSize(width: ceil(text.width) + 2 * inset, height: max(Metrics.iconSize, ceil(text.height)))
     }
 
     override func layout() {

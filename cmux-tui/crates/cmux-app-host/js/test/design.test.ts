@@ -10,8 +10,16 @@ import { beforeAll, describe, expect, test } from "bun:test"
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { pack } from "../../tools/pack.ts"
-import { cmuxDesign, defineDesign, SPACE, TYPE_ROLES, type DesignSpec } from "../../../cmux-extension-sdk/typescript/src/index.ts"
+import * as views from "../src/view.ts"
 import { FakeHost, type Op } from "./fake-host.ts"
+
+type Sdk = typeof import("../../../cmux-extension-sdk/typescript/src/index.ts")
+type DesignSpec = import("../../../cmux-extension-sdk/typescript/src/index.ts").DesignSpec
+// The SDK reads the runtime's view builders from the sandbox's globals when it loads, so it is
+// imported after they are set: a static import here would load it, for every test file in this
+// run, with `Text` and the rest undefined.
+Object.assign(globalThis, views, { cmux: {} })
+const { cmuxDesign, defineDesign, SPACE, TYPE_ROLES }: Sdk = await import("../../../cmux-extension-sdk/typescript/src/index.ts")
 
 const root = join(import.meta.dir, "../../../../..")
 const example = join(root, "examples/extensions/design-system")

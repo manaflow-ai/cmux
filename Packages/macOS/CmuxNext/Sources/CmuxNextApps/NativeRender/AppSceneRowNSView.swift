@@ -49,7 +49,8 @@ final class AppSceneRowNSView: AppSceneNodeNSView {
         if selectionChanged { fadesNextFill = false }
         let metrics = AppSceneRowMetrics.current
         title.stringValue = node.string("title") ?? ""
-        title.font = metrics.titleFont(emphasized: node.flag("unread"))
+        // Prominent sets the title emphasized and the symbol in the accent; subtle draws the title in secondary.
+        title.font = metrics.titleFont(emphasized: node.flag("unread") || node.componentVariant == .prominent)
         let detail = node.string("subtitle").flatMap { $0.isEmpty ? nil : $0 }
         subtitle.stringValue = detail ?? ""
         subtitle.isHidden = detail == nil
@@ -148,9 +149,11 @@ final class AppSceneRowNSView: AppSceneNodeNSView {
     /// The text, icon and badge colors from the theme in scope: on each configure (so a row reads
     /// right before its first draw) and on each draw (appearance and theme changes).
     private func paintContent() {
-        title.textColor = Palette.textPrimary
+        let variant = node.componentVariant
+        title.textColor = variant == .subtle ? Palette.textSecondary : Palette.textPrimary
         subtitle.textColor = Palette.textSecondary
-        let tint = node.props["tint"]?.sceneColor ?? (node.flag("selected") ? Palette.textPrimary : Palette.textSecondary)
+        let tint = node.props["tint"]?.sceneColor
+            ?? (variant == .prominent ? Palette.litGlyph : node.flag("selected") ? Palette.textPrimary : Palette.textSecondary)
         icon.contentTintColor = tint
         accessory.contentTintColor = Palette.textTertiary
         unreadDot.backgroundColor = Palette.textPrimary.cgColor
