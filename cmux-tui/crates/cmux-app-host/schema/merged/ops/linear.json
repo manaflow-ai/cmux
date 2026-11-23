@@ -1,0 +1,19 @@
+{
+  "family": "linear",
+  "ops": {
+    "linear.issue.create": {
+      "source": "cloud",
+      "owner": "cloud:ConnectionDO",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "digest": "25588f756aface86"
+    },
+    "linear.teams.list": {
+      "source": "cloud",
+      "owner": "cloud:ConnectionDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "62b795c967bb800f"
+    }
+  }
+}

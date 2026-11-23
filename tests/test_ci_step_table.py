@@ -540,9 +540,17 @@ class PipelineTest(unittest.TestCase):
         # cmux-vm-clients.yml keeps its rust job's pull requests; its moved sdk job skips only feat-cmux-next's.
         wf = yaml.safe_load((ROOT / ".github/workflows/cmux-vm-clients.yml").read_text())
         self.assertEqual(wf["jobs"]["sdk"]["if"],
-                         "${{ github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' }}")
+                         "${{ github.event_name != 'pull_request' || !startsWith(github.base_ref, 'feat-cmux-next') }}")
         self.assertNotIn("if", wf["jobs"]["rust"])
         self.assertEqual(steps["cmux-vm-sdk"].job, "linux")
+        # ci-guards.yml's submodule guard skips only feat-cmux-next's pull requests; every gitlink routes its step.
+        wf = yaml.safe_load((ROOT / ".github/workflows/ci-guards.yml").read_text())
+        self.assertEqual(wf["jobs"]["workflow-guard-submodule-forward-only"]["if"],
+                         "${{ github.event_name != 'pull_request' || !startsWith(github.base_ref, 'feat-cmux-next') }}")
+        self.assertEqual(steps["submodule-forward-only"].job, "linux")
+        gitlinks = re.findall(r"^\s*path = (\S+)$", (ROOT / ".gitmodules").read_text(), re.M)
+        self.assertTrue(gitlinks)
+        self.assertLessEqual({".gitmodules", *gitlinks}, set(steps["submodule-forward-only"].inputs))
         # These workflows keep the pull_request trigger for a macOS job; the moved Linux job skips it, and
         # a pull request runs it as a step of the table with the same command.
         jobs = {("agent-brands.yml", "drift"): "agent-brands-drift",
@@ -668,6 +676,13 @@ class PrChecksAdvisoryJobTest(unittest.TestCase):
                 self.assertEqual((step.job, step.blocks, step.klass), ("advisory", False, "idle"))
                 self.assertFalse(step.labels, "a label event runs only pr-body-checks.yml's steps")
                 self.assertLessEqual(step.timeout, 10 * 60, "within the run step's timeout")
+
+    def test_split_plan_fits_its_fetches_in_its_timeout(self) -> None:
+        # The window fetch, its ref fallback, the deepen and its fallback: four bounded fetches, then the checker.
+        step = self.table.steps["split-plan"]
+        bound = int(re.search(r"fetch\(\) \{ timeout (\d+) ", step.run).group(1))
+        self.assertEqual(len(re.findall(r"^\s*(?:\|\| )?fetch ", step.run, re.M)), 4, step.run)
+        self.assertGreaterEqual(step.timeout, 4 * bound + 30, "the checker gets the step's last half minute")
 
     def test_it_runs_the_picked_steps_from_the_base_checkout(self) -> None:
         checkout = self.steps["Check out the advisory steps from the base"]

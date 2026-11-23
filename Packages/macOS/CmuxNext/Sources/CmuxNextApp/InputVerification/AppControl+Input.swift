@@ -17,6 +17,7 @@ extension AppControl {
     static func debugMouseMethod(_ services: AppServices) -> ControlMethod {
         ControlMethod.mainActor("debug.mouse") { [weak services] call in
             guard let services else { return .value(.null) }
+            if let refusal = DebugDialog.syntheticInputRefusal(onlyCancels: false) { return .value(refusal) }
             return .value(DebugMouse.send(call.params, services: services))
         }.leavingSnapshotFresh()
     }

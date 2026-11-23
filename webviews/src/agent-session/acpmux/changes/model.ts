@@ -3,7 +3,7 @@
 // host answers `git.diff {scope, include_patch}` and `git.status` in the shapes of cmux-tui's
 // resource catalog (GitDiffResult, GitStatusResult); the mock daemon answers both from its
 // fixture. The wire is snake_case; the view's types are not.
-import type { DiffHunk, DiffLine, TurnFile } from "../diff";
+import type { DiffHunk, DiffLine, TurnFile } from "../diffTypes";
 import type { StringKey } from "../i18n";
 
 export type ChangeScope = "lastTurn" | "uncommitted" | "unstaged" | "staged" | "committed" | "branch";

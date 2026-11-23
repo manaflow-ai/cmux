@@ -110,6 +110,7 @@
    "exit": {
     "acpmux": 7,
     "cmux-browser-host": 4,
+    "cmux-rd-host": 1,
     "cmux-tui": 1,
     "cmux-tui-core": 4
    },
@@ -137,7 +138,7 @@
   "swift": {
    "dynamic_dispatch": {
     "CmuxNextAgentPane": 2,
-    "CmuxNextBrowser": 18,
+    "CmuxNextBrowser": 21,
     "CmuxNextBrowserAutomation": 5,
     "CmuxNextDesign": 6,
     "CmuxNextPages": 5,
