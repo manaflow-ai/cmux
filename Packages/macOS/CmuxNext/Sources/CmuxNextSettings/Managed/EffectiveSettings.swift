@@ -124,7 +124,7 @@ public nonisolated struct EffectiveSettings: Sendable, Equatable {
         // A retired key answers for its row in the same layer as the table maps it (the first listed
         // wins): a forced `updates.checkAutomatically: false` forces and locks `updates.automatic` Off.
         for (row, olds) in SettingsSchema.replacedKeys where values[row.joined(separator: ".")] == nil {
-            if let value = olds.lazy.compactMap({ old in values[old.old.joined(separator: ".")].flatMap { old.values[$0] } }).first {
+            if let value = olds.lazy.compactMap({ old in values[old.old.joined(separator: ".")].flatMap { value in old.values.map { $0[value] } ?? value } }).first {
                 values[row.joined(separator: ".")] = value
             }
         }
