@@ -43,6 +43,9 @@ public final class AgentPageRetirer {
     /// so prompts they hold go into their chats' drafts.
     public var keptPages: [(key: String, view: AgentPaneView)] { kept.pages.map { ("kept:\($0.session)", $0.page) } }
 
+    /// Tears every kept page down now (the chat renderer recycle): what they hold goes into their chats' drafts first.
+    public func dropKept() { kept.dropAll() }
+
     /// The kept page of closed chat `session`, taken back.
     public func takeKept(_ session: String) -> AgentPaneView? { kept.take(session) }
 

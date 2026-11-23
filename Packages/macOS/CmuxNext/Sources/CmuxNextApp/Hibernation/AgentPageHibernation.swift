@@ -211,20 +211,61 @@ final class AgentPageHibernation: HiddenChatPagesHost {
                 tabs.launchImages.drop(tabID)
                 return replan()
             }
-            let storageScoped = AgentTabKey(relaunchStorageKey: key)
-            if storageScoped.machine.isEmpty { displace(storageScoped.key) }
-            // The tab keeps its session and every other state: the next show builds the page again.
-            let scoped = tabs.views.entries.first(where: { $0.value === view })?.key ?? storageScoped
-            let stored = tabs.resolvedKey(scoped)
-            if let session = view.model.sessionId { tabs.sessions[stored] = session }
-            tabs.wakeStates[stored] = wake.flatMap { $0.isEmpty ? nil : $0 }
-            tabs.views[stored] = nil
-            tabs.retirer.retire(view)
-            tabs.stopCustomizationWhenUnused()
-            pages.released(key)
-            // Notice, not info: the field log keeps it (the page is built again when shown).
-            logger.notice("released agent page \(key, privacy: .public) cause=\(cause, privacy: .public); it is built again when shown")
+            letGo(key, page: view, wake: wake, in: tabs, cause: cause)
         }
+    }
+
+    /// Tab `key`'s captured page goes: its pane lets go of it, the tab keeps its session and `wake`, and the
+    /// next show builds the page again.
+    private func letGo(_ key: String, page view: AgentPaneView, wake: AgentPaneWakeState?, in tabs: AgentTabStore, cause: String) {
+        let storageScoped = AgentTabKey(relaunchStorageKey: key)
+        if storageScoped.machine.isEmpty { displace(storageScoped.key) }
+        // The tab keeps its session and every other state: the next show builds the page again.
+        let scoped = tabs.views.entries.first(where: { $0.value === view })?.key ?? storageScoped
+        let stored = tabs.resolvedKey(scoped)
+        if let session = view.model.sessionId { tabs.sessions[stored] = session }
+        tabs.wakeStates[stored] = wake.flatMap { $0.isEmpty ? nil : $0 }
+        tabs.views[stored] = nil
+        tabs.retirer.retire(view)
+        tabs.stopCustomizationWhenUnused()
+        pages.released(key)
+        // Notice, not info: the field log keeps it (the page is built again when shown).
+        logger.notice("released agent page \(key, privacy: .public) cause=\(cause, privacy: .public); it is built again when shown")
+    }
+
+    // MARK: Chat renderer recycle (`ChatRendererRecycler`)
+
+    /// Why tab `key`'s page keeps the chat renderer, shown or not, or nil when it can go now: the hidden-page
+    /// policy without its on-screen clause (this Mac's chat with a session, no shell run, no crash notice, its
+    /// turn known and idle, not pinned or paired), not archived in flight, and no release of it running.
+    func recycleExemption(_ key: String) -> String? {
+        if let exemption = keepsPage(key, onScreen: false) { return exemption.rawValue }
+        if pageArchived(key) { return "archived" }
+        return pages.releaseRuns(key) ? "a release runs" : nil
+    }
+
+    /// Captures tab `key`'s page for the recycle, as a release does but with no first frame required: its wake
+    /// state, its frame when `frame` (the shown chats; a hidden Chromium page is never captured), and why it stays
+    /// (unsaved sends, no answer). Nil when there is no page or a release of it runs.
+    func captureForRecycle(_ key: String, frame: Bool) async -> (page: AgentPaneView, wake: AgentPaneWakeState?, frame: CGImage?, size: NSSize, kept: String?)? {
+        guard let tabs = store(), let view = hibernationPage(key), pages.beginRelease(key) != nil else { return nil }
+        let tabID = { let scoped = scopedKey(key, in: tabs); return tabs.launchImages.slot(scoped.key, machine: scoped.machine) }()
+        let takeSnapshot = snapshot
+        var taken: (image: CGImage, size: NSSize, appearance: NSAppearance.Name?)?
+        let captured = await AgentPaneHibernationCapture(view: view).capture(key: tabID, images: tabs.launchImages, requiresFrame: false, wake: wakeState) { page in
+            guard frame else { return nil }
+            taken = await takeSnapshot(page)
+            return taken
+        }
+        pages.endRelease(key)
+        return (view, captured.wake, taken?.image, taken?.size ?? .zero, captured.kept)
+    }
+
+    /// The recycle let tab `key`'s captured page go (it is still the tab's page): as a release does.
+    func letGoForRecycle(_ key: String, page view: AgentPaneView, wake: AgentPaneWakeState?) -> Bool {
+        guard let tabs = store(), hibernationPage(key) === view else { return false }
+        letGo(key, page: view, wake: wake, in: tabs, cause: "renderer-recycle")
+        return true
     }
 
 }

@@ -58,6 +58,8 @@ final class CEFPageRendererGC {
     /// What the collector did, for `debug.cef_pages` (a bench reads why a renderer was or was not collected).
     private(set) var stats: [String: Int] = [:]
     private func count(_ key: String, _ value: Int? = nil) { stats[key] = value ?? (stats[key, default: 0] + 1) }
+    /// Runs at the end of every check (the App's chat renderer recycle, `CEFChatRendererRecycle`).
+    var checked: (@MainActor () async -> Void)?
 
     init(pages: @escaping @MainActor () -> [Page],
          heapUsed: @escaping @MainActor (Int32) async -> Int?,
@@ -102,6 +104,7 @@ final class CEFPageRendererGC {
             count(quiet ? "quiet_collections" : "collections")
             if let after = await heapUsed(target.browser) { live[target.renderer] = after; count("last_live_mb", after >> 20) }
         }
+        await checked?()
     }
 
     /// The used heap at which a renderer is collected: twice what was live after its last collection, and at
