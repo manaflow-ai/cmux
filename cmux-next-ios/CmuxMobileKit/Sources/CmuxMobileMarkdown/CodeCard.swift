@@ -14,6 +14,7 @@ public struct CodeCard: View {
     @State private var expanded = false
     @State private var copied = false
     @ScaledMetric(relativeTo: .footnote) private var codeSize: CGFloat = 13
+    @Environment(\.dynamicTypeSize) private var typeSize
     /// Settings → Terminal → Wrap code and diff lines.
     @AppStorage(CmuxMobilePreferences.Key.wrapCode) private var wrapCode = CmuxMobilePreferences.defaultWrapCode
 
@@ -33,18 +34,6 @@ public struct CodeCard: View {
             header
             ScrollView(.horizontal) {
                 SelectableText(CodeHighlightCache.shared.highlighted(code, language: language, size: codeSize))
-                    .selectionMenu { label in
-                        [
-                            SelectionMenu.action("Copy Code", "doc.on.doc") { copy() },
-                            SelectionMenu.action("Select Code Text", "selection.pin.in.out") {
-                                SelectableTextView(code, monospaced: true).present()
-                            },
-                            SelectionMenu.action("Copy as Markdown", "text.document") {
-                                UIPasteboard.general.string = "```\(language ?? "")\n\(code)\n```"
-                            },
-                            SelectionMenu.share(code, from: label, title: "Share Code")
-                        ]
-                    }
                     .fixedSize(horizontal: !wrapCode, vertical: true)
                     .padding(.horizontal, 16)
                     .padding(.top, 4)
@@ -77,14 +66,28 @@ public struct CodeCard: View {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .strokeBorder(Color(uiColor: .separator).opacity(0.5), lineWidth: 0.5)
         }
+        .selectionMenu { source in
+            [
+                SelectionMenu.action("Copy Code", "doc.on.doc") { copy() },
+                SelectionMenu.action("Select Code Text", "selection.pin.in.out") {
+                    SelectableTextView(code, monospaced: true).present()
+                },
+                SelectionMenu.action("Copy as Markdown", "text.document") {
+                    UIPasteboard.general.string = "```\(language ?? "")\n\(code)\n```"
+                },
+                SelectionMenu.share(code, from: source, title: "Share Code"),
+            ]
+        }
     }
 
     private var header: some View {
         HStack(spacing: 6) {
             Image(systemName: language == "diff" ? "plus.forwardslash.minus" : (isShell ? "terminal" : "chevron.left.forwardslash.chevron.right"))
                 .font(.system(size: 13))
-            Text(title ?? displayLanguage)
-                .font(.footnote.weight(.medium))
+            // A streaming fence can have a language and no code yet. Its title also offers the card actions.
+            SelectableText(title ?? displayLanguage,
+                           font: NativeTextStyles(category: UIContentSizeCategory(typeSize)).font(.footnote, weight: .medium),
+                           color: .secondaryLabel)
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer()

@@ -1428,6 +1428,8 @@ struct AnswerActionRow: View {
         Menu {
             Section(AgentTurn.menuTimestamp(turn.endedAt ?? turn.promptAt)) {
                 Button("Copy as Markdown", systemImage: "text.document") { UIPasteboard.general.string = turn.answerMarkdown }
+                // A rendered answer can consist entirely of a divider, with no word to hold.
+                Button("Select Text", systemImage: "selection.pin.in.out") { SelectableTextView(turn.answerMarkdown).present() }
                 Button("Retry", systemImage: "arrow.clockwise", action: retry)
                 retryWith?.menu
                 polish
