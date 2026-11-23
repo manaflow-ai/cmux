@@ -110,14 +110,15 @@ pub(super) fn split(command_args: &[String]) -> Option<(Scope, &[String])> {
     scope.owns(rest.first().map(String::as_str)).then_some((scope, rest))
 }
 
-const VERBS: &str =
-    "run, new, show, pause, resume, start, stop, rm, exec, fork, snapshot, access, key, creation";
+const VERBS: &str = "run, new, show, pause, resume, start, stop, rm, exec, fork, snapshot, access, key, creation, file";
 
 /// `cmux vm`'s usage for the VM API verbs; `cmux vm --help` adds the Cloud verbs.
 fn help() -> String {
+    let japanese = crate::localization::catalog().is_japanese();
     format!(
         "usage: cmux vm <verb> [options]\n\n{}\nUse `cmux vm --help` for every VM verb, and `cmux vm <verb> --help` for one verb's options.",
-        super::surface::VM_VERBS_HELP.trim_end()
+        (if japanese { super::surface::VM_VERBS_HELP_JA } else { super::surface::VM_VERBS_HELP })
+            .trim_end()
     )
 }
 
@@ -187,7 +188,7 @@ pub(super) fn plan(rest: &[String], output: OutputMode) -> Result<Vec<String>, U
         "snapshot" => ("snapshot", sub_verb(tail, SNAPSHOT)),
         // `shutdown` is `pause` here too, as with the app (vm_short.rs).
         "shutdown" => ("pause", tail.to_vec()),
-        "pause" | "resume" | "start" | "stop" | "exec" | "fork" | "run" | "creation" => {
+        "pause" | "resume" | "start" | "stop" | "exec" | "fork" | "run" | "creation" | "file" => {
             (verb.as_str(), tail.to_vec())
         }
         "start-chat" | "chat" => {
@@ -539,7 +540,7 @@ pub(super) fn vm_runs_cloud_verb(verb: &str) -> bool {
 /// Words `vm` answers itself that are not [`MACHINE_VERBS`]: the VM API's list, help, and the
 /// pointers of [`plan`].
 const VM_OWN_WORDS: &[&str] =
-    &["ls", "list", "help", "resize", "workspace", "start-chat", "chat", "pool", "runner"];
+    &["ls", "list", "help", "resize", "workspace", "start-chat", "chat", "pool", "runner", "file"];
 
 /// `cmux cloud …` typed at a terminal: one line on stderr with its new name. A script (no
 /// terminal on stderr) and this binary's own steps read nothing new.
@@ -662,8 +663,8 @@ const APP_CREATE_FLAGS: [&str; 6] =
     ["--size", "--persistent", "--repo", "--machine-config", "--bootstrap", "--bootstrap-script"];
 
 /// Flags only the VM API's create takes (cmux-vm's `CreateArgs`).
-const VM_API_CREATE_FLAGS: [&str; 5] =
-    ["--snapshot", "--image", "--image-revision", "--public-egress", "--idle-timeout"];
+const VM_API_CREATE_FLAGS: [&str; 6] =
+    ["--snapshot", "--image", "--image-revision", "--public-egress", "--idle-timeout", "--label"];
 
 /// Where `vm new <tail>` (or its old spelling `machine new`) goes. A flag only one side takes
 /// picks that side; otherwise the app makes it when there is one (`app_present`), with its own
@@ -737,7 +738,7 @@ table on stderr.
 Headless (CI, no app) or with a VM API key of your own (CMUX_VM_API_KEY, a
 config file or `cmux vm key new`), it makes a VM API VM instead, which also
 takes --snapshot SNAPSHOT_ID, --image IMAGE_ID --image-revision REV,
---public-egress, --idle-timeout SECONDS and --idempotency-key KEY.
+--public-egress, --idle-timeout SECONDS, --label KEY=VALUE and --idempotency-key KEY.
 
 --provider freestyle (the default) is all of the above. --provider gcp makes a
 fleet VM on our own Compute Engine capacity (the CI builder pool, lanes),
@@ -828,7 +829,8 @@ pub(super) fn vm_help(japanese: bool) -> String {
     format!(
         "{}\n{}\n{}\n",
         super::cloud_help::overview(japanese).trim_end(),
-        super::surface::VM_VERBS_HELP.trim_end(),
+        (if japanese { super::surface::VM_VERBS_HELP_JA } else { super::surface::VM_VERBS_HELP })
+            .trim_end(),
         vm_help_note(japanese)
     )
 }
