@@ -10,7 +10,7 @@ enum ConfigCommandRunner {
         let text = action.command + "\r"
         switch action.target {
         case .newTabInCurrentPane:
-            context.paneController(invocation)?.newTerminalTab(typing: text)
+            context.paneController(invocation)?.newTerminalTab(cwd: action.cwd, typing: text)
         case .currentTerminal:
             guard let (tab, _) = context.daemonTab(invocation) else { return }
             guard tab.kind == .pty else { return context.refuse(RefusalStrings.notATerminal) }
