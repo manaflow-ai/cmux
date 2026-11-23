@@ -806,19 +806,22 @@ mod tests {
         let keys: Vec<_> = (0..100).map(|n| format!("peer/session-{n}")).collect();
         let cursors = keys.iter().map(|k| (k.clone(), watch_events::Cursor::default())).collect();
         hub.watches
-            .add(Watch {
-                id: "w".into(),
-                to: "sink".into(),
-                sessions: keys.clone(),
-                until: vec!["ready".into()],
-                match_text: None,
-                once: true,
-                caller: None,
-                active: true,
-                cursors,
-                offline: BTreeSet::new(),
-                ..Default::default()
-            })
+            .add(
+                &hub,
+                Watch {
+                    id: "w".into(),
+                    to: "sink".into(),
+                    sessions: keys.clone(),
+                    until: vec!["ready".into()],
+                    match_text: None,
+                    once: true,
+                    caller: None,
+                    active: true,
+                    cursors,
+                    offline: BTreeSet::new(),
+                    ..Default::default()
+                },
+            )
             .unwrap();
         let before = tokio::runtime::Handle::current().metrics().num_alive_tasks();
         reconcile(&hub).await.unwrap();
@@ -899,19 +902,22 @@ mod tests {
         let keys: Vec<_> = bad.iter().cloned().chain([good.clone()]).collect();
         let cursors = keys.iter().map(|k| (k.clone(), watch_events::Cursor::default())).collect();
         hub.watches
-            .add(Watch {
-                id: "w".into(),
-                to: "sink".into(),
-                sessions: keys,
-                until: vec!["ready".into()],
-                match_text: None,
-                once: true,
-                caller: None,
-                active: true,
-                cursors,
-                offline: BTreeSet::new(),
-                ..Default::default()
-            })
+            .add(
+                &hub,
+                Watch {
+                    id: "w".into(),
+                    to: "sink".into(),
+                    sessions: keys,
+                    until: vec!["ready".into()],
+                    match_text: None,
+                    once: true,
+                    caller: None,
+                    active: true,
+                    cursors,
+                    offline: BTreeSet::new(),
+                    ..Default::default()
+                },
+            )
             .unwrap();
         let reads = Arc::new(Mutex::new(Vec::<(String, tokio::time::Instant)>::new()));
         let failed = Arc::new(Notify::new());
