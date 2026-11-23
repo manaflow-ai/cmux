@@ -142,6 +142,15 @@ pub async fn serve(
         "browser" => crate::browser::serve(&config.browser, &*config, &peer, &args, &sender, receiver).await,
         "surface" => crate::surface::serve(&config.surface, &*config, &peer, &args, &sender, receiver).await,
         "localhost" => crate::localhost::serve(&args, &sender, receiver).await,
+        "phone-frames" => {
+            crate::phone_frames::serve(
+                &peer.device_id,
+                &crate::phone_frames::default_path(),
+                &sender,
+                receiver,
+            )
+            .await
+        }
         _ => Err(Refusal::new("unknown_service", format!("no service {service}"))),
     };
     match result {
@@ -217,8 +226,10 @@ const ACPMUX_MAX_MESSAGE_BYTES: usize = 64 << 20;
 /// wallpaper, `appearance.rs`).
 /// `pair-requests-v1`: the `pair-requests` service (a paired device answers a pairing request
 /// waiting on this Mac, `pair_requests.rs`).
+/// `phone-frames-v1`: the `phone-frames` service (the phone's terminal scroll frame times,
+/// logged to `phone-frames.jsonl`, `phone_frames.rs`).
 /// The names are declared once in `cmux_mobile_link::names`.
-pub const CAPABILITIES: [&str; 8] = [
+pub const CAPABILITIES: [&str; 9] = [
     names::REMOVAL,
     names::FILE_PREVIEW,
     names::LOCALHOST_FORWARD,
@@ -227,6 +238,7 @@ pub const CAPABILITIES: [&str; 8] = [
     names::NEEDS_YOU,
     names::APPEARANCE,
     names::PAIR_REQUESTS,
+    names::PHONE_FRAMES,
 ];
 /// Added to [`CAPABILITIES`] when this Mac can stream browser tabs (`browser`).
 pub const BROWSER_STREAM: &str = names::BROWSER_STREAM;
@@ -2311,7 +2323,8 @@ mod tests {
                 "cloud-acpmux-v1",
                 "needs-you-v1",
                 "appearance-v1",
-                "pair-requests-v1"
+                "pair-requests-v1",
+                "phone-frames-v1"
             ]
         );
         let launcher: crate::browser::Launcher = std::sync::Arc::new(|_| {
@@ -2329,6 +2342,7 @@ mod tests {
                 "needs-you-v1",
                 "appearance-v1",
                 "pair-requests-v1",
+                "phone-frames-v1",
                 BROWSER_STREAM,
                 BROWSER_VIDEO_TRACK
             ]

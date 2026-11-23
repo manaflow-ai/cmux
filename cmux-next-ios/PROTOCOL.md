@@ -951,6 +951,20 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   stopped reading this service on 2026-11-13 and reads it again since 2026-11-17 (the picture a frame's `chat` names) and since 2026-11-22
   for any frame's `wallpaper` while Match Mac theme is on, once per id (size and SHA-256
   checked, one kept).
+- `phone-frames` (`phone-frames-v1`, 2026-11-22): how smoothly the phone drew each terminal
+  scroll. The phone times every display frame of one pan of a terminal (the drag and its
+  fling) and, when the pan ends, sends one data frame per pan, then `eof`:
+  `{"v": 1, "kind": "tui" | "scrollback", "program"?, "app"?, "expected_ms", "intervals_ms":
+  [...], "rows"?, "bytes_in"?, "rtt_ms"?}` (`expected_ms` the display's nominal frame,
+  `intervals_ms` each frame interval, at most 1800; the load the pan ran under: `rows` the page
+  held when it began, `bytes_in` terminal output that arrived during it, `rtt_ms` the link's
+  last round trip). hostd (`phone_frames.rs`) summarizes it (frames, p50/p95/max ms, hitches:
+  intervals over 1.5 frames, frames dropped, hitch ms per second, and the load: `rows`,
+  `bytes_in`, `bytes_per_s`, `rtt_ms`) and appends one JSON line to
+  `phone-frames.jsonl` in its state folder (`~/Library/Application
+  Support/cmux-mobile-host/`, rotated at 1 MB with one previous file) and to its log. At most
+  16 pans of 64 KiB per channel; a line that does not parse is dropped. The phone sends
+  nothing to a Mac without the capability. Phones only.
 - `echo`: test service.
 - `version` (link protocol 2, added 2026-10-14): one data frame
   `{"hostd": "<version>", "link": 2}`, then `eof`. A host that refuses it
@@ -1041,6 +1055,7 @@ cmux-tui daemon's names hostd itself declares or checks. Printed from
 | `needs-you-v1` | hostd `version` | The host serves `needs-you`: the Mac app's own open Feed requests. |
 | `appearance-v1` | hostd `version` | (2026-11-12) The host serves `appearance` and `appearance-wallpaper`: the Mac's theme and wallpaper. |
 | `pair-requests-v1` | hostd `version` | The host serves `pair-requests`: a paired device answers a pairing request waiting on this Mac. |
+| `phone-frames-v1` | hostd `version` | The host serves `phone-frames`: the phone's terminal scroll frame times, logged to `phone-frames.jsonl` on the Mac. |
 | `browser-stream-v1` | hostd `version` | The host streams browser tabs (`browser`); listed only when the Mac has a browser host. |
 | `browser-video-track-v1` | hostd `version` | With `browser-stream-v1`: `browser {"video":"track"}` carries the page's video on the media lane (WebRTC, and WireGuard since 2026-10-14). |
 | `surface-stream-v1` | hostd `version` | (2026-10-22) The host streams the Mac's phone tabs' simulators (`surface`); listed only when the Mac app streams simulators. |

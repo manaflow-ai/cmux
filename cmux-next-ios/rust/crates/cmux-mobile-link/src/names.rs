@@ -40,6 +40,7 @@ pub const CLOUD_ACPMUX: &str = "cloud-acpmux-v1";
 pub const NEEDS_YOU: &str = "needs-you-v1";
 pub const APPEARANCE: &str = "appearance-v1";
 pub const PAIR_REQUESTS: &str = "pair-requests-v1";
+pub const PHONE_FRAMES: &str = "phone-frames-v1";
 pub const BROWSER_STREAM: &str = "browser-stream-v1";
 pub const BROWSER_VIDEO_TRACK: &str = "browser-video-track-v1";
 pub const SURFACE_STREAM: &str = "surface-stream-v1";
@@ -89,6 +90,10 @@ pub const ALL: &[Capability] = &[
     host(
         PAIR_REQUESTS,
         "The host serves `pair-requests`: a paired device answers a pairing request waiting on this Mac.",
+    ),
+    host(
+        PHONE_FRAMES,
+        "The host serves `phone-frames`: the phone's terminal scroll frame times, logged to `phone-frames.jsonl` on the Mac.",
     ),
     host(
         BROWSER_STREAM,
