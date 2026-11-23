@@ -29,21 +29,30 @@ extension TerminalSurfaceView {
         navigationInputs.contains { $0.usage == usage }
     }
 
+    /// Cmd-Left and Cmd-Right: line start and end (`TerminalInputRouter.lineEditing`).
+    private static let commandArrows: [(input: String, flags: UIKeyModifierFlags)] = [
+        (UIKeyCommand.inputLeftArrow, .command), (UIKeyCommand.inputRightArrow, .command),
+    ]
+
     /// The navigation key commands (none while an input method composes).
     func navigationKeyCommands() -> [UIKeyCommand]? {
         guard input.markedText == nil else { return nil }
-        return Self.navigationInputs.flatMap { entry in
-            Self.navigationModifierSets.map { flags in
-                let command = UIKeyCommand(input: entry.input, modifierFlags: flags, action: #selector(navigationKey(_:)))
-                command.wantsPriorityOverSystemBehavior = true
-                command.repeatBehavior = .repeatable
-                return command
-            }
+        let pairs = Self.navigationInputs.flatMap { entry in Self.navigationModifierSets.map { (entry.input, $0) } }
+            + Self.commandArrows.map { ($0.input, $0.flags) }
+        return pairs.map { input, flags in
+            let command = UIKeyCommand(input: input, modifierFlags: flags, action: #selector(navigationKey(_:)))
+            command.wantsPriorityOverSystemBehavior = true
+            command.repeatBehavior = .repeatable
+            return command
         }
     }
 
     @objc private func navigationKey(_ command: UIKeyCommand) {
         guard let usage = Self.navigationInputs.first(where: { $0.input == command.input })?.usage else { return }
+        if let actions = TerminalInputRouter.lineEditing(usage: usage, mods: TerminalKeyMods(command.modifierFlags)) {
+            perform(actions)
+            return
+        }
         var mods = TerminalKeyMods(command.modifierFlags)
         var sticky = input.sticky.consume()
         sticky.remove(.command)

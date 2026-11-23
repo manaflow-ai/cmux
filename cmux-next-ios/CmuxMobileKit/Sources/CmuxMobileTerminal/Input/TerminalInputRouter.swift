@@ -31,6 +31,9 @@ public struct TerminalInputRouter: Sendable {
     /// its modifiers, `unmodified` the text without any modifier.
     public mutating func pressBegan(usage: UInt16, mods: TerminalKeyMods, characters: String,
                                     unmodified: String) -> Press {
+        if markedText == nil, let chord = Self.lineEditing(usage: usage, mods: mods), let press = chord.first {
+            return .handled([press])
+        }
         // App commands (Command) and input methods come first.
         if markedText != nil || mods.contains(.command) { return .system }
         var mods = mods
@@ -69,6 +72,30 @@ public struct TerminalInputRouter: Sendable {
         }
         return TerminalKeyEvent(keyCode: TerminalHIDUsage.ghosttyKeyCode(usage), mods: mods, text: text,
                                 unshiftedCodepoint: special ? 0 : unshifted)
+    }
+
+    /// The Mac terminal's line and word editing on a hardware keyboard, as Ghostty's macOS
+    /// defaults send it: Cmd-Backspace ^U (`super+backspace=text:\x15`), Cmd-Left ^A and Cmd-Right ^E
+    /// (`super+left=text:\x01`, `super+right=text:\x05`), Option-Left ESC b and Option-Right ESC f
+    /// (`alt+left=esc:b`, `alt+right=esc:f`). Press and release; nil for any other key or modifiers.
+    public static func lineEditing(usage: UInt16, mods: TerminalKeyMods) -> [TerminalInputAction]? {
+        switch (mods, usage) {
+        case (.command, TerminalHIDUsage.backspace): letter("u", mods: .control)
+        case (.command, TerminalHIDUsage.left): letter("a", mods: .control)
+        case (.command, TerminalHIDUsage.right): letter("e", mods: .control)
+        case (.alternate, TerminalHIDUsage.left): letter("b", mods: .alternate)
+        case (.alternate, TerminalHIDUsage.right): letter("f", mods: .alternate)
+        default: nil
+        }
+    }
+
+    /// Press and release of `letter`'s key with exactly `mods` (Control: ^X; Alt: ESC x).
+    private static func letter(_ letter: Character, mods: TerminalKeyMods) -> [TerminalInputAction] {
+        let usage = TerminalHIDUsage.usage(forASCII: letter) ?? 0
+        let text = String(letter).lowercased()
+        let event = TerminalKeyEvent(keyCode: TerminalHIDUsage.ghosttyKeyCode(usage), mods: mods, text: text,
+                                     unshiftedCodepoint: text.unicodeScalars.first?.value ?? 0)
+        return [.key(event), .key(event.released)]
     }
 
     // MARK: Text system (software keyboard, dictation, printable hardware keys)
