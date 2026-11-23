@@ -744,6 +744,19 @@ fn link_frames(payload: u64) -> u64 {
     payload + LINK_HEADER * payload.div_ceil(LINK_MAX_PAYLOAD).max(1)
 }
 
+/// A WebSocket frame's header for a payload of `len` (`masked`: client to server).
+#[allow(dead_code)]
+fn ws_header(len: u64, masked: bool) -> u64 {
+    let base = if len < 126 {
+        2
+    } else if len <= 0xffff {
+        4
+    } else {
+        10
+    };
+    base + if masked { 4 } else { 0 }
+}
+
 /// The first `sessionUpdate` in `v`, a few levels down.
 fn session_update(v: &Value, depth: u8) -> Option<&str> {
     match v {

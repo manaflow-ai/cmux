@@ -857,6 +857,22 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "mg-1", "status": "completed"})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "opencode-task" runs a subagent as OpenCode 1.19 does: only as its `task` tool call, whose
+    # end names the child's own session and model (manaflow-ai/cmux#50203).
+    if text == "opencode-task":
+        call, child = "chatcmpl-tool-oc1", "ses_child_oc1"
+        task = {"description": "Reply PONG", "prompt": "Reply PONG.", "subagent_type": "general"}
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": call, "title": "task", "kind": "think",
+                     "status": "pending", "rawInput": {}, "locations": []})
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": call, "title": "task", "kind": "think",
+                     "status": "in_progress", "rawInput": task, "locations": []})
+        out = f'<task id="{child}" state="completed">\n<task_result>\nPONG\n</task_result>\n</task>'
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": call, "title": "Reply PONG", "kind": "think",
+                     "status": "completed", "content": [{"type": "content", "content": {"type": "text", "text": out}}],
+                     "rawOutput": {"output": out, "metadata": {"model": {"modelID": "big-pickle", "providerID": "opencode"},
+                                                               "parentSessionId": sid, "sessionId": child, "truncated": False}}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "child-gate: PATH" starts subagent child-1, whose tool call "Child build" runs while
     # the turn blocks on the FIFO at PATH; then the child's call and the turn end.
     if text.startswith("child-gate:"):
