@@ -286,7 +286,8 @@ fn a_folder_is_made_on_this_machine_for_a_move_here() {
     let base = tempfile::tempdir().unwrap();
     let want = base.path().join("teleport/eval");
     let made =
-        prepare_folder("", &Folder::Plain { cwd: want.to_string_lossy().into_owned() }).unwrap();
+        prepare_folder("", &Folder::Plain { cwd: want.to_string_lossy().into_owned() }, None)
+            .unwrap();
     assert_eq!(Path::new(&made), want.canonicalize().unwrap());
 }
 
@@ -371,12 +372,14 @@ async fn move_dry_run_reports_running_and_dirty_together_without_changing_the_ch
             all_idle: false,
             interrupt: false,
             after_turn: true,
+            turn_timeout: DEFAULT_TURN_TIMEOUT,
             leave_dirty: false,
             carry_changes,
             cwd: None,
             dry_run: true,
             resume_there: false,
             from: None,
+            from_snapshot: false,
         };
         let outcome = move_one(&client, "chat", &args, repo.path(), &mut targets).await;
         assert_eq!(outcome.error_code, expected);
@@ -474,4 +477,351 @@ async fn move_from_reads_placement_from_the_initiating_daemon() {
     local_server.await.unwrap();
     // Client owns a background reader; stop the fixture rather than wait for that task to close.
     remote_server.abort();
+}
+
+#[test]
+fn the_run_error_names_each_chat_that_did_not_move_and_why() {
+    let moved = Outcome::new("a1");
+    let mut refused = Outcome::new("claude-13");
+    refused.error = Some("a turn is running; the move takes it along".into());
+    let mut lost = Outcome::new("s-2");
+    lost.name = "optchat".into();
+    lost.error = Some("transfer.busy: the running turn did not stop".into());
+    assert_eq!(not_moved(&[moved]), None, "every chat moved");
+    let why = not_moved(&[Outcome::new("a1"), refused, lost]).unwrap();
+    assert!(why.starts_with("2 of 3 chats did not move: "), "{why}");
+    assert!(why.contains("claude-13 (claude-13): a turn is running"), "{why}");
+    assert!(why.contains("optchat (s-2): transfer.busy: the running turn did not stop"), "{why}");
+}
+
+/// Item C (a `--cwd --after-turn` move sat 12 minutes with no output): every wait prints a line
+/// at least every 5 s naming the chat and the step, and none while the step is quick.
+#[tokio::test(start_paused = true)]
+async fn a_wait_says_what_it_waits_for_every_five_seconds() {
+    let mut said = Vec::new();
+    let slow = tokio::time::sleep(std::time::Duration::from_secs(17));
+    let out = progress_every(
+        PROGRESS_EVERY,
+        async {
+            slow.await;
+            7
+        },
+        |secs| said.push(progress_line("Chat", "waiting for its running turn to end", secs)),
+    )
+    .await;
+    assert_eq!(out, 7);
+    assert_eq!(
+        said,
+        [5, 10, 15]
+            .map(|s| format!("move: Chat: waiting for its running turn to end ({s}s so far)"))
+    );
+    let mut quiet = 0;
+    progress_every(PROGRESS_EVERY, async {}, |_| quiet += 1).await;
+    assert_eq!(quiet, 0);
+}
+
+/// Item C: `--after-turn` waits at most `--timeout` (sent as `afterTurnTimeoutMs`, which the
+/// daemon bounds its own wait by), and the failure names the chat and the step, non-zero.
+#[cfg(unix)]
+#[tokio::test]
+async fn after_turn_waits_at_most_its_timeout_and_names_the_chat_and_step() {
+    use crate::rpc::{Message, RpcError};
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let socket_dir = tempfile::tempdir().unwrap();
+    let socket = socket_dir.path().join("daemon.sock");
+    let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let (rd, mut wr) = stream.into_split();
+        let mut lines = BufReader::new(rd).lines();
+        loop {
+            let line = lines.next_line().await.unwrap().unwrap();
+            let Message::Request { id, method: called, params, .. } =
+                Message::parse(&line).unwrap()
+            else {
+                panic!("expected a request");
+            };
+            if called == method::INITIALIZE {
+                wr.write_all(Message::ok(id, json!({})).to_line().as_bytes()).await.unwrap();
+                continue;
+            }
+            assert_eq!(called, "_acpmux/transfer_begin");
+            let params = params.unwrap_or_default();
+            assert_eq!(params["afterTurn"], true);
+            assert_eq!(params["afterTurnTimeoutMs"], 1000);
+            let e = RpcError::invalid_params(
+                "the running turn did not end within 1s; try again, or pass --interrupt",
+            );
+            wr.write_all(Message::err(id, e).to_line().as_bytes()).await.unwrap();
+            return;
+        }
+    });
+    let client = Client::connect(&socket).await.unwrap();
+    let args = MoveArgs {
+        sessions: vec!["chat".into()],
+        host: "target".into(),
+        all_idle: false,
+        interrupt: false,
+        after_turn: true,
+        turn_timeout: std::time::Duration::from_secs(1),
+        leave_dirty: false,
+        carry_changes: false,
+        cwd: Some("/srv/x".into()),
+        dry_run: false,
+        resume_there: false,
+        from: None,
+        from_snapshot: false,
+    };
+    let e = match begin_waiting(&client, "chat", "Chat", None, &args).await {
+        Ok(_) => panic!("a turn that outlasts --timeout must not move"),
+        Err(e) => format!("{e:#}"),
+    };
+    assert!(e.starts_with("Chat: step `wait for the running turn` gave up"), "{e}");
+    assert!(e.contains("within 1s (--timeout)"), "{e}");
+    server.await.unwrap();
+}
+
+/// Item C: `--timeout` parses, 600 s by default.
+#[test]
+fn move_timeout_defaults_to_ten_minutes() {
+    use crate::cli::command::{Cli, Command, flatten};
+    use clap::Parser as _;
+    let parse = |argv: &[&str]| match flatten(Cli::try_parse_from(argv).unwrap().command.unwrap()) {
+        Command::MoveSessions(a) => a.timeout,
+        _ => panic!("not a move"),
+    };
+    assert_eq!(parse(&["acpmux", "session", "move", "a", "--machine", "m", "--after-turn"]), 600);
+    assert_eq!(
+        parse(&[
+            "acpmux",
+            "session",
+            "move",
+            "a",
+            "--machine",
+            "m",
+            "--after-turn",
+            "--timeout",
+            "30"
+        ]),
+        30
+    );
+}
+
+/// Item B: a move from a checkout on `main` never pushes `main`. Its HEAD (with a commit origin
+/// does not have) goes under a move's own ref outside `refs/heads`, the target checks that
+/// commit out detached, and the ref is deleted after; origin's `main` and branch list are as
+/// they were.
+#[cfg(unix)]
+#[test]
+fn a_move_from_main_pushes_a_snapshot_ref_never_main_and_lands_detached() {
+    let git = |dir: &Path, args: &[&str]| {
+        let out = StdCommand::new("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "init.defaultBranch=main"])
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).trim().to_owned()
+    };
+    let base = tempfile::tempdir().unwrap();
+    let origin = base.path().join("origin.git");
+    std::fs::create_dir(&origin).unwrap();
+    git(&origin, &["init", "-q", "--bare"]);
+    let src = base.path().join("src");
+    git(base.path(), &["clone", "-q", origin.to_str().unwrap(), "src"]);
+    std::fs::write(src.join("a.txt"), "a").unwrap();
+    git(&src, &["add", "a.txt"]);
+    git(&src, &["commit", "-q", "-m", "a"]);
+    git(&src, &["push", "-q", "origin", "main"]);
+    git(&src, &["remote", "set-head", "origin", "main"]);
+    let main_before = git(&origin, &["rev-parse", "refs/heads/main"]);
+    // A commit only this checkout has, on main.
+    std::fs::write(src.join("b.txt"), "b").unwrap();
+    git(&src, &["add", "b.txt"]);
+    git(&src, &["commit", "-q", "-m", "b"]);
+    let head = git(&src, &["rev-parse", "HEAD"]);
+
+    let c = checkout_of(&src).unwrap().expect("a checkout");
+    assert_eq!(c.default_branch.as_deref(), Some("main"));
+    let home = Path::new("/nowhere");
+    let url = origin.to_string_lossy().into_owned();
+    let c = Checkout { origin: Some(url.clone()), ..c };
+    let folder = match plan::plan_folder(&src, home, Some(&c), "/h", false, None) {
+        // A local path is no GitHub remote: build the worktree folder the plan makes for one.
+        Ok(f @ Folder::Worktree { snapshot: true, .. }) => f,
+        _ => Folder::Worktree {
+            repo: "o/r".into(),
+            url: url.clone(),
+            branch: "main".into(),
+            subdir: String::new(),
+            dirty: false,
+            snapshot: plan::shared_branch("main", c.default_branch.as_deref()),
+        },
+    };
+    assert!(matches!(folder, Folder::Worktree { snapshot: true, .. }), "{folder:?}");
+
+    let dest = snapshot_ref();
+    assert!(dest.starts_with("refs/acpmux/moves/"), "{dest}");
+    // The push script refuses any other ref: never refs/heads/main through a snapshot.
+    let refused = run_here(PUSH_SCRIPT, format!("{}\nrefs/tags/x\n", src.display()).as_bytes());
+    assert!(!refused.unwrap().ok);
+    assert_eq!(push_branch(&src, &dest).unwrap(), head);
+    assert_eq!(git(&origin, &["rev-parse", "refs/heads/main"]), main_before, "main never pushed");
+    assert_eq!(git(&origin, &["rev-parse", &dest]), head);
+
+    // The target's side, with no `wt` on PATH: a clone of its own, at the commit, detached.
+    let target_home = base.path().join("target-home");
+    std::fs::create_dir(&target_home).unwrap();
+    let mut child = StdCommand::new("/bin/sh")
+        .arg("-c")
+        .arg(WORKTREE_SCRIPT)
+        .env("HOME", &target_home)
+        .env("PATH", "/usr/bin:/bin")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    {
+        use std::io::Write as _;
+        let input = format!("o/r\nmain\n{url}\n\n{dest}\n{head}\n");
+        child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
+    }
+    let out = child.wait_with_output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let there = PathBuf::from(String::from_utf8_lossy(&out.stdout).lines().last().unwrap().trim());
+    assert_eq!(git(&there, &["rev-parse", "HEAD"]), head);
+    let symbolic = StdCommand::new("git")
+        .arg("-C")
+        .arg(&there)
+        .args(["symbolic-ref", "-q", "HEAD"])
+        .status()
+        .unwrap();
+    assert!(!symbolic.success(), "the target's checkout is detached");
+    assert!(there.join("b.txt").exists());
+
+    drop_ref(&src, &dest);
+    assert!(git(&origin, &["for-each-ref", "refs/acpmux"]).is_empty(), "the move's ref is gone");
+    assert_eq!(
+        git(&origin, &["for-each-ref", "--format=%(refname)", "refs/heads"]),
+        "refs/heads/main"
+    );
+}
+
+#[test]
+fn origin_head_names_the_default_branch() {
+    assert_eq!(origin_head("origin/main").as_deref(), Some("main"));
+    assert_eq!(origin_head("origin/feat-cmux-next\n").as_deref(), Some("feat-cmux-next"));
+    assert_eq!(origin_head("").as_deref(), None);
+    let read = parse_checkout("top\t/w\nbranch\tmain\ndefault\torigin/main\n").unwrap().unwrap();
+    assert_eq!(read.default_branch.as_deref(), Some("main"));
+}
+
+/// Item A: `--machine auto` never moves a chat to a machine the registry marks a person's own
+/// (never a dependency: leo-apps, interactive), a last-resort host, or a reserved one; a peer
+/// whose only fault is a stale build is ranked, with the one command that refreshes it said.
+#[test]
+fn auto_never_picks_a_personal_last_resort_or_reserved_machine_and_ranks_a_stale_build() {
+    let until = "2999-01-01T00:00:00Z";
+    let reg = json!({
+        "machines": {
+            "own-box": {"roles": ["leo-apps"], "lanes": {"max_lanes": 6}},
+            "desk": {"interactive": true},
+            "spare": {"lanes": {"last_resort": true}},
+            "booked": {"lanes": {"max_lanes": 6}, "hold": {"reason": "reserved", "until": until}},
+            "lane": {"lanes": {"max_lanes": 6}},
+            "old": {"lanes": {"max_lanes": 6}}
+        }
+    });
+    for n in ["own-box", "desk"] {
+        let why = auto_refusal(n, true, Some(&reg)).expect(n);
+        assert!(why.contains("never a dependency"), "{n}: {why}");
+    }
+    assert!(auto_refusal("spare", true, Some(&reg)).unwrap().contains("lanes.last_resort"));
+    assert!(auto_refusal("booked", true, Some(&reg)).is_some(), "a reserved machine");
+    assert_eq!(auto_refusal("lane", true, Some(&reg)), None);
+    assert!(auto_refusal("lane", false, Some(&reg)).unwrap().contains("not an ssh peer"));
+
+    let hosts = vec![
+        host("own-box", true, false, 9.0, 0),
+        host("old", true, false, 5.0, 0),
+        host("lane", true, false, 2.0, 0),
+        host("spare", true, false, 8.0, 0),
+    ];
+    let mut hosts = hosts;
+    hosts[1]["outdated"] = json!(true);
+    hosts[1]["refresh"] = json!("acpmux machine update old");
+    let (order, skipped) = ranked(&hosts, &HashMap::new(), |n| auto_refusal(n, true, Some(&reg)));
+    assert_eq!(order, ["old", "lane"], "{skipped:?}");
+    let passed: Vec<&str> = skipped.iter().map(|(n, _)| n.as_str()).collect();
+    assert_eq!(passed, ["own-box", "spare"]);
+    let lines = outdated_lines(&hosts, &order);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(lines[0].starts_with("auto: old runs another acpmux build"), "{}", lines[0]);
+    assert!(lines[0].ends_with("refresh it with `acpmux machine update old`"), "{}", lines[0]);
+}
+
+/// Item D: a move ends only once this machine lists the moved chat reachable on its new
+/// machine; a last-known copy, or a row whose peer is reconnecting, is not yet. Past the bound
+/// it says why instead of waiting on.
+#[tokio::test(start_paused = true)]
+async fn a_move_ends_once_the_chat_is_listed_reachable_where_it_went() {
+    use crate::rpc::Message;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let row = |stale: bool, state: &str| {
+        json!({"rows": [
+            {"sessionId": "s1", "status": "closed", "movedTo": {"host": "t"}},
+            {"sessionId": "s1", "peer": "t", "stale": stale, "peerState": state},
+        ]})
+    };
+    let replies = vec![
+        json!({"rows": []}),
+        row(true, "reconnecting"),
+        row(false, "reconnecting"),
+        row(false, "connected"),
+    ];
+    let socket_dir = tempfile::tempdir().unwrap();
+    let socket = socket_dir.path().join("daemon.sock");
+    let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let (rd, mut wr) = stream.into_split();
+        let mut lines = BufReader::new(rd).lines();
+        let mut asked = 0;
+        while let Ok(Some(line)) = lines.next_line().await {
+            let Message::Request { id, method: called, params, .. } =
+                Message::parse(&line).unwrap()
+            else {
+                panic!("expected a request");
+            };
+            if called == method::INITIALIZE {
+                wr.write_all(Message::ok(id, json!({})).to_line().as_bytes()).await.unwrap();
+                continue;
+            }
+            assert_eq!(called, method::MUX_INFO);
+            assert_eq!(params.unwrap_or_default()["sessionIds"], json!(["s1"]));
+            let reply = replies.get(asked).cloned().unwrap_or_else(|| row(false, "reconnecting"));
+            asked += 1;
+            wr.write_all(Message::ok(id, reply).to_line().as_bytes()).await.unwrap();
+        }
+        asked
+    });
+    let client = Client::connect(&socket).await.unwrap();
+    let poll = std::time::Duration::from_millis(250);
+    let bound = std::time::Duration::from_secs(20);
+    await_arrival(&client, "s1", bound, poll).await.unwrap();
+    // A link that stays down: the wait ends at its bound and says why.
+    let why =
+        await_arrival(&client, "s1", std::time::Duration::from_secs(1), poll).await.unwrap_err();
+    assert_eq!(why, "peer reconnecting");
+    drop(client);
+    let asked = server.await.unwrap();
+    assert!((4 + 4..=4 + 5).contains(&asked), "asked {asked} times");
+
+    assert_eq!(arrived(&json!({"rows": []})), Err("not listed here yet".to_owned()));
+    let stale = arrived(&row(true, "reconnecting")).unwrap_err();
+    assert!(stale.contains("last-known copy"), "{stale}");
+    assert_eq!(arrived(&row(false, "degraded")), Ok(()));
 }
