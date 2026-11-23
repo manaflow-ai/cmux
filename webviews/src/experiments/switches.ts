@@ -37,8 +37,9 @@ function subscribe(listener: () => void) {
 }
 
 /// Whether switch `name` is on; re-renders when the person flips it.
+/// A server render (the transcript's row renders, tests) reads the same value: without that snapshot
+/// React throws, and a component under every tool call (ToolWidget) took the row down with it.
 export function useExperimentSwitch(name: string): boolean {
   const on = () => current[name] === true;
-  // The same value on a server render: the transcript renders rows to strings (renderToString).
   return useSyncExternalStore(subscribe, on, on);
 }

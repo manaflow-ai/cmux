@@ -4284,6 +4284,20 @@ function TranscriptView({
       // card leaves (`floor`) can make the content taller again in this same commit.
       const live = node.scrollTop;
       const previousOrigin = scrollOrigin(node);
+      // Whether `liveTop` is where anchoring `handledTop` to the row at the view's top puts it, within the
+      // pixel the scroller rounds to.
+      const browserAnchored = (handledTop: number, liveTop: number) => {
+        const anchored = preserveScrollAnchorTop({
+          oldLayout: old,
+          newLayout: layout,
+          oldRows,
+          newRows: rows,
+          liveTop: handledTop,
+          anchorTop: handledTop,
+          folds: foldRide.current?.handedFolds(oldRows, drawnRef.current),
+        });
+        return anchored !== undefined && Math.abs(anchored - handledTop) > 0.5 && Math.abs(anchored - liveTop) <= 1;
+      };
       // The scroller as it is now, not as last measured: a chat shown again after its workspace was
       // away (hidden, parked) draws what landed meanwhile in the first frame back, before its
       // ResizeObserver reports a size that changed while it was away (the window or the sidebar
@@ -4337,11 +4351,15 @@ function TranscriptView({
       // fling's frame). Anchored from the handled offset instead, a pass that measured rows in between
       // put the view back where the step began: the row on screen stood still for a frame while the
       // offset went on, then leapt (transcript-scroll-up MODE=drag, a whole step every other frame).
+      // Not the browser's own adjustment for rows above that changed height (WebKit applies it before
+      // the scroll event): that offset is exactly where anchoring the handled one lands, and taken as the
+      // reader's base it moved the view by the change twice (transcript-jump-latest, the parked reader).
       const unhandledMove =
         !followingRef.current &&
         !unmeasured &&
         Math.abs(scrolledTo.current.top - live) > 0.5 &&
-        Math.abs(scrollRef.current.top - live) > 0.5;
+        Math.abs(scrollRef.current.top - live) > 0.5 &&
+        !browserAnchored(scrolledTo.current.top - previousOrigin, live - previousOrigin);
       const readerLeft =
         !clamped &&
         (unseenReaderMove ||
