@@ -25,6 +25,13 @@ import Security
 /// the old copy keeps its open files. A copy that cannot be made or verified is never launched.
 /// Paths are never followed through a symlink: the folders must be this user's own real
 /// directories.
+///
+/// One identity per channel: every DEV build's helper is `com.cmuxterm.app.debug.screen-sharing`
+/// (bundle-screen-sharing-helper.sh), and a NIGHTLY side build's carries NIGHTLY's, so the folder is
+/// named by the source helper's own bundle id, never the app's. Copies of the old per-app layout
+/// (`cmux-next/screen-sharing/<16 hex>/`, one per build, never removed) and of per-tag DEV helper
+/// ids are removed when no process runs from them, and a per-tag DEV id's privacy rows are reset
+/// (`tccutil reset All <id>`), so System Settings keeps one row per channel.
 nonisolated struct SignedHelperStaging: Sendable {
     /// What decides that a copy is the same helper as its source.
     struct Stamp: Equatable, Sendable {
@@ -40,11 +47,15 @@ nonisolated struct SignedHelperStaging: Sendable {
         var stamp: @Sendable (URL) -> Stamp?
         /// Whether `copy` passes the signature check that `source` passed.
         var verify: @Sendable (_ copy: URL, _ source: URL) -> Bool
+        /// Drops every privacy row of a helper bundle id no build uses any more (System Settings
+        /// lists one row per id).
+        var forget: @Sendable (_ bundleID: String) async -> Void = { _ in }
 
         /// Copies with ditto, and checks a copy against its source's own designated requirement.
         static let system = Operations(copy: { await SignedHelperStaging.ditto($0, $1) },
                                        stamp: { SignedHelperStaging.readStamp($0) },
-                                       verify: { copy, source in SignedHelperStaging.satisfiesDesignatedRequirement(copy, of: source) })
+                                       verify: { copy, source in SignedHelperStaging.satisfiesDesignatedRequirement(copy, of: source) },
+                                       forget: { await SignedHelperStaging.tccReset($0) })
     }
 
     /// Filesystem seams for rename races, path checks and cleanup.
@@ -74,6 +85,8 @@ nonisolated struct SignedHelperStaging: Sendable {
             defer { free(path) }
             return String(cString: path)
         }
+        /// The executable paths of this Mac's processes, read before another build's copy is removed.
+        var runningExecutables: @Sendable () -> [String] = { SignedHelperStaging.processExecutables() }
     }
 
     /// The private folder that holds the copy (one per helper bundle id, the same for every build).
@@ -84,6 +97,7 @@ nonisolated struct SignedHelperStaging: Sendable {
     /// The folder every copy of this kind lives under (`folder` must be inside it).
     let root: URL
     /// The folder builds before the fixed path kept this app's copy in, removed once (nil: none).
+    /// Its siblings, the other builds' folders of that layout, go too when nothing runs from them.
     let legacy: URL?
 
     init(folder: URL, home: URL, root: URL, legacy: URL? = nil, operations: Operations = .system, fileSystem: FileSystem = .init()) {
@@ -101,18 +115,43 @@ nonisolated struct SignedHelperStaging: Sendable {
     /// How long a stager waits for another one's lock.
     static let lockBudget: TimeInterval = 120
 
+    /// Every DEV build's helper bundle id, whatever its tag (bundle-screen-sharing-helper.sh).
+    static let devHelperBundleID = "com.cmuxterm.app.debug.screen-sharing"
+
+    /// The helper bundle id of the channel app `bundleID` belongs to: one for every DEV build
+    /// (`com.cmuxterm.app.debug[.<tag>]`), else the app's id plus `.screen-sharing`.
+    static func channelHelperBundleID(forApp bundleID: String) -> String {
+        if bundleID == "com.cmuxterm.app.debug" || bundleID.hasPrefix("com.cmuxterm.app.debug.") { return devHelperBundleID }
+        return "\(bundleID).screen-sharing"
+    }
+
+    /// A DEV helper id named per tag (`com.cmuxterm.app.debug.<tag>.screen-sharing`), from builds
+    /// before the one DEV identity: no build makes one any more.
+    static func isPerTagDevHelperBundleID(_ id: String) -> Bool {
+        id != devHelperBundleID && id.hasPrefix("com.cmuxterm.app.debug.") && id.hasSuffix(".screen-sharing")
+    }
+
+    /// A bundle id safe to name a folder or pass to a tool: plain reverse-DNS, no slash, no dot-dot.
+    static func isPlainBundleID(_ id: String) -> Bool {
+        !id.isEmpty && !id.contains("..") && !id.hasPrefix(".") && !id.hasSuffix(".")
+            && id.utf8.allSatisfy { (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 46 || $0 == 45 }
+    }
+
     /// The Screen Sharing helper's copy (plans/cmux-next/screen-sharing-helper.md):
-    /// `~/Library/Application Support/cmux-next/helper/<bundleID>.screen-sharing/<its name>`
-    /// (NEXT's own folder, ``NextSupport``; the helper's bundle id is the app's plus
-    /// `.screen-sharing`), checked against the source's own designated requirement. The folder
-    /// builds before kept it in, `cmux-next/screen-sharing/<scope>`, is removed.
+    /// `~/Library/Application Support/cmux-next/helper/<helper bundle id>/<its name>` (NEXT's own
+    /// folder, ``NextSupport``), checked against the source's own designated requirement.
+    /// `helperBundleID` is the bundled helper's own id (a NIGHTLY side build carries NIGHTLY's);
+    /// without one, the channel's (``channelHelperBundleID(forApp:)``). The folder builds before
+    /// kept it in, `cmux-next/screen-sharing/<scope>`, is removed, and so are other builds' ones.
     static func screenSharing(bundleID: String = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
+                              helperBundleID: String? = nil,
                               home: URL = FileManager.default.homeDirectoryForCurrentUser) -> SignedHelperStaging {
         let support = NextSupport(applicationSupport: home.appending(path: "Library/Application Support", directoryHint: .isDirectory))
         let root = support.folder.appending(path: "helper", directoryHint: .isDirectory)
         let legacy = support.folder.appending(path: "screen-sharing", directoryHint: .isDirectory)
             .appending(path: NextSupport.computerUseScope(bundleID), directoryHint: .isDirectory)
-        return SignedHelperStaging(folder: root.appending(path: "\(bundleID).screen-sharing", directoryHint: .isDirectory),
+        let id = helperBundleID.flatMap { isPlainBundleID($0) ? $0 : nil } ?? channelHelperBundleID(forApp: bundleID)
+        return SignedHelperStaging(folder: root.appending(path: id, directoryHint: .isDirectory),
                                    home: home, root: root, legacy: legacy)
     }
 
@@ -140,6 +179,7 @@ nonisolated struct SignedHelperStaging: Sendable {
         }
         sweepStaleFolders()
         removeLegacyFolder(logger: logger)
+        await removeOtherBuildsCopies(logger: logger)
         guard let wanted = operations.stamp(source) else {
             logger.error("helper copy: cannot read the signature of \(source.path, privacy: .public)")
             return nil
@@ -252,6 +292,60 @@ nonisolated struct SignedHelperStaging: Sendable {
         }
     }
 
+    /// Removes the copies other builds left that no process runs from: ``legacy``'s sibling
+    /// `<16 hex>` folders (the old layout made one per build and never removed it) and per-tag DEV
+    /// helper folders beside ``folder``. Each per-tag DEV helper id it removed a copy of gets its
+    /// privacy rows reset, so System Settings stops listing a row per build. Only `*.app` and
+    /// `.staging-*` directories of this user are removed; a folder that holds anything else keeps
+    /// it, and stays.
+    private func removeOtherBuildsCopies(logger: Logger) async {
+        var folders: [URL] = []
+        if let legacy {
+            let layout = legacy.deletingLastPathComponent()
+            let names = (try? FileManager.checked.contentsOfDirectory(atPath: layout.path)) ?? []
+            folders += names.sorted().filter(Self.isLegacyScopeName).map { layout.appending(path: $0, directoryHint: .isDirectory) }
+        }
+        let siblings = (try? FileManager.checked.contentsOfDirectory(atPath: root.path)) ?? []
+        folders += siblings.sorted().filter { $0 != folder.lastPathComponent && Self.isPerTagDevHelperBundleID($0) }
+            .map { root.appending(path: $0, directoryHint: .isDirectory) }
+        let candidates = folders.filter { Self.isRealDirectory($0.path) }
+        guard !candidates.isEmpty else { return }
+        let running = fileSystem.runningExecutables()
+        var forgotten = Set<String>()
+        for directory in candidates {
+            guard let entries = try? FileManager.checked.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else { continue }
+            for entry in entries where entry.pathExtension == "app" || entry.lastPathComponent.hasPrefix(".staging-") {
+                guard Self.isRealDirectory(entry.path) else { continue }
+                let prefix = entry.path + "/"
+                if running.contains(where: { $0.hasPrefix(prefix) }) { continue }
+                let id = Self.bundleIdentifier(entry)
+                guard (try? FileManager.checked.removeItem(at: entry)) != nil else { continue }
+                logger.notice("helper copy: removed another build's copy \(entry.path, privacy: .public)")
+                if let id, id != folder.lastPathComponent, Self.isPerTagDevHelperBundleID(id), forgotten.insert(id).inserted {
+                    await operations.forget(id)
+                    logger.notice("helper copy: reset the privacy rows of \(id, privacy: .public)")
+                }
+            }
+            // rmdir fails, and so keeps, a folder that still holds anything (its lock, a note).
+            for leftover in [".lock", ".verified"] {
+                _ = unlink(directory.appending(path: leftover, directoryHint: .notDirectory).path)
+            }
+            _ = rmdir(directory.path)
+        }
+    }
+
+    /// A folder name of the old per-app layout: ``NextSupport/computerUseScope(_:)``'s 16 hex.
+    static func isLegacyScopeName(_ name: String) -> Bool {
+        name.utf8.count == 16 && name.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
+    }
+
+    /// A bundle's CFBundleIdentifier, read from its Info.plist; nil when unreadable.
+    static func bundleIdentifier(_ bundle: URL) -> String? {
+        guard let data = try? Data(blockingContentsOf: bundle.appending(path: "Contents/Info.plist")),
+              let plist = (try? PropertyListSerialization.propertyList(from: data, format: nil)) as? [String: Any] else { return nil }
+        return plist["CFBundleIdentifier"] as? String
+    }
+
     /// Checks each parent before creating a child. Existing modes are never
     /// repaired: a folder with group write (umask 002 makes 0775) is refused
     /// too, since the group is `staff`, which holds every local user, so
@@ -294,6 +388,30 @@ nonisolated struct SignedHelperStaging: Sendable {
     }
 
     // MARK: The system operations
+
+    /// `/usr/bin/tccutil reset All <bundleID>`: drops the id's privacy rows (no admin needed).
+    static func tccReset(_ bundleID: String) async {
+        guard isPlainBundleID(bundleID) else { return }
+        let request = ProcessRequest(URL(fileURLWithPath: "/usr/bin/tccutil"), ["reset", "All", bundleID],
+                                     environment: ["PATH": "/usr/bin:/bin"], timeout: .seconds(10))
+        _ = try? await AsyncProcess().run(request)
+    }
+
+    /// Every process's executable path (`proc_listallpids`, `proc_pidpath`); empty when unreadable.
+    static func processExecutables() -> [String] {
+        let estimate = proc_listallpids(nil, 0)
+        guard estimate > 0 else { return [] }
+        var pids = [pid_t](repeating: 0, count: Int(estimate) + 64)
+        let count = pids.withUnsafeMutableBytes { proc_listallpids($0.baseAddress, Int32(clamping: $0.count)) }
+        guard count > 0 else { return [] }
+        var buffer = [CChar](repeating: 0, count: Int(clamping: MAXPATHLEN) * 4)
+        return pids.prefix(Int(count)).compactMap { pid in
+            guard pid > 0 else { return nil }
+            let length = proc_pidpath(pid, &buffer, UInt32(clamping: buffer.count))
+            guard length > 0 else { return nil }
+            return String(decoding: buffer.prefix(Int(clamping: length)).map { UInt8(bitPattern: $0) }, as: UTF8.self)
+        }
+    }
 
     /// `/usr/bin/ditto --noqtn`: a bundle copy that keeps the signature and drops quarantine.
     static func ditto(_ source: URL, _ destination: URL) async -> Bool {

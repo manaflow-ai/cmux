@@ -132,4 +132,14 @@ run --stamp "$app"
 [[ $rc == 0 && "$out" == *"carries no Screen Sharing helper"* && -d "$library/Other Helper.app" ]] \
   || fail "--stamp treated another app's Helper.app as the helper" "$out"
 
+# 9. Every DEV build, whatever its tag, carries the one DEV helper id: one System Settings row, one copy.
+rm -rf "$library"/* "$build/tmp/bundle-screen-sharing-helper.stamp"
+for dev_id in com.cmuxterm.app.debug.my-tag com.cmuxterm.app.debug.other.tag com.cmuxterm.app.debug; do
+  write_info "$NAME" "$dev_id"
+  ID="$dev_id" run
+  expect_one_helper "Xcode phase of $dev_id" "$NAME" com.cmuxterm.app.debug.screen-sharing
+  run --stamp "$app"
+  expect_one_helper "--stamp of $dev_id" "$NAME" com.cmuxterm.app.debug.screen-sharing
+done
+
 echo "PASS: bundle-screen-sharing-helper.sh reruns over the same app"
