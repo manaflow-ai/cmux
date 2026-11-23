@@ -116,8 +116,12 @@ def resolve_ref(ref: str) -> tuple[str, int | None]:
 def pick_dev_golden(sha: str) -> dict:
     """The nearest published DEV build at or behind SHA's merge base with feat-cmux-next."""
     anchor = hv.golden_anchor(ROOT, sha)
-    notes: list[str] = []
-    builds = [b for b in hv.golden_candidates(ROOT, anchor, None, notes) if b["kind"] in DEV_KINDS]
+    for attempt in range(5):  # a feed that did not answer once (a slow CDN edge) answers the next try
+        notes: list[str] = []
+        builds = [b for b in hv.golden_candidates(ROOT, anchor, None, notes) if b["kind"] in DEV_KINDS]
+        if builds:
+            break
+        time.sleep(20 * (attempt + 1))
     if not builds:
         raise SystemExit(f"no published DEV build at or behind {anchor[:12]}: {notes}")
     build = builds[0]
@@ -446,8 +450,11 @@ def seed(copy: Copy, files: list[Path], scratch: Path) -> dict:
         raise SystemExit(f"_acpmux/import: {json.dumps(imported)[:300]}")
     for n in range(SIDEBAR_ROWS):
         copy.cli("workspace", "create", "--name", f"settled-{n + 1}")
-    opened = rpc(copy.socket, "action.run", {"action": "agent.openSessionWorkspace", "session": new_id,
-                                             "name": "settled long chat"}, timeout=90)
+    named = {"session": new_id, "name": "settled long chat"}
+    opened = rpc(copy.socket, "action.run", {"action": "agent.openSessionWorkspace", "arguments": named, **named},
+                 timeout=90)
+    if not isinstance(opened, dict) or "error" in opened:
+        opened = copy.cli("agent", "open", new_id)
     say(f"seeded {len(records)} records as {new_id}: {json.dumps(opened)[:200]}")
     return {"session": new_id, "records": len(records), "opened": opened}
 
