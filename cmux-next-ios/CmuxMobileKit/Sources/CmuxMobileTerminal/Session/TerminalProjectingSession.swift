@@ -51,6 +51,10 @@ public final class TerminalProjectingSession: TerminalSession {
     private var resetPending = false
     private let log = Logger(subsystem: "dev.cmux.mobile", category: "terminal-sizing")
 
+    /// How long a full-screen app's claim may take to bring the phone's grid
+    /// before the Mac's grid shows (tests shorten it).
+    public var reclaimWait: Duration = TerminalReclaimHold.reclaimWait
+
     /// Size claims this session made on the Mac (for the sizing harness).
     public private(set) var macClaimsMade = 0
 
