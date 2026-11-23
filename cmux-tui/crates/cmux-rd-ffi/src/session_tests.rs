@@ -225,6 +225,46 @@ fn stream_carrier_routes_frames_and_queues_other_messages() {
     assert_eq!(push(&s, &frames(0, 1, 10)[0], 0), CMUX_RD_ERR_CARRIER);
 }
 
+/// An ultra capacity probe is padding the host times: its arrival rides the stream's
+/// media feedback (transport seq + arrival time), and it is never handed to the app as
+/// a message. Before probes were reported, the host's probe planner never got a sample
+/// and an ultra session held its start rate.
+#[test]
+fn probe_arrivals_ride_the_streams_feedback_and_are_not_messages() {
+    let s = session(CMUX_RD_CARRIER_DATAGRAM);
+    let probe_on = |stream: u16, seq: u16| {
+        let mut d = Vec::new();
+        DatagramHeader {
+            flags: 0,
+            kind: DatagramKind::Probe,
+            stream,
+            frame: 0,
+            index: seq,
+            count: 4,
+            fec_count: 0,
+            transport_seq: seq,
+        }
+        .encode_into(&mut d);
+        d.resize(1_200, 0);
+        d
+    };
+    for (i, seq) in [40u16, 41, 42, 43].into_iter().enumerate() {
+        assert!(push(&s, &probe_on(0, seq), 1_000 + i as u64 * 100) >= 0);
+    }
+    // A probe for a stream the viewer never opened is dropped, not an error.
+    assert_eq!(push(&s, &probe_on(9, 44), 1_500), CMUX_RD_OK);
+    let mut m = CmuxRdMessage { data: std::ptr::null(), len: 0, kind: 0 };
+    // SAFETY: live session, writable out.
+    assert_eq!(unsafe { cmux_rd_session_pop_message(s.0, &mut m) }, 0, "no probe message");
+    let fb = feedbacks(&s, 2_000, false);
+    let arrivals: Vec<(u16, u32)> = fb
+        .iter()
+        .filter(|f| f.0 == 0)
+        .flat_map(|f| f.1.arrivals.iter().map(|a| (a.transport_seq, a.arrival_us)))
+        .collect();
+    assert_eq!(arrivals, vec![(40, 1_000), (41, 1_100), (42, 1_200), (43, 1_300)]);
+}
+
 #[test]
 fn closing_a_stream_drops_its_frames_and_its_timer() {
     let s = session(CMUX_RD_CARRIER_DATAGRAM);
@@ -359,4 +399,59 @@ fn bulk_frames_on_the_stream_carrier_are_queued_as_bulk_messages() {
     };
     assert_eq!(rc, CMUX_RD_OK);
     assert_eq!(&out[..len], &bytes[..]);
+}
+
+/// The stage ledger (D8) through the C ABI: host times from a `FrameTimes`
+/// datagram, release from reassembly, decode and present from the caller's
+/// notes; the summary is one JSON object on the host clock.
+#[test]
+fn the_stage_ledger_joins_host_times_with_decode_and_present_notes() {
+    use cmux_rd_proto::FrameTimes;
+    let s = session(CMUX_RD_CARRIER_DATAGRAM);
+    for d in frames(0, 1, 3_000) {
+        assert!(push(&s, &d, 10_000) >= 0);
+    }
+    let times = FrameTimes {
+        display_us: 1_000,
+        encode_start_us: 3_000,
+        encoded_us: 6_000,
+        first_sent_us: 6_100,
+        last_sent_us: 9_000,
+    };
+    assert!(push(&s, &times.datagram(0, 1), 10_100) >= 0);
+    assert_eq!(pop_all(&s).len(), 1);
+    // SAFETY: live session.
+    unsafe {
+        assert_eq!(cmux_rd_session_note_frame_decoded(s.0, 0, 1, 2_000, 12_000), CMUX_RD_OK);
+        assert_eq!(cmux_rd_session_note_frame_presented(s.0, 0, 1, 20_000), CMUX_RD_OK);
+        assert_eq!(cmux_rd_session_note_frame_presented(s.0, 9, 1, 20_000), CMUX_RD_ERR_STREAM);
+    }
+    let mut len = 0usize;
+    // SAFETY: live session; a zero-capacity buffer only reports the size.
+    assert_eq!(
+        unsafe { cmux_rd_session_stage_ledger(s.0, std::ptr::null_mut(), 0, &mut len) },
+        CMUX_RD_ERR_BUFFER
+    );
+    let mut buf = vec![0u8; len];
+    // SAFETY: live session, writable buffer of `len` bytes.
+    assert_eq!(
+        unsafe { cmux_rd_session_stage_ledger(s.0, buf.as_mut_ptr(), buf.len(), &mut len) },
+        CMUX_RD_OK
+    );
+    let v: serde_json::Value = serde_json::from_slice(&buf[..len]).expect("json");
+    assert_eq!(v["schema"], "cmux.rd-stage-ledger/1");
+    assert_eq!(v["frames_with_host_times"], 1);
+    let p50 = |name: &str| {
+        v["stages"].as_array().expect("stages").iter().find(|r| r["stage"] == name).expect(name)
+            ["p50_ms"]
+            .clone()
+    };
+    assert_eq!(p50("Capture"), 2.0);
+    assert_eq!(p50("Encode"), 3.0);
+    assert_eq!(p50("Send"), 3.0);
+    assert_eq!(p50("Decode"), 2.0);
+    assert_eq!(p50("Present"), 8.0);
+    // No clock estimate yet: Network and Total cross the clocks, so they say why they are empty.
+    assert!(p50("Network").is_null());
+    assert!(p50("Total").is_null());
 }

@@ -284,11 +284,11 @@ function sentMethods(files: { path: string; text: string }[]): Sent[] {
   return sent;
 }
 
-/// The page's own direct actions (App.tsx `window.cmuxAcpmuxActions = {...}` and `[name] =`): a wrapper
+/// The page's own direct actions (pane/paneSnapshot.ts `window.cmuxAcpmuxActions = {...}` and `[name] =`): a wrapper
 /// that tries them first never reaches the app for these.
 function directActions(text: string): Set<string> {
   const names = new Set<string>();
-  walk(parse("App.tsx", text), (node) => {
+  walk(parse("paneSnapshot.ts", text), (node) => {
     if (!ts.isBinaryExpression(node) || node.operatorToken.kind !== ts.SyntaxKind.EqualsToken) return;
     const left = node.left;
     if (
@@ -377,7 +377,9 @@ function refusal(sent: Sent, direct: Set<string>): string | null {
 
 describe("agent bridge contract (schemas/agent-bridge/contract.json)", () => {
   const pane = readTree(join(repo, "webviews/src/agent-session"));
-  const direct = directActions(readFileSync(join(repo, "webviews/src/agent-session/acpmux/App.tsx"), "utf8"));
+  const direct = directActions(
+    readFileSync(join(repo, "webviews/src/agent-session/acpmux/pane/paneSnapshot.ts"), "utf8"),
+  );
 
   test("every method the page sends is one the app serves", () => {
     const sent = sentMethods(pane);
