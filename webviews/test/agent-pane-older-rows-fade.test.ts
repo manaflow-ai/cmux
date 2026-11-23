@@ -366,7 +366,12 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
     expect(await olderFades(page)).toEqual([]);
     // How long before each late row mounted the reader's last wheel was, and whether it took the fade class.
     await page.evaluate((openedFrom) => {
-      const scope = window as unknown as { __lastWheel: number; __lateGaps: number[]; __lateOlder: number };
+      const scope = window as unknown as {
+        __lastWheel: number;
+        __lateGaps: number[];
+        __lateOlder: number;
+        __keepWheeling: number;
+      };
       scope.__lastWheel = -Infinity;
       scope.__lateGaps = [];
       scope.__lateOlder = 0;
@@ -392,6 +397,13 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
           for (const node of record.addedNodes) check(node);
         }
       }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["class"] });
+      // The page wheels on its own every 40ms too, so a loaded runner's slow round trips to the driver
+      // (one was 295ms in CI) never let the reader settle between the driver's wheels.
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      scope.__keepWheeling = window.setInterval(
+        () => scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -600, bubbles: true, cancelable: true })),
+        40,
+      );
     }, openedFrom);
     // The daemon is slow: the reader wheels up to the top of the loaded rows and keeps wheeling there
     // (every 40ms, well inside the 250ms a scroll takes to settle) while the next page lands.
@@ -406,6 +418,7 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
         await page.waitForTimeout(40);
         landed = await page.evaluate(() => (window as unknown as { __lateGaps: number[] }).__lateGaps.length > 0);
       }
+      await page.evaluate(() => clearInterval((window as unknown as { __keepWheeling: number }).__keepWheeling));
       await settle(page);
       await animationsDone(page);
     } finally {
