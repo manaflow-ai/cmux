@@ -386,6 +386,109 @@
   "read"
  ],
  "cli": {
+  "agent-forum": {
+   "exact": [
+    "ask",
+    "topic",
+    "sync"
+   ]
+  },
+  "agent-memory": {
+   "aliases": [
+    {
+     "from": [
+      "recall"
+     ],
+     "to": [
+      "search"
+     ]
+    }
+   ],
+   "exact": [
+    "forget"
+   ]
+  },
+  "asks_reconciler.py": {
+   "aliases": [
+    {
+     "from": [
+      "show"
+     ],
+     "to": [
+      "trace"
+     ]
+    },
+    {
+     "from": [
+      "get"
+     ],
+     "to": [
+      "trace"
+     ]
+    }
+   ],
+   "exact": [
+    "done",
+    "owner",
+    "reopen",
+    "receipt",
+    "reason",
+    "install"
+   ]
+  },
+  "fleet-state": {
+   "exact": [
+    "drop",
+    "forget"
+   ]
+  },
+  "leo-asks": {
+   "exact": [
+    "done",
+    "answer",
+    "resolve"
+   ]
+  },
+  "pr-owner": {
+   "exact": [
+    "claim",
+    "tidy",
+    "install-hook"
+   ]
+  },
+  "pr_owner.py": {
+   "exact": [
+    "claim",
+    "tidy",
+    "install-hook"
+   ]
+  },
+  "slack-listen": {
+   "exact": [
+    "install",
+    "run",
+    "pull"
+   ]
+  },
+  "tbd-leo": {
+   "exact": [
+    "answer",
+    "drop"
+   ]
+  },
+  "wt": {
+   "exact": [
+    "slim",
+    "narrow",
+    "consolidate",
+    "repair",
+    "heal-others",
+    "adopt",
+    "adopt-worktree",
+    "install"
+   ],
+   "own_aliases": true
+  },
   "acpmux": {
    "exact": [
     "dispatch",

@@ -18,6 +18,8 @@
   "sess": {"subs": {"new": {"flags": {"--takes-from": "value", "--reason": "value", "--name,-n": "value"}, "required": ["--name"]}, "list": {"flags": {"--json": "switch"}}, "rotate": {"args": ["name"], "flags": {"--yes": "switch"}}}},
   "owner": {"flags": {"--repo": "value"}, "subs": {"who": {"args": [{"name": "pr", "int": true}], "flags": {"--json": "switch"}}, "claim": {"args": [{"name": "pr", "int": true}], "flags": {"--session": "value"}}, "release": {"args": [{"name": "pr", "int": true}]}}},
   "amb": {"subs": {"show": {"args": ["id"], "flags": {"--field": "value", "--find": "value"}}, "get": {"args": ["id"]}, "list": {}}},
+  "amb2": {"flags": {"--field": "value", "--find": "value"}, "args": ["id"]},
+  "amb3": {"subs": {"remember": {"args": ["id"], "flags": {"--field": "value", "--find": "value"}}, "list": {}}},
   "flat": {"flags": {"--dry-run": "switch", "--reason": "value", "--force": "switch", "--wait": "int"}, "args": ["name"]}
  },
  "vectors": [
@@ -44,7 +46,8 @@
   {"name": "a repair beside an exact unsafe flag does not run", "parser": "flat", "argv": ["x", "--force", "--why", "y"], "outcome": "exact", "to": [["x", "--force", "--reason", "y"]]},
   {"name": "unsafe subcommand: outward post needs its exact form", "parser": "gh2", "argv": ["post", "o/r#1", "--message-file", "f"], "outcome": "exact", "to": [["post", "o/r#1", "--body-file", "f"]]},
   {"name": "unsafe subcommand is never a synonym's target", "parser": "sess", "argv": ["rotat", "x"], "outcome": "exact", "to": [["rotate", "x"]]},
-  {"name": "missing verb: the one that takes the rest (agent-memory 11296)", "parser": "mem", "argv": ["11296"], "outcome": "candidates", "to": [["search", "11296"], ["get", "11296"], ["remember", "11296"]]},
+  {"name": "missing verb: the reading verbs that take the rest, the best runs (agent-memory 11296)", "parser": "mem", "argv": ["11296"], "outcome": "ran", "to": ["search", "11296"]},
+  {"name": "missing verb: a write's verb is never supplied", "parser": "amb3", "argv": ["x"], "outcome": "none"},
   {"name": "synonym beats close (agent-memory show N)", "parser": "mem", "argv": ["show", "11296"], "outcome": "ran", "to": ["get", "11296"]},
   {"name": "missing verb by the table's default", "parser": "mem", "argv": ["some words"], "cli": {"mem": {"default": "search"}}, "outcome": "ran", "to": ["search", "some words"]},
   {"name": "table alias", "parser": "mem", "argv": ["recall", "x"], "cli": {"mem": {"aliases": [{"from": ["recall"], "to": ["search"]}]}}, "outcome": "ran", "to": ["search", "x"]},
@@ -55,7 +58,9 @@
   {"name": "parent flag after the subcommand and positional int", "parser": "owner", "argv": ["who", "14141", "--repo", "o/r"], "outcome": "ran", "to": ["--repo", "o/r", "who", "14141"]},
   {"name": "unknown flag with nothing close stays refused (pr-owner claim --wait 120)", "parser": "owner", "argv": ["claim", "5", "--wait", "120"], "outcome": "none"},
   {"name": "unsafe table exact", "parser": "owner", "argv": ["clam", "5"], "cli": {"owner": {"exact": ["claim"]}}, "outcome": "exact", "to": [["claim", "5"]]},
-  {"name": "two synonyms present are listed, not guessed", "parser": "amb", "argv": ["info", "x"], "outcome": "candidates", "to": [["show", "x"], ["get", "x"]]},
-  {"name": "two close flags are listed, not guessed", "parser": "amb", "argv": ["show", "x", "--fild", "a"], "outcome": "candidates", "to": [["show", "x", "--field", "a"], ["show", "x", "--find", "a"]]}
+  {"name": "two read-only meanings: the best runs (the other is named)", "parser": "amb", "argv": ["info", "x"], "outcome": "ran", "to": ["show", "x"]},
+  {"name": "two close flags on a read: the best runs", "parser": "amb", "argv": ["show", "x", "--fild", "a"], "outcome": "ran", "to": ["show", "x", "--field", "a"]},
+  {"name": "two meanings, one a write: listed, nothing runs", "parser": "amb2", "argv": ["x", "--fild", "a"], "outcome": "candidates", "to": [["x", "--field", "a"], ["x", "--find", "a"]]},
+  {"name": "two meanings under a write subcommand: listed", "parser": "amb3", "argv": ["remember", "x", "--fild", "a"], "outcome": "candidates", "to": [["remember", "x", "--field", "a"], ["remember", "x", "--find", "a"]]}
  ]
 }

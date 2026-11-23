@@ -2,7 +2,7 @@
 //! alias, synonym, spelling, glued, placement, order, missing verb, close match), each kept only if
 //! the whole argv then parses (a trial parse), up to `MAX_EDITS` composed.
 
-use crate::close::close_matches;
+use crate::close::{close_matches, shell_join};
 use crate::table::Table;
 use crate::walk::{self, Opts, Walk, is_number, options, sub_names};
 use clap::Command;
@@ -361,8 +361,12 @@ fn sub_edits(argv: &[String], walk: &Walk<'_>, tbl: &Table, prog: &str) -> Vec<E
         }
         _ if out.is_empty() => {
             for c in cmd.get_subcommands().filter(|c| !c.is_hide_set() && c.get_name() != "help") {
-                if !tbl.unsafe_word(c.get_name()) {
-                    let word = c.get_name().to_owned();
+                let word = c.get_name().to_owned();
+                let mut full = path.clone();
+                full.push(word.clone());
+                let reads =
+                    tbl.reads.contains(&word) || entry.is_some_and(|e| e.safe.contains(&word));
+                if reads && !tbl.exact_path(prog, &full) {
                     swap(
                         "missing verb",
                         std::slice::from_ref(&word),
@@ -588,5 +592,45 @@ pub fn repair(cmd: &Command, prog: &str, argv: &[String], tbl: &Table) -> Repair
             word: None,
         };
     }
+    if parsed.iter().all(|p| read_only(&built, &p.argv, tbl, prog))
+        && !argv.iter().take_while(|a| *a != "--").any(|w| w.starts_with('-') && tbl.unsafe_word(w))
+    {
+        let also = parsed
+            .iter()
+            .skip(1)
+            .map(|p| {
+                format!(
+                    "`{}`",
+                    shell_join(
+                        &std::iter::once(prog.to_owned())
+                            .chain(p.argv.iter().cloned())
+                            .collect::<Vec<_>>()
+                    )
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let mut best = parsed[0].clone();
+        best.notes.push(format!("the best of {} read-only forms; also {also}", parsed.len()));
+        return Repair {
+            outcome: Kind::Ran,
+            argv: best.argv.clone(),
+            candidates: vec![best],
+            error: first_text,
+            word: None,
+        };
+    }
     Repair { outcome: Kind::Candidates, argv, candidates: parsed, error: first_text, word: None }
+}
+
+/// Whether `argv` runs a subcommand that only reads: its last subcommand word is in `reads` or the CLI's
+/// `safe`, it is not exact, and it holds no unsafe word. A CLI with no subcommand is never read-only.
+fn read_only(root: &Command, argv: &[String], tbl: &Table, prog: &str) -> bool {
+    let walk = walk::walk(root, argv);
+    let path = walk::typed_path(&walk, argv);
+    let Some(last) = path.last() else { return false };
+    if tbl.exact_path(prog, &path) || unsafe_in(root, argv, tbl, prog).is_some() {
+        return false;
+    }
+    tbl.reads.contains(last) || tbl.cli_entry(prog).is_some_and(|e| e.safe.contains(last))
 }
