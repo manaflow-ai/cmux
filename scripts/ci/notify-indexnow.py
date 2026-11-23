@@ -108,8 +108,8 @@ def load_state(path: Path | None) -> set[tuple[str, str]]:
     try:
         pairs = json.loads(path.read_text())["submitted"]
         return {(str(url), str(modified)) for url, modified in pairs}
-    except (ValueError, KeyError, TypeError) as error:
-        # A damaged marker costs one resubmission of the window, never a failure.
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        # A damaged or unreadable marker costs one resubmission of the window, never a failure.
         print(f"Ignoring unreadable IndexNow state {path}: {error}", file=sys.stderr)
         return set()
 
