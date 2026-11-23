@@ -200,6 +200,7 @@ dependencies = [
 name = "cmux-cloud-machine"
 version = "0.1.0"
 dependencies = [
+ "cmux-lifeline",
  "serde",
  "serde_json",
 ]
@@ -247,6 +248,7 @@ version = "0.1.0"
 dependencies = [
  "cmux-cloud-environment",
  "cmux-local-auth",
+ "libc",
  "serde",
  "serde_json",
 ]
@@ -323,6 +325,13 @@ dependencies = [
  "cmux-window-rules",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-lifeline"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -486,7 +495,7 @@ checksum = "c6232dd377dcc64799954cbd3a9bb882e9cdc1308ccd87b1c098f1fb2eaf82a8"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.9",
+ "syn 3.0.6",
 ]
 
 [[package]]
@@ -1805,7 +1814,7 @@ checksum = "c3743ddbf47738d929cd1ae2e199d40d0162979dfe31aef8ae646d2bf00bf97a"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.9",
+ "syn 3.0.6",
 ]
 
 [[package]]
