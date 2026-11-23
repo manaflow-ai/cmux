@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45280002974",
+  "recorded_at": "2026-11-23T23:19:39Z",
+  "reason": "image inputs changed in 55e0f6b202357c0dbf7cb9178631cf842a15ab5f..35d6ace3ebaf380f1e4430d286fb0ab71f5b3ba3",
+  "dry_run": false,
+  "cmux_tui": "45ed727f30d1a623ba43d98d634b84b838a713db",
+  "fixes": [
+    {
+      "sha": "35d6ace3ebaf380f1e4430d286fb0ab71f5b3ba3",
+      "mergedAt": "2026-11-23T22:28:15Z",
+      "subject": "cmux-vm image: pin cmux-rd 0.2.9 (release run 45160613949) (#52067)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-23T23:19:39Z",
+    "snapshot_id": "sh-2d63a578eec14c5085f5d13598f9fc53",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 45280002974): 31 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "6c4b1d6a5aa67bd5c2166ff5e7f2da78ea374da2",
+    "image": "cloud-native-auto-45ed727f-45280002974-1",
+    "revision": "ci-45280002974-1",
+    "at": "2026-11-23T23:19:39Z"
+  },
+  "rolled_back": false
+}
