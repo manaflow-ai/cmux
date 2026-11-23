@@ -115,6 +115,23 @@ final class FeedCollectionView: UITableView {
         }
         super.layoutSubviews()
     }
+
+    /// A row's swipe actions never take a sideways drag that belongs to the view it started on
+    /// (design/gesture-matrix.md, cells 35 and 36): a reply being typed keeps its caret and
+    /// selection drags, and a command card or code block scrolls its code until its end. The
+    /// list's own scroll and every other recognizer are untouched.
+    override func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
+        guard super.gestureRecognizerShouldBegin(recognizer) else { return false }
+        guard recognizer !== panGestureRecognizer, Self.isRowSwipe(recognizer) else { return true }
+        let start = TouchOwnership.startPoint(of: recognizer, in: self)
+        let dx = (recognizer as? UIPanGestureRecognizer)?.velocity(in: self).x ?? 0
+        return !TouchOwnership.ownsHorizontalDrag(from: hitTest(start, with: nil), upTo: self, fingerDX: dx)
+    }
+
+    /// UIKit's row swipe-actions recognizer (`_UISwipeActionPanGestureRecognizer`).
+    static func isRowSwipe(_ recognizer: UIGestureRecognizer) -> Bool {
+        NSStringFromClass(type(of: recognizer)).contains("SwipeAction")
+    }
 }
 
 @MainActor

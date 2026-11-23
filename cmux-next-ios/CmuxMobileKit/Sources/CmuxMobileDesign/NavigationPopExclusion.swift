@@ -42,26 +42,16 @@ public final class NavigationPopExclusion {
     /// the edge pop starts at the screen edge, where none of these live.
     public static func startsOnOwnDrag(_ point: CGPoint, in window: UIWindow?) -> Bool {
         guard let window, let hit = window.hitTest(point, with: nil) else { return false }
-        var view: UIView? = hit
-        while let current = view, current !== window {
-            if current is UITextView || current is UITextField, current.isFirstResponder { return true }
-            if let scroll = current as? UIScrollView, scroll.isScrollEnabled,
-               scroll.contentSize.width > scroll.bounds.width + 1 {
-                return true
-            }
-            if NSStringFromClass(type(of: current)).hasPrefix("WK") { return true }
-            view = current.superview
+        if TouchOwnership.isEditingText(from: hit, upTo: window) || TouchOwnership.wideScroller(from: hit, upTo: window) != nil {
+            return true
         }
-        return false
+        return TouchOwnership.chain(from: hit, upTo: window).contains { NSStringFromClass(type(of: $0)).hasPrefix("WK") }
     }
 
     /// The start of a pan that has already travelled (UIKit asks a pop
     /// recognizer once the finger moved past its slop).
     public static func startPoint(of recognizer: UIGestureRecognizer, in window: UIWindow?) -> CGPoint {
-        let now = recognizer.location(in: window)
-        guard let pan = recognizer as? UIPanGestureRecognizer else { return now }
-        let moved = pan.translation(in: window)
-        return CGPoint(x: now.x - moved.x, y: now.y - moved.y)
+        TouchOwnership.startPoint(of: recognizer, in: window)
     }
 }
 #endif

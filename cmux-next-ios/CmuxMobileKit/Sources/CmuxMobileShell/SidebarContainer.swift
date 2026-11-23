@@ -75,6 +75,12 @@ final class SidebarContainerViewController: UIViewController, UIGestureRecognize
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     private var sidebarWidth: CGFloat { theme.metrics.sidebarWidth(forScreenWidth: view.bounds.width) }
+    /// The drawer sits on the leading side and opens away from it (design/gesture-matrix.md, cell
+    /// 46): row swipe actions are semantic, so in a right-to-left layout the drawer is on the
+    /// right and opens with a leftward drag, never with a row's trailing (rightward) swipe.
+    private var rightToLeft: Bool { view.effectiveUserInterfaceLayoutDirection == .rightToLeft }
+    /// +1 left to right, -1 right to left: maps the drawer's leading offsets to screen x.
+    private var leadingSign: CGFloat { rightToLeft ? -1 : 1 }
     private var progress: CGFloat { sidebarWidth > 0 ? min(max(offset / sidebarWidth, 0), 1) : 0 }
 
     override func viewDidLoad() {
@@ -171,7 +177,8 @@ final class SidebarContainerViewController: UIViewController, UIGestureRecognize
         shadowView.layer.shadowPath = UIBezierPath(roundedRect: bounds, cornerRadius: theme.metrics.sidebarCardRadius).cgPath
         let sidebarTransform = sidebarController.view.transform
         sidebarController.view.transform = .identity
-        sidebarController.view.frame = CGRect(x: 0, y: 0, width: sidebarWidth, height: bounds.height)
+        sidebarController.view.frame = CGRect(x: rightToLeft ? bounds.width - sidebarWidth : 0, y: 0,
+                                              width: sidebarWidth, height: bounds.height)
         sidebarController.view.transform = sidebarTransform
         if animator == nil, !isTracking {
             offset = model.isOpen ? sidebarWidth : 0
@@ -191,11 +198,11 @@ final class SidebarContainerViewController: UIViewController, UIGestureRecognize
     /// tracking and inside animation blocks while settling.
     private func apply() {
         let p = progress
-        let card = CGAffineTransform(translationX: offset, y: 0)
+        let card = CGAffineTransform(translationX: leadingSign * offset, y: 0)
         cardView.transform = card
         shadowView.transform = card
         strokeView.transform = card
-        sidebarController.view.transform = CGAffineTransform(translationX: -theme.metrics.sidebarParallax * (1 - p), y: 0)
+        sidebarController.view.transform = CGAffineTransform(translationX: -leadingSign * theme.metrics.sidebarParallax * (1 - p), y: 0)
         scrimView.alpha = p
         strokeView.alpha = p
         shadowView.alpha = p
@@ -264,7 +271,7 @@ final class SidebarContainerViewController: UIViewController, UIGestureRecognize
     /// of a drag, so grabbing a moving card never jumps.
     func beginTracking() {
         if let animator, animator.state == .active {
-            let presented = cardView.layer.presentation()?.affineTransform().tx ?? offset
+            let presented = cardView.layer.presentation().map { leadingSign * $0.affineTransform().tx } ?? offset
             animator.stopAnimation(true)
             self.animator = nil
             offset = presented
@@ -322,9 +329,10 @@ final class SidebarContainerViewController: UIViewController, UIGestureRecognize
             cancelCompetingScrolls()
             beginTracking()
         case .changed:
-            track(translationX: recognizer.translation(in: view).x)
+            track(translationX: TouchOwnership.fromLeading(recognizer.translation(in: view).x, rightToLeft: rightToLeft))
         case .ended, .cancelled, .failed:
-            endTracking(velocityX: recognizer.state == .ended ? recognizer.velocity(in: view).x : 0)
+            let velocity = TouchOwnership.fromLeading(recognizer.velocity(in: view).x, rightToLeft: rightToLeft)
+            endTracking(velocityX: recognizer.state == .ended ? velocity : 0)
         default:
             break
         }
@@ -336,17 +344,22 @@ final class SidebarContainerViewController: UIViewController, UIGestureRecognize
         guard gestureRecognizer === pan else { return true }
         let velocity = pan.velocity(in: view)
         guard abs(velocity.x) > 1.5 * abs(velocity.y) else { return false }
+        let opening = TouchOwnership.fromLeading(velocity.x, rightToLeft: rightToLeft)
         if model.isOpen {
-            return velocity.x < 0
+            return opening < 0
         }
-        guard velocity.x > 0 else { return false }
-        return mayOpen(at: pan.location(in: view))
+        guard opening > 0 else { return false }
+        // Where the finger landed, not where it is after the slop: a drag that began on a field
+        // and left it is still the field's.
+        return mayOpen(at: TouchOwnership.startPoint(of: pan, in: view))
     }
 
-    /// Whether a rightward pan at `location` may open the closed drawer.
+    /// Whether a pan away from the leading edge that started at `location` may open the closed
+    /// drawer. Text being edited keeps its caret and selection drags (cell 44: the search field).
     func mayOpen(at location: CGPoint) -> Bool {
         guard model.allowsInteractiveOpen else { return false }
         guard !touchIsInPushedScreen(location), !touchIsInHorizontalScroller(location) else { return false }
+        guard !TouchOwnership.isEditingText(from: view.hitTest(location, with: nil), upTo: view) else { return false }
         return !closesOpenRowActions()
     }
 
@@ -403,22 +416,31 @@ final class SidebarContainerViewController: UIViewController, UIGestureRecognize
         return false
     }
 
-    /// Vertical scroll views may start alongside the pan; once the pan wins
-    /// they are cancelled so the list does not drift while the card moves.
+    /// The scroll views the touch started in may start alongside the pan (a
+    /// list's scroll, its swipe-actions recognizer); once the pan wins their
+    /// scroll is cancelled so the list does not drift while the card moves.
+    /// Only scrollers under the touch (cell 45): UIKit offers only those today,
+    /// and the drawer checks rather than relies on it.
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
-        gestureRecognizer === pan && other.view is UIScrollView
+        guard gestureRecognizer === pan, let scroll = other.view as? UIScrollView else { return false }
+        return Self.isUnderTouch(scroll, touched: view.hitTest(TouchOwnership.startPoint(of: pan, in: view), with: nil))
     }
 
+    /// Whether `scroll` is at or above the touched view.
+    static func isUnderTouch(_ scroll: UIScrollView, touched: UIView?) -> Bool {
+        touched?.isDescendant(of: scroll) ?? false
+    }
+
+    /// The scroll pans under the touch that started with the drawer's pan: a
+    /// walk up from the touched view, never the whole tree (a scroller another
+    /// finger is moving elsewhere keeps scrolling).
     private var simultaneousScrollPans: [UIGestureRecognizer] {
-        var result: [UIGestureRecognizer] = []
-        func walk(_ view: UIView) {
-            if let scroll = view as? UIScrollView, scroll.panGestureRecognizer.state == .began || scroll.panGestureRecognizer.state == .changed {
-                result.append(scroll.panGestureRecognizer)
-            }
-            view.subviews.forEach(walk)
+        let touched = view.hitTest(TouchOwnership.startPoint(of: pan, in: view), with: nil)
+        return TouchOwnership.chain(from: touched, upTo: view).compactMap { view in
+            guard let scroll = view as? UIScrollView else { return nil }
+            let state = scroll.panGestureRecognizer.state
+            return state == .began || state == .changed ? scroll.panGestureRecognizer : nil
         }
-        walk(model.isOpen ? sidebarController.view : contentController.view)
-        return result
     }
 
     private func cancelCompetingScrolls() {
@@ -429,15 +451,7 @@ final class SidebarContainerViewController: UIViewController, UIGestureRecognize
     }
 
     private func touchIsInHorizontalScroller(_ point: CGPoint) -> Bool {
-        var hit = view.hitTest(point, with: nil)
-        while let current = hit, current !== view {
-            if let scroll = current as? UIScrollView, scroll.isScrollEnabled,
-               scroll.contentSize.width > scroll.bounds.width + 1 {
-                return true
-            }
-            hit = current.superview
-        }
-        return false
+        TouchOwnership.wideScroller(from: view.hitTest(point, with: nil), upTo: view) != nil
     }
 }
 
@@ -460,6 +474,7 @@ private final class EdgeSwipePriority: UIGestureRecognizer {
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
         defer { state = .failed }
+        atEdge.removeAllObjects()
         guard let view, let touch = touches.first else { return }
         let point = touch.location(in: view)
         let leading = view.effectiveUserInterfaceLayoutDirection == .leftToRight ? point.x : view.bounds.width - point.x
@@ -479,14 +494,35 @@ private final class EdgeSwipePriority: UIGestureRecognizer {
                 // Waiting is not always enough: over the diff's 2D code view
                 // (the page's own scroller) the pop still yielded and the
                 // code bounced (round2.md). A scroller at its leading edge has
-                // nothing to scroll back to, so it sits this edge touch out.
+                // nothing to scroll back to, so it sits this edge touch out,
+                // but only once the pop has begun (cell 47): reset at
+                // touch-down, a vertical scroll that starts by the edge was lost.
+                atEdge = NSHashTable.weakObjects()
                 for scroll in scrollers where scroll.contentOffset.x <= -scroll.adjustedContentInset.left + 0.5 {
-                    scroll.panGestureRecognizer.isEnabled = false
-                    scroll.panGestureRecognizer.isEnabled = true
+                    atEdge.add(scroll.panGestureRecognizer)
+                }
+                if atEdge.count > 0, !observed.contains(pop) {
+                    pop.addTarget(self, action: #selector(popChanged(_:)))
+                    observed.add(pop)
                 }
                 return
             }
             responder = current.next
+        }
+    }
+
+    /// The scroll pans that sit out the current edge touch if the pop begins.
+    private var atEdge = NSHashTable<UIGestureRecognizer>.weakObjects()
+    /// Pop recognizers this observes (it only reads their state).
+    private var observed = NSHashTable<UIGestureRecognizer>.weakObjects()
+
+    @objc private func popChanged(_ pop: UIGestureRecognizer) {
+        guard pop.state == .began else { return }
+        let pans = atEdge.allObjects
+        atEdge.removeAllObjects()
+        for pan in pans {
+            pan.isEnabled = false
+            pan.isEnabled = true
         }
     }
 }
