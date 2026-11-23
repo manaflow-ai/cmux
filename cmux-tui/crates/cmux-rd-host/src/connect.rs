@@ -198,6 +198,9 @@ fn bridge(net: &Net, listener: &UnixListener) -> Res<String> {
             }
         }
         for event in net.events() {
+            if let Some(line) = event.phase_line() {
+                println!("{line}");
+            }
             match event {
                 NetEvent::Candidate(c) => {
                     say(AppLine { candidate: Some(c.to_wire()), ..AppLine::default() })
