@@ -13,3 +13,15 @@ export function queuePauseReason(rows: readonly AcpmuxRow[]): string | undefined
   }
   return undefined;
 }
+
+/// Whether the chat's latest ended turn was stopped rather than failed: under the opt-in
+/// `stop-holds-queue` arm a person's Stop holds their own queue, and the note says Stop, not error.
+export function queuePausedByStop(rows: readonly AcpmuxRow[]): boolean {
+  for (let index = rows.length - 1; index >= 0; index--) {
+    const row = rows[index]!;
+    if (row.kind !== "turnSummary") continue;
+    if (row.status === "failed") return false;
+    if (row.status === "cancelled") return true;
+  }
+  return false;
+}

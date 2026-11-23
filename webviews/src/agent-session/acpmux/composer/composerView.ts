@@ -56,7 +56,7 @@ const OTHER_CHAT_LIVE: ReadonlySet<string> = new Set<keyof AcpmuxSessionEntry>([
 
 /// The rows the composer reads (Composer.tsx, ComposerPickers.tsx): the first row and the first past the
 /// chat's start (so "no rows" and "started" read the same), every prompt the person sent, every queued
-/// row, and every failed turn's summary (queuePause.ts). In order, as `rows` has them.
+/// row, and every failed or stopped turn's summary (queuePause.ts). In order, as `rows` has them.
 export function composerRows(rows: readonly AcpmuxRow[]): AcpmuxRow[] {
   const kept: AcpmuxRow[] = [];
   if (!rows.length) return kept;
@@ -80,9 +80,13 @@ export function composerRows(rows: readonly AcpmuxRow[]): AcpmuxRow[] {
   return kept;
 }
 
-/// A row the composer reads wherever it is (composerRows): a prompt, a queued row, a failed turn's summary.
+/// A row the composer reads wherever it is (composerRows): a prompt, a queued row, a failed or stopped
+/// turn's summary.
 const composerReads = new PrefixFilter<AcpmuxRow>(
-  (row) => row.kind === "user" || row.queued !== undefined || (row.kind === "turnSummary" && row.status === "failed"),
+  (row) =>
+    row.kind === "user" ||
+    row.queued !== undefined ||
+    (row.kind === "turnSummary" && (row.status === "failed" || row.status === "cancelled")),
 );
 
 /// The same members by identity, one level down: arrays element by element, anything else by `Object.is`.

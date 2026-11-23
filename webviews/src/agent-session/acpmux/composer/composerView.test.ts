@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
-import { queuePauseReason } from "../queuePause";
+import { queuePausedByStop, queuePauseReason } from "../queuePause";
 import { composerRows, composerView, sameComposerView } from "./composerView";
 
 const row = (id: string, kind: AcpmuxRow["kind"], extra: Partial<AcpmuxRow> = {}): AcpmuxRow =>
@@ -92,4 +92,17 @@ test("a turn's token counts and subagent progress, and another chat's status, le
   const fresh = (status: string) =>
     composerView({ ...snapshot([], "connected", commands), sessions: sessions(status) } as AcpmuxSnapshot);
   expect(sameComposerView(fresh("idle"), fresh("running"))).toBe(false);
+});
+
+test("a stopped turn's summary is kept, so the paused note can say Stop held the queue", () => {
+  const stopped = row("s2", "turnSummary", { status: "cancelled" } as Partial<AcpmuxRow>);
+  const done = row("s3", "turnSummary", { status: "completed" } as Partial<AcpmuxRow>);
+  const rows = [start, prompt, failed, prompt, stopped, done, queued];
+  expect(composerRows(rows).map((r) => r.id)).toContain("s2");
+  expect(queuePausedByStop(composerRows(rows))).toBe(true);
+  // The latest turn that did not complete failed: the note names its error, not Stop.
+  expect(queuePausedByStop([start, stopped, failed, queued])).toBe(false);
+  expect(queuePausedByStop([start, prompt, done])).toBe(false);
+  // The failed turn's error still reads past a later Stop.
+  expect(queuePauseReason(composerRows(rows))).toBe("rate limited");
 });

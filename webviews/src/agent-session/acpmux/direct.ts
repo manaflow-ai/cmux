@@ -211,6 +211,7 @@ import {
 } from "./conversation/backgroundTurns";
 import { backgroundReactionLook, reactsOnCall } from "./conversation/backgroundReaction.experiment";
 import { experimentArm } from "../../experiments/experiment";
+import { stopHoldsQueue } from "./composer/stopHoldsQueue.experiment";
 import { AskTracker, pendingReader, SIDE_SESSION_METHOD } from "./needsYou/asks";
 import { BTW_INLINE_HERE } from "./btwCapability";
 import { chatTools, toolApplied, type ToolApplied } from "./summary/chatTools";
@@ -12080,10 +12081,13 @@ export class AcpmuxDirectClient {
     // Deduplicate Stop only against the loaded chat; the visible chat may be held during a switch.
     if (sessionId === this.selectedSessionId && this.stopAffectsRunningTurn()) return;
     // session/cancel is a notification: completing this send does not mean the turn ended.
+    // The opt-in `stop-holds-queue` arm asks acpmux to hold the person's own queued prompts for
+    // Resume too (`hub/cancel.rs` `hold_own_prompts`); acpmux reads it only on the person's Stop.
+    const holdQueue = experimentArm(stopHoldsQueue) === "hold";
     const text = JSON.stringify({
       jsonrpc: "2.0",
       method: "session/cancel",
-      params: { sessionId },
+      params: holdQueue ? { sessionId, _meta: { acpmux: { holdQueue: true } } } : { sessionId },
     });
     this.wire.sent(text, "session/cancel");
     socket.send(text);

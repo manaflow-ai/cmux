@@ -130,11 +130,54 @@ impl Hub {
     /// Also with no turn running while anything waits in the queue: the turn may have just ended
     /// and the next one be about to start. A Stop of an idle chat with nothing queued holds nothing.
     pub async fn person_stop(self: &Arc<Self>, session: &Arc<Session>) -> Result<(), RpcError> {
+        self.person_stop_holding(session, false).await
+    }
+
+    /// The person's Stop, and with `own` their own queued prompts wait too
+    /// (`hold_own_prompts`): the pane's opt-in `stop-holds-queue` arm sends it as
+    /// `_meta.acpmux.holdQueue` (`server/requests/person_stop.rs`).
+    pub async fn person_stop_holding(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        own: bool,
+    ) -> Result<(), RpcError> {
         let turn = session.turn().map(|t| t.turn_id);
         if turn.is_some() || session.queued() > 0 {
-            self.hold_agent_messages(session, turn.as_deref().unwrap_or_default());
+            let turn_id = turn.as_deref().unwrap_or_default();
+            self.hold_agent_messages(session, turn_id);
+            if own {
+                self.hold_own_prompts(session, turn_id);
+            }
         }
         self.cancel(session).await
+    }
+
+    /// Holds the person's own queued prompts for their Resume (or a row's Send now): written
+    /// for a turn the person has just stopped, they do not start the next one by themselves.
+    /// Held as a failed turn holds them with Retry After Errors off (`queue.rs` `pause_queue`):
+    /// their retries are used up, so the queue reads paused with Resume, nothing lets them go
+    /// by a timer, and a restart restores them held (`queue_paused` without them in
+    /// `retrying`). Taken under the queue lock before the cancel, so the stopped turn's end
+    /// never starts one of them.
+    pub(super) fn hold_own_prompts(&self, session: &Arc<Session>, turn_id: &str) {
+        let mut queue = session.queue.lock().unwrap_or_else(|e| e.into_inner());
+        let held: Vec<String> = queue
+            .iter_mut()
+            .filter(|q| !q.goes_in_by_itself())
+            .map(|q| {
+                (q.held, q.sent_now) = (true, false);
+                q.retries = q.retries.max(super::queue::PERSON_RETRIES);
+                q.prompt_id.clone()
+            })
+            .collect();
+        if !held.is_empty() {
+            self.append(
+                session,
+                "mux",
+                "queue_paused",
+                json!({"stoppedTurnId": turn_id, "held": held, "retrying": [], "reason": "stop"}),
+            );
+        }
     }
 
     /// Holds the other agents' messages queued now, and those that come until the hold ends: the

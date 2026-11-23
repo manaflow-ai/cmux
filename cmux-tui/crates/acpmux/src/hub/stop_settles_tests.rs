@@ -368,3 +368,31 @@ async fn a_failed_turn_holds_the_persons_prompt_for_resume_only_after_its_retrie
     assert_eq!(paused.msg["held"], json!(["p-mine"]), "{:?}", paused.msg);
     assert!(s.queue_paused());
 }
+
+/// A person's Stop that asks it (`holdQueue`, the pane's opt-in `stop-holds-queue`) holds their
+/// own queued prompt too: the stopped turn's end starts nothing, the queue reads paused, and
+/// only their Resume lets it go. A plain person's Stop still runs it next.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_stop_that_holds_the_queue_keeps_the_persons_next_prompt_for_resume() {
+    let (hub, s) = chat(false).await;
+    let first = prompt(&hub, &s, "until-cancel");
+    record(&hub, &s, "", "agent_message_chunk", |m| {
+        m["params"]["update"]["content"]["text"] == "running"
+    })
+    .await;
+    let mine = prompt_as(&hub, &s, "then the tests", "p-mine", None);
+    until("it queues", || s.queue().len() == 1).await;
+    hub.person_stop_holding(&s, true).await.expect("the Stop is refused");
+    let _ = tokio::time::timeout(WAIT, first).await.expect("the stopped turn ends");
+    record(&hub, &s, "mux", "queue_paused", |m| {
+        m["reason"] == "stop" && m["held"] == json!(["p-mine"]) && m["retrying"] == json!([])
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(s.queue_paused(), "the held prompt did not pause the queue: {:?}", s.queue());
+    assert_eq!(written(&hub, &s, "then the tests"), 0, "the prompt ran after the Stop");
+    assert!(hub.resume_queue(&s));
+    let answer = tokio::time::timeout(WAIT, mine).await.expect("the prompt answers").unwrap();
+    assert!(answer.is_ok(), "{answer:?}");
+    assert_eq!(written(&hub, &s, "then the tests"), 1);
+}

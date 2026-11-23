@@ -208,6 +208,7 @@ export const ComposerQueue = React.memo(function ComposerQueue({
   chat,
   paused,
   pauseReason,
+  pausedByStop,
   t,
   onRemove,
   onCancelEdit,
@@ -230,6 +231,8 @@ export const ComposerQueue = React.memo(function ComposerQueue({
   paused?: boolean;
   /// That turn's error (queuePause.ts), which the paused note names.
   pauseReason?: string;
+  /// The person's Stop held their own queue (the opt-in `stop-holds-queue` arm): the note says Stop.
+  pausedByStop?: boolean;
   t: Translate;
   /// Withdraws a waiting prompt; false when it already started (it then leaves with the turn).
   onRemove?(id: string): Promise<boolean>;
@@ -1144,7 +1147,11 @@ export const ComposerQueue = React.memo(function ComposerQueue({
               // tooltip-allow: a long error is cut to the row; its whole text is the tooltip
               title={pauseReason}
             >
-              {pauseReason ? t("composer.queuePausedWhy", { error: pauseReason }) : t("composer.queuePaused")}
+              {pausedByStop
+                ? t("composer.queuePausedStop")
+                : pauseReason
+                  ? t("composer.queuePausedWhy", { error: pauseReason })
+                  : t("composer.queuePaused")}
             </span>
             {onChange && (
               <button

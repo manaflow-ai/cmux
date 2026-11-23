@@ -107,6 +107,7 @@ import { timeHoverWording } from "../agent-session/acpmux/conversation/timeHover
 import { timeHoverDate } from "../agent-session/acpmux/conversation/timeHoverDate.experiment";
 import { fieldGrowthMotion } from "../agent-session/acpmux/composer/fieldGrowth.experiment";
 import { composerDockMotion } from "../agent-session/acpmux/composer/dockMotion.experiment";
+import { stopHoldsQueue } from "../agent-session/acpmux/composer/stopHoldsQueue.experiment";
 import { teamAudit } from "../agent-session/acpmux/teamAudit/teamAudit.experiment";
 import { jumpPairLook } from "../agent-session/acpmux/jumpPair.experiment";
 import { menuStyleV2 } from "../ui/menuStyleV2.experiment";
@@ -232,6 +233,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   sendMenuLook,
   fieldGrowthMotion,
   composerDockMotion,
+  stopHoldsQueue,
   teamAudit,
   jumpPairLook,
   holdToApprove,

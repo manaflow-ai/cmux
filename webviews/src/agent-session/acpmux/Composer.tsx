@@ -154,7 +154,8 @@ import { DropOverlay } from "./composer/DropOverlay";
 import type { SendBlock } from "./useFolderTrustAsk";
 import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion } from "./promptSuggestion";
 import { useHeaderState } from "./header/headerState";
-import { queuePauseReason } from "./queuePause";
+import { queuePausedByStop, queuePauseReason } from "./queuePause";
+import { stopHoldsQueue } from "./composer/stopHoldsQueue.experiment";
 import { stopTurnFromAction } from "./stopTurnAction";
 import {
   CAPTURE_MODES,
@@ -3220,7 +3221,13 @@ function ComposerFrame({
     ],
   );
   // Why a failed turn paused the queue: the paused note names it (queuePause.ts).
-  const pauseReason = snapshot.summary?.queuePaused === true ? queuePauseReason(snapshot.rows) : undefined;
+  // Or the person's own Stop held it (the opt-in `stop-holds-queue` arm): the note says so instead.
+  const pausedByStop =
+    snapshot.summary?.queuePaused === true &&
+    experimentArm(stopHoldsQueue) === "hold" &&
+    queuePausedByStop(snapshot.rows);
+  const pauseReason =
+    snapshot.summary?.queuePaused === true && !pausedByStop ? queuePauseReason(snapshot.rows) : undefined;
   return (
     <form
       ref={form}
@@ -3297,6 +3304,7 @@ function ComposerFrame({
         queue={snapshot.queue}
         paused={snapshot.summary?.queuePaused === true}
         {...(pauseReason ? { pauseReason } : {})}
+        {...(pausedByStop ? { pausedByStop } : {})}
         t={t}
         onRemove={onQueueRemove}
         onCancelEdit={onQueueCancelEdit}

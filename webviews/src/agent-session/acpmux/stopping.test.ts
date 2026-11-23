@@ -32,6 +32,61 @@ type Daemon = {
 
 type Shown = { isWorking: boolean; stopping?: true; summary?: unknown; rows?: unknown };
 
+test("Stop asks acpmux to hold the person's queue only under the opt-in stop-holds-queue arm", async () => {
+  const { AcpmuxDirectClient } = await import("./direct");
+  const { MockAcpmuxSocket, mockHost } = await import("./mock");
+  const socket = new MockAcpmuxSocket(() => Promise.resolve());
+  const daemon = socket as unknown as Daemon;
+  const cancels: Array<{ params: Record<string, unknown> }> = [];
+  const send = daemon.send.bind(socket);
+  daemon.send = (raw) => {
+    const request = JSON.parse(raw) as { method?: string; params: Record<string, unknown> };
+    if (request.method === "session/cancel") cancels.push(request);
+    else send(raw);
+  };
+  const view = { shown: { isWorking: false } as Shown };
+  const snapshots: Array<() => void> = [];
+  const until = async (check: () => boolean) => {
+    while (!check()) await new Promise<void>((resolve) => snapshots.push(resolve));
+  };
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    (snapshot) => {
+      view.shown = snapshot as unknown as Shown;
+      for (const wake of snapshots.splice(0)) wake();
+    },
+    undefined,
+    () => socket as unknown as WebSocket,
+  );
+  const id = mockHost.sessionId!;
+  const experiments = globalThis as { cmuxExperiments?: Record<string, string> };
+  const before = experiments.cmuxExperiments;
+  try {
+    await until(() => view.shown.summary !== undefined);
+    daemon.touch(id, { status: "running" });
+    daemon.emit(id, { mux: "turn_started" });
+    await until(() => view.shown.isWorking);
+    await client.cancel();
+    expect(cancels[0]?.params._meta).toBeUndefined();
+    daemon.emit(id, { mux: "turn_end", msg: { stopReason: "cancelled" } });
+    daemon.emit(id, { mux: "turn_result", msg: { status: "cancelled", stopReason: "cancelled" } });
+    daemon.touch(id, { status: "ready" });
+    await until(() => !view.shown.isWorking && view.shown.stopping === undefined);
+
+    experiments.cmuxExperiments = { ...before, "stop-holds-queue": "hold" };
+    daemon.touch(id, { status: "running" });
+    daemon.emit(id, { mux: "turn_started" });
+    await until(() => view.shown.isWorking);
+    await client.cancel();
+    expect(cancels).toHaveLength(2);
+    expect(cancels[1]?.params).toEqual({ sessionId: id, _meta: { acpmux: { holdQueue: true } } });
+  } finally {
+    if (before === undefined) delete experiments.cmuxExperiments;
+    else experiments.cmuxExperiments = before;
+    client.close?.();
+  }
+});
+
 test("Stop says it is stopping until the turn ends", async () => {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");

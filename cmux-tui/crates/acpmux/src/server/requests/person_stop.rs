@@ -63,5 +63,16 @@ pub(in crate::server) async fn stop(
     params: &Value,
     session: &Arc<Session>,
 ) -> Result<(), RpcError> {
-    if of(conn, params) { hub.person_stop(session).await } else { hub.cancel(session).await }
+    if of(conn, params) {
+        hub.person_stop_holding(session, holds_queue(params)).await
+    } else {
+        hub.cancel(session).await
+    }
+}
+
+/// The person asked their own queued prompts to wait too (`_meta.acpmux.holdQueue`, the pane's
+/// opt-in `stop-holds-queue` arm). Only a person's Stop reads it ([`stop`]); a peer that does not
+/// know the field ignores it and runs the queue on as before.
+fn holds_queue(params: &Value) -> bool {
+    params.pointer("/_meta/acpmux/holdQueue") == Some(&Value::Bool(true))
 }
