@@ -46,9 +46,13 @@ extension MacScreenPages {
                 self?.encodeProfile = Self.encodeProfile(profile)
             }
         }
+        // remoteDesktop.* defaults: read now, so a tab restored at launch starts at them, not at Auto.
+        let (defaults, laterDefaults) = ObservationStream.current({ settings.snapshot.remoteDesktop })
+        defaultPreferences = Self.preferences(defaults)
+        maxFpsCap = defaults.maxFps
         // task-owner: app-lifetime settings observation, made once at launch (AppDelegate); event-driven, holds the pages weakly
         Task { [weak self] in
-            for await defaults in ObservationStream({ settings.snapshot.remoteDesktop }) {
+            for await defaults in laterDefaults {
                 self?.defaultPreferences = Self.preferences(defaults)
                 self?.maxFpsCap = defaults.maxFps
             }
