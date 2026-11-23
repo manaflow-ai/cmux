@@ -113,7 +113,7 @@ extension AgentTabStore {
     /// The agent tabs' view store of `services`, wired to every machine's tree and daemon.
     static func wired(to services: AppServices) -> AgentTabStore {
         let tabs = AgentTabStore(build: services.environment.build, registry: services.registry, environment: services.agentPaneEnvironment ?? ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
-                                 linkScheme: services.linkScheme, settings: services.settings, paneShared: AgentPaneShared(openPanel: services.openPanel, eventSources: services.personInput.sources, apps: services.apps.client, actAsMe: services.personInput.actAsMe, flickerLog: AgentPageFlickerLog.forAppRun(), focusLoss: { [weak focusLog = services.focusLog] window, detail in focusLog?.pageInputBlurred(window: window, detail: detail) }, hostMarks: services.personInput.hostMarks),
+                                 linkScheme: services.linkScheme, settings: services.settings, paneShared: AgentPaneShared(openPanel: services.openPanel, eventSources: services.personInput.sources, apps: services.apps.client, actAsMe: services.personInput.actAsMe, flickerLog: AgentPageFlickerLog.forAppRun(), focusLoss: { [weak focusLog = services.focusLog] window, detail in focusLog?.pageInputBlurred(window: window, detail: detail) }, hostMarks: services.personInput.hostMarks, machineJoinToken: CloudSignInEnroll.machineRoutesToken(auth: services.cloud.auth, identity: services.cloud.installIdentity)),
                                  attentionTabs: services.attentionTabs,
                                  daemons: services.acpmuxDaemons, updates: services.daemonUpdates, peerApprover: services.peerApprover)
         CloudFrontedChats.wire(tabs, services: services); tabs.onRemoteChatStarted = { [weak services] host, session, cwd, harness in // the Cloud chats Mac tabs show in place first (cmux#47677)
@@ -657,12 +657,6 @@ extension AgentTabStore {
     /// construction and on each observed sign-in/account transition, so sign-in restores them.
     /// A Cloud machine reaches models through its edge, so no action here moves a login to it.
     func syncCloudAccountActions(services: AppServices) {
-        // Door A: a pane's join of a machine over ssh goes with the token the hub's machine routes take
-        // (the sign-in enroll's, CloudSignInEnroll); nil signed out, and the pane says to sign in.
-        machineJoinToken = { [weak services] in
-            guard let services else { return nil }
-            return await services.cloud.auth.machineRoutesToken(identity: services.cloud.installIdentity)
-        }
         if services.cloud.auth.isSignedIn {
             tryAnotherApproach = { [weak services] (chat: String, session: String, throughSeq: Int) async throws -> [String: Any] in
                 guard let services else { throw CancellationError() }

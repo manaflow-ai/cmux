@@ -16,6 +16,8 @@ public import CmuxNextDesign
 /// - `newTabText`: the app's one maker and keeper of the JSON text of a New Tab context's shared part
 ///   (``AgentPaneNewTabText``): each page's model gets it, so the pages of a held New Tab key cost one make.
 /// - `hostMarks`: the app's host marks (`AppServices.personInput.hostMarks`, ``AgentPaneHostMarks``); nil (tests): a key's mark is never taken back.
+/// - `machineJoinToken`: the person's cmux access token a Door A join goes with
+///   (``AgentPaneTransport/machineJoinToken``); nil (tests, signed out) and the pane says to sign in.
 public struct AgentPaneShared {
     public let openPanel: MadeAheadOpenPanel?
     public let eventSources: EventSourceProcesses
@@ -25,12 +27,14 @@ public struct AgentPaneShared {
     public let focusLoss: AgentPaneView.PageFocusLoss?
     public let newTabText: AgentPaneNewTabText
     public let hostMarks: AgentPaneHostMarks?
+    public let machineJoinToken: (@MainActor () async -> String?)?
 
     /// The defaults (tests): no open panel, a posting-process table of the pane's own, no apps, no grant, no flicker log, no focus log,
-    /// a New Tab text of this value's own and no host marks.
+    /// a New Tab text of this value's own, no host marks and no join token.
     public init(openPanel: MadeAheadOpenPanel? = nil, eventSources: EventSourceProcesses = EventSourceProcesses(), apps: AppsClient? = nil,
                 actAsMe: AgentPaneActAsMe? = nil, flickerLog: AgentPageFlickerLog? = nil, focusLoss: AgentPaneView.PageFocusLoss? = nil,
-                newTabText: AgentPaneNewTabText = AgentPaneNewTabText(), hostMarks: AgentPaneHostMarks? = nil) {
+                newTabText: AgentPaneNewTabText = AgentPaneNewTabText(), hostMarks: AgentPaneHostMarks? = nil,
+                machineJoinToken: (@MainActor () async -> String?)? = nil) {
         self.hostMarks = hostMarks
         self.openPanel = openPanel
         self.eventSources = eventSources
@@ -39,6 +43,7 @@ public struct AgentPaneShared {
         self.flickerLog = flickerLog
         self.focusLoss = focusLoss
         self.newTabText = newTabText
+        self.machineJoinToken = machineJoinToken
     }
 }
 
@@ -50,6 +55,7 @@ extension AgentPaneView {
                   openPanel: shared.openPanel, eventSources: shared.eventSources, flickerLog: shared.flickerLog)
         model.transport.gestures.actAsMe = shared.actAsMe
         model.hostTouch.marks = shared.hostMarks
+        if let token = shared.machineJoinToken { model.transport.machineJoinToken = token }
         model.newTabText = shared.newTabText // before the page's first request: a new view's document has no shared text
         onPageFocusLost = shared.focusLoss
         showActAsMe(shared.actAsMe)
