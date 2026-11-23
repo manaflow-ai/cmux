@@ -34,6 +34,12 @@ final class ListPerfProfileUITests: XCTestCase {
     @MainActor func testEvents500() { run("inspector", ["LIST_COUNT": "500"]) }
     // final.sh: "events-burst       inspector   LIST_COUNT=500 LIST_STREAM=1"
     @MainActor func testEventsBurst() { run("inspector", ["LIST_COUNT": "500", "LIST_STREAM": "1"]) }
+    // Not a final.sh case: a burst of 2000 records arriving while the reader stays at the top
+    // (LIST_EDGE=burst at LIST_EDGE_AFTER=8 s, no passes); the rig logs it as the
+    // "inspector-burst" frame-interval window.
+    @MainActor func testEventsBurstAtTop() {
+        run("inspector", ["LIST_COUNT": "500", "LIST_PASSES": "0", "LIST_EDGE": "burst", "LIST_EDGE_AFTER": "8"])
+    }
     // final.sh: "subagent-2000      subagent    LIST_COUNT=2000 LIST_PASSES=1"
     @MainActor func testSubagent2000() { run("subagent", ["LIST_COUNT": "2000", "LIST_PASSES": "1"]) }
     // final.sh: "subagent-stream    subagent    LIST_COUNT=40 LIST_STREAM=1"
