@@ -11,11 +11,14 @@
 //!
 //! A slot is given back when the dial's connection opens or fails, or after [`HOLD`] at most,
 //! so a path that hangs (a dead relay) cannot hold the gate shut for its whole connect timeout.
+//! A freed slot goes to a waiting wanted dial first, then to the others in the order they came
+//! (a FIFO semaphore would hand it to a background dial that only queued earlier).
 
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
-use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use tokio::sync::oneshot;
 use tokio::time::Instant;
 
 /// Dials in flight at once, and dials of one burst that go with no spread.
@@ -34,7 +37,7 @@ pub fn global() -> &'static DialGate {
 }
 
 pub struct DialGate {
-    slots: Arc<Semaphore>,
+    slots: Arc<Slots>,
     size: usize,
     spread: Duration,
     hold: Duration,
@@ -53,7 +56,9 @@ impl DialGate {
     pub fn new(slots: usize, spread: Duration, hold: Duration) -> Self {
         let slots = slots.max(1);
         Self {
-            slots: Arc::new(Semaphore::new(slots)),
+            slots: Arc::new(Slots {
+                waiting: Mutex::new(Waiting { free: slots, ..Waiting::default() }),
+            }),
             size: slots,
             spread,
             hold,
@@ -85,7 +90,7 @@ impl DialGate {
     /// client waits on the peer, `wanted`) after a start drawn in the spread with `jitter` (in
     /// `0.0..1.0`); then for a free slot, which the dial holds until it drops it. A wanted dial
     /// skips the spread, so it queues for a slot ahead of the burst's spread ones.
-    pub async fn enter(&self, wanted: bool, jitter: f64) -> Option<OwnedSemaphorePermit> {
+    pub async fn enter(&self, wanted: bool, jitter: f64) -> Option<Slot> {
         let now = Instant::now();
         let place = {
             let mut burst = self.burst.lock().unwrap_or_else(PoisonError::into_inner);
@@ -96,26 +101,104 @@ impl DialGate {
             burst.entered
         };
         let spread = place > self.size && !wanted;
-        match self.slots.clone().try_acquire_owned() {
-            Ok(permit) if !spread => return Some(permit),
-            other => drop(other),
+        if !spread && let Some(slot) = Slots::try_take(&self.slots) {
+            return Some(slot);
         }
         self.waited.fetch_add(1, Ordering::Relaxed);
         if spread {
             tokio::time::sleep(self.spread.mul_f64(jitter.clamp(0.0, 1.0))).await;
         }
-        // The semaphore is never closed; were it, the dial goes without a slot.
-        self.slots.clone().acquire_owned().await.ok()
+        Slots::take(&self.slots, wanted).await
     }
 
     /// Dials holding a slot now.
     pub fn in_flight(&self) -> usize {
-        self.size.saturating_sub(self.slots.available_permits())
+        self.size.saturating_sub(self.slots.lock().free)
     }
 
     /// Dials that waited on the gate since start.
     pub fn waited(&self) -> u64 {
         self.waited.load(Ordering::Relaxed)
+    }
+}
+
+/// The gate's slots: a count of free ones, and the dials waiting for one, wanted ones apart.
+struct Slots {
+    waiting: Mutex<Waiting>,
+}
+
+#[derive(Default)]
+struct Waiting {
+    free: usize,
+    wanted: VecDeque<oneshot::Sender<Slot>>,
+    rest: VecDeque<oneshot::Sender<Slot>>,
+}
+
+/// A dial's slot, given back (to the next waiting dial, or to the free count) when dropped.
+/// A slot handed to a waiter that was cancelled is dropped with the channel, so it comes back too.
+pub struct Slot {
+    slots: Option<Arc<Slots>>,
+}
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        if let Some(slots) = self.slots.take() {
+            Slots::give_back(&slots);
+        }
+    }
+}
+
+impl Slots {
+    fn lock(&self) -> std::sync::MutexGuard<'_, Waiting> {
+        self.waiting.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn try_take(slots: &Arc<Self>) -> Option<Slot> {
+        let mut waiting = slots.lock();
+        if waiting.free == 0 {
+            return None;
+        }
+        waiting.free -= 1;
+        Some(Slot { slots: Some(slots.clone()) })
+    }
+
+    /// A free slot now, else the next one given back that no wanted dial (or, for a wanted
+    /// one, no earlier wanted dial) waits on. `None` only if the gate itself is gone.
+    async fn take(slots: &Arc<Self>, wanted: bool) -> Option<Slot> {
+        let handed = {
+            let mut waiting = slots.lock();
+            if waiting.free > 0 {
+                waiting.free -= 1;
+                return Some(Slot { slots: Some(slots.clone()) });
+            }
+            let (tx, rx) = oneshot::channel();
+            let queue = if wanted { &mut waiting.wanted } else { &mut waiting.rest };
+            queue.retain(|waiter| !waiter.is_closed());
+            queue.push_back(tx);
+            rx
+        };
+        handed.await.ok()
+    }
+
+    /// Hand a slot to the first live waiter, wanted ones first; with none, it is free.
+    fn give_back(slots: &Arc<Self>) {
+        loop {
+            let next = {
+                let mut waiting = slots.lock();
+                match waiting.wanted.pop_front().or_else(|| waiting.rest.pop_front()) {
+                    Some(next) => next,
+                    None => {
+                        waiting.free += 1;
+                        return;
+                    }
+                }
+            };
+            match next.send(Slot { slots: Some(slots.clone()) }) {
+                Ok(()) => return,
+                // That waiter was cancelled: this slot goes to the next one, not back through drop.
+                Err(mut slot) => slot.slots = None,
+            }
+        }
     }
 }
 
@@ -202,6 +285,63 @@ mod tests {
         spread.await.unwrap();
         wanted.await.unwrap();
         assert_eq!(*order.lock().unwrap(), vec!["wanted", "spread"]);
+    }
+
+    /// A background dial already queued for a slot does not go before a wanted one that queued
+    /// after it: the freed slot goes to the wanted dial.
+    #[tokio::test(start_paused = true)]
+    async fn a_wanted_dial_goes_before_an_earlier_queued_background_one() {
+        let gate = gate();
+        let mut held: Vec<_> =
+            futures::future::join_all((0..3).map(|_| gate.enter(false, 0.0))).await;
+        let order = Arc::new(Mutex::new(Vec::new()));
+        let background = {
+            let (gate, order) = (gate.clone(), order.clone());
+            tokio::spawn(async move {
+                gate.pass(false, 0.0, async { order.lock().unwrap().push("background") }).await;
+            })
+        };
+        // The background dial (spread with jitter 0) is queued for a slot before the wanted one.
+        tokio::time::sleep(Duration::from_millis(1)).await;
+        let wanted = {
+            let (gate, order) = (gate.clone(), order.clone());
+            tokio::spawn(async move {
+                gate.pass(true, 0.0, async { order.lock().unwrap().push("wanted") }).await;
+            })
+        };
+        tokio::time::sleep(Duration::from_millis(1)).await;
+        assert!(order.lock().unwrap().is_empty());
+        // One slot comes free: the wanted dial takes it, and the background one goes after.
+        held.pop();
+        wanted.await.unwrap();
+        background.await.unwrap();
+        assert_eq!(*order.lock().unwrap(), vec!["wanted", "background"]);
+        assert_eq!(gate.in_flight(), 2);
+        drop(held);
+        assert_eq!(gate.in_flight(), 0);
+    }
+
+    /// A dial cancelled while it waits for a slot (its peer stopped) costs the gate nothing:
+    /// the slot it would have had goes to the next dial, or back to free.
+    #[tokio::test(start_paused = true)]
+    async fn a_cancelled_waiting_dial_does_not_keep_a_slot() {
+        let gate = gate();
+        let held: Vec<_> = futures::future::join_all((0..3).map(|_| gate.enter(true, 0.0))).await;
+        let gave_up = tokio::time::timeout(Duration::from_millis(100), gate.enter(true, 0.0)).await;
+        assert!(gave_up.is_err());
+        let next = tokio::spawn({
+            let gate = gate.clone();
+            async move { gate.enter(true, 0.0).await.is_some() }
+        });
+        tokio::task::yield_now().await;
+        drop(held);
+        assert!(next.await.unwrap());
+        assert_eq!(gate.in_flight(), 0);
+        let started = Instant::now();
+        let slots: Vec<_> = futures::future::join_all((0..3).map(|_| gate.enter(true, 0.0))).await;
+        assert_eq!(started.elapsed(), Duration::ZERO);
+        assert_eq!(gate.in_flight(), 3);
+        drop(slots);
     }
 
     /// A dial that hangs gives its slot back after the hold, and still runs to its end.
