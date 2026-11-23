@@ -788,8 +788,10 @@ fn an_agent_starts_a_chat_in_a_workspace_and_drives_it_without_the_app() {
     let (code, policy) = chat_json(as_caller(), &["new", "--policy", "approve-all"]);
     assert_eq!(code, Some(2), "{policy}");
 
-    // A workspace this session does not have starts nothing.
-    let (code, unknown) = chat_json(as_caller(), &["new", "--workspace", "ws_nope", "--", "hi"]);
+    // A workspace this session does not have starts nothing (a well-formed id: a malformed one is
+    // refused earlier, as `validation.invalid`).
+    let missing = format!("ws_{}", "0".repeat(32));
+    let (code, unknown) = chat_json(as_caller(), &["new", "--workspace", &missing, "--", "hi"]);
     assert_eq!(code, Some(3), "{unknown}");
     assert_eq!(error_of(&unknown)["code"], "selector.not_found", "{unknown}");
     let (code, both) = chat_json(as_caller(), &["new", "--workspace", "a", "--pane", "b"]);
