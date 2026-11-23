@@ -553,6 +553,24 @@
   text-align: center;
   letter-spacing: var(--text-caption--letter-spacing);
 }
+/* A failed read's Retry under the note: a small button on the slot's own surface. */
+.cv-user__image-retry {
+  margin-top: var(--ds-space-1);
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+  color: var(--agent-text);
+  font: inherit;
+  cursor: default;
+}
+.cv-user__image-retry:hover {
+  background: color-mix(in srgb, var(--agent-text) 18%, transparent);
+}
+.cv-user__image-retry:focus-visible {
+  outline: var(--cmux-focus-ring-width) solid var(--agent-text);
+  outline-offset: 1px;
+}
 
 /* A Chief subagent's first message: the Chief's view as one collapsed line above the task, with its
    Copy at the line's trailing end (App.tsx). The summary keeps the Copy's width free, so the label
@@ -3978,6 +3996,24 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Tool row type, set by a transcript look (transcriptLook.ts toolTypeVariables; Leo, 2026-11-18:
+   "you guys need to be tuning font sizes for tool calls and such too"). Each rule applies only while
+   its token is set (`data-transcript-tool-*` on the root, transcriptLookAttributes), so the cmux look
+   draws today's rows. The words' size is a share of the text size, at most all of it, and every row
+   keeps its 20px line, so no size moves a row (test/transcript-look-no-shift.test.ts). Unset, the
+   command's face follows the title's. */
+:root[data-transcript-tool-size] .cv-tool {
+  font-size: calc(var(--cv-font-size) * var(--cv-tool-text-scale, 1));
+}
+:root[data-transcript-tool-weight] .cv-tool {
+  font-weight: var(--cv-tool-weight, 400);
+}
+:root[data-transcript-tool-font] .cv-tool {
+  font-family: var(--cv-tool-font, var(--cv-font));
+}
+:root[data-transcript-tool-command-font] .cv-tool :is(.cv-command__line, .cv-tool-label__subject, .cv-tool__file) {
+  font-family: var(--cv-tool-command-font, inherit);
+}
 /* A tool run's or group's summary line (ToolRun.tsx, ToolGroupRow.tsx) lights its words to the
    primary tone on hover only, as Worked for does. Open or focused (a click leaves the focus on it),
    its glyph, words and chevron keep their rest tones; keyboard focus still draws the ring. The inner
@@ -5808,6 +5844,20 @@ a.cv-sha:focus-visible {
   max-height: calc(var(--cv-font-size, 14px) * 8 * 18 / 14 + 16px);
   overscroll-behavior: auto;
 }
+/* A look's output type (`toolOutput.textSize`, `toolOutput.font`; Tool row type, above), for a
+   call's output and an opened shell's command and output alike: its lines
+   stay 1.5 times its size, as 18 is to 12, and the cut viewport stays eight of them. Only an opened
+   call's body changes height, and the row estimator never estimates it (it is measured once drawn). */
+:root[data-transcript-tool-output-size] :is(.cv-tool-output, .cv-shell__command, .cv-shell__body) {
+  font-size: calc(var(--cv-font-size) * var(--cv-tool-output-scale, 12 / 14));
+  line-height: calc(var(--cv-font-size) * var(--cv-tool-output-scale, 12 / 14) * 1.5);
+}
+:root[data-transcript-tool-output-size] .cv-tool-output[data-output-viewport]:not([data-preview="all"]) {
+  max-height: calc(var(--cv-font-size, 14px) * var(--cv-tool-output-scale, 12 / 14) * 1.5 * 8 + 16px);
+}
+:root[data-transcript-tool-output-font] :is(.cv-tool-output, .cv-shell__command, .cv-shell__body) {
+  font-family: var(--cv-tool-output-font, var(--cv-mono));
+}
 :is(.cv-tool-output, .cv-tool-output__markdown)[data-output-viewport][data-preview="all"] {
   max-height: min(70vh, 640px);
 }
@@ -6694,26 +6744,29 @@ a.cv-sha:focus-visible {
      the roll out, so the call's name leaves the line before it lands in its row, never drawn twice
      (thinking-tool-swap-frames.test.ts), and fades in on the exit lead, so the hand-over rests about
      as soon as a row arriving alone would (`wait`: on the full arrival step, 50 ms later). The
-     gallery's other looks (the hand-over above). */
-  .acpmux-scroll:has(.acpmux-row[data-row-id="thinking-live"]) .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
+     gallery's other looks (the hand-over above). `data-live-line` is the scroller's mark that the live
+     line is mounted (VirtualTranscript `liveLineMounted`), doubled to keep the specificity of the `:has()` it
+     replaces. Never a `:has()` on the scroller: every
+     node inserted under it checks again. */
+  .acpmux-scroll[data-live-line][data-live-line] .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
     animation-delay: var(--agent-motion-arrive, 80ms);
     animation-duration: var(--cv-exit-lead);
   }
-  [data-live-swap="wait"] .acpmux-scroll:has(.acpmux-row[data-row-id="thinking-live"]) .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
+  [data-live-swap="wait"] .acpmux-scroll[data-live-line][data-live-line] .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
     animation-duration: var(--agent-motion-arrive, 80ms);
   }
-  :is([data-live-swap="exit"], [data-live-swap="quick"], [data-live-swap="slide"]) .acpmux-scroll:has(.acpmux-row[data-row-id="thinking-live"]) .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
+  :is([data-live-swap="exit"], [data-live-swap="quick"], [data-live-swap="slide"]) .acpmux-scroll[data-live-line][data-live-line] .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
     animation-delay: var(--cv-exit-lead);
     animation-duration: var(--agent-motion-arrive, 80ms);
   }
-  [data-live-swap="quick"] .acpmux-scroll:has(.acpmux-row[data-row-id="thinking-live"]) .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
+  [data-live-swap="quick"] .acpmux-scroll[data-live-line][data-live-line] .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
     animation-duration: var(--cv-exit-lead);
   }
-  :is([data-live-swap="before"], [data-live-swap="cross"]) .acpmux-scroll:has(.acpmux-row[data-row-id="thinking-live"]) .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
+  :is([data-live-swap="before"], [data-live-swap="cross"]) .acpmux-scroll[data-live-line][data-live-line] .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
     animation-delay: 0s;
     animation-duration: var(--agent-motion-arrive, 80ms);
   }
-  :is([data-live-swap="roll"], [data-live-swap="cross"]) .acpmux-scroll:has(.acpmux-row[data-row-id="thinking-live"]) .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant) {
+  :is([data-live-swap="roll"], [data-live-swap="cross"]) .acpmux-scroll[data-live-line][data-live-line] .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant) {
     animation-delay: 0s;
   }
   .acpmux-row__message-presentation {
