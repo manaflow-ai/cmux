@@ -81,6 +81,7 @@ pub const CAPABILITIES: &[Capability] = &[
             method::MUX_ROUTE_LIST,
             method::MUX_KILL,
             method::MUX_ARCHIVE,
+            method::MUX_AUTO_SETTLE,
             method::MUX_SIDE,
             method::MUX_MARK_UNREAD,
             method::MUX_ATTACHMENT,

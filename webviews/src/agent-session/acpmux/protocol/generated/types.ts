@@ -277,6 +277,12 @@ export type AuthorMetaFields = {
   author?: (Author | null);
 } & Record<string, unknown>;
 
+export interface AutoSettleParams {
+  _meta?: RequestMeta;
+  never?: unknown;
+  sessionId?: unknown;
+}
+
 /** Whether a harness's autocompact is capped (`UsageStats.autocompact`). */
 export type Autocompact = ("capped" | "none" | "unknown");
 

@@ -99,6 +99,9 @@ nonisolated enum AcpmuxPaneMethods {
         // `archived` tag: never `_acpmux/tag`, which may set any tag (the handoff target among
         // them). The app's tab close stays a host call (`pane.action closeTab`).
         "_acpmux/archive", "_acpmux/markUnread",
+        // The chat menu's Never Settle of a session in the pane's scope (direct.ts autoSettle;
+        // acpmux hub/auto_settle.rs): sets, removes or reads only the `autoSettle` tag.
+        "_acpmux/auto_settle",
         // This Mac's agent CLI health for the chat notice and the Harnesses page (direct.ts
         // harnessHealth, cx-jlzsf): `refresh` runs the configured harnesses' version and sign-in
         // checks (and the auto-updates the person opted into), as acpmux does every few hours;
@@ -332,7 +335,7 @@ nonisolated enum AcpmuxPaneMethods {
         "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
         "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/inbox_thread", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/turn_shots", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
         "_acpmux/queue_approve", "_acpmux/queue_decline", "_acpmux/queue_get",
-        "_acpmux/secret_submit", "_acpmux/presets", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
+        "_acpmux/secret_submit", "_acpmux/presets", "_acpmux/archive", "_acpmux/auto_settle", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
         "_acpmux/side_chat", "_acpmux/offer_respond", "_acpmux/memory_resolve", "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/native_history", "_acpmux/agent_pair_resume", "_acpmux/agent_hold", "_acpmux/app_reply",
         "_acpmux/watch_take_over",
         "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set", "_acpmux/set_tools",

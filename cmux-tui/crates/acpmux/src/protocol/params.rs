@@ -181,6 +181,8 @@ keyed! {
     AppReplyParams: ["sessionId", "to", "replyTo", "threadId", "text", "replyId"];
     /// `_acpmux/archive`.
     ArchiveParams: ["sessionId", "archived"];
+    /// `_acpmux/auto_settle`.
+    AutoSettleParams: ["sessionId", "never"];
     /// `_acpmux/attachment`.
     AttachmentParams: ["sessionId", "id"];
     /// `_acpmux/turn_shots`.

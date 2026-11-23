@@ -948,6 +948,14 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/auto_settle",
+      "params": {
+        "$ref": "#/types/AutoSettleParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/side",
       "params": {
         "$ref": "#/types/SideParams"
@@ -2778,6 +2786,17 @@
           "$ref": "#/types/RequestMeta"
         },
         "archived": true,
+        "sessionId": true
+      },
+      "type": "object"
+    },
+    "AutoSettleParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "never": true,
         "sessionId": true
       },
       "type": "object"

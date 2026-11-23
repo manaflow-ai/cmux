@@ -248,6 +248,7 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::MUX_TAG, Run(json!({"sessionId": "$S", "set": {"lso": "1"}}))),
         (method::MUX_DETACH_PARENT, Run(json!({"sessionId": "$S"}))),
         (method::MUX_ARCHIVE, Run(json!({"sessionId": "$S", "archived": false}))),
+        (method::MUX_AUTO_SETTLE, Run(json!({"sessionId": "$S"}))),
         // `archived: false` brings a log back: an in-memory store has no archive file, so the
         // chat `$S` stays as it is for the rows after this one.
         (method::MUX_COLD_ARCHIVE, Run(json!({"sessionId": "$S", "archived": false}))),

@@ -37,6 +37,8 @@ mod asks_below;
 mod atomic_json;
 pub use crate::build_info::{build, install_build, version_line};
 pub(crate) mod auto_resume;
+// Chats settle on their own: a merged or closed pull request, or idle days.
+pub(crate) mod auto_settle;
 mod bg_notify;
 mod bg_tasks;
 pub use bg_tasks::{BgScope, bg_owner_words};

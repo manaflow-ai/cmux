@@ -163,6 +163,7 @@ import {
   type AcpmuxSessionEntry,
 } from "./sessionList";
 import { findSession } from "./sessionIndex";
+import { useSettledToasts } from "./settledToasts";
 import { setBookmarkTransport } from "./threadMinimap/bookmarks";
 import {
   composerDraft,
@@ -654,7 +655,7 @@ import { mergeInboxNotices } from "./conversation/inboxNotice";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
 import { cloudAgentLogin, localApiKeyLogin, SIGN_IN_ON_MACHINE } from "./cloudAgentLogin";
 import { handoffTurns } from "./cloudHandoffTurn";
-import { archiveRow, markUnreadRow } from "./header/archiveRow";
+import { type AutoSettleState, archiveRow, markUnreadRow, neverSettleRow } from "./header/archiveRow";
 import { archiveClosesTab, deleteClosesTab } from "./header/archiveClose";
 import { afterDeleteDismiss } from "./header/deleteDismiss";
 import { DeleteChatDialog } from "./header/DeleteChatDialog";
@@ -1487,6 +1488,27 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         ),
       ),
     [clientSnapshot, switchView, catalog, shownStarting],
+  );
+  // Unsettle (a settle toast's Undo, the home's Settled shelf): Unarchive by id (direct.ts
+  // `unsettle`); a refusal says so in a toast.
+  const unsettleChat = useCallback(
+    (entry: AcpmuxSessionEntry) => {
+      const client = directClient.current;
+      if (!client) return notices.failed(translate("error.notOpen"));
+      client.unsettle(entry.sessionId).catch((error: unknown) => notices.failed(errorMessage(error) || String(error)));
+    },
+    [notices],
+  );
+  // The chats this pane has shown: the app's relay holds each in the pane's scope from then on
+  // (AcpmuxPaneSessions, which never drops one), so only these may be unsettled from here.
+  const [shownChats, setShownChats] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => {
+    const shown = snapshot.sessionId;
+    if (shown) setShownChats((held) => (held.has(shown) ? held : new Set(held).add(shown)));
+  }, [snapshot.sessionId]);
+  const holdsChat = useCallback(
+    (entry: AcpmuxSessionEntry) => !entry.peer && shownChats.has(entry.sessionId),
+    [shownChats],
   );
   // The dialog belongs to the chat it opened on: switching chats closes it.
   const [shareChat, setShareChat] = useState(snapshot.sessionId);
@@ -4386,6 +4408,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       },
     );
   }, []);
+  // A chat acpmux settles while the pane is open says so (settledToasts.ts): Undo on a chat this
+  // pane holds, else Open, which selects it as a Home row does.
+  useSettledToasts({
+    sessions: snapshot.sessions,
+    toasts: paneToasts,
+    holds: holdsChat,
+    unsettle: unsettleChat,
+    open: selectSession,
+    t,
+  });
   /// What the DEBUG automation verbs (automation.ts) read and run: this render's chat and the
   /// same selection and changes-view paths the sidebar and the edited-files card use.
   const automationView = useRef<{
@@ -10469,11 +10501,42 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       sessionId: snapshot.sessionId,
       archived,
       local: localCwd !== undefined,
+      settled: findSession(snapshot.sessions, snapshot.sessionId)?.settled !== undefined,
     },
     (archived) => ignoreFailure(archiveChat(archived)),
     t,
   );
   archiveChatRef.current = archive && !archived ? archive.onSelect : undefined;
+  // The chat menu's Never Settle (header/archiveRow.ts neverSettleRow): acpmux says, once per
+  // chat shown, whether a Settle Chats setting is on and whether this chat is set to never.
+  const [autoSettle, setAutoSettle] = useState<AutoSettleState>();
+  const autoSettleLocal = localCwd !== undefined;
+  // `never` undefined only reads (an acpmux without it answers nothing, and the row stays away);
+  // a write that fails says so.
+  const applyAutoSettle = (sessionId: string, never?: boolean) => {
+    const client = directClient.current;
+    if (!client) return;
+    client.autoSettle(sessionId, never).then(
+      (state) => {
+        if (state && snapshotRef.current?.sessionId === sessionId) setAutoSettle({ sessionId, ...state });
+      },
+      (error: unknown) => {
+        if (never !== undefined) notices.failed(errorMessage(error) || String(error));
+      },
+    );
+  };
+  const readAutoSettle = useEffectEvent((sessionId: string) => applyAutoSettle(sessionId));
+  useEffect(() => {
+    if (snapshot.sessionId && autoSettleLocal && !archived) readAutoSettle(snapshot.sessionId);
+  }, [snapshot.sessionId, autoSettleLocal, archived]);
+  const neverSettle = neverSettleRow(
+    { sessionId: snapshot.sessionId, archived, local: autoSettleLocal },
+    autoSettle,
+    (never) => {
+      if (snapshot.sessionId) applyAutoSettle(snapshot.sessionId, never);
+    },
+    t,
+  );
   const markUnread = markUnreadRow(
     {
       sessionId: snapshot.sessionId,
@@ -11114,6 +11177,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           ? []
           : miniRow({ sessionId: snapshot.sessionId, mini: chatMini() }, (sessionId) => void showInMini(sessionId), t)),
         ...(markUnread ? [markUnread] : []),
+        ...(neverSettle ? [neverSettle] : []),
         ...(archive ? [archive] : []),
         ...remove,
         {
@@ -14405,6 +14469,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       }
                       onAnswer={(item, choice) => answerFromHome(callNative, item, choice, selectSession)}
                       shortcuts={!hasBottomAsk}
+                      onUnsettle={unsettleChat}
+                      holds={holdsChat}
                     />
                   </div>
                 )}

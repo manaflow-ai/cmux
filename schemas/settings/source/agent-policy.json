@@ -1589,6 +1589,15 @@
     },
     {
       "agent": "userOnly",
+      "why": "Settling moves the person's chats off their lists: whether and when is their call, not an agent's.",
+      "keys": [
+        "agents.autoSettle.onMerge",
+        "agents.autoSettle.onClose",
+        "agents.autoSettle.idleDays"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "Which folders an agent may open without asking is the person's call: an agent must not widen what it may open without asking.",
       "keys": [
         "agents.trust.autoTrust",

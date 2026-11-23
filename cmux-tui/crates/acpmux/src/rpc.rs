@@ -654,6 +654,10 @@ pub mod method {
     /// The chat menu's Archive (`archived: true`) or Unarchive of one session:
     /// the `archived` tag, valued with when (milliseconds), set or removed.
     pub const MUX_ARCHIVE: &str = "_acpmux/archive";
+    /// The chat menu's Never Settle of one session (`hub/auto_settle.rs`): `never: true` sets
+    /// the chat's `autoSettle=never` override, `false` removes it, absent only reads. Answers
+    /// the summary plus `autoSettle: {never, on}` (`on`: a settle setting is on on this daemon).
+    pub const MUX_AUTO_SETTLE: &str = "_acpmux/auto_settle";
     /// New side chat: tags the fork `sessionId` as a side chat of `chat` (the
     /// `side` tag, valued with that session), which keeps it off the lists.
     pub const MUX_SIDE: &str = "_acpmux/side";
