@@ -64,9 +64,9 @@ final class SidebarUpdateToggle: NSView {
     static var size: SidebarUpdateToggleSize { SidebarTunables.updateCardAutomaticSize.value }
     static var font: NSFont {
         switch size {
-        case .compact: Typography.caption
-        case .regular: Typography.body
-        case .large: Typography.bodyEmphasized
+        case .compact: Typography.cardCaption
+        case .regular: Typography.cardBody
+        case .large: Typography.cardMessage
         }
     }
     static var boxSize: CGFloat {
