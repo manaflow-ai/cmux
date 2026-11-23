@@ -123,7 +123,7 @@ struct HttpsFetch;
 impl HttpsFetch {
     async fn body(url: &str, max: usize) -> Result<Vec<u8>, String> {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let client = reqwest::Client::builder()
+        let client = crate::happy_dial::http_client()
             .https_only(true)
             .redirect(reqwest::redirect::Policy::none())
             .timeout(std::time::Duration::from_secs(600))
