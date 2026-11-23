@@ -1,5 +1,6 @@
 import CmuxNextAgentIntegrations
 import CmuxNextBrowserImport
+import CmuxNextSettings
 import Foundation
 
 /// The onboarding page's state (`webviews/src/pages/onboarding/ops.ts`, `OnboardingState`): what
@@ -304,6 +305,10 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
     let importer: Importer?
     let computerUse: ComputerUse?
     let makeItYours: MakeItYours?
+    /// The Agents step's sign-in rows and providers' readiness (``OnboardingSignIn``); left out when
+    /// null (a daemon without `_acpmux/account/readiness`, or another step), so the page is as before.
+    var signInAccounts: JSONValue = .null
+    var signInReadiness: JSONValue = .null
 
     /// Every field `ops.ts` types `T | null` is sent, as null when absent: the page reads `null`, never a
     /// missing key. (Synthesized `Encodable` leaves a nil out, so each such struct encodes itself.)
@@ -315,15 +320,21 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
         try container.encodeNullable(importer, forKey: .importer)
         try container.encodeNullable(computerUse, forKey: .computerUse)
         try container.encodeNullable(makeItYours, forKey: .makeItYours)
+        if signInReadiness != .null {
+            try container.encode(signInAccounts, forKey: .signInAccounts)
+            try container.encode(signInReadiness, forKey: .signInReadiness)
+        }
     }
 
-    private enum Keys: String, CodingKey { case step, footer, agents, importer, computerUse, makeItYours }
+    private enum Keys: String, CodingKey {
+        case step, footer, agents, importer, computerUse, makeItYours, signInAccounts, signInReadiness
+    }
 }
 
 extension OnboardingPageState {
     /// The state of `model`'s window; `images` draws the icons (nil until drawn).
     @MainActor
-    init(model: OnboardingModel, images: OnboardingPageImages) {
+    init(model: OnboardingModel, images: OnboardingPageImages, signIn: (accounts: JSONValue, readiness: JSONValue)? = nil) {
         step = model.step.rawValue
         footer = Footer(primary: Self.primary(model), primaryEnabled: model.canAdvance, skip: Self.skip(model),
                         showsBack: model.flowProgress != nil, backEnabled: model.canGoBack, progress: model.flowProgress)
@@ -331,6 +342,7 @@ extension OnboardingPageState {
         importer = model.step == .importData ? Self.importer(model.importer, images) : nil
         computerUse = model.step == .computerUse ? Self.computerUse(model.computerUse, images) : nil
         makeItYours = model.step == .makeItYours ? Self.makeItYours(model.makeItYours) : nil
+        if let signIn { (signInAccounts, signInReadiness) = signIn }
     }
 
     @MainActor

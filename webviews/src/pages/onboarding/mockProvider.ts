@@ -4,20 +4,31 @@
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
 import { agentsState, computerUseState, importState, makeItYoursState } from "./fixtures";
 import { OPS, type DensityChoice, type ImportDataKind, type OnboardingState, type WorkStyle } from "./ops";
+import type { AccountRowWire, AccountRunParams } from "../shared/signIn/accountSignIn";
+import { MockAccountSignIn } from "../shared/signIn/mockSignIn";
 
 export class MockOnboardingProvider implements PageClient {
   private state: OnboardingState;
   private readonly listeners = new Set<(state: OnboardingState) => void>();
 
-  constructor(step: string = "agents") {
+  /** The in-place sign-in (`cmux.onboarding.accounts.run`), the same mock Settings runs; tests and
+   * the gallery set its `hold` and `refusal`. */
+  readonly signIn = new MockAccountSignIn({
+    rows: () => this.state.signInAccounts ?? [],
+    set: (next) => this.change(withAccounts(this.state, next)),
+  });
+
+  /** `initial`: the gallery's and tests' state instead of the step's fixture. */
+  constructor(step: string = "agents", initial?: OnboardingState) {
     this.state =
-      step === "importData"
+      initial ??
+      (step === "importData"
         ? importState("idle")
         : step === "computerUse"
           ? computerUseState("fresh")
           : step === "makeItYours"
             ? makeItYoursState("fresh")
-            : agentsState("mixed");
+            : agentsState("mixed"));
   }
 
   private change(next: OnboardingState): void {
@@ -48,6 +59,8 @@ export class MockOnboardingProvider implements PageClient {
       case OPS.back:
         if (state.step === "importData") this.change(importState("ready"));
         return {} as R;
+      case OPS.accountsRun:
+        return (await this.signIn.run(params as AccountRunParams)) as R;
       case OPS.signIn:
         if (state.agents) this.change({ ...state, agents: { ...state.agents, signingIn: input.id ?? null } });
         return {} as R;
@@ -138,4 +151,20 @@ export class MockOnboardingProvider implements PageClient {
   handle(_op: string, _handler: PageHandler): () => void {
     return () => {};
   }
+}
+
+/** What the daemon decides once the accounts change: a provider with a signed-in account is ready
+ * (its default account's name), one without needs a sign-in; one not installed stays so. */
+function withAccounts(state: OnboardingState, accounts: AccountRowWire[]): OnboardingState {
+  const readiness = state.signInReadiness;
+  if (!readiness) return { ...state, signInAccounts: accounts };
+  const providers = readiness.providers.map((provider) => {
+    if (provider.state === "notInstalled") return provider;
+    const signedIn = accounts.filter((row) => row.family === provider.family && row.signedIn);
+    const shown = signedIn.find((row) => row.default) ?? signedIn[0];
+    return shown
+      ? { family: provider.family, state: "ready" as const, account: shown.id, label: shown.name }
+      : { family: provider.family, state: "signInRequired" as const };
+  });
+  return { ...state, signInAccounts: accounts, signInReadiness: { providers } };
 }

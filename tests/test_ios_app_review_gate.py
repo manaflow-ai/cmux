@@ -113,8 +113,23 @@ class AppReviewGateTests(unittest.TestCase):
         self.assertEqual(self.screenshot_findings("1"), {"no iphone screenshots"})
 
     def test_the_real_app_is_iphone_only(self) -> None:
-        # Every target in the real project.yml is TARGETED_DEVICE_FAMILY "1".
+        # Every shipping build in the real project.yml is TARGETED_DEVICE_FAMILY "1";
+        # only Debug also runs on an iPad mini simulator.
         self.assertEqual(gate.app_device_families(ROOT), frozenset({"1"}))
+
+    def test_a_debug_only_ipad_family_ships_iphone_only(self) -> None:
+        project = self.root / "cmux-next-ios/project.yml"
+        project.write_text(project.read_text().replace(
+            "        CMUX_MOBILE_APPLE_SIGN_IN: \"NO\"\n",
+            "        CMUX_MOBILE_APPLE_SIGN_IN: \"NO\"\n        TARGETED_DEVICE_FAMILY: \"1\"\n"
+            "      configs:\n        Debug:\n          TARGETED_DEVICE_FAMILY: \"1,2\"\n"))
+        self.assertEqual(gate.app_device_families(self.root), frozenset({"1"}))
+
+    def test_families_prints_the_shipped_families(self) -> None:
+        # ios-review-gate.yml skips a pull request's iPad leg when this prints exactly "1".
+        out = subprocess.run([sys.executable, "-I", str(ROOT / "cmux-next-ios/scripts/app_review_gate.py"), "families",
+                              "--source-root", str(ROOT)], capture_output=True, text=True, check=True).stdout
+        self.assertEqual(out.strip(), "1")
 
     def test_missing_account_deletion_blocks(self) -> None:
         write(self.root, "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileSettings/SettingsPages.swift", 'Text("Account")\n')
@@ -123,6 +138,66 @@ class AppReviewGateTests(unittest.TestCase):
     def test_external_purchase_link_blocks(self) -> None:
         write(self.root, "cmux-next-ios/App/Buy.swift", 'let u = URL(string: "https://checkout.stripe.com/x")\n')
         self.assertIn("iap.external-purchase", self.rules(self.run_lint()))
+
+    # Classes mapped from the public rejection lists (hq docs/handbook/app-review-rejections.md).
+
+    def write_chief(self, consent: str, report: str = "ChiefReport.open(conversationID: id)") -> None:
+        write(self.root, "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileChief/Chief.swift",
+              f"final class ChiefSession {{}}\n{consent}\n{report}\n")
+
+    def test_ai_chat_without_consent_blocks(self) -> None:
+        self.write_chief(consent="")
+        self.assertIn("ai.consent", self.rules(self.run_lint()))
+
+    def test_ai_consent_must_name_the_providers(self) -> None:
+        self.write_chief(consent='let k = "cmuxMobile.chief.aiSharingConsent"; let p = String(localized: "p", defaultValue: "our AI")')
+        self.assertIn("ai.consent", self.rules(self.run_lint()))
+
+    NAMED = ('let k = "cmuxMobile.chief.aiSharingConsent"; '
+             'let p = String(localized: "p", defaultValue: "Anthropic (Claude) and OpenAI")')
+    GATED = "conversation.sendGate = { retry in guard !ChiefAIConsent.isGranted else { return true }; return false }"
+
+    def test_ai_consent_naming_the_providers_passes(self) -> None:
+        self.write_chief(consent=f"{self.NAMED}\n{self.GATED}")
+        self.assertEqual(self.rules(self.run_lint()), set())
+
+    def test_ai_consent_only_on_the_send_button_blocks(self) -> None:
+        # Asked in the Send button's handler alone: Return and the effect picker skip it.
+        self.write_chief(consent=f"{self.NAMED}\nfunc sendTapped() {{ if !ChiefAIConsent.isGranted {{ return }} }}")
+        self.assertIn("ai.consent", self.rules(self.run_lint()))
+
+    def test_ai_chat_without_a_report_control_blocks(self) -> None:
+        self.write_chief(consent='let k = "aiSharingConsent"; let p = String(localized: "p", defaultValue: "Anthropic and OpenAI")',
+                         report="")
+        self.assertIn("ugc.report", self.rules(self.run_lint()))
+
+    def test_unfinished_copy_blocks(self) -> None:
+        write(self.root, "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileSettings/Labs.swift",
+              'Text("Adds a toggle. Still in progress.")\n// Text("coming soon") in a comment is fine\n')
+        lint = self.run_lint()
+        self.assertEqual([f.where for f in lint.findings if f.rule == "copy.unfinished"],
+                         ["cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileSettings/Labs.swift:1"])
+
+    def test_an_ipv4_only_lookup_and_an_allow_pre_prompt_warn(self) -> None:
+        write(self.root, "cmux-next-ios/App/Net.swift",
+              'let h = gethostbyname(name)\nlet u = "http://10.0.0.1:8080/x"\nButton("Allow Camera") {}\n')
+        found = {(f.rule, f.severity) for f in self.run_lint().findings}
+        self.assertIn(("net.ipv4-only", "warning"), found)
+        self.assertIn(("privacy.pre-prompt", "warning"), found)
+
+    def test_a_decorated_name_or_a_competitor_keyword_blocks(self) -> None:
+        write(self.root, "cmux-next-ios/AppStoreReview/metadata/app-info/en-US.json",
+              json.dumps({"name": "cmux: Best Agent App", "subtitle": "x", "privacyPolicyUrl": "https://cmux.com/privacy-policy"}))
+        write(self.root, "cmux-next-ios/AppStoreReview/metadata/version/1.0.0/en-US.json",
+              json.dumps({"description": "cmux", "keywords": "agent,ChatGPT,terminal", "supportUrl": "https://cmux.com/support"}))
+        rules = self.rules(self.run_lint())
+        self.assertIn("metadata.decoration", rules)
+        self.assertIn("metadata.competitor-terms", rules)
+
+    def test_the_real_app_asks_before_sharing_with_ai_and_can_report(self) -> None:
+        lint = gate.Lint(ROOT, "appstore")
+        lint.check_sources()
+        self.assertEqual({f.rule for f in lint.findings} & {"ai.consent", "ugc.report", "copy.unfinished"}, set())
 
     def test_a_source_without_the_next_app_is_never_a_pass(self) -> None:
         # main ships the classic ios/ app today; the gate judges NEXT only.
