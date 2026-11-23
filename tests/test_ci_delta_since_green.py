@@ -616,7 +616,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn(label, condition)
         condition = condition.replace(label, "github.has_dev_build == 'true'")
         # These runs are not cancelled; why the job calls !cancelled() is tested in
-        # tests/test_ci_portable_job_placement.py (SkippedPlacementKeepsRouting).
+        # tests/test_ci_routed_jobs_check_needs.py.
         self.assertIn("(!cancelled() && ", condition)
         condition = condition.replace("(!cancelled() && ", "(", 1)
         # The label-event guard is tested in tests/test_ci_label_events_skip_full_ci.py.
