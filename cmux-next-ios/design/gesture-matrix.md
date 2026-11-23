@@ -32,6 +32,7 @@ Test: the `GestureConflictUITests` method that guards it, or the unit suite.
 | 1 | Agent chat (pushed) | long draft x drag down | draft scrolls, keyboard stays | FIXED | `testChat_ComposerLongDraft_DragDown_ScrollsText` |
 | 2 | Agent chat (tab) | long draft x drag down | draft scrolls, keyboard stays | FIXED | `testWorkspaceChat_ComposerLongDraft_DragDown_ScrollsText` |
 | 3 | Agent chat | short draft x swipe down | keyboard goes down | OK | `testChat_ComposerShortDraft_SwipeDown_LowersKeyboard` |
+| 3b | Agent chat | long draft at its top x swipe down | keyboard goes down | OK | `testChat_ComposerLongDraftAtTop_SwipeDown_LowersKeyboard` |
 | 4 | Terminal | long draft x drag down | draft scrolls | OK | `testTerminal_ComposerLongDraft_DragDown_ScrollsText` |
 | 5 | Terminal | composer editing x swipe right | caret moves, no back | FIXED | `testTerminal_ComposerEditing_SwipeRight_StaysInWorkspace` |
 | 6 | Agent chat (tab) | composer editing x swipe right | caret moves, no back | FIXED | `testWorkspaceChat_ComposerEditing_SwipeRight_StaysInWorkspace` |
@@ -85,7 +86,7 @@ Test: the `GestureConflictUITests` method that guards it, or the unit suite.
 | 54 | Shell tabs | content x tab switch | tab bar only | OK | |
 | 55 | Workspace | leading edge x back | back | OK | |
 
-Totals: 55 cells; 26 wrong before (1, 2, 5-16, 28, 35-38, 41, 44-47, 49, 50); 9 fixed here; 17 open, each in a cluster
+Totals: 56 cells; 26 wrong before (1, 2, 5-16, 28, 35-38, 41, 44-47, 49, 50); 9 fixed here; 17 open, each in a cluster
 below.
 
 ## Open clusters
