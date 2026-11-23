@@ -13,6 +13,8 @@ mod agent_message;
 #[cfg(unix)]
 mod agent_move;
 #[cfg(unix)]
+mod agent_move_cloud;
+#[cfg(unix)]
 mod agent_names;
 #[cfg(unix)]
 mod agent_start;
@@ -68,6 +70,8 @@ mod chat_start;
 #[cfg(unix)]
 mod chief;
 mod chief_target;
+#[cfg(unix)]
+mod cloud_agent;
 #[cfg(unix)]
 mod cloud_api;
 #[cfg(unix)]
@@ -168,6 +172,7 @@ mod start_stages;
 mod vm;
 #[cfg(unix)]
 mod vm_cleanup;
+mod vm_gcp;
 #[cfg(unix)]
 mod vm_ready;
 #[cfg(unix)]
@@ -175,6 +180,8 @@ mod vm_short;
 mod vm_words;
 #[cfg(unix)]
 mod vnc;
+#[cfg(unix)]
+pub(crate) use app::spawn_daemon_updates;
 #[cfg(unix)]
 pub(crate) use auth_token::app_token;
 #[cfg(unix)]
@@ -573,6 +580,9 @@ pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "vm",
     "customize",
     "agent-config",
+    "move",
+    "teleport",
+    "evacuate",
 ];
 
 /// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>
@@ -988,6 +998,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_team_keys::run_if_requested(args))
         .or_else(|| key_broker::run_if_requested(args))
         .or_else(|| cloud_start_chat::run_if_requested(args))
+        .or_else(|| cloud_agent::run_if_requested(args))
         .or_else(|| cloud_run_account::run_if_requested(args))
         .or_else(|| cloud_retention::run_if_requested(args))
         .or_else(|| cloud_pause_all::run_if_requested(args))
@@ -1401,8 +1412,10 @@ fn scan_globals(
             index += 1;
             continue;
         }
-        // Cloud repo actions name a chat, not a daemon, with --session.
-        if command.get(..2).is_some_and(|words| words == ["cloud", "repo"])
+        // Cloud repo and chat verbs name a chat, not a daemon, with --session.
+        if command
+            .get(..2)
+            .is_some_and(|words| words == ["cloud", "repo"] || words == ["cloud", "chat"])
             && (value == "--session" || value.starts_with("--session="))
         {
             command.push(value.clone());
@@ -1781,6 +1794,7 @@ const ROOT_HELP_SCOPES_SUFFIX: &str = "\
   notification  List and create notifications
   attention     Mark tabs where the person must act; find the next one
   agent         Manage agent sessions and terminal agents
+  move          Move agent sessions to another machine (also teleport, evacuate)
   room          Organize workspaces into rooms
   space         List and organize spaces
   closed        List and reopen closed tabs, screens, workspaces
@@ -1881,6 +1895,8 @@ USAGE
                   [--split right|down|left|up] [--cwd DIR] [--no-focus]
                   [--timeout 90s] [--no-wait] [-- ARGS...]
   cmux agent resume NAME [the same options]
+  cmux agent move|teleport|evacuate [SESSION...] --to MACHINE|auto|here [OPTIONS]
+                  (the same as cmux move; cmux move --help)
   cmux agent ls [--json]
   cmux agent send SESSION [TEXT...]
   cmux agent history SESSION
