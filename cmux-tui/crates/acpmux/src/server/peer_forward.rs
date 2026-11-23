@@ -37,7 +37,10 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::SESSION_NEW,
     method::SESSION_LIST,
     method::MUX_STATUS,
+    method::MUX_PERF,
+    method::MUX_CALLERS,
     method::MUX_SESSIONS,
+    method::MUX_USAGE,
     method::MUX_WEB_MODES,
     method::MUX_WEB_TOKEN_ROTATE,
     method::MUX_HARNESSES,
@@ -163,13 +166,21 @@ fn name_sender(hub: &Arc<Hub>, conn: &Arc<Conn>, p: &mut Value) {
         return;
     }
     let Some(caller) = conn.caller() else { return };
-    let mut meta = json!({
-        "messageSender": {
-            "name": hub.session_name(caller),
-            "sessionId": caller,
-            "host": crate::hub::host_label(),
-        },
+    let mut message_sender = json!({
+        "name": hub.session_name(caller),
+        "sessionId": caller,
+        "host": crate::hub::host_label(),
     });
+    // Its given name too, so the peer's chat names it as people do (`session_handle.rs`).
+    if let Some(given) = hub
+        .resolve(caller)
+        .ok()
+        .and_then(|s| s.read_meta(|m| m.handle.clone()))
+        .filter(|h| crate::session_handle::valid(h))
+    {
+        message_sender.set("displayName", json!(given));
+    }
+    let mut meta = json!({"messageSender": message_sender});
     if p.pointer("/_meta/acpmux/fromAgent").is_none_or(Value::is_null) {
         meta.set("fromAgent", json!(hub.session_name(caller)));
     }
@@ -661,6 +672,8 @@ async fn forward_inner(
             &mut p,
             super::requests::person_admitted(conn, params),
         );
+        // The owner's own phone controls a Claude chat the peer started, as it does one here (D13).
+        super::remote_guard::attest_owner_phone(hub, conn, params, &mut p);
         // A held prompt names its hold to the peer: a link guest's waits with `approval` left
         // off here, which a peer that reads only `approval` would run unapproved.
         if held
@@ -1225,6 +1238,18 @@ pub(super) fn strip_new_meta(p: &mut Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_forwarded_start_keeps_its_name_and_asks_to_keep_a_taken_one() {
+        let mut p = json!({"_meta": {"acpmux": {
+            "peer": "far-host", "name": "slam-09", "harness": "codex",
+            "ifNameTaken": crate::hub::SUFFIX_TAKEN_NAME,
+        }}});
+        strip_new_meta(&mut p);
+        assert_eq!(p["_meta"]["acpmux"]["name"], "slam-09");
+        assert_eq!(p["_meta"]["acpmux"]["ifNameTaken"], "suffix");
+        assert!(p["_meta"]["acpmux"].get("peer").is_none());
+    }
 
     #[test]
     fn a_peer_hold_attach_is_refused_before_forwarding() {

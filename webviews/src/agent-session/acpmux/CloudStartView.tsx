@@ -34,6 +34,7 @@ import { useCloudPlanSubscribe, type CloudPlanSubscribeStore } from "./cloudPlan
 import { useGitHubPicker, type GitHubPickerStore } from "./githubRepos";
 import "./cloudStart.css";
 import { type ChecklistStep, type QuietStage, quietStage, startupChecklist } from "./cloudStartViewModel";
+import { WithFacts } from "./chips/FactsHoverCard";
 
 type QuietLook = "inline" | "stacked" | "hint" | "thinking";
 
@@ -413,16 +414,19 @@ function TooBigActions({
             aria-label={t("cloudStart.pickRepo")}
           >
             {repos.map((repo) => (
-              <button
-                key={repo.path}
-                type="button"
-                className="acpmux-cloud-ask__button acpmux-cloud-too-big__repo"
-                data-repo={repo.path}
-                title={repo.path}
-                onClick={() => onPickRepo(repo.path)}
-              >
-                {repo.name}
-              </button>
+              <WithFacts key={repo.path} facts={[{ value: repo.path, code: true }]}>
+                {(facts) => (
+                  <button
+                    {...facts}
+                    type="button"
+                    className="acpmux-cloud-ask__button acpmux-cloud-too-big__repo"
+                    data-repo={repo.path}
+                    onClick={() => onPickRepo(repo.path)}
+                  >
+                    {repo.name}
+                  </button>
+                )}
+              </WithFacts>
             ))}
           </fieldset>
         </>

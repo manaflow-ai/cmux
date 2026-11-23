@@ -136,6 +136,61 @@ expect("NIGHTLY_DELTAS_NEAREST_SHIPPED" in workflow and "RECENT_BASES=0" in (ROO
 sparkle = (ROOT / "scripts/sparkle_generate_appcast.sh").read_text(encoding="utf-8")
 expect("SPARKLE_TOOLS_CACHE_DIR" in sparkle, "the Sparkle tools are cached on the Mac")
 
+# Deltas after the feed (docs/ci/nightly-workflow-notes.md#note-31): the publication item is full-only, the deltas
+# are built, uploaded and merged into the live item afterwards, and a kept DMG saves the download.
+expect("NIGHTLY_NEXT_DELTAS_AFTER_FEED" in nearest and "after-feed" in nearest and "--cache-dir" in nearest
+       and "newest --feed-url" in nearest,
+       "appcast-with-nearest-deltas.sh has the after-feed mode: still-newest check, cache save, cache use")
+expect("NIGHTLY_NEXT_DELTAS_AFTER_FEED: ${{ needs.decide.outputs.one_job == 'true'" in workflow
+       and "appcast-with-nearest-deltas.sh after-feed" in workflow
+       and "republish-deltas-upload-next-appcasts.sh" in workflow.split("Upload the deltas and give the live item its deltas")[1][:1500]
+       and "docs/ci/nightly-workflow-notes.md#note-31" in workflow,
+       "nightly-next-one writes the item full-only and revises the live item after the feed")
+
+tmp = Path(tempfile.mkdtemp())
+cache, out = tmp / "cache", tmp / "out"
+out.mkdir()
+for build in (10, 11, 12, 13, 14, 15):
+    (tmp / f"cmux-x-arm64-{build}.dmg").write_bytes(b"d" * build)
+    previous.save_to_cache(tmp / f"cmux-x-arm64-{build}.dmg", cache, "cmux-x", "arm64", 4)
+(tmp / "cmux-x-arm64-99.dmg").write_bytes(b"other")  # not in the cache dir
+kept = sorted(p.name for p in cache.iterdir())
+expect(kept == [f"cmux-x-arm64-{b}.dmg" for b in (12, 13, 14, 15)], f"the cache keeps the newest 4 builds, has {kept}")
+dest = out / "cmux-x-arm64-15.dmg"
+msg = previous.from_cache("https://r2/x-15.dmg", dest, cache, served=lambda url: 15)
+expect(dest.read_bytes() == b"d" * 15 and "kept copy" in msg, "a kept DMG whose size R2 confirms is used")
+bad = out / "cmux-x-arm64-14.dmg"
+try:
+    previous.from_cache("https://r2/x-14.dmg", bad, cache, served=lambda url: 999)
+    expect(False, "a kept DMG whose size R2 contradicts is refused")
+except RuntimeError:
+    expect(not (cache / "cmux-x-arm64-14.dmg").exists() and not bad.exists(), "a contradicted copy is deleted, not used")
+try:
+    previous.from_cache("https://r2/x-13.dmg", out / "cmux-x-arm64-13.dmg", cache, served=lambda url: None)
+    expect(False, "an unknown R2 length refuses the cache")
+except RuntimeError:
+    pass
+try:
+    previous.from_cache("https://r2/x-1.dmg", out / "cmux-x-arm64-1.dmg", cache, served=lambda url: 1)
+    expect(False, "an uncached build is not found")
+except FileNotFoundError:
+    pass
+mod.fetch = lambda url: feed(TWO).encode()
+expect(mod.main(["newest", "--feed-url", "x", "--build", "300"]) == 0 and mod.main(["newest", "--feed-url", "x", "--build", "200"]) == 1,
+       "newest passes only for the feed's newest build")
+merged_file = tmp / "merged.xml"
+merged_file.write_text(feed(TWO), encoding="utf-8")
+expect(mod.main(["newest", "--feed-file", str(merged_file), "--build", "300"]) == 0
+       and mod.main(["newest", "--feed-file", str(merged_file), "--build", "200"]) == 1,
+       "newest --feed-file checks the feed about to be written")
+upload = (ROOT / "scripts/ci/nightly-steps/republish-deltas-upload-next-appcasts.sh").read_text(encoding="utf-8")
+expect(upload.index('newest --feed-file "$feed"') < upload.index("write-feed --feed"),
+       "the after-feed write checks this build is still the newest before write-feed")
+expect('DELTAS_ONLY_WHILE_NEWEST: "1"' in (ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8"),
+       "nightly-next-one's post-feed upload asks for the still-newest check")
+expect(previous.main(["--save", str(tmp / "missing.dmg"), "--cache-dir", str(cache), "--prefix", "cmux-x", "--variant", "arm64"]) == 0,
+       "a failed cache save never fails the build")
+
 upload = UPLOAD.read_text(encoding="utf-8")
 expect('if ! python3 "$r2" upload' in upload, "one failed R2 upload must not drop every delta")
 prune_at, write_at, check_at = (upload.find('"$check" prune'), upload.find("write-feed"), upload.find('"$check" check'))

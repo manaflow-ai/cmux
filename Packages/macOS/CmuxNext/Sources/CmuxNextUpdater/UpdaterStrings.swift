@@ -4,7 +4,7 @@ import Foundation
 /// Versions, build numbers and URLs are format arguments.
 nonisolated enum UpdaterStrings {
     static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, bundle: .module)
+        String(localized: key, defaultValue: value, bundle: .localizedModule)
     }
 
     static func format(_ key: StaticString, _ value: String.LocalizationValue, _ arguments: any CVarArg...) -> String {
@@ -156,6 +156,19 @@ nonisolated enum UpdaterStrings {
     }
     static func requiresMacOS(_ version: String, _ required: String, _ system: String) -> String {
         format("updater.detail.requiresMacOS", "cmux %@ requires macOS %@ or later. This Mac runs macOS %@, so it stays on the current version.", version, required, system)
+    }
+    // Update Status (`updates.status`): the palette's toast and the CLI answer's `line`.
+    static func statusNothingStaged(_ running: String) -> String {
+        format("updater.status.nothingStaged", "cmux %@ is running. No update is staged.", running)
+    }
+    static func statusReady(_ running: String, _ staged: String) -> String {
+        format("updater.status.ready", "cmux %1$@ is running. %2$@ is staged and installs on relaunch.", running, staged)
+    }
+    static func statusHeld(_ running: String, _ staged: String, _ reason: String) -> String {
+        format("updater.status.held", "cmux %1$@ is running. %2$@ is staged; the relaunch waits: %3$@.", running, staged, reason)
+    }
+    static func statusInstalling(_ running: String) -> String {
+        format("updater.status.installing", "cmux %@ is running. The update is installing.", running)
     }
     static var readyDetail: String { text("updater.detail.ready", "Relaunch to finish. Terminals keep running.") }
     // The update notice card (Lawrence 2026-10-09)

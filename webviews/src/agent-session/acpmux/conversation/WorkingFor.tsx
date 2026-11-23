@@ -11,7 +11,8 @@
 // counts. The counts follow on the same fixed-height line, so one that comes or goes moves neither
 // the label nor the rows below. With the running tray on (the default, subagents/runningTray.ts)
 // the tray above the composer is the count, and App.tsx counts nothing here. Token usage stays in
-// the usage details. When the turn ends, the "Worked for" disclosure takes its place. While the
+// the usage details. Over the work it is the turn's header in its running phase, a `worked`
+// row (turns.ts `turnHeaderId`, rows/WorkedRow.tsx): when the turn ends, the same row reads "Worked for". While the
 // turn waits on the person (an ask
 // above the composer, waitingOn.ts), the line says so in place of the time and the call: the clock
 // would read as the agent still working.
@@ -22,7 +23,7 @@ import { useContext, useMemo } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { usePageNow as useTicking } from "../../../ui/pageClock";
-import { TerminalSquare } from "./icons";
+import { ChevronRight, TerminalSquare } from "./icons";
 import { useTextSwap } from "../../../ui/motion/useTextSwap";
 import { BackgroundHint } from "./BackgroundHint";
 import { TimedLabel } from "./TurnTokens";
@@ -85,7 +86,11 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
           {until - row.at < 1000 ? (
             t("subsession.state.working")
           ) : (
-            <TimedLabel text={(time) => t("turn.working", { time })} time={Math.max(0, until - row.at)} />
+            <TimedLabel
+              text={(time) => t("turn.working", { time })}
+              time={Math.max(0, until - row.at)}
+              ticking={!held}
+            />
           )}
         </span>
       )}
@@ -102,6 +107,10 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
       {/* A running command's ⌃B hint (BackgroundHint.tsx): on the line, never on its row. Keyed by
           the call, so each command's hint waits its moment again. */}
       {!waiting && row.doingCommand && !row.doingDraft && <BackgroundHint key={row.doing} />}
+      {/* Over the work it is the turn's header in its running phase (turns.ts `turnHeaderId`): the
+          ended "Worked for"'s chevron has its slot already, right after the words as it draws
+          there, unseen until the turn ends and the line opens what it folded. */}
+      {!row.below && <ChevronRight size={14} className="cv-worked__chevron cv-rotor is-reserved" aria-hidden="true" />}
     </div>
   );
 }

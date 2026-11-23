@@ -608,6 +608,23 @@ describe("dashboard billing screen", () => {
     expect(html).not.toContain("/api/billing/portal");
   });
 
+  test("welcomes a $1 pass buyer only while the pass checkout is on", async () => {
+    const previous = process.env.CMUX_CLOUD_INTRO;
+    try {
+      delete process.env.CMUX_CLOUD_INTRO;
+      expect(await renderBillingPage({ welcome: "intro" })).not.toContain('data-testid="cloud-intro-welcome"');
+      process.env.CMUX_CLOUD_INTRO = "1";
+      const html = await renderBillingPage({ welcome: "intro" });
+      expect(html).toContain('data-testid="cloud-intro-welcome"');
+      expect(html).toContain("Your $1 pass is on");
+      expect(html).toContain("It runs for 30 days. 25 Chief hours and 750 machine-minutes are released each week.");
+      expect(html).not.toContain('data-testid="plan-welcome"');
+    } finally {
+      if (previous === undefined) delete process.env.CMUX_CLOUD_INTRO;
+      else process.env.CMUX_CLOUD_INTRO = previous;
+    }
+  });
+
   for (const [billing, message] of [
     ["cancelled", "Your plan will cancel at the end of the current billing period."],
     ["resumed", "Your plan has been resumed and will renew normally."],
