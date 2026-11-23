@@ -1484,11 +1484,15 @@
   --grid-composer-control: calc(28px * var(--acpmux-density));
   --grid-composer-block-inset: calc(10px * var(--acpmux-density));
   --grid-composer-box: calc(48px * var(--acpmux-density));
-  /* Concentric with the round controls in it (the mic, Send): half a control plus the inset, 22 at
-     Default (layout-grid.json composer-radius; ask-2351b8cf41, Leo 2026-11-22: "we should consider
-     rounding off our composer and its hat a bit more maybe see chatgpt too"). The hat over it (the
-     running tray), the queue and the trust bar take this corner too. */
-  --grid-composer-radius: calc(var(--grid-composer-control) / 2 + var(--grid-composer-inset));
+  /* Claude Code desktop's modest corner, 12 (measured from its composer; layout-grid.json
+     composer-radius; Leo 2026-11-23: "now the composer is a bit too round i think ... just do the
+     claude code roundedness"). The hat over it (the running tray), the queue and the trust bar take
+     this corner. A ChatGPT-round composer needs a baseline taller than one line and a circular +;
+     that lives in the ChatGPT replica only (design/composer-corner.md). */
+  --grid-composer-radius: calc(12px * var(--acpmux-density));
+  /* The + chip's corner (measured, Claude Code): the + sits in a rounded square the size of a
+     control, inset like the mic and Send. */
+  --grid-composer-plus-radius: calc(8px * var(--acpmux-density));
   --grid-composer-quiet-row-gap: calc(4px * var(--acpmux-density));
   --grid-composer-quiet-row-height: calc(28px * var(--acpmux-density));
   --grid-composer-quiet-row-text: calc(14px * var(--acpmux-density));
@@ -1597,14 +1601,24 @@
 .acpmux-composer[data-composer-grid] {
   --acpmux-strip-radius: var(--grid-composer-radius);
 }
-/* The gallery's other two roundings (composerRound.gallery.ts, data-composer-round), each still
-   concentric: `moderate` is the + plate's corner plus the inset (16), `pill` half the one-line box
-   (24), so a one-line composer is a full pill. */
-:where(:root[data-composer-round="moderate"]) :is(.acpmux-dock, .acpmux-composer, .nt-composer, .nt-popover) {
-  --grid-composer-radius: calc(8px * var(--acpmux-density) + var(--grid-composer-inset));
+/* The gallery's other candidate corners (composerRound.gallery.ts, data-composer-round). */
+:where(:root[data-composer-round]) :is(.acpmux-dock, .acpmux-composer, .nt-composer, .nt-popover) {
+  --grid-composer-radius: calc(var(--composer-round-candidate) * var(--acpmux-density));
 }
-:where(:root[data-composer-round="pill"]) :is(.acpmux-dock, .acpmux-composer, .nt-composer, .nt-popover) {
-  --grid-composer-radius: calc(var(--grid-composer-box) / 2);
+:where(:root[data-composer-round="8"]) { --composer-round-candidate: 8px; }
+:where(:root[data-composer-round="10"]) { --composer-round-candidate: 10px; }
+:where(:root[data-composer-round="14"]) { --composer-round-candidate: 14px; }
+:where(:root[data-composer-round="16"]) { --composer-round-candidate: 16px; }
+:where(:root[data-composer-round="22"]) { --composer-round-candidate: 22px; }
+/* The + in its chip: a rounded square that follows the composer's corner shape, subtle at rest and
+   brighter under the pointer (Leo 2026-11-23: "our + symbol is too small"; a circle highlight is
+   only for a ChatGPT-round composer, design/composer-corner.md). */
+.acpmux-composer-box .acpmux-composer-plus .acpmux-picker-button {
+  border-radius: var(--grid-composer-plus-radius);
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+}
+.acpmux-composer-box .acpmux-composer-plus .acpmux-picker-button:hover {
+  background: var(--acpmux-composer-hover);
 }
 /* The box's corner, which the trust bar in the stack over it shares. */
 .acpmux-composer-box[data-composer-grid],

@@ -2308,6 +2308,12 @@ export const PlusIcon = () => (
     <path d="M8 2.75v10.5M2.75 8h10.5" />
   </Icon>
 );
+/** The composer's +, longer arms (13.5 of 16, Claude Code's measured ink) than the 10.5 the other chips use; the same 16 box, so the glyph's center and the rows tucked to it stay put. */
+export const ComposerPlusIcon = () => (
+  <Icon>
+    <path d="M8 1.25v13.5M1.25 8h13.5" />
+  </Icon>
+);
 /** Send's arrow: a plain outline glyph with the mic's stroke (Leo 2026-10-21: no disc). */
 export const ArrowUpIcon = () => (
   <Icon>

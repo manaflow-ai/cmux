@@ -1,9 +1,8 @@
 // l10n-allow-file: gallery fixtures (prompts, subagent names), not shipped UI.
-// The composer's corner and its hat's (the running tray over it), three ways (ask-2351b8cf41,
-// Leo 2026-11-22: "we should consider rounding off our composer and its hat a bit more maybe see
-// chatgpt too"). Each corner is concentric with what sits in the box (composerLocation.css
-// --grid-composer-radius): the selected `large` is half a round control plus the inset (22),
-// `moderate` the + plate's corner plus the inset (16), `pill` half the one-line box (24).
+// The composer's corner and its hat's (the running tray over it), five candidates with the + chip
+// (Leo 2026-11-23: "now the composer is a bit too round i think ... just do the claude code
+// roundedness"; before that 22, ask-2351b8cf41). Selected: 12, Claude Code desktop's measured corner
+// (composerLocation.css --grid-composer-radius; design/composer-corner.md).
 import { agentPaneEntry, type AgentPaneVariant } from "../../gallery/format";
 import { assistant, chat, row, user } from "../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../gallery/clock";
@@ -51,10 +50,11 @@ export default agentPaneEntry({
   widths: { narrow: 420, wide: 1100 },
   covers: ["agent-session/acpmux/composerLocation.css"],
   variants: {
-    large: variant(
-      "Selected: 22, half a round control (the mic, Send) plus the inset; the hat over it takes the same corner.",
-    ),
-    moderate: variant("Alternative: 16, the + plate's 8 corner plus the inset.", "moderate"),
-    pill: variant("Alternative: 24, half the one-line box, so one line is a full pill.", "pill"),
+    claude: variant("Selected: 12, Claude Code desktop's corner; the + chip's corner is 8; the hat takes the corner."),
+    r8: variant("Candidate: 8.", "8"),
+    r10: variant("Candidate: 10.", "10"),
+    r14: variant("Candidate: 14.", "14"),
+    r16: variant("Candidate: 16.", "16"),
+    r22: variant("Before: 22, ChatGPT-round (#50920); wrong for a one-line composer.", "22"),
   },
 });

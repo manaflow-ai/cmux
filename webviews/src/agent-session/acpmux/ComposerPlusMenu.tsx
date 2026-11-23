@@ -7,7 +7,7 @@
 // recent ones, then one "Commands and skills…" row that opens the slash list, which searches them
 // all (composerPlusRegistry.ts, recentCommands.ts).
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
-import { PaperclipIcon, Picker, PlusIcon, type Section } from "./ComposerPickers";
+import { PaperclipIcon, Picker, ComposerPlusIcon, type Section } from "./ComposerPickers";
 import { runComposerPlusAction, type ComposerPlusEntry, isComposerCommand } from "./composerPlusRegistry";
 import type { SlashCommand } from "./slashCommands";
 import { useT } from "./i18n";
@@ -106,11 +106,11 @@ const MemoPlusMenu = memo(function PlusMenu({
   const plus = (
     <Picker
       label={t("composer.add")}
-      // Codex's short tooltip (Leo, 2026-10-21): "Add files and more", not the menu's list.
-      tooltip={t("composer.addTooltip")}
+      // Claude Code's one-word tooltip (Leo 2026-11-23: the more minimal Claude Code composer is favoured).
+      tooltip={t("composer.add")}
       shortcut={addShortcut}
       className={className ? `acpmux-composer-plus ${className}` : "acpmux-composer-plus"}
-      button={glyph === "paperclip" ? <PaperclipIcon /> : <PlusIcon />}
+      button={glyph === "paperclip" ? <PaperclipIcon /> : <ComposerPlusIcon />}
       align={glyph === "paperclip" ? "end" : "start"}
       sections={sections}
       {...(onOpen ? { onOpen } : {})}
