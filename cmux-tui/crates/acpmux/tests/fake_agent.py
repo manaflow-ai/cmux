@@ -20,6 +20,7 @@ Behaviour per prompt text:
                  successful call clears the episode before end_turn
   "works-through-cancel-beside-background" -> the same after starting background subagent bg-1
   "answer-then-exit" -> answers, then the agent exits between turns
+  "delta-chunks: N L" -> N reply chunks of exactly L bytes each, then end_turn
   "gate: <p>"  -> streams before-gate, waits for a write to FIFO <p>, then after-gate
   "goal: <objective>" -> a Codex goal as session_info_update _meta.goal (running 32 min), then a short reply
   "/goal pause|resume|clear|<text>" -> that goal paused, running again, gone, or set to <text>
@@ -1432,6 +1433,14 @@ def handle_prompt(rid, params):
     if text.startswith("chunks:"):
         for n in range(int(text[7:])):
             update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"w{n} "}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "delta-chunks: N L" streams N reply chunks of exactly L bytes each, one write per chunk as a
+    # harness streams them, then ends the turn (tests/delta_cost.rs: what one text delta costs).
+    if text.startswith("delta-chunks:"):
+        count, length = (int(x) for x in text[13:].split())
+        for _ in range(count):
+            update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "d" * length}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     if text.startswith("big-output:"):
