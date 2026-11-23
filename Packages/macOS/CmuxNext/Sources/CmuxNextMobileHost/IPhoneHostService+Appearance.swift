@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextCompat
 public import CmuxNextDesign
 import CmuxNextMobile
@@ -57,17 +58,35 @@ enum ThemePhone {
             groupGradient: design.sidebarSections.groupGradient.rawValue)
     }
 
+    /// What the window shows behind its content, for the phone (ask-a6804c4472): the picture's
+    /// source and the tint the window lays over it, read from the window's own backdrop
+    /// (``WindowBackdrop``, what the Mac paints), not recomputed here.
+    ///
+    /// - A picked picture shows under the window's tint (`appearance.backgroundOpacity`, a
+    ///   Ghostty `background-opacity` under 1, else the theme's wallpaper tint).
+    /// - No picture but a see-through window (`background-opacity` or the window Opacity under 1):
+    ///   the Mac shows its desktop picture through the window, so the phone gets that picture
+    ///   under the same tint.
+    /// - An opaque window hides any picture: none is sent and the tint covers everything.
+    static func backdrop(selection: BackdropSelection?, window: WindowBackdrop) -> (source: BackdropSelection?, tint: Double) {
+        guard !window.isOpaque, window.tintOpacity < 1 else { return (nil, 1) }
+        return (selection ?? .desktop, window.tintOpacity)
+    }
+
     /// What the app's scope shows now (observed: the store's colors and its picture's revision).
     static func shown(_ scope: ThemeScope) -> Shown {
         let store = scope.store
         _ = store.backdropRevision.value
         let tokens = store.tokens
         let selection = scope.backdropSelection
-        let tint = scope.backdropTintOpacity ?? tokens.wallpaperTintOpacity
+        let window = WindowBackdrop(tokens, reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency,
+                                    art: scope.backdropArt, selection: selection, tuning: scope.appearanceTuning,
+                                    tintOpacity: scope.backdropTintOpacity)
+        let (source, tint) = backdrop(selection: selection, window: window)
         var appearance = appearance(input: store.input, tokens: tokens, accentFollowsArt: store.accentFollowsArt, tint: tint,
                                     terminal: store.terminalConfigLines)
         appearance.look = look(tuning: scope.appearanceTuning, design: DesignSettings.shared)
-        let picture = selection.flatMap { $0.resolvedImageURL(dark: tokens.isDark) }
+        let picture = source.flatMap { $0.resolvedImageURL(dark: tokens.isDark) }
         return Shown(appearance: appearance, picture: picture, dark: tokens.isDark)
     }
 

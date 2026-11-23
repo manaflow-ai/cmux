@@ -35,6 +35,44 @@ import Testing
         #expect(sent.accentColor == ThemePhone.hex(tokens.accent))
     }
 
+    /// ask-a6804c4472 (Leo: "i still dont see the background image and the transparency"): the
+    /// phone gets the picture and tint the window paints. A see-through window with no picked
+    /// picture shows the desktop through it, so the phone gets the desktop picture; a Ghostty
+    /// `background-opacity` under 1 is the tint over a picked picture too (it used to send the
+    /// theme's wallpaper tint); an opaque window sends no picture.
+    @Test func thePhoneGetsThePictureAndTintTheWindowPaints() {
+        var input = ThemeInput.ghosttyDefault
+        input.backgroundOpacity = 0.7
+        let seeThrough = ThemeTokens.derive(from: input)
+        let opaque = ThemeTokens.derive(from: .ghosttyDefault)
+        let art = BackdropSelection.file(path: "/tmp/wallpaper.png")
+
+        let desktop = ThemePhone.backdrop(selection: nil, window: WindowBackdrop(seeThrough))
+        #expect(desktop.source == .desktop)
+        #expect(abs(desktop.tint - 0.7) < 0.000_1)
+
+        let none = ThemePhone.backdrop(selection: nil, window: WindowBackdrop(opaque))
+        #expect(none.source == nil)
+        #expect(none.tint == 1)
+
+        let picked = ThemePhone.backdrop(selection: art, window: WindowBackdrop(seeThrough, selection: art))
+        #expect(picked.source == art)
+        #expect(abs(picked.tint - 0.7) < 0.000_1)
+
+        // An opaque theme over a picture: the theme's own tint over it, as the window lays it.
+        let themed = ThemePhone.backdrop(selection: art, window: WindowBackdrop(opaque, selection: art))
+        #expect(themed.source == art)
+        #expect(abs(themed.tint - WindowBackdrop(opaque, selection: art).tintOpacity) < 0.000_1)
+        #expect(themed.tint < 1)
+
+        // The window Opacity the person set wins over the theme's tint; Reduce Transparency hides everything.
+        let set = ThemePhone.backdrop(selection: art, window: WindowBackdrop(opaque, selection: art, tintOpacity: 0.4))
+        #expect(abs(set.tint - 0.4) < 0.000_1)
+        let reduced = ThemePhone.backdrop(selection: art, window: WindowBackdrop(seeThrough, reduceTransparency: true, selection: art))
+        #expect(reduced.source == nil)
+        #expect(reduced.tint == 1)
+    }
+
     /// The phone-copy folder keeps only the current picture's copy: a new wallpaper's copy replaces
     /// the earlier one instead of piling up.
     @Test func thePhoneCopyFolderKeepsOnlyTheCurrentPicture() throws {
