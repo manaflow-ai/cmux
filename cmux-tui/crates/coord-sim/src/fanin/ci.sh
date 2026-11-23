@@ -51,7 +51,20 @@ echo "FANIN: acpmux $("$BIN" --version 2>/dev/null | head -1)"
 profile() {
   # FANIN_PERF_ROLE=h00 (any host name) profiles that host daemon instead of the controller.
   local top=${RAMPS##*,} pid="" p ROLE=${FANIN_PERF_ROLE:-controller}
+  local PERF=perf
   command -v perf >/dev/null || { echo "FANIN perf: perf is not installed on this runner"; return; }
+  # Ubuntu's `perf` is a wrapper that refuses a kernel with no matching linux-tools package (a
+  # runner image's kernel moves ahead of it); the real binaries beside it run on any kernel.
+  if ! perf --version >/dev/null 2>&1; then
+    PERF=$(ls -d /usr/lib/linux-tools/*/perf /usr/lib/linux-tools-*/perf 2>/dev/null | sort -V | tail -1)
+    if [ ! -x "$PERF" ] && sudo -n true 2>/dev/null; then
+      sudo -n apt-get install -y -qq linux-tools-generic >/dev/null 2>&1 \
+        || { sudo -n apt-get update -qq >/dev/null 2>&1 && sudo -n apt-get install -y -qq linux-tools-generic >/dev/null 2>&1; }
+      PERF=$(ls -d /usr/lib/linux-tools/*/perf /usr/lib/linux-tools-*/perf 2>/dev/null | sort -V | tail -1)
+    fi
+    [ -x "$PERF" ] || { echo "FANIN perf: perf has no build for kernel $(uname -r) and none is installed beside it"; return; }
+    echo "FANIN perf: using $PERF (no linux-tools for kernel $(uname -r))"
+  fi
   # Ubuntu runners ship perf_event_paranoid 4 (no user profiling at all); a CI runner's sudo lowers it.
   if [ "$(cat /proc/sys/kernel/perf_event_paranoid 2>/dev/null)" -gt 1 ] 2>/dev/null; then
     sudo -n sysctl -qw kernel.perf_event_paranoid=1 2>/dev/null \
@@ -70,24 +83,24 @@ profile() {
   # scheduler tracepoint, so it needs root; a runner without `sudo -n` keeps the CPU profile only.
   local off=""
   if sudo -n true 2>/dev/null; then
-    sudo -n perf record -e sched:sched_switch --call-graph fp -p "$pid" -o "$OUT/offcpu.data" \
+    sudo -n "$PERF" record -e sched:sched_switch --call-graph fp -p "$pid" -o "$OUT/offcpu.data" \
       -- sleep $((WINDOW + 30)) >"$OUT/offcpu.record.log" 2>&1 &
     off=$!
   fi
   # perf exits non-zero when the controller ends first: what it wrote is the profile either way.
-  perf record -F 299 --call-graph fp -p "$pid" -o "$OUT/perf.data" -- sleep $((WINDOW + 30)) >"$OUT/perf.record.log" 2>&1
+  "$PERF" record -F 299 --call-graph fp -p "$pid" -o "$OUT/perf.data" -- sleep $((WINDOW + 30)) >"$OUT/perf.record.log" 2>&1
   if [ -n "$off" ]; then
     wait "$off"
-    sudo -n perf script -i "$OUT/offcpu.data" -F tid,time,ip,sym 2>/dev/null | gzip >"$OUT/offcpu.stacks.gz"
+    sudo -n "$PERF" script -i "$OUT/offcpu.data" -F tid,time,ip,sym 2>/dev/null | gzip >"$OUT/offcpu.stacks.gz"
     sudo -n rm -f "$OUT/offcpu.data"
     echo "FANIN perf: off-CPU $(grep -o '([0-9]* samples)' "$OUT/offcpu.record.log")"
   fi
   [ -s "$OUT/perf.data" ] || { echo "FANIN perf: record failed: $(tail -3 "$OUT/perf.record.log")"; return; }
   echo "FANIN perf: $(grep -o '([0-9]* samples)' "$OUT/perf.record.log")"
-  perf report -i "$OUT/perf.data" --stdio --no-children --sort sym -g none --percent-limit 0.3 >"$OUT/perf.self.txt" 2>/dev/null
-  perf report -i "$OUT/perf.data" --stdio --children --sort sym -g none --percent-limit 2 >"$OUT/perf.children.txt" 2>/dev/null
+  "$PERF" report -i "$OUT/perf.data" --stdio --no-children --sort sym -g none --percent-limit 0.3 >"$OUT/perf.self.txt" 2>/dev/null
+  "$PERF" report -i "$OUT/perf.data" --stdio --children --sort sym -g none --percent-limit 2 >"$OUT/perf.children.txt" 2>/dev/null
   # Every sample's stack, for any caller/callee split afterwards (perf.data itself is too big to keep).
-  perf script -i "$OUT/perf.data" -F tid,time,ip,sym 2>/dev/null | gzip >"$OUT/perf.stacks.gz"
+  "$PERF" script -i "$OUT/perf.data" -F tid,time,ip,sym 2>/dev/null | gzip >"$OUT/perf.stacks.gz"
   rm -f "$OUT/perf.data"
   echo "FANIN perf: top self:"; grep -E '^ +[0-9]' "$OUT/perf.self.txt" | head -25
 }
