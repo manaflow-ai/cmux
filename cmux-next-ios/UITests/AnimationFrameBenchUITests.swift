@@ -53,13 +53,14 @@ final class AnimationFrameBenchUITests: XCTestCase {
     /// The fleet runs the same input once in isolation and once with duress=heavy.
     @MainActor
     func testComposerTyping() {
-        let app = launch(["-cmux-mobile-demo", "kbd-chat"], labels: ["composer-typing"])
+        let heavy = ProcessInfo.processInfo.environment["CMUX_ANIMATION_EXPECT_DURESS"] == "heavy"
+        let label = heavy ? "composer-typing-heavy" : "composer-typing"
+        let app = launch(["-cmux-mobile-demo", "kbd-chat"], labels: [label])
         defer { app.terminate() }
         composerFocusTarget(app).tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
         let field = app.textViews["chat.composer.field"]
         XCTAssertTrue(field.waitForExistence(timeout: 10))
-        let heavy = ProcessInfo.processInfo.environment["CMUX_ANIMATION_EXPECT_DURESS"] == "heavy"
         let probe = app.staticTexts["debug.duress"]
         var before = 0
         if heavy {
@@ -71,7 +72,7 @@ final class AnimationFrameBenchUITests: XCTestCase {
         // Multiple keyboard-render frames and at least one update of the
         // duress player's once-a-second delivery counter.
         let text = "Measure typing in the composer while the recorded chat streams new messages into the transcript."
-        window("composer-typing") { app.typeText(text) }
+        window(label) { app.typeText(text) }
         if heavy {
             let after = recordsDelivered(probe)
             XCTAssertGreaterThan(after, before, "duress chat records advanced during typing (\(before) to \(after))")

@@ -54,7 +54,8 @@ def read_run(evidence: Path, profile: str) -> tuple[list[dict], list[str]]:
     path = evidence / f"ui-duress-{slug}-framelog.jsonl"
     if profile == "off" and not path.exists():
         path = evidence / "ui-framelog.jsonl"
-    expected = ("composer-typing",) if profile == "heavy" else ANIMATIONS
+    # Heavy XCTest emits a distinct mark only on the path that verifies active replay.
+    expected = ("composer-typing-heavy",) if profile == "heavy" else ANIMATIONS
     windows = {name: [] for name in expected}
     errors = []
     try:
@@ -70,7 +71,7 @@ def read_run(evidence: Path, profile: str) -> tuple[list[dict], list[str]]:
 
     rows = []
     for name, samples in windows.items():
-        row = {"animation": name, "profile": profile}
+        row = {"animation": name.removesuffix("-heavy"), "profile": profile}
         try:
             if len(samples) != 1:
                 raise ValueError(f"expected one window, found {len(samples)}")
