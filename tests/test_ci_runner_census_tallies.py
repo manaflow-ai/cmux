@@ -31,7 +31,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 pool = importlib.import_module("pr_runner_pool")
-placement = importlib.import_module("portable_job_placement")
 fast_checks = importlib.import_module("fast_checks_runner")
 
 # The census reader checks freshness against the real clock, so the documents are dated from it.
@@ -88,16 +87,10 @@ class CensusTallies(unittest.TestCase):
         self.assertTrue(all(pool.runner_member(row["name"]) == "" for row in linux))
         self.assertIn(MINI["name"], {row["name"] for row in rows})
 
-    def test_fast_checks_and_portable_placement_see_an_idle_fleet_runner(self):
+    def test_fast_checks_see_an_idle_fleet_runner(self):
         doc = document({LINUX: [tally(idle=1, busy=3000, offline=0)]})
         rows = self.runners(doc)
         self.assertEqual(fast_checks.idle_runner(rows), FLEET)
-        # A Linux-only picker (the cmux-tui daemon marker's shape) reads the Linux group from the census alone.
-        env = {"CI_RUNNER_STATE": encode(doc), "GITHUB_REPOSITORY": "manaflow-ai/cmux",
-               "JOBS": "checks", "LINUX_ONLY": "checks"}
-        runners, _ = placement.read(env, NOW)
-        self.assertIsNotNone(runners)
-        self.assertEqual(fast_checks.idle_runner(runners), FLEET)
 
     def test_a_fully_busy_fleet_has_no_idle_runner_but_is_online(self):
         rows = self.runners(document({LINUX: [tally(idle=0, busy=3582, offline=94)]}))

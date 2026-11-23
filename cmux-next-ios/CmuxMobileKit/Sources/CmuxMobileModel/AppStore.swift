@@ -56,6 +56,10 @@ public final class AppStore {
     public var macData: [String: MacDataMachine] = [:]
     /// Live mode: this phone's connection to each Mac it dials.
     public var macConnection: [String: MacConnection] = [:]
+    /// Live mode: why this phone's last try at each Mac failed (``MacReachability``); nil once it works.
+    public var macFailure: [String: MacLinkFailure] = [:]
+    /// Live mode: a Retry from a Mac's view, step by step (``MacRecoveryAttempt``).
+    public var macRecovery: [String: MacRecoveryAttempt] = [:]
     /// What each Mac's host said it does (`version` service `capabilities`), for
     /// Macs this phone has linked to. Absent: unknown (older host, or never linked).
     public var macCapabilities: [String: Set<String>] = [:]
@@ -259,6 +263,13 @@ public final class AppStore {
     public func openingTab(for workspace: Workspace) -> WorkspaceTab? {
         WorkspaceOpeningTab(requested: requestedTabByWorkspace[workspace.id],
                             lastActive: lastActiveTabByWorkspace[workspace.id]).tab(in: workspace)
+    }
+
+    /// The tab the person chose in `workspace`, listed or not: the one an open asked for, else the
+    /// one last on screen there in this launch. A tab missing from a list the Mac sent while its
+    /// link came back is still this.
+    public func chosenTab(for workspace: Workspace) -> String? {
+        requestedTabByWorkspace[workspace.id] ?? lastActiveTabByWorkspace[workspace.id]
     }
 
     /// The tab on screen in each workspace in this launch (`noteOpened`): back to the list and
