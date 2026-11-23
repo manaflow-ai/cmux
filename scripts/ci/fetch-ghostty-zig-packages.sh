@@ -226,15 +226,23 @@ fetch_once() {
 # Zig's own HTTP read lacks; Zig then unpacks those from the cache offline.
 # In the background with `wait`: Bash runs a trap only after a foreground command
 # ends, so a TERM to this script would otherwise wait for the seed's deadline.
-if [[ -n "$cache" && "${CMUX_ZIG_SEED:-1}" != 0 ]]; then
+# Before every attempt, not only the first: under mirror only, Zig cannot reach
+# an upstream host, so an archive the seed missed fails every later attempt the
+# same way. The seed skips what is already in the cache, so a retry downloads
+# only what is missing (cmux_next_ daemon tests job 137478621868, 2026-11-23:
+# gettext and harfbuzz missed the seed's deadline once, and all 4 attempts
+# failed with ConnectionRefused after the Zig package cache was evicted).
+seed() {
+  [[ -n "$cache" && "${CMUX_ZIG_SEED:-1}" != 0 ]] || return 0
   "$script_dir/seed-zig-package-archives.sh" "$cache" . &
   seed_pid=$!
   wait "$seed_pid" || true
   seed_pid=""
-fi
+}
 
 attempt=1
 while :; do
+  seed
   status=0
   fetch_once || status=$?
   if (( status == 0 )); then

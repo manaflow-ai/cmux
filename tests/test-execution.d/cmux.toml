@@ -18,6 +18,11 @@ path = "tests/test_cmux_code_mode_mcp.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_linux_archive.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_linux_archive.py"
+
+[[test]]
 path = "tests/test_cmux_machine_channel.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). Checks that the Cloud machine channel payload from the build (--binaries-dir) matches the one from the manifest and refuses other bytes, and the signed Linux release files (payload shape, write-once release.json, forward-only pointer, purpose separation); run python3 tests/test_cmux_machine_channel.py yourself after changing scripts/ci/cmux-machine-channel.py or scripts/ci/cmux-machine-channel-point.sh (a few seconds, no network, needs openssl 3)."
@@ -144,6 +149,11 @@ reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). git_batch.ca
 path = "tests/test_cmux_next_guardrails.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). The guardrails run only in the local pre-push hook; run python3 tests/test_cmux_next_guardrails.py yourself (about 40 s, git only, no build)."
+
+[[test]]
+path = "tests/test_cmux_next_owner_live.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_next_owner_live.py"
 
 [[test]]
 path = "tests/test_cmux_next_guardrails_blocking.py"
@@ -376,6 +386,11 @@ lane = "linux-guard"
 path = "tests/test_cmux_tui_election_budget.py"
 lane = "manual"
 reason = "Run by hand: python3 tests/test_cmux_tui_election_budget.py. It stayed manual under the 2026-10-23 no-new-CI rule (since lifted), and it asserts wall-clock bounds of tree-preflight's fallback owner election, so run it on an idle machine."
+
+[[test]]
+path = "tests/test_cmux_tui_feat_latest_wins.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 tests/test_cmux_tui_feat_latest_wins.py yourself after changing tree-preflight's concurrency group, supersede-feat-runs or scripts/ci/cmux_tui_feat_supersede.py."
 
 [[test]]
 path = "tests/test_cmux_tui_feat_publish_order.py"

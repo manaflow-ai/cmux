@@ -163,6 +163,18 @@ const MAX_RELAY_INCOMING_TASKS: usize = 64;
 
 type CredentialFuture = Pin<Box<dyn Future<Output = Result<String, ()>> + Send + 'static>>;
 type CredentialCallback = dyn Fn() -> CredentialFuture + Send + Sync + 'static;
+type BoundCredentialFuture =
+    Pin<Box<dyn Future<Output = Result<BoundCredential, ()>> + Send + 'static>>;
+type BoundCredentialCallback = dyn Fn() -> BoundCredentialFuture + Send + Sync + 'static;
+
+/// A relay ticket and the CarrierGrant it was minted beside
+/// ([`RelayCredentialSource::bound_callback`]). A Connect presents the grant
+/// with the ticket, and the relay admits a ticket that names its grant only
+/// with that grant (cmuxterm-hq#19075).
+pub struct BoundCredential {
+    pub ticket: Zeroizing<String>,
+    pub grant: Option<Zeroizing<String>>,
+}
 
 /// A refreshable source for short-lived relay provider credentials.
 ///
@@ -179,6 +191,7 @@ enum RelayCredentialSourceInner {
     File(PathBuf),
     Command(CommandCredentialSource),
     Callback(Arc<CredentialCallback>),
+    BoundCallback(Arc<BoundCredentialCallback>),
 }
 
 struct CommandCredentialSource {
@@ -262,6 +275,23 @@ impl RelayCredentialSource {
         Self { inner: Arc::new(RelayCredentialSourceInner::Callback(callback)) }
     }
 
+    /// [`RelayCredentialSource::callback`] whose answer also carries the
+    /// CarrierGrant the ticket was minted beside: each client Connect presents
+    /// it. Every other use of the credential (a control socket's
+    /// authentication) takes the ticket alone.
+    pub fn bound_callback<F, Fut, E>(callback: F) -> Self
+    where
+        F: Fn() -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<BoundCredential, E>> + Send + 'static,
+        E: Send + 'static,
+    {
+        let callback = Arc::new(move || {
+            let future = callback();
+            Box::pin(async move { future.await.map_err(|_| ()) }) as BoundCredentialFuture
+        });
+        Self { inner: Arc::new(RelayCredentialSourceInner::BoundCallback(callback)) }
+    }
+
     /// True when each fetch may return a new credential: a registration renews
     /// its ticket before it expires only from such a source.
     fn renews(&self) -> bool {
@@ -269,8 +299,19 @@ impl RelayCredentialSource {
     }
 
     async fn fetch(&self) -> Result<RelayCredential, ProviderError> {
+        self.fetch_with_grant().await.map(|(credential, _)| credential)
+    }
+
+    /// The credential and, from a [`Self::bound_callback`], the grant it was
+    /// minted beside.
+    async fn fetch_with_grant(
+        &self,
+    ) -> Result<(RelayCredential, Option<Zeroizing<String>>), ProviderError> {
+        let mut grant = None;
         let value = match &*self.inner {
-            RelayCredentialSourceInner::Static(credential) => return Ok(credential.clone()),
+            RelayCredentialSourceInner::Static(credential) => {
+                return Ok((credential.clone(), None));
+            }
             RelayCredentialSourceInner::File(path) => read_credential_file(path).await?,
             RelayCredentialSourceInner::Command(command) => {
                 read_credential_command(command).await?
@@ -282,9 +323,19 @@ impl RelayCredentialSource {
                     .map_err(|_| credential_source_error("callback timed out"))?;
                 Zeroizing::new(answer.map_err(|()| credential_source_error("callback failed"))?)
             }
+            RelayCredentialSourceInner::BoundCallback(callback) => {
+                let deadline = Deadline::<Instant>::after(CREDENTIAL_CALLBACK_TIMEOUT);
+                let answer = tokio::time::timeout_at(deadline.end(), callback())
+                    .await
+                    .map_err(|_| credential_source_error("callback timed out"))?
+                    .map_err(|()| credential_source_error("callback failed"))?;
+                grant = answer.grant;
+                answer.ticket
+            }
         };
-        RelayCredential::parse_secret(value)
-            .map_err(|_| credential_source_error("returned invalid data"))
+        let credential = RelayCredential::parse_secret(value)
+            .map_err(|_| credential_source_error("returned invalid data"))?;
+        Ok((credential, grant))
     }
 }
 
@@ -295,6 +346,7 @@ impl fmt::Debug for RelayCredentialSource {
             RelayCredentialSourceInner::File(_) => "file",
             RelayCredentialSourceInner::Command(_) => "command",
             RelayCredentialSourceInner::Callback(_) => "callback",
+            RelayCredentialSourceInner::BoundCallback(_) => "bound callback",
         };
         formatter.debug_struct("RelayCredentialSource").field("kind", &kind).finish()
     }
@@ -1165,7 +1217,8 @@ async fn request_allocation(
     lane: &LaneToken,
     generation: u64,
 ) -> Result<(CircuitId, String), AllocationError> {
-    let credential = credentials.fetch().await.map_err(AllocationError::Authentication)?;
+    let (credential, grant) =
+        credentials.fetch_with_grant().await.map_err(AllocationError::Authentication)?;
     send_control(
         socket,
         &RelayControl::Connect {
@@ -1176,6 +1229,7 @@ async fn request_allocation(
             generation,
             // `read_until_allocation` reads past `Parked` to the answer.
             accepts_parked: true,
+            grant: grant.as_deref().map(ToOwned::to_owned),
         },
     )
     .await
