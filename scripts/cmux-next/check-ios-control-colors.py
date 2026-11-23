@@ -49,6 +49,17 @@ CONTROL_LINE = re.compile(r"cmuxMobilePress(?:Background|Fill)\(|glassEffect\([^
 COMMENT = surface.COMMENT
 
 
+def literal_count(code):
+    """Literal colors on one line; two patterns matching the same color count it once."""
+    spans = sorted(m.span() for p in LITERALS for m in p.finditer(code))
+    count, end = 0, -1
+    for start, stop in spans:
+        if start >= end:
+            count += 1
+        end = max(end, stop)
+    return count
+
+
 def control_hits(text):
     """(line number, line) of each literal color in control code."""
     found = []
@@ -60,8 +71,7 @@ def control_hits(text):
         opens = depth == 0 and OPENS.search(code)
         inside = depth > 0 or bool(opens)
         if (inside or CONTROL_LINE.search(code)) and ALLOW not in line:
-            count = sum(len(p.findall(code)) for p in LITERALS)
-            found.extend([(number, line.strip())] * count)
+            found.extend([(number, line.strip())] * literal_count(code))
         if inside:
             depth += code.count("{") - code.count("}")
             if depth < 0 or (opens and "{" not in code and "(" in code and depth == 0):

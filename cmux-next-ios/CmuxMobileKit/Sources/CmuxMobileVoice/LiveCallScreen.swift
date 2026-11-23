@@ -221,7 +221,7 @@ public struct LiveCallScreen: View {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.title)
                     .symbolRenderingMode(.palette)
-                    .foregroundStyle(.white, draft.isEmpty ? Color.gray.opacity(0.5) : Color.green)
+                    .foregroundStyle(.white, draft.isEmpty ? Color.gray.opacity(0.5) : CmuxMobileTheme.standard.colors.success.color) // color-literal-allow: the call screen's fixed night backdrop (LiveCallBackdrop)
             }
             .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             .accessibilityLabel(LiveCallText.send)
@@ -393,7 +393,7 @@ private struct LiveCallControl: View {
                     .background(Circle().fill(tint ?? (on ? .white : .white.opacity(0.16))))
                 Text(title)
                     .font(.caption)
-                    .foregroundStyle(.white.opacity(0.8))
+                    .foregroundStyle(.white.opacity(0.8)) // color-literal-allow: the call screen's fixed night backdrop (LiveCallBackdrop)
             }
             .frame(maxWidth: .infinity)
             .contentShape(.rect)
@@ -440,11 +440,11 @@ public struct LiveCallPill: View {
                 }
             }
             .font(.subheadline)
-            .foregroundStyle(.white)
+            .foregroundStyle(.white)  // color-literal-allow: white ink on a filled status disc, as Phone's call buttons
             .padding(.horizontal, 16)
             .padding(.vertical, 9)
-            .cmuxMobilePressBackground(Color.green, in: .capsule)
-            .shadow(color: .black.opacity(0.2), radius: 8, y: 2)
+            .cmuxMobilePressBackground(CmuxMobileTheme.standard.colors.success.color, in: .capsule)
+            .shadow(color: CmuxMobileTheme.standard.colors.scrim.color, radius: 8, y: 2)
         }
         .buttonStyle(.cmuxPressFillInLabel)
         .accessibilityLabel(LiveCallText.pillAccessibility)

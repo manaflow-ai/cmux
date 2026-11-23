@@ -4955,6 +4955,22 @@ serves the 3.6 GB seed in about 40 s, or 343 s when it first fills it from the b
 
 ## note-553
 
+Above `jobs:` in `.github/workflows/cmux-next.yml`.
+
+The macOS jobs run as a side lane, like relay-tls.yml and reload-build.yml: Trusted runs (a same-repository
+pull request, a push or a dispatch) stay on vars.CI_SIDE_LANE_RUNNER, the minis' glaeda-side-* label, while
+owned pools are on (CI_PR_POOL_OWNED is 1). Fork pull requests keep their fallback. Manual reruns stay
+minis-first. The rescue re-admits a queued run after the five-minute queue alarm: placement first uses a free
+owned GUI/session Mac, then the workflow's Blacksmith macOS route. macos-placement records idle side runners
+with the main picker's idle_placement() and publishes free role labels for the bot retry, so a job does not
+keep a shared concurrency slot on a busy Blacksmith label indefinitely. When a job takes the side label,
+macos-placement uploads the owned-pool-watch marker: ci-owned-pool-rescue.yml's sweeper on main adopts the run
+(owned_pool_rescue.SIDE_WORKFLOW_PATHS) and re-runs a job a mini leaves queued or refuses. Bot attempt 2 and
+later drop the stale placement output and re-admits it through the same fast-checks/owned-Mac/Blacksmith
+order; a person's re-run stays on the side label.
+
+## note-554
+
 Above `kit-tests: iPhone surface colors` in `.github/workflows/cmux-next-ios-kit.yml`.
 
 The iPhone app's views draw the design system's content surface levels and themed floating glass,
@@ -4963,3 +4979,6 @@ themed wallpaper: "THEME IT"). Fails when a file gains a hit over its row in
 scripts/cmux-next/ios-surface-colors-baseline.tsv; a needed literal says why with
 `// color-literal-allow: <reason>`. It runs in the kit job because cmux-next.yml does not run on a
 phone-only change.
+The control check (check-ios-control-colors.py) runs beside it: a literal color inside a Button, a ButtonStyle
+body, a press fill, a glass tint or a UIKit button configuration fails with an empty baseline (Leo
+2026-11-23: "these buttons may not be themed properly either").

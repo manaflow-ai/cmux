@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxChiefVoiceCore
+import CmuxMobileDesign
 import SwiftUI
 import UIKit
 
@@ -76,9 +77,9 @@ public struct ChiefCallScreen: View {
                 } label: {
                     Image(systemName: "phone.down.fill")
                         .font(.title)
-                        .foregroundStyle(.white)
+                        .foregroundStyle(.white)  // color-literal-allow: white ink on a filled status disc, as Phone's call buttons
                         .frame(width: 76, height: 76)
-                        .background(Circle().fill(.red))
+                        .background(Circle().fill(CmuxMobileTheme.standard.colors.danger.color))
                 }
                 .accessibilityLabel(VoiceText.endButton)
                 .accessibilityIdentifier("chief-call-end")
