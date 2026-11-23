@@ -630,3 +630,37 @@ test("a recording the host makes for the chat loads at the caret and stays there
   expect(inStrip).toHaveLength(0);
   expect(composer.current!.wakeState().attachments![0]!.path).toBe("/remote/Recording.wav");
 });
+
+// CMUX-682: `@computer-use` while Computer Use is not ready is held before anything binds the send's key
+// press or click. A send that waits for a screenshot binds that gesture to its prompt; the hold comes
+// first, so the gesture is still free to open the setup page, and nothing goes once the image is read.
+test("a held @computer-use send binds no gesture and never goes, even with a screenshot still being read", async () => {
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  let binds = 0;
+  const held: string[] = [];
+  const composer = await openComposer(sent, "chat-a", {
+    onBindSendGesture: () => {
+      binds += 1;
+      return undefined;
+    },
+    holdsSend: (text) => {
+      held.push(text);
+      return text.includes("@computer-use");
+    },
+  });
+  const shot = slowScreenshot();
+  await paste([shot.file]);
+  act(() => composer.current!.restore("open Notes with @computer-use", [], true));
+  act(() => {
+    expect(composer.current!.send()).toBe(false);
+  });
+  expect(binds).toBe(0);
+  expect(held.at(-1)).toContain("@computer-use");
+  shot.release();
+  await until(() => (composer.current!.wakeState().attachments ?? []).length === 1, "the read chip");
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(sent).toHaveLength(0);
+  expect(composer.current!.draftText()).toContain("@computer-use");
+});

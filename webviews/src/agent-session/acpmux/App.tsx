@@ -4710,6 +4710,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// Never on a page of another machine (`onOtherMachinePage`): a Cloud pick carried over from the chat before
   /// is no Cloud start there, the send starts the chat in this pane on that machine.
   const cloudPicked = sandbox.mode === "cloud" && !onOtherMachinePage && (!snapshot.sessionId || emptyLocalChat);
+  // Where the composer's send runs, for `@computer-use` (CMUX-682): a chat off this Mac (a Cloud VM, a
+  // Sandboxed run, a peer, an SSH host) has no Computer Use tools (acpmux gives a remote session no cmux
+  // tools, #48541), so its send is held too, and the chat says so.
+  const composerComputerUsePlace: ComputerUsePlace =
+    cloudPicked || sandboxing || snapshot.summary?.hostKind === "cloud"
+      ? "cloud"
+      : snapshot.summary?.host || machinePeer || snapshot.summary?.peer
+        ? "machine"
+        : "here";
   // The permission mode picked for that Cloud start (cloudModePick.ts).
   const cloudModePick = useCloudModePick();
   // A warm machine is reserved wherever Cloud is offered: before a chat opened here, or in an empty local chat,
@@ -9538,7 +9547,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   : "machine";
               const gate = computerUseGate(prompt, computerUseState(), place);
               if (gate !== "free" && holdsForComputerUseSetupRef.current(prompt, false, place))
-                throw new Error(translate(computerUseHoldText(gate).title));
+                throw new CmuxCommandRefused(translate(computerUseHoldText(gate).title));
             }
             // The chat it is beside, read before the fork (the reader may open another chat meanwhile).
             const chat = client.selectedSession;
@@ -11386,17 +11395,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   /// The classic page's chat: a terminal or browser tab opens through `newTabPageSubmit`.
   const chatFromNewTab = (text: string, cwd?: string, attachments: ComposerAttachment[] = [], chat?: NewTabChat) => {
+    // `@computer-use` starts nothing while Computer Use is not ready on this Mac, nor on another
+    // machine, which has no Computer Use tools (`holdsForComputerUseSetup`, #48541): decided before a
+    // folder grant or anything else spends the send's gesture, and the page keeps its text.
+    if (text && holdsForComputerUseSetup(text, true, directClient.current?.startsOnSend ? "machine" : "here")) return;
     const generation = ++newTabStartGeneration.current;
     const isCurrent = () => newTabStartGeneration.current === generation;
     const inherited = newTab?.cwd;
     const start = (folder?: string) =>
       void (async () => {
         if (!isCurrent()) return;
-        // `@computer-use` starts nothing while Computer Use is not ready on this Mac, nor on another
-        // machine, which has no Computer Use tools (`holdsForComputerUseSetup`, decided at once,
-        // #48541): the page keeps its text.
-        if (text && holdsForComputerUseSetup(text, true, directClient.current?.startsOnSend ? "machine" : "here"))
-          return;
         // A chat on another machine starts only with a send (cx-k21v): with no text, the folder
         // waits for the first send.
         if (folder && !text && directClient.current?.startsOnSend) {
@@ -12784,6 +12792,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               return client && bindsHeldSendNow(route) ? client.bindSendGesture() : undefined;
             }}
             transcriptFollowing={transcriptFollowing}
+            // `@computer-use` held before the send binds its key press or click (CMUX-682), so that
+            // gesture opens the setup page; onSend checks again for a send that waited for its files.
+            holdsSend={(text) => holdsForComputerUseSetup(text, false, composerComputerUsePlace)}
             onSend={(text, chips, steer, gesture) => {
               // A Sandboxed new chat: the message runs once on a throwaway VM, through the
               // host, and the chat shows its receipt; no acpmux chat starts.
@@ -12792,17 +12803,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               // The Trust continuation uses ComposerHandle.send(force), but never bypasses auth.
               if (authBlock) return false;
               if (sandboxHoldsChat && !sandboxDraftMoved) return false;
-              // `@computer-use` while Computer Use is not set up on this Mac: the chat says so with Set
-              // Up Computer Use, and the composer keeps the message (CMUX-682). A chat that does not run
-              // on this Mac (a Cloud VM, a Sandboxed run, a peer, an SSH host) has no Computer Use tools
-              // (acpmux gives a remote session no cmux tools, #48541): held too, and the chat says so.
-              const place: ComputerUsePlace =
-                cloudPicked || sandboxing || snapshot.summary?.hostKind === "cloud"
-                  ? "cloud"
-                  : snapshot.summary?.host || machinePeer || snapshot.summary?.peer
-                    ? "machine"
-                    : "here";
-              if (holdsForComputerUseSetup(text, false, place)) return false;
+              // `@computer-use` not ready, or a chat off this Mac (`composerComputerUsePlace`): the composer
+              // keeps the message (CMUX-682). Asked first in `holdsSend`; again here for a send that waited.
+              if (holdsForComputerUseSetup(text, false, composerComputerUsePlace)) return false;
               setComputerUseAsked(undefined);
               if (cloudPicked) {
                 // The project picked for this chat, else the folder the chip names, copied to the machine; none: the
