@@ -97082,6 +97082,50 @@
         }
       }
     },
+    "action.cloudEvacuate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Evacuate to Cloud"
+          }
+        }
+      }
+    },
+    "action.chatPlace.set": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set Chat Place"
+          }
+        }
+      }
+    },
+    "action.chatMove.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel Chat Move"
+          }
+        }
+      }
+    },
+    "action.chatMove.retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry Chat Move"
+          }
+        }
+      }
+    },
     "action.cloudBringBack": {
       "extractionState": "manual",
       "localizations": {
