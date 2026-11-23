@@ -838,5 +838,39 @@ class ClockRetryTest(unittest.TestCase):
         self.assertIn("RuntimeError: a | TimeoutError: b | ValueError: c", str(e.exception))
 
 
+class HostTestLossTest(unittest.TestCase):
+    def orchestrator(self, pct):
+        o = vs.Orchestrator.__new__(vs.Orchestrator)
+        o.host_test_loss = pct
+        o.host_args, o.viewer_args, o.host_argv, o.out = [], [], [], None
+        o.root = "/r"
+        o.a = argparse.Namespace(synthetic_size=None, synthetic_scene=None, link_bind=None)
+        return o
+
+    def test_the_value_is_checked(self):
+        self.assertEqual(vs.test_loss_pct(1.0), "1")
+        self.assertEqual(vs.test_loss_pct("0.5"), "0.5")
+        for bad in (0, -1, 100.5, "x"):
+            with self.assertRaises(ValueError):
+                vs.test_loss_pct(bad)
+
+    def test_the_flag_parses(self):
+        a = vs.build_parser().parse_args(run_argv("--host-test-loss", "1"))
+        self.assertEqual(a.host_test_loss, 1.0)
+        self.assertIsNone(vs.build_parser().parse_args(run_argv()).host_test_loss)
+
+    def test_synthetic_serve_sets_the_env(self):
+        self.assertIn("CMUX_RD_TEST_LOSS_PCT=1 ", self.orchestrator("1").synthetic_serve("fps"))
+        self.assertNotIn("CMUX_RD_TEST_LOSS_PCT", self.orchestrator(None).synthetic_serve("fps"))
+
+    def test_rows_record_it_only_when_set(self):
+        for pct, want in (("1", {"host_test_loss_pct": 1.0}), (None, {})):
+            o = self.orchestrator(pct)
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                o.log({"mode": "fps"})
+            row = json.loads(out.getvalue())
+            self.assertEqual({k: v for k, v in row.items() if k == "host_test_loss_pct"}, want)
+
+
 if __name__ == "__main__":
     unittest.main()

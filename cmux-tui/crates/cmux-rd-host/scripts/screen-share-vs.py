@@ -916,6 +916,18 @@ HOST_ARGS = {"--resolution-ladder": None, "--max-qp": NUMBER, "--max-kbps": NUMB
 VIEWER_ARGS = {"--caps": r"[a-z0-9._-]+(,[a-z0-9._-]+)*"}
 
 
+def test_loss_pct(value):
+    """`run --host-test-loss PCT` as the string the host's CMUX_RD_TEST_LOSS_PCT gets: a number
+    above 0 and at most 100 (cmux-rd-host's test_loss.rs drops that share of video and parity
+    datagrams after the loss meter counts them sent, so the host measures it as loss). The
+    dummynet `plr` of a mac-holds.sh hold can leave a run with 0 % measured loss while its
+    delay applies; this needs no shaper and no sudo. Anything else raises ValueError."""
+    pct = float(value)
+    if not 0 < pct <= 100:
+        raise ValueError(f"--host-test-loss {value!r}: not above 0 and at most 100")
+    return f"{pct:g}"
+
+
 def checked_args(items, allowed, what):
     """The argv for ITEMS (`--flag`, `--flag=VALUE` or `--flag VALUE`), each flag in ALLOWED
     with a value matching its pattern; anything else raises ValueError naming WHAT."""
@@ -1035,6 +1047,8 @@ def cmd_rig(args):
                     socket.inet_aton(bind)  # an IPv4 literal, or this request fails
                     argv += ["--link-bind", f"{bind}:0"]
                 env = dict(os.environ)
+                if req.get("test_loss_pct") is not None:
+                    env["CMUX_RD_TEST_LOSS_PCT"] = test_loss_pct(req["test_loss_pct"])
                 if req.get("timing"):
                     open(timing, "w").close()
                     env["CMUX_RD_TIMING_LOG"] = timing
@@ -1764,6 +1778,8 @@ class Orchestrator:
         self.host_args = list(getattr(args, "host_arg", None) or [])
         self.viewer_args = list(getattr(args, "viewer_arg", None) or [])
         try:
+            loss = getattr(args, "host_test_loss", None)
+            self.host_test_loss = test_loss_pct(loss) if loss is not None else None
             self.host_argv = checked_args(self.host_args, HOST_ARGS, "host")
             self.viewer_argv = checked_args(self.viewer_args, VIEWER_ARGS, "viewer")
         except ValueError as e:
@@ -1791,7 +1807,9 @@ class Orchestrator:
                     self.rev = f.read().strip() or None
 
     def log(self, rec):
-        line = json.dumps({**rec, "host_args": self.host_args, "viewer_args": self.viewer_args})
+        pct = getattr(self, "host_test_loss", None)
+        loss = {"host_test_loss_pct": float(pct)} if pct else {}
+        line = json.dumps({**rec, "host_args": self.host_args, "viewer_args": self.viewer_args, **loss})
         print(line, flush=True)
         if self.out:
             self.out.write(line + "\n")
@@ -1920,6 +1938,7 @@ class Orchestrator:
                                        + shlex.quote(json.dumps({"cmd": "serve", "timing": mode == "key",
                                                                  "flags": {"--profile": "high"},
                                                                  "args": self.host_args,
+                                                                 "test_loss_pct": getattr(self, "host_test_loss", None),
                                                                  "link_bind": self.a.link_bind})))
             setup = {"session": session, "peer_key": viewer_key, "scope": "control", "stun": [],
                      "display": "main", "max_fps": self.a.max_fps,
@@ -2114,6 +2133,9 @@ class Orchestrator:
         # Both modes log timing: key trials for the breakdown, fps trials for `host_frames`.
         timing = self.synthetic_timing_path()
         env = f": > {timing} && CMUX_RD_TIMING_LOG={timing} "
+        pct = getattr(self, "host_test_loss", None)
+        if pct:
+            env += f"CMUX_RD_TEST_LOSS_PCT={shlex.quote(pct)} "
         err = shlex.quote(f"{self.root}/state/serve.err")
         return env + " ".join(shlex.quote(a) for a in argv) + f" 2> {err}"
 
@@ -2641,6 +2663,10 @@ def build_parser():
                    help="an extra `cmux-rd serve` flag, repeatable, in the = form since it starts "
                         "with - (--host-arg=--resolution-ladder --host-arg=--max-qp=40); only "
                         + ", ".join(sorted(HOST_ARGS)) + " (a switch is sent as `--flag 1`)")
+    r.add_argument("--host-test-loss", type=float, metavar="PCT",
+                   help="drop PCT %% of the host's video and parity datagrams (CMUX_RD_TEST_LOSS_PCT "
+                        "on its `cmux-rd serve`): a loss leg with no dummynet hold and no sudo. Each "
+                        "row records host_test_loss_pct")
     r.add_argument("--viewer-arg", action="append", metavar="ARG",
                    help="an extra `cmux-rd bench` flag for the viewer, repeatable, in the = form "
                         "(--viewer-arg=--caps=video.scaled); only " + ", ".join(sorted(VIEWER_ARGS)))
