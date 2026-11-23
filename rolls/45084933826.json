@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45084933826",
+  "recorded_at": "2026-11-23T00:09:11Z",
+  "reason": "image inputs changed in 8f6523e4502019e14094b65079c74aa9f5d849d0..d977a1683c348cb8949e838a02e0cc476f68bcf4",
+  "dry_run": false,
+  "cmux_tui": "45ed727f30d1a623ba43d98d634b84b838a713db",
+  "fixes": [
+    {
+      "sha": "d977a1683c348cb8949e838a02e0cc476f68bcf4",
+      "mergedAt": "2026-11-22T23:45:12Z",
+      "subject": "Cloud Chief: automatic rollback of a build that does not stay up; pin optchat-chief in the image (#50702)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-23T00:09:11Z",
+    "snapshot_id": "sh-86b09c2c564d4b0eb650c6d30e833b5a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 45084933826): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "4fd3b3bb5b06f969785ba07ff50861347ce27707",
+    "image": "cloud-native-auto-45ed727f-45084933826-1",
+    "revision": "ci-45084933826-1",
+    "at": "2026-11-23T00:09:11Z"
+  },
+  "rolled_back": false
+}
