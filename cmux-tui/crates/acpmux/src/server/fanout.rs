@@ -81,8 +81,14 @@ pub(super) fn start(
         // Counted in each event's fan-out until this task ends.
         let _seat = seat;
         loop {
+            let rows_due = conn.held_rows.due();
             let ev = tokio::select! {
                 ev = rx.recv() => ev,
+                // The rows held behind a turn's first output go at their bound (`held_rows.rs`).
+                () = super::held_rows::wait(rows_due), if rows_due.is_some() => {
+                    super::held_rows::flush(&hub, &conn);
+                    continue;
+                }
                 // A turn's answer waits for the events queued before it (`Flush`).
                 Some(done) = flushes.recv() => {
                     loop {
@@ -94,6 +100,7 @@ pub(super) fn start(
                             Err(_) => break,
                         }
                     }
+                    super::held_rows::flush(&hub, &conn);
                     let _ = done.send(());
                     continue;
                 }

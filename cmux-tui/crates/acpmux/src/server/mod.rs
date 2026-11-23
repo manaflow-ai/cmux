@@ -192,6 +192,9 @@ pub struct Conn {
     /// Where each attached chat's live stream stands, so a lap of the event ring is read back
     /// from the store (`stream_cursor.rs`).
     stream_cursors: stream_cursor::StreamCursors,
+    /// The rows of an attached chat's turn-opening records, held so the turn's first output is
+    /// not queued behind them (`held_rows.rs`).
+    held_rows: held_rows::HeldRows,
     /// The chats a `session/load` replayed here: their message notices go once.
     message_notices: StdMutex<MessageNoticeBook>,
     /// Server-derived mailbox identities for this connection's local attachments.
@@ -1830,6 +1833,7 @@ async fn serve_connection_from(
         gate,
         subs: StdMutex::new(HashMap::new()),
         stream_cursors: Default::default(),
+        held_rows: Default::default(),
         message_notices: StdMutex::new(MessageNoticeBook::default()),
         mailbox_bindings: StdMutex::new(HashMap::new()),
         controls: Default::default(),
@@ -2358,6 +2362,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
     // another unlogged row change (`row_notice`). Not a logged record, so nothing but this
     // notice goes out for it.
     if ev.record.dir == crate::hub::COLD_CHANGED {
+        held_rows::flush(hub, conn);
         let attached = conn.sub_opts(&ev.session_id).is_some();
         if (attached || conn.watch_all.load(Ordering::SeqCst))
             && let Ok(s) = hub.resolve(&ev.session_id)
@@ -2523,6 +2528,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             let batched =
                 ev.peer_batch && !attached && conn.peer_row_batches.load(Ordering::SeqCst);
             if rec.dir == "peer" && !view::a_link(conn) && !batched {
+                held_rows::flush(hub, conn);
                 let sid = remote.summary.session_id().unwrap_or(&ev.session_id);
                 // The packed row, parsed for this line only (`RemoteRef::summary`).
                 let tools = attached || conn.watch_tools.load(Ordering::SeqCst);
@@ -2541,6 +2547,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             return;
         }
         if rec.dir == "mux" && rec.kind == "purged" {
+            held_rows::flush(hub, conn);
             // `replaced`: the same chat came back under this id (`Session::replaced`).
             let mut params = json!({"sessionId": ev.session_id, "session": {"sessionId": ev.session_id}, "kind": "purged", "recordKind": "purged", "seq": rec.seq, "listSeq": ev.list_seq});
             if rec.msg.get("replaced") == Some(&Value::Bool(true)) {
@@ -2559,6 +2566,13 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             return;
         }
         let Some(kind) = change_kind::session_change_kind(&rec.kind) else { return };
+        // The row of a record that opens a turn waits behind the turn's first output
+        // (`held_rows.rs`); any other row goes after the ones held, in row order.
+        if attached && held_rows::opens_a_turn(&rec.kind) {
+            conn.held_rows.hold(&ev.session_id, &rec.kind, rec.seq, ev.list_seq);
+            return;
+        }
+        held_rows::flush(hub, conn);
         // Built once per record, by the first watcher that sends it, and shared by the others
         // (`HubEvent::row`): with many watchers, each built the whole row again.
         let full = attached || conn.watch_tools.load(Ordering::SeqCst);
@@ -2625,6 +2639,7 @@ mod computer_use_relay;
 #[path = "connection_token_tests.rs"]
 mod connection_token_tests;
 pub(crate) mod controls;
+mod held_rows;
 mod in_flight;
 #[cfg(test)]
 #[path = "latency_gauges_tests.rs"]
