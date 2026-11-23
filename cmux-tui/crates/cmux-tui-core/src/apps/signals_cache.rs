@@ -286,10 +286,8 @@ impl<W: Clone + Eq + Hash + Ord, M: Clone + Eq + Hash> SignalsCache<W, M> {
         let fresh_entry = e.value.is_none() && !e.inflight && e.error.is_none();
         self.watchers
             .insert(w.clone(), Watcher { key: key.clone(), app: app.to_string(), mount, every });
-        if !fresh_entry {
-            if let Some(e) = self.entries.get(&key) {
-                fx.tell.push((w, e.state()));
-            }
+        if !fresh_entry && let Some(e) = self.entries.get(&key) {
+            fx.tell.push((w, e.state()));
         }
         if fresh_entry || (!was_awake && self.awake(&key)) {
             self.wake(&key, now, &mut fx);
