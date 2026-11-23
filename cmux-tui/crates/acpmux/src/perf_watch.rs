@@ -262,25 +262,46 @@ impl Inner {
 pub struct Watch {
     inner: Mutex<Option<Inner>>,
     notify: tokio::sync::Notify,
-    clock: fn() -> u64,
-}
-
-fn wall_ms() -> u64 {
-    crate::store::now_ms()
+    /// A test's own clock, in ms, that only it moves ([`Watch::advance`]): kept on the instance,
+    /// so no test's time reaches another's watch (cmux#41350). `None`: the wall clock.
+    #[cfg(test)]
+    test_now: Option<std::sync::atomic::AtomicU64>,
 }
 
 impl Watch {
     pub const fn new() -> Self {
-        Self { inner: Mutex::new(None), notify: tokio::sync::Notify::const_new(), clock: wall_ms }
+        Self {
+            inner: Mutex::new(None),
+            notify: tokio::sync::Notify::const_new(),
+            #[cfg(test)]
+            test_now: None,
+        }
     }
 
+    /// A watch whose clock reads `start_ms` until [`Watch::advance`] moves it.
     #[cfg(test)]
-    pub(crate) const fn with_clock(clock: fn() -> u64) -> Self {
-        Self { inner: Mutex::new(None), notify: tokio::sync::Notify::const_new(), clock }
+    pub(crate) const fn with_clock(start_ms: u64) -> Self {
+        Self {
+            inner: Mutex::new(None),
+            notify: tokio::sync::Notify::const_new(),
+            test_now: Some(std::sync::atomic::AtomicU64::new(start_ms)),
+        }
+    }
+
+    /// Moves a [`Watch::with_clock`] watch's clock on by `ms`.
+    #[cfg(test)]
+    pub(crate) fn advance(&self, ms: u64) {
+        if let Some(now) = &self.test_now {
+            now.fetch_add(ms, std::sync::atomic::Ordering::Relaxed);
+        }
     }
 
     fn now(&self) -> u64 {
-        (self.clock)()
+        #[cfg(test)]
+        if let Some(now) = &self.test_now {
+            return now.load(std::sync::atomic::Ordering::Relaxed);
+        }
+        crate::store::now_ms()
     }
 
     /// Turns the watch on (fresh: no earlier events) with its tail file at `file`, or off.
@@ -825,11 +846,13 @@ fn is_long_by_design(method: &str) -> bool {
 
 /// The tail file, readable by its owner only: it names chats and clients.
 fn open_private(path: &std::path::Path) -> std::io::Result<std::fs::File> {
-    let mut options = std::fs::OpenOptions::new();
-    options.create(true).write(true).truncate(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    options.open(path)
+    // Through `home_fs`: the tail file is under the home the daemon holds.
+    crate::home_fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(path)
 }
 
 fn round(value: f64) -> f64 {
