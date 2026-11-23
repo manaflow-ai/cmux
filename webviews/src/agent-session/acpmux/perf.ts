@@ -281,20 +281,15 @@ export class AcpmuxPerf {
         key: event.key,
       };
       presented?.mark(start, (presentation) => Object.assign(sample, presentation));
-      // The key's edit: its `input` event, then the microtasks the field and React run it in.
-      const input = () => {
-        const done = new MessageChannel();
-        done.port1.onmessage = () => {
-          sample.work ??= performance.now() - start;
-          done.port1.close();
-        };
-        done.port2.postMessage(0);
-      };
-      page.addEventListener("input", input, { capture: true, once: true });
+      // The key's edit is done inside its own task. The `input` event reaches the document last, after the field's and
+      // React's handlers and their microtasks. A microtask from here ends the key's work. A posted message can run
+      // after the next frame on WebKit, which makes `to_work` include an idle frame wait.
+      const input = () => queueMicrotask(() => (sample.work ??= performance.now() - start));
+      page.addEventListener("input", input, { once: true });
       requestAnimationFrame((timestamp) => {
         const frame = performance.now();
         sample.frame_timestamp_ms = timestamp;
-        page.removeEventListener("input", input, { capture: true });
+        page.removeEventListener("input", input);
         const channel = new MessageChannel();
         channel.port1.onmessage = () => {
           sample.frame = frame - start;
