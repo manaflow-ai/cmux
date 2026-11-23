@@ -53,9 +53,11 @@ impl Hub {
         // Weak: a watch never keeps a dropped hub alive, and a dropped hub sends nothing.
         let hub = Arc::downgrade(self);
         let owner = Arc::as_ptr(self) as usize;
+        // A stopping hub sends nothing (`bg_notify`), and a task or thread can still hold it
+        // after its daemon let go: it gives way as a dropped one does.
         let live = {
             let hub = hub.clone();
-            move || hub.strong_count() > 0
+            move || hub.upgrade().is_some_and(|hub| !hub.stopping.load(Ordering::SeqCst))
         };
         watcher().watch(lock, owner, record.session_id.clone(), live, move || {
             handle.spawn(async move {
@@ -378,7 +380,7 @@ struct Watch {
     /// The hub (its address) and the chat the task is of.
     owner: usize,
     session: String,
-    /// Whether the hub that asked still runs: a dropped hub's watch gives way to the next
+    /// Whether the hub that asked still runs: a dropped or stopped hub's watch gives way to the next
     /// hub's watch of the same task (a daemon restarted in the process, as a test does).
     live: Box<dyn Fn() -> bool + Send>,
     end: Box<dyn FnOnce() + Send>,

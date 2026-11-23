@@ -116,10 +116,7 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                 "Ask what to do next with a session that died owning work",
                 "acpmux session route --facts died.json",
             ),
-            (
-                "The same, with the facts piped on stdin",
-                "acpmux session route --facts - < died.json",
-            ),
+            ("The same, reading the facts from stdin", "acpmux session route --facts -"),
         ],
     ),
     (
