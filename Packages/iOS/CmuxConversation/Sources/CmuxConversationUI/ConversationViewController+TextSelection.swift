@@ -39,9 +39,15 @@ final class BubbleTextSelectionView: UITextView, UITextViewDelegate, @preconcurr
         textContainer.lineFragmentPadding = 0
         tintColor = tint
         delegate = self
-        // VoiceOver already reads (and offers Copy on) the bubble itself.
-        accessibilityElementsHidden = true
+        // Read as the selected words (the bubble itself reads its whole text);
+        // UI tests find the selection by this identifier.
+        accessibilityIdentifier = "chat.textSelection"
         addInteraction(menuInteraction)
+    }
+
+    override var accessibilityLabel: String? {
+        get { Range(selectedRange, in: plainText).map { String(plainText[$0]) } ?? "" }
+        set {}
     }
 
     @available(*, unavailable)

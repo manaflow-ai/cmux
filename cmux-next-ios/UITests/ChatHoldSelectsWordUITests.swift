@@ -6,7 +6,7 @@ import XCTest
 /// context-menu preview of the block.
 ///
 /// The native rows (every row at standard text sizes). The SwiftUI rows (accessibility text sizes)
-/// are SwiftUIHoldSelectsTextUITests (lane/ios-long-press-select-other).
+/// are SwiftUIHoldSelectsTextUITests.
 final class ChatHoldSelectsWordUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
@@ -63,6 +63,17 @@ final class ChatHoldSelectsWordUITests: XCTestCase {
         )).firstMatch
         XCTAssertTrue(copy.waitForExistence(timeout: 5), "the selection's edit menu offers Copy\n\(app.debugDescription)")
         XCTAssertFalse(app.buttons["Select Text"].exists, "no block context menu opened\n\(app.debugDescription)")
+
+        // Hold, then drag right while held: some words, not the block.
+        let again = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: frame.minX + 10, dy: frame.minY + 10))
+        again.press(forDuration: 1.0, thenDragTo: again.withOffset(CGVector(dx: 150, dy: 0)), withVelocity: .slow, thenHoldForDuration: 0.3)
+        XCTAssertTrue(selection.waitForExistence(timeout: 5), "the selection is in place\n\(app.debugDescription)")
+        let dragged = (selection.value as? String) ?? ""
+        attach(app, "\(name)-hold-drag-selects-some")
+        XCTAssertTrue(dragged.contains(" "), "a drag while held extends past one word: \"\(dragged)\"")
+        XCTAssertTrue(whole.contains(dragged), "the words are from the held paragraph: \"\(dragged)\"")
+        XCTAssertLessThan(dragged.count, whole.count, "the selection is not the whole block")
+        XCTAssertFalse(app.buttons["Select Text"].exists, "still no block context menu")
     }
 
     @MainActor

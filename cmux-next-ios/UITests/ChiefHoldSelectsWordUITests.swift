@@ -42,14 +42,33 @@ final class ChiefHoldSelectsWordUITests: XCTestCase {
         let selection = app.textViews["chat.textSelection"]
         XCTAssertTrue(selection.waitForExistence(timeout: 5),
                       "holding on a bubble's text starts an in-place text selection\n\(app.debugDescription)")
-        let selected = (selection.value as? String) ?? ""
+        let selected = selection.label
         attach(app, "chief-hold-selects-word")
         XCTAssertFalse(selected.isEmpty, "a word is selected")
         XCTAssertFalse(selected.contains(" "), "one word is selected, not the bubble: \"\(selected)\"")
-        XCTAssertTrue("Claude finished the TabsKit integration".contains(selected), "the word is from the held bubble: \"\(selected)\"")
+        XCTAssertTrue(bubble.label.contains(selected), "the word is from the held bubble: \"\(selected)\"")
         // The old hold lifted the bubble with its menu (Reply, Copy, Select, More…).
-        XCTAssertFalse(app.buttons["Reply"].exists, "no lifted bubble menu\n\(app.debugDescription)")
-        XCTAssertFalse(app.buttons["More…"].exists, "no lifted bubble menu")
+        XCTAssertFalse(app.buttons["More…"].exists, "no lifted bubble menu\n\(app.debugDescription)")
+        XCTAssertTrue(editMenuCopy(app).waitForExistence(timeout: 5), "the selection's edit menu offers Copy\n\(app.debugDescription)")
+
+        // Hold, then drag right while held: some words, not the bubble.
+        let again = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: frame.minX + 30, dy: frame.minY + 18))
+        again.press(forDuration: 1.0, thenDragTo: again.withOffset(CGVector(dx: 140, dy: 0)), withVelocity: .slow, thenHoldForDuration: 0.3)
+        XCTAssertTrue(selection.waitForExistence(timeout: 5), "the selection is in place\n\(app.debugDescription)")
+        let dragged = selection.label
+        attach(app, "chief-hold-drag-selects-some")
+        XCTAssertTrue(dragged.contains(" "), "a drag while held extends past one word: \"\(dragged)\"")
+        XCTAssertTrue(bubble.label.contains(dragged), "the words are from the held bubble: \"\(dragged)\"")
+        XCTAssertLessThan(dragged.count, bubble.label.count, "the selection is not the whole bubble")
+        XCTAssertFalse(app.buttons["More…"].exists, "still no lifted bubble menu")
+    }
+
+    @MainActor
+    private func editMenuCopy(_ app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any).matching(NSPredicate(
+            format: "label == 'Copy' AND (elementType == %d OR elementType == %d)",
+            XCUIElement.ElementType.menuItem.rawValue, XCUIElement.ElementType.button.rawValue
+        )).firstMatch
     }
 
     @MainActor

@@ -38,6 +38,7 @@ final class ChatInlineTextSelection: UITextView, UITextViewDelegate, UIEditMenuI
         textContainerInset = .zero
         textContainer.lineFragmentPadding = 0
         textContainer.lineBreakMode = label.lineBreakMode
+        textContainer.maximumNumberOfLines = label.numberOfLines
         delegate = self
         accessibilityIdentifier = "chat.textSelection"
         accessibilityLabel = String(localized: "mobile.agentChat.selection.label", defaultValue: "Selected text", bundle: .module)
