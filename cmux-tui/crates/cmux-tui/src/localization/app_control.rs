@@ -136,6 +136,8 @@ pub(crate) struct LiveMessages {
     pub cannot_run_swift: &'static str,
     pub chromium_not_watching: &'static str,
     pub chromium_no_checkout: &'static str,
+    /// `start` refused: the checkout's web ABI is not a target app's. `{tree_abi}`, `{app}`, `{app_abi}`.
+    pub abi_mismatch: &'static str,
 }
 
 /// `cmux app try`: run another commit's cmux in this app, live or as a whole build. `{name}`
@@ -174,6 +176,11 @@ pub(crate) struct TryMessages {
     pub nothing_to_undo: &'static str,
     pub no_receipt: &'static str,
     pub status_line: &'static str,
+    /// The Screen Sharing helper a live try carries (cli/app/try_cmd/helper.rs).
+    pub helper_plan: &'static str,
+    pub helper_plan_none: &'static str,
+    pub helper_swapped: &'static str,
+    pub helper_untouched: &'static str,
     pub status_daemon_only: &'static str,
     // `cmux app try .` (cli/app/try_cmd/copy.rs): the working tree in a clone of the NIGHTLY.
     pub copy_no_checkout: &'static str,
@@ -244,6 +251,7 @@ pub(crate) struct NightlyMessages {
     pub cannot_switch: &'static str,
     pub unknown_build: &'static str,
     pub no_previous: &'static str,
+    pub no_next: &'static str,
     pub installed_already: &'static str,
     pub pulled: &'static str,
     pub installing: &'static str,
@@ -339,11 +347,12 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         last_check: "Last check",
     },
     nightly: NightlyMessages {
-        usage: "usage: cmux nightly list [--limit N] | install previous|<build>\n  list     the recent nightly builds, newest first (* marks the one this Mac runs)\n  install  installs that build, older or newer, the way Settings > Updates' Switch does: it downloads\n           and checks it, restarts cmux into it with every session, and stops offering the build left behind",
+        usage: "usage: cmux app versions [--limit N] | use previous|next|latest|<build>\n       cmux nightly list [--limit N] | install previous|next|latest|<build>   (the same commands)\n  versions, list  the recent nightly builds, newest first (* marks the one this Mac runs)\n  use, install    installs that build, older or newer, the way Settings > Updates' Switch does: it downloads\n                  and checks it (a kept build swaps at once), restarts cmux into it with every session, and\n                  keeps the build it leaves, so `use next` comes forward again after `use previous`\n  previous  the newest build below this one;  next  the oldest build above it;  latest  the newest build",
         no_builds: "no nightly builds are listed (the feed could not be read)",
         cannot_switch: "this cmux follows no update feed, so it cannot install another build",
         unknown_build: "build {build} is not one of the recent nightly builds; `cmux nightly list` shows them",
         no_previous: "no earlier nightly build to install below {build}",
+        no_next: "no newer nightly build to install above {build}",
         installed_already: "this Mac already runs build {build}",
         pulled: "build {build} was pulled from the feed ({reason}); pick another with `cmux nightly list`",
         installing: "Installing build {build} ({version}, {date}). cmux restarts into it and keeps every session; build {from} is no longer offered.",
@@ -384,6 +393,10 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         nothing_to_undo: "nothing to undo: no `cmux app try` ran here, or the last one is already undone",
         no_receipt: "no `cmux app try` has run here",
         status_line: "{action} {commit} ({path}) in {app}: {phases}",
+        helper_plan: "The Screen Sharing helper ({bundle_id}) is replaced too, once its signature meets the installed helper's requirement.",
+        helper_plan_none: "The build carries no Screen Sharing helper: the app's stays as it is.",
+        helper_swapped: "Swapped the Screen Sharing helper: {bundle} (its signature meets the installed helper's requirement)",
+        helper_untouched: "The Screen Sharing helper is left as it is: {why}",
         status_daemon_only: "; daemon only, Swift left out: {left_out}",
         copy_no_checkout: "no cmux checkout there: run `cmux app try .` inside a clone of manaflow-ai/cmux, or name one (dir:PATH); it needs scripts/cmux-next/hot-verify.py",
         copy_no_app: "no app at {app} to copy: install cmux NIGHTLY, or pass --from APP",
@@ -451,6 +464,7 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         cannot_run_swift: "could not run the checkout's live-mode.py: {error}",
         chromium_not_watching: "Chromium live: not watching (`cmux live start --chromium` in a cmux checkout starts it)",
         chromium_no_checkout: "no cmux checkout here: run this inside a clone of manaflow-ai/cmux, or pass --worktree PATH (it needs scripts/cmux-next/chromium-live.py)",
+        abi_mismatch: "nothing started or written: this checkout's web UI needs web ABI {tree_abi}, {app} has web ABI {app_abi} (it would refuse it and reload every page); try it in a side copy instead: `cmux app try .`, or use a checkout at web ABI {app_abi}",
     },
     chat_perf: ChatPerfMessages {
         usage: "usage: cmux app chat perf --tab <tab> [--seconds <1-60>]\n  Measures the chat in <tab> as it runs, without focusing or showing it: frames, long tasks, layout\n  shift, and how long each record the chat receives takes to reach a painted frame, by kind. Default\n  5 seconds. A hidden or covered chat draws no frames, and the result says so. --json prints the report.",
@@ -552,11 +566,12 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
         last_check: "最終確認",
     },
     nightly: NightlyMessages {
-        usage: "使い方: cmux nightly list [--limit N] | install previous|<ビルド>\n  list     最近のナイトリービルドを新しい順に表示 (* はこの Mac で動作中のビルド)\n  install  そのビルド (古いものも新しいものも) を 設定 > アップデート の切り替えと同じ方法でインストールします。\n           ダウンロードして検証し、すべてのセッションを保ったまま cmux を再起動し、元のビルドは今後提案しません",
+        usage: "使い方: cmux app versions [--limit N] | use previous|next|latest|<ビルド>\n       cmux nightly list [--limit N] | install previous|next|latest|<ビルド>   (同じコマンド)\n  versions, list  最近のナイトリービルドを新しい順に表示 (* はこの Mac で動作中のビルド)\n  use, install    そのビルド (古いものも新しいものも) を 設定 > アップデート の切り替えと同じ方法でインストールします。\n                  ダウンロードして検証し (保存済みのビルドはすぐに入れ替え)、すべてのセッションを保ったまま cmux を再起動し、\n                  元のビルドを保存するので `use previous` の後に `use next` で戻れます\n  previous  これより前の最新ビルド;  next  これより後の最も古いビルド;  latest  最新ビルド",
         no_builds: "ナイトリービルドの一覧がありません (フィードを読み取れませんでした)",
         cannot_switch: "この cmux はアップデートフィードに従っていないため、他のビルドをインストールできません",
         unknown_build: "ビルド {build} は最近のナイトリービルドにありません。`cmux nightly list` で一覧を表示します",
         no_previous: "{build} より前にインストールできるナイトリービルドがありません",
+        no_next: "{build} より後にインストールできるナイトリービルドがありません",
         installed_already: "この Mac はすでにビルド {build} で動作しています",
         pulled: "ビルド {build} はフィードから取り下げられました ({reason})。`cmux nightly list` で別のビルドを選んでください",
         installing: "ビルド {build} ({version}、{date}) をインストールしています。cmux はすべてのセッションを保ったまま再起動します。ビルド {from} は今後提案しません。",
@@ -597,6 +612,10 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
         nothing_to_undo: "元に戻すものがありません。ここで `cmux app try` を実行していないか、直前のものはすでに戻しています",
         no_receipt: "ここではまだ `cmux app try` を実行していません",
         status_line: "{action} {commit} ({path}) {app}: {phases}",
+        helper_plan: "Screen Sharing ヘルパー ({bundle_id}) も、インストール済みのヘルパーの署名要件を満たせば入れ替えます。",
+        helper_plan_none: "このビルドには Screen Sharing ヘルパーがありません。アプリのヘルパーはそのままです。",
+        helper_swapped: "Screen Sharing ヘルパーを入れ替えました: {bundle} (署名はインストール済みのヘルパーの要件を満たしています)",
+        helper_untouched: "Screen Sharing ヘルパーはそのままです: {why}",
         status_daemon_only: "。デーモンのみ、Swift は含まれません: {left_out}",
         copy_no_checkout: "そこに cmux のチェックアウトがありません。manaflow-ai/cmux のクローン内で `cmux app try .` を実行するか、dir:パス で指定してください (scripts/cmux-next/hot-verify.py が必要です)",
         copy_no_app: "{app} にコピーするアプリがありません。cmux NIGHTLY をインストールするか、--from APP を指定してください",
@@ -664,6 +683,7 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
         cannot_run_swift: "チェックアウトの live-mode.py を実行できませんでした: {error}",
         chromium_not_watching: "Chromium ライブ: 監視していません (cmux のチェックアウトで `cmux live start --chromium` を実行すると開始します)",
         chromium_no_checkout: "ここに cmux のチェックアウトがありません。manaflow-ai/cmux のクローン内で実行するか、--worktree パス を指定してください (scripts/cmux-next/chromium-live.py が必要です)",
+        abi_mismatch: "何も起動・書き込みしていません: このチェックアウトの Web UI は Web ABI {tree_abi} が必要ですが、{app} は Web ABI {app_abi} です (アプリはそれを拒否し、すべてのページを再読み込みします)。代わりに別のコピーで試してください: `cmux app try .`、または Web ABI {app_abi} のチェックアウトを使ってください",
     },
     chat_perf: ChatPerfMessages {
         usage: "使い方: cmux app chat perf --tab <タブ> [--seconds <1-60>]\n  <タブ> のチャットを、フォーカスも表示もせずに動作中のまま計測します: フレーム、長いタスク、レイアウトシフト、\n  チャットが受け取る各レコードが描画済みフレームに届くまでの時間 (種類別)。既定は 5 秒。非表示や\n  隠れたチャットはフレームを描かず、結果にそう示されます。--json でレポートを表示します。",

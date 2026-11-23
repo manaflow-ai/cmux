@@ -929,6 +929,14 @@
     backdrop-filter: none;
   }
 }
+/* Liquid Glass off (appearance.liquidGlass): the same solid cards. */
+:where(:root[data-glass="off"]) .onb-import {
+  --onb-card-glass: var(--ds-color-surface);
+}
+:where(:root[data-glass="off"]) .onb-import :is(.onb-import-list, .onb-import-options, .onb-express-ask) {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
 
 /* A row's fill and a control's opacity follow the motion switch (WebTheme's data-cmux-motion). */
 :root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"])
@@ -939,15 +947,6 @@
   :is(.onb-import-row, .onb-progress-bar, .onb-import input[type="checkbox"], .onb-box-mark) {
     transition: none;
   }
-}
-
-/* cmux Tools: the Agents step's list, its status line, then where Settings keeps the answer. */
-.onb-agent-tools-note {
-  margin-top: auto;
-  color: var(--page-text-3);
-  font-size: var(--text-caption);
-  line-height: var(--text-caption--line-height);
-  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 /* Make cmux Yours (cmux#48416): three groups of native radios in the 300-point body. The radio
