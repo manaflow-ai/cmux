@@ -7,7 +7,8 @@ internal import Foundation
 /// CMUX_SWIFTPM_TARGET_LINUX). It resolves the same way: the key through
 /// `Bundle.main`, falling back to `defaultValue`. Apple builds keep the real
 /// `L10n` and never compile this file's body.
-enum L10n {
+struct L10n {
+    package init() {}
     static func string(_ key: StaticString, defaultValue: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: defaultValue, bundle: .main)
     }
