@@ -624,7 +624,8 @@ struct OutboxPhone {
     outbox: Outbox,
     form: Option<Form>,
     attached: bool,
-    flight: Option<(u64, u64, Instant)>,
+    /// Request id to (seq, deadline): up to `MAX_IN_FLIGHT` keyed Sends unanswered at once.
+    flight: HashMap<u64, (u64, Instant)>,
     msgs: HashMap<u64, usize>,
 }
 
@@ -635,7 +636,7 @@ impl OutboxPhone {
             outbox: Outbox::new(nonce, DEFAULT_HOLD),
             form: None,
             attached: false,
-            flight: None,
+            flight: HashMap::new(),
             msgs: HashMap::new(),
         }
     }
@@ -653,14 +654,14 @@ impl OutboxPhone {
         for done in self.outbox.expire(now) {
             self.record(done);
         }
-        if !self.attached || self.flight.is_some() {
+        if !self.attached {
             return;
         }
         let Some(form) = self.form else { return };
-        if let Some((seq, mut params)) = self.outbox.next_request(form) {
+        while let Some((seq, mut params)) = self.outbox.next_request(form) {
             params["surface"] = json!(self.io.surface);
             let id = self.io.request("send", params);
-            self.flight = Some((seq, id, now + ATTEMPT_TIMEOUT));
+            self.flight.insert(id, (seq, now + ATTEMPT_TIMEOUT));
         }
     }
 }
@@ -679,11 +680,7 @@ impl Phone for OutboxPhone {
     }
 
     fn reply(&mut self, id: u64, reply: &Value, now: Instant) {
-        let Some((seq, flight_id, _)) = self.flight else { return };
-        if flight_id != id {
-            return;
-        }
-        self.flight = None;
+        let Some((seq, _)) = self.flight.remove(&id) else { return };
         let answer = if reply["ok"] == json!(true) {
             Answer::Applied
         } else if reply["error_delivery"] == json!("known-not-delivered") {
@@ -699,7 +696,7 @@ impl Phone for OutboxPhone {
 
     fn lost(&mut self, _now: Instant) {
         self.attached = false;
-        self.flight = None;
+        self.flight.clear();
         self.outbox.link_lost();
     }
 
@@ -708,13 +705,16 @@ impl Phone for OutboxPhone {
     }
 
     fn tick(&mut self, now: Instant) {
-        if let Some((seq, _, deadline)) = self.flight
-            && deadline <= now
+        // A timed-out answer fails the channel (as the session's input lane does): every
+        // unanswered Send goes again on the next one.
+        if let Some((&id, &(seq, _))) =
+            self.flight.iter().find(|(_, (_, deadline))| *deadline <= now)
         {
-            self.flight = None;
+            self.flight.remove(&id);
             if let Some(done) = self.outbox.answer(seq, Answer::Lost) {
                 self.record(done);
             }
+            self.flight.clear();
             self.io.fail = true;
         }
         self.pump(now);
@@ -1165,7 +1165,8 @@ fn the_recorder_log_is_classified_per_send() {
     assert_eq!(bare, 1);
 }
 
-/// The table: both policies, every condition, 100 Sends each.
+/// The table: both policies, every condition, 100 Sends each (about 3 min; on demand:
+/// `cargo test -p cmux-tui --test composer_send_duress -- --ignored composer_send_duress_table`).
 #[test]
 fn composer_send_duress_table() {
     let sends = env_u64("COMPOSER_SEND_SENDS", 100) as usize;

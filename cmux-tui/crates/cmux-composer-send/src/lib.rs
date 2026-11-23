@@ -14,6 +14,9 @@
 //!   nothing, so it can be sent again as often as the link needs.
 //! - **Kept across a reconnect.** A Send whose answer did not come is not dropped: it goes again
 //!   under its key once the terminal is back, until [`Outbox::hold`] after the tap.
+//! - **Pipelined, in tap order.** Up to [`MAX_IN_FLIGHT`] Sends go unanswered at once on one
+//!   channel, so a slow link keeps up with the person's taps; a loss sends them all again, in
+//!   order, under their keys.
 //! - **Honest when it gives up.** Past the hold, a Send that never left is [`Outcome::NotSent`]
 //!   (its text may come back to the composer); one that may have reached the Mac is
 //!   [`Outcome::MaybeSent`], whose text must not come back as unsent, or the person sends it
@@ -38,6 +41,12 @@ pub const MAX_KEY_LEN: usize = 128;
 /// `TerminalModel.heldComposerSendWindow`). Past it the Send is given up: a command must not run
 /// whenever the Mac comes back (termfix-r13 D5).
 pub const DEFAULT_HOLD: Duration = Duration::from_secs(30);
+
+/// Sends unanswered at once, in tap order on one channel. One at a time cannot keep up with a
+/// person tapping faster than the link's round trip (a 1 s link delivered fewer Sends than were
+/// tapped, and the rest ran out of hold); the daemon applies a channel's requests in order and
+/// each key once, so a pipeline sent again after a loss types nothing twice.
+pub const MAX_IN_FLIGHT: usize = 16;
 
 /// How the daemon takes a keyed Send, from its `identify` capabilities ([`Form::from_caps`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -153,14 +162,13 @@ impl Outbox {
         seq
     }
 
-    /// The `send` params (without `surface`) for the oldest Send, when none is in flight: one at
-    /// a time, so Sends reach the Mac in tap order. It is in flight until [`Outbox::answer`] or
-    /// [`Outbox::link_lost`].
+    /// The next Send to go out, in tap order behind the ones in flight, while fewer than
+    /// [`MAX_IN_FLIGHT`] are unanswered: its seq and `send` params without `surface`.
     pub fn next_request(&mut self, form: Form) -> Option<(u64, Value)> {
-        let entry = self.entries.front_mut()?;
-        if entry.in_flight {
+        if self.entries.iter().filter(|e| e.in_flight).count() >= MAX_IN_FLIGHT {
             return None;
         }
+        let entry = self.entries.iter_mut().find(|e| !e.in_flight)?;
         entry.in_flight = true;
         entry.tried = true;
         let params = match (form, entry.submit) {
@@ -175,17 +183,20 @@ impl Outbox {
         Some((entry.seq, params))
     }
 
-    /// The answer to the attempt [`Outbox::next_request`] gave for `seq`. A lost one stays, to
-    /// go again under its key.
+    /// The answer to an attempt at `seq`. A lost one sends every unanswered Send again, in tap
+    /// order under its key (one behind it may have been typed already; its key makes the repeat
+    /// write nothing). An answer that comes after that still settles the Send.
     pub fn answer(&mut self, seq: u64, answer: Answer) -> Option<Done> {
-        let index = self.entries.iter().position(|e| e.seq == seq && e.in_flight)?;
+        let index = self.entries.iter().position(|e| e.seq == seq && e.tried)?;
         let outcome = match answer {
             Answer::Applied => Outcome::Sent,
-            // The key was never applied (a later attempt under an applied key answers success).
+            // Nothing written: the text goes back.
             Answer::Refused => Outcome::NotSent { text: self.entries[index].text.clone() },
             Answer::Uncertain => Outcome::MaybeSent { text: self.entries[index].text.clone() },
             Answer::Lost => {
-                self.entries[index].in_flight = false;
+                if self.entries[index].in_flight {
+                    self.link_lost();
+                }
                 return None;
             }
         };
@@ -305,18 +316,40 @@ mod tests {
     }
 
     #[test]
-    fn sends_go_one_at_a_time_in_tap_order() {
+    fn sends_pipeline_in_tap_order_up_to_the_window() {
+        let mut outbox = Outbox::new("phone", DEFAULT_HOLD);
+        let now = Instant::now();
+        let seqs: Vec<u64> =
+            (0..MAX_IN_FLIGHT + 1).map(|i| outbox.push(format!("m{i}"), true, now)).collect();
+        let sent: Vec<u64> =
+            std::iter::from_fn(|| outbox.next_request(Form::PasteSubmit).map(|(seq, _)| seq))
+                .collect();
+        assert_eq!(sent, seqs[..MAX_IN_FLIGHT], "in tap order, a window at a time");
+        outbox.answer(seqs[0], Answer::Applied);
+        let (next, params) = outbox.next_request(Form::PasteSubmit).unwrap();
+        assert_eq!(next, seqs[MAX_IN_FLIGHT]);
+        assert_eq!(key(&params), format!("phone-{next}"));
+    }
+
+    #[test]
+    fn a_lost_answer_sends_the_whole_pipeline_again_in_order_and_late_answers_still_settle() {
         let mut outbox = Outbox::new("phone", DEFAULT_HOLD);
         let now = Instant::now();
         let a = outbox.push("a", true, now);
         let b = outbox.push("b", true, now);
-        let (first, _) = outbox.next_request(Form::PasteSubmit).unwrap();
-        assert_eq!(first, a);
-        assert!(outbox.next_request(Form::PasteSubmit).is_none());
-        outbox.answer(a, Answer::Applied);
-        let (second, params) = outbox.next_request(Form::PasteSubmit).unwrap();
-        assert_eq!(second, b);
-        assert_ne!(key(&params), format!("phone-{a}"));
+        let first: Vec<_> = std::iter::from_fn(|| outbox.next_request(Form::PasteSubmit)).collect();
+        assert_eq!(outbox.answer(a, Answer::Lost), None);
+        let again: Vec<_> = std::iter::from_fn(|| outbox.next_request(Form::PasteSubmit)).collect();
+        assert_eq!(first, again, "the same requests, same keys, same order");
+        assert_eq!(
+            outbox.answer(b, Answer::Applied),
+            Some(Done { seq: b, outcome: Outcome::Sent })
+        );
+        assert_eq!(
+            outbox.answer(a, Answer::Applied),
+            Some(Done { seq: a, outcome: Outcome::Sent })
+        );
+        assert!(outbox.is_empty());
     }
 
     #[test]
