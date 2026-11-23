@@ -123,7 +123,10 @@ impl UserGit<'_> {
             .env_clear()
             .envs(environment())
             .envs(extra.iter().copied())
-            .stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
+            .stdin(match input {
+                Some(input) => Stdio::from(input_file(&input)?),
+                None => Stdio::null(),
+            })
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         #[cfg(unix)]
@@ -141,14 +144,6 @@ impl UserGit<'_> {
         }
         let mut child =
             command.spawn().map_err(|error| GitFailure::Unavailable(error.to_string()))?;
-        // The input is written on its own thread, so a program that answers
-        // before reading all of it never holds the deadline.
-        if let (Some(input), Some(mut stdin)) = (input, child.stdin.take()) {
-            thread::spawn(move || {
-                use std::io::Write as _;
-                let _ = stdin.write_all(&input);
-            });
-        }
         let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) else {
             terminate(&mut child);
             return Err(GitFailure::Unavailable(
@@ -178,6 +173,24 @@ impl UserGit<'_> {
             stderr: String::from_utf8_lossy(&stderr).trim().to_string(),
         })
     }
+}
+
+/// `input` in an unlinked temporary file at its start, for a program's
+/// stdin: the program reads it at its own pace, so no writer thread or full
+/// pipe ever holds the deadline. `create_new` never follows a planted link.
+fn input_file(input: &[u8]) -> Result<std::fs::File, GitFailure> {
+    use std::io::{Seek as _, SeekFrom, Write as _};
+    let unavailable = |error: std::io::Error| GitFailure::Unavailable(error.to_string());
+    let path = std::env::temp_dir().join(format!("cmux-input-{}", uuid::Uuid::new_v4()));
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true).write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let mut file = options.open(&path).map_err(unavailable)?;
+    let _ = std::fs::remove_file(&path);
+    file.write_all(input).map_err(unavailable)?;
+    file.seek(SeekFrom::Start(0)).map_err(unavailable)?;
+    Ok(file)
 }
 
 /// The inherited environment without git state or prompts, plus the
