@@ -321,3 +321,24 @@ fn a_programs_notice_is_fyi_by_rule_whatever_the_model_or_its_class_says() {
     );
     assert_eq!(actionable_topics(&lines_of(&b, &d)), 2, "the FIRE and the agent's ask");
 }
+
+/// claude-sr2-coord, 2026-11-23 07:45Z: glaeda-land sent ten `[blocker]` "forward_no_outcome"
+/// notices, one per PR, for lands handed off days before (two already merged); none needed a
+/// person. A program's block is fyi by rule too, one per PR or ten.
+#[test]
+fn a_programs_blocker_notices_are_fyi_however_many() {
+    let msg = |n: u32| {
+        json!({"surgeHeld": true, "promptId": format!("f{n}"), "threadId": "declared:a session on cmux-cp-1",
+            "from": "a session on cmux-cp-1", "class": "block",
+            "sender": {"session": null, "relay": {"machine": "cmux-cp-1", "session": null}},
+            "text": format!("\n[notice from glaeda-land on cmux-cp-1 \u{b7} WARN] glaeda land: https://github.com/manaflow-ai/cmux/pull/5{n:04} stopped: forward_no_outcome: handed off 5.7 d ago, no outcome recorded")})
+    };
+    let held: Vec<Held> = (0..10).map(|n| held_from_inbox(&msg(n)).expect("held")).collect();
+    assert!(held.iter().all(|h| h.program && h.fyi_by_rule() && !h.must_reach_this_session()));
+    let (rule, model) = split_urgent(&held);
+    assert_eq!((rule.len(), model.len()), (10, 0));
+    let b = batch_of(held);
+    let d = known(&b, None, &Owners::default());
+    assert!(d.iter().all(|d| (d.category, d.decided_by) == (Category::Fyi, DecidedBy::Rule)));
+    assert_eq!(actionable_topics(&lines_of(&b, &d)), 0);
+}
