@@ -267,7 +267,10 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     expect(gatewayProblems(servers)).toEqual([]);
     expect(attachedComputerUse(servers)).toBeNull();
     expect(gatewayProblems([{ ...servers[0], url: "http://10.0.0.5:41733/mcp/s-1f2e/tools" }])).toEqual(["cmux url http://10.0.0.5:41733/mcp/s-1f2e/tools is not loopback"]);
+    // Roll 44895229777: acpmux gives a harness its session endpoint itself, `/mcp/<session>` (mcp_gateway.rs).
+    for (const path of ["/mcp/s-1f2e", "/mcp/s-1f2e/tools/cmux"]) expect(gatewayProblems([{ ...servers[0], url: `http://127.0.0.1:41733${path}` }])).toEqual([]);
     expect(gatewayProblems([{ ...servers[0], url: "http://127.0.0.1:41733/other" }])).toHaveLength(1);
+    expect(gatewayProblems([{ ...servers[0], url: "http://127.0.0.1:41733/mcp/s-1f2e/admin" }])).toHaveLength(1);
     expect(gatewayProblems([{ name: "cmux", command: `${AGENT_TOOLS_BIN}/cmux`, args: ["mcp", "serve"], env: {} }])).toEqual([]);
     expect(gatewayProblems([{ name: "cmux", command: "/tmp/cmux", args: [], env: {} }])).toHaveLength(1);
     expect(gatewayProblems([])).toEqual(["no cmux server"]);
@@ -315,6 +318,16 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     const catalog = ["status", "list_machines", "list_apps", "list_windows", "screenshot", "get_ui_tree", "click", "type_text", "press_key", "scroll", "drag", "set_value", "perform_action", "wait", "batch", "launch_app", "request_permission"];
     expect(videoToolProblems(catalog)).toEqual([]);
     expect(videoToolProblems([...catalog, "install_ffmpeg", "start_recording", "screen_video"])).toEqual(["lists install_ffmpeg", "lists start_recording", "lists screen_video"]);
+  });
+
+  test("probe: the record tool (#50070) passes only when a call to it was refused for want of an H.264 encoder", () => {
+    const tools = ["status", "screenshot", "record"];
+    expect(videoToolProblems(tools)).toEqual(["lists record"]);
+    expect(videoToolProblems(tools, { isError: true, text: "unsupported: this desktop has no H.264 encoder, so it cannot record the screen yet" })).toEqual([]);
+    expect(videoToolProblems(tools, { isError: true, text: "unsupported: the host has no H.264 encoder for recordings" })).toEqual([]);
+    expect(videoToolProblems(tools, { isError: false, text: '{"path":"/tmp/r.mp4"}' })).toEqual(["lists record"]);
+    expect(videoToolProblems(tools, { isError: true, text: "screen is locked" })).toEqual(["lists record"]);
+    expect(videoToolProblems([...tools, "start_recording"], { isError: true, text: "unsupported: no H.264 encoder" })).toEqual(["lists start_recording"]);
   });
 
   test("probe: the worker check parses and reads the worker by its hidden mode, never its own pgrep line", async () => {

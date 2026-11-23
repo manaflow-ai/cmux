@@ -249,14 +249,13 @@ function cloudSignIn(record: Recorder): CloudSignIn {
 }
 
 /// What App.tsx's `turnActions` holds for a connected Cloud chat on the person's own machine whose acpmux
-/// retries turns and signs agents in (`agent_login`), whose agent lists /compact, with credential setup on.
+/// retries turns and signs agents in (`agent_login`), whose agent lists /compact.
 function cloudChatActions(record: Recorder, route: FailureRoute): TurnActions {
   return {
     retry: inPlace(record, "send the prompt again"),
     retryFailed: inPlace(record, "retry the turn"),
     resume: inPlace(record, "continue the turn"),
     compact: inPlace(record, "compact the chat"),
-    transferCloudCredentials: inPlace(record, "set up credentials on the machine"),
     cloudSignIn: cloudSignIn(record),
     switchModel: () => record({ kind: "in-place", what: "open the model picker" }),
     access: { addCredits: () => record({ kind: "out-of-app", what: "add credits" }) },
@@ -405,9 +404,9 @@ const TURN_FAILURE_STATES: ErgoState[] = TURN_FAILURES.map((fixture) => {
     type: "error",
     surface: "turn-failure",
     kind: fixture.kind,
-    // The card, and the footer's Set up credentials beside it. Not the footer's Retry icon, which every failed
-    // turn draws whatever its cause: it is not a way out the error names.
-    region: ".cv-turn-error, .cv-turn-actions .cv-turn-auth-action",
+    // The card. Not the footer's Retry icon, which every failed turn draws whatever its cause: it is
+    // not a way out the error names.
+    region: ".cv-turn-error",
     render: (record) => (
       <TurnActionsContext.Provider value={cloudChatActions(record, route)}>
         <FailedSendsContext.Provider value={cloudChatSends(record)}>

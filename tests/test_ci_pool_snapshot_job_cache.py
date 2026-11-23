@@ -4,8 +4,8 @@
 While the runner census (CI_RUNNER_STATE) is stale, GitHub.snapshot() lists the macos-pool-load artifacts and
 downloads the newest: two calls from the job's GITHUB_TOKEN, the repository's REST hour every workflow shares
 (the production promote gates 403'd on it; their failed read and these artifact reads had the same reset,
-backend.yml run 44878749398). cmux-tui-artifacts.yml's tree-preflight job runs four placement steps, each a new
-process, so each push spent eight calls on one snapshot (about 236 runs an hour on 2026-11-21 07Z).
+backend.yml run 44878749398). On 2026-11-21, four steps of one tree-preflight job each fetched the same snapshot,
+spending eight calls per push.
 
 snapshot() now keeps what it read in the job's RUNNER_TEMP (the runner empties it for each job), and a later
 step of the same job reuses it while it is fresh enough to use (snapshot_problem); a stale or unreadable file is
@@ -76,16 +76,32 @@ class JobSnapshotCache(unittest.TestCase):
         self.assertTrue(all(result == results[0] for result in results))
         self.assertEqual(results[0]["generated_at"], snapshot(self.generated)["generated_at"])
 
-    def test_a_kept_snapshot_too_old_to_use_is_read_again(self):
+    def test_a_kept_snapshot_older_than_the_share_window_is_read_again(self):
+        """A kept copy is reused only while the janitor (every few minutes) would not have a newer one: the
+        artifact read takes the newest snapshot up to 45 minutes old, a shared copy at most 5."""
         self.read()
-        later = NOW + dt.timedelta(minutes=pool.MAX_SNAPSHOT_MINUTES)
+        later = NOW + dt.timedelta(minutes=pool.KEPT_SNAPSHOT_MAX_MINUTES)
         self.generated = later - dt.timedelta(minutes=1)
         self.read(now=later)
         self.assertEqual(len(self.calls), 4, self.calls)
 
+    def test_another_job_of_the_run_reuses_the_shared_copy_and_marks_no_fetch(self):
+        """actions/cache carries the kept directory to the run's (and the base branch's) next jobs: such a job
+        reads no API and leaves no fetched marker, so it saves no new cache entry."""
+        self.read()
+        self.assertTrue((self.temp / pool.SNAPSHOT_FETCHED_MARKER).exists())
+        shared = self.temp / pool.KEPT_SNAPSHOT_DIR
+        other = Path(tempfile.mkdtemp(prefix="pool-snapshot-other-job-"))
+        self.addCleanup(shutil.rmtree, other, ignore_errors=True)
+        shutil.copytree(shared, other / pool.KEPT_SNAPSHOT_DIR)
+        self.temp = other
+        self.read(now=NOW + dt.timedelta(minutes=1))
+        self.assertEqual(len(self.calls), 2, self.calls)
+        self.assertFalse((other / pool.SNAPSHOT_FETCHED_MARKER).exists())
+
     def test_an_unreadable_kept_file_is_read_again(self):
         self.read()
-        for path in self.temp.iterdir():
+        for path in (self.temp / pool.KEPT_SNAPSHOT_DIR).iterdir():
             path.write_text("{not json")
         self.read()
         self.assertEqual(len(self.calls), 4, self.calls)

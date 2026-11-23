@@ -429,6 +429,10 @@ pub mod method {
 
     // acpmux extension namespace. Everything a plain ACP client does not need.
     pub const MUX_STATUS: &str = "_acpmux/status";
+    /// The live perf commentator (`perf_watch.rs`): `{op: on|off|status|read|snapshot|report|
+    /// budgets}`, and the always-on frame tally (`frame_tally.rs`): `{op: frames|tally}`; local app
+    /// and unix socket only.
+    pub const MUX_PERF: &str = "_acpmux/perf";
     /// One-request v2 upgrade. The JSON-RPC reply is the last v1 message; the
     /// transport hands the same stream to the framed v2 connection afterward.
     pub const MUX_V2: &str = "_acpmux/v2";
@@ -436,6 +440,9 @@ pub mod method {
     /// remote daemon over the hub carrier (`cmux_tui_service.rs`); the reply is the last line.
     pub const MUX_REMOTE_PIPE: &str = "_acpmux/remote.pipe";
     pub const MUX_SESSIONS: &str = "_acpmux/sessions";
+    /// Every listed chat's `usageStats` by its list id, and nothing else, kept by list position
+    /// (`hub/usage_answer.rs`): Session Info's Usage.
+    pub const MUX_USAGE: &str = "_acpmux/usage";
     /// The asking-mode table and the remote guard's lists, for the native
     /// relay; unix socket only.
     pub const MUX_WEB_MODES: &str = "_acpmux/web_modes";
@@ -476,6 +483,12 @@ pub mod method {
     /// and writes them itself (`claude_inbox_relay.rs`). Local unix socket only.
     pub const MUX_INBOX_RELAY: &str = "_acpmux/inbox_relay";
     pub const MUX_KILL: &str = "_acpmux/kill";
+    /// Hibernate an idle session now: its harness exits, its conversation stays resumable
+    /// (`hub/pause.rs`): `{sessionId}`.
+    pub const MUX_PAUSE: &str = "_acpmux/pause";
+    /// Start a hibernated session's agent now, on its conversation (`hub/pause.rs`):
+    /// `{sessionId}`.
+    pub const MUX_WAKE: &str = "_acpmux/wake";
     pub const MUX_KEEP: &str = "_acpmux/keep";
     pub const MUX_WATCH_TAKE_OVER: &str = "_acpmux/watch_take_over";
     /// A chat hands its Claude Code or Codex conversation to a terminal: once idle, its harness
@@ -571,6 +584,8 @@ pub mod method {
     pub const MUX_TEAM_ACK: &str = "_acpmux/team/ack";
     /// An image a session's prompt sent, by its id (`hub/prompt_images.rs`).
     pub const MUX_ATTACHMENT: &str = "_acpmux/attachment";
+    /// A turn's before and after picture of the chat's page (`hub/turn_shots.rs`).
+    pub const MUX_TURN_SHOTS: &str = "_acpmux/turn_shots";
     pub const MUX_PERMISSION_RESPOND: &str = "_acpmux/permission_respond";
     /// The signed app gives this launch's person key (`hub/person.rs`).
     pub const MUX_PERSON_ENROLL: &str = "_acpmux/person_enroll";
@@ -594,6 +609,12 @@ pub mod method {
     /// The person's app: the folders of the workspaces its daemon lists now,
     /// which a remote (Web) connection may also start sessions in.
     pub const MUX_WORKSPACE_ROOTS_SET: &str = "_acpmux/workspace_roots_set";
+    /// The person's app: the cmux-tui daemon socket and agent tab host whose workspaces a
+    /// browser's NEXT sidebar groups its chats by (`server/browser_workspaces.rs`).
+    pub const MUX_BROWSER_WORKSPACE_SOURCE_SET: &str = "_acpmux/browser_workspace_source_set";
+    /// A browser that presented its enrolled device: the app's workspaces and their chats
+    /// (`server/browser_workspaces.rs`).
+    pub const MUX_BROWSER_WORKSPACES: &str = "_acpmux/browser_workspaces";
     /// The person's app: the agent and model its New Tab page picked last,
     /// anywhere and per folder (`newTab.lastPicks`), which `_acpmux/harnesses`
     /// shows a remote device so its New Agent Chat starts where the app's does.
@@ -620,6 +641,12 @@ pub mod method {
     pub const MUX_INBOX_THREAD: &str = "_acpmux/inbox_thread";
     /// An answer in an inbox thread, to its sender's inbox: `{sessionId, threadId, text}`.
     pub const MUX_INBOX_REPLY: &str = "_acpmux/inbox_reply";
+    /// Bind a surge thread to its resolved recipient session: `{sessionId, threadId}`.
+    pub const MUX_INBOX_SUBSCRIPTION_SET: &str = "_acpmux/inbox_subscription_set";
+    /// Remove a surge thread binding: `{sessionId, threadId}`.
+    pub const MUX_INBOX_SUBSCRIPTION_REMOVE: &str = "_acpmux/inbox_subscription_remove";
+    /// List active surge thread bindings: `{sessionId}`.
+    pub const MUX_INBOX_SUBSCRIPTIONS: &str = "_acpmux/inbox_subscriptions";
     pub const MUX_TAG: &str = "_acpmux/tag";
     /// Ends a session's link to the session that started it (`acpmux session detach`,
     /// `hub/lane_reports.rs`): `{sessionId}` -> `{sessionId, detached}`. Its turns no longer go
@@ -797,6 +824,17 @@ pub mod method {
     pub const MUX_ACCOUNTS: &str = "_acpmux/accounts";
     pub const MUX_ACCOUNT_SET: &str = "_acpmux/account/set";
     pub const MUX_ACCOUNT_USAGE: &str = "_acpmux/account/usage";
+    // Signing an account in, adding one, switching and removing, for Codex, Claude and GitHub
+    // (server/account_sign_in.rs): the unix socket and the local app. Never Web or peer.
+    pub const MUX_ACCOUNT_SIGN_IN: &str = "_acpmux/account/sign_in";
+    pub const MUX_ACCOUNT_SIGN_IN_FINISH: &str = "_acpmux/account/sign_in.finish";
+    pub const MUX_ACCOUNT_SIGN_IN_CANCEL: &str = "_acpmux/account/sign_in.cancel";
+    pub const MUX_ACCOUNT_SWITCH: &str = "_acpmux/account/switch";
+    pub const MUX_ACCOUNT_REMOVE: &str = "_acpmux/account/remove";
+    /// Signs an account out with its CLI's own logout (GitHub: `gh auth logout`); its row stays.
+    pub const MUX_ACCOUNT_SIGN_OUT: &str = "_acpmux/account/sign_out";
+    /// Whether GitHub, Codex and Claude are each installed and signed in, for onboarding.
+    pub const MUX_ACCOUNT_READINESS: &str = "_acpmux/account/readiness";
     // Model connections: the person's ordered ways to pay for a model, for Settings > Models and
     // the inference gateway (server/connections.rs, cmux-tui/docs/model-connections.md). The list:
     // also the local app; every change and every ChatGPT call: the unix socket only.
@@ -809,6 +847,8 @@ pub mod method {
     pub const MUX_CONNECTIONS_CHATGPT_WAIT: &str = "_acpmux/connections/chatgpt.wait";
     pub const MUX_CONNECTIONS_CHATGPT_CANCEL: &str = "_acpmux/connections/chatgpt.cancel";
     pub const MUX_CONNECTIONS_CHATGPT_TOKEN: &str = "_acpmux/connections/chatgpt.token";
+    /// CI only: a Codex auth.json as a `chatgpt-plan` connection, local socket and an env switch.
+    pub const MUX_CONNECTIONS_CHATGPT_IMPORT: &str = "_acpmux/connections/chatgpt.import";
     pub const MUX_CONNECTIONS_CLAUDE_TOKEN_ADD: &str = "_acpmux/connections/claude_token.add";
     /// A Cloud-serving connection's credential for one machine agent launch (Revision 2).
     pub const MUX_CONNECTIONS_CREDENTIAL: &str = "_acpmux/connections/credential";
@@ -898,6 +938,11 @@ pub mod method {
     pub const MUX_PLAN_BUILD: &str = "_acpmux/plan/build";
     pub const MUX_PLAN_COMPARE: &str = "_acpmux/plan/compare";
     pub const MUX_PLAN_KEEP: &str = "_acpmux/plan/keep";
+    /// The machine's one GitHub poller for a pull request's state (`server/github_prs.rs`,
+    /// `pr_poller.rs`): `{repo, pr}` -> `{pr, poller}`, and the same after a wait
+    /// `{repo, pr, timeoutSecs?, until?}` until it is settled or changed.
+    pub const MUX_GITHUB_PR_STATE: &str = "_acpmux/github/pr_state";
+    pub const MUX_GITHUB_PR_WAIT: &str = "_acpmux/github/pr_wait";
     /// Worktree cleanup (`server/worktrees.rs`).
     pub const MUX_WORKTREE_REPORT: &str = "_acpmux/worktree/report";
     pub const MUX_WORKTREE_CLEAN: &str = "_acpmux/worktree/clean";
@@ -936,6 +981,21 @@ pub mod method {
     /// account signing out, leaves its sign-in join and enrolls the next person, with its retry.
     /// Local socket only.
     pub const MUX_MACHINE_SIGNED_IN: &str = "_acpmux/machine_signed_in";
+    /// A browser on the web listener presents its own enrolled device credential
+    /// (`server/web_device.rs`): `{credential}` -> `{auth: "webDevice"}`. Once per connection;
+    /// the connection's hub reads and prompts then go with that credential only. Web only.
+    pub const MUX_DEVICE_HELLO: &str = "_acpmux/device_hello";
+    /// A browser on the web listener enrolls as its own device on the mesh hub, as a new machine
+    /// joins (`server/web_device.rs`): `{accessToken, publicKey}` -> `{credential, machineId,
+    /// userId}`, to that connection only. Nothing is written to disk. Web only.
+    pub const MUX_DEVICE_ENROLL: &str = "_acpmux/device_enroll";
+    /// A browser on the web listener starts its own email-code sign-in for this daemon's owner
+    /// (`server/web_device.rs`): `{email, publicKey}` -> `{expiresIn: 300}`. One pending sign-in
+    /// per connection; a new start replaces it. Web only.
+    pub const MUX_BROWSER_SIGN_IN_START: &str = "_acpmux/browser_sign_in_start";
+    /// Completes it with the emailed code: `{code}` -> `{accessToken, publicKey}`, the browser's
+    /// own credential for `_acpmux/device_enroll`, to that connection only. Single-use. Web only.
+    pub const MUX_BROWSER_SIGN_IN_COMPLETE: &str = "_acpmux/browser_sign_in_complete";
     // This Mac's Cloud tunnel on the team mesh (`crate::machine_tunnel`,
     // `server/machine_tunnel.rs`): the app's person-proved connection only, with the person's
     // cmux access token in `token`. `attach|detach {token, networkId?}` -> the platform's
@@ -944,6 +1004,9 @@ pub mod method {
     pub const MUX_MACHINE_TUNNEL_DETACH: &str = "_acpmux/machine.tunnel.detach";
     pub const MUX_MACHINE_TUNNEL_REKEY: &str = "_acpmux/machine.tunnel.rekey";
     pub const MUX_PAIR_SET: &str = "_acpmux/pair_set";
+    // From the owner's peer daemon only: a phone it vouched for (`_meta.acpmux.ownerPhone`) had
+    // its Full-access setting turned off or was removed (`server/remote_guard.rs`).
+    pub const MUX_OWNER_PHONE_CHANGED: &str = "_acpmux/owner_phone_changed";
     pub const MUX_PAIR_REDEEM: &str = "_acpmux/pair_redeem";
     // The person's vault on this machine (`crate::vault`, `server/vault.rs`).
     pub const MUX_VAULT_PULL: &str = "_acpmux/vault_pull";
@@ -961,6 +1024,9 @@ pub mod method {
     /// incoming and outgoing bubbles without decoding the generic event stream.
     pub const MUX_MESSAGE: &str = "_acpmux/message";
     pub const MUX_SESSION_CHANGED: &str = "_acpmux/session_changed";
+    /// One peer's burst of row changes, to a watcher that asked for batches (`hub/list_guard.rs`
+    /// `send_remote_batch`).
+    pub const MUX_PEER_ROWS_CHANGED: &str = "_acpmux/peer_rows_changed";
     pub const MUX_PERMISSION_PENDING: &str = "_acpmux/permission_pending";
     /// To watchers when a harness profile source changed and the catalog
     /// reloaded: `{harnesses: string[], diagnostics}`.

@@ -55,13 +55,13 @@ impl Hub {
         // binary, as a hibernated chat wakes (`idle.rs`). Restarting it at once started an agent
         // for every chat that was up at an update, the idle Chief sub-sessions among them: 30 at
         // one cmux NIGHTLY relaunch (2026-11-15), each a Claude process for its two idle minutes.
-        let mut slept = 0;
+        let mut slept: usize = 0;
         for id in stale.clone() {
             if let Ok(session) = self.resolve(&id)
                 && self.end_idle_stale(&session).await
             {
                 stale.remove(&id);
-                slept += 1;
+                slept = slept.saturating_add(1);
             }
         }
         tracing::info!(
@@ -77,11 +77,88 @@ impl Hub {
         self.restart_harnesses(None, Some(&stale)).await
     }
 
+    /// Restarts every live local agent sent through a vault egress proxy start other than this
+    /// daemon's (`vault/egress.rs` `stale_proxy_env`): the previous daemon's proxy, whose port
+    /// may be closed and whose CA the agent trusts, is gone with it. On one machine
+    /// (2026-11-21 21:44Z) 20 chats went `harness_unavailable` on `ECONNREFUSED` this way after
+    /// daemon restarts, each retried in the same process until the retries ran out. Idle ones
+    /// end and start fresh when opened or sent to; the rest restart between turns, never in one.
+    pub(crate) async fn respawn_stale_proxies(self: &Arc<Self>) -> HarnessRestarts {
+        let mut stale = BTreeSet::new();
+        for session in self.sessions() {
+            if self.proxy_stale(&session).await {
+                stale.insert(session.id.clone());
+            }
+        }
+        if stale.is_empty() {
+            return HarnessRestarts::default();
+        }
+        let mut slept: usize = 0;
+        for id in stale.clone() {
+            if let Ok(session) = self.resolve(&id)
+                && self.end_idle_stale_for(&session, "stale-proxy").await
+            {
+                stale.remove(&id);
+                slept = slept.saturating_add(1);
+            }
+        }
+        tracing::info!(
+            code = "vault.egress_stale_agents",
+            count = stale.len(),
+            slept,
+            "agents were sent through a vault egress proxy an earlier daemon ran: the idle ones \
+             ended and start fresh when opened or sent to; the rest restart between turns"
+        );
+        if stale.is_empty() {
+            return HarnessRestarts::default();
+        }
+        self.restart_harnesses(None, Some(&stale)).await
+    }
+
+    /// Whether `session`'s live agent was started on another start of this machine's vault
+    /// egress proxy (`vault::egress::stale_proxy_pid`, read from its harness's environment).
+    pub(super) async fn proxy_stale(&self, session: &Session) -> bool {
+        let pid =
+            session.child.lock().await.as_ref().and_then(|c| {
+                c.host_record().map(|r| r.harness_pid.unwrap_or(r.host_pid)).or(c.pid)
+            });
+        pid.is_some_and(crate::vault::egress::stale_proxy_pid)
+    }
+
+    /// Before an automatic retry of a cut turn (`auto_resume.rs`): an agent [`Self::proxy_stale`]
+    /// ends first, so the retry's prompt starts a fresh one on this daemon's proxy and resumes
+    /// the same conversation, instead of sending the retry into the process that cannot reach
+    /// it. Only between turns: a turn, an open question or a start under way leaves it as it
+    /// is. Whether it ended the agent.
+    pub(super) async fn end_stale_proxy_before_retry(&self, session: &Arc<Session>) -> bool {
+        if !self.proxy_stale(session).await {
+            return false;
+        }
+        let turn = session.turn_lock.try_lock();
+        let using = session.harness_use.try_write();
+        let spawning = session.spawn_lock.try_lock();
+        if turn.is_err()
+            || using.is_err()
+            || spawning.is_err()
+            || session.turn().is_some()
+            || !session.pending_permissions().is_empty()
+        {
+            return false;
+        }
+        tracing::info!(session = %session.id, code = "vault.egress_stale_agent_restart", "its agent was sent through an earlier daemon's vault egress proxy: restarting it before the retry");
+        self.detach_child(session).await;
+        true
+    }
+
     /// Ends `session`'s agent when it is idle as the idle pass judges it (`idle.rs`
     /// `idle_eligible`, under the same leases) and marks the chat hibernated, so a person's open
     /// wakes it. A turn, a queued prompt, a question, a background process or subagent, or any
     /// start under way keeps it for the restart between turns.
     async fn end_idle_stale(&self, session: &Arc<Session>) -> bool {
+        self.end_idle_stale_for(session, "stale-binary").await
+    }
+
+    async fn end_idle_stale_for(&self, session: &Arc<Session>, cause: &'static str) -> bool {
         let turn = session.turn_lock.try_lock();
         let using = session.harness_use.try_write();
         let spawning = session.spawn_lock.try_lock();
@@ -97,13 +174,14 @@ impl Hub {
         session.meta.lock().unwrap_or_else(|e| e.into_inner()).hibernated_ms =
             crate::store::now_ms().max(1);
         self.save_meta(session);
-        tracing::info!(session = %session.id, cause = "stale-binary", "hibernated: its agent ran a replaced binary and was idle; it starts on the installed one when opened or sent to");
+        tracing::info!(session = %session.id, cause, "hibernated: its agent was stale and idle; a fresh one starts when it is opened or sent to");
         true
     }
 
     /// Once the agents the previous daemon left are adopted, on a task of its own: an agent whose
     /// harness profile changed (`profile_respawn.rs`), then one whose host runs a moved or
-    /// replaced binary, restarts between turns. One after the other, so a session both would
+    /// replaced binary, then one sent through an earlier daemon's vault egress proxy, restarts
+    /// between turns. One after the other, so a session both would
     /// restart restarts once: the second pass finds it already on the new binary, or already
     /// marked for its turn end.
     pub(crate) fn spawn_startup_respawns(self: &Arc<Self>) {
@@ -116,6 +194,10 @@ impl Hub {
             let stale = hub.respawn_stale_hosts().await;
             for (session, error) in &stale.failed {
                 tracing::warn!(%session, %error, "stale host respawn");
+            }
+            let proxies = hub.respawn_stale_proxies().await;
+            for (session, error) in &proxies.failed {
+                tracing::warn!(%session, %error, "stale proxy respawn");
             }
             if stale.now + stale.after_turn > 0 {
                 tracing::info!(
@@ -221,6 +303,17 @@ mod tests {
         if let (Some(running), Some(launched)) = (running_file(pid), launched_file(pid)) {
             assert_eq!(running, launched);
         }
+    }
+
+    #[tokio::test]
+    async fn a_daemon_with_no_running_agents_restarts_no_stale_proxy_agent() {
+        let mut config: crate::config::Config =
+            serde_json::from_value(serde_json::json!({"harnesses": {}})).unwrap();
+        config.store.mode = crate::config::StoreMode::Memory;
+        config.profile_sources = crate::config::ProfileSources::none();
+        let store = crate::store::open(&config.store, Path::new("/unused")).unwrap();
+        let out = Hub::new(config, store).respawn_stale_proxies().await;
+        assert_eq!((out.now, out.after_turn, out.failed.len()), (0, 0, 0));
     }
 
     #[tokio::test]

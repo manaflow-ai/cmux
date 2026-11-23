@@ -2,6 +2,7 @@ public import AppKit
 import CmuxAgentBrands
 public import CmuxNextActions
 public import CmuxNextAgentActivity
+public import CmuxNextDesign
 public import CmuxNextSidebar
 public import Foundation
 import os
@@ -43,17 +44,21 @@ public final class AgentPriorityChats {
     private let ranking = AgentPriorityRanking()
     /// `_acpmux/archive` for a session on the acpmux socket at the first argument.
     private let archiveRequest: @Sendable (_ socketPath: String, _ sessionId: String) async throws -> Void
+    /// `_acpmux/archive {archived: false}`: an archive's Undo (toasts v2). Nil: Undo only shows the row again here.
+    private let unarchiveRequest: (@Sendable (_ socketPath: String, _ sessionId: String) async throws -> Void)?
     /// Whether a chat's pull request checks fail (Red CI), by default the session tree feed's answer.
     private let checksFailing: @MainActor (AgentActivityLane) -> Bool
 
     public init(marks: AgentPriorityMarks = .shared, stores: [AgentLaneStore] = [.shared, .chief], machines: Machines = .none,
                 checksFailing: (@MainActor (AgentActivityLane) -> Bool)? = nil,
-                archive: @escaping @Sendable (_ socketPath: String, _ sessionId: String) async throws -> Void) {
+                archive: @escaping @Sendable (_ socketPath: String, _ sessionId: String) async throws -> Void,
+                unarchive: (@Sendable (_ socketPath: String, _ sessionId: String) async throws -> Void)? = nil) {
         self.marks = marks
         self.stores = stores
         self.machines = machines
         self.checksFailing = checksFailing ?? { SidebarSessionTreeFeed.shared.checksFailing($0) }
         self.archiveRequest = archive
+        self.unarchiveRequest = unarchive
     }
 
     /// The chats as they are now, built once for everything that reads them at one change (the
@@ -240,7 +245,7 @@ public final class AgentPriorityChats {
     /// shows the chat again.
     @discardableResult
     public func archive(_ id: String) -> Bool {
-        guard let socketPath = stores.first(where: { $0.lanes[id] != nil })?.socketPath else { return false }
+        guard let socketPath = socketPath(of: id) else { return false }
         marks.archive(id)
         let archive = archiveRequest, marks = marks
         // task-owner: one archive request; ends when acpmux answers or its deadline passes
@@ -251,5 +256,38 @@ public final class AgentPriorityChats {
             }
         }
         return true
+    }
+
+    /// An archived chat's Undo toast (toasts v2).
+    public static let archivedToastID = "chat-archived"
+
+    /// ``archive(_:)`` with an Undo toast (toasts v2, Leo: "closing a tab or workspace, or archiving a session, shows a
+    /// one-line toast with an inline Undo"): `message(title)` in `window`; Undo is ``unarchive(_:socketPath:)``.
+    @discardableResult
+    public func archive(_ id: String, undo toasts: CmuxToastCenter, in window: NSWindow?, message: (String) -> String) -> Bool {
+        // Read before the archive hides the row: its title, and its acpmux (whose lists may drop the chat).
+        let title = entry(id)?.title ?? id
+        guard let socketPath = socketPath(of: id), archive(id) else { return false }
+        toasts.showUndo(message(title), id: Self.archivedToastID, in: window) { [weak self] in self?.unarchive(id, socketPath: socketPath) }
+        return true
+    }
+
+    /// The socket of the acpmux that reports the chat (this Mac's or the Chief home's); nil for another machine's.
+    public func socketPath(of id: String) -> String? {
+        stores.first(where: { $0.lanes[id] != nil })?.socketPath
+    }
+
+    /// An archive's Undo (toasts v2): the row shows again here at once, as a refused archive's does, and the acpmux at
+    /// `socketPath` (read before the archive: its lists may have dropped the chat since) lists it again
+    /// (`_acpmux/archive {archived: false}`).
+    public func unarchive(_ id: String, socketPath: String) {
+        marks.unarchive(id)
+        guard let unarchive = unarchiveRequest else { return }
+        // task-owner: one unarchive request; ends when acpmux answers or its deadline passes
+        Task {
+            do { try await unarchive(socketPath, id) } catch {
+                Self.logger.error("priority unarchive failed: \(String(describing: error), privacy: .public)")
+            }
+        }
     }
 }

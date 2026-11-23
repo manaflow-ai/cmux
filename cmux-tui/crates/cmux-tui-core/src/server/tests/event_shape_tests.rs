@@ -176,6 +176,8 @@ fn list_agents_and_agent_changed_carry_the_hook_session_id() {
     assert_eq!(agents.len(), 1, "{listed}");
     assert_eq!(agents[0]["agent"], "claude", "{listed}");
     assert_eq!(agents[0]["agent_session_id"], "claude-session-1", "{listed}");
+    // cmux#49392: the terminal's public id, by which the app finds every tab that shows it.
+    assert_eq!(agents[0]["terminal_id"], terminal_id.as_str(), "{listed}");
 
     let changed = events
         .try_iter()
@@ -183,6 +185,8 @@ fn list_agents_and_agent_changed_carry_the_hook_session_id() {
         .find(|event| event["event"] == "agent-changed")
         .expect("the hook publishes agent-changed");
     assert_eq!(changed["agent_session_id"], "claude-session-1", "{changed}");
+    assert_eq!(changed["terminal_id"], terminal_id.as_str(), "{changed}");
+    assert_eq!(changed["surface"], agents[0]["surface"], "{changed}");
 }
 
 /// Done-until-seen: a finished turn lists as `status: done` (the roster

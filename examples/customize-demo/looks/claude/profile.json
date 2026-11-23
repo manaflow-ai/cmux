@@ -10,6 +10,7 @@
     ],
     "layout.newPanePlacement": "split",
     "sidebar.groupBy": "folder",
+    "sidebar.sessionTree": true,
     "sidebar.showTimestamps": true,
     "sidebar.density": "comfortable",
     "sidebar.showSpaces": false,

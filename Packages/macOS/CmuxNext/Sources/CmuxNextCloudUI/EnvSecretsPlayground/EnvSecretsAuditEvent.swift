@@ -1,5 +1,5 @@
 #if DEBUG
-import SwiftUI
+import AppKit
 
 /// DEBUG ONLY (Environment Secrets Playground): one line of a secret's history. It never holds the value.
 struct EnvSecretsAuditEvent: Identifiable {
@@ -28,12 +28,12 @@ struct EnvSecretsAuditEvent: Identifiable {
             }
         }
 
-        var tint: Color {
+        var tint: NSColor {
             switch self {
-            case .sent: Color(nsColor: .systemGreen)
-            case .blocked, .revoked: Color(nsColor: .systemRed)
-            case .hostAdded: Color(nsColor: .systemOrange)
-            case .replaced, .created: Color(nsColor: .secondaryLabelColor)
+            case .sent: NSColor.systemGreen
+            case .blocked, .revoked: NSColor.systemRed
+            case .hostAdded: NSColor.systemOrange
+            case .replaced, .created: NSColor.secondaryLabelColor
             }
         }
     }

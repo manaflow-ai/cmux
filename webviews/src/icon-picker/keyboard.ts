@@ -6,6 +6,7 @@
 // window with no app command on it); every other Cmd chord is left to the app's key dispatcher
 // (react-pages.md 1.2).
 import type { GridMove } from "./gridModel";
+import { intl } from "../ui/intl";
 
 export type PickerKeyAction =
   | { readonly kind: "move"; readonly move: GridMove }
@@ -58,7 +59,7 @@ export function pickerKeyAction(event: KeyLike): PickerKeyAction | null {
   return move && !event.shiftKey ? { kind: "move", move } : null;
 }
 
-const SEGMENTER = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+const SEGMENTER = intl.Segmenter(undefined, { granularity: "grapheme" });
 
 /** Whether a key types text (a key outside the search field sends it to the search). */
 export function typesText(event: KeyLike): boolean {

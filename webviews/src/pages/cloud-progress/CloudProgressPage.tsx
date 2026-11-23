@@ -163,7 +163,7 @@ export function CloudProgressView({
   if (arm === "card") {
     return (
       <div className="cloud-progress" data-look="card" data-stage={state.stage}>
-        <div className="cloud-progress__card ui-card ui-glass">
+        <div className="cloud-progress__card ui-card ui-glass ui-glass-content">
           <h1 className="cloud-progress__title">{title}</h1>
           {status}
           <div className="cloud-progress__bar" role="presentation">
