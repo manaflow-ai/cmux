@@ -9,19 +9,19 @@ public struct PairRequestCardView: View {
     let macName: String
     let fingerprint: String
     let answering: Bool
-    let error: String?
+    let failed: Bool
     let onAllow: () -> Void
     let onDeny: () -> Void
 
     public init(
-        deviceName: String, macName: String, fingerprint: String, answering: Bool, error: String?,
+        deviceName: String, macName: String, fingerprint: String, answering: Bool, failed: Bool,
         onAllow: @escaping () -> Void, onDeny: @escaping () -> Void
     ) {
         self.deviceName = deviceName
         self.macName = macName
         self.fingerprint = fingerprint
         self.answering = answering
-        self.error = error
+        self.failed = failed
         self.onAllow = onAllow
         self.onDeny = onDeny
     }
@@ -46,8 +46,9 @@ public struct PairRequestCardView: View {
                     .textSelection(.enabled)
                     .accessibilityIdentifier("pairRequest.fingerprint")
             }
-            if let error {
-                Text(error)
+            if failed {
+                Text(String(localized: "pairRequest.failed",
+                            defaultValue: "Your Mac didn’t take the answer. Try again.", bundle: .module))
                     .font(.footnote)
                     .foregroundStyle(.red)
             }
