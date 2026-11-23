@@ -75,6 +75,7 @@ pub(super) async fn serve_stream(
         None,
         None,
         None,
+        None,
     )
     .await;
     // Only a connection that may have been taken waits for its reader; any other ends here as

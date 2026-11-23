@@ -25,8 +25,10 @@ public nonisolated enum AppPlatformResources {
     /// BUNDLED marker): whole packages, which the local daemon's supervisor
     /// reads as its first-party directory (`CMUX_APPS_FIRST_PARTY_DIR`).
     public static var firstParty: URL { root.appending(path: "first-party", directoryHint: .isDirectory) }
-    /// The App Store examples (`samples/apps/<name>` with a STORE marker): whole packages the
-    /// local daemon's supervisor lists as third-party apps the user installs (`CMUX_APPS_DIRS`).
+    /// The App Store packages (`samples/apps/<name>` and `first-party-apps/<name>` with a STORE
+    /// marker): whole packages the local daemon's supervisor lists as apps the user installs
+    /// (`CMUX_APPS_DIRS`). Build output, never committed: `build-web-bundles.sh` writes them
+    /// (`sync-app-runtime.sh --store`) before every app build.
     public static var storeExamples: URL { root.appending(path: "store", directoryHint: .isDirectory) }
 
     /// The bundled sample manifests (sorted by directory name). Reads the

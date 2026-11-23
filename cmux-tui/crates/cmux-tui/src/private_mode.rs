@@ -31,6 +31,10 @@ pub(crate) fn run(args: &[String]) -> Option<i32> {
         Some("__adopt-build-homes") => Some(crate::build_adopt::run(&args[1..])),
         #[cfg(unix)]
         Some(terminal_paste::MODE) => Some(terminal_paste::run()),
+        // The Files pane's folder reads, which a DEV build runs under cmux Files (dev)
+        // (files_lister.rs).
+        #[cfg(unix)]
+        Some(crate::files_lister::MODE) => Some(crate::files_lister::run()),
         // The machine side of `cmux link machine update` (cx-rppd.13).
         #[cfg(unix)]
         Some(crate::link::machine_update::apply::MODE) => {
@@ -43,6 +47,13 @@ pub(crate) fn run(args: &[String]) -> Option<i32> {
         #[cfg(not(target_os = "macos"))]
         Some(cmux_tui_core::computer_use_host::WORKER_MODE) => {
             Some(crate::computer_use_worker::run(args.get(1..).unwrap_or_default()))
+        }
+        // The terminal scroll-integrity probe (scroll_probe.rs) against any
+        // daemon socket: local, SSH or Cloud
+        // (scripts/measure/terminal-scroll-stress-linux.sh).
+        #[cfg(unix)]
+        Some(crate::scroll_probe::MODE) => {
+            Some(crate::scroll_probe::run(args.get(1..).unwrap_or_default()))
         }
         _ => None,
     }

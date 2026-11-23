@@ -35,6 +35,7 @@ pub fn agent_count(participants: &[Participant]) -> usize {
 /// Whether the turn cap applies: only where two or more agents share the
 /// conversation, so they could loop with each other. A lone agent (the
 /// person's own Chief chat) has no cap; the gap still spaces its texts.
+// Keep this decision in one place so both budget guards share the same rule.
 fn capped(agents: usize) -> bool {
     agents >= 2
 }

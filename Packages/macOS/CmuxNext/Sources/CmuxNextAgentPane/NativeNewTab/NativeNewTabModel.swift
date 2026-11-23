@@ -39,6 +39,9 @@ public final class NativeNewTabModel {
     /// of a row): the host reads them again when the page showed with a list that was read before it (the kept
     /// list, ``AgentPaneNewTabActions/kept``), and does nothing when the page's own listing read its list.
     @ObservationIgnored private var paletteRefresh: PaletteActionsRequest?
+    /// The host's favicon revision and a cheap context refresh. Both run only in the view's background observation task,
+    /// never while the field ranks a keystroke.
+    @ObservationIgnored var favicons: NativeNewTabFavicons?
     /// Which ask an answer belongs to: an adoption (a new tab's context) drops an earlier page's answer.
     @ObservationIgnored private var paletteAsk = 0
 
@@ -53,7 +56,7 @@ public final class NativeNewTabModel {
     ///   - chats: The device's newest chats (the host's Chats feed), for the chat rows.
     public init(page: AgentPaneNewTab, actions: NativeNewTabActions, ranker: NativeNewTabRanker = NativeNewTabRanker(),
                 paletteActions: PaletteActionsRequest? = nil, paletteRefresh: PaletteActionsRequest? = nil,
-                chats: [AgentPaneDeviceChat] = []) {
+                chats: [AgentPaneDeviceChat] = [], favicons: NativeNewTabFavicons? = nil) {
         self.page = page
         self.chats = chats
         self.kind = page.kind
@@ -61,6 +64,7 @@ public final class NativeNewTabModel {
         self.ranker = ranker
         self.paletteActions = paletteActions
         self.paletteRefresh = paletteRefresh
+        self.favicons = favicons
     }
 
     /// Asks for the dropdown's palette actions if they are not there yet (the host calls it on the frame after the
@@ -133,6 +137,19 @@ public final class NativeNewTabModel {
     /// The open tabs and workspaces changed while the page shows; the typed text stays.
     public func update(_ page: AgentPaneNewTab) { self.page = page }
 
+    /// Replaces only the host's favicon-bearing snapshot after the favicon store changes. The host calls this from
+    /// an observation task, so a missing icon can arrive later without making the input path wait.
+    public func refreshFaviconPage() {
+        guard let favicons else { return }
+        let refreshed = favicons.page(page)
+        guard refreshed.omnibar.tabs != page.omnibar.tabs || refreshed.omnibar.history != page.omnibar.history ||
+                refreshed.omnibar.bookmarks != page.omnibar.bookmarks else { return }
+        page = refreshed
+    }
+
+    /// Reads the host's revision inside an observation scope. It is deliberately separate from ``rows``.
+    public func faviconRevisionTick() -> Int { favicons?.revision() ?? 0 }
+
     /// Down (`1`) or Up (`-1`): moves the highlight, wrapping at the ends.
     public func move(_ step: Int) {
         let count = rows.count
@@ -159,6 +176,7 @@ public final class NativeNewTabModel {
         case .tab(let tab): actions.jump(.tab, tab.id)
         case .workspace(let workspace): actions.jump(.workspace, workspace.id)
         case .page(let page): actions.submit(page.url, .browser, false)
+        case .bookmark(let page): actions.submit(page.url, .browser, false)
         case .action(let action):
             used()
             actions.action(action.id, action.title)

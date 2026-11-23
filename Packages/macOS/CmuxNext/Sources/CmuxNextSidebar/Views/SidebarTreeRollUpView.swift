@@ -1,9 +1,10 @@
 import AppKit
 import CmuxNextDesign
 
-/// A folded tree parent's roll-up (`sidebar.sessionTree`): one small chip per state its hidden
-/// sessions are in, a dot and a count each, in a fixed order (waiting on you, failed, running,
-/// finished unread). Only states with a count draw. Hidden without a roll-up.
+/// A folded tree parent's roll-up (`sidebar.sessionTree`, lineage nesting): a plain chip with how many
+/// sessions it hides, then one small chip per state they are in, a dot and a count each, in a fixed
+/// order (waiting on you, failed, running, finished unread). Only states with a count draw. Hidden
+/// without a roll-up.
 final class SidebarTreeRollUpView: NSView {
     private struct Chip {
         let state: SidebarAgentState
@@ -12,9 +13,10 @@ final class SidebarTreeRollUpView: NSView {
         let count = SidebarRowView.label(font: SidebarStyle.badgeFont)
     }
 
-    private let chips = [SidebarAgentState.blocked, .failed, .running, .finishedUnread].map { Chip(state: $0) }
+    /// The count chip's state is `.idle`: it draws no dot and counts every hidden session.
+    private let chips = [SidebarAgentState.idle, .blocked, .failed, .running, .finishedUnread].map { Chip(state: $0) }
     // Match the row's agent-working status treatment, including Reduce Motion and occlusion.
-    // Only the running chip uses this mark; the other three states keep their quiet dots.
+    // Only the running chip uses this mark; the other states keep their quiet dots.
     private let runningIndicator = StatusIndicatorView(frame: .zero)
     private(set) var rollUp: SidebarTreeRollUp?
 
@@ -48,7 +50,7 @@ final class SidebarTreeRollUpView: NSView {
             let n = Self.count(chip.state, in: rollUp)
             chip.count.setString(n > 0 ? String(n) : "")
             chip.count.isHidden = n == 0
-            chip.dot.isHidden = n == 0 || chip.state == .running
+            chip.dot.isHidden = n == 0 || chip.state == .idle || chip.state == .running
             chip.fill.isHidden = n == 0
         }
         refreshRunningIndicator()
@@ -80,7 +82,7 @@ final class SidebarTreeRollUpView: NSView {
         case .failed: rollUp.failed
         case .running: rollUp.running
         case .finishedUnread: rollUp.unread
-        case .idle: 0
+        case .idle: rollUp.total
         }
     }
 
@@ -101,7 +103,7 @@ final class SidebarTreeRollUpView: NSView {
         for chip in chips {
             chip.dot.backgroundColor = Self.color(chip.state).cgColor
             chip.fill.backgroundColor = Palette.badgeFill.cgColor
-            chip.count.setColor(chip.state == .running ? Palette.textSecondary : Palette.textPrimary)
+            chip.count.setColor(chip.state == .running || chip.state == .idle ? Palette.textSecondary : Palette.textPrimary)
         }
         CATransaction.commit()
     }
@@ -110,8 +112,11 @@ final class SidebarTreeRollUpView: NSView {
     private static var pad: CGFloat { Metrics.space1 }
 
     private func width(_ chip: Chip) -> CGFloat {
-        chip.count.isHidden ? 0 : ceil(Self.pad + Self.dotSide + Metrics.space1 + chip.count.intrinsicContentSize.width + Self.pad)
+        chip.count.isHidden ? 0 : ceil(Self.pad + dotWidth(chip) + chip.count.intrinsicContentSize.width + Self.pad)
     }
+
+    /// The dot and its gap; none on the count chip.
+    private func dotWidth(_ chip: Chip) -> CGFloat { chip.state == .idle ? 0 : Self.dotSide + Metrics.space1 }
 
     override var intrinsicContentSize: NSSize {
         let shown = chips.filter { !$0.count.isHidden }
@@ -137,7 +142,7 @@ final class SidebarTreeRollUpView: NSView {
             // The text box sits `space1` after the dot; the frame adds the label's padding around
             // it (a frame the size of the text alone clipped the digits).
             let text = chip.count.intrinsicContentSize
-            chip.count.frame = chip.count.frame(forAlignmentRect: NSRect(x: chip.dot.frame.maxX + Metrics.space1, y: (h - text.height) / 2,
+            chip.count.frame = chip.count.frame(forAlignmentRect: NSRect(x: x + Self.pad + dotWidth(chip), y: (h - text.height) / 2,
                                                                          width: ceil(text.width), height: ceil(text.height)))
             x += w + Metrics.space1
         }

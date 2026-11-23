@@ -37,7 +37,9 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::SESSION_NEW,
     method::SESSION_LIST,
     method::MUX_STATUS,
+    method::MUX_PERF,
     method::MUX_SESSIONS,
+    method::MUX_USAGE,
     method::MUX_WEB_MODES,
     method::MUX_WEB_TOKEN_ROTATE,
     method::MUX_HARNESSES,
@@ -76,6 +78,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // A registration is for the caller's own session on this daemon (`hub/register.rs`): its
     // NAME is the name to take, never a peer session to forward to, and its token stays here.
     method::MUX_REGISTER,
+    // So is an inbox relay: it serves the Claude Code session it runs under, on this machine.
+    method::MUX_INBOX_RELAY,
     // A message to deliver is this daemon's (`outbox.rs`), whatever session it names.
     method::MUX_SEND_QUEUE,
     method::MUX_SEND_STATUS,
@@ -103,6 +107,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     "_acpmux/host_notice",
     "_acpmux/host_health",
     "_acpmux/place",
+    "_acpmux/move_targets",
     "_acpmux/models",
     crate::catalog::RPC_GET,
     crate::catalog::RPC_REFRESH,
@@ -658,6 +663,8 @@ async fn forward_inner(
             &mut p,
             super::requests::person_admitted(conn, params),
         );
+        // The owner's own phone controls a Claude chat the peer started, as it does one here (D13).
+        super::remote_guard::attest_owner_phone(hub, conn, params, &mut p);
         // A held prompt names its hold to the peer: a link guest's waits with `approval` left
         // off here, which a peer that reads only `approval` would run unapproved.
         if held

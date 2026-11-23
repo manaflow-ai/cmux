@@ -53,6 +53,10 @@ pub struct ProviderDriver {
     pub(crate) downloads: Arc<crate::provider_downloads::ProviderDownloads>,
     /// Tabs agent sessions kept (`tab.keep`): deliverables later sessions list.
     pub(crate) kept_tabs: Mutex<std::collections::BTreeSet<String>>,
+    /// Tabs any agent session called on since the link came up. Each such call made the app mark
+    /// the tab agent-driven for as long as it lives (its page rebuilt then, never again), so
+    /// `tabs.list({all: true})` says which tabs a later touch leaves alone. Dropped on `tab.gone`.
+    pub(crate) agent_tabs: Arc<Mutex<std::collections::BTreeSet<String>>>,
 }
 
 pub(crate) type CefTabs = Arc<Mutex<HashMap<String, Arc<crate::provider_source::CefTab>>>>;
@@ -115,6 +119,8 @@ impl ProviderDriver {
         let (thread_writer, thread_leases) = (writer.clone(), leases.clone());
         let (thread_relays, thread_subscribers, thread_cef_tabs) =
             (relays.clone(), subscribers.clone(), cef_tabs.clone());
+        let agent_tabs: Arc<Mutex<std::collections::BTreeSet<String>>> = Arc::default();
+        let thread_agent_tabs = agent_tabs.clone();
         std::thread::Builder::new().name("cmux-browser-host-provider".into()).spawn(move || {
             let reason = loop {
                 match read_frame(&mut reader) {
@@ -165,6 +171,10 @@ impl ProviderDriver {
                         if name == "tab.gone"
                             && let Some(target_id) = payload.get("targetId").and_then(Value::as_str)
                         {
+                            thread_agent_tabs
+                                .lock()
+                                .unwrap_or_else(PoisonError::into_inner)
+                                .remove(target_id);
                             let op =
                                 crate::lease::LeaseOp::TargetGone { target: target_id.to_owned() };
                             let caller = crate::lease::LeaseCaller::default();
@@ -252,6 +262,7 @@ impl ProviderDriver {
             request_filters: Mutex::new(HashMap::new()),
             downloads,
             kept_tabs: Mutex::default(),
+            agent_tabs,
             leases,
         }))
     }

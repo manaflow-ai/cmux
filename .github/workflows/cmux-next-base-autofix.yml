@@ -139,6 +139,10 @@ on:
 
 permissions: {}
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
   # Whether the Mac action-exports job runs: the paths changed since the last
   # successful run, as autofix's Changed areas step computes them.
@@ -146,7 +150,7 @@ jobs:
     name: action export areas
     if: >-
       ${{ github.repository == 'manaflow-ai/cmux' && !(github.event_name == 'push' && github.event.head_commit.author.name == 'github-actions[bot]' && (startsWith(github.event.head_commit.message, 'chore(next): base autofix at ') || startsWith(github.event.head_commit.message, 'chore(next): pin GhosttyKit for ghostty '))) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       actions: read
@@ -205,7 +209,7 @@ jobs:
     environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'ci-routing-agent' || '' }}
     needs: action-areas
     if: (needs.action-areas.outputs.actions == 'true' || needs.action-areas.outputs.settings == 'true') && needs.action-areas.outputs.mac_busy != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 65
     permissions:
       contents: read
@@ -325,7 +329,7 @@ jobs:
     if: >-
       ${{ !cancelled() && !(github.event_name == 'push' && github.event.head_commit.author.name == 'github-actions[bot]' && (startsWith(github.event.head_commit.message, 'chore(next): base autofix at ') || startsWith(github.event.head_commit.message, 'chore(next): pin GhosttyKit for ghostty '))) &&
           (needs.action-areas.outputs.mac_busy == 'true' || needs.pushed-exports.outputs.deferred == 'true') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 2
     permissions: {}
     steps:
@@ -547,7 +551,7 @@ jobs:
     name: webviews vp fmt
     if: >-
       ${{ github.repository == 'manaflow-ai/cmux' && !(github.event_name == 'push' && github.event.head_commit.author.name == 'github-actions[bot]' && (startsWith(github.event.head_commit.message, 'chore(next): base autofix at ') || startsWith(github.event.head_commit.message, 'chore(next): pin GhosttyKit for ghostty '))) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -574,9 +578,6 @@ jobs:
           set -euo pipefail
           bun install --frozen-lockfile --ignore-scripts
           node_modules/.bin/vp fmt
-          # The acpmux protocol types are generated from the committed spec; a spec change
-          # merged without them fails web-lint's acpmux-protocol:check on every webviews push.
-          bun scripts/acpmux-protocol-codegen.ts
           # The Chief memory inspector page is bundled from webviews sources and
           # committed; a stale one fails every webviews bundle build (#22839).
           # Best effort: a failed rebuild must not cost the formatting repairs.
@@ -609,7 +610,7 @@ jobs:
     concurrency:
       group: cmux-next-base-autofix-target-graph-${{ github.ref_name }}
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
     timeout-minutes: 15
     permissions:
       actions: write # dispatch cmux-tui-artifacts.yml for the bot head (publish-bot-head-tree.sh)
@@ -701,7 +702,7 @@ jobs:
     name: autofix feat-cmux-next
     # The other repairs still run when the webviews formatting or the Mac
     # action exports job fails or is skipped.
-    needs: [webviews-fmt, action-exports, pushed-exports]
+    needs: [action-areas, webviews-fmt, action-exports, pushed-exports]
     if: >-
       ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && !(github.event_name == 'push' && github.event.head_commit.author.name == 'github-actions[bot]' && (startsWith(github.event.head_commit.message, 'chore(next): base autofix at ') || startsWith(github.event.head_commit.message, 'chore(next): pin GhosttyKit for ghostty '))) }}
     # A running repair finishes and lands on whatever feat-cmux-next is by then
@@ -714,17 +715,35 @@ jobs:
     concurrency:
       group: cmux-next-base-autofix-${{ github.ref_name }}${{ (needs.pushed-exports.outputs.hit == 'true' && needs.pushed-exports.outputs.exports || needs.action-exports.outputs.exports) == 'true' && format('-exports-{0}', github.run_id) || '' }}
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
     # 20 minutes of repair and push, plus the compile gate's wait (base-autofix-compile-gate.sh, 40 min) when a repair changes Swift.
     timeout-minutes: 65
     permissions:
       actions: write # read the last successful run; dispatch cmux-tui-artifacts.yml for the bot head and fleet-compile-check.yml (the compile gate)
       contents: write
+      pull-requests: write # the Swift rewrites' pull request when the App's pull-request token can't be minted
       statuses: read # the compile gate reads fleet/compile-check on its candidate
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+
+      # The marker base-autofix-since.sh reads: this run made its own Mac exports, or had none to make (the
+      # deferred job's condition, negated). The next runs diff from the newest successful run that has it, with
+      # two listings instead of reading every run's jobs (31 GITHUB_TOKEN calls a lookup on 2026-11-22). A failed
+      # upload leaves no marker, which only widens the next run's range.
+      - name: Write the own-exports marker
+        if: needs.action-areas.outputs.mac_busy != 'true' && needs.pushed-exports.outputs.deferred != 'true'
+        run: printf '%s\n' "$GITHUB_SHA" > "$RUNNER_TEMP/base-autofix-own-exports.txt"
+      - name: Upload the own-exports marker
+        if: needs.action-areas.outputs.mac_busy != 'true' && needs.pushed-exports.outputs.deferred != 'true'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: base-autofix-own-exports
+          path: ${{ runner.temp }}/base-autofix-own-exports.txt
+          retention-days: 14
+          if-no-files-found: error
 
       # What changed since the last successful run decides the repairs: a run
       # cancelled by a newer push, one whose repair could not land, or one that
@@ -794,10 +813,46 @@ jobs:
           CMUX_GHOSTTY_VT_ZIG_CPU: baseline
         run: ./scripts/install-zig-ci.sh
 
+      # The clippy gate's warm target (cmux-tui-spec.yml clippy, "Mount the warm clippy target"): the last
+      # feat-cmux-next clippy's whole target dir and cargo registry on a Blacksmith sticky disk, mounted as
+      # a clone this job never writes back. The rust-cache entry below found nothing on 2026-11-21, so a
+      # run that had no green run to diff from (every repair, all 145 crates) spent 16 of its 18 minutes
+      # of Repair building clippy cold on 4 vCPU (run 44930924492). A source whose content equals the
+      # snapshot's gets its recorded mtime back, so a changed file is always checked again. A failed
+      # mount or an empty disk falls back to the rust-cache restore, as before.
+      - name: Mount the warm clippy target (read-only)
+        id: warm-read
+        if: steps.areas.outputs.clippy == 'true' && startsWith(runner.name, 'blacksmith')
+        continue-on-error: true
+        uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1.7.2
+        with:
+          key: cmux-tui-clippy-warm-v1-next
+          path: /home/runner/cmux-tui-clippy-warm
+          commit: "false"
+
+      - name: Link the warm clippy target
+        id: warm
+        if: steps.warm-read.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          disk=/home/runner/cmux-tui-clippy-warm
+          if [[ ! -f "$disk/target/.machine-channel-warm-source" ]]; then
+            echo "warm target: miss (no feat-cmux-next snapshot on the disk yet); rust-cache restore instead"
+            exit 0
+          fi
+          start=$(date +%s)
+          bash scripts/ci/machine-channel-warm-target.sh restore "$disk" x86_64-unknown-linux-gnu
+          if [[ "$(readlink cmux-tui/target 2>/dev/null || true)" == "$disk/target" ]]; then
+            echo "linked=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "warm target: restore took $(( $(date +%s) - start )) s"
+
       # cargo clippy --fix (CLIPPY) builds the crates the changed Rust can affect: it reads the build cache
-      # feat-cmux-next's own clippy gate saves (cmux-tui-spec.yml) and never writes it.
+      # feat-cmux-next's own clippy gate saves (cmux-tui-spec.yml) and never writes it. Skipped when the
+      # warm target above is linked.
       - name: Cache cargo build
-        if: steps.areas.outputs.clippy == 'true'
+        if: steps.areas.outputs.clippy == 'true' && steps.warm.outputs.linked != 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-bin: false
@@ -907,8 +962,27 @@ jobs:
           private-key: ${{ secrets.CMUX_PR_AUTOFIX_APP_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
+          # contents: write only. The App's installation has no pull-requests permission, and asking for
+          # one fails the whole mint: from 6a2706df247 (2026-11-17) every run fell back to GITHUB_TOKEN,
+          # whose push feat-cmux-next's required checks refuse (GH013 "2 of 2 required status checks are
+          # expected"), so base autofix failed on every run (20:34-21:28Z on 2026-11-20 and before).
           permission-contents: write
-          # base-autofix-land.sh opens the pull request for Swift rewrites it cannot compile (as package-deps-heal does).
+
+      # base-autofix-land.sh opens the pull request for Swift rewrites it cannot compile (as
+      # package-deps-heal does). Its own mint, so a missing pull-requests grant on the App costs only
+      # that pull request (opened with GITHUB_TOKEN instead), never the push.
+      - name: Mint the pull-request token
+        id: pr-token
+        if: steps.commit.outputs.changed == 'true' && vars.CMUX_NEXT_BASE_AUTOFIX == '1'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_PR_AUTOFIX_APP_ID }}
+          private-key: ${{ secrets.CMUX_PR_AUTOFIX_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
           permission-pull-requests: write
 
       - name: Push the repairs
@@ -936,6 +1010,8 @@ jobs:
           # The checkout keeps no credentials; base-autofix-land.sh hands the token to the push only,
           # never to the repair it runs again on a moved tip.
           TOKEN: ${{ steps.push-token.outputs.token || github.token }}
+          # The Swift rewrites' pull request only (gh pr list/create in base-autofix-land.sh).
+          PR_TOKEN: ${{ steps.pr-token.outputs.token || github.token }}
           # The compile gate (base-autofix-compile-gate.sh): a repair that changes Swift is pushed only after
           # fleet-compile-check.yml passes its candidate. Like TOKEN, only the push sees it.
           COMPILE_GATE_TOKEN: ${{ github.token }}
@@ -1000,7 +1076,7 @@ jobs:
     concurrency:
       group: cmux-next-ghosttykit-checksum
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_2 }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
     timeout-minutes: 100
     permissions:
       actions: write # dispatch build-ghosttykit.yml and read its runs

@@ -186,7 +186,7 @@ class ChangedPathsTests(unittest.TestCase):
     def test_generated_drift_still_runs_when_action_areas_fails(self):
         job = WORKFLOW["jobs"]["generated-drift"]
         self.assertEqual(job["needs"], ["action-areas"])
-        self.assertTrue(job["if"].startswith("${{ !cancelled() && "), job["if"])
+        self.assertIn("(!cancelled() && ", job["if"], job["if"])  # after the draft-head term (tests/test_head_tier.py)
 
 
 if __name__ == "__main__":

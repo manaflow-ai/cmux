@@ -28,6 +28,13 @@
 # than 15 % (and the unit's floor). Output: BENCH.md in the log,
 # artifacts/perf-bench/{results.json,BENCH.md}.
 #
+# suite=tabs (Leo, 2026-11-20, ask-9176875aef): idle RAM, CPU and GPU at 1, 10 and 50 tabs, cmux NEXT
+# against Microsoft Edge (Microsoft's stable package, fetch_browsers.py), the same local page in every tab
+# (xbench.py --scenario idle-tabs). No Debug build, no launches or other rows:
+#   cmux-ci run --class exclusive --measurement --label bench --script scripts/measure/perf-bench.sh --ref SHA \
+#     --arg=suite=tabs [--arg=cmux=nightly] [--arg=idle_tabs=1,10,50] [--arg=browsers=cmux-chromium,edge,chrome]
+#     [--arg=rounds=3] [--arg=idle=60] [--arg=settle=30] --artifact artifacts/perf-bench/results.json
+#
 # suite=parity (CHROME PARITY BENCH, m91): cmux NEXT (a Release app at this checkout) against the host's own
 # Google Chrome stable (/Applications/Google Chrome.app; the bench installs nothing), real HID input and
 # ScreenCaptureKit frames, every interaction light and under load, at 120 Hz. Method: scripts/perf-bench/README.md
@@ -43,7 +50,7 @@ set -euo pipefail
 suite=xbench parity_rows="" parity_loads="light,load" vdisplay="" geometry=""
 rounds=3 launches=2 idle=60 active=30 settle=30 cmux=build gate=0 maxload=4 bench_config=debug app_config=release
 tabswitch="chromium,webkit,markdown,chat" tabcounts="2,10,30" palette=on budgets=scripts/perf-bench/budgets.json
-panedrag=on panecounts="2,8,30"
+panedrag=on panecounts="2,8,30" idle_tabs="1,10,50" browsers_set=0
 browsers="cmux-chromium,cmux-webkit,cmux-terminal,cmux-budget,chrome,helium,ardia,dia,safari"
 for arg in "$@"; do
   case "$arg" in
@@ -62,7 +69,8 @@ for arg in "$@"; do
     cmux=*) cmux="${arg#cmux=}" ;;
     gate=*) gate="${arg#gate=}" ;;
     maxload=*) maxload="${arg#maxload=}" ;;
-    browsers=*) browsers="${arg#browsers=}" ;;
+    browsers=*) browsers="${arg#browsers=}"; browsers_set=1 ;;
+    idle_tabs=*) idle_tabs="${arg#idle_tabs=}" ;;
     tabswitch=*) tabswitch="${arg#tabswitch=}" ;;
     tabcounts=*) tabcounts="${arg#tabcounts=}" ;;
     palette=*) palette="${arg#palette=}" ;;
@@ -82,15 +90,23 @@ done
 sha="$(git rev-parse HEAD)"
 out="artifacts/perf-bench"
 work=".build/perf-bench"
+# A launched nightly installs a read-only copy of itself under the profile home; make the trees
+# writable first so a previous run's leftovers are removable.
+chmod -R u+w "$out" "$work" /private/tmp/xbench 2>/dev/null || true
 rm -rf "$out" "$work" /private/tmp/xbench
 mkdir -p "$out" "$work"
 chip="$(sysctl -n machdep.cpu.brand_string)"
 echo "PERF-BENCH-MACHINE host=$(scutil --get ComputerName 2>/dev/null || hostname) sha=$sha model=$(sysctl -n hw.model) chip=\"$chip\" cores=$(sysctl -n hw.ncpu) ram_gb=$(( $(sysctl -n hw.memsize) / 1073741824 )) macos=$(sw_vers -productVersion) load=\"$(uptime | sed 's/.*load averages*: //')\""
 
 case "$suite" in
-  xbench | parity) ;;
-  *) echo "perf-bench.sh: suite=xbench or suite=parity" >&2; exit 2 ;;
+  xbench | parity | tabs) ;;
+  *) echo "perf-bench.sh: suite=xbench, suite=tabs or suite=parity" >&2; exit 2 ;;
 esac
+scenario=full
+if [ "$suite" = tabs ]; then
+  scenario=idle-tabs
+  [ "$browsers_set" = 1 ] || browsers="cmux-chromium,edge"
+fi
 case "$app_config" in
   release | bench) ;;
   *) echo "perf-bench.sh: app_config=release or app_config=bench" >&2; exit 2 ;;
@@ -150,7 +166,7 @@ if [ "$suite" = parity ]; then
   exit $?
 fi
 want=()
-for name in chrome helium ardia dia; do
+for name in chrome edge helium ardia dia; do
   [[ ",$browsers," == *",$name,"* ]] && want+=("$name")
 done
 [ "$cmux" = nightly ] && want+=(cmux-nightly)
@@ -166,7 +182,8 @@ fi
 status=0
 python3 scripts/perf-bench/xbench.py run --out "$work/run" ${apps[@]+"${apps[@]}"} --browsers "$browsers" \
   --rounds "$rounds" --launches "$launches" --idle "$idle" --active "$active" --settle "$settle" \
-  --max-load "$maxload" --cmux-ref "$sha" --budgets "$budgets" || status=$?
+  --max-load "$maxload" --cmux-ref "$sha" --budgets "$budgets" --scenario "$scenario" --tab-counts "$idle_tabs" \
+  || status=$?
 switch_json=""
 if [ "$debug" = 1 ]; then
   # The matrix and the palette timing drive debug.key / debug.tab_switch / debug.timings, which only a

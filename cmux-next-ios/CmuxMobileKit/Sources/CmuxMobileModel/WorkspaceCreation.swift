@@ -1298,6 +1298,34 @@ extension MockWorkspaceCreationBackend: TerminalChatBackend {
     public var keptTerminalChatsLoaded: Bool { keeping?.keptTerminalChatsLoaded ?? true }
     public func loadKeptTerminalChats() async { await keeping?.loadKeptTerminalChats() }
 }
+
+/// The Panes page on mock data (`CMUX_MOBILE_MOCK_PANES=1` lists a workspace laid out in two
+/// panes): moving a tab between panes is accepted after the mock latency; the layout actions
+/// that need the Mac's tree answer that mock mode has none.
+extension MockWorkspaceCreationBackend: WorkspacePaneBackend {
+    private static var noLayout: WorkspaceCreationError { WorkspaceCreationError("Mock mode has no Mac to lay out panes on.", isForPerson: true) }
+
+    public func canEditPanes(on macID: String) -> Bool { true }
+    public func split(_ pane: Int, _ direction: PaneSplit, in workspace: Workspace) async throws -> WorkspaceTab { throw Self.noLayout }
+    public func newPane(from pane: Int, column: Bool, in workspace: Workspace) async throws -> WorkspaceTab { throw Self.noLayout }
+    public func toggleZoom(_ pane: Int, in workspace: Workspace) async throws { throw Self.noLayout }
+    public func swap(_ pane: Int, _ direction: PaneSwap, in workspace: Workspace) async throws { throw Self.noLayout }
+    public func renamePane(_ pane: Int, to name: String, in workspace: Workspace) async throws { throw Self.noLayout }
+    public func closePane(_ pane: Int, in workspace: Workspace) async throws { throw Self.noLayout }
+    public func equalizeSplits(in workspace: Workspace) async throws -> Int { throw Self.noLayout }
+    public func undoLayout(in workspace: Workspace, confirming confirmation: LayoutUndoConfirmation?) async throws -> LayoutUndoOutcome {
+        throw Self.noLayout
+    }
+    public func moveTab(_ tab: WorkspaceTab, toNewSplit edge: TabSplitEdge, in workspace: Workspace) async throws { throw Self.noLayout }
+    public func moveTabToNewColumn(_ tab: WorkspaceTab, in workspace: Workspace) async throws { throw Self.noLayout }
+    public func moveTab(_ tab: WorkspaceTab, toPane pane: Int, in workspace: Workspace) async throws { try await settle() }
+    public func moveTab(_ tab: WorkspaceTab, toPane pane: Int, before anchor: WorkspaceTab?, in workspace: Workspace) async throws {
+        try await settle()
+    }
+    public func forkAgentChat(_ tab: WorkspaceTab, to destination: ChatForkDestination, in workspace: Workspace) async throws -> WorkspaceTab {
+        throw Self.noLayout
+    }
+}
 #endif
 
 /// Where the Mac's New Tab rows put the new tab in its pane.

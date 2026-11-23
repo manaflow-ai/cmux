@@ -84,6 +84,12 @@ public protocol BrowserTab: AnyObject, Observable, Sendable {
     /// secure sign-in sheet (plans/cmux-next/browser.md, "Secure sign-in").
     func markAgentDriven()
 
+    /// An agent only reads this page (a state, snapshot, text or screenshot call): it is agent-driven, as
+    /// ``markAgentDriven()`` makes it (no saved password fills), but a read starts no passkey ceremony, so the
+    /// page's WebAuthn stays as it is: a page the person took back keeps their passkeys (Chrome refuses only while
+    /// its agent is in control). The default marks it as ``markAgentDriven()`` does.
+    func markAgentReading()
+
     /// Whether `markAgentDriven` has run on this page.
     var isAgentDriven: Bool { get }
 
@@ -143,6 +149,9 @@ extension BrowserTab {
     }
 
     public func markAgentDriven() {}
+    public func markAgentReading() { markAgentDriven() }
+    /// ``markAgentReading()`` when `reading`, else ``markAgentDriven()``.
+    public func markAgent(reading: Bool) { if reading { markAgentReading() } else { markAgentDriven() } }
     public var isAgentDriven: Bool { false }
     public func handOverWebAuthn(during trigger: @Sendable () async throws -> Void) async throws { try await trigger() }
     public var isExtensionWindow: Bool { false }
