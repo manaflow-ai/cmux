@@ -16,7 +16,7 @@ import { tableActionsPlace } from "../agent-session/acpmux/conversation/tableAct
 import { expandRowLook } from "../agent-session/acpmux/conversation/expandRow.experiment";
 import { backgroundReactionLook } from "../agent-session/acpmux/conversation/backgroundReaction.experiment";
 import { backgroundTurnLook } from "../agent-session/acpmux/conversation/backgroundTurnLook.experiment";
-import { cloudStartLook } from "../agent-session/acpmux/cloudStart.experiment";
+import { cloudStartLook, cloudStartQuietLook } from "../agent-session/acpmux/cloudStart.experiment";
 import { cloudStartComposerLook } from "../agent-session/acpmux/cloudStartComposer.experiment";
 import { cloudProgressLook } from "../pages/cloud-progress/cloudProgress.experiment";
 import { startRecoveryLook } from "../agent-session/acpmux/startRecovery.experiment";
@@ -27,6 +27,7 @@ import { compactingLine } from "../agent-session/acpmux/conversation/compactingL
 import { liveLineTimes } from "../agent-session/acpmux/conversation/liveLineTimes.experiment";
 import { liveTurnClock } from "../agent-session/acpmux/conversation/liveTurnClock.experiment";
 import { runScroll } from "../agent-session/acpmux/conversation/runScroll.experiment";
+import { compoundMotion } from "../agent-session/acpmux/conversation/compoundMotion.experiment";
 import { thumbMotion } from "../agent-session/acpmux/conversation/thumbMotion.experiment";
 import { oneRowPerCall } from "../agent-session/acpmux/conversation/oneRowPerCall.experiment";
 import { backgroundHintRoom } from "../agent-session/acpmux/conversation/backgroundHintRoom.experiment";
@@ -46,6 +47,7 @@ import { startedSessionCards } from "../agent-session/acpmux/started/startedSess
 import { agentDotGrid } from "../agent-session/acpmux/dotGrid/agentDotGrid.experiment";
 import { finishedTaskLook } from "../agent-session/acpmux/conversation/taskLine.experiment";
 import { claudeTurnFold } from "../agent-session/acpmux/conversation/claudeTurnFold.experiment";
+import { turnEndFoldLook } from "../agent-session/acpmux/conversation/turnEndFoldLook.experiment";
 import { commandLabelLook } from "../agent-session/acpmux/conversation/commandLabel.experiment";
 import { liveTurnWork } from "../agent-session/acpmux/conversation/liveTurnWork.experiment";
 import { jumpUpButton } from "../agent-session/acpmux/jumpUp.experiment";
@@ -79,6 +81,7 @@ import { trayHeadKindsLook } from "../agent-session/acpmux/subagents/trayHeadKin
 import { trayOpenLook } from "../agent-session/acpmux/subagents/trayOpen.experiment";
 import { failedLineLook } from "../agent-session/acpmux/subagents/failedLine.experiment";
 import { trayLatestLook } from "../agent-session/acpmux/subagents/trayLatest.experiment";
+import { hatStepLook } from "../agent-session/acpmux/subagents/hatStep.experiment";
 import { doneReportLook } from "../agent-session/acpmux/subagents/doneReport.experiment";
 import { traySurfaceLook } from "../agent-session/acpmux/subagents/traySurface.experiment";
 import { chatSwitchMotion } from "../agent-session/acpmux/chatSwitch.experiment";
@@ -133,6 +136,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   followMotion,
   finishedTaskLook,
   claudeTurnFold,
+  turnEndFoldLook,
   commandLabelLook,
   liveTurnWork,
   jumpUpButton,
@@ -171,6 +175,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   backgroundReactionLook,
   backgroundTurnLook,
   cloudStartLook,
+  cloudStartQuietLook,
   cloudProgressLook,
   cloudStartAskLook,
   startRecoveryLook,
@@ -180,6 +185,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   liveLineTimes,
   liveTurnClock,
   runScroll,
+  compoundMotion,
   thumbMotion,
   oneRowPerCall,
   backgroundHintRoom,
@@ -205,6 +211,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   trayOpenLook,
   failedLineLook,
   trayLatestLook,
+  hatStepLook,
   doneReportLook,
   traySurfaceLook,
   chatSwitchMotion,
