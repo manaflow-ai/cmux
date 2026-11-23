@@ -12,6 +12,7 @@ import type { AccountsButton, AccountsCmux, AccountsRow, AccountsTeams } from ".
 import { t } from "../strings";
 import { TeamsGroup } from "./AccountsTeams";
 import { GitHubAccountsCard } from "./GitHubAccountsCard";
+import { SlackAccountsCard } from "./SlackAccountsCard";
 import { TeamAgentKeysCard } from "./TeamAgentKeysCard";
 
 export function AccountsSection() {
@@ -75,6 +76,7 @@ function AccountsBody() {
       {accounts.teamList && <TeamsGroup list={accounts.teamList} />}
       <TeamAgentKeysCard />
       <GitHubAccountsCard />
+      <SlackAccountsCard />
       {accounts.groups.map((group) => (
         <section className="group" key={group.id} data-accounts-group={group.id}>
           <h3 className="group-title">{group.title}</h3>

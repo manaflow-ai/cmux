@@ -86,6 +86,7 @@ import { mockThemeColors } from "./mockThemes";
 import { mockLibrary, runLibrary } from "./mockLibrary";
 import { mockAgentConfig, runAgentConfigMock } from "./mockAgentConfig";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
+import type { SlackConnection } from "./slackConnection";
 import type { WorktreeRecipe } from "../../worktreeRecipe";
 
 export type MockOptions = {
@@ -219,6 +220,7 @@ export type MockWorktreeProject = {
 };
 
 export class MockSettingsProvider {
+  slack: SlackConnection = { connected: false, teams: [] };
   readonly log: Array<{ op: string; params: unknown }> = [];
   /** The colors `cmux.settings.theme.colors` answers (the gallery installs every bundled theme). */
   themeColors: GhosttyTheme[] = mockThemeColors;
@@ -295,6 +297,18 @@ export class MockSettingsProvider {
         return this.host;
       },
       "cmux.settings.accounts.state": () => this.accountsState(),
+      "cmux.settings.slack.request": (params) => {
+        if (params.method === "POST") return { url: "https://platform.example/v1/slack/install?ticket=example" };
+        if (params.method === "DELETE") this.slack = { connected: false, teams: [] };
+        return this.slack;
+      },
+      "cmux.settings.slack.create_app": () => ({
+        rid: "r0",
+        appId: "A0EXAMPLE",
+        name: "Acme",
+        installUrl: "https://platform.example/v1/slack/apps/r0/install?ticket=example",
+      }),
+      "cmux.settings.slack.open": () => ({}),
       "cmux.settings.server.restart": () => ({}),
       "cmux.settings.server.pair": () => ({}),
       "cmux.settings.mobile.allow_again": () => {
@@ -921,6 +935,9 @@ export class MockSettingsProvider {
       "cmux.settings.machines.vm_host",
       "cmux.settings.accounts.state",
       "cmux.settings.accounts.run",
+      "cmux.settings.slack.request",
+      "cmux.settings.slack.create_app",
+      "cmux.settings.slack.open",
       "cmux.settings.channels.state",
       "cmux.settings.channels.go_back",
       "cmux.settings.channels.update_machine",
