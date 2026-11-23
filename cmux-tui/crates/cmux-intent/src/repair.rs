@@ -277,10 +277,13 @@ fn sub_edits(argv: &[String], walk: &Walk<'_>, tbl: &Table, prog: &str) -> Vec<E
     if !out.is_empty() {
         return out;
     }
+    // A synonym may name a hidden subcommand (`inspect` -> a hidden `info`): the table is curated, and a
+    // hidden one still parses, so it is a better read than the fuzzy matches below.
+    let every = sub_names(cmd, false);
     let syn: Vec<String> = tbl
         .mates(&tok, false)
         .into_iter()
-        .filter(|m| choices.iter().any(|c| c == m))
+        .filter(|m| *m != "help" && every.iter().any(|c| c == m))
         .map(str::to_owned)
         .collect();
     for m in dedup(syn) {
