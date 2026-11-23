@@ -1052,12 +1052,12 @@ def backlog_run(run_id: int, *, age_min: float = 200, event: str = "pull_request
 
 
 def backlog(fake: BacklogFake, *, dry_run=False, declared=("pr-checks.yml",), actions=rescue.BACKLOG_ACTIONS,
-            now=NOW, since=None):
+            now=NOW, since=None, routes=None):
     """One pass. Like the workflow, it starts from the earlier passes' logs and leaves its own for the next."""
     if not fake.passes:
         fake.record_pass(rescue.journal_lines({}), minutes_ago=20)
     lines, counts = rescue.backlog_sweep(fake, now=now, dry_run=dry_run, declared=declared, actions=actions,
-                                         since=since, sleep=lambda _s: None, clock=lambda: 0.0)
+                                         since=since, sleep=lambda _s: None, clock=lambda: 0.0, routes=routes)
     fake.record_pass(lines)
     return lines, counts
 
@@ -1613,3 +1613,138 @@ class BacklogMovedJit(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# A feat-cmux-next-style workflow: two jobs re-read LINUX_RUNNER on a re-run, one is pinned to Blacksmith.
+ROUTED_WORKFLOW = """name: lane checks
+on:
+  pull_request:
+jobs:
+  build:
+    name: build (${{ matrix.part }})
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    steps:
+      - run: true
+  lint:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-16vcpu-ubuntu-2404' }} # owned first
+    steps:
+      - run: true
+  pinned:
+    name: "pinned guard"
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    steps:
+      - run: true
+  main-style:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    steps:
+      - run: true
+"""
+
+
+class BacklogBlacksmith(unittest.TestCase):
+    """--backlog also moves a job queued on Blacksmith Ubuntu, but only when its re-run takes the owned LINUX_RUNNER."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name)
+        (self.dir / "lane-checks.yml").write_text(ROUTED_WORKFLOW, encoding="utf-8")
+
+    def routes(self, linux_runner="cmux-linux"):
+        return rescue.RerunRoutes({"feat-cmux-next": self.dir}, linux_runner)
+
+    def based(self, run_id, *, base="feat-cmux-next", pr=None):
+        found = backlog_run(run_id, workflow="lane-checks.yml", pr=pr or run_id + 10)
+        for pull in found["pull_requests"]:
+            pull["base"] = {"ref": base}
+        return found
+
+    def blacksmith(self, name, label="blacksmith-4vcpu-ubuntu-2404", waited=3 * 3600):
+        return job(name, labels=(label,), waited=waited)
+
+    def test_the_label_pattern_takes_every_blacksmith_ubuntu_form_the_workflows_use(self):
+        for label in ("blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404",
+                      "blacksmith-32vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404-arm"):
+            self.assertTrue(rescue.BLACKSMITH_LINUX_LABEL.match(label), label)
+        for label in ("blacksmith-6vcpu-macos-26", "blacksmith-4vcpu-windows-2025", "ubuntu-24.04", "cmux-linux"):
+            self.assertFalse(rescue.BLACKSMITH_LINUX_LABEL.match(label), label)
+
+    def test_a_blacksmith_job_whose_re_run_takes_the_owned_route_is_cancelled_and_re_run(self):
+        fake = BacklogFake([self.based(1)], {1: [self.blacksmith("build (a)"),
+                                                 self.blacksmith("lint", "blacksmith-16vcpu-ubuntu-2404")]},
+                           pulls={11: OPEN_AT_HEAD})
+        lines, counts = backlog(fake, routes=self.routes())
+        self.assertEqual(backlog_mutations(fake), [("cancel", 1)])
+        self.assertTrue(any("2 on Blacksmith Ubuntu, re-run on cmux-linux" in line for line in lines), lines)
+        backlog(fake, now=NOW + dt.timedelta(minutes=10), routes=self.routes())
+        self.assertEqual(backlog_mutations(fake), [("cancel", 1), ("rerun", 1)])
+
+    def test_mixed_hosted_and_movable_blacksmith_jobs_move_together(self):
+        fake = BacklogFake([self.based(1)], {1: [job("report", waited=3 * 3600), self.blacksmith("build (a)")]},
+                           pulls={11: OPEN_AT_HEAD})
+        backlog(fake, routes=self.routes())
+        self.assertEqual(backlog_mutations(fake), [("cancel", 1)])
+
+    def test_a_job_pinned_to_blacksmith_holds_its_run_as_today(self):
+        # Its re-run would take a Blacksmith label again (the queue's tail), so the run, hosted job and all, stays.
+        for jobs in ([self.blacksmith("pinned guard")], [job("report", waited=3 * 3600), self.blacksmith("pinned guard")],
+                     [self.blacksmith("main-style")], [self.blacksmith("build (a)"), self.blacksmith("pinned guard")]):
+            fake = BacklogFake([self.based(1)], {1: jobs}, pulls={11: OPEN_AT_HEAD})
+            backlog(fake, routes=self.routes())
+            self.assertEqual(backlog_mutations(fake), [], jobs)
+
+    def test_no_owned_linux_route_means_no_blacksmith_move(self):
+        # vars.LINUX_RUNNER unset, Blacksmith or hosted: the re-run would not land on an owned label.
+        for linux_runner in (None, "", "blacksmith-8vcpu-ubuntu-2404", "ubuntu-24.04"):
+            fake = BacklogFake([self.based(1)], {1: [self.blacksmith("build (a)")]}, pulls={11: OPEN_AT_HEAD})
+            backlog(fake, routes=self.routes(linux_runner))
+            self.assertEqual(backlog_mutations(fake), [], linux_runner)
+
+    def test_an_unknown_base_job_or_workflow_is_left_alone(self):
+        cases = [(self.based(1, base="lane/stack"), [self.blacksmith("build (a)")]),
+                 (self.based(1), [self.blacksmith("not in the workflow")]),
+                 (backlog_run(1, workflow="lane-checks.yml", pr=11), [self.blacksmith("build (a)")])]
+        for run_, jobs in cases:
+            fake = BacklogFake([run_], {1: jobs}, pulls={11: OPEN_AT_HEAD})
+            backlog(fake, routes=self.routes())
+            self.assertEqual(backlog_mutations(fake), [], (run_, jobs))
+
+    def test_without_routes_blacksmith_jobs_stay_as_before(self):
+        fake = BacklogFake([self.based(1)], {1: [self.blacksmith("build (a)")]}, pulls={11: OPEN_AT_HEAD})
+        backlog(fake)
+        self.assertEqual(backlog_mutations(fake), [])
+
+    def test_a_fresh_or_assigned_blacksmith_job_is_not_touched(self):
+        for jobs in ([self.blacksmith("build (a)", waited=29 * 60)],
+                     [job("build (a)", labels=("blacksmith-4vcpu-ubuntu-2404",), runner_id=9, waited=3 * 3600)]):
+            fake = BacklogFake([self.based(1)], {1: jobs}, pulls={11: OPEN_AT_HEAD})
+            backlog(fake, routes=self.routes())
+            self.assertEqual(backlog_mutations(fake), [])
+
+    def test_the_minute_pass_still_never_moves_a_blacksmith_job(self):
+        self.assertFalse(rescue.stalled(self.blacksmith("build (a)"), NOW))
+
+    def test_the_rerun_route_is_read_from_the_job_runs_on(self):
+        self.assertTrue(rescue.rerun_reads_linux_runner(
+            "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"))
+        self.assertFalse(rescue.rerun_reads_linux_runner("blacksmith-4vcpu-ubuntu-2404"))
+        self.assertFalse(rescue.rerun_reads_linux_runner(
+            "${{ github.run_attempt == 1 && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'x' }}"))
+
+    def test_the_workflow_passes_the_route_and_both_bases(self):
+        text = (ROOT / ".github" / "workflows" / "ci-hosted-backlog-rescue.yml").read_text(encoding="utf-8")
+        self.assertIn("BACKLOG_LINUX_RUNNER: ${{ vars.LINUX_RUNNER }}", text)
+        self.assertIn("--route-workflows main=.github/workflows", text)
+        self.assertIn("--route-workflows feat-cmux-next=.rescue-workflows/.github/workflows", text)
+
+    def test_main_reads_the_route_workflows_and_the_variable(self):
+        seen = {}
+
+        def fake_sweep(client, **kwargs):
+            seen.update(kwargs)
+            return [], {}
+        with mock.patch.object(rescue, "backlog_sweep", fake_sweep):
+            rescue.main(["--backlog", "--route-workflows", f"feat-cmux-next={self.dir}"],
+                        {"BACKLOG_LINUX_RUNNER": "cmux-linux", "GH_REPO": "manaflow-ai/cmux"}, client=object(), now=NOW)
+        self.assertEqual(seen["routes"].workflows, {"feat-cmux-next": self.dir})
+        self.assertEqual(seen["routes"].linux_runner, "cmux-linux")

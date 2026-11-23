@@ -35,9 +35,10 @@ the live attempt and current open PR again; incomplete history and unmarked canc
 
 `--backlog` is a second, separate pass (ci-hosted-backlog-rescue.yml, every 10 minutes and on dispatch) for what the
 minute pass leaves: any pull request run, up to GitHub's 24 h queue limit, whose every unfinished job has waited
-BACKLOG_STALL on hosted Ubuntu or on a one-job JIT label its route moved off (MOVED_JIT_LABELS). A run at its pull
-request's head is cancelled, journalled in the pass's log, and re-run on today's routes by the next pass once the cancel
-settled; a superseded one is only cancelled (see BACKLOG_STALL below).
+BACKLOG_STALL on hosted Ubuntu, on a one-job JIT label its route moved off (MOVED_JIT_LABELS), or on Blacksmith Ubuntu
+when its re-run takes the owned LINUX_RUNNER (RerunRoutes). A run at its pull request's head is cancelled, journalled in
+the pass's log, and re-run on today's routes by the next pass once the cancel settled; a superseded one is only cancelled
+(see BACKLOG_STALL below).
 
 Quota: reads go out as the cmux-bot App (HOSTED_LIGHT_TOKEN is its installation token when the workflow minted one;
 with BOT_APP_ID and BOT_APP_KEY a new one is minted before the hour is up), whose installation pool is its own. The
@@ -71,6 +72,9 @@ from app_spend_mark import MIN_FLOOR  # noqa: E402  (the cmux-bot hour's last ca
 
 UTC = dt.timezone.utc
 HOSTED_LABEL = re.compile(r"^ubuntu-[0-9][\w.-]*$")
+# Blacksmith's Ubuntu labels (blacksmith-4vcpu-ubuntu-2404, blacksmith-4vcpu-ubuntu-2404-arm). Only the backlog pass
+# moves a job queued on one, and only when its re-run provably leaves Blacksmith for an owned label (RerunRoutes).
+BLACKSMITH_LINUX_LABEL = re.compile(r"^blacksmith-[0-9]+vcpu-ubuntu-[0-9]+(?:-[a-z0-9]+)*$")
 # The stall-aware failover's bound: a hosted light job is 2-50 s of work, and on 2026-11-02 27 of them sampled
 # between 07:36Z and 08:25Z waited 1-94 s for a runner (median about 10 s).
 STALL_SECONDS = 180
@@ -1066,17 +1070,6 @@ MOVED_JIT_LABELS: Mapping[str, frozenset[str]] = {
 }
 
 
-def backlog_stalled(job: Mapping[str, Any], now: dt.datetime) -> bool:
-    """Queued with no runner for BACKLOG_STALL or more on GitHub-hosted Ubuntu labels only, or on one moved JIT label
-    (MOVED_JIT_LABELS) alone."""
-    labels = [str(label) for label in job.get("labels") or ()]
-    created = parse_time(job.get("created_at"))
-    on_route = bool(labels) and (all(HOSTED_LABEL.match(label) for label in labels)
-                                 or (len(labels) == 1 and labels[0] in MOVED_JIT_LABELS))
-    return (job.get("status") == "queued" and not job.get("runner_id") and not job.get("runner_name")
-            and on_route and created is not None and now - created >= BACKLOG_STALL)
-
-
 def backlog_rerun_moves(stuck: Sequence[Mapping[str, Any]], workflow: str | None) -> str:
     """"" when a re-run takes every stalled job off its label; else the moved JIT label a re-run would return to."""
     for job in stuck:
@@ -1087,15 +1080,147 @@ def backlog_rerun_moves(stuck: Sequence[Mapping[str, Any]], workflow: str | None
 
 
 def backlog_where(stuck: Sequence[Mapping[str, Any]]) -> str:
-    """Where the stalled jobs wait: hosted Ubuntu, a moved JIT label, or both."""
+    """Where the stalled jobs wait: hosted Ubuntu, a moved JIT label, or both (Blacksmith jobs are counted apart)."""
     jit = sorted({str(label) for job in stuck for label in job.get("labels") or () if label in MOVED_JIT_LABELS})
-    hosted = any(not set(job.get("labels") or ()) & set(MOVED_JIT_LABELS) for job in stuck)
+    hosted = any(all(HOSTED_LABEL.match(str(label)) for label in job.get("labels") or ()) for job in stuck)
     return " and ".join((["hosted Ubuntu"] if hosted else []) + jit)
 
 
-def backlog_verdict(jobs: Sequence[Mapping[str, Any]], now: dt.datetime) -> tuple[bool, list[Mapping[str, Any]]]:
-    """(every unfinished job is a stalled hosted job, the stalled jobs)."""
-    stuck = [job for job in jobs if backlog_stalled(job, now)]
+# Blacksmith is overflow only, and owned labels come first (Leo: "stop ... relying on it"). A job queued on a Blacksmith
+# Ubuntu label keeps it, like any queued job, after its route moved to an owned label; on 2026-11-21 about 70 waited
+# there at 12:00Z while owned Linux runners sat idle. A cancel and re-run moves such a job only when its `runs-on`
+# reads the route again on the re-run; a job pinned to a Blacksmith label goes back to the same queue's tail
+# (test_legacy_blacksmith_web_validation_is_never_cancelled_back_onto_its_fixed_label). So a Blacksmith job counts as
+# stalled only when RerunRoutes shows its re-run takes an owned label: its job in the workflow file of its pull
+# request's base branch reads `vars.LINUX_RUNNER` first, and that variable (read by the workflow, passed in
+# BACKLOG_LINUX_RUNNER) names neither a Blacksmith nor a GitHub-hosted label. Anything else stays where it is.
+RUNS_ON_OWNER_CLAUSE = re.compile(r"github\.repository_owner != 'manaflow-ai' && '[^']*' \|\| ")
+RUNS_ON_FORK_CLAUSE = re.compile(r"github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\."
+                                 r"full_name != github\.repository && '[^']*' \|\| ")
+RUNS_ON_LINUX_RUNNER_FIRST = re.compile(r"(?:!startsWith\(vars\.LINUX_RUNNER, 'blacksmith-'\) && )?"
+                                        r"vars\.LINUX_RUNNER \|\| ")
+HOSTED_ANY_LABEL = re.compile(r"^(?:ubuntu|macos|windows)-[\w.-]+$")
+
+
+def owned_linux_route(label: str | None) -> bool:
+    """`label` (vars.LINUX_RUNNER) names an owned runner label: set, and neither Blacksmith nor GitHub-hosted."""
+    label = (label or "").strip()
+    return bool(label) and not label.startswith("blacksmith-") and not HOSTED_ANY_LABEL.match(label)
+
+
+def rerun_reads_linux_runner(runs_on: str) -> bool:
+    """A same-repository pull request job with this `runs-on` takes vars.LINUX_RUNNER when it is set (and not
+    Blacksmith): the owner clause and the fork clause aside, the expression starts with the variable."""
+    match = re.fullmatch(r"\$\{\{\s*(.*?)\s*\}\}", runs_on.strip())
+    if not match:
+        return False
+    body = match.group(1)
+    for clause in (RUNS_ON_OWNER_CLAUSE, RUNS_ON_FORK_CLAUSE):
+        found = clause.match(body)
+        if found:
+            body = body[found.end():]
+    return bool(RUNS_ON_LINUX_RUNNER_FIRST.match(body))
+
+
+def workflow_job_routes(text: str) -> list[tuple[re.Pattern[str], str]]:
+    """(display-name pattern, single-line `runs-on`) of each job in a workflow file. A templated name matches any
+    value, and a matrix job's ` (a, b)` suffix is allowed; a job with no `name:` shows its key."""
+    routes: list[tuple[re.Pattern[str], str]] = []
+    in_jobs = False
+    key = name = runs_on = None
+
+    def close() -> None:
+        if key is not None and runs_on is not None:
+            shown = name if name is not None else key
+            parts = re.split(r"\$\{\{.*?\}\}", shown)
+            routes.append((re.compile("(?:" + ".+?".join(re.escape(part) for part in parts) + r")(?: \(.*\))?"),
+                           runs_on))
+
+    for line in text.splitlines():
+        if re.match(r"^jobs:\s*(?:#.*)?$", line):
+            in_jobs = True
+            continue
+        if not in_jobs:
+            continue
+        if line and not line.startswith(" ") and not line.startswith("#"):
+            break
+        top = re.match(r"^  ([A-Za-z_][\w-]*):\s*(?:#.*)?$", line)
+        if top:
+            close()
+            key, name, runs_on = top.group(1), None, None
+            continue
+        field_ = re.match(r"^    (name|runs-on):\s*(.+?)\s*$", line)
+        if field_ and key is not None:
+            value = re.sub(r"\s+#\s.*$", "", field_.group(2))
+            if field_.group(1) == "name":
+                name = value[1:-1] if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"" else value
+            else:
+                runs_on = value
+    close()
+    return routes
+
+
+class RerunRoutes:
+    """Whether a backlog re-run takes a stalled Blacksmith job to an owned label (see RUNS_ON_LINUX_RUNNER_FIRST)."""
+
+    def __init__(self, workflows: Mapping[str, Path], linux_runner: str | None) -> None:
+        self.workflows, self.linux_runner = dict(workflows), linux_runner
+        self._routes: dict[tuple[str, str], list[tuple[re.Pattern[str], str]] | None] = {}
+
+    def routes(self, base: str, workflow: str) -> list[tuple[re.Pattern[str], str]] | None:
+        if (base, workflow) not in self._routes:
+            directory = self.workflows.get(base)
+            try:
+                text = (directory / workflow).read_text(encoding="utf-8") if directory is not None else None
+            except OSError:
+                text = None
+            self._routes[(base, workflow)] = workflow_job_routes(text) if text is not None else None
+        return self._routes[(base, workflow)]
+
+    def for_run(self, run: Mapping[str, Any]) -> Callable[[Mapping[str, Any]], bool]:
+        """A judge for one run's jobs: True only for a job whose every matching `runs-on` reads LINUX_RUNNER first,
+        while LINUX_RUNNER names an owned label."""
+        if not owned_linux_route(self.linux_runner):
+            return lambda _job: False
+        bases = {str((pr.get("base") or {}).get("ref") or "") for pr in run.get("pull_requests") or ()
+                 if isinstance(pr, Mapping)}
+        workflow = workflow_file(run)
+        if len(bases) != 1 or workflow is None:
+            return lambda _job: False
+        routes = self.routes(bases.pop(), workflow)
+        if not routes:
+            return lambda _job: False
+
+        def leaves(job: Mapping[str, Any]) -> bool:
+            name = str(job.get("name") or "")
+            found = [runs_on for pattern, runs_on in routes if pattern.fullmatch(name)]
+            return bool(found) and all(rerun_reads_linux_runner(runs_on) for runs_on in found)
+        return leaves
+
+
+def backlog_stalled(job: Mapping[str, Any], now: dt.datetime,
+                    leaves: Callable[[Mapping[str, Any]], bool] | None = None) -> bool:
+    """Queued with no runner for BACKLOG_STALL or more on GitHub-hosted Ubuntu labels only, on one moved JIT label
+    (MOVED_JIT_LABELS) alone, or on Blacksmith Ubuntu labels (with hosted ones or alone) when `leaves(job)` says its
+    re-run takes an owned label."""
+    labels = [str(label) for label in job.get("labels") or ()]
+    created = parse_time(job.get("created_at"))
+    if not (job.get("status") == "queued" and not job.get("runner_id") and not job.get("runner_name")
+            and bool(labels) and created is not None and now - created >= BACKLOG_STALL):
+        return False
+    if all(HOSTED_LABEL.match(label) for label in labels):
+        return True
+    if len(labels) == 1 and labels[0] in MOVED_JIT_LABELS:
+        return True
+    return (all(HOSTED_LABEL.match(label) or BLACKSMITH_LINUX_LABEL.match(label) for label in labels)
+            and leaves is not None and leaves(job))
+
+
+def backlog_verdict(jobs: Sequence[Mapping[str, Any]], now: dt.datetime,
+                    leaves: Callable[[Mapping[str, Any]], bool] | None = None
+                    ) -> tuple[bool, list[Mapping[str, Any]]]:
+    """(every unfinished job is a stalled hosted (or movable Blacksmith) job, the stalled jobs)."""
+    stuck = [job for job in jobs if backlog_stalled(job, now, leaves)]
     stuck_ids = {id(job) for job in stuck}
     others = [job for job in jobs if job.get("status") != "completed" and id(job) not in stuck_ids]
     return bool(stuck) and not others, stuck
@@ -1402,7 +1527,8 @@ def budget_short(client: Any, lines: list[str]) -> bool:
 def backlog_sweep(client: Any, *, now: dt.datetime, dry_run: bool, declared: Sequence[str] | None,
                   actions: int = BACKLOG_ACTIONS, since: dt.datetime | None = None, run_ids: Sequence[int] = (),
                   echo: Callable[[str], None] | None = None, sleep: Callable[[float], None] = time.sleep,
-                  clock: Callable[[], float] = time.monotonic) -> tuple[list[str], dict[str, int]]:
+                  clock: Callable[[], float] = time.monotonic,
+                  routes: RerunRoutes | None = None) -> tuple[list[str], dict[str, int]]:
     """One bounded backlog pass. Returns its log lines (the journal last) and counts (cancelled, recovered, ...).
 
     A pass never waits for a cancel to settle (the next pass re-runs it), so `sleep` and `clock` go unused."""
@@ -1427,7 +1553,7 @@ def backlog_sweep(client: Any, *, now: dt.datetime, dry_run: bool, declared: Seq
         backlog_recover(client, journal, now=now, dry_run=dry_run, lines=lines, counts=counts)
     try:
         backlog_scan(client, journal, now=now, dry_run=dry_run, declared=declared, actions=actions, lines=lines,
-                     counts=counts, hold=hold, run_ids=run_ids)
+                     counts=counts, hold=hold, run_ids=run_ids, routes=routes)
     except Exception as error:  # noqa: BLE001 - the journal below still goes out for the next pass
         lines.append(f"the pass stopped early ({error})")
     counts["pending"] = len(journal or {})
@@ -1454,7 +1580,7 @@ def backlog_rotate(waiting: Sequence[Mapping[str, Any]], now: dt.datetime) -> li
 
 def backlog_scan(client: Any, journal: dict[int, Journalled] | None, *, now: dt.datetime, dry_run: bool,
                  declared: Sequence[str] | None, actions: int, lines: list[str], counts: dict[str, int],
-                 hold: str = "", run_ids: Sequence[int] = ()) -> None:
+                 hold: str = "", run_ids: Sequence[int] = (), routes: RerunRoutes | None = None) -> None:
     """Find stalled runs and cancel them: a current-head one into the journal, a superseded one for good. With
     `run_ids`, only those runs are read (one call each), under the same rules, instead of the listings."""
     start, end = now - BACKLOG_WINDOW, now - BACKLOG_STALL
@@ -1533,11 +1659,13 @@ def backlog_scan(client: Any, journal: dict[int, Journalled] | None, *, now: dt.
         where = f"run {run['id']} ({run['_workflow']}, {run.get('event')}, {run.get('head_branch')})"
         try:
             counts["read"] += 1
-            rescue_it, stuck = backlog_verdict(client.jobs(run["id"]), now)
+            leaves = routes.for_run(run) if routes is not None else None
+            rescue_it, stuck = backlog_verdict(client.jobs(run["id"]), now, leaves)
             if not rescue_it:
                 if run_ids:
                     lines.append(f"{where}: not every unfinished job has waited {int(BACKLOG_STALL.total_seconds() // 60)}"
-                                 f" min on hosted Ubuntu or a moved JIT label with no runner; left alone")
+                                 f" min with no runner on hosted Ubuntu, a moved JIT label (or on Blacksmith Ubuntu with an"
+                                 f" owned re-run route); left alone")
                 continue
             counts["stalled"] += 1
             head = backlog_head(client, run)
@@ -1545,7 +1673,13 @@ def backlog_scan(client: Any, journal: dict[int, Journalled] | None, *, now: dt.
             lines.append(f"{where}: could not read ({error}); left alone")
             continue
         oldest = max(int((now - parse_time(job["created_at"])).total_seconds() // 60) for job in stuck)
-        detail = f"{len(stuck)} jobs queued on {backlog_where(stuck)}, the oldest {oldest} min"
+        on_blacksmith = sum(1 for job in stuck
+                            if not all(HOSTED_LABEL.match(str(label)) for label in job.get("labels") or ())
+                            and not set(job.get("labels") or ()) & set(MOVED_JIT_LABELS))
+        on_where = backlog_where(stuck)
+        detail = (f"{len(stuck)} jobs queued on {on_where}, the oldest {oldest} min" if not on_blacksmith else
+                  f"{len(stuck)} jobs queued{' on ' + on_where if on_where else ''} ({on_blacksmith} on Blacksmith"
+                  f" Ubuntu, re-run on {routes.linux_runner}), the oldest {oldest} min")
         if head == "unknown":
             lines.append(f"{where}: {detail}; its pull request could not be told; left alone")
             continue
@@ -1569,7 +1703,7 @@ def backlog_scan(client: Any, journal: dict[int, Journalled] | None, *, now: dt.
         # Right before the cancel: still attempt 1, in flight, and every unfinished job still a stalled hosted one.
         try:
             fresh = client.request("GET", f"/actions/runs/{run['id']}")
-            again, _ = backlog_verdict(client.jobs(run["id"]), now)
+            again, _ = backlog_verdict(client.jobs(run["id"]), now, leaves)
         except Exception as error:  # noqa: BLE001
             lines.append(f"{where}: could not re-read before the cancel ({error}); left alone")
             continue
@@ -1690,8 +1824,14 @@ def backlog_main(args: argparse.Namespace, env: Mapping[str, str], repo: str, *,
             client = GitHub(bot, repo, bot, fallback=workflow)
         else:
             client = GitHub(bot or workflow, repo, bot or workflow)
+    route_dirs: dict[str, Path] = {}
+    for spec in args.route_workflows or ():
+        base, _, directory = spec.partition("=")
+        if base and directory:
+            route_dirs[base] = Path(directory)
+    routes = RerunRoutes(route_dirs, env.get("BACKLOG_LINUX_RUNNER"))
     lines, _ = backlog_sweep(client, now=now, dry_run=args.dry_run, declared=declared, actions=actions, since=since,
-                             run_ids=run_ids, echo=lambda line: print(line, flush=True), sleep=sleep)
+                             run_ids=run_ids, echo=lambda line: print(line, flush=True), sleep=sleep, routes=routes)
     summary = env.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as handle:
@@ -1714,6 +1854,9 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                         help="with --backlog: the .github directory whose declared workflows the minute pass owns")
     parser.add_argument("--workflows", type=Path, default=None,
                         help="the .github/workflows directory whose callers of reusable declared workflows are listed too")
+    parser.add_argument("--route-workflows", action="append", default=None, metavar="BASE=DIR",
+                        help="with --backlog: the workflows directory of pull requests into BASE, read to tell whether "
+                             "a job queued on Blacksmith Ubuntu re-runs on vars.LINUX_RUNNER (BACKLOG_LINUX_RUNNER)")
     parser.add_argument("--run-ids", default=None,
                         help="with --backlog: act on exactly these runs (comma-separated ids) under the pass's rules, "
                              "instead of listing the queue")

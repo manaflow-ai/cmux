@@ -18,6 +18,12 @@
 // has left to wait fails at once. A call that fails through every try is
 // reported with core.error and rethrown. A refused or 5xx request is retried
 // as is: the same call, with the same token, later.
+//
+// install({ github, core, spare }): `spare` is a second client (getOctokit(OTHER_TOKEN)) with its own
+// hourly budget. A rate-limited GET is sent once on it before any wait, and its answer is used when
+// it gets one; when it too is refused (any failure), the wait runs as above. Writes never move to it.
+// The nightly promote job waited 352 s, 491 s and 737 s on one dry budget (runs 45114240299 and
+// 45112291910, 2026-11-23) while another token in the same job had reads left.
 'use strict';
 
 const fs = require('fs');
@@ -88,7 +94,7 @@ function ledger(env, maxTotal) {
   };
 }
 
-function install({ github, core, env = process.env, sleep, now } = {}) {
+function install({ github, core, env = process.env, sleep, now, spare } = {}) {
   if (!github || !github.hook) throw new Error('gh_budget_wait.cjs: install needs the github-script `github` client');
   const log = core || { notice: console.log, error: console.error };
   const pause = sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
@@ -102,6 +108,7 @@ function install({ github, core, env = process.env, sleep, now } = {}) {
     const what = `${options.method} ${options.url}`;
     let rateTries = 0;
     let serverTries = 0;
+    let spareTried = !spare || options.method !== 'GET';
     for (;;) {
       try {
         return await request(options);
@@ -110,6 +117,18 @@ function install({ github, core, env = process.env, sleep, now } = {}) {
         if (!kind) throw error;
         let want;
         let note;
+        if (kind === 'rate' && !spareTried) {
+          spareTried = true;
+          // Without `request`: it carries the first client's hook (and so its token); the spare adds its own.
+          const { request: _ownHook, ...route } = options;
+          try {
+            const answer = await spare.request(route);
+            log.notice(`GitHub API budget: ${what} was refused for the API rate limit; read it on the spare token instead of waiting`);
+            return answer;
+          } catch (spareError) {
+            log.notice(`GitHub API budget: ${what} was refused for the API rate limit, and on the spare token too (${spareError.status || spareError.message})`);
+          }
+        }
         if (kind === 'rate') {
           rateTries += 1;
           note = `was refused for the API rate limit (try ${rateTries} of ${rateAttempts})`;
