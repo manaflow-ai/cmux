@@ -14,6 +14,12 @@
 //! transcript now ends at a tool result. Only then is the process started with [`env`]; anything
 //! else keeps acpmux's continuation prompt (`hub/restart_resume.rs`).
 //!
+//! Why the transcript is not cut back to the tool call, with its result written on stdin (which
+//! would leave not even Claude Code's line): Claude Code 2.1.330 does not take a result for a call
+//! it resumed. With no [`ENV`] it answers the open call itself ("[Tool call interrupted: ...]")
+//! and reads the written result as an empty user message; with [`ENV`] it drops the call and
+//! starts from the prompt. Both run the call again (measured, the request logged through a proxy).
+//!
 //! The process runs the turn before the hub's prompt for it comes. That prompt is
 //! `_meta.carried: true`, as a turn Claude Code runs on unread steers has (`carry.rs`): nothing is
 //! written, and the turn's result answers it. Until it comes the process's output is held, as
