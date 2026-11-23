@@ -983,10 +983,7 @@ function TranscriptView({
   /// frame and node, which read refs, are given as the transcript mounts (`connect`, below): until then
   /// they did nothing (`transcriptMounted`).
   const guardRead = useRef<() => void>(() => {});
-  const frameGuard = useRef<{
-    seen: number | undefined;
-    handled: number | undefined;
-  }>({
+  const frameGuard = useRef<{ seen: number | undefined; handled: number | undefined }>({
     seen: undefined,
     handled: undefined,
   });
@@ -1040,9 +1037,7 @@ function TranscriptView({
     jumpBack.current = undefined;
     setJumpBackHeld(false);
   }, [setJumpBackHeld]);
-  const [promptScan] = useState<{ current: PromptScan }>(() => ({
-    current: { length: 0 },
-  }));
+  const [promptScan] = useState<{ current: PromptScan }>(() => ({ current: { length: 0 } }));
   const [jumpUpHint] = useState(() => ({ current: -1 }));
   /// The offset Jump up just set, so its scroll event is not taken for the reader's stop.
   const placedTop = useRef<number | undefined>(undefined);
@@ -2863,10 +2858,7 @@ function TranscriptView({
   /// Only then is there room they came back to: a layout pass that lets go and takes it again (the queue
   /// closing at the latest row) leaves none (agent-pane-queue-scroll-bottom).
   /// One ref for both, which the placement pass reads once (`roomUnderRows`).
-  const heldRoom = useRef<{ room: number; reader: ReaderRoom }>({
-    room: dockRoom,
-    reader: { followed: false },
-  });
+  const heldRoom = useRef<{ room: number; reader: ReaderRoom }>({ room: dockRoom, reader: { followed: false } });
   /// The composer card's height the room under the last row was last made for (`grown` below).
   const cardRest = useRef(0);
   /// The overlay dock (composer/dockMotion.experiment.ts): the composer card's height the room under

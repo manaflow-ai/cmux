@@ -36,12 +36,7 @@ await requireBrowserLane("agent-pane-send-raised.test.ts", async () => {
   beforeAll(async () => {
     pane = await createServer({
       configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-      server: {
-        port: 0,
-        host: "127.0.0.1",
-        strictPort: false,
-        watch: { ignored: () => true },
-      },
+      server: { port: 0, host: "127.0.0.1", strictPort: false, watch: { ignored: () => true } },
       logLevel: "error",
     });
     await pane.listen();
@@ -58,20 +53,8 @@ await requireBrowserLane("agent-pane-send-raised.test.ts", async () => {
   const openChat = async (page: Page) => {
     await page.addInitScript(() => {
       Object.assign(window, {
-        webkit: {
-          messageHandlers: {
-            agentSession: {
-              postMessage: async () => ({ ok: true, value: null }),
-            },
-          },
-        },
-        cmuxAcpmuxActions: {
-          ready: async () => ({
-            protocolVersion: 1,
-            transport: "mock",
-            newSession: true,
-          }),
-        },
+        webkit: { messageHandlers: { agentSession: { postMessage: async () => ({ ok: true, value: null }) } } },
+        cmuxAcpmuxActions: { ready: async () => ({ protocolVersion: 1, transport: "mock", newSession: true }) },
       });
     });
     const port = (pane!.httpServer!.address() as { port: number }).port;
@@ -86,10 +69,7 @@ await requireBrowserLane("agent-pane-send-raised.test.ts", async () => {
     }
     // The agent answers late, as a real one does: the send's own motion plays alone.
     await page.evaluate(() =>
-      Object.assign(window, {
-        cmuxAcpmuxMockSlowMethod: "session/prompt",
-        cmuxAcpmuxMockSlowMs: 2000,
-      }),
+      Object.assign(window, { cmuxAcpmuxMockSlowMethod: "session/prompt", cmuxAcpmuxMockSlowMs: 2000 }),
     );
   };
 
@@ -121,9 +101,7 @@ await requireBrowserLane("agent-pane-send-raised.test.ts", async () => {
     );
 
   test("a six-line draft sent from the latest row lands in place in its first frame, and nothing moves after", async () => {
-    const page = await browser!.newPage({
-      viewport: { width: 720, height: 640 },
-    });
+    const page = await browser!.newPage({ viewport: { width: 720, height: 640 } });
     try {
       await openChat(page);
       await page.locator(field).click();
