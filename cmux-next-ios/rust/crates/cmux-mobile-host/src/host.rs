@@ -643,6 +643,7 @@ async fn answer_session(
         session_id: first.session_id.clone(),
         video: None,
         session_exposure: context.session_exposure.clone(),
+        path: None,
     };
     let session_id = first.session_id.clone();
     let timeline = Timeline::new();
@@ -678,6 +679,7 @@ async fn answer_session(
         }
     };
     let path = *connected.path.borrow();
+    peer.path = Some(connected.path.clone());
     if let Some(cmux_mobile_link::media::MediaLane::Out(video)) = connected.link.media() {
         peer.video = Some(video);
     }
