@@ -12,6 +12,7 @@ pub(super) async fn run(
     cwd: Option<String>,
     name: Option<String>,
     interrupt: bool,
+    after_turn: bool,
     json_out: bool,
 ) -> Result<()> {
     let src = connect(true).await?;
@@ -25,10 +26,13 @@ pub(super) async fn run(
     let id = resolve_id(&src, session).await?;
     // The source asks the target itself if this client goes away midway (`hub/transfer_watch.rs`).
     let socket = std::path::absolute(to)?;
-    let to_meta = json!({"socket": to});
+    // Absolute, as the watch's: an outbox that finds the chat moved hands its messages to the
+    // daemon at this socket (`server/outbox.rs` `hand_to_socket`), whatever its own folder.
+    let to_meta = json!({"socket": socket});
     let watch = json!({"socket": socket});
+    let running = (interrupt, after_turn);
     let moved =
-        move_chat(&src, &dst, &dst_init, &id, Some(watch), cwd, name, interrupt, to_meta).await?;
+        move_chat(&src, &dst, &dst_init, &id, Some(watch), cwd, name, running, to_meta).await?;
     if json_out {
         print_json(&moved);
     } else {
@@ -47,18 +51,90 @@ pub(super) struct Begun {
 /// Freezes the chat `id` on `src` and makes its bundle (`_acpmux/transfer_begin`). `watch` is
 /// the target as the source's watch reaches it if the move's client goes away
 /// (`{socket}`, or `{socket, ssh}` for a daemon on another machine, `hub/transfer_watch.rs`).
+/// `turn_bound`: with `after_turn`, the longest the daemon waits for the running turn
+/// (`afterTurnTimeoutMs`; a daemon too old to read it waits its own 15 minutes).
 pub(super) async fn begin_move(
     src: &Client,
     id: &str,
     watch: Option<Value>,
-    interrupt: bool,
+    (interrupt, after_turn): (bool, bool),
+    turn_bound: Option<std::time::Duration>,
+) -> Result<Begun> {
+    begin_with(src, id, watch, (interrupt, false, after_turn), turn_bound).await
+}
+
+/// Longest [`begin_move_live`] waits for a running turn's tool calls to end before it stops the
+/// turn all the same (its continuation then names the calls it cut, `restart_resume.rs`).
+pub(super) const TOOL_WAIT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+/// How often [`begin_move_live`] asks again while a tool call runs.
+const TOOL_POLL: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// [`begin_move`] for a chat whose turn may be running, which moves with it (Leo, 2026-11-21:
+/// "you're supposed to be able to move shit while it's running. that's teh whole point."). The
+/// begin stops the turn only between its tool calls (`atToolBoundary`, `hub/transfer_out.rs`
+/// `TurnCut`): every tool result is then in the agent's transcript, which the bundle carries,
+/// and the turn's continuation goes on from there on the target. While a call runs (a build, a
+/// test) the begin answers `transfer.tool_in_flight` and this asks again, up to `wait`; past it
+/// the turn stops as with `--interrupt`. A turn that ends meanwhile moves as an idle chat does,
+/// and so does a chat with no turn.
+pub(super) async fn begin_move_live(
+    src: &Client,
+    id: &str,
+    watch: Option<Value>,
+    wait: std::time::Duration,
+) -> Result<Begun> {
+    let until = std::time::Instant::now() + wait;
+    let mut said = false;
+    loop {
+        let late = std::time::Instant::now() >= until;
+        match begin_with(src, id, watch.clone(), (late, !late, false), None).await {
+            Err(e) if !late && waits_for_turn(&e) => {
+                if !said {
+                    eprintln!(
+                        "acpmux: {id}: its turn runs a tool call; the move takes the turn along once \
+                         that ends (at most {} min)",
+                        wait.as_secs() / 60
+                    );
+                    said = true;
+                }
+                tokio::time::sleep(TOOL_POLL).await;
+            }
+            other => return other,
+        }
+    }
+}
+
+/// Whether a begin refused `e` only until the running turn reaches a point it can stop at: a tool
+/// call in flight, or a compaction that a stop would cut (`hub/transfer_out.rs`).
+pub(crate) fn waits_for_turn(e: &anyhow::Error) -> bool {
+    let text = format!("{e:#}");
+    text.contains(&format!("transfer.{}", crate::hub::TOOL_IN_FLIGHT))
+        || text.contains("transfer.busy: the chat is compacting")
+}
+
+async fn begin_with(
+    src: &Client,
+    id: &str,
+    watch: Option<Value>,
+    (interrupt, at_tool_boundary, after_turn): (bool, bool, bool),
+    turn_bound: Option<std::time::Duration>,
 ) -> Result<Begun> {
     // This client hands the bundle on only to a receiver whose own `initialize` listed queue
     // approval when it carries approved prompts that still wait (`receiver_takes`).
-    let mut begin_params =
-        json!({"sessionId": id, "interrupt": interrupt, "gatesQueueApproval": true});
+    // `afterTurn`: a running turn ends on its own first, the chat unfrozen meanwhile
+    // (`hub/transfer_out.rs` `transfer_begin`); an older daemon ignores it and refuses as busy.
+    let mut begin_params = json!({
+        "sessionId": id,
+        "interrupt": interrupt,
+        "atToolBoundary": at_tool_boundary,
+        "afterTurn": after_turn,
+        "gatesQueueApproval": true,
+    });
     if let Some(to) = watch {
         begin_params.set("to", to);
+    }
+    if let Some(bound) = turn_bound.filter(|_| after_turn) {
+        begin_params.set("afterTurnTimeoutMs", json!(bound.as_millis() as u64));
     }
     let begin = src.request("_acpmux/transfer_begin", begin_params).await?;
     let transfer_id = begin["transferId"].as_str().unwrap_or_default().to_owned();
@@ -90,10 +166,10 @@ pub(super) async fn move_chat(
     watch: Option<Value>,
     cwd: Option<String>,
     name: Option<String>,
-    interrupt: bool,
+    running: (bool, bool),
     to_meta: Value,
 ) -> Result<Value> {
-    let begun = begin_move(src, id, watch, interrupt).await?;
+    let begun = begin_move(src, id, watch, running, None).await?;
     finish_move(src, dst, dst_init, id, &begun, cwd, name, to_meta).await
 }
 

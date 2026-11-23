@@ -7,7 +7,7 @@ public import Foundation
 ///
 /// - `link.inspect {paths, urls}`: where each path is (``AgentPaneReplyPaths``) and the favicon
 ///   and title cmux already has for each URL (no fetch). Passive: no gesture, no effect.
-/// - `link.openPath {path}`: open a path chip. Spends a user gesture.
+/// - `link.openPath {path, line?}`: open a path chip. Spends a user gesture.
 /// - `image.load {src, auto?}`: a reply image, a file inside the roots or an https URL (host
 ///   fetch). A web image spends a gesture unless `agentPane.images.remote` is `always` or it is
 ///   from a click-free site; `auto: true` (the page loading it without a click) never spends one.
@@ -15,6 +15,8 @@ public import Foundation
 ///   (``AgentPaneMediaGrants``). Passive.
 /// - `video.info {src}`: an attached video's length, size, poster and key frames
 ///   (``AgentPaneVideoInfo``), for a chat on this Mac. Passive.
+/// - `video.probes {src}`: what follows `video.info`'s poster (its answer says `more`): the key
+///   frames and the probes for the page's scene pick. Passive.
 /// - `video.transcript {src}`: the speech in that video, transcribed on this Mac with timestamps
 ///   (``AgentPaneVideoTranscript``), for a chat on this Mac. Passive.
 /// - `video.quickLook {src}`: plays that video in Quick Look. Spends a user gesture.
@@ -47,10 +49,12 @@ public import Foundation
 ///   pasteboard (``AgentPaneImageCopies/copyComposer(text:items:in:)``). Spends a user gesture.
 public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     case inspect(paths: [String], urls: [String])
-    case openPath(String)
+    case openPath(String, line: Int? = nil)
     case loadImage(String, auto: Bool)
     case loadMedia(String)
     case videoInfo(String)
+    /// `video.probes {src}`: what follows the poster `video.info` answered, the key frames and probes.
+    case videoProbes(String)
     case videoTranscript(String)
     /// `video.frames {src, times}`: the frames at the page's picked times, in milliseconds.
     case videoFrames(String, times: [Int])
@@ -72,17 +76,18 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     public static let methods: Set<String> = [
         "link.inspect", "link.openPath", "image.load", "media.load", "browser.list", "browser.openIn", "image.reveal",
         "image.openInPane", "image.copy", "image.save", "image.quickLook", "image.drag", "file.drag", "pr.inspect",
-        "video.info", "video.transcript", "video.frames", "video.quickLook", "link.preview", "composer.copy",
+        "video.info", "video.probes", "video.transcript", "video.frames", "video.quickLook", "link.preview", "composer.copy",
     ]
 
     /// Each method's exact param keys (all required; `link.inspect` takes either list, and
     /// `image.load`'s `auto` may be left out).
     static let knownParams: [String: Set<String>] = [
         "link.inspect": ["paths", "urls"],
-        "link.openPath": ["path"],
+        "link.openPath": ["path", "line"],
         "image.load": ["src", "auto"],
         "media.load": ["src"],
         "video.info": ["src"],
+        "video.probes": ["src"],
         "video.transcript": ["src"],
         "video.frames": ["src", "times"],
         "video.quickLook": ["src"],
@@ -129,7 +134,7 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     /// Whether the request only reads (it does not count as the page being touched).
     var isPassive: Bool {
         switch self {
-        case .inspect, .listBrowsers, .loadImage, .loadMedia, .videoInfo, .videoTranscript, .videoFrames, .inspectPullRequest, .previewPath: true
+        case .inspect, .listBrowsers, .loadImage, .loadMedia, .videoInfo, .videoProbes, .videoTranscript, .videoFrames, .inspectPullRequest, .previewPath: true
         case .openPath, .openIn, .revealImage, .openImageInPane, .copyImage, .saveImage, .quickLookImage, .quickLookVideo, .dragImage,
              .dragFile, .copyComposer: false
         }
@@ -160,7 +165,13 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
             self = .inspect(paths: paths, urls: urls)
         case "link.openPath":
             guard let path = text("path", AgentPaneReplyPaths.maximumLength) else { return nil }
-            self = .openPath(path)
+            var line: Int?
+            if let value = params["line"] {
+                guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+                      let position = Int(exactly: number.doubleValue), (1...10_000_000).contains(position) else { return nil }
+                line = position
+            }
+            self = .openPath(path, line: line)
         case "image.load":
             guard let src = text("src", Self.maximumURL) else { return nil }
             let auto = params["auto"]
@@ -180,10 +191,11 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
                 times.append(number.intValue)
             }
             self = .videoFrames(src, times: times)
-        case "video.info", "video.transcript", "video.quickLook":
+        case "video.info", "video.probes", "video.transcript", "video.quickLook":
             guard let src = text("src", AgentPaneReplyPaths.maximumLength) else { return nil }
             self = switch method {
             case "video.info": .videoInfo(src)
+            case "video.probes": .videoProbes(src)
             case "video.transcript": .videoTranscript(src)
             default: .quickLookVideo(src)
             }

@@ -170,6 +170,35 @@ describe("cmux VM image apt index", () => {
     expect(bake.aptDownloadBatches(pins, all, 15).map((b) => b.pins.length)).toEqual([1, 1, 1]);
   });
 
+  // Image roll 44263286356 (2026-11-18): batch 3 of 5 (13 debs, 6.3 MB) hit the guest's 5-minute exec cap on a slow
+  // mirror (status 124) and failed the bake; the fetch keeps every verified .deb, so a second run finishes the batch.
+  test("a download batch that fails is run again, keeping what it fetched, up to APT_FETCH_ATTEMPTS times", async () => {
+    const vm = {} as Parameters<typeof bake.fetchAptBatch>[1];
+    const fakeLog = (failures: number) => {
+      const calls: string[] = [];
+      const lines: string[] = [];
+      return {
+        calls,
+        lines,
+        log: (line: string) => void lines.push(line),
+        step: async (_vm: unknown, label: string) => {
+          calls.push(label);
+          if (calls.length <= failures) throw new Error(`step ${label} failed`);
+          return "debs 13: kept 9, archive 4, snapshot 0";
+        },
+      };
+    };
+    const once = fakeLog(1);
+    await bake.fetchAptBatch(once, vm, "apt-ubuntu-download-3-of-5", "fetch");
+    expect(once.calls).toEqual(["apt-ubuntu-download-3-of-5", "apt-ubuntu-download-3-of-5-try-2"]);
+    expect(once.lines.join("\n")).toContain("apt-ubuntu-download-3-of-5 failed (try 1 of 3)");
+
+    const never = fakeLog(99);
+    await expect(bake.fetchAptBatch(never, vm, "apt-ubuntu-download-3-of-5", "fetch")).rejects.toThrow("step apt-ubuntu-download-3-of-5-try-3 failed");
+    expect(never.calls).toHaveLength(bake.APT_FETCH_ATTEMPTS);
+    expect(bake.APT_FETCH_ATTEMPTS).toBe(3);
+  });
+
   // Bake run 43932356313 (2026-11-16): the snapshot's index update hit its cap, the archive fallback had replaced
   // ca-certificates 20260816ubuntu0.24.04.1 with .2, and the system layer failed with "apt index has no size".
   test("the Ubuntu closure is fetched by content (archive, then the dated snapshot) and installed with no index", async () => {

@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 // App health (design/app-health.md): the indicator in three treatments (where it sits in the sidebar
 // footer row and why it moves nothing there: AppHealthFooterRow.gallery.tsx), each in the same seven
-// states, with the popover it opens drawn under it. A: the sidebar footer's dot and line (shipped);
+// states (its card is native: AppHealthNativeCardTests). A: the sidebar footer's dot and line (shipped);
 // B: the titlebar's trailing dot, its line a tooltip; C: an inline pill with the worst part's
 // Repair. Healthy renders nothing in every treatment.
 import { componentEntry } from "../gallery/format";
@@ -103,7 +103,7 @@ const STATES: Record<string, { note: string; snapshot: HealthSnapshot }> = {
     },
   },
   "restoring-slow": {
-    note: "Slow, still making progress: never repaired by force. The indicator shows nothing for a slow part (ui.app-health.footer-row); the popover lists it.",
+    note: "Slow, still making progress: never repaired by force. The indicator shows nothing for a slow part (ui.app-health.footer-row); the native card lists it.",
     snapshot: {
       worst: "slow",
       parts: [
@@ -119,7 +119,7 @@ const STATES: Record<string, { note: string; snapshot: HealthSnapshot }> = {
     },
   },
   "oversize-data": {
-    note: "Workspace data past 8 GB: a warning in the popover, no button; the indicator shows nothing for it.",
+    note: "Workspace data past 8 GB: a warning in the native card, no button; the indicator shows nothing for it.",
     snapshot: {
       worst: "slow",
       parts: [
@@ -170,11 +170,11 @@ for (const [treatment, lead] of Object.entries(TREATMENTS) as [AppHealthTreatmen
 
 export default componentEntry<Props>({
   id: "ui.app-health",
-  title: "App health indicator and popover",
+  title: "App health indicator",
   area: "Pages",
   height: 520,
   widths: { narrow: 300, normal: 380, wide: 560 },
-  covers: ["app-health/AppHealth.tsx", "app-health/AppHealthHost.tsx#AppHealthHost", "app-health/model.ts"],
+  covers: ["app-health/AppHealth.tsx", "app-health/model.ts"],
   keywords: ["health", "stuck", "repair", "daemon", "renderer", "restore", "reconnecting", "status"],
   load: async () => {
     const [views, { createStrings }, table] = await Promise.all([
@@ -190,9 +190,6 @@ export default componentEntry<Props>({
           <div className="ah-gallery-slot" data-slot={treatment}>
             {treatment === "titlebar" && <span className="ah-gallery-title">cmux</span>}
             <views.AppHealthIndicator snapshot={snapshot} strings={strings} actions={actions} treatment={treatment} />
-          </div>
-          <div className="ah-gallery-popover">
-            <views.AppHealthPopover snapshot={snapshot} strings={strings} repair={actions.repair} />
           </div>
         </div>
       );

@@ -110,15 +110,17 @@ export function harnessCatalogKey(clientId: number, cwd?: string) {
 /// (every chat folder's) stale, so an open picker re-reads `_acpmux/harnesses` and `_acpmux/models`
 /// at once. Event-driven: no polling, no reconnect.
 export function followHarnessChanges(
-  client: { onHarnessesChanged?: () => void },
+  client: { onHarnessesChanged?: () => void; onCatalogChanged?: () => void },
   queryClient: QueryClient,
   clientId: number,
+  onCatalogChanged?: () => void,
 ): void {
   client.onHarnessesChanged = () => {
     void queryClient.invalidateQueries({ queryKey: harnessCatalogKey(clientId) });
     // A machine's agents are read again with this Mac's: a profile written or a list refreshed.
     void queryClient.invalidateQueries({ queryKey: peerHarnessesKey(clientId) });
   };
+  client.onCatalogChanged = onCatalogChanged;
 }
 
 /** Key per direct client and machine (never under `harnessCatalogKey`: `useHarnessesListed` reads

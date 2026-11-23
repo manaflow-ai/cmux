@@ -14,6 +14,10 @@ public final class GitHubConnect {
         case notConnected
         /// An installation was started and is not finished yet.
         case pending
+        /// Linked, but GitHub no longer honors it (the App was suspended or uninstalled): connect again.
+        case needsReauth
+        /// The service marked the connection `error`; connect again.
+        case error
         /// Connected, with the GitHub accounts it covers.
         case connected([String])
     }
@@ -93,12 +97,15 @@ public final class GitHubConnect {
         let connections = (root["connections"] as? [[String: Any]] ?? []).filter {
             $0["provider"] as? String == "github" && !["revoked", "expired"].contains($0["status"] as? String ?? "")
         }
-        // Connected means an active connection (the Mac's check); an errored one can connect again.
+        // Connected means an active connection (the Mac's check); a suspended, uninstalled or errored one has its own
+        // words (the Mac's `CloudGitHubApp`) and can connect again.
         let active = connections.filter { $0["status"] as? String == "active" }
         if !active.isEmpty {
             return .connected(active.compactMap { $0["account_login"] as? String ?? $0["display_name"] as? String })
         }
         if connections.contains(where: { $0["status"] as? String == "pending" }) { return .pending }
+        if connections.contains(where: { $0["status"] as? String == "needs_reauth" }) { return .needsReauth }
+        if connections.contains(where: { $0["status"] as? String == "error" }) { return .error }
         return configured ? .notConnected : .unavailable
     }
 
@@ -164,6 +171,8 @@ public struct GitHubConnectRow: View {
         case .unavailable: String(localized: "Not available")
         case .notConnected: String(localized: "Not connected")
         case .pending: String(localized: "Finish on GitHub")
+        case .needsReauth: String(localized: "mobile.chief.github.reconnect", defaultValue: "Reconnect needed", bundle: .module)
+        case .error: String(localized: "mobile.chief.github.error", defaultValue: "GitHub error", bundle: .module)
         case let .connected(logins): logins.isEmpty ? String(localized: "Connected") : logins.joined(separator: ", ")
         }
     }

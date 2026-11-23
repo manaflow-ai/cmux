@@ -116,13 +116,15 @@ public final class ScreenSharingService {
     public static let developmentHubURL = URL(string: "https://cmux-device-hub-dev.debussy.workers.dev")!
     public static let productionHubURL = URL(string: "https://cmux-device-hub.debussy.workers.dev")!
 
-    /// The hub a build uses: DEBUG builds the dev hub (or `CMUX_MOBILE_DEVICE_HUB_URL`), others production.
-    public static func hubURL(isDebug: Bool, environment: [String: String]) -> URL {
+    /// The hub a build uses: DEBUG builds `CMUX_MOBILE_DEVICE_HUB_URL`, else the tag stack's own hub when the
+    /// build's Cloud backend is a tag's stack (`stackHub`, CloudBackendOverride.deviceHub), else the dev hub;
+    /// others production.
+    public static func hubURL(isDebug: Bool, environment: [String: String], stackHub: URL? = nil) -> URL {
         guard isDebug else { return productionHubURL }
         if let text = environment["CMUX_MOBILE_DEVICE_HUB_URL"], let url = URL(string: text), url.scheme?.hasPrefix("http") == true {
             return url
         }
-        return developmentHubURL
+        return stackHub ?? developmentHubURL
     }
 
     public init(configuration: Configuration, preferences: ScreenSharingPreferences = ScreenSharingPreferences()) {
@@ -137,16 +139,22 @@ public final class ScreenSharingService {
         attach(hub)
     }
 
-    /// The account's Macs, those sharing their screen and online first, then by name. Until the
-    /// hub's list is read, the Macs the last read list held, so the page draws them in its first
-    /// frame instead of "Finding your Macs…" (conn-quiet).
+    /// The account's Macs and Linux desktops, those sharing their screen and online first, then by
+    /// name. Until the hub's list is read, the ones the last read list held, so the page draws them
+    /// in its first frame instead of "Finding your Macs…" (conn-quiet).
     public var macs: [HubDevice] {
         #if DEBUG
         if demoDiscovery != nil { return demoMacs }
         #endif
-        if discovery == .finding { return preferences.lastMacs(for: configuration.accountID).filter { $0.platform == .macos }.sorted(by: Self.listOrder) }
+        if discovery == .finding { return Self.hosts(preferences.lastMacs(for: configuration.accountID)) }
         guard let hub else { return [] }
-        return hub.otherDevices.filter { $0.platform == .macos }.sorted(by: Self.listOrder)
+        return Self.hosts(hub.otherDevices)
+    }
+
+    /// The devices in `devices` whose screen this phone can view, in list order: Macs and Linux
+    /// desktops (`DevicePlatform.hostsScreen`), never another iPhone or a device that sent no platform.
+    nonisolated static func hosts(_ devices: [HubDevice]) -> [HubDevice] {
+        devices.filter { $0.platform?.hostsScreen == true }.sorted(by: listOrder)
     }
 
     /// Why `mac` can't be shared now, as the list last read it (nil: it can be). Tapping such a

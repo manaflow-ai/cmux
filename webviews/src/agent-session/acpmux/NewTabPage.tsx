@@ -19,7 +19,7 @@ import { BrowseFailure } from "./BrowseFailure";
 import { ErrorDetails } from "./conversation/ErrorDetails";
 import { browseFailureMessage } from "./browseFailureModel";
 import { defaultRow, stepSelection, EMPTY_OMNIBAR, omnibarRows, type OmnibarContext, type OmnibarRow } from "./omnibar";
-import { firstProject, homePath, mostRecentProject, projectLabel } from "./sessionList";
+import { firstProject, homePath, isTemporaryFolder, mostRecentProject, projectLabel } from "./sessionList";
 import { useT } from "./i18n";
 import { isStartableProject, rememberedStartedProject } from "./newtab/startedProject";
 import { useNoEntryMotion } from "./newtab/noEntryMotion";
@@ -200,7 +200,7 @@ export function NewTabPage({
   const [started] = useState(() => (home ? (rememberedStartedProject() ?? startedProject) : undefined));
   const projectCwd =
     picked ??
-    (isStartableProject(cwd) || !home
+    ((isStartableProject(cwd) && !isTemporaryFolder(cwd)) || !home
       ? cwd
       : (firstProject(started ? [started.replace(/(.)\/+$/, "$1")] : [], home, knownProjects) ??
         mostRecentProject(snapshot.sessions, home, knownProjects) ??
@@ -353,27 +353,29 @@ export function NewTabPage({
     return true;
   });
   const composing = useRef(false);
-  const recent = useMemo(() => recentSessions(snapshot.sessions), [snapshot.sessions]);
   // The suggestions float over the page under the field (cx-6k6cg), so they show only while the
   // field has the keyboard and something is typed: at rest nothing covers the page below.
   const [focused, setFocused] = useState(false);
   const queryRef = useRef(query);
   queryRef.current = query;
   const open = focused && query.trim() !== "" && query !== dismissed;
-  const suggestions = useMemo(
+  // The recent chats are sorted only while the rows show: a page at rest never sorts every chat.
+  const recent = useMemo(() => (open ? recentSessions(snapshot.sessions) : []), [open, snapshot.sessions]);
+  const rows = useMemo(
     () =>
-      omnibarRows(query, kind, {
-        ...omnibar,
-        sessions: recent.map((session) => ({
-          sessionId: session.sessionId,
-          title: session.displayTitle ?? session.sessionId,
-          ...(session.harness ? { harness: session.harness } : {}),
-          detail: projectLabel(session.cwd),
-        })),
-      }),
-    [query, kind, omnibar, recent],
+      open
+        ? omnibarRows(query, kind, {
+            ...omnibar,
+            sessions: recent.map((session) => ({
+              sessionId: session.sessionId,
+              title: session.displayTitle ?? session.sessionId,
+              ...(session.harness ? { harness: session.harness } : {}),
+              detail: projectLabel(session.cwd),
+            })),
+          })
+        : [],
+    [open, query, kind, omnibar, recent],
   );
-  const rows = useMemo(() => (open ? suggestions : []), [open, suggestions]);
   useEffect(() => setSelected(defaultRow(rows, kind, query)), [rows, kind, query]);
   useEffect(() => {
     // Rows past the window's edge draw in the host; the invisible list never scrolls the page.
@@ -429,7 +431,9 @@ export function NewTabPage({
       // A page shown in a window that is not key yet gets no focus event until it is.
       setFocused(input.focused());
     };
-    focus();
+    // Not again while the field has the keyboard: a token change after the readiness selected the keys typed so far
+    // (the screen's show-focus has the same rule).
+    if (!field.current?.focused()) focus();
     const host = fieldElement()?.ownerDocument.defaultView;
     // The app replays the keys typed after Cmd-T at this readiness: it waits for the page's focus.
     let cancelReady = () => {};

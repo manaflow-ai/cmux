@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR e36fafb2ce1a616e5734761cd2e6761fc809fb67e42d9cd6d9f8ee0829e4a6a7.
+// cmux-tui mux protocol 12, IR 3e71a7376b792f9f519eef3582eef785ab28df1e74af3a9e9600596fd9cde9e9.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -86,6 +86,10 @@ pub struct AttachSurfaceRequest {
     pub replay_history_rows: Optional<u32>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub replay_history_start: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub resume_generation: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub resume_offset: Optional<u64>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -952,6 +956,38 @@ pub struct CloudSessionStatusRequest {
 
 #[rustfmt::skip]
 pub type CloudSessionStatusResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ComputerUseApprovalsRequest {
+    pub action: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub answer: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub app_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub id: Optional<u64>,
+}
+
+#[rustfmt::skip]
+pub type ComputerUseApprovalsResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ComputerUseConfigRequest {
+    pub config: Nullable<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+pub type ComputerUseConfigResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ComputerUseEndpointRequest {
+}
+
+#[rustfmt::skip]
+pub type ComputerUseEndpointResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1967,15 +2003,39 @@ pub struct HistorySearchResult {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct HomeInboxRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub ids: Optional<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub limit: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub offset: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub owners: Optional<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub scope: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub since: Optional<u64>,
 }
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HomeInboxResult {
     pub cloud: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub full: Option<bool>,
     pub me: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub offset: Option<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub order: Option<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub removed: Option<Vec<String>>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub revision: Option<u64>,
     pub rows: Vec<T::HomeInboxRow>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub total: Option<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub window: Option<bool>,
 }
 
 #[rustfmt::skip]
@@ -2985,6 +3045,25 @@ pub type PutSessionResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct QuickTerminalRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub h: Optional<f64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub mode: Optional<String>,
+    pub screen: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub w: Optional<f64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub x: Optional<f64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub y: Optional<f64>,
+}
+
+#[rustfmt::skip]
+pub type QuickTerminalResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReadScreenRequest {
     pub surface: T::Id,
 }
@@ -3396,6 +3475,8 @@ pub struct SendRequest {
     pub expect_foreground: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub flow: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub key: Optional<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub paste: Option<bool>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -3872,6 +3953,8 @@ pub struct ShutdownDaemonRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub force: Option<bool>,
     pub generation: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub if_idle: Option<bool>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub keep_layout: Option<bool>,
     pub pid: u32,
@@ -4445,6 +4528,12 @@ impl CmuxClient {
         if !request.replay_history_start.is_missing() {
             self.require_capability_field("attach-surface", "attach-replay-history-window-v1")?;
         }
+        if !request.resume_generation.is_missing() {
+            self.require_capability_field("attach-surface", "terminal-resume-v1")?;
+        }
+        if !request.resume_offset.is_missing() {
+            self.require_capability_field("attach-surface", "terminal-resume-v1")?;
+        }
         if !request.rows.is_missing() {
             self.require_capability_field("attach-surface", "attach-initial-size")?;
         }
@@ -4753,6 +4842,18 @@ impl CmuxClient {
 
     pub fn cloud_session_status(&mut self, request: CloudSessionStatusRequest) -> Result<CloudSessionStatusResult> {
         self.execute(&CLOUD_SESSION_STATUS_METADATA, &request)
+    }
+
+    pub fn computer_use_approvals(&mut self, request: ComputerUseApprovalsRequest) -> Result<ComputerUseApprovalsResult> {
+        self.execute(&COMPUTER_USE_APPROVALS_METADATA, &request)
+    }
+
+    pub fn computer_use_config(&mut self, request: ComputerUseConfigRequest) -> Result<ComputerUseConfigResult> {
+        self.execute(&COMPUTER_USE_CONFIG_METADATA, &request)
+    }
+
+    pub fn computer_use_endpoint(&mut self, request: ComputerUseEndpointRequest) -> Result<ComputerUseEndpointResult> {
+        self.execute(&COMPUTER_USE_ENDPOINT_METADATA, &request)
     }
 
     pub fn conversation_agent_token(&mut self, request: ConversationAgentTokenRequest) -> Result<ConversationAgentTokenResult> {
@@ -5528,6 +5629,10 @@ impl CmuxClient {
         self.execute(&PUT_SESSION_METADATA, &request)
     }
 
+    pub fn quick_terminal(&mut self, request: QuickTerminalRequest) -> Result<QuickTerminalResult> {
+        self.execute(&QUICK_TERMINAL_METADATA, &request)
+    }
+
     pub fn read_screen(&mut self, request: ReadScreenRequest) -> Result<T::ReadScreenResult> {
         self.execute(&READ_SCREEN_METADATA, &request)
     }
@@ -5716,6 +5821,9 @@ impl CmuxClient {
         }
         if !request.expect_foreground.is_missing() {
             self.require_capability_field("send", "send-expect-foreground-v1")?;
+        }
+        if !request.key.is_missing() {
+            self.require_capability_field("send", "send-key-v1")?;
         }
         if request.paste.is_some() {
             self.require_protocol_field("send", 7)?;
@@ -5955,6 +6063,10 @@ impl CmuxClient {
         if request.force.is_some() {
             self.require_protocol_field("shutdown-daemon", 10)?;
             self.require_capability_field("shutdown-daemon", "daemon-handoff-force-v1")?;
+        }
+        if request.if_idle.is_some() {
+            self.require_protocol_field("shutdown-daemon", 12)?;
+            self.require_capability_field("shutdown-daemon", "daemon-stop-if-idle-v1")?;
         }
         if request.keep_layout.is_some() {
             self.require_protocol_field("shutdown-daemon", 12)?;

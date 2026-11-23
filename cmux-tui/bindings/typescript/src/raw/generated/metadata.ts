@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR e36fafb2ce1a616e5734761cd2e6761fc809fb67e42d9cd6d9f8ee0829e4a6a7. */
+/* cmux-tui mux protocol 12, IR 3e71a7376b792f9f519eef3582eef785ab28df1e74af3a9e9600596fd9cde9e9. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "e36fafb2ce1a616e5734761cd2e6761fc809fb67e42d9cd6d9f8ee0829e4a6a7" as const;
+export const SDK_IR_SHA256 = "3e71a7376b792f9f519eef3582eef785ab28df1e74af3a9e9600596fd9cde9e9" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -116,6 +116,14 @@ export const COMMAND_METADATA = {
       "replay_history_start": {
         "since": null,
         "capability": "attach-replay-history-window-v1"
+      },
+      "resume_generation": {
+        "since": null,
+        "capability": "terminal-resume-v1"
+      },
+      "resume_offset": {
+        "since": null,
+        "capability": "terminal-resume-v1"
       },
       "rows": {
         "since": null,
@@ -872,6 +880,42 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Trusted local connections, and with ws-cloud-conversations-v1 paired WebSocket connections. Returns state signed_out, active or expired, and participant for the person's own clients; never the token. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    ]
+  },
+  "computer-use-approvals": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "computer-use-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "cmux Computer Use (docs/computer-use): the Computer Use worker (Linux and Windows: supervised by this daemon; macOS: the cmux Remote host).",
+      "action: list, forget, always, never, revoke_sessions, or answer (id, answer: allow_once, allow_session, always, deny, never).",
+      "Lowering trust (forget, never, revoke_sessions, a deny answer) is open to any local Unix connection; always and allowing answers are the verified app's only. Pending questions are listed only to the verified app."
+    ]
+  },
+  "computer-use-config": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "computer-use-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "cmux Computer Use (docs/computer-use): the Computer Use worker (Linux and Windows: supervised by this daemon; macOS: the cmux Remote host).",
+      "config is a Computer Use PolicyConfig (camelCase: mode, deniedApps, allowOwnMachines, pauseOnTakeover, allowForeground, showCursor, cloudVm).",
+      "The verified app connection only (origin.forbidden otherwise); the machine owner's computer-use.json still wins."
+    ]
+  },
+  "computer-use-endpoint": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "computer-use-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "cmux Computer Use (docs/computer-use): the Computer Use worker (Linux and Windows: supervised by this daemon; macOS: the cmux Remote host).",
+      "Answers {state: ready, socket, secret, pid} or {state: starting|off|unavailable, reason}; starts the worker when needed and waits up to 10 s.",
+      "Local Unix connections of this user only (never a page, WebSocket or remote peer); the secret is never logged or journaled."
     ]
   },
   "conversation-agent-token": {
@@ -2452,6 +2496,18 @@ export const COMMAND_METADATA = {
       "See spec/commands.md for the result object."
     ]
   },
+  "quick-terminal": {
+    "authority": "control",
+    "since": 12,
+    "capability": "quick-terminal-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "mode is \"toggle\", \"show\" or \"hide\" (default \"toggle\"). x, y, w and h are the frame of a quick terminal that the request makes, as fractions of the screen's pane area: all four or none.",
+      "A workspace has one quick terminal or none. A hide closes nothing: the pane keeps its terminal and its entry of Screen.floating.",
+      "See spec/commands.md for the result object and error codes."
+    ]
+  },
   "read-screen": {
     "authority": "control",
     "since": 5,
@@ -2856,6 +2912,10 @@ export const COMMAND_METADATA = {
       "expect_foreground": {
         "since": null,
         "capability": "send-expect-foreground-v1"
+      },
+      "key": {
+        "since": null,
+        "capability": "send-key-v1"
       },
       "paste": {
         "since": 7,
@@ -3336,6 +3396,10 @@ export const COMMAND_METADATA = {
         "since": 10,
         "capability": "daemon-handoff-force-v1"
       },
+      "if_idle": {
+        "since": 12,
+        "capability": "daemon-stop-if-idle-v1"
+      },
       "keep_layout": {
         "since": 12,
         "capability": "end-terminals-keep-layout-v1"
@@ -3353,7 +3417,8 @@ export const COMMAND_METADATA = {
       "end_terminals:true ends every terminal and removes its tabs before the handoff; without it terminal hosts stay alive for the next owner. Clients must require terminal-reap-v1 before sending end_terminals:true.",
       "keep_layout:true (with end_terminals:true) ends every terminal but keeps the tabs of placed terminals, so the next owner shows the same screens, splits and tabs, each dead until a frontend starts a new shell in it; keep_layout without end_terminals is refused. Clients must require end-terminals-keep-layout-v1 before sending keep_layout:true.",
       "The daemon exits only after the success response is queued.",
-      "restart is repeated on the daemon-shutdown event, so an attached TUI reconnects after a restart and exits after a stop."
+      "restart is repeated on the daemon-shutdown event, so an attached TUI reconnects after a restart and exits after a stop.",
+      "Clients must require daemon-stop-if-idle-v1 before sending if_idle:true: an older daemon ignores the field and stops."
     ]
   },
   "sidebar-plugin": {
@@ -3982,6 +4047,14 @@ export const EVENT_METADATA = {
   "agent-presence-changed": {
     "since": 12,
     "capability": "agent-presence-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "agent-session-share-changed": {
+    "since": 12,
+    "capability": "agent-session-share-events-v1",
     "streams": [
       "subscribe"
     ],
@@ -4880,6 +4953,16 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      },
+      "terminal_id": {
+        "description": "The terminal's public id (`term_…`). The record's `surface` is the terminal's first tab placement; a client finds every tab that shows the terminal by this id, whatever surface a restore or a reopen gave the tab.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       },
       "updated_at_ms": {
@@ -7747,6 +7830,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "index": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       },
       "kind": {
@@ -16604,6 +16695,26 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "uint64"
           }
         },
+        "resume_generation": {
+          "capability": "terminal-resume-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "resume_offset": {
+          "capability": "terminal-resume-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
         "rows": {
           "capability": "attach-initial-size",
           "default": null,
@@ -19247,6 +19358,81 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     }
   },
   "cloud-session-status": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "computer-use-approvals": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "action": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "answer": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "app_id": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "id": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "computer-use-config": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "config": {
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "computer-use-endpoint": {
     "request": {
       "additional_properties": false,
       "fields": {},
@@ -22749,6 +22935,33 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "request": {
       "additional_properties": false,
       "fields": {
+        "ids": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        },
+        "limit": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "offset": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
         "owners": {
           "nullable": true,
           "presence": "optional",
@@ -22758,6 +22971,22 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
               "name": "string"
             },
             "kind": "array"
+          }
+        },
+        "scope": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "since": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
           }
         }
       },
@@ -22774,12 +23003,55 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "string"
           }
         },
+        "full": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
         "me": {
           "nullable": false,
           "presence": "required",
           "type": {
             "kind": "scalar",
             "name": "string"
+          }
+        },
+        "offset": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "order": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "removed": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        },
+        "revision": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
           }
         },
         "rows": {
@@ -22791,6 +23063,22 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
               "name": "HomeInboxRow"
             },
             "kind": "array"
+          }
+        },
+        "total": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "window": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
           }
         }
       },
@@ -26385,6 +26673,71 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "JsonValue"
     }
   },
+  "quick-terminal": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "h": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "float64"
+          }
+        },
+        "mode": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "screen": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "w": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "float64"
+          }
+        },
+        "x": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "float64"
+          }
+        },
+        "y": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "float64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "read-screen": {
     "request": {
       "additional_properties": false,
@@ -27740,7 +28093,8 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         "When both are present, UTF-8 text bytes precede decoded bytes.",
         "Exactly one of surface and terminal_id; terminal_id (terminal-input-while-creating-v1) is the host terminal id, also of a terminal still being created, and has the semantics of terminal.input.write.",
         "expect_foreground (send-expect-foreground-v1) needs surface: the write happens only while the surface's foreground executable equals it, else the request fails with nothing written.",
-        "expect_agent and submit (send-expect-agent-v1) need surface: with expect_agent the write happens only while the agent of the surface's own terminal is idle in expect_agent.session (required), else the request fails with 'agent not waiting' and nothing written; submit writes Return after the payload in the same request."
+        "expect_agent and submit (send-expect-agent-v1) need surface: with expect_agent the write happens only while the agent of the surface's own terminal is idle in expect_agent.session (required), else the request fails with 'agent not waiting' and nothing written; submit writes Return after the payload in the same request.",
+        "key (send-key-v1) is 1 to 128 bytes: a send whose key the daemon already applied (within 10 minutes, among its last 1024 keys) returns the same success and writes nothing; a send refused with nothing written forgets its key."
       ],
       "fields": {
         "bytes": {
@@ -27784,6 +28138,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint64"
+          }
+        },
+        "key": {
+          "capability": "send-key-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
           }
         },
         "paste": {
@@ -29546,6 +29910,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "string"
+          }
+        },
+        "if_idle": {
+          "capability": "daemon-stop-if-idle-v1",
+          "constraints": [
+            "Stop only while no other client is connected and no terminal is launching, adopting or running; otherwise refuse with error_code daemon_busy, error_details {clients:[{client,name,kind}],terminals}, and keep serving. Checked under the handoff reservation, which refuses new clients, so none can start work between the check and the stop."
+          ],
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
           }
         },
         "keep_layout": {
@@ -31423,6 +31801,16 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "Id"
         }
       },
+      "terminal_id": {
+        "description": "The terminal's public id (`term_…`). The record's `surface` is the terminal's first tab placement; a client finds every tab that shows the terminal by this id, whatever surface a restore or a reopen gave the tab.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "updated_at_ms": {
         "nullable": false,
         "presence": "required",
@@ -31720,6 +32108,28 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "agent-session-share-changed": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "agent-session-share-changed"
+        }
+      },
+      "session": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },

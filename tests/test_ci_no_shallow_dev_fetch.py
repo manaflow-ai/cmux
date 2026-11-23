@@ -72,7 +72,6 @@ OWN_REPOSITORY = {
         "clean_merge_tree fetches into a scratch `git init --bare` TemporaryDirectory it just made (#44253)",
     "scripts/cmux-next/base_autofix_pushed_exports.py":
         "remote_history fetches into a scratch `git init --bare` repository it just made, then deletes it",
-    "scripts/cmux-next/build-cua-driver-sdk.sh": "fetches into its own `git init` work directory",
     "scripts/cmux-next/generate-third-party-notices.sh": "fetches into fresh `git init` cache directories",
     "scripts/cmux-next/notices/ghosttykit_repin.py": "fetches into a fresh `git init` cache directory",
     "scripts/cmux-next/notices/vt_link_graph.py": "fetches into a fresh `git init` temp directory",
@@ -87,6 +86,8 @@ OWN_REPOSITORY = {
     "scripts/measure/screen-stream-eval/rd-netem-linux.py": "build fetches each commit into a fresh `git init` temp directory",
     "cmux-tui/scripts/sync_bench.py":
         "fetch_repo and build_here fetch only into repositories they `git init` under the bench root",
+    "scripts/cmux-next/swift-logic-pr-status.py":
+        "merge_base and swift_trees fetch only into `git init --bare` repositories partial_repo just made in its work dir",
     "webviews/src/agent-session/acpmux/session-info/commandRules.ts":
         "runs no git: it names a shown command line in words, and lists `git clone`'s --depth as a flag to skip",
 }

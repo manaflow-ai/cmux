@@ -83,6 +83,20 @@ struct CloudGitHubReposTests {
         }
     }
 
+    /// Settings' Reconfigure (#46018): the installation settings when the status names them, else the App's own
+    /// installation chooser on GitHub for a well-formed slug; nothing for a connection that is not ready.
+    @Test func reconfigureOpensTheInstallationSettingsOrTheAppsChooser() {
+        func status(_ slug: String, _ connection: String) -> Data { Self.body(#"{"configured":true,"app_slug":"\#(slug)","connection":\#(connection)}"#) }
+        let settings = status("cmux", #"{"status":"active","configure_url":"https://github.com/settings/installations/42"}"#)
+        #expect(CloudGitHubApp.reconfigureURL(status: 200, body: settings) == URL(string: "https://github.com/settings/installations/42"))
+        let noPage = status("cmux", #"{"status":"active","configure_url":null}"#)
+        #expect(CloudGitHubApp.reconfigureURL(status: 200, body: noPage) == URL(string: "https://github.com/apps/cmux/installations/new"))
+        for (slug, connection) in [("cmux", #"{"status":"pending","configure_url":null}"#), ("cmux", "null"),
+                                   ("a/installations/new?x=", #"{"status":"active"}"#), ("../x", #"{"status":"active"}"#)] {
+            #expect(CloudGitHubApp.reconfigureURL(status: 200, body: status(slug, connection)) == nil, "\(slug) \(connection)")
+        }
+    }
+
     /// A connected team never reaches `integration.connect` (it would add a second connection for the same installation):
     /// it opens its installation settings, or nothing when the status names none; only a team with no connection asks.
     @Test func aConnectedTeamNeverAsksForAnotherConnection() {
@@ -92,8 +106,26 @@ struct CloudGitHubReposTests {
         #expect(CloudGitHubPicker.connectFromStatus(status: 200, body: status(#"{"status":"active","repos":null}"#)) == .connected)
         #expect(CloudGitHubPicker.connectFromStatus(status: 200, body: status(#"{"status":"active","configure_url":"https://example.com/x"}"#)) == .connected)
         #expect(CloudGitHubPicker.connectFromStatus(status: 200, body: status("null")) == nil)
-        #expect(CloudGitHubPicker.connectFromStatus(status: 200, body: Self.body(#"{"configured":false}"#)) == .unavailable)
-        #expect(CloudGitHubPicker.connectFromStatus(status: 503, body: Data()) == .unavailable)
+        #expect(CloudGitHubPicker.connectFromStatus(status: 200, body: Self.body(#"{"configured":false}"#)) == .unavailable(.notConfigured))
+        #expect(CloudGitHubPicker.connectFromStatus(status: 503, body: Data()) == .unavailable(.unreachable))
+    }
+
+    /// `github.status` for a signed-in person: unavailable says whether this deployment has no App or nothing answered.
+    @Test func theStatusSaysWhyGitHubIsUnavailable() {
+        #expect(CloudGitHubPicker.Status(.ready, reposScope: "selected") == .ready(reposScope: "selected"))
+        #expect(CloudGitHubPicker.Status(.notConnected, reposScope: nil) == .notConnected)
+        #expect(CloudGitHubPicker.Status(.notConfigured, reposScope: nil) == .unavailable(.notConfigured))
+        #expect(CloudGitHubPicker.Status(.unknown, reposScope: nil) == .unavailable(.unreachable))
+        #expect(CloudGitHubPicker.Status.ready(reposScope: "all").state == "ready")
+        #expect(CloudGitHubPicker.Status.ready(reposScope: "all").reposScope == "all")
+        #expect(CloudGitHubPicker.Status.ready(reposScope: "all").reason == nil)
+        #expect(CloudGitHubPicker.Status.notConnected.state == "not_connected")
+        #expect(CloudGitHubPicker.Status.notConnected.reposScope == nil)
+        #expect(CloudGitHubPicker.Status.unavailable(.signedOut).state == "unavailable")
+        #expect(CloudGitHubPicker.Status.unavailable(.signedOut).reason?.rawValue == "signed_out")
+        #expect(CloudGitHubPicker.Status.unavailable(.notConfigured).reason?.rawValue == "not_configured")
+        #expect(CloudGitHubPicker.Status.unavailable(.unreachable).reason?.rawValue == "unreachable")
+        #expect(CloudGitHubPicker.Status.unavailable(.unreachable).reposScope == nil)
     }
 
     /// A connect beside a pending connection (Settings', another launch's) would add a second: the picker reads
@@ -156,4 +188,68 @@ struct CloudGitHubReposTests {
         let listed = try CloudGitHubRepos.parse(status: 200, body: answer).get()
         #expect(listed.repos.map(\.sizeKb) == [2048, nil, nil])
     }
+
+    /// #46018: GitHub's install redirect comes back to this build's own link, and the app completes it with its sign-in.
+    @Test func theInstallRedirectHandedBackToTheAppIsACompletionForThisBuildOnly() throws {
+        let state = "h.\(Self.statePayload).s"
+        let link = CloudGitHubCompletion.link(scheme: "cmux-dev-x")
+        #expect(link == "cmux-dev-x://integration/complete")
+        let url = try #require(URL(string: "\(link)?state=\(state)&code=abc&installation_id=42&setup_action=install"))
+        let completion = try #require(CloudGitHubCompletion(url: url, scheme: "cmux-dev-x"))
+        #expect(completion.params == ["state": state, "code": "abc", "installation_id": "42", "setup_action": "install"])
+        #expect(completion.team == "team_0123456789abcdef0123")
+        #expect(completion.idempotencyKey == "complete:" + String(state.suffix(40)))
+        #expect(completion.error == nil)
+        // Another build's scheme, another path, no signed state: not a completion.
+        #expect(CloudGitHubCompletion(url: url, scheme: "cmux") == nil)
+        let otherPath = try #require(URL(string: "cmux-dev-x://integration/other?state=\(state)"))
+        let noState = try #require(URL(string: "cmux-dev-x://integration/complete?code=abc"))
+        #expect(CloudGitHubCompletion(url: otherPath, scheme: "cmux-dev-x") == nil)
+        #expect(CloudGitHubCompletion(url: noState, scheme: "cmux-dev-x") == nil)
+        // A cancel on GitHub carries its error; an installation id that is not a number is not sent.
+        let cancelURL = try #require(URL(string: "\(link)?state=\(state)&error=access_denied&installation_id=1;x"))
+        let cancelled = try #require(CloudGitHubCompletion(url: cancelURL, scheme: "cmux-dev-x"))
+        #expect(cancelled.error == "access_denied")
+        #expect(cancelled.params == ["state": state])
+        // A state whose team claim is not a team id routes nowhere.
+        let opaqueURL = try #require(URL(string: "\(link)?state=a.b.c"))
+        let opaque = try #require(CloudGitHubCompletion(url: opaqueURL, scheme: "cmux-dev-x"))
+        #expect(opaque.team == nil)
+    }
+
+    @Test func aCompletionIsConnectedOnlyWhenTheAPISaysOk() {
+        #expect(CloudOwnerAPIClient.completion(status: 200, body: Self.body(#"{"ok":true,"value":{}}"#)) == .connected)
+        #expect(CloudOwnerAPIClient.completion(status: 200, body: Self.body(#"{"ok":false,"error":{"code":"integration.state_invalid"}}"#)) == .refused)
+        #expect(CloudOwnerAPIClient.completion(status: 403, body: Self.body("{}")) == .refused)
+        #expect(CloudOwnerAPIClient.completion(status: 503, body: Data()) == .noAnswer)
+        #expect(CloudOwnerAPIClient.completion(status: 429, body: Data()) == .noAnswer)
+    }
+
+    @Test func aRefusedCompletionKeepsTheAPIsReasonUnlessItIsTheExpiredState() {
+        #expect(CloudOwnerAPIClient.refusalReason(body: Self.body(#"{"error":{"code":"integration.state_invalid","message":"state expired"}}"#)) == nil)
+        #expect(CloudOwnerAPIClient.refusalReason(body: Self.body(#"{"error":{"code":"integration.forbidden","message":" Only an owner of acme can connect GitHub. "}}"#))
+                == "Only an owner of acme can connect GitHub.")
+        #expect(CloudOwnerAPIClient.refusalReason(body: Self.body(#"{"error":{"code":"integration.forbidden"}}"#)) == nil)
+        #expect(CloudOwnerAPIClient.refusalReason(body: Self.body("not json")) == nil)
+    }
+
+    @MainActor @Test func theLastAnswerStaysOnTheChangesUntilTheNextOneOrANewConnect() {
+        let changes = CloudGitHubChanges()
+        changes.record(.refused, reason: nil)
+        #expect(changes.refusal == CloudGitHubChanges.Refusal(reason: nil))
+        #expect(changes.count == 1)
+        changes.record(.refused, reason: "Only an owner can connect.")
+        #expect(changes.refusal?.reason == "Only an owner can connect.")
+        changes.forgetRefusal()
+        #expect(changes.refusal == nil)
+        changes.record(.refused, reason: nil)
+        changes.record(.connected, reason: nil)
+        #expect(changes.refusal == nil, "a connection clears the last refusal")
+        changes.record(.refused, reason: nil)
+        changes.record(.noAnswer, reason: nil)
+        #expect(changes.refusal == nil, "a lost answer proves nothing, and the person is told nothing wrong")
+        #expect(changes.count == 6)
+    }
+
+    static let statePayload = "eyJ0ZWFtIjoidGVhbV8wMTIzNDU2Nzg5YWJjZGVmMDEyMyIsInJldCI6ImNtdXgtZGV2LXg6Ly9pbnRlZ3JhdGlvbi9jb21wbGV0ZSJ9"
 }

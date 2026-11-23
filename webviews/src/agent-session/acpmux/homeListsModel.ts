@@ -70,6 +70,21 @@ const newestReviewReady = (shown: readonly AcpmuxSessionEntry[]) =>
     .sort((left, right) => (activityTime(right) ?? 0) - (activityTime(left) ?? 0))
     .slice(0, HOME_ROWS);
 
+/// First shared wall-clock minute where `age`'s text changes (clock.ts useLabelClock): the next
+/// minute in its first hour, hour in its first day, day in its first week; a date never changes.
+export function nextAge(at: number, now: number): number {
+  const minute = 60_000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  const week = 7 * day;
+  if (!at || !Number.isFinite(at)) return Infinity;
+  const elapsed = Math.max(0, now - at);
+  if (elapsed >= week) return Infinity;
+  const size = elapsed < hour ? minute : elapsed < day ? hour : day;
+  const change = Math.min(at + (Math.floor(elapsed / size) + 1) * size, at + week);
+  return Math.max(now + minute, Math.ceil(change / minute) * minute);
+}
+
 /// A compact age for a row's right edge, from milliseconds since the epoch.
 export function age(updatedAt: number | undefined, now = Date.now(), t: Translate = translate): string | undefined {
   const value = ageWithDate(

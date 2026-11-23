@@ -48,6 +48,28 @@ pub(crate) struct Shared {
     pub app: Mutex<AppNotes>,
     /// The hub's devices: id -> platform.
     devices: Mutex<HashMap<String, String>>,
+    /// The hub's other devices as screens, from the last `GET /v1/devices`; None before a read.
+    screens: Mutex<Option<Vec<HubScreen>>>,
+}
+
+/// One of the device hub's records other than this device's: a machine's screen host.
+#[derive(Debug, Clone)]
+struct HubScreen {
+    /// The hub's device id: what a viewer opens (`macScreen.open --device`).
+    id: String,
+    name: String,
+    platform: String,
+    online: bool,
+    /// The hub's `macScreenShared`: the screen host turned sharing on (a Linux one does as it
+    /// joins).
+    shared: bool,
+}
+
+/// The name a hub record and a mesh host have in common: the first DNS label, lowercased (the
+/// mesh lists `pairing::machine_name`, the host label; a screen host registers the join's name or
+/// the kernel host name).
+fn host_key(name: &str) -> String {
+    name.trim().split('.').next().unwrap_or_default().to_ascii_lowercase()
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -56,10 +78,17 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 static RUNNING: OnceLock<Arc<Shared>> = OnceLock::new();
 static NOT_RUNNING: Mutex<Option<NotRunning>> = Mutex::new(None);
+/// On Linux: how setting up cmux-rd's host went (`super::linux::status_json`).
+static LINUX: Mutex<Option<Value>> = Mutex::new(None);
 
 /// Records why this daemon runs no share host.
 pub(crate) fn not_running(why: NotRunning) {
     *lock(&NOT_RUNNING) = Some(why);
+}
+
+/// Records the state of this Linux machine's cmux-rd host.
+pub(crate) fn linux(status: Value) {
+    *lock(&LINUX) = Some(status);
 }
 
 impl Shared {
@@ -71,6 +100,7 @@ impl Shared {
             subscribers: Mutex::new(Vec::new()),
             app: Mutex::new(AppNotes::default()),
             devices: Mutex::new(HashMap::new()),
+            screens: Mutex::new(None),
         })
     }
 
@@ -118,18 +148,48 @@ impl Shared {
 
     pub(crate) fn set_devices(&self, devices: &Value) {
         let mut map = HashMap::new();
+        let mut screens = Vec::new();
         let own = self.hub().device.id.clone();
         for device in devices.get("devices").and_then(Value::as_array).into_iter().flatten() {
             let field = |k: &str| device.get(k).and_then(Value::as_str).map(str::to_owned);
+            let flag = |k: &str| device.get(k).and_then(Value::as_bool);
             if let (Some(id), Some(platform)) = (field("id"), field("platform")) {
                 if id == own {
-                    let shared = device.get("macScreenShared").and_then(Value::as_bool);
+                    let shared = flag("macScreenShared");
                     self.update_link(|link| link.sharing = shared.or(link.sharing));
+                } else if let Some(name) = field("name").filter(|n| !n.trim().is_empty()) {
+                    screens.push(HubScreen {
+                        id: id.clone(),
+                        name,
+                        platform: platform.clone(),
+                        online: flag("online").unwrap_or(false),
+                        shared: flag("macScreenShared").unwrap_or(false),
+                    });
                 }
                 map.insert(id, platform);
             }
         }
         *lock(&self.devices) = map;
+        *lock(&self.screens) = Some(screens);
+    }
+
+    /// What the device hub says of the screen of machine `host` (a mesh host, `peers`'
+    /// `deviceHub`): `{"listed": false}` when no record has its name, else the platform and
+    /// whether its screen host shares (a record online first, then one sharing). None before
+    /// the hub's device list was read: nothing is known.
+    pub(crate) fn device_hub_of(&self, host: &str) -> Option<Value> {
+        let screens = lock(&self.screens);
+        let key = host_key(host);
+        let best = screens
+            .as_ref()?
+            .iter()
+            .filter(|s| !key.is_empty() && host_key(&s.name) == key)
+            .max_by_key(|s| (s.online, s.shared));
+        Some(match best {
+            Some(s) => json!({"listed": true, "id": s.id, "platform": s.platform,
+                "online": s.online, "screenShared": s.shared}),
+            None => json!({"listed": false}),
+        })
     }
 
     /// The hub's platform of device `id`, when listed.
@@ -177,20 +237,29 @@ impl Shared {
     }
 }
 
+/// [`Shared::device_hub_of`] of this daemon's running share host; None when none runs.
+pub(crate) fn device_hub_of(host: &str) -> Option<Value> {
+    RUNNING.get()?.device_hub_of(host)
+}
+
 /// `share-host status` in this daemon: the running host's, or why it does not run.
 pub(crate) fn status_now() -> Value {
     if let Some(shared) = RUNNING.get() {
         return shared.status_json();
     }
+    if let Some(status) = lock(&LINUX).clone() {
+        return status;
+    }
     let why = lock(&NOT_RUNNING).clone();
-    not_running_json(why.as_ref(), cfg!(target_os = "macos"))
+    not_running_json(why.as_ref(), cfg!(any(target_os = "macos", target_os = "linux")))
 }
 
-/// The status of a share host that does not run, and why.
-pub(crate) fn not_running_json(why: Option<&NotRunning>, mac: bool) -> Value {
+/// The status of a share host that does not run, and why. `supported`: this daemon's system has
+/// a share host (macOS, Linux).
+pub(crate) fn not_running_json(why: Option<&NotRunning>, supported: bool) -> Value {
     let (state, detail) = match why {
         Some(why) => (why.code, why.detail.clone()),
-        None if !mac => ("unsupported", "the share host runs on macOS".to_owned()),
+        None if !supported => ("unsupported", "the share host runs on macOS and Linux".to_owned()),
         None => ("not_started", "this daemon did not start the share host".to_owned()),
     };
     json!({"schema": SCHEMA, "running": false, "state": state, "detail": detail})

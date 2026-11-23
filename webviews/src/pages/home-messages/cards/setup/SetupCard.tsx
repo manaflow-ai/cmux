@@ -8,8 +8,17 @@
 import { Spinner } from "../../../../agent-session/acpmux/conversation/icons";
 import { Button } from "../../../../ui/Button";
 import { StatusGlyph } from "../../../../ui/StatusGlyph";
+import { TextSizePicker, type TextSizePickerLabels } from "../../../../ui/TextSizePicker";
 import type { Strings } from "../strings";
-import { nextStep, setupProgress, setupSteps, type SetupAction, type SetupState, type SetupStep } from "./setupModel";
+import {
+  nextStep,
+  setupProgress,
+  setupSteps,
+  setupTitle,
+  type SetupAction,
+  type SetupState,
+  type SetupStep,
+} from "./setupModel";
 import "../cards.css";
 
 export type SetupLook = "next" | "rows" | "checklist" | "window";
@@ -30,13 +39,17 @@ export function SetupCard({ strings, state, look = DEFAULT_SETUP_LOOK, onAction,
   const next = nextStep(steps);
   const { done, total } = setupProgress(steps);
   const progress = format("home.setup.progress", String(done), String(total));
+  const title = setupTitle(state, strings);
   const head = (
     <div className="hm-setup__head">
-      <span className="hm-setup__title">{t("home.setup.title")}</span>
-      <span className="hm-setup__progress">
-        <Ring done={done} total={total} />
-        {progress}
-      </span>
+      <span className="hm-setup__title">{title}</span>
+      {/* One row has no progress to count (the Chief form). */}
+      {total > 1 && (
+        <span className="hm-setup__progress">
+          <Ring done={done} total={total} />
+          {progress}
+        </span>
+      )}
       {look !== "window" && (
         <button type="button" className="hm-setup__hide" onClick={onHide}>
           {t("home.setup.hide")}
@@ -47,7 +60,7 @@ export function SetupCard({ strings, state, look = DEFAULT_SETUP_LOOK, onAction,
   const note = <p className="hm-setup__note">{t("home.setup.network")}</p>;
   if (look === "next") {
     return (
-      <section className="hm-setup" data-look={look} aria-label={t("home.setup.title")}>
+      <section className="hm-setup" data-look={look} aria-label={title}>
         {head}
         {next ? (
           <div className="hm-setup__next">
@@ -65,12 +78,12 @@ export function SetupCard({ strings, state, look = DEFAULT_SETUP_LOOK, onAction,
     );
   }
   return (
-    <section className="hm-setup" data-look={look} aria-label={t("home.setup.title")}>
+    <section className="hm-setup" data-look={look} aria-label={title}>
       {head}
       <ul className="hm-setup__rows">
         {steps.map((step) => (
           <li key={step.id} className="hm-setup__row" data-step={step.id} data-done={step.done ? "" : undefined}>
-            {look === "checklist" && (
+            {look === "checklist" && !step.optional && (
               <span className="hm-setup__check">
                 <StatusGlyph name={step.done ? "done" : "idle"} size={12} />
               </span>
@@ -78,8 +91,20 @@ export function SetupCard({ strings, state, look = DEFAULT_SETUP_LOOK, onAction,
             <span className="hm-setup__row-text">
               <span className="hm-setup__row-title">{step.title}</span>
               <span className="hm-setup__row-detail">{step.detail}</span>
+              {step.id === "look" && state.look && (
+                <TextSizePicker
+                  className="hm-setup__look"
+                  name="setup-look"
+                  labels={lookLabels(strings)}
+                  value={state.look.textSize}
+                  density={state.look.density}
+                  body={state.look.body}
+                  onSize={(points) => onAction({ kind: "setTextSize", points })}
+                  onDensity={(id) => onAction({ kind: "setDensity", id })}
+                />
+              )}
             </span>
-            <Trailing step={step} onAction={onAction} marksDone={look !== "checklist"} />
+            {!step.optional && <Trailing step={step} onAction={onAction} marksDone={look !== "checklist"} />}
           </li>
         ))}
       </ul>
@@ -96,6 +121,26 @@ export function SetupCard({ strings, state, look = DEFAULT_SETUP_LOOK, onAction,
       )}
     </section>
   );
+}
+
+/** The Text Size and Density row's words, from the card's catalog. */
+function lookLabels({ t }: Strings): TextSizePickerLabels {
+  return {
+    size: t("home.setup.look.size"),
+    density: t("home.setup.look.density"),
+    steps: {
+      smaller: t("home.setup.look.smaller"),
+      default: t("home.setup.look.default"),
+      large: t("home.setup.look.large"),
+      larger: t("home.setup.look.larger"),
+      largest: t("home.setup.look.largest"),
+    },
+    densities: {
+      compact: t("home.setup.look.compact"),
+      cozy: t("home.setup.look.default"),
+      comfortable: t("home.setup.look.comfortable"),
+    },
+  };
 }
 
 /** The row's one slot: its buttons, the spinner while it runs, or the done mark (`marksDone`: the

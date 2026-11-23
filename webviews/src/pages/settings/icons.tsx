@@ -26,6 +26,15 @@ const paths: Record<string, ReactNode> = {
     </>
   ),
   house: <path d="M2.4 7.4 8 2.6l5.6 4.8M3.8 6.2v7.2h3V10h2.4v3.4h3V6.2" />,
+  // Settings > Customize: two switches, one on, one off (SF Symbol switch.2).
+  "switch.2": (
+    <>
+      <rect x="1.8" y="2.4" width="12.4" height="4.6" rx="2.3" />
+      <circle cx="11.9" cy="4.7" r="1.2" fill="currentColor" />
+      <rect x="1.8" y="9" width="12.4" height="4.6" rx="2.3" />
+      <circle cx="4.1" cy="11.3" r="1.2" />
+    </>
+  ),
   "sidebar.left": (
     <>
       <rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2" />
@@ -93,10 +102,25 @@ const paths: Record<string, ReactNode> = {
       <path d="M4.6 7.4h.01M6.2 4.6h.01M9.6 4.4h.01M11.6 6.8h.01" />
     </>
   ),
+  photo: (
+    <>
+      <rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2" />
+      <path d="m2.1 11.5 3.8-3.9 2.4 2.3 2-2 3.6 3.6" />
+      <circle cx="10.4" cy="5.8" r=".8" />
+    </>
+  ),
+  textformat: <path d="m2.5 12 3.4-8 3.4 8M3.6 9.4h4.6m1.6 2.6 2-4.6 2 4.6m-3.4-1.5h2.8" />,
+  "speaker.wave.2": <path d="M2 6h2.6L8 3.3v9.4L4.6 10H2ZM10 5.5a3.5 3.5 0 0 1 0 5m1.7-6.8a6 6 0 0 1 0 8.6" />,
   sparkles: (
     <path d="M6.4 2.2 7.5 5.5 10.8 6.6 7.5 7.7 6.4 11 5.3 7.7 2 6.6 5.3 5.5 6.4 2.2ZM11.8 9.4l.6 1.7 1.7.6-1.7.6-.6 1.7-.6-1.7-1.7-.6 1.7-.6.6-1.7Z" />
   ),
-  // Personalization: a wand with two stars (SF Symbol wand.and.stars).
+  "cursorarrow.click.2": (
+    <>
+      <path d="M6.6 6.6v7.2l1.9-1.8 1.3 2.9 1.4-.6-1.3-2.9h2.6L6.6 6.6Z" />
+      <path d="M6.6 1.6v2M2.6 6.6h2M3.8 3.8l1.4 1.4M9.4 3.8 8 5.2" />
+    </>
+  ),
+  // Ask cmux: a wand with two stars (SF Symbol wand.and.stars).
   "wand.and.stars": (
     <path d="M2.4 13.6 10 6M8.8 4.8l2.4 2.4M5.4 2.2l.5 1.4 1.4.5-1.4.5-.5 1.4-.5-1.4L3.5 4.1l1.4-.5.5-1.4ZM12.4 9.4l.5 1.3 1.3.5-1.3.5-.5 1.3-.5-1.3-1.3-.5 1.3-.5.5-1.3ZM12 1.8l.35 1 1 .35-1 .35-.35 1-.35-1-1-.35 1-.35.35-1Z" />
   ),

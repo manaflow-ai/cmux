@@ -77,6 +77,15 @@ elif [[ "${1:-}" == --nightly ]]; then
   bench_label=", nightly ($CMUX_NIGHTLY_NEXT_SWIFT_DEFINES)"
   shift
 fi
+if [[ "${1:-}" == --function-timings ]]; then
+  # Disposable explorer instrumentation: opt in after --nightly/--bench-hooks.
+  # Keep the complete compiler output as a fleet artifact, including sub-200ms bodies.
+  swift_other_flags+=' -Xfrontend -debug-time-function-bodies'
+  export CMUX_SWIFT_TYPECHECK_DIAGNOSTICS=1
+  export CMUX_BUILD_METRICS_DIR="$repo_root/.build/swift-function-timings"
+  echo "check-release-compile: full function-body type-check timing enabled"
+  shift
+fi
 if [[ "${CMUX_SWIFT_TYPECHECK_DIAGNOSTICS:-0}" == "1" ]]; then
   # Keep the threshold high enough for a focused profile: the emitted warnings
   # identify the functions and expressions worth fixing without changing the
