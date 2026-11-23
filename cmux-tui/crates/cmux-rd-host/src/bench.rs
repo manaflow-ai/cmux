@@ -941,7 +941,13 @@ pub fn run(opts: &Opts) -> Res<()> {
     };
     let mut v = Viewer {
         io,
-        reassembler: Reassembler::new(opts.num_or("deadline-ms", 200u64)? * 1000),
+        reassembler: {
+            let mut r = Reassembler::new(opts.num_or("deadline-ms", 200u64)? * 1000);
+            // `--rtt-nack-retry 1`: NACK retries a measured repair round trip apart
+            // instead of every 50 ms (design D6). Off by default.
+            r.set_rtt_nack_retry(opts.num_or("rtt-nack-retry", 0u8)? == 1);
+            r
+        },
         decoder: Decoder::new()?,
         h264_gate: Default::default(),
         h264_gate_said: false,
@@ -1236,6 +1242,13 @@ fn run_passive(opts: &Opts, v: &mut Viewer, addr: SocketAddr, carrier: &str) -> 
         }
     }
     eprintln!("passive: first frame");
+    // `--type TEXT`: send TEXT as one text event (the viewer's text route) once the
+    // picture is up, to check a host types it as its characters (CMUX-572).
+    if let Some(text) = opts.get("type") {
+        v.sender.push(InputEvent::Text(text.to_owned()));
+        v.send_input()?;
+        eprintln!("passive: typed {} characters as text", text.chars().count());
+    }
     let first_frame_ms = (now_ns().saturating_sub(start)) as f64 / 1e6;
     let unix_ms = || {
         std::time::SystemTime::now()
