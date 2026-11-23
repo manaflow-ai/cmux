@@ -371,6 +371,7 @@ pub mod usage_stats;
 pub mod user_settings;
 pub mod vault;
 pub mod web_modes;
+pub mod web_tailnet;
 pub mod wire_size;
 pub mod wireguard;
 pub mod workflow_journal;

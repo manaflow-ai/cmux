@@ -41,6 +41,14 @@ export type RowProbe = {
   /** The row is the turn's header ("Working for" / "Worked for"), or, before it has one, its first row under the prompt. */
   head?: boolean;
   text?: string;
+  /** A "Worked for" line's or a turn footer's status: `completed`, `failed`, `cancelled`. */
+  status?: string;
+  /** The turn footer carries the turn's error. */
+  error?: boolean;
+  /** The calls in the row that still read as running (pending or in progress, not a background shell). */
+  running?: number;
+  /** The calls the row holds. */
+  calls?: number;
   /** Browser lane only: the row's measured top, bottom and the visible gap over it. */
   top?: number;
   bottom?: number;
@@ -296,6 +304,16 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
       }
       const words = textOf(row);
       if (words) probe.text = words;
+      if ((row.kind === "worked" || row.kind === "turnSummary") && row.status) probe.status = row.status;
+      if (row.kind === "turnSummary" && row.error) probe.error = true;
+      const calls = (row.items ?? []).filter((item) => item.tool);
+      if (calls.length) {
+        probe.calls = calls.length;
+        const running = calls.filter(
+          (item) => (item.tool!.status === "pending" || item.tool!.status === "in_progress") && !item.tool!.background,
+        ).length;
+        if (running) probe.running = running;
+      }
       const box = measured?.[at];
       if (box) {
         probe.top = box.top;
