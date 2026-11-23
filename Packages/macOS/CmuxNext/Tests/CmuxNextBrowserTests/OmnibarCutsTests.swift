@@ -58,28 +58,30 @@ struct OmnibarCutsTests {
         #expect(bar.state.fieldText == address)
     }
 
-    // MARK: 2. Quiet icons
+    // MARK: 2. The chip and the star always show
 
-    /// A secure page's site-info chip and the hollow star are clear at rest and keep their room; a bookmarked page's
-    /// filled star and a page that is not secure ("Not secure") show.
-    @Test func quietIconsAreClearAtRestAndKeepTheirRoom() throws {
+    /// A secure page's site-info chip and the hollow star show at rest, not only on hover or focus: a star that was
+    /// clear until the pointer came read as missing, and a click turned it white
+    /// (https://github.com/manaflow-ai/cmux/issues/50986). Bookmarking and focus change neither, nor move the field.
+    @Test func theChipAndTheStarShowAtRestAndInEveryState() throws {
         let (bar, window) = try bar("https://github.com/manaflow-ai/cmux")
         defer { window.closeAfterTest() }
         bar.setBookmarkStar(.off)
         window.contentView?.layoutSubtreeIfNeeded()
-        #expect(bar.chip.alphaValue == 0, "a secure page's chip shows at rest")
-        #expect(bar.starButton.alphaValue == 0, "the hollow star shows at rest")
-        #expect(!bar.chip.isHidden && !bar.starButton.isHidden, "a quiet icon keeps its room")
+        #expect(bar.chip.alphaValue == 1, "a secure page's chip is clear at rest")
+        #expect(bar.starButton.alphaValue == 1, "the hollow star is clear at rest")
+        #expect(!bar.chip.isHidden && !bar.starButton.isHidden)
         let fieldAtRest = bar.field.frame
 
         bar.setBookmarkStar(.on)
         #expect(bar.starButton.alphaValue == 1, "a bookmarked page's star hides")
         bar.setBookmarkStar(.off)
+        #expect(bar.starButton.alphaValue == 1, "the star hides after unbookmarking")
 
         bar.focus()
         window.contentView?.layoutSubtreeIfNeeded()
-        #expect(bar.chip.alphaValue == 1 && bar.starButton.alphaValue == 1, "focus does not show the quiet icons")
-        #expect(bar.field.frame == fieldAtRest, "the icons' coming moved the field: \(fieldAtRest) to \(bar.field.frame)")
+        #expect(bar.chip.alphaValue == 1 && bar.starButton.alphaValue == 1, "focus hides an icon")
+        #expect(bar.field.frame == fieldAtRest, "focus moved the field: \(fieldAtRest) to \(bar.field.frame)")
     }
 
     @Test func aPageThatIsNotSecureShowsItsChip() throws {
