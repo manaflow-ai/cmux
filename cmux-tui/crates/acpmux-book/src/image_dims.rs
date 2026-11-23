@@ -2,7 +2,8 @@
 //! an image carries its size and the chat reserves its exact box before the bytes arrive: a
 //! decoded image never changes a row's height (design: agent-transcript-clean-slate.md, step 2,
 //! "It supplies image sizes, so a decoded image never changes height").
-//! PNG, GIF, JPEG and WebP (VP8, VP8L, VP8X). Anything else, or a cut-short header, is `None`,
+//! PNG, GIF, JPEG (with its EXIF orientation: a quarter turn swaps the sides, as a browser draws
+//! it), WebP (VP8, VP8L, VP8X) and BMP. Anything else, or a cut-short header, is `None`,
 //! and the record names the image as before. The v1 hub reads a prompt image's bytes with
 //! [`image_dims`]; the book's translator reads an inline base64 image with [`base64_image_dims`].
 
@@ -12,7 +13,11 @@ const MAX_SIDE: u32 = 1 << 16;
 
 /// `(width, height)` in pixels from the image's header, or `None`.
 pub fn image_dims(bytes: &[u8]) -> Option<(u32, u32)> {
-    let dims = png(bytes).or_else(|| gif(bytes)).or_else(|| jpeg(bytes)).or_else(|| webp(bytes))?;
+    let dims = png(bytes)
+        .or_else(|| gif(bytes))
+        .or_else(|| jpeg(bytes))
+        .or_else(|| webp(bytes))
+        .or_else(|| bmp(bytes))?;
     let sane = |side: u32| side > 0 && side <= MAX_SIDE;
     (sane(dims.0) && sane(dims.1)).then_some(dims)
 }
@@ -101,12 +106,24 @@ fn gif(bytes: &[u8]) -> Option<(u32, u32)> {
     Some((le16(bytes, 6)?, le16(bytes, 8)?))
 }
 
+/// A BITMAPINFOHEADER's signed width and height (a negative height is a top-down image).
+fn bmp(bytes: &[u8]) -> Option<(u32, u32)> {
+    if !bytes.starts_with(b"BM") {
+        return None;
+    }
+    let side = |at: usize| Some(i32::from_le_bytes(bytes.get(at..at + 4)?.try_into().ok()?));
+    Some((side(18)?.unsigned_abs(), side(22)?.unsigned_abs()))
+}
+
 /// The first start-of-frame marker (SOF0..SOF15, not DHT, JPG or DAC) holds height then width.
-/// Segments are walked by their lengths, so a large EXIF block is skipped, never scanned.
+/// Segments are walked by their lengths, so a large EXIF block is skipped, never scanned; an
+/// EXIF (APP1) orientation of 5..8 turns the image a quarter, which a browser applies, so the
+/// size it draws at has its sides swapped.
 fn jpeg(bytes: &[u8]) -> Option<(u32, u32)> {
     if !bytes.starts_with(&[0xFF, 0xD8]) {
         return None;
     }
+    let mut rotated = false;
     let mut at = 2;
     loop {
         // Fill bytes (0xFF runs) may precede a marker.
@@ -130,11 +147,38 @@ fn jpeg(bytes: &[u8]) -> Option<(u32, u32)> {
             return None;
         }
         let is_sof = (0xC0..=0xCF).contains(&marker) && !matches!(marker, 0xC4 | 0xC8 | 0xCC);
+        if marker == 0xE1 {
+            let end = (at + 2 + len).min(bytes.len());
+            rotated |= exif_rotates(bytes.get(at + 4..end).unwrap_or_default());
+        }
         if is_sof {
-            return Some((be16(bytes, at + 7)?, be16(bytes, at + 5)?));
+            let (w, h) = (be16(bytes, at + 7)?, be16(bytes, at + 5)?);
+            return Some(if rotated { (h, w) } else { (w, h) });
         }
         at += 2 + len;
     }
+}
+
+/// Whether an APP1 segment's body (after its length) is EXIF whose orientation tag (0x0112) is
+/// 5..8: a quarter turn.
+fn exif_rotates(app1: &[u8]) -> bool {
+    let Some(tiff) = app1.strip_prefix(b"Exif\0\0") else { return false };
+    let little = tiff.first() == Some(&b'I');
+    let u16_at = |at: usize| -> Option<u32> {
+        let v: [u8; 2] = tiff.get(at..at + 2)?.try_into().ok()?;
+        Some(u32::from(if little { u16::from_le_bytes(v) } else { u16::from_be_bytes(v) }))
+    };
+    let u32_at = |at: usize| -> Option<u32> {
+        let v: [u8; 4] = tiff.get(at..at + 4)?.try_into().ok()?;
+        Some(if little { u32::from_le_bytes(v) } else { u32::from_be_bytes(v) })
+    };
+    let Some(ifd) = u32_at(4).and_then(|o| usize::try_from(o).ok()) else { return false };
+    let Some(count) = u16_at(ifd) else { return false };
+    (0..count as usize)
+        .map(|index| ifd + 2 + index * 12)
+        .find(|&entry| u16_at(entry) == Some(0x0112))
+        .and_then(|entry| u16_at(entry + 8))
+        .is_some_and(|orientation| (5..=8).contains(&orientation))
 }
 
 /// RIFF/WEBP: the first chunk is VP8 (lossy), VP8L (lossless) or VP8X (extended).
