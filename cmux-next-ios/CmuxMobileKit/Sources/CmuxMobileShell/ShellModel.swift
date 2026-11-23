@@ -103,6 +103,8 @@ final class ShellModel {
     /// The email invite alert's address: kept until the invitation is sent, so a refusal or a
     /// dropped connection never loses what was typed.
     var inviteEmailDraft = ""
+    /// The team `inviteEmailDraft` was typed for: inviting to another team starts empty.
+    private var inviteEmailDraftTeamID: String?
     /// The pasted invite link (Join with invite link): kept until the join succeeds.
     var inviteLinkDraft = ""
     var isFetchingInvite = false
@@ -888,6 +890,8 @@ final class ShellModel {
             if team.id.hasPrefix("personal-") {
                 toast = CmuxMobileToast(symbol: "person.2", text: "Create a team to invite people")
             } else {
+                if inviteEmailDraftTeamID != team.id { inviteEmailDraft = "" }
+                inviteEmailDraftTeamID = team.id
                 invitingTeam = team
             }
             return
