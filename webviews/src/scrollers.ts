@@ -465,7 +465,8 @@ function inResizeHandle(node: EventTarget): boolean {
  */
 export function thumbShown(element: Element): boolean {
   if (element.hasAttribute(SCROLLING_ATTRIBUTE)) return true;
-  if (element.hasAttribute(MINIMAL_SCROLLER_ATTRIBUTE) && element.hasAttribute(SETTLING_SCROLLER_ATTRIBUTE)) return false;
+  if (element.hasAttribute(MINIMAL_SCROLLER_ATTRIBUTE) && element.hasAttribute(SETTLING_SCROLLER_ATTRIBUTE))
+    return false;
   if (element.ownerDocument.documentElement.hasAttribute(SCROLLER_FADE_ATTRIBUTE)) return false;
   return element.hasAttribute(SHOWN_SCROLLER_ATTRIBUTE) || element.hasAttribute(SIDEWAYS_ATTRIBUTE);
 }
