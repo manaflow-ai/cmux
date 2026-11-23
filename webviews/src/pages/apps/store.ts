@@ -13,10 +13,13 @@ import {
   listedInStore,
   parseRoute,
   type CardStyle,
-  type DiscoverShelf,
-  type ExamplesStyle,
   type StoreLayout,
   type StoreTab,
+  featuredApps,
+  type BrowseStyle,
+  type DiscoverShelf,
+  type ExamplesStyle,
+  type ListingStyle,
 } from "./model";
 import {
   AppsOps,
@@ -31,6 +34,7 @@ import {
   type LogLine,
   type WireAsset,
   type WireLogs,
+  CUSTOMIZE_ACTION,
 } from "./types";
 
 export type Connection = "connecting" | "connected" | "disconnected";
@@ -45,6 +49,10 @@ export interface AppsSnapshot {
   card: CardStyle;
   /** Where Discover offers the Examples shelf (`examples=`); `chip` unless a DEV route asks. */
   examplesStyle: ExamplesStyle;
+  /** How a listing's page is laid out (`listing=`); `carousel` unless a DEV route asks. */
+  listing: ListingStyle;
+  /** How Discover's home is laid out (`browse=`); `hero` unless a DEV route asks. */
+  browse: BrowseStyle;
   /** The owner offers the Examples shelf (developer mode, or a `cmux ext dev` app). */
   examplesOffered: boolean;
   /** The shelf Discover shows; `store` whenever the owner does not offer Examples. */
@@ -65,6 +73,13 @@ export interface AppsSnapshot {
   updatesRevision?: number;
   selection?: string;
   detail?: AppDetail;
+  /** The first screenshot of each featured app (a data URL), for Discover's hero. */
+  previews: Record<string, string>;
+  /**
+   * A deep link named an app the store does not list (`appStore.show` for a sample that left
+   * Discover): the page shows Discover with this quiet note, cleared by the next navigation.
+   */
+  notice?: "notInStore";
   grants: Record<string, Grants>;
   /** Installed row panels. */
   grantsShown?: string;
@@ -91,7 +106,10 @@ export class AppsStore {
   private readonly listeners = new Set<() => void>();
   private unwatch?: () => void;
   private unpage?: () => void;
-  /** Icon data URLs by `app\u0000asset`; a failed load is "" so it is not asked again. */
+  /**
+   * Package files (icons, screenshots) as data URLs by `app\u0000path`; a failed load is "" so it
+   * is not asked again.
+   */
   private readonly icons = new Map<string, string>();
   private starting = false;
   private lifetime = 0;
@@ -107,6 +125,9 @@ export class AppsStore {
    * timeout never installs or toggles twice. Success, a refusal or a declined sheet ends it.
    */
   private readonly pendingKeys = new Map<string, string>();
+  // A mutation already waiting on its native confirmation: a second click on Install (or on any
+  // other mutation) while the first sheet loads joins that call instead of asking again.
+  private readonly inFlight = new Map<string, Promise<void>>();
 
   constructor(
     private readonly client: PageClient | null,
@@ -117,6 +138,8 @@ export class AppsStore {
       tab: route.tab,
       layout: route.layout,
       card: route.card,
+      listing: route.listing,
+      browse: route.browse,
       examplesStyle: route.examples,
       examplesOffered: false,
       shelf: route.shelf,
@@ -133,6 +156,7 @@ export class AppsStore {
       detailStatus: client && route.app && listedInStore({ id: route.app }) ? "loading" : "idle",
       grants: {},
       logs: {},
+      previews: {},
       loading: client !== null,
       connection: client ? "connecting" : "disconnected",
     };
@@ -282,6 +306,8 @@ export class AppsStore {
         error: undefined,
       });
       if (generation !== this.generation) return;
+      const selection = this.snapshot.selection;
+      if (selection && !listed.some((app) => app.id === selection)) this.leaveUnlisted();
       if (this.snapshot.selection) await this.loadDetail(this.snapshot.selection);
       if (generation !== this.generation) return;
       if (this.snapshot.grantsShown) await this.loadGrants(this.snapshot.grantsShown);
@@ -290,6 +316,8 @@ export class AppsStore {
       if (generation !== this.generation) return;
       this.showIcons();
       void this.loadIcons(generation);
+      // Awaited so a reload settles with Discover's hero art, the way it settles the detail above.
+      await this.loadPreviews(generation);
     } catch (error) {
       if (generation !== this.generation) return;
       const failed = failure(error);
@@ -345,6 +373,8 @@ export class AppsStore {
     this.setTab(route.tab);
     if (route.layout !== this.snapshot.layout) this.set({ layout: route.layout });
     if (route.card !== this.snapshot.card) this.set({ card: route.card });
+    if (route.listing !== this.snapshot.listing) this.set({ listing: route.listing });
+    if (route.browse !== this.snapshot.browse) this.set({ browse: route.browse });
     if (route.app !== this.snapshot.selection) void this.select(route.app);
   }
 
@@ -352,6 +382,7 @@ export class AppsStore {
     if (tab !== this.snapshot.tab)
       this.set({
         tab,
+        notice: undefined,
         selection: this.snapshot.layout === "split" ? this.snapshot.selection : undefined,
       });
   }
@@ -359,6 +390,7 @@ export class AppsStore {
   setQuery(query: string): void {
     this.set({
       query,
+      notice: undefined,
       visible: filterApps(this.snapshot.catalog, query, this.snapshot.category, this.snapshot.shelf),
     });
   }
@@ -367,6 +399,7 @@ export class AppsStore {
     const next = this.snapshot.category === category ? undefined : category;
     this.set({
       category: next,
+      notice: undefined,
       visible: filterApps(this.snapshot.catalog, this.snapshot.query, next, this.snapshot.shelf),
     });
   }
@@ -378,6 +411,7 @@ export class AppsStore {
     const { catalog, query } = this.snapshot;
     this.set({
       tab: "discover",
+      notice: undefined,
       shelf: next,
       category: undefined,
       selection: this.snapshot.layout === "split" ? this.snapshot.selection : undefined,
@@ -388,7 +422,13 @@ export class AppsStore {
 
   async select(app: string | undefined): Promise<void> {
     if (app && !listedInStore({ id: app })) app = undefined;
+    // Once the catalog is in, an app it does not list goes to Discover, never an error page.
+    if (app && this.snapshot.catalogStatus === "ready" && !this.snapshot.catalog.some((row) => row.id === app)) {
+      this.leaveUnlisted();
+      return;
+    }
     this.set({
+      notice: undefined,
       selection: app,
       detail: app === this.snapshot.detail?.id ? this.snapshot.detail : undefined,
       detailStatus: app ? "loading" : "idle",
@@ -403,18 +443,24 @@ export class AppsStore {
     if (this.snapshot.selection === app) this.set({ detailStatus: "loading", detailError: undefined });
     try {
       const detail = fromDetail(await this.client.call<WireDetail>(AppsOps.catalogGet, { app }));
-      if (generation === this.detailGeneration && this.snapshot.selection === app)
+      if (generation === this.detailGeneration && this.snapshot.selection === app) {
         this.set({
-          detail: { ...detail, icon: this.withIcon(app, detail.icon) },
+          detail: { ...detail, icon: this.withIcon(app, detail.icon), screenshotImages: this.loadedShots(detail) },
           detailStatus: "ready",
           detailError: undefined,
         });
+        void this.loadScreenshots(detail, generation);
+      }
       if (detail.installed && generation === this.detailGeneration && this.snapshot.selection === app)
         await this.loadGrants(app);
     } catch (error) {
       if (generation === this.detailGeneration && this.snapshot.selection === app) {
         const failed = failure(error);
         const notFound = isPageError(error) && error.code === "cmux.apps.not_found";
+        if (notFound) {
+          this.leaveUnlisted();
+          return;
+        }
         this.set({
           detailStatus: notFound ? "not-found" : "error",
           detailError: failed.error,
@@ -423,6 +469,18 @@ export class AppsStore {
         });
       }
     }
+  }
+
+  /** Drops a selection the store does not list: Discover, with the quiet "not in the store" note. */
+  private leaveUnlisted(): void {
+    ++this.detailGeneration;
+    this.set({
+      selection: undefined,
+      detail: undefined,
+      detailStatus: "idle",
+      detailError: undefined,
+      notice: "notInStore",
+    });
   }
 
   /** Retries the selected app without dropping its route or list selection. */
@@ -502,6 +560,66 @@ export class AppsStore {
     });
   }
 
+  /** Loads one package file through `asset.get` (cached by app and path); "" when it has none. */
+  private async asset(app: string, path: string): Promise<string> {
+    const key = `${app}\u0000${path}`;
+    const known = this.icons.get(key);
+    if (known !== undefined || !this.client) return known ?? "";
+    try {
+      const wire = await this.client.call<WireAsset>(AppsOps.assetGet, { app, path });
+      const url = wire.data_url.startsWith("data:image/") ? wire.data_url : "";
+      this.icons.set(key, url);
+      return url;
+    } catch {
+      // A missing screenshot is not an error: the page shows the ones it has.
+      this.icons.set(key, "");
+      return "";
+    }
+  }
+
+  /** The screenshots of `detail` already loaded, in order; undefined while none are. */
+  private loadedShots(detail: AppDetail): string[] | undefined {
+    const urls = detail.screenshots.map((path) => this.icons.get(`${detail.id}\u0000${path}`));
+    if (urls.some((url) => url === undefined)) return undefined;
+    return urls.filter((url): url is string => !!url);
+  }
+
+  /** Loads the selected app's screenshots and shows them on its page. */
+  private async loadScreenshots(detail: AppDetail, generation: number): Promise<void> {
+    if (detail.screenshots.length === 0 || this.loadedShots(detail)) return;
+    const urls = await Promise.all(detail.screenshots.map((path) => this.asset(detail.id, path)));
+    const current = this.snapshot.detail;
+    if (generation !== this.detailGeneration || current?.id !== detail.id) return;
+    this.set({ detail: { ...current, screenshotImages: urls.filter(Boolean) } });
+  }
+
+  /**
+   * Loads the first screenshot of the apps Discover features (its hero shows one): their details,
+   * then that one file. An app with no screenshot keeps its icon art.
+   */
+  private async loadPreviews(generation: number): Promise<void> {
+    const client = this.client;
+    if (!client || this.snapshot.layout !== "grid") return;
+    const wanted = featuredApps(
+      this.snapshot.catalog.filter((app) => (app.shelf ?? "store") === "store"),
+      2,
+    ).filter((app) => !(app.id in this.snapshot.previews));
+    if (wanted.length === 0) return;
+    const found = await Promise.all(
+      wanted.map(async (app) => {
+        try {
+          const detail = fromDetail(await client.call<WireDetail>(AppsOps.catalogGet, { app: app.id }));
+          const path = detail.screenshots[0];
+          return [app.id, path ? await this.asset(app.id, path) : ""] as const;
+        } catch {
+          return [app.id, ""] as const;
+        }
+      }),
+    );
+    if (generation !== this.generation) return;
+    this.set({ previews: { ...this.snapshot.previews, ...Object.fromEntries(found) } });
+  }
+
   /** Loads the icons no earlier reload loaded (`cmux.apps.asset.get`), then shows them. */
   private async loadIcons(generation: number): Promise<void> {
     const client = this.client;
@@ -527,8 +645,9 @@ export class AppsStore {
     if (generation === this.generation) this.showIcons();
   }
 
-  // Mutations. Install, uninstall, update and grant changes show a native confirmation in the
-  // host; the page waits for the owner's answer and re-reads.
+  // Mutations. The Install click is the consent (its required scopes only; the listing shows
+  // them before the click), so an install shows no card; uninstall, update and grant changes show
+  // a native confirmation in the host. The page waits for the owner's answer and re-reads.
 
   install(app: string): Promise<void> {
     return this.intent(AppsOps.install, { app, grant_optional: false });
@@ -572,7 +691,32 @@ export class AppsStore {
     );
   }
 
-  private async intent(
+  /** Opens Settings > Customize, every customization one click each (the Customize cmux… card). */
+  openCustomize(): Promise<void> {
+    return this.intent(
+      CUSTOMIZE_ACTION.op,
+      { action: CUSTOMIZE_ACTION.action, args: CUSTOMIZE_ACTION.args },
+      { reread: false, mutation: false },
+    );
+  }
+
+  private intent(
+    op: string,
+    params: Record<string, unknown>,
+    options: { reread?: boolean; mutation?: boolean } = {},
+  ): Promise<void> {
+    if (options.mutation === false) return this.run(op, params, options);
+    const action = `${op}\u0000${JSON.stringify(params)}`;
+    const pending = this.inFlight.get(action);
+    if (pending) return pending;
+    const call = this.run(op, params, options).finally(() => {
+      if (this.inFlight.get(action) === call) this.inFlight.delete(action);
+    });
+    this.inFlight.set(action, call);
+    return call;
+  }
+
+  private async run(
     op: string,
     params: Record<string, unknown>,
     { reread = true, mutation = true }: { reread?: boolean; mutation?: boolean } = {},

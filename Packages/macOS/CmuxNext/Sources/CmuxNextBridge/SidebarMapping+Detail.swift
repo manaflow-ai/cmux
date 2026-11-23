@@ -42,6 +42,32 @@ extension SidebarMapping {
         return detail
     }
 
+    /// Who made the workspace, as the sidebar's automatic fold reads it (`created_by.kind`); nil without a
+    /// record or for a kind from a newer daemon, which always shows.
+    static func creator(_ creator: WorkspaceCreator?) -> SidebarCreator? {
+        switch creator?.kind {
+        case .person?: .person
+        case .agent?: .agent
+        case .script?: .script
+        case .other?, nil: nil
+        }
+    }
+
+    /// Who made the workspace, for its hover card: an agent's or a script's session, host and
+    /// purpose. Nil for the person, an unknown kind, or a creator with nothing to say (a bare
+    /// `{"kind":"script"}`), so the person's own workspaces show nothing new.
+    static func origin(_ creator: WorkspaceCreator?) -> SidebarWorkspaceOrigin? {
+        guard let creator else { return nil }
+        let kind: SidebarWorkspaceOrigin.Kind
+        switch creator.kind {
+        case .agent: kind = .agent
+        case .script: kind = .script
+        case .person, .other: return nil
+        }
+        return SidebarWorkspaceOrigin(kind: kind, sessionName: creator.sessionName, sessionID: creator.session,
+                                      host: creator.host, purpose: creator.purpose)
+    }
+
     /// The running subagents and background commands of `tab`'s agent chat (acpmux's counts);
     /// zero for any other tab.
     static func running(_ tab: TabModel, turns: AgentTurnStateStore = .shared) -> (subagents: Int, commands: Int) {

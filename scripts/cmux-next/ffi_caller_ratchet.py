@@ -79,6 +79,10 @@ class Tree:
 
     def __init__(self, repo: Path, rev: str | None):
         self.repo, self.rev = repo, rev
+        # path -> blob id, from files()' listing: read() asks cat-file by id. Asked `<rev>:<path>`, git resolves each
+        # path from the root tree again, about 4 ms a file on big-red's cmux mirror (2026-11-21: this check's two
+        # passes over every Packages Swift file took 118 s of a merge push's pre-push gate).
+        self.ids: dict[str, str] = {}
 
     def git(self, *args: str) -> bytes:
         result = subprocess.run(["git", "-C", str(self.repo), *args], capture_output=True)
@@ -93,8 +97,18 @@ class Tree:
             if base.is_file():
                 return [prefix]
             return sorted(p.relative_to(self.repo).as_posix() for p in base.rglob("*") if p.is_file())
-        out = self.git("ls-tree", "-r", "-z", "--name-only", self.rev, "--", prefix)
-        return sorted(name for name in out.decode("utf-8", "surrogateescape").split("\0") if name)
+        out = self.git("ls-tree", "-r", "-z", self.rev, "--", prefix)
+        names = []
+        for entry in out.split(b"\0"):
+            meta, _, name = entry.partition(b"\t")
+            fields = meta.split()
+            if len(fields) != 3 or not name:
+                continue
+            path = name.decode("utf-8", "surrogateescape")
+            names.append(path)
+            if fields[1] == b"blob":
+                self.ids[path] = fields[2].decode()
+        return sorted(names)
 
     def read(self, paths: list[str]) -> dict[str, str]:
         """path -> text; a missing path is left out."""
@@ -109,7 +123,7 @@ class Tree:
             return {}
         # Through a file, never a pipe: a big answer over a pipe can deadlock (arch_counts.py, check-ui-font.py).
         with tempfile.TemporaryFile() as stdin:
-            stdin.write("".join(f"{self.rev}:{p}\n" for p in paths).encode())
+            stdin.write("".join(f"{self.ids.get(p) or f'{self.rev}:{p}'}\n" for p in paths).encode())
             stdin.seek(0)
             result = subprocess.run(["git", "-C", str(self.repo), "cat-file", "--batch"], stdin=stdin,
                                     capture_output=True)
@@ -122,7 +136,7 @@ class Tree:
             header = out[pos:end].split()
             pos = end + 1
             if len(header) < 3 or header[1] != b"blob":
-                continue  # "<rev>:<path> missing"
+                continue  # "<rev>:<path> missing" (or "<id> missing")
             size = int(header[2])
             texts[path] = out[pos:pos + size].decode("utf-8", errors="replace")
             pos += size + 1

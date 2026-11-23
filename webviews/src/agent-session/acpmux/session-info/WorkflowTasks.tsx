@@ -186,11 +186,7 @@ function WorkflowTask({
         {running && onStop && <StopButton id={workflow.id} name={workflow.title} stop={onStop} solid />}
       </div>
       {meta.length > 0 && <p className="acpmux-workflow-task__meta">{meta.join(" · ")}</p>}
-      {workflow.description && (
-        <p className="acpmux-workflow-task__description" title={workflow.description}>
-          {workflow.description}
-        </p>
-      )}
+      {workflow.description && <p className="acpmux-workflow-task__description">{workflow.description}</p>}
       {phases.length > 0 && (
         <ul className="acpmux-session-info-list acpmux-workflow-task__phases">
           {phases.map((phase) => (
@@ -412,7 +408,6 @@ function CommandList({
             key={command.toolCallId ?? command.id}
             className="acpmux-session-info-task acpmux-workflow-command"
             data-state={command.state}
-            title={command.command}
           >
             <Icon name={TASK_ICONS.command.web} size={ROW_ICON} row fit className="acpmux-row-glyph" />
             <span className="acpmux-session-info-task__command">{label}</span>
@@ -504,11 +499,7 @@ export function WorkflowAgentRow({
           <span className="acpmux-workflow-agent__name">{agent.name}</span>
           {modelLabel && <span className="acpmux-workflow-agent__model">{modelLabel}</span>}
         </span>
-        {message && (
-          <span className="acpmux-workflow-agent__doing" title={message}>
-            {message}
-          </span>
-        )}
+        {message && <span className="acpmux-workflow-agent__doing">{message}</span>}
       </span>
       <span className="acpmux-workflow-agent__state">{state}</span>
       <span className="acpmux-session-info-task__time">{time}</span>
