@@ -23,9 +23,9 @@ function Glyph({ mode, paint }: { mode: HybridPin; paint: string }) {
     <svg
       className="acpmux-hybrid-tri__glyph"
       data-mode={mode}
-      width={16}
+      width={mode === "auto" ? 22 : 16}
       height={16}
-      viewBox="0 0 16 16"
+      viewBox={mode === "auto" ? "0 0 22 16" : "0 0 16 16"}
       focusable="false"
       aria-hidden="true"
     >
@@ -38,16 +38,18 @@ function Glyph({ mode, paint }: { mode: HybridPin; paint: string }) {
           <stop offset="1" className="acpmux-hybrid-stop" data-stop="5" />
         </linearGradient>
         <clipPath id={`${clip}a`}>
-          <path d="M0 0h9.5L5.5 16H0Z" />
+          <path d="M0 0h10.5L7.5 16H0Z" />
         </clipPath>
         <clipPath id={`${clip}b`}>
-          <path d="M10.5 0H16v16H6.5Z" />
+          <path d="M6 0h10v16H3Z" />
         </clipPath>
       </defs>
       {mode === "auto" ? (
         <>
           <path className="acpmux-hybrid-tri__cloud" d={CLOUD} clipPath={`url(#${CSS.escape(`${clip}a`)})`} />
-          <path className="acpmux-hybrid-tri__laptop" d={LAPTOP} clipPath={`url(#${CSS.escape(`${clip}b`)})`} />
+          <g transform="translate(6 0)">
+            <path className="acpmux-hybrid-tri__laptop" d={LAPTOP} clipPath={`url(#${CSS.escape(`${clip}b`)})`} />
+          </g>
         </>
       ) : mode === "cloud" ? (
         <path className="acpmux-hybrid-tri__cloud" d={CLOUD} />
