@@ -167,6 +167,15 @@ jobs:
       - name: History of the merge commit
         run: |
           set -euo pipefail
+          # A VM runner guest's image holds this repository's commits and trees (a git object store); the
+          # history comes from there first, so the fetch below sends only what the store lacks. No store,
+          # a store without history, or any failure here leaves that fetch to do all of it, as before.
+          store="/var/cache/fsr/git/${GITHUB_REPOSITORY/\//--}.git"
+          if [ -d "$store/objects" ] && [ ! -s "$store/shallow" ] && [ "$(git rev-parse --is-shallow-repository)" = true ]; then
+            GIT_NO_LAZY_FETCH=1 git -c "remote.fsr-store.url=$store" fetch --no-tags --quiet --filter=blob:none --unshallow \
+              fsr-store '+refs/heads/*:refs/remotes/fsr-store/*' || echo "::notice::history store fetch failed; fetching from the remote"
+            git config --remove-section remote.fsr-store 2>/dev/null || true
+          fi
           for try in 1 2 3; do
             # A try that completed the history before failing needs no other.
             [ "$(git rev-parse --is-shallow-repository)" = false ] && exit 0
@@ -712,6 +721,15 @@ jobs:
       - name: History of the merge commit
         run: |
           set -euo pipefail
+          # A VM runner guest's image holds this repository's commits and trees (a git object store); the
+          # history comes from there first, so the fetch below sends only what the store lacks. No store,
+          # a store without history, or any failure here leaves that fetch to do all of it, as before.
+          store="/var/cache/fsr/git/${GITHUB_REPOSITORY/\//--}.git"
+          if [ -d "$store/objects" ] && [ ! -s "$store/shallow" ] && [ "$(git rev-parse --is-shallow-repository)" = true ]; then
+            GIT_NO_LAZY_FETCH=1 git -c "remote.fsr-store.url=$store" fetch --no-tags --quiet --filter=blob:none --unshallow \
+              fsr-store '+refs/heads/*:refs/remotes/fsr-store/*' || echo "::notice::history store fetch failed; fetching from the remote"
+            git config --remove-section remote.fsr-store 2>/dev/null || true
+          fi
           for try in 1 2 3; do
             [ "$(git rev-parse --is-shallow-repository)" = false ] && exit 0
             git fetch --no-tags --quiet --filter=blob:none --unshallow origin "$GITHUB_SHA" && exit 0
