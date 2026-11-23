@@ -100,12 +100,6 @@ impl<'a> MoveEnd<'a> {
         self
     }
 
-    /// With the forward its client goes through, closed with it.
-    pub(crate) fn with_forward(mut self, forward: Option<Forward>) -> Self {
-        self.forward = forward;
-        self
-    }
-
     pub(crate) fn client(&self) -> &Client {
         self.now.as_deref().unwrap_or(self.first)
     }

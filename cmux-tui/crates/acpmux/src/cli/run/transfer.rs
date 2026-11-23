@@ -261,7 +261,7 @@ pub(super) async fn finish_journaled(
     if !matches!(result, Err(Unresolved(_))) {
         Journal::done(dir, &begun.transfer_id);
     }
-    result.map_err(|Unresolved(e)| Resolved(e) | e)
+    result.map_err(|(Unresolved(e) | Resolved(e))| e)
 }
 
 /// How a failed move left the chat: given back or on the target (`Resolved`), or frozen with
