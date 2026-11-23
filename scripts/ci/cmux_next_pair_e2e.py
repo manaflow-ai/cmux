@@ -84,8 +84,10 @@ def redact(text):
 def shows_a_code():
     """Whether this ref's Mobile Pairing page sends a pairing code (`qr`): on a ref without it no
     code is the expected "before"; on one with it, no code is a failure."""
-    src = os.path.join(ROOT, "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/MobilePairing/MobilePairingPageProvider.swift")
-    return os.path.exists(src) and 'reply["qr"]' in open(src).read()
+    sources = ("Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost/MobilePairingPageProvider.swift",
+               "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/MobilePairing/MobilePairingPageProvider.swift")  # before the move
+    paths = [os.path.join(ROOT, src) for src in sources]
+    return any(os.path.exists(path) and 'reply["qr"]' in open(path).read() for path in paths)
 
 
 def has_upload_probe():
@@ -394,6 +396,31 @@ def main():
         subprocess.run(simctl + ["io", a.udid, "screenshot", os.path.join(screens, f"{name}.png")], capture_output=True)
         return f"screens/{name}.png"
 
+    def phone_settled(timeout=20.0):
+        """Until the phone's screen holds still (3 screenshots in a row the same, 0.5 s apart): the Devices list
+        loads from the service after live data starts. Best effort: past TIMEOUT it notes it and goes on."""
+        probe = os.path.join(screens, ".settle-probe.png")
+        deadline, last, same = time.monotonic() + timeout, None, 0
+        try:
+            while time.monotonic() < deadline:
+                subprocess.run(simctl + ["io", a.udid, "screenshot", probe], capture_output=True)
+                try:
+                    digest = hashlib.sha256(open(probe, "rb").read()).hexdigest()
+                except OSError:
+                    digest = None
+                same = same + 1 if digest is not None and digest == last else 0
+                if same >= 2:
+                    return True
+                last = digest
+                time.sleep(0.5)
+            note(f"- phone: the screen never held still in {timeout:.0f} s; capturing it as it is")
+            return False
+        finally:
+            try:
+                os.remove(probe)
+            except OSError:
+                pass
+
     teardown = TagTeardown(a.mac_app)
     teardown.install()
     streams, app, paired, url, uploaded, theme_ok = [], None, None, None, not probe, True
@@ -496,7 +523,7 @@ def main():
         live = phone_log.wait(re.compile(r"live data on"), 90)
         if discovery:
             ask_ok = discovery_ask(mac_log, phone_log, asked_from, status, rpc, note)
-        time.sleep(5)  # bounded: the Devices list loads from the service after live data starts
+        phone_settled()  # the Devices list loads from the service after live data starts
         note(f"- phone: {'signed in, live data' if live else 'NO live data in 90 s'}; Settings > Devices "
              f"{phone_shot('phone-devices')}")
 
@@ -549,7 +576,7 @@ def main():
                  f"phone {phone_shot('phone-paired')}; Mac {mac_shot('mac-pairing-paired')}")
             phone_launch()
             phone_log.wait(re.compile(r"live data on"), 60)
-            time.sleep(5)  # bounded, as above
+            phone_settled()  # the Devices list loads from the service after live data starts
             note(f"- phone Settings > Devices after pairing: {phone_shot('phone-devices-paired')}")
             if paired:
                 try:
