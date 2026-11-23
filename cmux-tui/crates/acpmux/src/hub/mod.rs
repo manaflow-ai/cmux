@@ -1863,12 +1863,10 @@ impl Hub {
         self.events.subscribe()
     }
 
-    /// [`Hub::subscribe`] for a connection's fan-out task: each event's fan-out clock waits for
-    /// it until the seat drops (`gauges.fanout`).
-    pub(crate) fn subscribe_fanout(
-        &self,
-    ) -> (broadcast::Receiver<HubEvent>, list_guard::FanoutSeat) {
-        self.events.subscribe_fanout()
+    /// Which connections each event wakes (`server/interest.rs`): a connection's fan-out reads
+    /// its own inbox, not [`Hub::subscribe`].
+    pub(crate) fn fanout_router(&self) -> &Arc<crate::server::interest::Router> {
+        self.events.router()
     }
 
     pub fn mailbox(&self) -> &Mailbox {
@@ -2453,6 +2451,14 @@ impl Hub {
         drop(sessions);
         if by_name.len() == 1 {
             return Ok(by_name.remove(0));
+        }
+        // A given name (`session_handle.rs`, "Mango") reaches its session as `key_route` tier 0
+        // does, ahead of former names and prefixes (Leo, 2026-11-23: "the renaming paradigm
+        // still hasn't hit yet").
+        if by_name.is_empty()
+            && let Some(found) = self.resolve_handle_here(key)
+        {
+            return found;
         }
         // No session has it as its name now: one that had it before a rename
         // (`former_names.rs`), ahead of short names and prefixes. A peer's session that has it
