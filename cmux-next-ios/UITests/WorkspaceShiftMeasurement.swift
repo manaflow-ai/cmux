@@ -76,7 +76,8 @@ final class WorkspaceShiftMeasurement {
         let page = "page.\(surface)"
         let row = "workspace.row.\(workspaceID)"
         let content = "content.\(surface)"
-        let allowed = Set([page, row, content, "accessory.\(surface)",
+        let end = "end.\(surface)"
+        let allowed = Set([page, row, content, end, "accessory.\(surface)",
                            surface == "agent" ? "chat.composer.field" : "\(surface).composer.field"])
         // A slow correction can move several points in sub-point increments.
         // Keep each visible edge's last accepted position as well as the prior
@@ -102,10 +103,16 @@ final class WorkspaceShiftMeasurement {
             for (id, box) in current.boxes where allowed.contains(id) || id.hasPrefix("toolbar.") {
                 guard let old = previous.boxes[id], old.count == 4, box.count == 4 else { continue }
                 result.comparablePairs[id, default: 0] += 1
+                // A content line (the first or the last) counts only where it could be seen,
+                // before or after: off the viewport in both frames it moved nothing on screen.
+                if id == content || id == end, ![(previous, old[1]), (current, box[1])].contains(where: { frame, line in
+                    guard let port = frame.boxes["viewport.\(surface)"], port.count == 4 else { return true }
+                    return line >= port[1] - 1 && line <= port[1] + port[3] + 1
+                }) { continue }
                 // The page/content landmark represents its top edge. A change in
                 // the height below that edge is not motion of that landmark.
-                let before = edges(old, topOnly: id == page || id == content)
-                let after = edges(box, topOnly: id == page || id == content)
+                let before = edges(old, topOnly: id == page || id == content || id == end)
+                let after = edges(box, topOnly: id == page || id == content || id == end)
                 var anchor = anchors[id] ?? before
                 let delta = after.indices.map { edge in
                     let step = after[edge] - before[edge]

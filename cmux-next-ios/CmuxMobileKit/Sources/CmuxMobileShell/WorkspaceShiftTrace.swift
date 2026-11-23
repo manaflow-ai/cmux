@@ -75,6 +75,12 @@ public final class WorkspaceShiftTrace {
                 // scroll-to-bottom correction inside an otherwise unmoving viewport.
                 rect.origin.y -= (scroll.layer.presentation() ?? scroll.layer).bounds.minY
                 rect.size.height = 0
+                // Where that line can be seen: a line above or below the viewport in both
+                // frames moved nothing the person saw (a pinned chat growing upward).
+                let name = String(id.dropFirst("content.".count))
+                frame.boxes["viewport." + name] = [visible.minX - translation, visible.minY, visible.width, visible.height]
+                // And the last content line: a chat pinned to its newest turn keeps this one still.
+                frame.boxes["end." + name] = [rect.minX, rect.minY + scroll.contentSize.height, rect.width, 0]
             }
             frame.boxes[id] = [rect.minX, rect.minY, rect.width, rect.height]
             frame.pageOffsetX[id] = translation
