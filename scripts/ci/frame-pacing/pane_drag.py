@@ -227,8 +227,12 @@ def judge_drop(drop: dict) -> dict:
         lifted = next((i for i in range(pre + 1, len(samples)) if at[i] >= first_move and _tabs_key(samples[i]) != rest_tabs), None)
         result["lift_ms"] = round((at[lifted] - first_move) * 1000, 2) if lifted is not None and at[lifted] < up + 0.5 else None
 
-    # The commit: the first frame after that whose layout differs; it shows at the next vsync (`at + refresh`).
-    commit = next((i for i in range(before_up + 1, len(samples)) if _layout_differs(maps[i], maps[before_up])), None)
+    # The commit: the first frame after that whose layout differs; it shows at the next vsync (`at + refresh`). A pane
+    # swap keeps every layout pane's rect and moves the tabs between them: its commit is the strips' change.
+    swap = drop.get("gesture") == "pane"
+    def changed(i: int, j: int) -> bool:
+        return _layout_differs(maps[i], maps[j]) or (swap and _tabs_key(samples[i]) != _tabs_key(samples[j]))
+    commit = next((i for i in range(before_up + 1, len(samples)) if changed(i, before_up)), None)
     if commit is None:
         result.update({"landed": False, "note": "no layout change after the drop"})
         result.update(frame_phases(drop.get("frames") or {}, press, up))
@@ -242,7 +246,7 @@ def judge_drop(drop: dict) -> dict:
         result["drop_ms_send"] = round(max(0.0, shown - float(drop["up_send_s"])) * 1000, 2)
     final = maps[-1]
     result["panes_after"] = len(final)
-    last_change = max((i for i in range(commit, len(samples)) if i == commit or _layout_differs(maps[i], maps[i - 1])), default=commit)
+    last_change = max((i for i in range(commit, len(samples)) if i == commit or changed(i, i - 1)), default=commit)
     result["settle_ms"] = round((at[last_change] - up) * 1000, 1)
 
     # Blank: late ground, alpha 0, or a final pane not listed yet, in any frame from the commit on.
@@ -341,6 +345,7 @@ class Driver:
         self.scale = None
         self.dead = False
         self.workspace = None
+        self.last_winner = None
         self.log: list[str] = []
 
     def rpc(self, method, params=None, timeout=30):
@@ -393,7 +398,7 @@ class Driver:
         """One trace sample of the window at rest."""
         if "error" in self.rpc("debug.motion", {"action": "trace_start", "targets": TRACE_TARGETS}):
             return {}
-        time.sleep(0.15)  # bench: a few frames
+        time.sleep(0.15)  # sleep-ok: the trace window, a few frames sampled (trace_stop is its only read)
         reply = self.rpc("debug.motion", {"action": "trace_stop"})
         rows = [s for s in reply.get("samples") or [] if "panes" in s]
         return rows[-1] if rows else {}
@@ -418,6 +423,36 @@ class Driver:
         x, y, w, h = rect[:4]
         self.rpc("debug.mouse", {"action": "click", "x": x + w / 2, "y": y + h * 0.6})
 
+    def layout(self) -> str:
+        """The topology and the layout counters (not logged: a poll reads them many times); both stop changing
+        once the window's layout settled."""
+        if self.left() <= 0 or self.dead:
+            return "unreachable"
+        return json.dumps([self.app.rpc("snapshot.get", {}, timeout=min(20, max(1.0, self.left()))),
+                           self.app.rpc("debug.layout_counters", {}, timeout=min(20, max(1.0, self.left())))],
+                          sort_keys=True, default=str)
+
+    def settle(self, what: str, read=None, seconds: float = 10.0) -> bool:
+        """Until `read()` (default `layout()`) reads the same three times in a row, within `seconds` and the run's
+        deadline; past that logs `what` never settled."""
+        until = min(time.monotonic() + seconds, self.deadline)
+        read = read or self.layout
+        last, same = object(), 0
+        while True:
+            value = read()
+            same = same + 1 if value == last else 1
+            last = value
+            if same >= 3:
+                return True
+            if time.monotonic() >= until:
+                self.log.append(f"waited {seconds:g} s: {what} never settled")
+                return False
+            time.sleep(0.1)
+
+    def focused_workspace(self):
+        snap = self.app.rpc("snapshot.get", {}, timeout=min(20, max(1.0, self.left())))
+        return (((snap or {}).get("topology") or {}).get("focus") or {}).get("workspace") if isinstance(snap, dict) else None
+
     def build(self, count: int, scratch: str) -> dict:
         """A fresh workspace split into `count` panes of mixed kinds; what it reached."""
         # The CLI's `workspace create` (tab-switch-matrix.py's path): one terminal pane. `newWorkspace` is a person's
@@ -431,13 +466,16 @@ class Driver:
             self.log.append(f"workspace create: {made[-300:]}")
             self.workspace = None
             self.action("newWorkspace")
-        time.sleep(1.0)  # bench: the workspace shows
+        # The new workspace shows: it is the focused one, then its layout stops changing.
+        if self.workspace and not self.wait(lambda: self.focused_workspace() == self.workspace, 20):
+            self.log.append(f"workspace {self.workspace} never became the focused workspace in 20 s")
+        self.settle("the new workspace")
         start = self.wait(lambda: len(self.panes()), 20)
         if not start:
             return {"error": "no pane shown in a new workspace"}
         if start > count:
             return {"error": f"a new workspace shows {start} panes, more than {count}"}
-        time.sleep(0.8)  # bench: the shell prompt
+        self.settle("the new workspace's shell prompt")  # the prompt's grid redraws stop moving the counters
         refused = 0
         while self.left() > 60:  # the run's deadline bounds the splits
             panes = self.panes()
@@ -458,7 +496,7 @@ class Driver:
                 if refused >= 3:
                     break
             time.sleep(0.3)  # bench: the split's motion
-        time.sleep(0.8)
+        self.settle(f"the {len(self.panes())} panes after the splits")
         panes = sorted(self.panes().items(), key=lambda kv: (round(kv[1][0]), round(kv[1][1])))
         kinds = {}
         for index, (pane, rect) in enumerate(panes):
@@ -484,7 +522,7 @@ class Driver:
                 self.action("newTab.page", target=f"pane:{pane}")
             self.wait(lambda: len((self.strip_of(rect, self.strips()) or {}).get("tabs") or []) > had, 20)
             time.sleep(0.3 if kind != "chromium" else 0.6)  # bench: the page loads before the next
-        time.sleep(2.0)  # bench: pages settle
+        self.settle("the pages in every pane", seconds=30)
         shown = self.panes()
         return {"asked": count, "panes": len(shown), "kinds": {k: sum(1 for v in kinds.values() if v == k) for k in KINDS},
                 "kind_of": kinds, "splits_refused": refused}
@@ -535,6 +573,8 @@ class Driver:
                 if wait > 0:
                     time.sleep(wait)  # bench: pointer pace, one move per 120 Hz frame
         finally:
+            state = self.rpc("debug.tab_drag", timeout=5)
+            self.last_winner = {k: state.get(k) for k in ("dragging", "winner", "outcome")} if isinstance(state, dict) else None
             up = now_s()
             self.rpc("debug.mouse", {"action": "up", "x": end[0], "y": end[1], **mods}, timeout=5)
         return {"press_s": press, "first_move_s": first_move, "up_s": up}
@@ -564,14 +604,16 @@ class Driver:
                 self.rpc("debug.motion", {"action": "record_stop"})
                 record = None
         self.rpc("debug.journal", {"clear": True})
+        self.rpc("debug.hangs", {"clear": True})
         self.rpc("debug.frames", {"action": "start"})
         self.rpc("debug.motion", {"action": "trace_start", "targets": TRACE_TARGETS})
-        time.sleep(0.25)  # bench: frames at rest before the press
+        time.sleep(0.25)  # sleep-ok: the trace's lead-in, frames at rest before the press
         times = self.drag(start, end, modifiers)
-        time.sleep(1.2)  # bench: the drop's motion and its rest
+        time.sleep(1.2)  # sleep-ok: the trace window, the drop's motion and the rest frames after it the judge reads
         trace_path = os.path.join(self.out, f"{name}.trace.json")
         self.rpc("debug.motion", {"action": "trace_stop", "path": trace_path})
         frames = self.rpc("debug.frames", {"action": "stop", "raw": True})
+        hangs = self.rpc("debug.hangs", {"limit": 8})
         if record:
             self.rpc("debug.motion", {"action": "record_stop"})
         journal = self.journal_up(times["press_s"])
@@ -591,10 +633,15 @@ class Driver:
         verdict = judge_drop(drop)
         verdict["up_from"] = "journal" if journal else "send"
         verdict["samples"] = len((drop.get("trace") or {}).get("samples") or [])
+        verdict["winner_before_up"] = self.last_winner
+        verdict["stalls"] = stall_stacks(hangs)
+        verdict["panes_rest_after"] = len(self.panes())
         print("PANE-DRAG drop " + json.dumps({k: verdict.get(k) for k in (
             "gesture", "kind", "drop", "landed", "note", "error", "panes_before", "panes_after", "drop_ms", "lift_ms",
-            "blank_frames", "jumps", "up_from", "samples", "pixel_measured")}), flush=True)
-        time.sleep(0.4)  # bench: idle between drops
+            "blank_frames", "jumps", "up_from", "samples", "pixel_measured", "winner_before_up", "panes_rest_after")})[:900], flush=True)
+        for stall in verdict["stalls"][:3]:
+            print(f"PANE-DRAG stall {stall['ms']} ms ({stall['kind']}): " + " < ".join(stall["frames"]), flush=True)
+        self.settle(f"the window after {name}")  # the next drop starts from a window at rest
         return verdict
 
     def tab_drops(self, drops: int, kinds: dict) -> list:
@@ -696,6 +743,18 @@ class Driver:
         return out
 
 
+def stall_stacks(hangs: dict) -> list:
+    """The main-thread stalls `debug.hangs` caught during a drop, longest first: ms, kind and the app's own frames
+    (CmuxNext, Ghostty, CEF) of each sampled stack, so a run names what held the frame."""
+    out = []
+    for record in (hangs or {}).get("records") or []:
+        frames = [str(f) for f in record.get("frames") or []]
+        ours = [f[:110] for f in frames if any(k in f for k in ("CmuxNext", "Ghostty", "ghostty", "CEF", "cef_"))][:10]
+        out.append({"ms": round(float(record.get("duration_ms") or 0), 1), "kind": record.get("kind"),
+                    "frames": ours or [f[:110] for f in frames[:10]]})
+    return sorted(out, key=lambda r: -r["ms"])
+
+
 def _load(path: str):
     try:
         with open(path) as handle:
@@ -741,7 +800,7 @@ def main(argv=None) -> int:
             write()
             return 1
         driver = Driver(app, out, pixels=not opts.no_pixels, deadline=time.monotonic() + opts.deadline)
-        time.sleep(3)  # bench: launch work settles
+        driver.settle("the window after launch", seconds=30)
         driver.learn_scale()
         report["pixels"] = bool(driver.pixels)
         print(f"PANE-DRAG pixels={driver.pixels} scale={driver.scale} log={json.dumps(driver.log[-4:])[:800]}", flush=True)

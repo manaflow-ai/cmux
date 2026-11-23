@@ -15,7 +15,7 @@ use crate::event::{AuthFailure, Effect};
 use crate::phase::{AuthPhase, PhaseRunner, SIGN_OUT_CLEARED_PHASES};
 
 /// One started phase run and the session it started in.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct PhaseRun {
     phase: AuthPhase,
     runner: PhaseRunner,
@@ -27,7 +27,7 @@ pub(super) struct PhaseRun {
 /// A token-touching phase whose run hit its deadline (or was cancelled by its
 /// caller) while still running: the phase refuses new runs until that run
 /// ends or `expires_at` passes with it ended.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct TokenGate {
     id: u64,
     expires_at: u64,
@@ -72,9 +72,9 @@ impl Coordinator {
             PhaseRun {
                 phase,
                 runner,
-                generation: self.session_generation,
-                sign_out_epoch: self.sign_out_epoch,
-                store_write_high_water: self.token_store_write_high_water,
+                generation: self.session_generation(),
+                sign_out_epoch: self.generations.sign_out_epoch,
+                store_write_high_water: self.generations.store_write_high_water,
             },
         );
         fx.push(Effect::PhaseStarted { id, phase });
@@ -159,7 +159,7 @@ impl Coordinator {
             return;
         };
         let checked = matches!(run.runner, PhaseRunner::Validation | PhaseRunner::TokenTouching);
-        if !checked || run.sign_out_epoch == self.sign_out_epoch {
+        if !checked || run.sign_out_epoch == self.generations.sign_out_epoch {
             fx.push(Effect::PhaseResultStands { id });
         } else {
             fx.push(Effect::AwaitSignOutCapture { id });
@@ -172,7 +172,7 @@ impl Coordinator {
         let Some(run) = self.phase_runs.get(&id) else {
             return;
         };
-        if run.store_write_high_water != self.token_store_write_high_water {
+        if run.store_write_high_water != self.generations.store_write_high_water {
             fx.push(Effect::PhaseResultDropped { id });
         } else {
             fx.push(Effect::CompareStaleRefreshToken { id });
@@ -191,10 +191,10 @@ impl Coordinator {
         let Some(run) = self.phase_runs.get(&id).copied() else {
             return;
         };
-        let same_session = run.generation == self.session_generation
-            && run.store_write_high_water == self.token_store_write_high_water;
+        let same_session = run.generation == self.session_generation()
+            && run.store_write_high_water == self.generations.store_write_high_water;
         if !same_session {
-            if cleared && self.is_authenticated {
+            if cleared && self.is_authenticated() {
                 let reason = match run.runner {
                     PhaseRunner::Validation => {
                         "a validation raced a sign-out and cleared its stale refresh token"

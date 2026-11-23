@@ -320,6 +320,98 @@ pub enum Event {
 }
 
 impl Event {
+    /// Every event's name, in the table's order (a restore by its trigger).
+    pub const KINDS: [&'static str; 41] = [
+        "restore_launch",
+        "restore_foreground",
+        "restore_team_scope_signal",
+        "tokens_probed",
+        "token_storage_availability",
+        "probe_retry_due",
+        "cached_session_validated",
+        "surviving_refresh_token_read",
+        "stale_session_cleared",
+        "auto_login_finished",
+        "sign_in_requested",
+        "token_work_quiesced",
+        "online_checked",
+        "exchange_finished",
+        "sign_in_user_fetched",
+        "teams_requested",
+        "teams_refreshed",
+        "post_sign_in_hook_finished",
+        "team_scope_recovery_due",
+        "team_scope_recovery_check_finished",
+        "set_selected_team",
+        "team_selection_mutated",
+        "team_list_mutated",
+        "send_code_started",
+        "send_code_finished",
+        "debug_credentials_remembered",
+        "sign_out_requested",
+        "sign_out_local_cleared",
+        "token_read_unauthorized",
+        "dev_auth_access_token_finished",
+        "phase_start_requested",
+        "phase_timed_out",
+        "phase_caller_cancelled",
+        "phase_operation_finished",
+        "phase_sign_out_capture_awaited",
+        "phase_stale_refresh_token_compared",
+        "phase_ended",
+        "supersede_timed_out_phases",
+        "token_read_empty",
+        "clear_auth_state_requested",
+        "available_teams_set",
+    ];
+
+    /// This event's name in the table.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Restore(RestoreTrigger::Launch) => "restore_launch",
+            Self::Restore(RestoreTrigger::Foreground) => "restore_foreground",
+            Self::Restore(RestoreTrigger::TeamScopeSignal) => "restore_team_scope_signal",
+            Self::TokensProbed { .. } => "tokens_probed",
+            Self::TokenStorageAvailability { .. } => "token_storage_availability",
+            Self::ProbeRetryDue { .. } => "probe_retry_due",
+            Self::CachedSessionValidated { .. } => "cached_session_validated",
+            Self::SurvivingRefreshTokenRead { .. } => "surviving_refresh_token_read",
+            Self::StaleSessionCleared { .. } => "stale_session_cleared",
+            Self::AutoLoginFinished { .. } => "auto_login_finished",
+            Self::SignInRequested { .. } => "sign_in_requested",
+            Self::TokenWorkQuiesced { .. } => "token_work_quiesced",
+            Self::OnlineChecked { .. } => "online_checked",
+            Self::ExchangeFinished { .. } => "exchange_finished",
+            Self::SignInUserFetched { .. } => "sign_in_user_fetched",
+            Self::TeamsRequested => "teams_requested",
+            Self::TeamsRefreshed { .. } => "teams_refreshed",
+            Self::PostSignInHookFinished { .. } => "post_sign_in_hook_finished",
+            Self::TeamScopeRecoveryDue { .. } => "team_scope_recovery_due",
+            Self::TeamScopeRecoveryCheckFinished { .. } => "team_scope_recovery_check_finished",
+            Self::SetSelectedTeam(..) => "set_selected_team",
+            Self::TeamSelectionMutated => "team_selection_mutated",
+            Self::TeamListMutated => "team_list_mutated",
+            Self::SendCodeStarted => "send_code_started",
+            Self::SendCodeFinished { .. } => "send_code_finished",
+            Self::DebugCredentialsRemembered => "debug_credentials_remembered",
+            Self::SignOutRequested => "sign_out_requested",
+            Self::SignOutLocalCleared { .. } => "sign_out_local_cleared",
+            Self::TokenReadUnauthorized(..) => "token_read_unauthorized",
+            Self::DevAuthAccessTokenFinished { .. } => "dev_auth_access_token_finished",
+            Self::PhaseStartRequested { .. } => "phase_start_requested",
+            Self::PhaseTimedOut { .. } => "phase_timed_out",
+            Self::PhaseCallerCancelled { .. } => "phase_caller_cancelled",
+            Self::PhaseOperationFinished { .. } => "phase_operation_finished",
+            Self::PhaseSignOutCaptureAwaited { .. } => "phase_sign_out_capture_awaited",
+            Self::PhaseStaleRefreshTokenCompared { .. } => "phase_stale_refresh_token_compared",
+            Self::PhaseEnded { .. } => "phase_ended",
+            Self::SupersedeTimedOutPhases => "supersede_timed_out_phases",
+            Self::TokenReadEmpty { .. } => "token_read_empty",
+            Self::ClearAuthStateRequested { .. } => "clear_auth_state_requested",
+            Self::AvailableTeamsSet(..) => "available_teams_set",
+        }
+    }
+
     /// The restore ticket this event answers, if it answers a restore effect.
     pub fn restore_ticket(&self) -> Option<&RestoreTicket> {
         match self {
@@ -330,7 +422,38 @@ impl Event {
             | Self::SurvivingRefreshTokenRead { ticket, .. }
             | Self::StaleSessionCleared { ticket, .. }
             | Self::AutoLoginFinished { ticket, .. } => Some(ticket),
-            _ => None,
+            Self::Restore(..)
+            | Self::SignInRequested { .. }
+            | Self::TokenWorkQuiesced { .. }
+            | Self::OnlineChecked { .. }
+            | Self::ExchangeFinished { .. }
+            | Self::SignInUserFetched { .. }
+            | Self::TeamsRequested
+            | Self::TeamsRefreshed { .. }
+            | Self::PostSignInHookFinished { .. }
+            | Self::TeamScopeRecoveryDue { .. }
+            | Self::TeamScopeRecoveryCheckFinished { .. }
+            | Self::SetSelectedTeam(..)
+            | Self::TeamSelectionMutated
+            | Self::TeamListMutated
+            | Self::SendCodeStarted
+            | Self::SendCodeFinished { .. }
+            | Self::DebugCredentialsRemembered
+            | Self::SignOutRequested
+            | Self::SignOutLocalCleared { .. }
+            | Self::TokenReadUnauthorized(..)
+            | Self::DevAuthAccessTokenFinished { .. }
+            | Self::PhaseStartRequested { .. }
+            | Self::PhaseTimedOut { .. }
+            | Self::PhaseCallerCancelled { .. }
+            | Self::PhaseOperationFinished { .. }
+            | Self::PhaseSignOutCaptureAwaited { .. }
+            | Self::PhaseStaleRefreshTokenCompared { .. }
+            | Self::PhaseEnded { .. }
+            | Self::SupersedeTimedOutPhases
+            | Self::TokenReadEmpty { .. }
+            | Self::ClearAuthStateRequested { .. }
+            | Self::AvailableTeamsSet(..) => None,
         }
     }
 
@@ -341,7 +464,41 @@ impl Event {
             | Self::OnlineChecked { flow, .. }
             | Self::ExchangeFinished { flow, .. }
             | Self::SignInUserFetched { flow, .. } => Some(*flow),
-            _ => None,
+            Self::Restore(..)
+            | Self::TokensProbed { .. }
+            | Self::TokenStorageAvailability { .. }
+            | Self::ProbeRetryDue { .. }
+            | Self::CachedSessionValidated { .. }
+            | Self::SurvivingRefreshTokenRead { .. }
+            | Self::StaleSessionCleared { .. }
+            | Self::AutoLoginFinished { .. }
+            | Self::SignInRequested { .. }
+            | Self::TeamsRequested
+            | Self::TeamsRefreshed { .. }
+            | Self::PostSignInHookFinished { .. }
+            | Self::TeamScopeRecoveryDue { .. }
+            | Self::TeamScopeRecoveryCheckFinished { .. }
+            | Self::SetSelectedTeam(..)
+            | Self::TeamSelectionMutated
+            | Self::TeamListMutated
+            | Self::SendCodeStarted
+            | Self::SendCodeFinished { .. }
+            | Self::DebugCredentialsRemembered
+            | Self::SignOutRequested
+            | Self::SignOutLocalCleared { .. }
+            | Self::TokenReadUnauthorized(..)
+            | Self::DevAuthAccessTokenFinished { .. }
+            | Self::PhaseStartRequested { .. }
+            | Self::PhaseTimedOut { .. }
+            | Self::PhaseCallerCancelled { .. }
+            | Self::PhaseOperationFinished { .. }
+            | Self::PhaseSignOutCaptureAwaited { .. }
+            | Self::PhaseStaleRefreshTokenCompared { .. }
+            | Self::PhaseEnded { .. }
+            | Self::SupersedeTimedOutPhases
+            | Self::TokenReadEmpty { .. }
+            | Self::ClearAuthStateRequested { .. }
+            | Self::AvailableTeamsSet(..) => None,
         }
     }
 }
@@ -496,4 +653,64 @@ pub enum Effect {
     CompareStaleRefreshToken {
         id: u64,
     },
+}
+
+impl Effect {
+    /// This effect's name in the table.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::NotifySessionWillTransition => "notify_session_will_transition",
+            Self::PublishSessionIdentity(..) => "publish_session_identity",
+            Self::PublishTeamScope(..) => "publish_team_scope",
+            Self::SaveCachedUser(..) => "save_cached_user",
+            Self::ClearCachedUser => "clear_cached_user",
+            Self::SetHasTokens => "set_has_tokens",
+            Self::ClearSessionCache => "clear_session_cache",
+            Self::PersistSelectedTeam(..) => "persist_selected_team",
+            Self::DropPendingCode => "drop_pending_code",
+            Self::RecordLatestSignInRefreshToken => "record_latest_sign_in_refresh_token",
+            Self::ForgetLatestSignInRefreshToken => "forget_latest_sign_in_refresh_token",
+            Self::ForgetDebugCredentials => "forget_debug_credentials",
+            Self::LogSignOut { .. } => "log_sign_out",
+            Self::ClearLocalSession => "clear_local_session",
+            Self::ClearStaleSession { .. } => "clear_stale_session",
+            Self::ProbeStoredTokens(..) => "probe_stored_tokens",
+            Self::ValidateCachedSession(..) => "validate_cached_session",
+            Self::ReadSurvivingRefreshToken { .. } => "read_surviving_refresh_token",
+            Self::CheckTokenStorageAvailable(..) => "check_token_storage_available",
+            Self::RetryProbeAfter { .. } => "retry_probe_after",
+            Self::AutoLogin { .. } => "auto_login",
+            Self::JoinRestore => "join_restore",
+            Self::RestoreFinished => "restore_finished",
+            Self::SetLoading(..) => "set_loading",
+            Self::ClearExternalSignInFailureDetail => "clear_external_sign_in_failure_detail",
+            Self::QuiesceTokenWork { .. } => "quiesce_token_work",
+            Self::CheckOnline(..) => "check_online",
+            Self::RunExchange { .. } => "run_exchange",
+            Self::FetchUser(..) => "fetch_user",
+            Self::SignInSucceeded(..) => "sign_in_succeeded",
+            Self::SignInFailed { .. } => "sign_in_failed",
+            Self::RefreshTeams(..) => "refresh_teams",
+            Self::RunPostSignInHook(..) => "run_post_sign_in_hook",
+            Self::SessionCheckRateLimited { .. } => "session_check_rate_limited",
+            Self::SessionCheckSucceeded => "session_check_succeeded",
+            Self::SleepTeamScopeRecovery { .. } => "sleep_team_scope_recovery",
+            Self::CancelTeamScopeRecovery { .. } => "cancel_team_scope_recovery",
+            Self::CancelInFlightWork { .. } => "cancel_in_flight_work",
+            Self::CaptureTeardownCredentialsAndClearLocalSession { .. } => {
+                "capture_teardown_credentials_and_clear_local_session"
+            }
+            Self::EndSignOutCredentialCapture => "end_sign_out_credential_capture",
+            Self::WaitForPostSignInHooks { .. } => "wait_for_post_sign_in_hooks",
+            Self::ServerTeardown => "server_teardown",
+            Self::FailTokenRead(..) => "fail_token_read",
+            Self::TryDevAuthAccessToken => "try_dev_auth_access_token",
+            Self::PhaseStarted { .. } => "phase_started",
+            Self::PhaseRefused { .. } => "phase_refused",
+            Self::PhaseResultStands { .. } => "phase_result_stands",
+            Self::PhaseResultDropped { .. } => "phase_result_dropped",
+            Self::AwaitSignOutCapture { .. } => "await_sign_out_capture",
+            Self::CompareStaleRefreshToken { .. } => "compare_stale_refresh_token",
+        }
+    }
 }

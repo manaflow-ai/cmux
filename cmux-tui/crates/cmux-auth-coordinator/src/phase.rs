@@ -113,14 +113,14 @@ pub const TIMED_OUT_RESET: Duration = Duration::from_secs(30);
 /// hung on a dead connection does not get hammered by automatic retries
 /// (Swift `AuthPhaseTimeoutRegistry`). Time is passed in as monotonic
 /// nanoseconds.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PhaseDamper {
     reset_nanos: u64,
     active: BTreeMap<AuthPhase, BTreeSet<u64>>,
     timed_out: BTreeMap<AuthPhase, TimedOut>,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct TimedOut {
     id: u64,
     expires_at: u64,

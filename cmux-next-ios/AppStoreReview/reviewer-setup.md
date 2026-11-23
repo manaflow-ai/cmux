@@ -35,7 +35,8 @@ password field to fill.
    reviewer.
 4. In-app purchases: Settings → "Plan" opens "Plans" with cmux Go, cmux Pro and
    cmux Max, monthly auto-renewable subscriptions (`com.cmux.app.go.monthly`,
-   `.pro.monthly`, `.max.monthly`). "Subscribe" buys in the Sandbox and the plan
+   `.pro.monthly`, `.max.monthly`; which products the cmux INTERNAL submission
+   carries is an open decision, cmuxterm-hq#18093). "Subscribe" buys in the Sandbox and the plan
    shows as "Current plan". "Restore Purchases" is on the same screen;
    "Manage Subscription" appears once the account has an App Store
    subscription. "Terms of Use", "Privacy Policy" and the 3.1.2 renewal terms
@@ -62,8 +63,21 @@ app source to check.
   of the app." and App Review finds no in-app purchases. The account must also
   not be billed through a team or on the web, which hide the offers ("Your team
   admin manages billing for this account.", "You subscribe on the web.").
-- The subscriptions submitted with the version (`com.cmux.app.go.monthly`,
-  `.pro.monthly`, `.max.monthly`) are the ones "Plans" lists: the server lists
+- The submission is cmux INTERNAL (`dev.cmux.app.internal`, ASC 6791408425),
+  not `com.cmux.app`. Whether 6791408425 has an App Store version, metadata and
+  privacy answers in App Store Connect is not verified.
+- cmux INTERNAL (`dev.cmux.app.internal`, ASC 6791408425) has no subscriptions
+  on its App Store record and the server sells it none, so its "Plans" screen
+  shows only the current plan, read-only: no prices, no purchase, Restore
+  Purchases or Manage Subscription control, no subscription terms, and no
+  text about buying (`BillingPurchaseAvailability`, App Review 2.1 and
+  3.1.1). Submit no subscriptions with an INTERNAL version and do not mention
+  in-app purchases in its review notes. The offers come back by themselves
+  once the INTERNAL record has its `dev.cmux.app.internal.<plan>.<period>`
+  products and production's `APPLE_IAP_BUNDLE_IDS` lists the bundle.
+- The subscriptions submitted with the version (today's ids are
+  `com.cmux.app.go.monthly`, `.pro.monthly`, `.max.monthly`; which product ids
+  the INTERNAL submission uses is open, cmuxterm-hq#18093) are the ones "Plans" lists: the server lists
   cmux Go only while its flag is on, so a submitted Go product with the flag
   off is a product the reviewer cannot find.
 - A reviewer may delete the demo account (the notes ask them to try it last).

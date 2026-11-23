@@ -310,6 +310,8 @@ pub enum Inbound {
     /// The app's theme and wallpaper, the whole state (`appearance.rs`).
     /// Boxed: the theme, wallpaper and look make it several times any other line.
     Appearance(Box<crate::appearance::FromApp>),
+    /// A browser tab's favicon or thumbnail the app wrote to a file (`tab_snapshots.rs`).
+    TabPicture(crate::tab_snapshots::PictureFile),
     /// The app's Cloud links for `need_cloud_links` `request`. `paid` (absent from an
     /// older app: false) says the account pays for cmux Cloud; `desktops` (absent: false) that
     /// the person lets phones view their Cloud machine's screen (`phone.cloudDesktop`).
@@ -405,6 +407,16 @@ pub enum Event {
     /// A paired phone signed out and asks the Mac to forget it.
     Unpaired {
         phone_device_id: String,
+    },
+    /// Another of the person's paired devices (`by_device_id`) answered the waiting request of
+    /// `phone_device_id` with these keys (`pair_requests.rs`): the app answers it as the person's
+    /// Allow or Don't Allow, only while that request with these keys still waits.
+    PairAnswer {
+        phone_device_id: String,
+        identity_key: String,
+        approval_key: String,
+        allow: bool,
+        by_device_id: String,
     },
     /// A phone opened browser tab `tab`: start the app's browser host on
     /// `url` and answer with `browser` (or `browser_failed`) for `request`.
@@ -569,6 +581,8 @@ pub fn spawn_stdin_reader() -> Supplied {
                 Some(Inbound::Appearance(appearance)) => {
                     tokio::spawn(crate::appearance::set(*appearance));
                 }
+                // Read off this loop, in line order.
+                Some(Inbound::TabPicture(file)) => crate::tab_snapshots::offer_file(file),
                 Some(Inbound::CloudLinks { request, paid, desktops, links }) => {
                     resolve_cloud_links(request, paid, desktops, links);
                 }
@@ -775,6 +789,19 @@ mod tests {
         let Some(Inbound::Appearance(appearance)) = appearance else { panic!("appearance did not parse") };
         assert_eq!(appearance.theme.accent, "blue");
         assert_eq!(appearance.wallpaper.map(|w| w.path), Some("/tmp/w.jpg".to_owned()));
+        assert_eq!(
+            Inbound::parse(
+                r#"{"type":"tab_picture","surface":7,"part":"thumb","path":"/tmp/t.jpg","w":576,"h":360,"mime":"image/jpeg","captured_at_ms":5}"#
+            ),
+            Some(Inbound::TabPicture(crate::tab_snapshots::PictureFile {
+                surface: 7,
+                part: crate::tab_snapshots::Part::Thumb,
+                path: "/tmp/t.jpg".into(),
+                w: 576,
+                h: 360,
+                captured_at_ms: 5,
+            }))
+        );
         assert_eq!(Inbound::parse(r#"{"type":"nope"}"#), None);
         assert_eq!(Inbound::parse("not json"), None);
     }

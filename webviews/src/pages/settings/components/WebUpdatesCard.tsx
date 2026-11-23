@@ -8,13 +8,12 @@ import { useSettingsState, useStore } from "../context";
 import type { WebUpdatesState, WebUpdateVersion } from "../ops";
 import { locale, t } from "../strings";
 import { ActionRow } from "./ActionRow";
+import { intl } from "../../../ui/intl";
 
 type Run = "check" | "rollback";
 
 function when(seconds: number): string {
-  return new Intl.DateTimeFormat(locale(), { dateStyle: "medium", timeStyle: "short" }).format(
-    new Date(seconds * 1000),
-  );
+  return intl.DateTimeFormat(locale(), { dateStyle: "medium", timeStyle: "short" }).format(new Date(seconds * 1000));
 }
 
 function versionText(version: WebUpdateVersion | null): string {

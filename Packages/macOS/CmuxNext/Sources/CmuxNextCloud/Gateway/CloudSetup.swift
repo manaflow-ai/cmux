@@ -83,7 +83,7 @@ public final class CloudSetup {
         case connection(id: String, family: String)
         /// The organization's shared key for `family`, which the platform edge serves; nothing to send.
         case organization(family: String)
-        /// The active team's inference gateway, in gateway mode and online, serves `family` (``gateway``): the machine's
+        /// The inference gateway of the team the machine is made in, in gateway mode and online, serves `family` (``gateway``): the machine's
         /// agent reaches it through the edge, so nothing is sent (hq#15762).
         case gateway(family: String)
         /// Nothing serves `family`: the chat shows Set up Cloud naming `model`, and nothing starts.
@@ -141,7 +141,7 @@ public final class CloudSetup {
 
     /// Reads what serves Cloud now; nil leaves every start as it was.
     public var read: (@MainActor () async -> Snapshot)?
-    /// The families the active team's inference gateway serves now (`cmux inference gateway status`'s `serves`), nil
+    /// The families the inference gateway of the team the start's machines are made in (the install's own) serves now (`cmux inference gateway status`'s `serves`), nil
     /// when unread. Read only when nothing else serves the chat, so a start that has a connection pays nothing for it.
     public var gateway: (@MainActor () async -> Set<String>?)?
     /// Runs one of the card's ways in (Settings > Models' `cmux.settings.models.run` actions
@@ -189,7 +189,7 @@ public final class CloudSetup {
         return .gateway(family: family)
     }
 
-    /// Whether the active team's gateway serves `family` now (``gateway``); false when it is unread, or when a start on it
+    /// Whether the gateway of the team the machine is made in serves `family` now (``gateway``); false when it is unread, or when a start on it
     /// this run found no model route (``unrouted(harness:model:account:)``).
     private func gatewayServes(_ family: String) async -> Bool {
         guard !unroutedGateway.contains(family) else { return false }
@@ -236,8 +236,29 @@ public final class CloudSetup {
 
     /// The decision for a start on `harness` and `model` (``choose(harness:model:account:)``).
     public func decide(harness: String?, model: String?) async -> Decision {
-        if case .setup(let family, let model) = await choose(harness: harness, model: model, account: nil) { return .setup(family: family, model: model) }
-        return .start
+        guard let refused = await refusal(harness: harness, model: model) else { return .start }
+        return .setup(family: refused.family, model: refused.model)
+    }
+
+    /// A start Set up Cloud holds back (``decide(harness:model:)``), with what its refusal names.
+    public struct Refusal: Equatable, Sendable {
+        public var family: String
+        public var model: String?
+        /// This Mac has a signed-in login of `family` that serves only this Mac (`serves_cloud: false`: the Claude
+        /// Code or Codex CLI's own login), so the refusal says why that one does not count.
+        public var localLogin: Bool
+        /// The Settings > Cloud row that sets `family` up (``Action/settingsRow``).
+        public var settingsRow: String { (family == "codex" ? Action.connectChatGPT : Action.setUpClaude).settingsRow ?? "" }
+    }
+
+    /// ``decide(harness:model:)``'s setup answer, from the same one read; nil when the start goes on (something serves it,
+    /// or nothing could be read).
+    public func refusal(harness: String?, model: String?) async -> Refusal? {
+        guard let family = Self.family(of: harness), let read else { return nil }
+        let snapshot = routed(await read())
+        guard case .setup(_, let model) = snapshot.choice(family: family, model: model, account: nil), !(await gatewayServes(family)) else { return nil }
+        let local = snapshot.personal?.contains { $0.enabled && $0.signedIn && !$0.servesCloud && $0.families.contains(family) } == true
+        return Refusal(family: family, model: model, localLogin: local)
     }
 
     /// The connections changed: every wait checks again.

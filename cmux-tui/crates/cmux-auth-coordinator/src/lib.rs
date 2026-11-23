@@ -20,6 +20,12 @@
 //! runs start (its [`PhaseDamper`] holds timed-out phases back), which runs a
 //! sign-out or sign-in cancels, and what a run that outlived a sign-out does.
 //!
+//! The state is sum-typed (RFD 0026): each region (the published session,
+//! the restore run, the team list, the recovery loop, ...) is one enum whose
+//! variants carry the data only they have. [`Coordinator::step`] is the
+//! reducer with every no-op named as a [`Refusal`], and [`table`] is its
+//! transition table as data, committed as `schemas/auth-coordinator/table.json`.
+//!
 //! [`wire`] is the JSON both app libraries speak, in process on both
 //! platforms (iOS runs no daemon): [`ffi`] is the macOS app's C ABI
 //! (`include/cmux_auth_coordinator.h`, linked through cmux-app-ffi), and
@@ -28,15 +34,18 @@
 mod coordinator;
 mod event;
 pub mod ffi;
+mod machine;
 mod model;
 mod phase;
 pub mod wire;
 
 pub use coordinator::Coordinator;
+pub use coordinator::table::{table, table_text};
 pub use event::{
     AfterTeams, AuthFailure, AutoLoginSource, Effect, Event, Persisted, RestoreTicket,
     RestoreTrigger, SignInFlow, SignInKind, TeamList, TeamRefreshTicket, TokenReadKind,
 };
+pub use machine::Refusal;
 pub use model::{
     AuthState, AuthTeam, AuthUser, AutoLoginCredentials, CachedTeamIdentity, LaunchOptions,
     PrimeInputs, SessionIdentity, TeamScope, is_dev_sign_in_shortcut, resolve_team_id,
