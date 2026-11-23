@@ -39,8 +39,10 @@ impl Hub {
                         name: m.name.clone(),
                         session_id: s.id.clone(),
                         harness: m.harness.clone(),
-                        state: m.status.to_string(),
+                        // A watched chat whose app exited (`app_exit.rs`).
+                        state: super::app_exit::row_status(s, m.status),
                         stuck_reason: None,
+                        cwd: crate::mesh::heartbeat_cwd(&m.cwd.to_string_lossy()),
                         team_address: team_enabled
                             .then(|| {
                                 m.tags
@@ -161,10 +163,10 @@ impl Hub {
     }
 }
 
-/// Whether `host` is this machine's name (never the "host" stand-in for an unusable one).
+/// Whether `host` is this machine's name on the mesh or its host name (never the "host"
+/// stand-in for an unusable one).
 pub(super) fn is_own_host(host: &str) -> bool {
-    let own = crate::pairing::machine_name();
-    own != "host" && host.eq_ignore_ascii_case(&own)
+    crate::pairing::is_this_machine(host)
 }
 
 #[cfg(test)]
