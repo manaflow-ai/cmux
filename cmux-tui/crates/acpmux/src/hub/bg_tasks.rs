@@ -307,7 +307,7 @@ impl Hub {
             .map_err(|e| RpcError::internal(format!("{e:#}")))?;
         let mut env: BTreeMap<String, String> =
             crate::agent::command_env(&cmd).into_iter().collect();
-        env.extend(harness_identity_env(meta));
+        let _ = harness_identity_env(meta); // RED-FIRST PROOF: fix disabled
         Ok(env)
     }
 
