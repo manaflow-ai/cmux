@@ -163,3 +163,19 @@ test("what comes between the wake turns stays in sight: a compaction, a command'
   for (const id of WORK) expect(ids).not.toContain(id);
   expect(ids.indexOf("message")).toBeLessThan(ids.indexOf(`worked-${backgroundTurnRowId("build")}`));
 });
+
+test("a stopped wake turn's Worked for draws open, and a click closes it", () => {
+  // As a stopped turn the person started: its work stays in sight until a click folds it. From a
+  // replay of a recorded chat, where the click on a stopped wake turn's fold did nothing.
+  const rows = chat().map((entry) => (entry.id === "build-summary" ? { ...entry, status: "cancelled" } : entry));
+  const id = `worked-${backgroundTurnRowId("build")}`;
+  const view = (folds: ReadonlySet<string>) => turnView(rows, folds, { now: 60_000, agentFamily: "claude" });
+  const rest = view(new Set());
+  expect(rest.find((entry) => entry.id === id)).toMatchObject({ foldOpen: true });
+  expect(drawnIds(rest)).toContain("build-check");
+  const closed = toggleTurnFold(rows, new Set(), id);
+  expect(view(closed).find((entry) => entry.id === id)).toMatchObject({ foldOpen: false });
+  expect(drawnIds(view(closed))).not.toContain("build-check");
+  const reopened = toggleTurnFold(rows, closed, id);
+  expect(view(reopened).find((entry) => entry.id === id)).toMatchObject({ foldOpen: true });
+});
