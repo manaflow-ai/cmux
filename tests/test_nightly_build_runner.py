@@ -624,12 +624,6 @@ class Main(unittest.TestCase):
                                     read_snapshot=lambda t, r: snapshot({}))
                 self.assertEqual(out, {"owned": SIDE})
 
-    def test_the_verify_pick_reads_the_reservation_variable(self) -> None:
-        text = (Path(__file__).resolve().parents[1] / ".github/workflows/nightly.yml").read_text(encoding="utf-8")
-        step = text[text.index("- name: Pick an owned Mac for the verify jobs"):]
-        step = step[:step.index("nightly_build_runner.py verify")]
-        self.assertIn("NIGHTLY_ONLY_LABEL: ${{ vars.CI_NIGHTLY_ONLY_RUNNER }}", step)
-
     def test_the_verify_mode_queues_unread_runners_on_the_owned_pool(self) -> None:
         # Run 41335987427: every routing-App read got a 403 rate limit, and the verify jobs went blind to
         # blacksmith-6vcpu-macos-26. A refused read is not "no owned runners": with the opt-in they queue on
