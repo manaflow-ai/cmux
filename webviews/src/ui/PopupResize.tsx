@@ -97,6 +97,19 @@ function applySize(popup: HTMLElement, width: number | undefined, height: number
   }
 }
 
+/// Marks `popup` resizable and sizes it (applySize), outside the component: the popup is held in state,
+/// and the React Compiler skips a component that writes to a value it holds.
+function sizePopup(popup: HTMLElement, width: number | undefined, height: number | undefined, least: number) {
+  popup.dataset.resizable = "";
+  applySize(popup, width, height, least);
+}
+
+/// Marks the sizes a drag on `axes` writes, so a reset or an unchanged drag clears them again.
+function markDragged(popup: HTMLElement, axes: PopupResizeAxes) {
+  if (axes !== "height") popup.dataset.resizedWidth = "";
+  if (axes !== "width") popup.dataset.resizedHeight = "";
+}
+
 /// The three grips, drawn as the popup's own children. `side` and `align` are what the popup asked
 /// for; where it actually opened (a flip) wins once it is placed.
 export function PopupResizeGrips({
@@ -132,9 +145,7 @@ export function PopupResizeGrips({
     return () => observer.disconnect();
   }, [popup, side, align]);
   useLayoutEffect(() => {
-    if (!popup) return;
-    popup.dataset.resizable = "";
-    if (!dragging.current) applySize(popup, width, height, leastWidth);
+    if (popup && !dragging.current) sizePopup(popup, width, height, leastWidth);
   }, [popup, width, height, leastWidth]);
   const start = (event: React.PointerEvent<HTMLDivElement>, axes: PopupResizeAxes) => {
     const node = event.currentTarget.parentElement;
@@ -156,9 +167,7 @@ export function PopupResizeGrips({
       },
       onStart: () => {
         dragging.current = true;
-        // The drag writes these sizes: marked, so a reset or an unchanged drag clears them again.
-        if (axes !== "height") node.dataset.resizedWidth = "";
-        if (axes !== "width") node.dataset.resizedHeight = "";
+        markDragged(node, axes);
       },
       onEnd: (size) => {
         dragging.current = false;
