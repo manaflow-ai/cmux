@@ -217,13 +217,26 @@ public nonisolated enum MotionTunables {
         var descriptors: [TunableDescriptor] = MotionSpring.allCases.compactMap { springs[$0]?.descriptor }
         descriptors += MotionFade.allCases.compactMap { fades[$0]?.descriptor }
         descriptors += MotionLoop.allCases.compactMap { loops[$0]?.descriptor }
-        let numbers: [Tunable<Double>] = [
-            marqueeDelay, marqueeSpeed, marqueeMinimumScroll, marqueeHold, marqueeMinimumTravel,
-            tooltipDelay, tooltipWarm, hoverCardGrace, hoverCardAim,
-            panelOpenScale, panelCloseScale, popupOpenScale, popupCloseScale,
-            agentCursorGlideScale, agentCursorGlideMax,
+        // Descriptors, not the tunables themselves: the list only reads each one's descriptor, as the
+        // `+` chain did, so it is no tunable's default source (defaults_guard).
+        let numbers: [TunableDescriptor] = [
+            marqueeDelay.descriptor,
+            marqueeSpeed.descriptor,
+            marqueeMinimumScroll.descriptor,
+            marqueeHold.descriptor,
+            marqueeMinimumTravel.descriptor,
+            tooltipDelay.descriptor,
+            tooltipWarm.descriptor,
+            hoverCardGrace.descriptor,
+            hoverCardAim.descriptor,
+            panelOpenScale.descriptor,
+            panelCloseScale.descriptor,
+            popupOpenScale.descriptor,
+            popupCloseScale.descriptor,
+            agentCursorGlideScale.descriptor,
+            agentCursorGlideMax.descriptor,
         ]
-        descriptors += numbers.map(\.descriptor)
+        descriptors += numbers
         return descriptors
     }
 }
