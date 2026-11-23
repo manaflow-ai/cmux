@@ -192,6 +192,7 @@ async fn exercise_selection_then_creation(
                     video: None,
                     session_exposure: None,
                     route: None,
+                    path: None,
                 },
                 Arc::new(LinkAuth::default()),
                 incoming,
