@@ -24,16 +24,18 @@ nonisolated struct CEFLocale: Equatable, Sendable {
     /// (only a folder holding a `locale.pak` counts).
     static func current(frameworkDirectory: URL, downloadedDirectory: URL? = nil,
                         preferredLanguages: [String] = Locale.preferredLanguages) -> CEFLocale {
-        let resources = frameworkDirectory.appending(path: "Resources")
-        var names = (try? FileManager.default.contentsOfDirectory(atPath: resources.path)) ?? []
+        var names = listing(frameworkDirectory.appending(path: "Resources"))
         if let downloadedDirectory {
-            // blocking-allow: like the framework's listing above, read when the library is opened, off the main thread
-            let downloaded = (try? FileManager.default.contentsOfDirectory(atPath: downloadedDirectory.path)) ?? []
-            names += downloaded.filter {
+            names += listing(downloadedDirectory).filter {
                 FileManager.checked.fileExists(atPath: downloadedDirectory.appending(path: "\($0)/locale.pak").path)
             }
         }
         return resolve(preferredLanguages: preferredLanguages, available: available(lprojNames: names))
+    }
+
+    /// The entries of `directory`, none when it is missing. The library is opened off the main thread.
+    private static func listing(_ directory: URL) -> [String] {
+        (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
     }
 
     static func resolve(preferredLanguages: [String], available: Set<String>) -> CEFLocale {
