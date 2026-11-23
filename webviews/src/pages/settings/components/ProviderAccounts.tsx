@@ -17,6 +17,7 @@
 // daemon that has no `_acpmux/account/sign_in`, the same gestures open the terminal tab as before.
 import { useId, useState } from "react";
 import { PlanUsageCardBody } from "../../../agent-session/acpmux/PlanUsageCard";
+import "../paneStrings";
 import { Button } from "../../../ui/Button";
 import { Input } from "../../../ui/Input";
 import { useStore } from "../context";
