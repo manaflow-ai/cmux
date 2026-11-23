@@ -1811,6 +1811,7 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
     if std::env::var("ACPMUX_DURESS_PERF").is_ok() {
         perf_summary(&home);
     }
+    daemon_memory(daemon.pid());
     let hub_requests = hub.requests.load(Ordering::SeqCst) - hub_requests_before;
     let hub_paths: BTreeMap<String, u64> = hub
         .paths
@@ -2203,6 +2204,35 @@ fn perf_summary(home: &Path) {
     for (t, n) in notes {
         eprintln!("DURESS-PERF note x{n}: {t}");
     }
+}
+
+/// EXPERIMENT: the daemon's memory high-water mark, threads and its cgroup's memory events.
+fn daemon_memory(pid: u32) {
+    let status = std::fs::read_to_string(format!("/proc/{pid}/status")).unwrap_or_default();
+    let pick: Vec<&str> = status
+        .lines()
+        .filter(|l| {
+            ["VmHWM", "VmRSS", "Threads", "voluntary_ctxt", "nonvoluntary_ctxt"]
+                .iter()
+                .any(|k| l.starts_with(k))
+        })
+        .collect();
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap_or_default();
+    let cpu: Vec<&str> = stat
+        .rsplit_once(')')
+        .map(|(_, r)| r.split_whitespace().skip(11).take(2).collect())
+        .unwrap_or_default();
+    let cg = std::fs::read_to_string(format!("/proc/{pid}/cgroup")).unwrap_or_default();
+    let path = cg.lines().find_map(|l| l.strip_prefix("0::")).unwrap_or("").to_owned();
+    let events =
+        std::fs::read_to_string(format!("/sys/fs/cgroup{path}/memory.events")).unwrap_or_default();
+    let pressure = std::fs::read_to_string(format!("/sys/fs/cgroup{path}/memory.pressure"))
+        .unwrap_or_default();
+    eprintln!(
+        "DURESS-PERF daemon {pick:?} utime+stime ticks {cpu:?} cgroup {path} events {:?} pressure {:?}",
+        events.replace('\n', " "),
+        pressure.replace('\n', " ")
+    );
 }
 
 fn slow_readers(socket: &Path, big: &[String]) -> (Vec<Rpc>, BTreeMap<String, u64>) {
