@@ -133,6 +133,7 @@ mod debug_perf;
 #[cfg(unix)]
 mod dev;
 mod docs;
+pub(crate) mod engine_words;
 mod event_match;
 #[cfg(unix)]
 mod ext;
