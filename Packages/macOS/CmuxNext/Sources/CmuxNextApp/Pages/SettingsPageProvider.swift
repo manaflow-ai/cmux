@@ -474,11 +474,10 @@ final class SettingsPageProvider: PageProvider {
         context.page == PageDescriptor.settings.id ? .user : .caller("page")
     }
 
-    /// The person's own click or key in this page backs `context` (``PageCallContext/requirePerson(on:backs:refusal:claim:)``),
-    /// for any row, or for `descriptor` when it is person-only (``ComputerUseSettings/isPersonOnly(_:)``).
-    func requirePerson(_ context: PageCallContext, for descriptor: SettingDescriptor? = nil, claim: (@MainActor (TimeInterval) -> Bool)? = nil) throws {
+    /// The person's own click or key here backs `context`: for any row, or for a person-only `descriptor` (``ComputerUseSettings/isPersonOnly(_:)``).
+    func requirePerson(_ context: PageCallContext, for descriptor: SettingDescriptor? = nil) throws {
         guard descriptor.map({ ComputerUseSettings.isPersonOnly($0.path) }) ?? true else { return }
-        try context.requirePerson(on: PageDescriptor.settings.id, backs: personBacksGesture, refusal: Self.personOnly, claim: claim)
+        try context.requirePerson(on: PageDescriptor.settings.id, backs: personBacksGesture, refusal: Self.personOnly)
     }
 
     static func userOnlyError(_ refusal: SettingUserOnly) -> PageError {

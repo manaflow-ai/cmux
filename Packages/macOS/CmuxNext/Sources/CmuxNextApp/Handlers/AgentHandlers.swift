@@ -133,9 +133,7 @@ enum AgentHandlers {
                 let decision = invocation["decision"]?.stringValue
                 if id == "computerUse.approval.set", decision != "always", decision != "never" { return .refused(ComputerUseSessionStrings.noDecision) }
                 // SECURITY: Always and Forget widen, so from the page they need the person's own input (``ComputerUseSettings/isPersonOnly(_:)``).
-                if invocation.origin == .page, id != "computerUse.approval.set" || decision == "always", !context.services.personInput.backsNow {
-                    return .refused(RefusalStrings.personOnlyFromPage)
-                }
+                if invocation.origin == .page, id != "computerUse.approval.set" || decision == "always", !context.services.personInput.backsNow { return .refused(RefusalStrings.personOnlyFromPage) }
                 let remote = context.services.cmuxRemote
                 // action-wait-allow: the saved approvals live in cmux Remote's Computer Use worker, another process.
                 return .waiting(.externalProcess) {
