@@ -149,7 +149,7 @@ const fresh = (sessions: AcpmuxSessionEntry[]) => noChat(sessions, { summary: { 
 
 test("an open PR from another chat here is suggested, with a Tab keycap", async () => {
   await render(fresh([prChat()]));
-  expect(shown()).toBe("Continue PR #123: Retry failed uploadsTab");
+  expect(shown()).toBe("Continue PR #123: Retry failed uploadstab");
   expect(key()).toBe("tab");
 });
 
@@ -563,7 +563,7 @@ const typeText = (text: string) =>
 
 test("an existing chat's agent suggestion shows as the empty prompt's ghost text with the Tab keycap", async () => {
   await render(afterTurn());
-  expect(shown()).toBe(`${AGENT_SUGGESTION}Tab`);
+  expect(shown()).toBe(`${AGENT_SUGGESTION}tab`);
   expect(key()).toBe("tab");
 });
 
@@ -607,7 +607,7 @@ test("typing spends the agent suggestion: emptying the field again does not brin
   expect(field().textContent).toBe("");
   // The next turn's suggestion (a newer record) shows again.
   await render(afterTurn({ promptSuggestion: { text: "Open a PR", seq: 20 } }));
-  expect(shown()).toBe("Open a PRTab");
+  expect(shown()).toBe("Open a PRtab");
 });
 
 test("a suggestion that arrives over a draft is not shown, and keys over the draft keep their behaviour", async () => {

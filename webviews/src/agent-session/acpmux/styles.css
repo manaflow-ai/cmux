@@ -279,8 +279,7 @@
 .acpmux-help-row:has(.acpmux-help-label){flex-wrap:wrap;height:auto;min-height:var(--ui-row-height)}
 .acpmux-help-label{flex:0 0 100%;padding-top:var(--grid-step);padding-bottom:var(--grid-half-step);font-size:var(--text-caption);color:var(--acpmux-composer-dim);pointer-events:none}
 .acpmux-help-row[data-help-kind="key"] .acpmux-slash-name{flex:1 1 0}
-.acpmux-help-keys{flex:none;display:flex;gap:var(--grid-half-step)}
-.acpmux-help-keys kbd{/* concentric-allow: a keycap, not a container of buttons */font:var(--text-caption)/1 var(--font-ui);padding:var(--grid-half-step) var(--ds-space-1);border-radius:4px;background:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));color:var(--agent-soft)}
+.acpmux-help-keys{flex:none;display:flex;gap:var(--ds-space-2)}
 .acpmux-import-input{display:none}
 /* New tab page (NewTabPage.tsx, #16620): one field with a Terminal | Browser | Agent switch
    that Tab cycles, each option with its shortcut, over the recent sessions. Same surfaces
