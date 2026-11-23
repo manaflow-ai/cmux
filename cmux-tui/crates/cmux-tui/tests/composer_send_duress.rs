@@ -19,8 +19,9 @@
 //! Per link condition (`lossy-3`, `lossy-10`, `flap`: good-wifi dark 2 s every 6 s, `redial`:
 //! lossy-3 with each Send fired while the phone's channel is being replaced) and per client policy:
 //!
-//! - `legacy`: a Rust model of the Swift composer and `DaemonTerminalSession` input queue at this
-//!   checkout's base ([`Legacy`], Swift lines cited);
+//! - `legacy`: a Rust model of the Swift composer at this checkout's base, projected: every Send
+//!   two unkeyed writes (text, then Return 60 ms later) through `DaemonTerminalSession`'s input
+//!   queue ([`Legacy`], Swift lines cited);
 //! - `outbox`: the same person driving `cmux_composer_send::Outbox`.
 //!
 //! The person taps Send every 300-700 ms (seeded) and taps again when the text comes back to the
@@ -61,8 +62,6 @@ const ATTEMPT_TIMEOUT: Duration = Duration::from_secs(10);
 const INPUT_HOLD: Duration = Duration::from_secs(10);
 /// `ComposerSubmit.enterDelay` (ComposerSubmit.swift:21): the mirror path's Return after the text.
 const ENTER_DELAY: Duration = Duration::from_millis(60);
-/// `TerminalModel.heldComposerSendWindow` (TerminalModel.swift:647).
-const HELD_WINDOW: Duration = Duration::from_secs(30);
 /// `DaemonTerminalSession.maxInputInFlight` (DaemonTerminalSession.swift:232).
 const MAX_IN_FLIGHT: usize = 64;
 /// After a failed channel, the next attach (the model's stand-in for `scheduleAutoReattach`).
@@ -71,8 +70,14 @@ const REATTACH_DELAY: Duration = Duration::from_secs(1);
 const RETAPS: u32 = 3;
 /// After the last tap, how long a scenario may take to settle.
 const SETTLE: Duration = Duration::from_secs(150);
-const SEND_KEY_CAPABILITY: &str = "send-key-v1";
-const PASTE_SUBMIT_CAPABILITY: &str = "send-expect-agent-v1";
+
+/// To the process's stderr itself: the libtest harness captures `eprintln!` from a passing test
+/// (the hosted `cargo test` shows none of it), not a write to `std::io::stderr()`.
+macro_rules! say {
+    ($($arg:tt)*) => {{
+        let _ = writeln!(std::io::stderr(), $($arg)*);
+    }};
+}
 
 fn env_u64(name: &str, default: u64) -> u64 {
     std::env::var(name).ok().and_then(|value| value.trim().parse().ok()).unwrap_or(default)
@@ -379,19 +384,23 @@ trait Phone: Send {
     fn io(&mut self) -> &mut Io;
 }
 
-/// The phone at this checkout's base: `TerminalModel.send()` (TerminalModel.swift:599) and
-/// `DaemonTerminalSession`'s input queue (DaemonTerminalSession.swift). Approximations:
-/// one channel carries attach and input (Swift has an input lane beside the attach channel;
-/// `inputClient ?? client`, :1606), so the lane's 10 s answer bound (`abandonInputLane`, :1716)
-/// fails the whole channel and the terminal reattaches after [`REATTACH_DELAY`]; writes complete at
-/// once (`inputWriting` never holds the queue); the composer is empty whenever text comes back.
+/// The phone at this checkout's base. A projected terminal (the default since #49901) never took
+/// the keyed daemon path: `TerminalProjectingSession` did not pass `sendPasteAndSubmit` on, so every
+/// composer Send went through the mirror (TerminalSurfaceView.swift:816) as two unkeyed `send`s, the
+/// text and then a Return [`ENTER_DELAY`] later, through `DaemonTerminalSession`'s input queue
+/// (`enqueueTyped` :418, `drainInput` :1600, `inputSettled` :1745). A dropped or timed-out batch
+/// handed the draft back (the screen said not sent), and the person sent it again.
+///
+/// Approximations: one channel carries attach and input (Swift has an input lane beside the attach
+/// channel; `inputClient ?? client`, :1606), so the lane's 10 s answer bound (`abandonInputLane`,
+/// :1716) fails the whole channel and the terminal reattaches after [`REATTACH_DELAY`]; writes
+/// complete at once (`inputWriting` never holds the queue); every Send whose text or Return was in
+/// a dropped batch gets its draft back (Swift's `heldComposerSend` hands back only the last held
+/// one, within 30 s); an error reply drops like a failure; the composer is empty whenever text comes
+/// back.
 struct Legacy {
     io: Io,
-    nonce: String,
     attached: bool,
-    /// `pasteSubmit`, `sendKeys` (:111, :196; set from identify at :965-973).
-    paste_submit: bool,
-    send_keys: bool,
     /// `refusingInput` (:205; cleared at the attach, :1113).
     refusing: bool,
     input: VecDeque<Queued>,
@@ -399,79 +408,56 @@ struct Legacy {
     recovering: bool,
     failed: Vec<Failed>,
     next_batch: u64,
-    next_key: u64,
-    next_paste: u64,
-    /// `pasteNotSent`: a composer paste's way back to the composer.
-    paste_not_sent: HashMap<u64, usize>,
-    /// `TerminalModel.heldComposerSend` (TerminalModel.swift:661).
-    held: Option<(usize, Instant)>,
     /// `Task.sleep(inputHoldLimit)` then `expireInput()` (:438, :465).
     expiries: Vec<Instant>,
-    /// The mirror path's Return, `ENTER_DELAY` after its text (TerminalSurfaceView.swift:823).
-    enters: Vec<Instant>,
+    /// The mirror path's Return, `ENTER_DELAY` after its text, for its Send.
+    enters: Vec<(Instant, usize)>,
 }
 
 struct Queued {
     bytes: Vec<u8>,
     at: Instant,
     detached: bool,
-    key: Option<String>,
-    paste: Option<u64>,
+    msg: usize,
 }
 
 struct Flight {
     id: u64,
     number: u64,
-    batch: Vec<u8>,
-    at: Instant,
-    key: Option<String>,
-    resent: bool,
-    paste: Option<u64>,
+    msgs: Vec<usize>,
     deadline: Instant,
 }
 
 /// `inputFailed` (always `written: true` here: writes complete at once, so every failure is
-/// after the write).
+/// after the write, uncertain, and unkeyed: never resent by the queue).
 struct Failed {
     number: u64,
-    batch: Vec<u8>,
-    at: Instant,
-    key: Option<String>,
-    resent: bool,
-    paste: Option<u64>,
+    msgs: Vec<usize>,
 }
 
 impl Legacy {
-    fn new(surface: u64, nonce: &str) -> Self {
+    fn new(surface: u64, _nonce: &str) -> Self {
         Legacy {
             io: Io { surface, ..Io::default() },
-            nonce: nonce.to_owned(),
             attached: false,
-            paste_submit: false,
-            send_keys: false,
             refusing: false,
             input: VecDeque::new(),
             flights: Vec::new(),
             recovering: false,
             failed: Vec::new(),
             next_batch: 0,
-            next_key: 0,
-            next_paste: 0,
-            paste_not_sent: HashMap::new(),
-            held: None,
             expiries: Vec::new(),
             enters: Vec::new(),
         }
     }
 
     /// `enqueueTyped` (:418).
-    fn enqueue(&mut self, bytes: Vec<u8>, paste: Option<u64>, now: Instant) {
+    fn enqueue(&mut self, bytes: Vec<u8>, msg: usize, now: Instant) {
         if self.refusing && !self.attached {
-            self.input_not_sent(now);
-            self.paste_was_not_sent(paste);
+            self.not_sent(vec![msg]);
             return;
         }
-        self.input.push_back(Queued { bytes, at: now, detached: !self.attached, key: None, paste });
+        self.input.push_back(Queued { bytes, at: now, detached: !self.attached, msg });
         // `inputHoldBytes` is never reached by these Sends.
         if self.attached {
             self.drain(now);
@@ -480,31 +466,18 @@ impl Legacy {
         }
     }
 
-    /// `TerminalModel`'s `.inputNotSent` handler (TerminalModel.swift:326-339): a held composer
-    /// send comes back to the composer.
-    fn input_not_sent(&mut self, now: Instant) {
+    /// The `.inputNotSent` notice (TerminalModel.swift:326-339): each Send's draft comes back once.
+    fn not_sent(&mut self, mut msgs: Vec<usize>) {
         self.io.notices += 1;
-        if let Some((msg, at)) = self.held.take()
-            && now.saturating_duration_since(at) <= HELD_WINDOW
-        {
-            self.io.told.push((msg, Told::NotSent));
-        }
+        msgs.sort_unstable();
+        msgs.dedup();
+        self.io.told.extend(msgs.into_iter().map(|msg| (msg, Told::NotSent)));
     }
 
-    /// `pasteWasNotSent` (:413) then `composerSendNotSent` (TerminalModel.swift:629).
-    fn paste_was_not_sent(&mut self, paste: Option<u64>) {
-        let Some(msg) = paste.and_then(|id| self.paste_not_sent.remove(&id)) else { return };
-        self.held = None;
-        self.io.told.push((msg, Told::NotSent));
-    }
-
-    fn drop_all(&mut self, now: Instant, extra: Vec<Option<u64>>) {
-        let mut pastes = extra;
-        pastes.extend(self.input.drain(..).map(|q| q.paste));
-        self.input_not_sent(now);
-        for paste in pastes {
-            self.paste_was_not_sent(paste);
-        }
+    fn drop_all(&mut self, extra: Vec<usize>) {
+        let mut msgs = extra;
+        msgs.extend(self.input.drain(..).map(|q| q.msg));
+        self.not_sent(msgs);
     }
 
     /// `expireInput` (:477) and `dropDetachedInput` (:484).
@@ -513,13 +486,10 @@ impl Legacy {
         if !self.input.iter().any(|q| q.detached && q.at <= cutoff) {
             return;
         }
-        if self.input.is_empty() {
-            return;
-        }
         if !self.attached {
             self.refusing = true;
         }
-        self.drop_all(now, Vec::new());
+        self.drop_all(Vec::new());
     }
 
     /// `markInputDetached` (:456).
@@ -532,7 +502,8 @@ impl Legacy {
         }
     }
 
-    /// `drainInput` (:1600); writes complete at once, so it loops where Swift recurses.
+    /// `drainInput` (:1600) with no keys: everything queued goes as one batch; writes complete at
+    /// once, so it loops where Swift recurses.
     fn drain(&mut self, now: Instant) {
         loop {
             if !self.attached {
@@ -542,64 +513,27 @@ impl Legacy {
             if self.input.is_empty() {
                 return;
             }
-            if self.input[0].key.is_some() && !self.send_keys {
-                self.drop_all(now, Vec::new());
-                return;
-            }
             if !self.flights.is_empty() && (self.recovering || self.flights.len() >= MAX_IN_FLIGHT)
             {
                 return;
             }
             let number = self.next_batch;
             self.next_batch += 1;
-            // A resend goes alone under its first key, a composer paste alone; new keys
-            // together up to the next resend or paste (:1626-1632).
-            let resend_key = self.input[0].key.clone();
-            let paste = self.input[0].paste;
-            let count = if resend_key.is_some() || paste.is_some() {
-                1
-            } else {
-                self.input
-                    .iter()
-                    .position(|q| q.key.is_some() || q.paste.is_some())
-                    .unwrap_or(self.input.len())
-            };
-            let taken: Vec<Queued> = self.input.drain(..count).collect();
-            let at = taken[0].at;
+            let taken: Vec<Queued> = self.input.drain(..).collect();
             let batch: Vec<u8> = taken.iter().flat_map(|q| q.bytes.iter().copied()).collect();
-            let resent = resend_key.is_some();
-            let key = resend_key.or_else(|| {
-                self.send_keys.then(|| {
-                    self.next_key += 1;
-                    format!("{}-{}", self.nonce, self.next_key)
-                })
-            });
             let surface = self.io.surface;
-            let mut params = if paste.is_some() {
-                json!({"surface": surface, "text": String::from_utf8_lossy(&batch),
-                    "paste": true, "submit": true})
-            } else {
+            let id = self.io.request(
+                "send",
                 json!({"surface": surface,
-                    "bytes": base64::engine::general_purpose::STANDARD.encode(&batch)})
-            };
-            if let Some(key) = &key {
-                params["key"] = json!(key);
-            }
-            let id = self.io.request("send", params);
-            self.flights.push(Flight {
-                id,
-                number,
-                batch,
-                at,
-                key,
-                resent,
-                paste,
-                deadline: now + ATTEMPT_TIMEOUT,
-            });
+                    "bytes": base64::engine::general_purpose::STANDARD.encode(&batch)}),
+            );
+            let msgs = taken.iter().map(|q| q.msg).collect();
+            self.flights.push(Flight { id, number, msgs, deadline: now + ATTEMPT_TIMEOUT });
         }
     }
 
-    /// `inputSettled` (:1745).
+    /// `inputSettled` (:1745): unkeyed failures are never resent; it and every batch after it
+    /// dropped, the screen told (:1776-1785).
     fn settled(&mut self, now: Instant) {
         if !self.flights.is_empty() {
             return self.drain(now);
@@ -608,25 +542,9 @@ impl Legacy {
             self.recovering = false;
             let mut failed = std::mem::take(&mut self.failed);
             failed.sort_by_key(|f| f.number);
-            if !failed.is_empty()
-                && self.send_keys
-                && failed.iter().all(|f| f.key.is_some() && !f.resent)
-            {
-                // Sent again once under their keys, from when they were typed (:1770-1775).
-                for f in failed.into_iter().rev() {
-                    self.input.push_front(Queued {
-                        bytes: f.batch,
-                        at: f.at,
-                        detached: true,
-                        key: f.key,
-                        paste: f.paste,
-                    });
-                }
-                self.mark_detached(now);
-            } else if !failed.is_empty() {
-                // It and every key after it dropped, the screen told (:1776-1785).
-                let pastes = failed.iter().map(|f| f.paste).collect();
-                self.drop_all(now, pastes);
+            if !failed.is_empty() {
+                let msgs = failed.into_iter().flat_map(|f| f.msgs).collect();
+                self.drop_all(msgs);
             }
         }
         self.drain(now);
@@ -635,29 +553,16 @@ impl Legacy {
 
 impl Phone for Legacy {
     fn tap(&mut self, msg: usize, now: Instant) {
-        // holdComposerText (TerminalModel.swift:661).
-        self.held = if self.attached { None } else { Some((msg, now)) };
-        let text = text_of(msg).into_bytes();
-        if self.paste_submit {
-            // sendPasteAndSubmit (:403): one `send {text, paste, submit}`.
-            let id = self.next_paste;
-            self.next_paste += 1;
-            self.paste_not_sent.insert(id, msg);
-            self.enqueue(text, Some(id), now);
-        } else {
-            // The mirror path (TerminalSurfaceView.swift:816): the text now, Return 60 ms later.
-            self.enqueue(text, None, now);
-            self.enters.push(now + ENTER_DELAY);
-        }
+        // The mirror path (TerminalSurfaceView.swift:816): the text now, Return 60 ms later.
+        self.enqueue(text_of(msg).into_bytes(), msg, now);
+        self.enters.push((now + ENTER_DELAY, msg));
     }
 
-    fn attached(&mut self, caps: &[String], now: Instant) {
-        self.send_keys = caps.iter().any(|c| c == SEND_KEY_CAPABILITY);
-        self.paste_submit = caps.iter().any(|c| c == PASTE_SUBMIT_CAPABILITY);
+    fn attached(&mut self, _caps: &[String], now: Instant) {
+        // Projected: the daemon's `send-key-v1` and `send-expect-agent-v1` never reach the
+        // composer, so its Sends stay unkeyed mirror writes whatever the daemon offers.
         self.attached = true;
         self.refusing = false;
-        // TerminalModel.swift:311: an attached terminal holds no composer send.
-        self.held = None;
         self.drain(now);
     }
 
@@ -665,9 +570,8 @@ impl Phone for Legacy {
         let Some(index) = self.flights.iter().position(|f| f.id == id) else { return };
         let flight = self.flights.remove(index);
         if reply["ok"] != json!(true) {
-            self.paste_was_not_sent(flight.paste);
-        } else if let Some(paste) = flight.paste {
-            self.paste_not_sent.remove(&paste);
+            self.recovering = true;
+            self.failed.push(Failed { number: flight.number, msgs: flight.msgs });
         }
         self.settled(now);
     }
@@ -678,14 +582,7 @@ impl Phone for Legacy {
         if !self.flights.is_empty() {
             self.recovering = true;
             for f in std::mem::take(&mut self.flights) {
-                self.failed.push(Failed {
-                    number: f.number,
-                    batch: f.batch,
-                    at: f.at,
-                    key: f.key,
-                    resent: f.resent,
-                    paste: f.paste,
-                });
+                self.failed.push(Failed { number: f.number, msgs: f.msgs });
             }
             self.settled(now);
         }
@@ -693,17 +590,15 @@ impl Phone for Legacy {
     }
 
     fn fresh(&mut self) {
-        // A new session knows nothing of the daemon until its first identify (`pasteSubmit` is
-        // false until then, :111): its Sends take the mirror path. The queue carries over.
-        self.paste_submit = false;
-        self.send_keys = false;
+        // A new session object; the queue carries over (it is the terminal's, not the channel's).
     }
 
     fn tick(&mut self, now: Instant) {
-        let due = self.enters.iter().filter(|at| **at <= now).count();
-        self.enters.retain(|at| *at > now);
-        for _ in 0..due {
-            self.enqueue(b"\r".to_vec(), None, now);
+        let due: Vec<usize> =
+            self.enters.iter().filter(|(at, _)| *at <= now).map(|(_, msg)| *msg).collect();
+        self.enters.retain(|(at, _)| *at > now);
+        for msg in due {
+            self.enqueue(b"\r".to_vec(), msg, now);
         }
         if self.expiries.iter().any(|at| *at <= now) {
             self.expiries.retain(|at| *at > now);
@@ -1065,8 +960,9 @@ async fn scenario(
             assert!(writes.is_empty(), "a detached phone wrote {writes:?}");
         }
         let mut told_now = std::mem::take(&mut phone.io().told);
-        // A paste dropped while held comes back through both handlers, as one text.
-        told_now.dedup();
+        // One way back per text per tick, however many of its batches dropped.
+        told_now.sort_by_key(|(msg, told)| (*msg, matches!(told, Told::MaybeSent)));
+        told_now.dedup_by_key(|(msg, _)| *msg);
         for (msg, told) in told_now {
             if let Some(entry) = fate.get_mut(&msg) {
                 entry.1 = Some(now);
@@ -1091,7 +987,7 @@ async fn scenario(
             break;
         }
         if now > bound {
-            eprintln!("composer-send {} {}: not settled at the bound", cond.name(), policy.name());
+            say!("composer-send {} {}: not settled at the bound", cond.name(), policy.name());
             break;
         }
         let item = match conn.as_mut() {
@@ -1198,7 +1094,7 @@ fn run(policies: &[Policy], sends: usize) -> Vec<Row> {
     for ((mut row, fate), (_, _, surface, log)) in results.into_iter().zip(&plan) {
         let text = daemon.sentinel(*surface, log);
         classify(&mut row, &text, &fate);
-        eprintln!(
+        say!(
             "COMPOSER-SEND {}",
             json!({"condition": row.cond, "policy": row.policy, "sends": row.sends,
                 "applied_once": row.applied_once, "text_without_submit": row.text_without_submit,
@@ -1215,8 +1111,8 @@ fn run(policies: &[Policy], sends: usize) -> Vec<Row> {
 }
 
 fn print_table(rows: &[Row], policies: &[Policy], sends: usize) {
-    eprintln!();
-    eprintln!(
+    say!();
+    say!(
         "composer Send under duress, per {sends} Sends: tws = text without submit, dbl = double submit, lost = lost both, NS = told not sent, MS = told maybe sent"
     );
     let mut header = format!("{:<10}", "condition");
@@ -1231,7 +1127,7 @@ fn print_table(rows: &[Row], policies: &[Policy], sends: usize) {
             "MS"
         ));
     }
-    eprintln!("{header}");
+    say!("{header}");
     for cond in CONDS {
         let mut line = format!("{:<10}", cond.name());
         for policy in policies {
@@ -1250,9 +1146,9 @@ fn print_table(rows: &[Row], policies: &[Policy], sends: usize) {
                 row.told_maybe_sent
             ));
         }
-        eprintln!("{line}");
+        say!("{line}");
     }
-    eprintln!();
+    say!();
 }
 
 #[test]
@@ -1277,7 +1173,7 @@ fn composer_send_duress_table() {
     let started = Instant::now();
     let rows = run(&policies, sends);
     print_table(&rows, &policies, sends);
-    eprintln!("composer_send_duress_table: {:.1} s", started.elapsed().as_secs_f64());
+    say!("composer_send_duress_table: {:.1} s", started.elapsed().as_secs_f64());
 }
 
 /// The outbox (or `COMPOSER_SEND_POLICY=legacy`) on every condition: no text without its
@@ -1292,7 +1188,7 @@ fn composer_send_duress_holds() {
     let started = Instant::now();
     let rows = run(&[policy], sends);
     print_table(&rows, &[policy], sends);
-    eprintln!("composer_send_duress_holds: {:.1} s", started.elapsed().as_secs_f64());
+    say!("composer_send_duress_holds: {:.1} s", started.elapsed().as_secs_f64());
     let bad: Vec<String> = rows
         .iter()
         .filter(|r| r.text_without_submit > 0 || r.double_submit > 0 || r.lost_unreported > 0)
