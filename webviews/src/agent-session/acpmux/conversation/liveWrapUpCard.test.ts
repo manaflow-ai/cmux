@@ -6,6 +6,7 @@
 import { describe, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
 import { NEXT_STEP, turnView } from "./turns";
+import { wrapUpAsk } from "./wrapUp";
 
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow =>
@@ -137,5 +138,28 @@ describe("a wrap-up after the person steered in", () => {
     const ended = order(turnView([...rows, row("s1", "turnSummary", { status: "completed" })], new Set()));
     expect(live).toEqual(["a1", `${NEXT_STEP}-p1`, "st1", "st2"]);
     expect(ended).toEqual(live);
+  });
+});
+
+describe("a wrap-up call that names its fields otherwise", () => {
+  // cmuxterm-hq#18786: calls sent `summary` for `recap`; the tool takes it, so the card draws it.
+  test("draws summary as the recap and question/options as the ask", () => {
+    const tool = (input: unknown) =>
+      ({
+        id: "w",
+        title: "mcp__acpmux__wrap_up",
+        kind: "other",
+        status: "completed",
+        inputSummary: JSON.stringify(input),
+      }) as never;
+    expect(wrapUpAsk(tool({ summary: "The scheduler grant works end to end." }))?.recap).toBe(
+      "The scheduler grant works end to end.",
+    );
+    const ask = wrapUpAsk(tool({ recap: "Done.", summary: "Other.", question: "Open a PR?", options: ["Yes", "No"] }));
+    expect([ask?.recap, ask?.question, ask?.options.map((option) => option.label)]).toEqual([
+      "Done.",
+      "Open a PR?",
+      ["Yes", "No"],
+    ]);
   });
 });

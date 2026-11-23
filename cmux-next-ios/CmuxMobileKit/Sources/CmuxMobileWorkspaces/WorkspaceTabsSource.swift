@@ -110,6 +110,13 @@ public final class WorkspaceTabsSource: TabsDataSource {
         // `opened()`, which the screen calls when it appears.
         if let workspace = store.workspace(id: workspaceID), let tab = store.openingTab(for: workspace) {
             selectedTabID = tab.id
+            // The tab the person was on, missing from a list the Mac sent while its link came back
+            // (a lag, a redial, a refresh): this screen stays on it, shows the opening tab only
+            // until it is listed again, and never takes the stand-in as the person's choice (Leo,
+            // 2026-11-21: "it brought me out of the terminal tab and into a browser tab").
+            if let chosen = store.chosenTab(for: workspace), !workspace.tabs.contains(where: { $0.id == chosen }) {
+                selectedTabID = chosen
+            }
         }
         focusOnOpen = store.wantsFocusOnOpen(workspaceID)
         screenSharingTabOpen = Self.screenSharingTabs.contains(workspaceID)
@@ -132,7 +139,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// keyboard on the next page shown).
     public func opened() {
         hasAppeared = true
-        if let activeTabID, activeTabID != Self.screenSharingTabID { store.noteOpened(tabID: activeTabID, in: workspaceID) }
+        // Only a listed choice is remembered: a stand-in shown while the chosen tab is missing
+        // (a partial list after a lag) would replace it for good.
+        if let selectedTabID, selectedTabID != Self.screenSharingTabID, isListed(selectedTabID) {
+            store.noteOpened(tabID: selectedTabID, in: workspaceID)
+        }
         // `init` already opened on the requested tab: the next open starts where this screen is left.
         store.takeRequestedTab(workspaceID)
         _ = store.takeFocusOnOpen(workspaceID)
@@ -618,7 +629,9 @@ public final class WorkspaceTabsSource: TabsDataSource {
         browsers[id] = nil
         streamed.drop(tab: id, macID: store.workspace(id: workspaceID)?.macID)
         native.drop(tab: id, macID: store.workspace(id: workspaceID)?.macID)
-        if selectedTabID == id || !isListed(selectedTabID) {
+        // Only the closed tab moves the choice: one that is only missing for now (a partial
+        // list) comes back on screen when it is listed again.
+        if selectedTabID == id || selectedTabID == nil {
             selectedTabID = next?.id
             if let next { store.noteOpened(tabID: next.id, in: workspaceID) }
         }
@@ -1734,7 +1747,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
         // `workspaceTab` reads the listed copy: list the removals before reading it.
         refreshTabs()
         // The neighbour of the tab that went (Safari's close), not the first tab: that is often a browser.
-        if !isListed(selectedTabID) { selectedTabID = Self.neighbour(at: shownIndex ?? 0, in: workspace?.tabs ?? [])?.id }
+        // Only a closed choice moves: one only missing for now (a partial list) comes back when listed.
+        if selectedTabID.map(ids.contains) ?? true { selectedTabID = Self.neighbour(at: shownIndex ?? 0, in: workspace?.tabs ?? [])?.id }
         if workspace?.tabs.isEmpty ?? true { exit() }
     }
 
@@ -1848,7 +1862,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         refreshTabs()
         dropDraft(id)
         surfaces[id] = nil
-        if selectedTabID == id || !isListed(selectedTabID) { selectedTabID = next?.id }
+        if selectedTabID == id || selectedTabID == nil { selectedTabID = next?.id }
         if self.workspace?.tabs.isEmpty ?? true { exit() }
     }
 

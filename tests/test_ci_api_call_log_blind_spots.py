@@ -27,6 +27,7 @@ import sys
 import tempfile
 import textwrap
 import unittest
+import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -78,7 +79,10 @@ class BlindSpots(unittest.TestCase):
                    RUNNER_OS="macOS" if sys.platform == "darwin" else "Linux", BASH_ENV=str(LOG / "env.sh"),
                    GITHUB_WORKFLOW="wf", GITHUB_JOB="job", GH_TOKEN="test-token-not-real")
         env.update(extra_env or {})
-        return subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", script], cwd=self.root,
+        # The runner writes each step to $RUNNER_TEMP/<guid>.sh and runs bash on that file.
+        path = self.temp / f"{uuid.uuid4()}.sh"
+        path.write_text(script + "\n")
+        return subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", str(path)], cwd=self.root,
                               env=env, capture_output=True, text=True, timeout=60)
 
     def lines(self, done: subprocess.CompletedProcess) -> list[list[str]]:
@@ -161,6 +165,22 @@ class BlindSpots(unittest.TestCase):
         done = self.step(f"PATH={bare} bash -c '{check}'; PATH={bare}; {later}")
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(done.stdout.splitlines(), ["no curl", "no python3", "no python", "curl 127", "python3 127"])
+
+    def test_a_script_the_step_runs_still_finds_python3_and_curl_on_path(self) -> None:
+        # scripts/install-git-hooks.sh refuses a python3 that `command -v` does not name as an absolute path, and
+        # test helpers keep `real_curl=$(command -v curl)`: a function named python3 or curl in their shell broke both.
+        nested = self.root / "nested.sh"
+        nested.write_text("#!/usr/bin/env bash\nset -e\n"
+                          "for c in python3 curl; do printf '%s %s\\n' \"$c\" \"$(command -v $c)\"; done\n"
+                          "type -t python3 curl\n")
+        nested.chmod(0o755)
+        done = self.step(f"{nested}; bash -c 'command -v python3'")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        out = done.stdout.splitlines()
+        self.assertEqual(out[0], f"python3 {shutil.which('python3', path=f'{self.bin}:{os.environ['PATH']}')}")
+        self.assertEqual(out[1], f"curl {self.bin / 'curl'}")
+        self.assertEqual(out[2:4], ["file", "file"])
+        self.assertTrue(out[4].startswith("/"), out)
 
     def test_the_log_stays_on_through_2026_11_22_and_then_switches_off(self) -> None:
         real_date = shutil.which("date")

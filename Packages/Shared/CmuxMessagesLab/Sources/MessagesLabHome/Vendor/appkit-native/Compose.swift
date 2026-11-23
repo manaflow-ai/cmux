@@ -957,9 +957,19 @@ final class ComposeView: UIView {
     /// The empty draft's one line at any text width from this (a space is about 4 pt wide).
     static let emptyLineMinWidth: CGFloat = 20
     private var emptyLinesMemo: (CGFloat, Int)?
-    /// The placeholders, localized once (each `Strings` read is a bundle table lookup; every
-    /// commit asked for one).
-    private static let placeholders = (field: Strings.placeholder, reply: Strings.replyPlaceholder)
+    /// The placeholders, localized once per strings bundle (each `Strings` read is a bundle table lookup;
+    /// every commit asked for one). cmux: per bundle, not once: the host switches
+    /// `MessagesLabLocalization.bundle` with the app's language (MessagesLabHomeView.useStrings).
+    private var placeholdersMemo: (strings: ObjectIdentifier, field: String, reply: String)?
+    private var placeholders: (field: String, reply: String) {
+        let strings = ObjectIdentifier(MessagesLabLocalization.bundle)
+        if let m = placeholdersMemo, m.strings == strings { return (m.field, m.reply) }
+        let made = (field: Strings.placeholder, reply: Strings.replyPlaceholder)
+        placeholdersMemo = (strings, made.field, made.reply)
+        return made
+    }
+    /// cmux: the placeholder shown is the reply one (a thread is open).
+    private var placeholderIsReply = false
     private var dx: CGFloat { bounds.width - Fixture.windowWidth }
     private var dy: CGFloat { bounds.height - Fixture.windowSize.height }
     var anchorBase: CGFloat { ComposeMetrics.anchorBase + dy }
@@ -1214,6 +1224,15 @@ final class ComposeView: UIView {
     /// The light or dark appearance changed (WindowView.setLightAppearance): the placeholder and the waveform
     /// are drawn again in its ink.
     func appearanceChanged() { renderPlaceholder() }
+    /// cmux: the strings bundle changed (MessagesLabHomeView.useStrings, the app's language): the placeholder
+    /// and the field's label in the new language.
+    func stringsChanged() {
+        let p = placeholderIsReply ? placeholders.reply : placeholders.field
+        guard p != placeholder else { return }
+        placeholder = p
+        renderPlaceholder()
+        textView.view.setAccessibilityLabel(p)
+    }
 
     private func renderPlaceholder() {
         placeholderScale = renderScale
@@ -1338,7 +1357,8 @@ final class ComposeView: UIView {
                 if !DeferredSpellChecker.useAppKit { tv.spell.textDidChange() }
             }
         }
-        let newPlaceholder = state.ui.openThread != nil ? ComposeView.placeholders.reply : ComposeView.placeholders.field
+        placeholderIsReply = state.ui.openThread != nil
+        let newPlaceholder = placeholderIsReply ? placeholders.reply : placeholders.field
         if newPlaceholder != placeholder { placeholder = newPlaceholder; renderPlaceholder(); tv.setAccessibilityLabel(placeholder) }
         // Messages changes the field's height at once for an attachment (no in-between frame at
         // 120 Hz, compose-attach-image paste take) and while typing (field-focus-type-take1 and

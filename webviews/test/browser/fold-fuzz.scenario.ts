@@ -71,6 +71,8 @@ export type FuzzSpec = {
   split: Split;
   /** Earlier turns above the one that folds. */
   history: number;
+  /** hq#18554 ask 3's axes (`fuzzAxes`), drawn from their own stream. */
+  axes: FuzzAxes;
 };
 
 /// The axes hq#18554 ask 3 adds (Leo, 2026-11-22: "EVERY POSSIBLE CASE, NO MATTER HOW WILD"), drawn from

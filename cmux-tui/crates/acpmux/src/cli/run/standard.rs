@@ -41,6 +41,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Chats(..)
             | Command::Board
             | Command::Process(..)
+            | Command::Gc { .. }
             | Command::Worktree(..)
             | Command::Group(..)
             | Command::ShareHost(..)
@@ -78,6 +79,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 &session,
                 thread.as_deref(),
                 mark_read,
+                None,
+                None,
+                None,
+                None,
+                false,
                 json_out,
             )
             .await
@@ -258,11 +264,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             Ok(())
         }
         Command::Ls(args) => super::ls::run(args, json_out).await,
-        Command::New(args) if args.parent.is_some() => {
-            super::parent::run(*args, json_out, deadline).await
-        }
         Command::New(args) => {
-            let args = *args;
+            let mut args = *args;
+            for notice in args.apply_compat() {
+                eprintln!("{notice}");
+            }
+            if args.parent.is_some() {
+                return super::parent::run(args, json_out, deadline).await;
+            }
             // Checked before connecting, so the error needs no daemon. Preparing first preserves
             // launch-file semantics and rejects whitespace-only prompt words like `new "  "`.
             let launch = launch::Launch::prepare(&args)?;
@@ -800,7 +809,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 prompt_id.class.get_or_insert_with(|| "question".to_owned());
                 prompt_id.wake_or_fail = true;
             }
-            let mut steer = send_steers(steer, no_steer, no_wait, agent);
+            let steer = send_steers(steer, no_steer, no_wait, agent);
             if let Some(tag) = tag {
                 if !attach.is_empty() {
                     return Err(errors::AppError::usage(
@@ -893,23 +902,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     .await
                         .map_err(|e| crate::cli::send_relay::attach_error(e, relaying, &session))?;
                 }
-                // A sub-session's send to its parent waits for the parent's turn to end, as its
-                // send_message does (`hub/subsession_send.rs`), --steer or not.
-                // A queued send asks these of the daemon for at most PRE_QUEUE_WAIT: each may go
-                // to a peer that is slow or down, and the message must be queued regardless.
-                if steer {
-                    let parent = to_parent(&client, &session);
-                    let parent = async {
-                        Ok(if no_wait {
-                            tokio::time::timeout(PRE_QUEUE_WAIT, parent).await.unwrap_or(false)
-                        } else {
-                            parent.await
-                        })
-                    };
-                    if before_deadline(deadline, &session, parent).await? {
-                        steer = false;
-                    }
-                }
+                // A sub-session's send to its parent steers like any agent's, as its send_message
+                // does (`hub/subsession_send.rs`): a busy parent reads it at its next tool step.
+                // Leo, 2026-10-29, of a lane's report left behind its coordinator's 15-minute
+                // turn: "the drain guy came back but it's still not doing the right thing".
                 if no_wait {
                     let _ = tokio::time::timeout(PRE_QUEUE_WAIT, announce_machine_wake(&client, &session)).await;
                     return super::send_async::queue(
@@ -1164,7 +1160,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         Command::Chats(cmd) => crate::cli::chats::run(cmd, json_out).await,
         Command::Board => super::board::run(json_out).await,
-        Command::Process(cmd) => crate::cli::process::run(cmd, json_out).await,
+        Command::Process(args) => crate::cli::process::run_args(args, json_out).await,
+        #[cfg(unix)]
+        Command::Gc { apply } => crate::cli::process_census::gc(apply, json_out).await,
+        #[cfg(not(unix))]
+        Command::Gc { .. } => Err(anyhow::anyhow!("acpmux gc: not supported on this platform")),
         Command::Worktree(cmd) => crate::cli::worktree::run(cmd, json_out),
         Command::Group(cmd) => crate::cli::group::run(cmd, json_out).await,
         Command::ShareHost(cmd) => crate::share_host::cli::run(cmd, json_out).await,
@@ -1458,7 +1458,7 @@ async fn briefs(client: Arc<Client>, cmd: BriefsCmd, json_out: bool) -> Result<(
 }
 
 /// The longest a queued send waits on a question to the daemon before it queues the message:
-/// whether the target is the sender's parent, whether its machine is paused. Either may go to
+/// whether the target's machine is paused. It may go to
 /// a peer that is slow or down; on 2026-11-02 sends from a Mac at load 380 hit `timeout 100`
 /// waiting on peers.
 const PRE_QUEUE_WAIT: std::time::Duration = std::time::Duration::from_millis(300);
@@ -1499,32 +1499,6 @@ fn send_queues(w: SendWait) -> bool {
 /// steer it queues.
 fn send_steers(steer: bool, no_steer: bool, no_wait: bool, agent: bool) -> bool {
     !no_steer && (steer || no_wait || agent)
-}
-
-/// Whether the session `target` names is the parent of the acpmux session this send runs in
-/// (its `startedBy`). Only a sub-session asks which session `target` is.
-async fn to_parent(client: &crate::client::Client, target: &str) -> bool {
-    let Some(own) = std::env::var("ACPMUX_SESSION_ID").ok().filter(|v| !v.trim().is_empty()) else {
-        return false;
-    };
-    let info = |key: &str| {
-        client.request(method::MUX_INFO, json!({"sessionId": key, "waitLogs": false, "row": true}))
-    };
-    let Some(parent) = info(&own).await.ok().as_ref().and_then(started_by) else {
-        return false;
-    };
-    if target == parent {
-        return true;
-    }
-    let Ok(key) = orchestrate::expand_session_key(target) else { return false };
-    info(&key)
-        .await
-        .is_ok_and(|t| t.get("sessionId").and_then(Value::as_str) == Some(parent.as_str()))
-}
-
-/// The session that started the one `info` describes, if one did.
-fn started_by(info: &Value) -> Option<String> {
-    info.get("startedBy").and_then(Value::as_str).filter(|p| !p.is_empty()).map(str::to_owned)
 }
 
 /// The agent of the session `info` describes takes a prompt mid-turn.
@@ -1718,6 +1692,10 @@ fn first_prompt_id(args: &crate::cli::command::NewArgs) -> PromptId {
     let mut prompt = PromptId::new(args.prompt_id.clone()).naming_this_caller();
     prompt.from_agent =
         args.from.as_deref().map(str::trim).filter(|f| !f.is_empty()).map(str::to_owned);
+    // A named first prompt proves its sender as `send --from` does (`sender_token.rs`).
+    if prompt.from_agent.is_some() {
+        prompt.sender_token = crate::sender_token::of_this_send(None).ok().flatten();
+    }
     prompt
 }
 
@@ -1776,7 +1754,7 @@ mod tests {
         assert!(line.contains("@user_42/coordinator"));
         assert!(line.contains("startWork=information"));
     }
-    use super::{new_requires_tty, new_without_prompt_requires_tty, send_steers, started_by};
+    use super::{new_requires_tty, new_without_prompt_requires_tty, send_steers};
     use serde_json::json;
 
     /// The send never waits on its fan-out note: an unanswered note yields nothing at once, an
@@ -1838,14 +1816,6 @@ mod tests {
         assert!(read_through_hub(&json!({"sessionId": "s", "peer": "machine-b", "via": "hub"})));
         assert!(!read_through_hub(&json!({"sessionId": "s", "peer": "machine-b"})));
         assert!(!read_through_hub(&json!({"sessionId": "s"})));
-    }
-
-    #[test]
-    fn a_sub_session_names_the_parent_that_started_it() {
-        let child = json!({"sessionId": "child", "startedBy": "p"});
-        assert_eq!(started_by(&child).as_deref(), Some("p"));
-        assert_eq!(started_by(&json!({"sessionId": "root", "startedBy": null})), None);
-        assert_eq!(started_by(&json!({"sessionId": "old"})), None);
     }
 
     #[test]

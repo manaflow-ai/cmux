@@ -116,6 +116,7 @@ test("an opened Grep lists matches by file with their line numbers, and a line o
   setChipHost(async (method, params) => {
     if (method === "link.inspect")
       return {
+        policy: { supportsFileLine: true },
         paths: Object.fromEntries((params.paths as string[]).map((path) => [path, { place: "root", folder: false }])),
       };
     calls.push([method, params]);
@@ -134,7 +135,7 @@ test("an opened Grep lists matches by file with their line numbers, and a line o
   expect(lines[0]!.title).toBe("/work/app/src/a.ts:12");
   await act(async () => lines[2]!.click());
   await act(async () => {});
-  expect(calls).toEqual([["link.openPath", { path: "/work/app/src/lib/b.ts" }]]);
+  expect(calls).toEqual([["link.openPath", { path: "/work/app/src/lib/b.ts", line: 3 }]]);
 });
 
 test("a chat on another machine, whose paths the host does not place, draws its files as text", async () => {

@@ -86,9 +86,9 @@ nonisolated public final class GlassMenuStepperItem: NSMenuItem {
     }
 
     /// The item of the three whose key equivalent `event` presses, as ``GlassMenuRow/item(matching:in:)``
-    /// finds a row's.
+    /// finds a row's. It reads the enabled states of the last ``validate()`` (the row's last
+    /// refresh), not new ones: validated inside the key, the App's rows read disabled.
     @MainActor func part(matching event: NSEvent) -> NSMenuItem? {
-        validate()
-        return GlassMenuRow.item(matching: event, in: parts)
+        GlassMenuRow.item(matching: event, in: parts)
     }
 }

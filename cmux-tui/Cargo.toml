@@ -30,6 +30,7 @@ members = [
     "crates/cmux-history",
     "crates/cmux-imessage",
     "crates/cmux-chat-index",
+    "crates/cmux-apps",
     "crates/cmux-cloud-cli",
     "crates/cmux-cloud-environment",
     "crates/cmux-conversation",
@@ -64,6 +65,7 @@ members = [
     "crates/cmux-follow-cam",
     "crates/cmux-cloud-start-core",
     "crates/cmux-tab-discard",
+    "crates/cmux-lifeline",
     "crates/cmux-cloud-machine",
     "crates/cmux-cloud-tasks",
     "crates/cmux-cloud-config",
@@ -84,6 +86,7 @@ members = [
     "crates/cmux-hub-host",
     "crates/cmux-signed-bundle",
     "crates/cmux-signed-envelope",
+    "crates/cmux-web-pieces",
     "crates/cmux-scope",
     "crates/cmux-file-lock",
     "crates/cmux-files-host",
@@ -96,6 +99,7 @@ members = [
     "crates/cmux-terminal-client",
     "crates/cmux-relay",
     "crates/cmux-fault",
+    "crates/cmux-duress",
     "crates/chatmux-relay",
     "crates/cmux-tui-machine-agent-protocol",
     "crates/cmux-tui-machine-protocol",
@@ -118,6 +122,7 @@ members = [
     "crates/cmux-customize",
     "crates/cmux-customize-recipes",
     "crates/cmux-theme-tokens",
+    "crates/cmux-theme-pack",
     "crates/cmux-image-linear",
     "crates/cmux-app-manifest",
     "crates/cmux-extension-sdk",
@@ -140,6 +145,7 @@ members = [
     "crates/cmux-cookie-sync",
     "crates/cmux-browser-import",
     "crates/cmux-terminal-prediction",
+    "crates/cmux-terminal-projection",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
     "crates/cmux-app-host",
@@ -147,12 +153,15 @@ members = [
     "crates/cmux-mobile-core",
     "crates/cmux-mobile-ffi",
     "crates/cmux-cloud-wire",
+    "crates/cmux-tab-snapshots",
     "crates/cmux-palette-ranker",
     "crates/cmux-palette-eval",
+    "crates/cmux-backdrop-gen",
     "crates/cmux-action-catalog",
     "crates/cmux-host-budget",
     "crates/cmux-device-kind",
     "crates/cmux-usage-patterns",
+    "crates/cmux-usage-share",
     "crates/cmux-vault-egress",
     "crates/cmux-url-input",
     "crates/cmux-view-rows",
@@ -173,6 +182,7 @@ default-members = [
     "crates/acpmux-standalone",
     "crates/acpmux-book",
     "crates/cmux-coderouter",
+    "crates/cmux-apps",
     "crates/cmux-cloud-cli",
     "crates/cmux-conversation",
     "crates/cmux-message-preview",
@@ -203,6 +213,7 @@ default-members = [
     "crates/cmux-focus-core",
     "crates/cmux-cloud-start-core",
     "crates/cmux-tab-discard",
+    "crates/cmux-lifeline",
     "crates/cmux-cloud-machine",
     "crates/cmux-cloud-tasks",
     "crates/cmux-cloud-config",
@@ -218,6 +229,7 @@ default-members = [
     "crates/cmux-hub-host",
     "crates/cmux-signed-bundle",
     "crates/cmux-signed-envelope",
+    "crates/cmux-web-pieces",
     "crates/cmux-scope",
     "crates/cmux-file-lock",
     "crates/cmux-deadline",
@@ -227,6 +239,7 @@ default-members = [
     "crates/cmux-remote",
     "crates/cmux-relay",
     "crates/cmux-fault",
+    "crates/cmux-duress",
     "crates/chatmux-relay",
     "crates/cmux-tui-machine-agent-protocol",
     "crates/cmux-tui-machine-protocol",
@@ -249,6 +262,7 @@ default-members = [
     "crates/cmux-customize",
     "crates/cmux-customize-recipes",
     "crates/cmux-theme-tokens",
+    "crates/cmux-theme-pack",
     "crates/cmux-image-linear",
     "crates/cmux-app-manifest",
     "crates/cmux-extension-sdk",
@@ -269,6 +283,7 @@ default-members = [
     "crates/cmux-cookie-sync",
     "crates/cmux-browser-import",
     "crates/cmux-terminal-prediction",
+    "crates/cmux-terminal-projection",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
     "crates/cmux-app-host",
@@ -319,10 +334,11 @@ uninlined_format_args = "warn"
 semicolon_if_nothing_returned = "warn"
 redundant_clone = "warn"
 # A std/parking_lot guard or RefCell borrow held across `.await` stalls every other locker on the
-# runtime's thread until the task is polled again. 0 findings when enabled; the clippy job's
-# `-D warnings` makes a new one red. Proof: crates/cmux-tui-core/tests/lock_scope_lints.rs.
-await_holding_lock = "warn"
-await_holding_refcell_ref = "warn"
+# runtime's thread until the task is polled again. 0 findings when enabled. "deny", not "warn": pull request
+# clippy runs keep warnings soft (scripts/ci/warnings_policy.py), and this one must stay red. Proof:
+# crates/cmux-tui-core/tests/lock_scope_lints.rs.
+await_holding_lock = "deny"
+await_holding_refcell_ref = "deny"
 # Evaluated and dropped for the same lock-held-across-work class (counts on 2026-11-07's tree, all
 # targets): significant_drop_tightening 1742 (and silent on #32326's shape, whose guard is written
 # after the commit), significant_drop_in_scrutinee 195, large_futures 330 (311 in acpmux).
@@ -341,6 +357,7 @@ cmux-git = { path = "crates/cmux-git" }
 cmux-supervise-core = { path = "crates/cmux-supervise-core" }
 cmux-file-lock = { path = "crates/cmux-file-lock" }
 cmux-signed-envelope = { path = "crates/cmux-signed-envelope" }
+cmux-web-pieces = { path = "crates/cmux-web-pieces" }
 cmux-projection = { path = "crates/cmux-projection" }
 cmux-deadline = { path = "crates/cmux-deadline" }
 cmux-worktree-care = { path = "crates/cmux-worktree-care" }
@@ -354,12 +371,14 @@ cmux-follow-cam = { path = "crates/cmux-follow-cam" }
 cmux-bookmarks-core = { path = "crates/cmux-bookmarks-core" }
 cmux-bookmarks-ops = { path = "crates/cmux-bookmarks-ops" }
 cmux-cloud-start-core = { path = "crates/cmux-cloud-start-core" }
+cmux-lifeline = { path = "crates/cmux-lifeline" }
 cmux-cloud-machine = { path = "crates/cmux-cloud-machine" }
 cmux-cloud-tasks = { path = "crates/cmux-cloud-tasks" }
 cmux-cloud-config = { path = "crates/cmux-cloud-config" }
 cmux-vm-pool = { path = "crates/cmux-vm-pool" }
 cmux-cloud-handlers = { path = "crates/cmux-cloud-handlers" }
 cmux-window-rules = { path = "crates/cmux-window-rules" }
+cmux-apps = { path = "crates/cmux-apps" }
 cmux-build-space = { path = "crates/cmux-build-space" }
 cmux-cloud-client = { path = "crates/cmux-cloud-client" }
 cmux-cloud-api = { path = "crates/cmux-cloud-api" }
@@ -372,11 +391,13 @@ acpmux-hot = { path = "crates/acpmux-hot" }
 cmux-chat-index = { path = "crates/cmux-chat-index" }
 cmux-palette-ranker = { path = "crates/cmux-palette-ranker" }
 cmux-theme-tokens = { path = "crates/cmux-theme-tokens" }
+cmux-theme-pack = { path = "crates/cmux-theme-pack" }
 cmux-image-linear = { path = "crates/cmux-image-linear" }
 cmux-action-catalog = { path = "crates/cmux-action-catalog" }
 cmux-host-budget = { path = "crates/cmux-host-budget" }
 cmux-device-kind = { path = "crates/cmux-device-kind" }
 cmux-usage-patterns = { path = "crates/cmux-usage-patterns" }
+cmux-usage-share = { path = "crates/cmux-usage-share" }
 cmux-command-class = { path = "crates/cmux-command-class" }
 cmux-vault-egress = { path = "crates/cmux-vault-egress" }
 cmux-url-input = { path = "crates/cmux-url-input" }
@@ -418,6 +439,7 @@ cmux-link = { path = "crates/cmux-link" }
 cmux-build-identity = { path = "crates/cmux-build-identity" }
 cmux-netwatch = { path = "crates/cmux-netwatch" }
 cmux-fault = { path = "crates/cmux-fault" }
+cmux-duress = { path = "crates/cmux-duress" }
 cmux-remote = { path = "crates/cmux-remote", default-features = false, features = ["wireguard-transport"] }
 cmux-wg = { path = "crates/cmux-wg" }
 cmux-server = { path = "crates/cmux-server" }
