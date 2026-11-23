@@ -36,6 +36,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let setDefaultSearch: @convention(c) (UnsafePointer<CChar>?) -> Void
     /// The managed preference domain Chromium reads Chrome policies from (`CEFRuntime.chromePolicyIDSetting`).
     let setChromePolicyID: @convention(c) (UnsafePointer<CChar>?) -> Void
+    /// The folder of downloaded Chromium locale paks, read before the framework's (`ChromiumLocalePaks`).
+    let setLocalesDir: @convention(c) (UnsafePointer<CChar>?) -> Void
     /// cmux's own Safe Storage keychain item (`CEFKeychainItem`); nil in a shim without it.
     let setKeychainItem: (@convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32)?
     let setBackgroundColor: @convention(c) (UInt32) -> Void
@@ -364,6 +366,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         setExtensionDeveloperMode = try r("cmux_shim_set_extension_developer_mode")
         setDefaultSearch = try r("cmux_shim_set_default_search")
         setChromePolicyID = try r("cmux_shim_set_chrome_policy_id")
+        setLocalesDir = try r("cmux_shim_set_locales_dir")
         setKeychainItem = r.optional("cmux_shim_set_keychain_item")
         setBackgroundColor = try r("cmux_shim_set_background_color")
         browserSetBackgroundColor = try r("cmux_shim_browser_set_background_color")

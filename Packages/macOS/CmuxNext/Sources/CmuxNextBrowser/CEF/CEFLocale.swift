@@ -8,7 +8,9 @@ import Foundation
 /// (`NSLocale.preferredLanguages`), never from LANG/LC_* (a Finder or
 /// `env -i` launch has none). The UI locale is the first preferred language
 /// that Chromium ships a locale pak for, else en-US, so CEF always gets a
-/// locale whose pak exists and never needs its own fallback.
+/// locale whose pak exists and never needs its own fallback. The paks are the
+/// framework's (a NIGHTLY keeps only `en` there) and the ones downloaded on
+/// first use into `ChromiumLocalePaks.directory` (`locales_dir_path`).
 nonisolated struct CEFLocale: Equatable, Sendable {
     /// Chromium locale name, for example `en-US`, `ja` or `zh-TW`.
     var locale: String
@@ -18,11 +20,19 @@ nonisolated struct CEFLocale: Equatable, Sendable {
     static let fallback = "en-US"
 
     /// The locale for this process: the system's preferred languages against
-    /// the locale paks in `frameworkDirectory/Resources`.
-    static func current(frameworkDirectory: URL) -> CEFLocale {
+    /// the locale paks in `frameworkDirectory/Resources` and in `downloadedDirectory`
+    /// (only a folder holding a `locale.pak` counts).
+    static func current(frameworkDirectory: URL, downloadedDirectory: URL? = nil,
+                        preferredLanguages: [String] = Locale.preferredLanguages) -> CEFLocale {
         let resources = frameworkDirectory.appending(path: "Resources")
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: resources.path)) ?? []
-        return resolve(preferredLanguages: Locale.preferredLanguages, available: available(lprojNames: names))
+        var names = (try? FileManager.default.contentsOfDirectory(atPath: resources.path)) ?? []
+        if let downloadedDirectory {
+            let downloaded = (try? FileManager.default.contentsOfDirectory(atPath: downloadedDirectory.path)) ?? []
+            names += downloaded.filter {
+                FileManager.default.fileExists(atPath: downloadedDirectory.appending(path: "\($0)/locale.pak").path)
+            }
+        }
+        return resolve(preferredLanguages: preferredLanguages, available: available(lprojNames: names))
     }
 
     static func resolve(preferredLanguages: [String], available: Set<String>) -> CEFLocale {
