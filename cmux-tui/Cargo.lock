@@ -2392,6 +2392,7 @@ dependencies = [
  "cmux-pty",
  "cmux-relay",
  "cmux-remote-protocol",
+ "cmux-signed-envelope",
  "cmux-tui-core",
  "cmux-unix-socket",
  "cmux-wg",
