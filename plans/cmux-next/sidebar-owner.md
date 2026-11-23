@@ -31,6 +31,13 @@
   `CloudChatTabBadgeTests`, `CloudDesktopPageIconTests`.
 - 2026-11-21 (nx-48363-glow-marks-overlap): Sidebar-Look: user, 2026-11-20 (https://github.com/manaflow-ai/cmux/issues/48363): "it happens for blue notification dot and the red error o, we need to fix this issue". On a hovered workspace row the ✕ and ⋮ never draw over the unread dot, the row badge or the status mark (the red error): the row's display pass (`updateNeedsYouGlow`) no longer sets those marks back to full opacity when the row does not glow, which undid the layout that clears them under the controls. The needs-you glow only clears them, the layout keeps them clear while the row glows, and when the glow stops the layout's hover rules bring them back. The row tracks the marks the glow cleared (`marksHiddenForGlow`), so a glow that ends by a display-only change (secondary selection, drop target) still asks for the layout that restores them. Regression: `SidebarRowCloseClearsMarksTests` (now runs the display pass after the hover layout and checks the unread or error mark returns after the hover).
 - 2026-11-21 (49579-standard-dialog-density): Sidebar-Look: user, 2026-11-21 (https://github.com/manaflow-ai/cmux/issues/49579): "The sidebar's 'cmux Is Up to Date' card uses its own oversized title/body text, padding and radius. Make it, and every similar sidebar/app dialog or toast card, use one standardized type scale and spacing that follows the text density settings." Every card reads one scale, `CmuxNextDesign/CardScale.swift`: `Typography.cardTitle` (TypeScale body step, emphasized), `cardBody`/`cardBodyDigits`/`cardButton` (detail step), `cardCaption` (caption step) and `dialogTitle` (title step), each times the density's text factor and the person's Text Size and Interface Size on the half-point grid (Default 13/12/11, Compact 11.5/11/10, Spacious 15.5/14.5/13), so a card's title sits under the rows' title at every density (it matched them). Spacing: `Metrics.cardPadding` `space4 + space1` (10 pt at Default; supersedes the tip card's 12 of 2026-11-19 and the Update Ready card's 5), `cardTextGap` `space1`, `cardRowGap` `space3`, `cardCornerRadius` concentric from the padding. Moved onto it: the notice cards (update status, tips, asks, announcements, star prompt), Update Ready, Now Playing (was `space3` and the surface corner), the card text buttons, switches and Automatic Updates label, toasts, and dialogs (`Metrics.dialogPadding` `space6`, was a fixed 16 times the text scale). Regression: `CardScaleDensityTests` (every density).
+- 2026-11-22 (a590 pin cuts): Sidebar-Look: Lawrence 2026-11-20: "drastically simplify all parts of the UI"
+  (plans/cmux-next/ui-simplify.md, Pin: "no drop overlay text"). An empty Pinned's drop zone, the gap a drag opens at
+  the top (`SidebarPinZone`), no longer says "Drop here to pin": the gap is the cue, as every other empty section's
+  row draws nothing. The zone and the drop are unchanged. Kept, not cut: the filled pin a pinned row leads with (Leo
+  2026-11-21, entry below: the pinned state draws the filled pin) and the one Pin/Unpin row at the top of a workspace
+  menu (More has none). Regression: `SidebarEmptyWorkspaceHintTests.pinnedsDropZoneDrawsNoText`,
+  `PinningSurfacesTests.aWorkspaceRowsMenuPinsOnceAtItsTop`.
 - 2026-11-21 (a-tooltip-cuts): Sidebar-Look: Lawrence: "drastically simplify all parts of the UI" (a1315's tooltip
   cuts, picked by Chief: a tooltip is a name and a shortcut on one line; none on a control that shows its text; none on
   rows, which have hover cards). A workspace row carries no tooltip: its muted bell, usage warning triangle, badges,
@@ -440,6 +447,14 @@
   Gallery: `AAAppHealthIndicatorGalleryTests` (a-overlay shipped, b-dot on the avatar's corner, c-hidden) and web
   `ui.app-health.footer-row`. Regression: `SidebarProfileChipTests.theHealthLineMovesNothingInTheFooterRow` (replaces
   `aLongHealthLineLeavesTheSpacesStripRoom`).
+- 2026-11-23: app health's line leaves the sidebar for good (ask-eacfb2ec1f). Leo, verbatim (2026-11-22): "i see in
+  the sidebar a repair connection to agent service... which i have requested to remove a while ago. or some similar
+  message to it a while ago. we dont need it. ever. entire classes of bullshit fucking error/status bullshit. fuck
+  em. remove them all." `AppHealthIndicatorView`, `SidebarView.healthIndicator`,
+  `SidebarFooterBand.placeHealthIndicator(above:)` and `AvatarBadgePlacing` are gone, with
+  `AAAppHealthIndicatorGalleryTests` and `SidebarProfileChipTests.theHealthLineMovesNothingInTheFooterRow`. The health
+  model and its self-repairs stay and say nothing; the "Restoring sessions…" card's Details opens app health's
+  popover through `SidebarView.onHealthDetails`.
 - 2026-11-10 (lane/small-views-react-sidebar-history): the session tree's chat history blocks (Pinned, Earlier) are a
   React page (webviews/src/pages/sidebar-chats) in each block's gap of the list (`SidebarChatHistoryHost`,
   CmuxNextSidebar); the AppKit `SidebarChatHistoryView`, `SidebarChatHistoryRow` and `SidebarChatHistoryHeader` are

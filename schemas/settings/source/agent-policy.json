@@ -473,6 +473,7 @@
         "notifications.attention.showOnTab",
         "notifications.attention.showOnSidebar",
         "notifications.attention.mark",
+        "notifications.toast.style",
         "notifications.attention.moveToTop",
         "notifications.attention.moveToTopOnAgentFinish"
       ]
@@ -505,6 +506,8 @@
         "experiments.composerV2",
         "experiments.agentBadges",
         "experiments.agentBadgesBeam",
+        "experiments.menuStyleV2",
+        "experiments.menuRowStates",
         "experiments.toastsV2"
       ]
     },
