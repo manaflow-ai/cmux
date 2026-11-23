@@ -1876,6 +1876,14 @@ jobs:
               echo "::error::cargo test ran no cmux_next_ test (the filter matched nothing)" >&2
               exit 1
             fi
+            # Only a recognized transient fetch failure is retried. A completed test
+            # failure, a compiler error and any unknown failure are terminal: the first
+            # log and status stand (a repeat of an assertion cost 4.65 min a run).
+            if grep -qE 'test result: FAILED|error(\[E[0-9]+\])?: could not compile|^error\[E[0-9]+\]' "$RUNNER_TEMP/cmux-next-tests.txt" \
+              || ! grep -qiE 'spurious network error|failed to download|unable to update registry|failed to (fetch|get|query)|could not resolve host|couldn.t resolve host|connection (reset|refused|timed out)|operation timed out|ssl (connect )?error|http2 error|early eof|download of .* failed|registry index .*(failed|error)' "$RUNNER_TEMP/cmux-next-tests.txt"; then
+              echo "::error::cmux_next_ daemon tests failed with a result that is not a Cargo fetch failure; not retrying (first log and status kept)" >&2
+              exit "$status"
+            fi
             if [[ "$attempt" -lt 3 ]]; then
               echo "cmux_next_ daemon tests failed on attempt $attempt/3; retrying Cargo registry and build fetches" >&2
               sleep $((attempt * 10))
