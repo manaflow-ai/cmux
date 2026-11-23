@@ -214,7 +214,7 @@ public final class InputLatencyTrace {
         for (kind, values) in samples.sorted(by: { $0.key < $1.key }) {
             let sorted = values.sorted()
             func p(_ q: Double) -> Double { sorted[min(sorted.count - 1, max(0, Int((q * Double(sorted.count)).rounded(.up)) - 1))] }
-            parts.append(#""\#(kind)":{"n":\#(sorted.count),"p50":\#(Self.f(p(0.5))),"p95":\#(Self.f(p(0.95))),"max":\#(Self.f(sorted.last ?? 0))}"#)
+            parts.append(#""\#(kind)":{"n":\#(sorted.count),"p50":\#(Self.f(p(0.5))),"p95":\#(Self.f(p(0.95))),"max":\#(Self.f(sorted.last ?? 0)),"last":\#(Self.f(values.last ?? 0))}"#)
         }
         return "{" + parts.joined(separator: ",") + "}"
     }

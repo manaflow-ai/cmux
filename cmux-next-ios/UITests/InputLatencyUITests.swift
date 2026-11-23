@@ -143,12 +143,39 @@ final class InputLatencyUITests: XCTestCase {
                 app.terminate()
             }
         }
+        // Warm: one process per side, a first open and back (not counted), then
+        // `opens` opens and backs: what reopening a terminal costs once its types,
+        // shaders and views exist.
         for row in rows {
+            let name = row.name.replacingOccurrences(of: "idle/", with: "warm/").replacingOccurrences(of: "stream/", with: "warmstream/")
+            let app = Self.listApp()
+            app.launchArguments += row.args
+            app.launch()
+            for index in -1 ..< opens {
+                open(Self.terminalWorkspace, in: app)
+                let target = index + 2
+                let done = waitFor(app, timeout: 30) { ($0["term_open_max_iteration"] as? [String: Any]).flatMap { $0["n"] as? Int } ?? 0 >= target }
+                let probe = summary(app)
+                var one: [String: Double] = [:]
+                for kind in kinds {
+                    if let ms = (probe[kind] as? [String: Any])?["last"] as? Double { one[kind] = ms }
+                }
+                if index >= 0 { for (kind, ms) in one { values[name, default: [:]][kind, default: []].append(ms) } }
+                let json = one.sorted { $0.key < $1.key }.map { String(format: "\"%@\":%.1f", $0.key, $0.value) }.joined(separator: ",")
+                let line = #"TERMOPEN {"row":"\#(name)","i":\#(index),"done":\#(done),\#(json)}"#
+                print(line)
+                lines.append(line)
+                goBack(in: app)
+            }
+            app.terminate()
+        }
+        let allRows = rows.map(\.name) + rows.map { $0.name.replacingOccurrences(of: "idle/", with: "warm/").replacingOccurrences(of: "stream/", with: "warmstream/") }
+        for rowName in allRows {
             for kind in kinds {
-                let sorted = (values[row.name]?[kind] ?? []).sorted()
+                let sorted = (values[rowName]?[kind] ?? []).sorted()
                 guard !sorted.isEmpty else { continue }
                 func p(_ q: Double) -> Double { sorted[min(sorted.count - 1, max(0, Int((q * Double(sorted.count)).rounded(.up)) - 1))] }
-                let line = String(format: "TERMOPEN_TABLE %@ %@ n=%d p50=%.1f p95=%.1f max=%.1f", row.name, kind, sorted.count, p(0.5), p(0.95), sorted.last ?? 0)
+                let line = String(format: "TERMOPEN_TABLE %@ %@ n=%d p50=%.1f p95=%.1f max=%.1f", rowName, kind, sorted.count, p(0.5), p(0.95), sorted.last ?? 0)
                 print(line)
                 lines.append(line)
             }
@@ -184,6 +211,23 @@ final class InputLatencyUITests: XCTestCase {
         }
         XCTAssertTrue(row.exists && row.isHittable, "\(row) in the list\n\(app.debugDescription)")
         row.tap()
+    }
+
+    /// Back from a workspace to the list: the navigation bar's back button, else an edge swipe.
+    @MainActor
+    private func goBack(in app: XCUIApplication) {
+        let list = app.buttons[Self.chatWorkspace]
+        let back = app.navigationBars.buttons.element(boundBy: 0)
+        if back.exists, back.isHittable { back.tap() } else {
+            let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
+            start.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5)))
+        }
+        if !list.waitForExistence(timeout: 10) {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
+                .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5)))
+        }
+        XCTAssertTrue(list.waitForExistence(timeout: 10), "back to the list\n\(app.debugDescription)")
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
     }
 
     @MainActor
