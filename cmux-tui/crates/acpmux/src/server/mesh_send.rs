@@ -575,6 +575,23 @@ mod tests {
         assert!(carried(&attach, "host-b/lane-a").is_err());
     }
 
+    /// The census of 2026-11-23 (cmuxterm-hq docs/findings/2026-11-23-mcp-tool-error-census.md)
+    /// replayed: its sends refused by the relay, 29 with a class and 3 with a supersede key.
+    /// Prints how many still bounce; the same test on the code before gives the before number.
+    #[test]
+    fn census_replay_mesh_relay() {
+        let request = |key: &str, value: &str| {
+            json!({"sessionId": "host-b/lane-a", "prompt": [{"type": "text", "text": "t"}],
+                "_meta": {"acpmux": {key: value}}})
+        };
+        let (mut n, mut bad) = (0, 0);
+        for (sent, weight) in [(request("class", "question"), 29), (request("supersede", "s"), 3)] {
+            n += weight;
+            bad += if carried(&sent, "host-b/lane-a").is_err() { weight } else { 0 };
+        }
+        eprintln!("census replay: send (mesh relay): {bad} of {n} bounce");
+    }
+
     #[test]
     fn a_prompt_id_the_hub_would_refuse_as_a_key_is_digested() {
         let id = "0190f2a4-7c1e-7d3a-9f00-0123456789ab";

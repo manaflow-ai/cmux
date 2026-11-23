@@ -1304,3 +1304,72 @@ fn instructions_stay_short() {
     assert!(crate::subsession_mcp::instructions().len() <= 1_100);
     assert!(crate::computer_use::tools::INSTRUCTIONS.len() <= 900);
 }
+
+/// The census of 2026-11-23 (cmuxterm-hq docs/findings/2026-11-23-mcp-tool-error-census.md)
+/// replayed: each refused call shape of wrap_up, run_wait and inbox_reply it counted, by its
+/// keys and value types (names made up), weighted by how often it came. Prints how many of
+/// them still bounce; the same test on the code before this change gives the before number.
+/// Left out: calls whose meaning is not clear (`{}`, a Claude Code shell id given as a run) and
+/// failures that were no refusal (the client's own timeouts, hooks).
+#[tokio::test]
+async fn census_replay_wrap_up_run_wait_inbox_reply() {
+    let (_hub, client, _dir) = daemon().await;
+    let me = session(&client, "census-me").await;
+    for name in ["census-a", "census-b"] {
+        session(&client, name).await;
+    }
+    let bounced = |r: &Value| r["isError"] == true;
+    let mut rows: Vec<(&str, u32, u32)> = Vec::new();
+
+    let wrap_up = [
+        (json!({"recap": "Did X.", "learned": "Use pnpm, not npm."}), 51),
+        (
+            json!({"recap": "Did X.", "learned": "a fact", "ask": "Merge?", "actions": ["Yes", "No"]}),
+            2,
+        ),
+        (json!({"summary": "Did X.", "learned": "a fact"}), 1),
+    ];
+    let (mut n, mut bad) = (0, 0);
+    for (args, weight) in wrap_up {
+        n += weight;
+        bad += if bounced(&wrap_up::call(&args)) { weight } else { 0 };
+    }
+    rows.push(("wrap_up", n, bad));
+
+    let id = "bg-0123456789ab";
+    let run_wait = [
+        (json!({"repo": "o/r", "id": id, "timeoutSeconds": 600, "description": "d"}), 81),
+        (json!({"repo": "-", "id": id, "timeoutSeconds": 600, "description": "d"}), 5),
+        (json!({"id": id}), 5),
+        (json!({"id": id, "timeout": "600"}), 6),
+    ];
+    let (mut n, mut bad) = (0, 0);
+    for (args, weight) in run_wait {
+        n += weight;
+        let t = text(&bg::call(&client, &me, "run_wait", &args).await);
+        let refused =
+            ["repo is required", "give run", "repo must be"].iter().any(|r| t.contains(r));
+        bad += if refused { weight } else { 0 };
+    }
+    rows.push(("run_wait", n, bad));
+
+    // Senders named in the thread key (`from:`, `declared:NAME`) are sessions here; a label
+    // (`declared:a session on HOST`) or an opaque key with no message here names nobody.
+    let inbox_reply = [
+        (json!({"thread": "from:census-a/pr:12", "text": "t"}), 22),
+        (json!({"thread": "declared:census-b", "text": "t"}), 21),
+        (json!({"thread": "declared:a session on host-x", "text": "t"}), 8),
+        (json!({"thread": "topic:pr/o/r/12", "text": "t"}), 12),
+        (json!({"to": "census-a", "text": "t"}), 7),
+    ];
+    let (mut n, mut bad) = (0, 0);
+    for (args, weight) in inbox_reply {
+        n += weight;
+        bad +=
+            if bounced(&inbox_tool(&client, &me, "inbox_reply", &args).await) { weight } else { 0 };
+    }
+    rows.push(("inbox_reply", n, bad));
+    for (tool, n, bad) in rows {
+        eprintln!("census replay: {tool}: {bad} of {n} bounce");
+    }
+}
