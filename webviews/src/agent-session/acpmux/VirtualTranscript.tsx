@@ -27,7 +27,6 @@ import {
   layoutConversation,
   type PlacedLayout,
   type RowHeights,
-  layoutGeometry,
   placedFromEstimate,
   placedWithOrigin,
   placeRowsIndexed,
