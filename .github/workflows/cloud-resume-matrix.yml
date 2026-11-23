@@ -83,9 +83,13 @@ jobs:
         with:
           persist-credentials: false
           submodules: false
+      # The cached, retried fetch the cmux-tui builds use: a plain clone from github.com outran 8 min on a
+      # Freestyle runner (run 45264489332) and took 20 min on another (run 45226321646).
       - name: Initialize Ghostty protocol submodules
-        timeout-minutes: 8
-        run: git submodule update --init --depth 1 ghostty ghostty-next
+        timeout-minutes: 12
+        run: |
+          bash scripts/ci/init-submodule.sh ghostty
+          bash scripts/ci/init-submodule.sh ghostty-next
       - name: Install Linux cmux-tui build dependencies
         run: |
           sudo apt-get update
