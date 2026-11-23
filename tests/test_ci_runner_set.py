@@ -49,6 +49,8 @@ PINNED: dict[str, tuple[str, set[str]]] = {
      {'complexity'}),
     'auto-resume-nightly-notarization.yml': ('nightly signing and notarization: an ephemeral label the signing rule checks literally',
      {'poll', 'wait-and-staple', 'poll-outer', 'staple-outer', 'poll-stapled', 'staple-stapled', 'verify-stapled', 'publish', 'generate-deltas', 'republish-deltas'}),
+    'cmux-next-post-merge-dispatch.yml': ('holds the route App key for the batch tick\'s reads: the fork-routing App-key rule forbids a variable-movable runner',
+     {'tick'}),
     'cmux-next-pr-autofix-push.yml': ('holds the PR autofix App key (contents write): the fork-routing App-key rule forbids a variable-movable runner',
      {'push'}),
     'cloud-journey-prod.yml': ('holds the production journey environment secrets: the fork-routing secret rule forbids a variable-movable runner',
