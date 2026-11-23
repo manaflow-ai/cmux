@@ -369,9 +369,11 @@ impl LocalStore {
             {
                 continue;
             }
-            let mut file = crate::config::private_state_file(path)?;
-            let copy =
-                if indexed { self.copy_for_read_back(id, index, path, &file)? } else { None };
+            let mut file = super::cold_segments::open_segment(path)?;
+            let copy = match file.local() {
+                Some(local) if indexed => self.copy_for_read_back(id, index, path, local)?,
+                _ => None,
+            };
             match copy {
                 // A copy covers the segment's first `from` bytes, whole lines: what was written
                 // after them (none in a segment a log load sealed and copied, at most the segment
@@ -395,7 +397,12 @@ impl LocalStore {
                     }
                 }
                 None => {
-                    let end = offset_of_seq(&mut file, before)?;
+                    let end = match &mut file {
+                        super::cold_segments::SegmentFile::Cold(cold) => {
+                            cold.offset_of_seq(before)?
+                        }
+                        local => offset_of_seq(local, before)?,
+                    };
                     for_each_line_rev_from(&mut file, end, &mut line)?;
                 }
             }
@@ -507,9 +514,12 @@ impl LocalStore {
         scan: &Scan<'_>,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<bool> {
-        let mut file = crate::config::private_state_file(path)?;
+        let mut file = super::cold_segments::open_segment(path)?;
         // What a copy is of: the file this reads, however its path changes meanwhile.
-        let stamp = if scan.copied { Some(Stamp::of(&file)?) } else { None };
+        let stamp = match file.local() {
+            Some(local) if scan.copied => Some(Stamp::of(local)?),
+            _ => None,
+        };
         let (mut copy, from, mut parsed) = match stamp
             .as_ref()
             .and_then(|s| self.read_kind_index(id, index, s))
