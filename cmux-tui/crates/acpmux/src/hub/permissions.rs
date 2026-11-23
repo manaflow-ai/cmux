@@ -5,6 +5,10 @@ use super::review_queue::Settled;
 use super::*;
 use cmux_json::JsonSet as _;
 
+/// The `mux` record of a chat's plan usage limits after a harness report changed them:
+/// `{usageLimits}`, the session detail's value, or null when none are left.
+pub const USAGE_LIMITS_KIND: &str = "usage_limits";
+
 tokio::task_local! {
     /// The fence of the ancestor's answer the agent's request in this task got, until its
     /// write takes it (`respond_answer`).
@@ -107,6 +111,8 @@ impl Hub {
         closed: &mut tokio::sync::watch::Receiver<bool>,
     ) {
         while let Some(item) = next_inbound(rx, stop, closed, &session.inbound_tx).await {
+            // An agent's stream allocates without any request: its pages go back once it stops.
+            cmux_tui_platform::malloc_quiet_trim::note_activity();
             match item {
                 Inbound::Notification {
                     method: m,
@@ -390,8 +396,18 @@ impl Hub {
         let mut goal_write = false;
         let mut mark_cleared = false;
         let mut breakdown_changed = false;
+        let mut limits_changed = false;
+        let mut retitled = false;
         let background = kind == "agent_message_chunk" && self.background_message(session, update);
         let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        // The harness's plan is the chat's task list from now on (`task_list.rs`); history a load
+        // replays says nothing newer than what the meta kept.
+        let task_list_write = (kind == "plan" && !replayed)
+            .then(|| crate::task_list::plan_items(update))
+            .flatten()
+            .and_then(|items| crate::task_list::after_plan(m.task_list.as_ref(), items, now_ms()))
+            .map(|list| m.task_list = list)
+            .is_some();
         match kind {
             "agent_message_chunk" => {
                 // History a load replays is logged (`.replay`) but is not the chat's newest
@@ -492,6 +508,7 @@ impl Hub {
                 if let Some(title) = update.get("title").and_then(Value::as_str) {
                     let title = cmux_chat_index::without_client_context(title).trim_end();
                     if !title.is_empty() {
+                        retitled = m.title.as_deref() != Some(title);
                         m.title = Some(title.to_owned());
                         m.title_source = Some(super::titles::HARNESS.to_owned());
                         // The ledger's copy (one map entry; a line only when a field changed).
@@ -511,7 +528,7 @@ impl Hub {
                 if let Some(limits) = update.pointer("/_meta/acpmux/usageLimits") {
                     let merged =
                         crate::claude_stdio::merge_usage_limits(m.usage_limits.as_ref(), limits);
-                    breakdown_changed |= m.usage_limits.as_ref() != Some(&merged);
+                    limits_changed |= m.usage_limits.as_ref() != Some(&merged);
                     m.usage_limits = Some(merged);
                 }
                 // Codex's, as cmux-codex-acp passes `account/rateLimits/updated` on: each is
@@ -522,7 +539,7 @@ impl Hub {
                     .filter(|s| crate::codex_app_server::is_plan_snapshot(s))
                 {
                     let limits = crate::codex_app_server::usage_limits(snapshot);
-                    breakdown_changed |= m.usage_limits != limits;
+                    limits_changed |= m.usage_limits != limits;
                     m.usage_limits = limits;
                 }
                 // Claude Code's system/init: its MCP servers, plugins and skills.
@@ -533,10 +550,21 @@ impl Hub {
             }
             _ => {}
         }
+        let limits = limits_changed.then(|| m.usage_limits.clone().unwrap_or(Value::Null));
         drop(m);
-        // Goal state must survive a daemon restart even when the turn has not settled yet.
-        if goal_write || breakdown_changed {
+        if task_list_write {
+            self.task_list_changed(session);
+        }
+        // Goal state must survive a daemon restart even when the turn has not settled yet. So
+        // must a title the harness gave: the chat shows it now, and before it waited for the
+        // turn's end or the stop's flush, so a hard exit in between took it back.
+        if goal_write || breakdown_changed || retitled || limits.is_some() {
             self.save_meta(session);
+        }
+        // The plan limits as merged above, whole (null once Codex reports none): an open pane
+        // applies them as they are, so its plan ring moves without reading the detail again.
+        if let Some(limits) = limits {
+            self.append(session, "mux", USAGE_LIMITS_KIND, json!({"usageLimits": limits}));
         }
         if let Some(claude) = reported_tools {
             self.absorb_reported_tools(session, &claude);

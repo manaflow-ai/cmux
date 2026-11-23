@@ -54,6 +54,12 @@ pub enum Author {
     Agent {
         #[serde(rename = "sessionId")]
         session_id: String,
+        /// A user-facing spoken handle, when the session owner assigned one.
+        ///
+        /// This is display metadata only. `session_id` remains the exact
+        /// authenticated identity used for delivery, ack and authorization.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        handle: Option<String>,
         name: String,
     },
 }
@@ -74,8 +80,15 @@ impl Author {
     pub fn label(&self) -> &str {
         match self {
             Author::Person { account } => account,
+            Author::Agent { handle: Some(handle), .. } if !handle.is_empty() => handle,
             Author::Agent { name, .. } => name,
         }
+    }
+
+    /// The stable identity to use when a view needs to offer a link or lookup.
+    /// Handles are intentionally excluded because they can be renamed.
+    pub fn identity(&self) -> Option<&str> {
+        self.session_id()
     }
 }
 
@@ -439,6 +452,31 @@ mod tests {
 
     fn leo() -> Author {
         Author::Person { account: "leo".into() }
+    }
+
+    #[test]
+    fn spoken_handle_is_display_metadata_and_uuid_stays_the_identity() {
+        let author = Author::Agent {
+            session_id: "session-uuid".into(),
+            handle: Some("Mango".into()),
+            name: "runner-check".into(),
+        };
+        assert_eq!(author.label(), "Mango");
+        assert_eq!(author.identity(), Some("session-uuid"));
+        let encoded = serde_json::to_value(&author).unwrap();
+        assert_eq!(encoded["sessionId"], "session-uuid");
+        assert_eq!(encoded["handle"], "Mango");
+        assert_eq!(encoded["name"], "runner-check");
+
+        // Older records omit the additive field and retain their task name.
+        let old: Author = serde_json::from_value(serde_json::json!({
+            "kind": "agent",
+            "sessionId": "old-session",
+            "name": "old-task"
+        }))
+        .unwrap();
+        assert_eq!(old.label(), "old-task");
+        assert_eq!(old.identity(), Some("old-session"));
     }
 
     #[test]

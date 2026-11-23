@@ -44,13 +44,13 @@ final class ChromeIconButton: ClickableButton {
         setAccessibilityLabel(label)
         wantsLayer = true
         NSLayoutConstraint.activate([
-            density.bind(widthAnchor.constraint(equalToConstant: 0)) { toolbar ? OmnibarStyle.buttonSize : BrowserMetrics.controlHeight },
-            density.bind(heightAnchor.constraint(equalToConstant: 0)) { toolbar ? OmnibarStyle.buttonSize : BrowserMetrics.controlHeight },
+            density.bind(widthAnchor.constraint(equalToConstant: 0)) { [weak self] in self?.side(toolbar: toolbar) ?? 0 },
+            density.bind(heightAnchor.constraint(equalToConstant: 0)) { [weak self] in self?.side(toolbar: toolbar) ?? 0 },
         ])
         density.update { [weak self] in
             guard let self else { return }
             // The tab's ratio on its own side (Lucas 2026-11-15: one shape at every density).
-            layer?.cornerRadius = Metrics.buttonCornerRadius(proportionalTo: toolbar ? OmnibarStyle.buttonSize : BrowserMetrics.controlHeight)
+            layer?.cornerRadius = Metrics.buttonCornerRadius(proportionalTo: side(toolbar: toolbar))
             applyIcon()
         }
         density.start()
@@ -60,6 +60,17 @@ final class ChromeIconButton: ClickableButton {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// The button's side: a toolbar button's on the window's pixels (square on a 1x display too), else the overlay's.
+    private func side(toolbar: Bool) -> CGFloat {
+        toolbar ? OmnibarStyle.buttonSize(scale: OmnibarStyle.scale(of: self)) : BrowserMetrics.controlHeight
+    }
+
+    /// A move to a screen with another scale snaps the side again.
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        density.reapply()
+    }
 
     /// Unchanged icon and label keep the current image: a new NSImage
     /// makes AppKit lay out and redraw the button.

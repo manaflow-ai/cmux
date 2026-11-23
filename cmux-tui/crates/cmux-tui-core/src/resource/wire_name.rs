@@ -231,6 +231,7 @@ impl ResourceOperation {
             Self::KeybindingsSet => "keybindings.set",
             Self::KeybindingsRemove => "keybindings.remove",
             Self::KeybindingsReset => "keybindings.reset",
+            Self::LanguagePacksEnsure => "language_packs.ensure",
             Self::WindowRecordList => "window_record.list",
             Self::WindowRecordPut => "window_record.put",
             Self::WindowRecordDelete => "window_record.delete",

@@ -62,7 +62,7 @@ final class TasksPageService: InternalPageProvider {
     // MARK: InternalPageProvider
 
     var page: InternalPageID { .tasks }
-    var title: String { String(localized: "tasks.page.title", defaultValue: "Tasks", table: "Tasks", bundle: .module) }
+    var title: String { String(localized: "tasks.page.title", defaultValue: "Tasks", table: "Tasks", bundle: .module.inAppLanguage) }
     var symbol: String { "checklist" }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {

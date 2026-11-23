@@ -63,16 +63,34 @@ pub(crate) fn mine_by_key(
 
 /// What a hub row is built from beside its key: `row_of` reads a session through this alone, and
 /// `Bare` keeps it, so a field a row reads is a field whose change builds the row again.
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Clone, Copy)]
 struct Fields<'a> {
     name: &'a str,
     harness: &'a str,
     state: &'a str,
+    cwd: Option<&'a str>,
+    title: Option<&'a str>,
+    title_source: Option<&'a str>,
+    name_given: Option<bool>,
+    model: Option<&'a str>,
+    agent_session_id: Option<&'a str>,
+    host_build: Option<&'a str>,
 }
 
 impl<'a> Fields<'a> {
     fn of(s: &'a BookSession) -> Self {
-        Self { name: &s.name, harness: &s.harness, state: &s.state }
+        Self {
+            name: &s.name,
+            harness: &s.harness,
+            state: &s.state,
+            cwd: s.cwd.as_deref().filter(|c| !c.is_empty()),
+            title: s.title.as_deref().filter(|t| !t.is_empty()),
+            title_source: s.title_source.as_deref().filter(|t| !t.is_empty()),
+            name_given: s.name_given,
+            model: s.model.as_deref().filter(|m| !m.is_empty()),
+            agent_session_id: s.agent_session_id.as_deref().filter(|a| !a.is_empty()),
+            host_build: s.host_build.as_deref().filter(|b| !b.is_empty()),
+        }
     }
 }
 
@@ -84,17 +102,47 @@ struct Bare {
     name: String,
     harness: String,
     state: String,
+    cwd: Option<String>,
+    title: Option<String>,
+    title_source: Option<String>,
+    name_given: Option<bool>,
+    model: Option<String>,
+    agent_session_id: Option<String>,
+    host_build: Option<String>,
     read: u64,
 }
 
 impl Bare {
     fn of(fields: &Fields<'_>, read: u64) -> Self {
-        let Fields { name, harness, state } = *fields;
-        Self { name: name.into(), harness: harness.into(), state: state.into(), read }
+        let own = |s: Option<&str>| s.map(str::to_owned);
+        Self {
+            name: fields.name.into(),
+            harness: fields.harness.into(),
+            state: fields.state.into(),
+            cwd: own(fields.cwd),
+            title: own(fields.title),
+            title_source: own(fields.title_source),
+            name_given: fields.name_given,
+            model: own(fields.model),
+            agent_session_id: own(fields.agent_session_id),
+            host_build: own(fields.host_build),
+            read,
+        }
     }
 
     fn fields(&self) -> Fields<'_> {
-        Fields { name: &self.name, harness: &self.harness, state: &self.state }
+        Fields {
+            name: &self.name,
+            harness: &self.harness,
+            state: &self.state,
+            cwd: self.cwd.as_deref(),
+            title: self.title.as_deref(),
+            title_source: self.title_source.as_deref(),
+            name_given: self.name_given,
+            model: self.model.as_deref(),
+            agent_session_id: self.agent_session_id.as_deref(),
+            host_build: self.host_build.as_deref(),
+        }
     }
 
     /// Whether `fields` build the row this was built from.
@@ -132,14 +180,49 @@ pub(crate) fn mine(
     (hosts, sessions)
 }
 
+/// The keys every session row lists, from this machine or another: a hub row lists each one,
+/// null when the hub does not say, so no reader drops or misfiles a chat for a missing key (Leo,
+/// 2026-11-22: "my gui chats are not showing yet").
+pub(crate) const ROW_KEYS: [&str; 10] = [
+    "name",
+    "nameGiven",
+    "title",
+    "titleSource",
+    "cwd",
+    "model",
+    "harness",
+    "agentSessionId",
+    "hostBuild",
+    "status",
+];
+
 /// A hub session's row before `remote_summary` names it for its host. `updatedAt` is when this
 /// daemon first saw it as it is now, so a heartbeat that changes nothing changes no row.
 fn row_of(session_id: &str, fields: &Fields<'_>) -> Value {
-    let Fields { name, harness, state } = *fields;
+    let Fields {
+        name,
+        harness,
+        state,
+        cwd,
+        title,
+        title_source,
+        name_given,
+        model,
+        agent_session_id,
+        host_build,
+    } = *fields;
     json!({
         "sessionId": session_id,
         "name": name,
+        // Unknown unless the hub says: the name came from its machine, given or derived there.
+        "nameGiven": name_given,
+        "title": title,
+        "titleSource": title.and(title_source),
+        "cwd": cwd,
+        "model": model,
         "harness": harness,
+        "agentSessionId": agent_session_id,
+        "hostBuild": host_build,
         "status": state,
         // A waiting session waits on its person: listed with the asks (`pendingOnly`).
         "pendingPermissions": u64::from(state == "waiting"),
@@ -220,7 +303,12 @@ impl Hub {
                 let row = Arc::new(RemoteSession {
                     peer: s.host.clone(),
                     summary: row,
-                    receipt: SessionReceipt::new(&s.host, &s.session_id, None, 0),
+                    receipt: SessionReceipt::new(
+                        &s.host,
+                        &s.session_id,
+                        s.agent_session_id.clone().filter(|a| !a.is_empty()),
+                        0,
+                    ),
                 });
                 book.rows.insert(key.clone(), (bare, row));
             }

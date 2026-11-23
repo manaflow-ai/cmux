@@ -6,6 +6,7 @@ use serde_json::Value;
 use std::path::PathBuf;
 
 fn repo() -> PathBuf {
+    // affected-reads: examples/extensions
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..")
 }
 

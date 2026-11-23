@@ -76,8 +76,8 @@ await requireBrowserLane("agent-pane-attach-typing.test.ts", async () => {
     if (look) {
       await page.evaluate(async (value) => {
         const source = "/composerLook.ts";
-        const { setComposerLook } = await import(/* @vite-ignore */ source);
-        setComposerLook(value, { remember: false });
+        const { setPreviewComposerLook } = await import(/* @vite-ignore */ source);
+        setPreviewComposerLook(value);
       }, look);
       await page
         .locator(

@@ -580,6 +580,8 @@ class Gamut:
         elif path == "loaded":
             load = startup.SyntheticLoad(self.root)
             row["load"] = load.start()
+        # The domain the reopen reads (this gamut's own, inside main's DefaultsAside): key names and snapshot paths.
+        row["defaults_before"] = smoke.defaults_before(smoke.bundle_info(self.app.bundle)[0])
         started = self.app.start()
         row["timeline"] = []
         settled_at = front_ms = None
@@ -625,6 +627,7 @@ class Gamut:
                 recorder.kill()
         row["first_window_ms"] = marks.get("first_window_frame_committed")
         row["settled_ms"] = settled_at
+        row["launch_snapshot_applied"] = "launch_snapshot_applied" in marks
         row["pop_in"] = sorted(k[:-len(".by_deadline")] for k in marks if k.endswith(".by_deadline"))
         row["marks"] = {k: v for k, v in marks.items() if k.startswith(("first_", "reveal.", "agent_pane.", "daemon.",
                                                                        "launch_", "main_start", "connecting_"))}
@@ -850,7 +853,14 @@ def table(rows: list[dict]) -> str:
                      + (f", first/second {json.dumps(ratio)}" if ratio else "") + (f"; {notes}" if notes else ""))
         lines.append(f"| {r['path']} | {r['state']} | {ok} | {r.get('first_window_ms')} | {r.get('settled_ms')} | "
                      f"{r.get('prior_chat_live_ms')} | {r.get('warm_switch_ms')} | {r.get('quit_ms')} | {notes[:300]} |")
+    lines += ["", DEFAULTS_NOTE]
     return "\n".join(lines) + "\n"
+
+
+# A new HOME is not enough: cfprefsd keeps the bundle's defaults in the account's real preferences.
+DEFAULTS_NOTE = ("Defaults: each row's `defaults_before` is the bundle's domain just before its launch (key names, and "
+                 "each cmuxNext.launchSnapshotPath.* value) and `launch_snapshot_applied` says whether the launch marked "
+                 "it; a fresh-install row fails when its domain held any key or the mark is there.")
 
 
 def main(argv: list[str] | None = None) -> int:

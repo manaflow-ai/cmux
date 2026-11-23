@@ -24,6 +24,8 @@ pub(super) struct StartupProgress {
 struct ProgressState {
     last_line: Option<Instant>,
     last_failure: Option<String>,
+    /// The one line that says how to stop waiting has been printed.
+    hinted: bool,
 }
 
 impl StartupProgress {
@@ -55,6 +57,13 @@ impl StartupProgress {
                     None => {
                         state.last_line = Some(Instant::now());
                         let seconds = self.started.elapsed().as_secs();
+                        if !state.hinted {
+                            // The reminder of how to stop goes out once.
+                            state.hinted = true;
+                            eprintln!(
+                                "remote connect: Ctrl-C stops waiting; `--connect-timeout-seconds N` gives up by itself"
+                            );
+                        }
                         match &state.last_failure {
                             Some(failure) => eprintln!(
                                 "remote connect: still connecting after {seconds}s; last: {failure}"

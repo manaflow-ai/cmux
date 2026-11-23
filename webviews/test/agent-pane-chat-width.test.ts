@@ -132,7 +132,7 @@ await requireBrowserLane("agent-pane-chat-width.test.ts", async () => {
     return pane - 2 * Math.max(16, (pane - span) / 2);
   };
 
-  const widths = { standard: 800, narrow: 640, wide: 960 } as const;
+  const widths = { standard: 800, narrow: 640, medium: 800, wide: 960 } as const;
   for (const width of [900, 1440, 1920]) {
     for (const [variant, cap] of Object.entries(widths))
       test(`${variant} draws its ${cap}px Chat Text Width at ${width}`, async () => {

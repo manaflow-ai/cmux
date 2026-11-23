@@ -83,6 +83,9 @@ nonisolated extension AcpmuxEnvironment {
         for key in AcpmuxEnvironment.agentLaunchKeys {
             if let value = environment[key], !value.isEmpty { childEnvironment[key] = value }
         }
+        // A DEV build's own settings file and host budget (BuildStatePaths): acpmux reads them, and a
+        // signed acpmux gets no other inherited variable.
+        childEnvironment.merge(BuildStatePaths.childEnvironment(from: environment)) { _, file in file }
         if let cli = bundledBinDirectory?.appending(path: "cmux", directoryHint: .notDirectory).path, isExecutable(cli) {
             childEnvironment["CMUX_BUNDLED_CLI_PATH"] = cli
         }

@@ -20,6 +20,12 @@
  */
 export type RGBA = { r: number; g: number; b: number; a: number };
 
+/** The desktops a see-through window may show under its tint, as gray levels: black to white in
+ * eighths. Anything drawn on a see-through page is measured over the window's tint on each of them,
+ * so it reads whatever is behind the window (a highlight, ui/highlightContrast.ts; code colors,
+ * appearance.ts `syntaxBackdrops`). */
+export const DESKTOP_LEVELS = [0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1] as const;
+
 /** Parses the color strings `getComputedStyle` returns (`rgb[a](...)`, `color(srgb ...)`). */
 export function parseComputedColor(value: string): RGBA | null {
   const text = value.trim().toLowerCase();

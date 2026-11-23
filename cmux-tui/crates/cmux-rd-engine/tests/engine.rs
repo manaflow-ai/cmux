@@ -4,7 +4,7 @@
 //! (rate-limited), and applies input exactly once with acks.
 
 use cmux_rd_core::flow::Rect;
-use cmux_rd_engine::{EncodeRequest, Encoded, EngineConfig, MediaEngine};
+use cmux_rd_engine::{EncodeProfile, EncodeRequest, Encoded, EngineConfig, MediaEngine};
 use cmux_rd_proto::{
     DatagramHeader, DatagramKind, Feedback, HEADER_LEN, InputEvent, InputPacket, Nack, flags,
 };
@@ -376,11 +376,12 @@ fn a_frame_lost_whole_is_resent_then_recovered_from_a_keyframe() {
         true,
         10_000,
     );
-    // A small P-frame of one datagram, which the path loses: the viewer sees nothing of it.
+    // A small P-frame of one datagram and, on this idle link, its copy, which the path
+    // loses both of: the viewer sees nothing of it.
     let small = Rect { x: 1, y: 1, width: 10, height: 10 };
     let p = e.damage(0, small, 20_000).expect("second frame");
     let lost = send(&mut e, &p, false, 100, 20_000);
-    assert_eq!(lost.len(), 1);
+    assert_eq!(lost.len(), 2);
     assert!(
         e.tick(true, 20_000 + TAIL_PROBE_US - 1).datagrams.is_empty(),
         "no probe before its time"
@@ -493,6 +494,65 @@ fn a_small_feedback_batch_does_not_turn_two_percent_loss_into_congestion() {
     e.on_datagram(&feedback(&Feedback::default()), false, 160_000);
     e.on_datagram(&feedback(&Feedback::default()), false, 660_000);
     assert!(e.stats().target_bps >= start, "two percent loss stays below the congestion threshold");
+}
+
+/// A typing-sized frame on a nearly idle link goes out twice (its one data shard
+/// and a parity copy), so losing either copy costs no tail-probe wait: the
+/// viewer rebuilds the frame from the one that arrived. On a Mac pair over a
+/// clean LAN, 11 of 300 key presses lost such a frame's only copy, and each
+/// waited the whole probe interval.
+#[test]
+fn a_small_frame_on_an_idle_link_goes_out_twice_and_survives_losing_a_copy() {
+    use cmux_rd_core::reassembly::Reassembler;
+    let mut e = engine();
+    let mut viewer = Reassembler::new(500_000);
+    let first = e.start(0).expect("first");
+    for d in send(&mut e, &first, true, 1_000, 0) {
+        let (h, payload) = DatagramHeader::decode(&d).expect("header");
+        viewer.push(&h, payload, 1_000);
+    }
+    assert_eq!(viewer.last_released(), first.frame);
+    e.on_datagram(
+        &feedback(&Feedback { acked_frame: first.frame, ..Feedback::default() }),
+        true,
+        10_000,
+    );
+    let small = Rect { x: 1, y: 1, width: 10, height: 10 };
+    let p = e.damage(0, small, 20_000).expect("second frame");
+    let sent = send(&mut e, &p, false, 100, 20_000);
+    assert_eq!(sent.len(), 2, "a small frame on an idle link is sent twice");
+    // The data datagram is lost; the copy alone gives the viewer the frame.
+    let copy = sent.last().expect("copy");
+    let (h, payload) = DatagramHeader::decode(copy).expect("header");
+    assert_eq!(h.kind, DatagramKind::Fec);
+    let released = viewer.push(&h, payload, 21_000);
+    assert_eq!(released.iter().map(|f| f.frame).collect::<Vec<_>>(), vec![p.frame]);
+}
+
+/// The copy is spent only while the link is nearly idle: while the last
+/// second's sends pass 1 % of the target, a small frame goes out once.
+#[test]
+fn a_small_frame_on_a_busy_link_goes_out_once() {
+    let mut e = engine();
+    let first = e.start(0).expect("first");
+    // 40 KB in the last second is far over 1 % of the 8 Mbps starting target.
+    send(&mut e, &first, true, 40_000, 0);
+    e.on_datagram(
+        &feedback(&Feedback { acked_frame: first.frame, ..Feedback::default() }),
+        true,
+        10_000,
+    );
+    let small = Rect { x: 1, y: 1, width: 10, height: 10 };
+    let p = e.damage(0, small, 20_000).expect("second frame");
+    assert_eq!(send(&mut e, &p, false, 100, 20_000).len(), 1);
+    e.on_datagram(
+        &feedback(&Feedback { acked_frame: p.frame, ..Feedback::default() }),
+        true,
+        30_000,
+    );
+    // A second later the keyframe has left the window: the link is idle again.
+    let q = e.damage(0, small, 1_100_000).expect("third frame");
+    assert_eq!(send(&mut e, &q, false, 100, 1_100_000).len(), 2);
 }
 
 #[test]
@@ -776,4 +836,81 @@ fn no_recovery_keyframe_while_the_path_is_away() {
     );
     let req = out.encode.expect("the recovery ask is answered once the path is back");
     assert!(req.force_idr);
+}
+
+fn ack(e: &mut MediaEngine, frame: u32, now: u64) -> Option<EncodeRequest> {
+    e.on_datagram(&feedback(&Feedback { acked_frame: frame, ..Feedback::default() }), true, now)
+        .encode
+}
+
+#[test]
+fn standard_never_refines_and_carries_its_profile() {
+    let mut e = engine();
+    assert_eq!(e.profile(), EncodeProfile::Standard, "standard is the default");
+    let first = e.start(0).expect("first");
+    assert_eq!(first.profile, EncodeProfile::Standard);
+    assert!(!first.refine);
+    send(&mut e, &first, true, 1_000, 0);
+    assert!(ack(&mut e, first.frame, 5_000).is_none());
+    assert!(e.poll(1_000_000).is_none(), "a still screen sends nothing on standard");
+    assert_eq!(e.next_deadline_us(), None, "and needs no wakeup");
+}
+
+#[test]
+fn ultra_refines_a_still_screen_within_two_frames() {
+    let mut e = engine();
+    e.set_profile(EncodeProfile::Ultra);
+    let first = e.start(0).expect("first");
+    assert_eq!(first.profile, EncodeProfile::Ultra);
+    assert!(!first.refine, "the keyframe is not a refinement");
+    send(&mut e, &first, true, 1_000, 0);
+    assert!(ack(&mut e, first.frame, 4_000).is_none());
+    let small = Rect { x: 1, y: 1, width: 10, height: 10 };
+    let typed = e.damage(0, small, 20_000).expect("damage frame");
+    assert!(!typed.refine);
+    send(&mut e, &typed, false, 500, 20_000);
+    assert!(ack(&mut e, typed.frame, 24_000).is_none());
+    // One frame interval (60 fps) after the last damage frame went out.
+    let due = e.next_deadline_us().expect("a refinement is scheduled");
+    assert_eq!(due, 20_000 + 16_666);
+    assert!(e.poll(due - 1).is_none(), "not before it is due");
+    let refine = e.poll(due).expect("the refinement frame");
+    assert!(refine.refine && !refine.force_idr);
+    assert_eq!(refine.frame, typed.frame + 1, "the next frame after the damage");
+    assert_eq!(refine.damage, Rect { x: 0, y: 0, width: 640, height: 480 }, "the whole surface");
+    send(&mut e, &refine, false, 4_000, due);
+    assert!(ack(&mut e, refine.frame, due + 4_000).is_none());
+    assert_eq!(e.next_deadline_us(), None, "one refinement, then quiet until new damage");
+    assert!(e.poll(due + 1_000_000).is_none());
+}
+
+#[test]
+fn new_damage_cancels_a_refinement_and_reschedules_it() {
+    let mut e = engine();
+    e.set_profile(EncodeProfile::Ultra);
+    let first = e.start(0).expect("first");
+    send(&mut e, &first, true, 1_000, 0);
+    // Not acknowledged yet: the refinement waits on the in-flight bound, then damage joins.
+    assert!(e.poll(16_666).is_none(), "the in-flight bound holds the refinement");
+    let small = Rect { x: 1, y: 1, width: 10, height: 10 };
+    assert!(e.damage(0, small, 18_000).is_none());
+    let next = ack(&mut e, first.frame, 20_000).expect("ack releases the frame");
+    assert!(!next.refine, "damage that joined a held refinement makes it an ordinary frame");
+    send(&mut e, &next, false, 500, 20_000);
+    let refine = ack(&mut e, next.frame, 21_000);
+    assert!(refine.is_none(), "the refinement is not due yet");
+    assert_eq!(e.next_deadline_us(), Some(20_000 + 16_666));
+}
+
+#[test]
+fn leaving_ultra_drops_a_due_refinement() {
+    let mut e = engine();
+    e.set_profile(EncodeProfile::Ultra);
+    let first = e.start(0).expect("first");
+    send(&mut e, &first, true, 1_000, 0);
+    assert!(ack(&mut e, first.frame, 4_000).is_none());
+    assert!(e.next_deadline_us().is_some());
+    e.set_profile(EncodeProfile::Standard);
+    assert_eq!(e.next_deadline_us(), None);
+    assert!(e.poll(1_000_000).is_none());
 }

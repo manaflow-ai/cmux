@@ -14,6 +14,7 @@ use crate::jsonc;
 use crate::managed::{ManagedPreferences, TeamPolicyLayer};
 use crate::render::compact;
 use crate::schema::{Schema, accepts};
+use crate::sidebar_look;
 use crate::theme_file::{self, ThemeDiagnosticKind, ThemeFile};
 use crate::value::value_at;
 
@@ -220,6 +221,8 @@ impl State {
                 diagnostics.push(Diagnostic::new(kind, &problem.path, &problem.display()));
             }
         }
+        // The sidebar look fills only what every layer above leaves unset (sidebar_look).
+        effective.root = sidebar_look::filled(&effective.root, self.schema, &self.domains);
         diagnostics.append(&mut effective.diagnostics);
         for row in &self.schema.rows {
             if let Some(stored) = value_at(&effective.root, &row.path)
@@ -273,8 +276,14 @@ impl State {
         {
             self.theme.last_good = Some((name, text.clone()));
         }
-        let managed: BTreeSet<String> = base.managed_keys.keys().cloned().collect();
-        let themed = file.applied(&self.file_root, &managed);
+        // Managed keys, and the keys the person changed over the file (#44894), keep their value.
+        let mut kept: BTreeSet<String> = base.managed_keys.keys().cloned().collect();
+        // Only look rows count, never the colors map: a hand-written "appearance" must not turn
+        // the whole file off (as Swift `ThemeFileExceptionsSetting.keys`).
+        kept.extend(theme_file::exceptions_in(&self.file_root).into_iter().filter(|key| {
+            key != "appearance.themeEdits" && self.schema.row(key).is_some_and(theme_file::is_look)
+        }));
+        let themed = file.applied(&self.file_root, &kept);
         self.theme.file = Some(file);
         Some(themed)
     }

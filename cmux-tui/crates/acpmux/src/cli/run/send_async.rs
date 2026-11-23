@@ -76,7 +76,7 @@ pub(super) async fn queue(
         let Some(app) = error.downcast_ref::<errors::AppError>() else { return error };
         if app.code != errors::Code::Timeout { return error; }
         let recovery = match &delivery_id {
-            Some(delivery) => format!("Delivery {delivery} is recorded; check it with acpmux send --status {delivery}, or resend with --prompt-id {} to reuse the same delivery.", prompt_id.id),
+            Some(delivery) => format!("Delivery {delivery} is recorded; check it with {} send --status {delivery}, or resend with --prompt-id {} to reuse the same delivery.", crate::cli::entry::program(), prompt_id.id),
             None => format!("The prompt may have been accepted; resend with --prompt-id {} to recover its outcome without running it twice.", prompt_id.id),
         };
         let mut data = json!({"resend": true, "recovery": recovery});
@@ -178,9 +178,12 @@ async fn queue_once(
             println!("{line}");
         }
     } else if unreachable {
-        println!("queued; host unreachable, will retry (delivery {id}; acpmux send --status {id})");
+        println!(
+            "queued; host unreachable, will retry (delivery {id}; {} send --status {id})",
+            crate::cli::entry::program()
+        );
     } else {
-        println!("queued for delivery {id} (acpmux send --status {id})");
+        println!("queued for delivery {id} ({} send --status {id})", crate::cli::entry::program());
     }
     Ok(())
 }

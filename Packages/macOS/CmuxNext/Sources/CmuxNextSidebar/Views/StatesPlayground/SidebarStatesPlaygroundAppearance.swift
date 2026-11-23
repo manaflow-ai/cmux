@@ -13,8 +13,8 @@ enum SidebarStatesPlaygroundAppearance: String, CaseIterable, Sendable {
     /// The sheet's title.
     var title: String {
         switch self {
-        case .light: String(localized: "sidebar.statesPlayground.light", defaultValue: "Light", bundle: .module)
-        case .dark: String(localized: "sidebar.statesPlayground.dark", defaultValue: "Dark", bundle: .module)
+        case .light: String(localized: "sidebar.statesPlayground.light", defaultValue: "Light", bundle: .localizedModule)
+        case .dark: String(localized: "sidebar.statesPlayground.dark", defaultValue: "Dark", bundle: .localizedModule)
         }
     }
 }

@@ -7,11 +7,14 @@
 //!   {"session":"<hub session id>","peer_key":"<viewer session key, 64 hex>",
 //!    "viewer":{"user":"..","install":".."},"scope":"view"|"control",
 //!    "stun":["host:port",..],"display":"main","max_fps":60,"max_width":null,
+//!    "max_kbps":null,"cursor":null (the viewer's Customize wishes, src/serve_wish.rs),
 //!    "capture":"x11"|"portal" (Linux, optional)}
 //! On Linux the display is the session's X display (`--display`, else `$DISPLAY`, else
 //! `:0`; `--xauthority` or `XAUTHORITY` for its cookie) and the capture backend is
 //! `capture_backend::CaptureBackend` (`--capture`, else portal in a Wayland session).
-//! stdin, later: {"candidate":"host 192.168.1.4:51000"} or {"stop":true}
+//! stdin, later: {"candidate":"host 192.168.1.4:51000"} or {"stop":true}, and
+//!   {"exclude_windows":[123,456]}: the app's window ids (CGWindowID) the capture leaves out,
+//!   the whole list each time, sent before the capture starts and on every change (macOS)
 //! stdout: {"key":"<this side's session key>"} first (the app signs it for the
 //!   viewer), then {"candidate":".."}, {"candidates_done":true},
 //!   {"connected":true}, {"path":{"kind":"direct_wan","rtt_ms":3.2}},
@@ -23,11 +26,12 @@
 
 use crate::args::Opts;
 use crate::capture_backend::CaptureBackend;
-use crate::carrier::{Carrier, Incoming, LinkCarrier};
+use crate::carrier::{Carrier, Incoming, LinkCarrier, MediaQueueStats};
 use crate::stream::{MediaSession, SessionCfg};
 use crate::wire::Control;
 use crate::Res;
 use cmux_rd_core::policy::{ConsentRule, HostPolicy, Mode, Principal, PrincipalClass};
+use cmux_rd_core::profile::EncodeProfile;
 use cmux_rd_core::service::{negotiate, SERVICE_DESKTOP};
 use cmux_rd_core::session::{Actor, SessionTable, StartRequest};
 use cmux_rd_link::net::{Candidate, Net, NetConfig, NetEvent};
@@ -68,12 +72,33 @@ struct Setup {
     max_fps: Option<u32>,
     #[serde(default)]
     max_width: Option<u32>,
+    /// The viewer's bitrate cap in kbit/s (`a=cmux-rd-max-kbps`; src/serve_wish.rs).
+    #[serde(default)]
+    max_kbps: Option<u32>,
+    /// Whether the stream shows the cursor (`a=cmux-rd-cursor`; none: it does).
+    #[serde(default)]
+    cursor: Option<bool>,
     /// This side reaches the viewer through TURN alone.
     #[serde(default)]
     relay_only: bool,
     /// Linux: `x11` or `portal` (else `--capture`, else the session type decides).
     #[serde(default)]
     capture: Option<String>,
+    /// The person sharing turned clipboard text sync on for this session (default off).
+    #[serde(default)]
+    clipboard: bool,
+    /// The profile the viewer asks for (`standard` or `ultra`, the person's choice).
+    #[serde(default)]
+    encode_profile: Option<String>,
+}
+
+/// The session's profile: the viewer's choice, else `--encode-profile`, else standard. A
+/// profile this host does not know runs standard, so a newer viewer still gets a picture.
+fn session_profile(opts: &Opts, setup: &Setup) -> Result<EncodeProfile, String> {
+    match setup.encode_profile.as_deref() {
+        Some(asked) => Ok(EncodeProfile::parse(asked).unwrap_or_default()),
+        None => opts.encode_profile(),
+    }
 }
 
 #[derive(Deserialize)]
@@ -82,13 +107,24 @@ struct Later {
     candidate: Option<String>,
     #[serde(default)]
     stop: bool,
+    /// SECURITY: the app windows only the person at this Mac may see (the join consent ask, a
+    /// revealed password), which the capture must leave out; the whole list, replacing the last.
+    #[serde(default)]
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    exclude_windows: Option<Vec<u32>>,
 }
 
 /// Prints one line for the app (`AppLine`, the type the app's line reader reads back).
 fn say(line: AppLine) {
-    let mut out = io::stdout().lock();
-    let _ = writeln!(out, "{}", line.to_json());
-    let _ = out.flush();
+    let _ = write_line(&mut io::stdout().lock(), &line);
+}
+
+/// One app line on `out`, then a flush: the app reads stdout through a pipe, where nothing
+/// else flushes it, so each line must reach the pipe whole before the next stage waits on
+/// the app (cmuxterm-hq#13721: the answer waits for every candidate line).
+fn write_line(out: &mut impl Write, line: &AppLine) -> io::Result<()> {
+    writeln!(out, "{}", line.to_json())?;
+    out.flush()
 }
 
 pub(crate) fn hex(bytes: &[u8]) -> String {
@@ -193,6 +229,10 @@ impl ServeCarrier {
             if let Some(c) = later.candidate.as_deref().and_then(Candidate::from_wire) {
                 self.link.net.add_remote_candidate(c);
             }
+            #[cfg(target_os = "macos")]
+            if let Some(ids) = later.exclude_windows {
+                crate::mac::capture::set_excluded_windows(ids);
+            }
         }
         Ok(())
     }
@@ -213,6 +253,14 @@ impl ServeCarrier {
 }
 
 impl Carrier for ServeCarrier {
+    fn drain_departures(&mut self, out: &mut Vec<cmux_rd_proto::DatagramDeparture>) {
+        self.link.drain_departures(out);
+    }
+
+    fn departure_overflows(&self) -> u64 {
+        self.link.departure_overflows()
+    }
+
     fn fds(&self) -> Vec<RawFd> {
         let mut fds = self.link.fds();
         fds.push(libc::STDIN_FILENO);
@@ -230,8 +278,16 @@ impl Carrier for ServeCarrier {
         self.link.path_rtt_us()
     }
 
+    fn media_queue_stats(&self) -> Option<MediaQueueStats> {
+        self.link.media_queue_stats()
+    }
+
     fn send_datagram(&mut self, datagram: &[u8]) -> io::Result<()> {
         self.link.send_datagram(datagram)
+    }
+
+    fn send_datagram_frame(&mut self, datagrams: Vec<Vec<u8>>, droppable: bool) -> io::Result<()> {
+        self.link.send_datagram_frame(datagrams, droppable)
     }
 
     fn send_control(&mut self, control: &Control) -> io::Result<()> {
@@ -310,10 +366,13 @@ pub fn run(opts: &Opts) -> Res<()> {
     #[cfg(target_os = "linux")]
     say(linux_displays(capture, &display));
     #[cfg(target_os = "macos")]
-    match crate::desktop::displays() {
-        Ok((sizes, current)) => {
-            say(AppLine { displays: Some(sizes), current: Some(current), ..AppLine::default() })
-        }
+    match crate::desktop::displays(&display) {
+        Ok((sizes, current, ids)) => say(AppLine {
+            displays: Some(sizes),
+            current: Some(current),
+            display_ids: (!ids.is_empty()).then_some(ids),
+            ..AppLine::default()
+        }),
         Err(e) => say(AppLine {
             displays: Some(Vec::new()),
             current: Some(0),
@@ -435,8 +494,17 @@ fn serve_session(
     let sink = crate::upstream::session_sink(None, 0);
     let mut host_caps = crate::upstream::offered_caps(&*sink);
     // The cursor as metadata where this desktop reports it: the viewer draws one cursor.
-    if crate::desktop::reports_cursor() {
+    let show_cursor = crate::serve_wish::show_cursor(setup.cursor);
+    if show_cursor && crate::desktop::reports_cursor() {
         host_caps.push(cmux_rd_core::service::caps::CURSOR);
+    }
+    // The session clock (C8; the engine answers every ping) and the stage ledger (D8).
+    host_caps.extend([cmux_rd_core::service::caps::CLOCK, cmux_rd_core::service::caps::LEDGER]);
+    // Clipboard text only when the app's setup turned it on and this host has a clipboard it
+    // can watch (macOS). A `view` scope session still never applies or sends one: it never
+    // holds control (clipboard.rs).
+    if crate::clipboard::offered(setup.clipboard) {
+        host_caps.push(cmux_rd_core::service::caps::CLIPBOARD_TEXT);
     }
     let negotiated = match negotiate(&service, &caps, &[SERVICE_DESKTOP], &host_caps) {
         Ok(n) => n,
@@ -472,14 +540,26 @@ fn serve_session(
     let display = display.to_owned();
     // The viewer's rate wins; else the display's refresh rate (60 when it cannot be read).
     let max_fps = setup.max_fps.unwrap_or_else(|| crate::desktop::default_max_fps(&display));
-    let max_kbps = opts.num_or("max-kbps", 50_000)?;
-    let start_kbps = opts.num_or(
-        "start-kbps",
-        default_start_kbps(path_kind, path_medium, carrier.link.rtt_us, max_kbps),
-    )?;
+    // Ultra (the viewer's choice or `--encode-profile ultra`): frames at that rate up to 120,
+    // a higher ceiling, and the encoder's ultra settings. Standard (the default) is unchanged.
+    let encode_profile = session_profile(opts, setup)?;
+    let max_fps = encode_profile.stream_fps(max_fps);
+    let explicit_max_kbps = opts.get("max-kbps").map(|_| opts.num_or("max-kbps", 0)).transpose()?;
+    // The host's ceiling (profile and `--max-kbps`), then the viewer's Customize cap within it:
+    // one cap, the congestion controller's `max_bps`.
+    let host_max_kbps = cmux_rd_core::profile::max_kbps(encode_profile, explicit_max_kbps, 50_000);
+    let max_kbps = crate::serve_wish::max_kbps(setup.max_kbps, host_max_kbps);
+    let start_kbps = crate::serve_wish::start_kbps(
+        opts.num_or(
+            "start-kbps",
+            default_start_kbps(path_kind, path_medium, carrier.link.rtt_us, max_kbps),
+        )?,
+        max_kbps,
+    );
     let cfg = SessionCfg {
         display,
         max_fps,
+        encode_profile,
         start_kbps,
         max_kbps,
         preset: String::new(),
@@ -493,6 +573,7 @@ fn serve_session(
         upstream_record: None,
         upstream_record_max_bytes: 0,
         max_width: setup.max_width,
+        show_cursor,
         // On by default: the frame that shows an input's effect goes out at once instead of
         // waiting out the frame-rate interval. `--input-frame-now 0` turns it off.
         input_frame_now: opts.flag_or("input-frame-now", true),
@@ -527,6 +608,117 @@ fn serve_session(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn serve_preserves_frame_boundaries_before_the_link_connects() {
+        let local = KeyPair::generate().unwrap();
+        let peer = KeyPair::generate().unwrap();
+        let net = Net::start(NetConfig {
+            role: Role::Responder,
+            session: b"serve-queue-test".to_vec(),
+            local,
+            expected_remote: peer.public,
+            stun: Vec::new(),
+            bind: "127.0.0.1:0".parse().unwrap(),
+            turn: Vec::new(),
+            relay_only: false,
+        })
+        .unwrap();
+        let mut carrier = ServeCarrier {
+            link: LinkCarrier { net, paths: Vec::new(), rtt_us: None },
+            app: AppLines { buf: Vec::new() },
+        };
+        carrier.send_datagram_frame(vec![vec![1], vec![2]], true).unwrap();
+        carrier.send_datagram_frame(vec![vec![3]], true).unwrap();
+        let stats = carrier.media_queue_stats().unwrap();
+        assert_eq!(stats.queue_frames, 1);
+        assert_eq!(stats.queue_datagrams, 1);
+        assert_eq!(stats.dropped_replaced_frames, 1);
+        assert_eq!(stats.dropped_replaced_datagrams, 2);
+    }
+
+    #[test]
+    fn clipboard_sync_is_off_unless_the_setup_turns_it_on() {
+        let base = r#"{"session":"s","peer_key":"00","viewer":{"user":"u","install":"i"},"scope":"control"}"#;
+        let off: Setup = serde_json::from_str(base).expect("setup");
+        assert!(!off.clipboard);
+        let on = r#"{"session":"s","peer_key":"00","viewer":{"user":"u","install":"i"},"scope":"control","clipboard":true}"#;
+        let on: Setup = serde_json::from_str(on).expect("setup");
+        assert!(on.clipboard);
+    }
+
+    /// A writer that keeps what reached it only at a flush, as a pipe's reader sees it.
+    #[derive(Default)]
+    struct Piped {
+        pending: Vec<u8>,
+        flushed: Vec<u8>,
+    }
+
+    impl Write for Piped {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.pending.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            self.flushed.append(&mut self.pending);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn every_app_line_reaches_the_pipe_whole_and_flushed() {
+        let mut out = Piped::default();
+        let lines = [
+            AppLine { displays: Some(vec![(1920, 1080)]), current: Some(0), ..AppLine::default() },
+            AppLine { key: Some("ab".repeat(32)), ..AppLine::default() },
+            AppLine { candidate: Some("host 192.168.1.4:51000".into()), ..AppLine::default() },
+            AppLine { candidates_done: true, ..AppLine::default() },
+        ];
+        for (i, line) in lines.iter().enumerate() {
+            write_line(&mut out, line).unwrap();
+            // Nothing waits in a buffer: the reader has every line so far, each ended by one newline.
+            assert!(out.pending.is_empty());
+            let read: Vec<&[u8]> =
+                out.flushed.split(|b| *b == b'\n').filter(|l| !l.is_empty()).collect();
+            assert_eq!(read.len(), i + 1);
+            assert_eq!(AppLine::decode(read[i]).as_ref(), Some(line));
+        }
+        assert_eq!(out.flushed.last(), Some(&b'\n'));
+    }
+
+    #[test]
+    fn the_viewers_profile_wins_and_standard_is_the_default() {
+        let setup = |profile: Option<&str>| -> Setup {
+            let mut line = serde_json::json!({
+                "session": "s1", "peer_key": "ab".repeat(32),
+                "viewer": {"user": "v", "install": "v"}, "scope": "view",
+            });
+            if let Some(p) = profile {
+                line["encode_profile"] = p.into();
+            }
+            serde_json::from_value(line).unwrap()
+        };
+        let flags = |args: &[&str]| {
+            Opts::parse(&args.iter().map(|s| s.to_string()).collect::<Vec<_>>()).unwrap()
+        };
+        let none = flags(&[]);
+        let ultra_flag = flags(&["--encode-profile", "ultra"]);
+        // An old viewer sends no profile: the flag decides, else standard.
+        assert_eq!(session_profile(&none, &setup(None)), Ok(EncodeProfile::Standard));
+        assert_eq!(session_profile(&ultra_flag, &setup(None)), Ok(EncodeProfile::Ultra));
+        // The person's choice in the viewer wins over the host's flag, either way.
+        assert_eq!(session_profile(&none, &setup(Some("ultra"))), Ok(EncodeProfile::Ultra));
+        assert_eq!(
+            session_profile(&ultra_flag, &setup(Some("standard"))),
+            Ok(EncodeProfile::Standard)
+        );
+        // A profile this host does not know still streams, as standard.
+        assert_eq!(
+            session_profile(&ultra_flag, &setup(Some("hyper"))),
+            Ok(EncodeProfile::Standard)
+        );
+    }
 
     #[test]
     fn portal_sessions_control_only_with_a_remote_desktop_grant() {
@@ -565,5 +757,16 @@ mod tests {
         assert_eq!(default_start_kbps(Some("turn_relay"), Some("lan"), Some(1_000), 50_000), 8_000);
         assert_eq!(default_start_kbps(Some("direct_lan"), None, None, 20_000), 20_000);
         assert_eq!(default_start_kbps(None, None, None, 4_000), 4_000);
+    }
+
+    #[test]
+    fn later_lines_carry_the_excluded_windows() {
+        let later: Later = serde_json::from_str(r#"{"exclude_windows":[123,456]}"#).unwrap();
+        assert_eq!(later.exclude_windows, Some(vec![123, 456]));
+        assert!(!later.stop && later.candidate.is_none());
+        let emptied: Later = serde_json::from_str(r#"{"exclude_windows":[]}"#).unwrap();
+        assert_eq!(emptied.exclude_windows, Some(Vec::new()));
+        let stop: Later = serde_json::from_str(r#"{"stop":true}"#).unwrap();
+        assert_eq!(stop.exclude_windows, None);
     }
 }

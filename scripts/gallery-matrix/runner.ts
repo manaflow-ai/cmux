@@ -247,7 +247,8 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
   let recording: { path(): Promise<string> } | null = null;
   try {
     const page = await context.newPage();
-    recording = page.video();
+    // Only a recording context has a video; the runner's tests pass page doubles without `video()`.
+    if (RECORD_VIDEO) recording = page.video();
     if (ECHO_TRACE) page.on("console", (message) => { const text = message.text(); if (text.startsWith("motion-trace")) console.log(`${item.id} ${text}`); });
     // The renderer's main-thread CPU time (Chromium's Performance metrics, `ThreadTime`): the work the
     // stage did to get ready, which a loaded runner does not stretch the way it stretches wall time.

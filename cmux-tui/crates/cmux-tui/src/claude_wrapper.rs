@@ -11,6 +11,10 @@
 //! unchanged. A launch that gets the hooks this way, or that turns them off,
 //! loses cmux-tui's Claude Code plugin from `CLAUDE_CODE_PLUGIN_DIRS`
 //! (claude_plugin.rs), which covers the launches that skip the shim.
+//!
+//! The merged settings also take messages from the person's other Claude Code
+//! sessions (`crossSessionInbound: "accept"`) unless the launch or the person's
+//! own `settings.json` chose otherwise ([`accept_other_sessions`]).
 
 use std::ffi::{CString, OsStr, OsString};
 use std::fs;
@@ -23,14 +27,15 @@ use std::process::Command;
 use std::time::{Duration, SystemTime};
 
 use anyhow::Context as _;
+use cmux_tui_core::server::AgentStartHost;
 use serde_json::{Map, Value};
 use sha2::{Digest as _, Sha256};
 
 use crate::agent_hook_install;
 
-const VERB: &str = "claude-wrapper";
+pub(crate) const VERB: &str = "claude-wrapper";
 /// Identifies the shim so the wrapper never resolves `claude` back to it.
-const SHIM_MARKER: &str = "# cmux-tui-claude-shim";
+pub(crate) const SHIM_MARKER: &str = "# cmux-tui-claude-shim";
 /// Set on the launched Claude so a launcher that re-resolves `claude` from
 /// PATH passes through instead of stacking a second set of hooks.
 const WRAPPER_ACTIVE_ENV: &str = "CMUX_TUI_CLAUDE_WRAPPER_ACTIVE";
@@ -69,6 +74,7 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
     let path = std::env::var_os("PATH").unwrap_or_default();
     let Some(claude) = find_real_claude(&path, shim_dir.as_deref()) else {
         eprintln!("{}", messages.agent_not_found);
+        eprintln!("{}", messages.claude_install_hint);
         return 127;
     };
     let mut command = Command::new(&claude);
@@ -89,6 +95,14 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
         drop_cmux_plugin(&mut command);
     }
     if should_inject(args, |name| std::env::var_os(name)) {
+        // The answer the person's own servers (a `cmux` entry of theirs) follow, as in an agent
+        // chat: Claude passes its environment to a stdio server (agent_mcp_choice.rs).
+        command.env(
+            acpmux::agent_tools::TOOLS_ANSWER_ENV,
+            crate::agent_mcp_choice::tools_answer(
+                cmux_tui_core::user_settings::AgentsCmuxMcp::current(),
+            ),
+        );
         match prepare_hooks(args) {
             Ok((injected, helper)) => {
                 launch_args = injected;
@@ -160,7 +174,23 @@ fn prepare_hooks(args: &[OsString]) -> anyhow::Result<(Vec<OsString>, Option<Pat
     let cache = agent_hook_install::runtime_cmux_tui_data_home()
         .context("no data directory for Claude settings")?
         .join("claude-settings");
-    Ok((args_with_hooks(args, hooks, &cache)?, helper))
+    let host = (crate::agent_start_host::source())();
+    let user = user_cross_session_inbound(|name| std::env::var_os(name), host);
+    let mut launch = args_with_hooks(args, hooks, user.as_ref(), &cache)?;
+    // cmux Computer Use, with no setup (agent_computer_use.rs), unless the
+    // person said no to cmux's tools in their agents (agent_mcp_choice.rs).
+    // The value goes first and the `--settings` flag after it ends Claude's
+    // variadic `--mcp-config`, so a prompt is never read as a config.
+    if let Some(socket) = std::env::var_os("CMUX_TUI_SOCKET").filter(|s| !s.is_empty())
+        && let Some(config) = crate::agent_mcp_choice::claude_mcp_config(
+            cmux_tui_core::user_settings::AgentsCmuxMcp::current(),
+            &executable,
+            Path::new(&socket),
+        )
+    {
+        launch.splice(0..0, [OsString::from("--mcp-config"), config]);
+    }
+    Ok((launch, helper))
 }
 
 /// The hook settings fragment merged into every wrapped launch: the agent
@@ -186,11 +216,66 @@ fn session_hook_settings(
     Ok(settings)
 }
 
+/// Claude Code's setting for messages the person's other sessions send this one: `accept`,
+/// `hold` (shown to the person, not given to the model) or `refuse`.
+const CROSS_SESSION_INBOUND: &str = "crossSessionInbound";
+
+/// The person's own `crossSessionInbound`, from the settings file of the config directory the
+/// launch uses. Shared Cloud launches switch to the isolated team profile downstream in
+/// agent-auth.sh, after this wrapper runs. Read that profile before applying launch defaults.
+/// On personal hosts use `CLAUDE_CONFIG_DIR`, else `~/.claude`. The file is only read.
+fn user_cross_session_inbound(
+    getenv: impl Fn(&str) -> Option<OsString>,
+    host: AgentStartHost,
+) -> Option<Value> {
+    let personal = getenv("CLAUDE_CONFIG_DIR")
+        .filter(|dir| !dir.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            getenv("HOME")
+                .filter(|home| !home.is_empty())
+                .map(|home| PathBuf::from(home).join(".claude"))
+        })
+        .and_then(|config| read_settings_argument(config.join("settings.json").as_os_str()).ok())
+        .and_then(|mut settings| settings.remove(CROSS_SESSION_INBOUND));
+    // A profile switch must not loosen a refusal the person already set in the
+    // incoming config. The shared profile's refusal also wins below.
+    if personal.as_ref().is_some_and(|value| value == "refuse") {
+        return personal;
+    }
+    let config = if matches!(host, AgentStartHost::TeamVm | AgentStartHost::UnknownCloud) {
+        PathBuf::from(
+            getenv("HOME").filter(|home| !home.is_empty()).unwrap_or_else(|| "/root".into()),
+        )
+        .join(".config/cmux/claude-team")
+    } else {
+        return personal;
+    };
+    read_settings_argument(config.join("settings.json").as_os_str())
+        .ok()?
+        .remove(CROSS_SESSION_INBOUND)
+}
+
+/// Accept messages from the person's other sessions unless the launch or the person's own
+/// settings explicitly refuse them. Existing `hold` values are defaults, so the cmux launch
+/// accepts them; an explicit `refuse` always wins.
+fn accept_other_sessions(merged: &mut Map<String, Value>, user: Option<&Value>) {
+    if user.is_some_and(|value| value == "refuse") {
+        merged.insert(CROSS_SESSION_INBOUND.into(), Value::from("refuse"));
+        return;
+    }
+    let chosen = merged.get(CROSS_SESSION_INBOUND).or(user);
+    if chosen.is_none_or(|value| value == "hold") {
+        merged.insert(CROSS_SESSION_INBOUND.into(), Value::from("accept"));
+    }
+}
+
 /// Folds every `--settings` argument (inline JSON or a path) and `hooks` into
 /// one settings file, passed first. Arguments after `--` stay untouched.
 fn args_with_hooks(
     args: &[OsString],
     hooks: Map<String, Value>,
+    user_inbound: Option<&Value>,
     cache_dir: &Path,
 ) -> anyhow::Result<Vec<OsString>> {
     let mut merged = Map::new();
@@ -216,6 +301,7 @@ fn args_with_hooks(
         merge_settings(&mut merged, read_settings_argument(&value)?);
     }
     merge_settings(&mut merged, hooks);
+    accept_other_sessions(&mut merged, user_inbound);
     let data = serde_json::to_vec(&Value::Object(merged))?;
     let path = write_settings_file(cache_dir, &data, SystemTime::now())?;
     let mut launch = vec![OsString::from("--settings"), path.into_os_string()];
@@ -730,7 +816,7 @@ mod tests {
         ]);
         let cache = root.path().join("cache");
         let hooks = session_hook_settings(None, Path::new("/opt/cmux/cmux-tui")).unwrap();
-        let out = args_with_hooks(&args, hooks.clone(), &cache).unwrap();
+        let out = args_with_hooks(&args, hooks.clone(), None, &cache).unwrap();
 
         assert_eq!(out[0], "--settings");
         assert_eq!(out[2..], os(&["--model", "opus", "--", "--settings", "literal"]));
@@ -750,9 +836,84 @@ mod tests {
             assert!(settings["hooks"][event].is_array(), "{event} missing");
         }
 
-        let again = args_with_hooks(&args, hooks, &cache).unwrap();
+        let again = args_with_hooks(&args, hooks, None, &cache).unwrap();
         assert_eq!(again[1], out[1], "identical launches reuse one settings file");
         assert_eq!(fs::read_dir(&cache).unwrap().count(), 1);
+    }
+
+    /// A wrapped launch accepts messages from the person's other sessions when nothing chose
+    /// otherwise or the choice was `hold`; a `refuse` from the launch or the person stays, the
+    /// person's `refuse` beats whatever the launch passed, and the person's settings file is
+    /// read, never written.
+    #[test]
+    fn claude_wrapper_accepts_other_sessions_unless_refused() {
+        let root = tempfile::tempdir().unwrap();
+        let hooks = session_hook_settings(None, Path::new("/opt/cmux/cmux-tui")).unwrap();
+        let launch = |args: &[&str], user: Option<Value>| {
+            let out =
+                args_with_hooks(&os(args), hooks.clone(), user.as_ref(), root.path()).unwrap();
+            read_json(Path::new(&out[1]))[CROSS_SESSION_INBOUND].clone()
+        };
+        assert_eq!(launch(&[], None), "accept");
+        assert_eq!(launch(&[], Some(Value::from("hold"))), "accept");
+        assert_eq!(launch(&[r#"--settings={"crossSessionInbound":"hold"}"#], None), "accept");
+        assert_eq!(launch(&[], Some(Value::from("accept"))), Value::Null);
+        assert_eq!(launch(&[], Some(Value::from("refuse"))), "refuse");
+        assert_eq!(launch(&[r#"--settings={"crossSessionInbound":"refuse"}"#], None), "refuse");
+        for chosen in ["hold", "accept"] {
+            let arg = format!(r#"--settings={{"crossSessionInbound":"{chosen}"}}"#);
+            assert_eq!(launch(&[&arg], Some(Value::from("refuse"))), "refuse");
+        }
+
+        let config = root.path().join("config");
+        fs::create_dir_all(&config).unwrap();
+        let body = r#"{"theme":"dark","crossSessionInbound":"refuse"}"#;
+        fs::write(config.join("settings.json"), body).unwrap();
+        let env =
+            |name: &str| (name == "CLAUDE_CONFIG_DIR").then(|| config.clone().into_os_string());
+        assert_eq!(
+            user_cross_session_inbound(env, AgentStartHost::Allowed),
+            Some(Value::from("refuse"))
+        );
+        assert_eq!(fs::read_to_string(config.join("settings.json")).unwrap(), body);
+        let home =
+            |name: &str| (name == "HOME").then(|| root.path().join("nohome").into_os_string());
+        assert_eq!(user_cross_session_inbound(home, AgentStartHost::Allowed), None);
+    }
+
+    #[test]
+    fn claude_wrapper_reads_refusal_from_the_effective_cloud_profile() {
+        let root = tempfile::tempdir().unwrap();
+        let personal = root.path().join("personal");
+        let team = root.path().join(".config/cmux/claude-team");
+        fs::create_dir_all(&personal).unwrap();
+        fs::create_dir_all(&team).unwrap();
+        fs::write(personal.join("settings.json"), r#"{"crossSessionInbound":"accept"}"#).unwrap();
+        let body = r#"{"theme":"dark","crossSessionInbound":"refuse"}"#;
+        fs::write(team.join("settings.json"), body).unwrap();
+        let env = |name: &str| match name {
+            "HOME" => Some(root.path().as_os_str().to_owned()),
+            "CLAUDE_CONFIG_DIR" => Some(personal.as_os_str().to_owned()),
+            _ => None,
+        };
+        for host in [AgentStartHost::TeamVm, AgentStartHost::UnknownCloud] {
+            let user = user_cross_session_inbound(env, host);
+            assert_eq!(user, Some(Value::from("refuse")));
+            let args = os(&[r#"--settings={"crossSessionInbound":"accept"}"#]);
+            let out = args_with_hooks(&args, Map::new(), user.as_ref(), &root.path().join("cache"))
+                .unwrap();
+            assert_eq!(read_json(Path::new(&out[1]))[CROSS_SESSION_INBOUND], "refuse");
+        }
+        for host in [AgentStartHost::Allowed, AgentStartHost::OwnerCloud] {
+            assert_eq!(user_cross_session_inbound(env, host), Some(Value::from("accept")));
+        }
+        assert_eq!(fs::read_to_string(team.join("settings.json")).unwrap(), body);
+        fs::write(personal.join("settings.json"), body).unwrap();
+        fs::write(team.join("settings.json"), r#"{"crossSessionInbound":"accept"}"#).unwrap();
+        assert_eq!(
+            user_cross_session_inbound(env, AgentStartHost::TeamVm),
+            Some(Value::from("refuse"))
+        );
     }
 
     /// Hook commands match `agent hook install`, or call `agent hook emit` without a helper.
@@ -819,12 +980,12 @@ mod tests {
             os(&["--settings", "[1]"]),
             os(&["--settings={not json"]),
         ] {
-            assert!(args_with_hooks(&args, hooks.clone(), root.path()).is_err(), "{args:?}");
+            assert!(args_with_hooks(&args, hooks.clone(), None, root.path()).is_err(), "{args:?}");
         }
         // A non-UTF-8 `--settings=` value is still read, not passed through
         // after the merged file where it would win and drop the hooks.
         let non_utf8 = OsStr::from_bytes(b"--settings=/nonexistent/\xff.json").to_owned();
-        assert!(args_with_hooks(&[non_utf8], hooks, root.path()).is_err());
+        assert!(args_with_hooks(&[non_utf8], hooks, None, root.path()).is_err());
     }
 
     /// Resolution skips the shim directory, copies of the shim, and links to it.

@@ -90,6 +90,9 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     // A line from outside any chat, such as cmux Cloud's after it resized the machine
     // (`server/host_notice.rs`).
     "host_notice",
+    // A model name read as its catalog id, or a turn retried under it (`model_alias.rs`).
+    "model_rewrite",
+    "model_reroute",
     "forked",
     "imported",
     "session_offer",
@@ -109,6 +112,10 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     // A model race snapshot updates the parent's compare view and must travel with transcript
     // subscriptions, including reconnect paging.
     "race",
+    // The chat's plan usage limits, whole, after a harness report changed them
+    // (`permissions.rs` `USAGE_LIMITS_KIND`): the composer's plan ring. A v1 attach is already at
+    // a remote cmux-tui's 8 kinds, so it reaches an open pane with `transcript`, as `race` does.
+    "usage_limits",
 ];
 
 /// Which records a page or a live event stream carries. `kinds` entries are

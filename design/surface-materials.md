@@ -19,7 +19,8 @@ The other specs, and what each one owns:
 - `design/overlay-surfaces.md`: the roles and the never-opaque rule.
 - `design/menus.md`: menu rows and how menus open.
 
-This page decides only which kind a surface is. The shared non-chat material,
+This page decides only which kind a surface is. The glass levels, their numbers and the audit of
+every glass surface are in [glass-system.md](glass-system.md). The shared non-chat material,
 chat adoption and before/after galleries are specified in
 [transient-material.md](transient-material.md).
 
@@ -80,7 +81,7 @@ His reference is the account menu of a desktop chat app: one translucent surface
 
 - **Every floating web surface is one material**: menus, context menus, selects, popovers, pickers
   (the model picker included), the combobox, the slash and @ lists, hover cards and the context
-  ring's card are all the menu glass level (`--ds-glass-menu-tint` 78%, `--ds-glass-menu-blur`),
+  ring's card are all the menu glass level (`--ds-glass-menu-tint` 80% light, 72% dark, `--ds-glass-menu-blur`; [glass-system.md](glass-system.md)),
   one radius (`--ui-popup-radius`, the native popovers' 8 pt), one hairline and one drop. On the
   App's glass each lays the same 40% veil of the theme surface (`--host-glass-fill`). No surface
   sets a tint, blur, veil or radius of its own (`webviews/test/glass-levels.test.ts`).

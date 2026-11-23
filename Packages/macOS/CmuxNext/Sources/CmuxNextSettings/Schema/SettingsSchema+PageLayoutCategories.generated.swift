@@ -4,13 +4,13 @@
 extension SettingsPageLayout {
     /// The sidebar's sections: what a person looks for together sits together under one small header.
     public static let sidebarSections: [SidebarSection] = [
-        SidebarSection(id: "app", title: nil, categories: [generalCategory, updatesCategory]),
-        SidebarSection(id: "look", title: SettingsText.keyed("settings.sidebarSection.lookAndFeel", "Look and Feel"), categories: [personalizationCategory, appearanceCategory, sidebarCategory, tabsCategory, newTabCategory]),
+        SidebarSection(id: "app", title: nil, categories: [generalCategory, customizeCategory, updatesCategory]),
+        SidebarSection(id: "look", title: SettingsText.keyed("settings.sidebarSection.lookAndFeel", "Look and Feel"), categories: [appearanceCategory, sidebarCategory, tabsCategory]),
         SidebarSection(id: "tools", title: SettingsText.keyed("settings.sidebarSection.tools", "Tools"), categories: [terminalCategory, editorCategory, browserCategory]),
-        SidebarSection(id: "ai", title: SettingsText.keyed("settings.sidebarSection.ai", "AI"), categories: [chatCategory, agentsCategory, modelsCategory, cloudCategory, chiefCategory]),
-        SidebarSection(id: "interaction", title: SettingsText.keyed("settings.sidebarSection.interaction", "Interaction"), categories: [notificationsCategory, keyboardCategory, menusCategory]),
-        SidebarSection(id: "devices", title: SettingsText.keyed("settings.sidebarSection.devices", "Accounts and Devices"), categories: [accountsCategory, keysCategory, mobileCategory, devicesCategory]),
-        SidebarSection(id: "system", title: SettingsText.keyed("settings.sidebarSection.system", "Data and System"), categories: [importCategory, privacyCategory, advancedCategory, experimentalCategory, developmentCategory]),
+        SidebarSection(id: "ai", title: SettingsText.keyed("settings.sidebarSection.ai", "AI"), categories: [chatCategory, agentsCategory, chiefCategory, modelsCategory]),
+        SidebarSection(id: "interaction", title: SettingsText.keyed("settings.sidebarSection.interaction", "Interaction"), categories: [notificationsCategory, keyboardCategory]),
+        SidebarSection(id: "devices", title: SettingsText.keyed("settings.sidebarSection.devices", "Accounts and Devices"), categories: [accountsCategory, mobileCategory]),
+        SidebarSection(id: "more", title: SettingsText.keyed("settings.sidebarSection.more", "More"), categories: [newTabCategory, menusCategory, computerUseCategory, mcpServersCategory, cloudCategory, keysCategory, devicesCategory, importCategory, privacyCategory, advancedCategory, experimentalCategory, developmentCategory], collapsed: true),
     ]
 
     private static func section(_ section: SettingsSection) -> SettingText {
@@ -21,6 +21,7 @@ extension SettingsPageLayout {
     private static let generalCategory = CategorySpec(
         id: "general", title: section(.general), symbol: "gearshape",
         groups: [
+            GroupSpec(group: "settings.group.language"),
             GroupSpec(group: "settings.group.window"),
             GroupSpec(group: "settings.group.quit"),
             GroupSpec(group: "settings.group.history"),
@@ -30,7 +31,14 @@ extension SettingsPageLayout {
             GroupSpec(group: "settings.group.tasks"),
             GroupSpec(group: "settings.group.announcements"),
         ],
-        actions: [.general], aliases: [.general]
+        lead: [.textSize], actions: [.general], aliases: [.general]
+    )
+
+    /// One click per customization (Leo 2026-11-22, ask-931361017e): only the checklist card, right after General so it is found first.
+    private static let customizeCategory = CategorySpec(
+        id: "customize", title: SettingsText.keyed("settings.category.customize", "Customize"), symbol: "switch.2",
+        groups: [],
+        lead: [.customizeChecklist]
     )
 
     /// The app update's status, how this Mac updates, then every channel's recent builds (docs/release-rings.md in hq). After the groups: the Web UI card (the web half of Updates; NIGHTLY only), then the channels.
@@ -43,16 +51,7 @@ extension SettingsPageLayout {
         lead: [.appUpdate], trail: [.webUpdates, .channels]
     )
 
-    /// Leo 2026-11-07: the profile menu's Personalization is a fast jump into the look of the app. Its one card draws rows whose homes stay in Theme, Appearance, Chief and Notifications, so it holds no group and claims no key. The one home of the theme (the Theme page's card moved here; old theme links open this page), the wallpaper, density, the Chief's look, chat text and sounds: no other page draws them.
-    private static let personalizationCategory = CategorySpec(
-        id: "personalization", title: SettingsText.keyed("settings.category.personalization", "Personalization"), symbol: "wand.and.stars",
-        groups: [
-            GroupSpec(group: "settings.group.appTheme"),
-        ],
-        lead: [.personalization], trail: [.customizeLibrary], legacyIDs: ["theme"]
-    )
-
-    /// Change Background… lands here: the art picker draws appearance.background and appearance.backgroundOpacity (search still shows them as rows). The density card draws appearance.density, .customDensity and .customDensities.
+    /// One settings area (David Beyer, 2026-11-20: Personalization and Settings were redundant): how cmux looks is this one page. It opens on the everyday choices, the theme studio (the one home of the theme; it draws the App Theme group), the background picker (appearance.background and its Opacity; Change Background… lands on it) and the density card (appearance.density, Text Size and the custom densities); the fine-tuning groups follow with their rarer rows behind More Options; the Customization Library ends it. Old Personalization and Theme links open it (legacy_ids). The Chief's look is on Chief, chat text on Chat, sounds on Notifications.
     private static let appearanceCategory = CategorySpec(
         id: "appearance", title: section(.appearance), symbol: "paintbrush",
         groups: [
@@ -67,8 +66,10 @@ extension SettingsPageLayout {
             GroupSpec(group: "settings.group.surfaces"),
             GroupSpec(keys: ["appearance.surfaces.sidebar.color", "appearance.surfaces.sidebar.opacity", "appearance.surfaces.tabBar.color", "appearance.surfaces.tabBar.opacity", "appearance.surfaces.browserChrome.color", "appearance.surfaces.browserChrome.opacity", "appearance.surfaces.splitDivider.color", "appearance.surfaces.splitDivider.opacity", "appearance.surfaces.docks.color", "appearance.surfaces.docks.opacity"], title: SettingsText.keyed("settings.pageGroup.windowSurfaces", "Surfaces: Window")),
             GroupSpec(keys: ["appearance.surfaces.diff.color", "appearance.surfaces.diff.opacity", "appearance.surfaces.markdown.color", "appearance.surfaces.markdown.opacity", "appearance.surfaces.editor.color", "appearance.surfaces.editor.opacity"], title: SettingsText.keyed("settings.pageGroup.viewerSurfaces", "Surfaces: Viewers")),
+            // The theme studio draws every row of it (it is the theme's one home); last, so the cards above keep their keys (appearance.1, .7, .8).
+            GroupSpec(group: "settings.group.appTheme"),
         ],
-        actions: [.appearance], aliases: [.appearance]
+        lead: [.themeStudio, .backdrops, .density], trail: [.customizeLibrary], actions: [.appearance], aliases: [.appearance], legacyIDs: ["theme", "personalization"]
     )
 
     private static let sidebarCategory = CategorySpec(
@@ -78,7 +79,7 @@ extension SettingsPageLayout {
             GroupSpec(group: "settings.group.sidebar"),
             // The three list shapes (#31140) get their own card so Sidebar Workspaces stays under max_rows_per_card. Float Hidden Sidebar on Hover (f53a01f2ebaf) is claimed here so the Sidebar card stays under it too.
             GroupSpec(keys: ["sidebar.workspacesAsTabs", "sidebar.chromeGroups", "sidebar.sideBySide", "sidebar.groupPalette", "sidebar.groupGradient", "sidebar.floatOnHover"], title: SettingsText.keyed("settings.pageGroup.sidebarLayout", "Sidebar Layout")),
-            GroupSpec(keys: ["workspaces.newPlacement", "workspaces.autoName", "sidebar.groupByComputer", "sidebar.sessionTree", "sidebar.showProjects", "sidebar.groupBy", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background", "sidebar.priorityView.enabled", "sidebar.priorityView.shown"], title: SettingsText.keyed("settings.pageGroup.sidebarWorkspaces", "Sidebar Workspaces")),
+            GroupSpec(keys: ["workspaces.newPlacement", "workspaces.autoName", "sidebar.groupByComputer", "sidebar.sessionTree", "sidebar.showProjects", "sidebar.groupBy", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.settleFinished", "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background", "sidebar.priorityView.enabled", "sidebar.priorityView.shown"], title: SettingsText.keyed("settings.pageGroup.sidebarWorkspaces", "Sidebar Workspaces")),
             GroupSpec(group: "settings.group.workspaceRows"),
             GroupSpec(keys: ["sidebar.showSpaces", "sidebar.spacesPosition", "sidebar.spacesVisibility", "sidebar.showProfileControl", "sidebar.showSearchButton", "sidebar.showNewWorkspaceChooser", "sidebar.cards.tips", "sidebar.nowPlaying.enabled", "sidebar.nowPlaying.otherApps", "home.channelsEnabled"], title: SettingsText.keyed("settings.pageGroup.sidebarExtras", "Sidebar Buttons and Spaces")),
             GroupSpec(keys: ["sidebar.hoverCards.enabled", "sidebar.hoverCards.delay", "sidebar.hoverCards.layout", "sidebar.hoverCards.sections.timings", "sidebar.hoverCards.sections.prompts", "sidebar.hoverCards.sections.waiting", "sidebar.hoverCards.sections.git", "sidebar.hoverCards.sections.ports", "sidebar.hoverCards.maxRows"], title: SettingsText.keyed("settings.pageGroup.workspaceCards", "Workspace Hover Cards")),
@@ -98,13 +99,6 @@ extension SettingsPageLayout {
             GroupSpec(keys: ["layout.focusFollowsMouse", "layout.scrollAreas", "layout.scrollModifier", "layout.pagesHandleCommandScroll"], title: SettingsText.keyed("settings.pageGroup.scrollFocus", "Scrolling and Focus")),
             GroupSpec(group: "settings.group.panes"),
             GroupSpec(group: "settings.group.focusRing"),
-        ]
-    )
-
-    private static let newTabCategory = CategorySpec(
-        id: "newTab", title: SettingsText.keyed("settings.pageGroup.newTabPage", "New Tab Page"), symbol: "plus.square",
-        groups: [
-            GroupSpec(keys: ["tabs.newTabTemplate", "tabs.newTabApp", "tabs.nativeNewTabPage", "sidebar.showChats", "tabs.newTabNowPlaying"], title: SettingsText.keyed("settings.pageGroup.newTabPage", "New Tab Page")),
         ]
     )
 
@@ -164,21 +158,20 @@ extension SettingsPageLayout {
     private static let chatCategory = CategorySpec(
         id: "chat", title: SettingsText.keyed("settings.category.chat", "Chat"), symbol: "bubble.left",
         groups: [
-            GroupSpec(keys: ["agentPane.display.transcriptView", "agentPane.display.presentation", "agentPane.display.statusVerbs.mode", "agentPane.display.statusVerbs.custom", "agentPane.needsYou.enabled", "agentPane.showMachineLoadWarnings"], title: SettingsText.keyed("settings.pageGroup.transcript", "Transcript")),
-            GroupSpec(keys: ["agentPane.display.width", "agentPane.display.fullWidth", "agentPane.zoom", "agentPane.display.minimap", "agentPane.display.vscodeMinimap", "agentPane.display.pinnedPlan", "agentPane.display.trayTucked", "agentPane.display.trayHandle", "agentPane.display.unreadBanner", "agentPane.display.senderIcon.lead", "agentPane.display.senderIcon.badge", "agentPane.display.senderIcon.corner", "agentPane.display.rail.side", "agentPane.display.sessionInfo.placement", "agentPane.display.environment.placement"], title: SettingsText.keyed("settings.pageGroup.chatLayout", "Chat Layout")),
-            GroupSpec(keys: ["agentPane.display.font.ui", "agentPane.display.font.preset", "agentPane.display.font.size", "agentPane.display.font.lineHeight", "agentPane.display.code.family", "agentPane.display.code.scale"], title: SettingsText.keyed("settings.pageGroup.chatText", "Chat Text")),
-            GroupSpec(keys: ["agentPane.showContextUsage", "agentPane.composerRing", "agentPane.showDictation", "agentPane.dictationSource", "agentPane.dictationShortcut", "agentPane.spellChecking", "agentPane.attachmentView", "agentPane.scrollToBottomOnSend", "agentPane.display.harnessPlacement", "agentPane.display.promptCoach"], title: SettingsText.keyed("settings.pageGroup.messageBox", "Message Box")),
-            GroupSpec(keys: ["agentPane.links.outsideRoots", "agentPane.images.remote", "agentPane.editedFiles.show", "agentPane.editedFiles.maxRows", "agentPane.editedFiles.scope"], title: SettingsText.keyed("settings.pageGroup.filesLinks", "Files and Links")),
+            GroupSpec(keys: ["agentPane.display.transcriptView", "agentPane.display.presentation", "agentPane.display.statusVerbs.mode", "agentPane.display.statusVerbs.custom", "agentPane.display.thinking.shimmer", "agentPane.display.thinking.shimmerPeriod", "agentPane.display.thinking.shimmerBand", "agentPane.display.thinking.jumpButton", "agentPane.needsYou.enabled", "agentPane.display.finishSound", "agentPane.showMachineLoadWarnings"], title: SettingsText.keyed("settings.pageGroup.transcript", "Transcript")),
+            GroupSpec(keys: ["agentPane.display.width", "agentPane.display.fullWidth", "agentPane.zoom", "agentPane.display.minimap", "agentPane.display.vscodeMinimap", "agentPane.display.pinnedPlan", "agentPane.display.trayTucked", "agentPane.display.trayHandle", "agentPane.display.unreadBanner", "agentPane.display.senderIcon.lead", "agentPane.display.senderIcon.badge", "agentPane.display.senderIcon.corner", "agentPane.display.rail.side", "agentPane.display.rail.show", "agentPane.display.rail.control", "agentPane.display.sessionInfo.placement", "agentPane.display.environment.placement"], title: SettingsText.keyed("settings.pageGroup.chatLayout", "Chat Layout")),
+            GroupSpec(keys: ["agentPane.display.font.ui", "agentPane.display.font.uiFamily", "agentPane.display.font.preset", "agentPane.display.font.proseFamily", "agentPane.display.font.faces", "agentPane.display.font.size", "agentPane.display.font.lineHeight", "agentPane.display.code.family", "agentPane.display.code.scale"], title: SettingsText.keyed("settings.pageGroup.chatText", "Chat Text")),
+            GroupSpec(keys: ["agentPane.showContextUsage", "agentPane.composerRing", "agentPane.showDictation", "agentPane.dictationSource", "agentPane.dictationShortcut", "agentPane.spellChecking", "agentPane.composerLook", "agentPane.emptyChatComposerPosition", "agentPane.attachmentView", "agentPane.scrollToBottomOnSend", "agentPane.display.harnessPlacement", "agentPane.display.promptCoach"], title: SettingsText.keyed("settings.pageGroup.messageBox", "Message Box")),
+            GroupSpec(keys: ["agentPane.links.outsideRoots", "agentPane.links.openCitationsInEditor", "agentPane.images.remote", "agentPane.editedFiles.show", "agentPane.editedFiles.maxRows", "agentPane.editedFiles.scope"], title: SettingsText.keyed("settings.pageGroup.filesLinks", "Files and Links")),
             GroupSpec(group: "settings.group.chats"),
         ]
     )
 
-    /// Computer Use (#28997) comes first among the trailing cards: its card draws the on/off switch, the guided setup and the helper's grants together, and the `settings.group.computerUse` rows (the page does not draw that group a second time). Harnesses lists every harness; Your Agents (BRING-YOUR-OWN-HARNESS) adds, checks and removes the ones you added. Agent integrations (optional help, collapsed) installs the hooks that report an agent's state, through `cmux agent hook`.
+    /// Harnesses lists every harness; Your Agents (BRING-YOUR-OWN-HARNESS) adds, checks and removes the ones you added. Agent integrations (optional help, collapsed) installs the hooks that report an agent's state, through `cmux agent hook`. Computer Use has its own category (below).
     private static let agentsCategory = CategorySpec(
         id: "agents", title: SettingsText.keyed("settings.category.agents", "Agents"), symbol: "sparkles",
         groups: [
             GroupSpec(group: "settings.group.agentChat", keys: ["app.warnBeforeClosingAgentSession"], title: SettingsText.keyed("settings.pageGroup.agentDefaults", "Defaults")),
-            GroupSpec(group: "settings.group.computerUse"),
             GroupSpec(group: "settings.group.cmuxRemote"),
             // The free AI model while signed out (cx-ds09i).
             GroupSpec(group: "settings.group.freeModel"),
@@ -194,27 +187,13 @@ extension SettingsPageLayout {
             GroupSpec(group: "settings.group.agentCache"),
             // Folders that start an agent without the trust question.
             GroupSpec(group: "settings.group.folderTrust"),
+            // Whether agents the person starts in cmux (its terminals and agent chats) get cmux's MCP server, Computer Use included (the onboarding step's question); the agentTools card under it lists the agents with Turn On.
+            GroupSpec(group: "settings.group.agentTools"),
         ],
-        trail: [.computerUse, .harnesses, .agentHarnesses, .agentIntegrations, .worktreeSetup]
+        trail: [.agentCustomization, .agentSkills, .agentTools, .harnesses, .agentHarnesses, .agentIntegrations, .worktreeSetup]
     )
 
-    /// Which subscription or key each Cloud thread runs on: the person's own connections in order, the organization's after them, and what members may do (cmux-tui/docs/model-connections.md). cmux://settings/models/add opens it with Add a Connection (focus=models.add).
-    private static let modelsCategory = CategorySpec(
-        id: "models", title: SettingsText.keyed("settings.category.models", "Models"), symbol: "cpu",
-        groups: [],
-        lead: [.models]
-    )
-
-    /// Everything Cloud chats need in one place (owner, 2026-11-12: "we should have this setup stuff in CLOUD in the settings"): Models for Cloud says plainly whether Claude, ChatGPT and an API key are set up for Cloud and opens the same setup steps as Settings > Models; then the team's Cloud Environments and the Cloud Workspaces rows (both moved here from Accounts). cmux://settings/cloud opens it; the Set up Cloud card opens it on the row it needs (focus=cloud.claude, cloud.chatgpt, cloud.apiKey).
-    private static let cloudCategory = CategorySpec(
-        id: "cloud", title: SettingsText.keyed("settings.category.cloud", "Cloud"), symbol: "cloud",
-        groups: [
-            GroupSpec(group: "settings.group.cloudWorkspaces"),
-        ],
-        lead: [.cloudModels, .cloudEnvironments]
-    )
-
-    /// Every Chief setting on one page (Leo 2026-10-20: the name pill's popover is the quick version; its All Chief Settings link opens this): Chiefs lists every Chief, each opening its editor (name, picture, backend; u2586); the Chief Pet card (ChatGPT's Mini & Pets) draws the preview, Show/Hide and the characters from its group's two rows; then the chat's look. Voice input (the message box's mic) shows only in builds with Debug Settings. Notices last: a row that opens Notifications (the Chief's notices are the app's notifications; their rows keep their one home there).
+    /// Every Chief setting on one page (Leo 2026-10-20: the name pill's popover is the quick version; its All Chief Settings link opens this): Chiefs lists every Chief, each opening its editor (name, picture, backend; u2586); the Chief Pet card (ChatGPT's Mini & Pets; the Chief's look, its one home since Personalization folded into Appearance) draws the preview, Show/Hide and the characters from its group's two rows; then the chat's look. Voice input (the message box's mic) shows only in builds with Debug Settings. Notices last: a row that opens Notifications (the Chief's notices are the app's notifications; their rows keep their one home there).
     private static let chiefCategory = CategorySpec(
         id: "chief", title: SettingsText.keyed("settings.category.chief", "Chief"), symbol: "crown",
         groups: [
@@ -231,7 +210,14 @@ extension SettingsPageLayout {
             // Whether the Chief may route each subagent to the harness best at its task (spawn harness).
             GroupSpec(group: "settings.group.chiefSubagents"),
         ],
-        lead: [.chiefs, .voiceInput], trail: [.notices]
+        lead: [.chiefs, .chiefPet, .voiceInput], trail: [.notices]
+    )
+
+    /// Which subscription or key each Cloud thread runs on: the person's own connections in order, the organization's after them, and what members may do (cmux-tui/docs/model-connections.md). cmux://settings/models/add opens it with Add a Connection (focus=models.add).
+    private static let modelsCategory = CategorySpec(
+        id: "models", title: SettingsText.keyed("settings.category.models", "Models"), symbol: "cpu",
+        groups: [],
+        lead: [.models]
     )
 
     /// A core cmux feature: banners, sounds, the attention ring and the feed for agents, terminal programs and `cmux notify`.
@@ -239,6 +225,7 @@ extension SettingsPageLayout {
         id: "notifications", title: section(.notifications), symbol: "bell",
         groups: [
             GroupSpec(group: "settings.group.banners"),
+            GroupSpec(group: "settings.group.notificationDelivery"),
             // Per-event sounds, volume, timing and the burst cooldown (notifications.json's sounds list); its per-level maps stay off the page.
             GroupSpec(group: "settings.group.sounds"),
             GroupSpec(group: "settings.group.dismissal"),
@@ -260,13 +247,6 @@ extension SettingsPageLayout {
         actions: [.keyboard], aliases: [.keyboard]
     )
 
-    /// Every right-click menu: promote rows out of More, reorder, hide, separators, reset (cmux.json contextMenus). Customize Menu… at the end of each menu opens it on that menu.
-    private static let menusCategory = CategorySpec(
-        id: "menus", title: SettingsText.keyed("settings.category.menus", "Menus"), symbol: "contextualmenu.and.cursorarrow",
-        groups: [],
-        lead: [.contextMenus]
-    )
-
     /// Phone access sits beside the account it signs in with and the machines list. The Machines card draws Machine Colors on its rows (a color well per machine).
     private static let accountsCategory = CategorySpec(
         id: "accounts", title: section(.accounts), symbol: "person.crop.circle",
@@ -277,13 +257,6 @@ extension SettingsPageLayout {
         lead: [.accounts, .machines], actions: [.accounts, .machines], aliases: [.accounts, .machines]
     )
 
-    /// Keys agents store and use without seeing them (Leo 2026-11-15: "letting agents safely write keys and store them"), and the requests waiting for the person.
-    private static let keysCategory = CategorySpec(
-        id: "keys", title: SettingsText.keyed("settings.category.keys", "Keys"), symbol: "key",
-        groups: [],
-        lead: [.keys]
-    )
-
     /// Phones reaching this Mac: the iPhone host's switch and Phone Access, then its live status and phones (Lucas 2026-11-11: Mobile stays its own page).
     private static let mobileCategory = CategorySpec(
         id: "mobile", title: SettingsText.keyed("settings.category.mobile", "Mobile"), symbol: "iphone",
@@ -292,6 +265,55 @@ extension SettingsPageLayout {
             GroupSpec(group: "settings.group.phone"),
         ],
         trail: [.mobile]
+    )
+
+    private static let newTabCategory = CategorySpec(
+        id: "newTab", title: SettingsText.keyed("settings.pageGroup.newTabPage", "New Tab Page"), symbol: "plus.square",
+        groups: [
+            GroupSpec(keys: ["tabs.newTabTemplate", "tabs.newTabApp", "tabs.nativeNewTabPage", "sidebar.showChats", "tabs.newTabNowPlaying"], title: SettingsText.keyed("settings.pageGroup.newTabPage", "New Tab Page")),
+        ]
+    )
+
+    /// Every right-click menu: promote rows out of More, reorder, hide, separators, reset (cmux.json contextMenus). Customize Menu… at the end of each menu opens it on that menu.
+    private static let menusCategory = CategorySpec(
+        id: "menus", title: SettingsText.keyed("settings.category.menus", "Menus"), symbol: "contextualmenu.and.cursorarrow",
+        groups: [],
+        lead: [.contextMenus]
+    )
+
+    /// Every Computer Use setting on one page (Aziz 2026-11-05: "all CU settings in their own Settings tab"): the Computer Use card draws the status (engine, permissions, worker), the mode, the denied apps, the saved approvals and the switches from the `settings.group.computerUse` rows; the page does not draw that group a second time.
+    private static let computerUseCategory = CategorySpec(
+        id: "computerUse", title: SettingsText.keyed("settings.category.computerUse", "Computer Use"), symbol: "cursorarrow.click.2",
+        groups: [
+            GroupSpec(group: "settings.group.computerUse"),
+        ],
+        lead: [.computerUse]
+    )
+
+    /// The services agents use for the person (Linear, Slack, GitHub...), who has each one, and its sign-in (user 2026-11-18 via Chief: an MCP Servers page with list, sign in and remove).
+    private static let mcpServersCategory = CategorySpec(
+        id: "mcpServers", title: SettingsText.keyed("settings.category.mcpServers", "MCP Servers"), symbol: "server.rack",
+        groups: [
+            // Whether new agent chats get the saved servers (agents.mcpServers.enabled).
+            GroupSpec(group: "settings.group.mcpServers"),
+        ],
+        lead: [.mcpServers]
+    )
+
+    /// Everything Cloud chats need in one place (owner, 2026-11-12: "we should have this setup stuff in CLOUD in the settings"): Models for Cloud says plainly whether Claude, ChatGPT and an API key are set up for Cloud and opens the same setup steps as Settings > Models; then the team's Cloud Environments and the Cloud Workspaces rows (both moved here from Accounts). cmux://settings/cloud opens it; the Set up Cloud card opens it on the row it needs (focus=cloud.claude, cloud.chatgpt, cloud.apiKey).
+    private static let cloudCategory = CategorySpec(
+        id: "cloud", title: SettingsText.keyed("settings.category.cloud", "Cloud"), symbol: "cloud",
+        groups: [
+            GroupSpec(group: "settings.group.cloudWorkspaces"),
+        ],
+        lead: [.cloudModels, .cloudEnvironments]
+    )
+
+    /// Keys agents store and use without seeing them (Leo 2026-11-15: "letting agents safely write keys and store them"), and the requests waiting for the person.
+    private static let keysCategory = CategorySpec(
+        id: "keys", title: SettingsText.keyed("settings.category.keys", "Keys"), symbol: "key",
+        groups: [],
+        lead: [.keys]
     )
 
     /// Devices holds what the Server page showed; its old links open it (legacy_ids).
@@ -335,6 +357,8 @@ extension SettingsPageLayout {
         id: "experimental", title: SettingsText.keyed("settings.category.experimental", "Experimental"), symbol: "flask",
         groups: [
             GroupSpec(group: "settings.group.labs", keys: ["appearance.experimentalControls"]),
+            // Taste prototypes, each behind its own switch, all off by default.
+            GroupSpec(group: "settings.group.experiments"),
             GroupSpec(group: "settings.group.appearanceTuning"),
         ]
     )

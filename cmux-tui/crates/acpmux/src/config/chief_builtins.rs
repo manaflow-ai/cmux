@@ -15,7 +15,8 @@
 //!   daemon's bundle directory first, then its login PATH.
 //!
 //! Names (the home id is 8 lowercase hex, the slot 0 to 63):
-//! `optchat-chief-<id>`, `optchat-chief-codex-<id>` (turns),
+//! `optchat-chief-<id>`, `optchat-chief-codex-<id>`, `optchat-chief-<brain>-<id>` for each
+//! open-source brain in [`BRAINS`] (turns),
 //! `optchat-compact-<id>-slot-<k>` (compactor slots), `optchat-sub-<id>`,
 //! `optchat-sub-<id>-claude`, `optchat-sub-<id>-codex` (subagents).
 //! Any env a client sends (a built-in name included) stays the person's to
@@ -48,6 +49,70 @@ enum Role {
     Turn,
     Compact(u8),
     Sub,
+}
+
+/// The open-source brains a Chief turn can run on (chief-cohesion OSS-LOCAL-BRAINS.md): the
+/// acpmux family, and the env key that points the brain at its own home. The Chief owns that
+/// home (`$MUX_HOME/optchat/brains/<family>`, optchat-chief `brain_home.rs`): it writes the
+/// brain's config there (models through the team gateway, the brain's own scheduler and chat
+/// channels off), so the person's own `~/.hermes` or `~/.openclaw` never runs a Chief turn and
+/// a turn never changes them.
+pub const BRAINS: [(&str, &str); 2] = [("hermes", "HERMES_HOME"), ("openclaw", "OPENCLAW_HOME")];
+
+/// The `initialize` feature that says this daemon defines the brain turn presets and their
+/// homes: a Chief puts a turn on a brain only on a daemon that has it, since an older one would
+/// start the brain with the person's own home.
+pub const BRAIN_PRESETS_FEATURE: &str = "chiefBrainPresets";
+
+/// The brain home env of a turn or subagent of `family` for the Chief at `chief`, when the
+/// family is an open-source brain ([`BRAINS`]).
+pub fn brain_home_env(family: &str, chief: &Path) -> Option<(String, String)> {
+    BRAINS.iter().find(|(f, _)| *f == family).map(|(f, key)| {
+        ((*key).to_owned(), chief.join("optchat").join("brains").join(f).display().to_string())
+    })
+}
+
+/// The home of the Chief whose record id is `chief` under the Chief home `root` (cmux-tui
+/// `chief_brains::brain_home`: `c/<last 8 of the id, lowercased>`, whose `chief-id` file names
+/// it); the Chief home itself for the default Chief, a new Chief (no id yet) or an id with no
+/// directory of its own here.
+fn chief_dir(root: &Path, chief: Option<&str>) -> PathBuf {
+    let Some(id) = chief.map(str::trim).filter(|id| !id.is_empty()) else {
+        return root.to_path_buf();
+    };
+    let tail = id.get(id.len().saturating_sub(8)..).unwrap_or(id).to_ascii_lowercase();
+    let dir = root.join("c").join(tail);
+    let owner = std::fs::read_to_string(dir.join("chief-id")).unwrap_or_default();
+    if owner.trim() == id { dir } else { root.to_path_buf() }
+}
+
+/// The env a Chief editor's check of brain `family` runs with (`_acpmux/harness/doctor
+/// {chief: true}`): this daemon's Chief home's brain home and the person's provider keys
+/// blanked, as a Chief turn on it runs. None: `family` is no brain. Err: this daemon has no
+/// Chief home, or the Chief has not written the brain's home yet (it does at each start).
+pub fn brain_check_env(
+    family: &str,
+    ctx: &Context,
+    chief: Option<&str>,
+) -> Option<Result<BTreeMap<String, String>, String>> {
+    BRAINS.iter().find(|(f, _)| *f == family)?;
+    let Some(root) = ctx.chief_home.as_ref() else {
+        return Some(Err(format!(
+            "this acpmux has no Chief home ({CHIEF_MUX_HOME_ENV}); restart the Chief"
+        )));
+    };
+    let home = &chief_dir(root, chief);
+    let (key, dir) = brain_home_env(family, home)?;
+    if !Path::new(&dir).is_dir() {
+        return Some(Err(format!(
+            "the Chief has not written its {family} home yet ({dir}); restart the Chief, then check again"
+        )));
+    }
+    let mut env = BTreeMap::from([(key, dir), ("MUX_HOME".to_owned(), home.display().to_string())]);
+    for key in crate::login_env::PROVIDER_KEYS {
+        env.insert(key.to_owned(), String::new());
+    }
+    Some(Ok(env))
 }
 
 /// A parsed built-in preset name.
@@ -85,6 +150,14 @@ impl Builtin {
 pub fn parse(name: &str) -> Option<Builtin> {
     if let Some(rest) = name.strip_prefix("optchat-chief-codex-") {
         return home_id(rest).map(|home_id| Builtin { role: Role::Turn, home_id });
+    }
+    for (brain, _) in BRAINS {
+        if let Some(rest) = name
+            .strip_prefix("optchat-chief-")
+            .and_then(|r| r.strip_prefix(brain)?.strip_prefix('-'))
+        {
+            return home_id(rest).map(|home_id| Builtin { role: Role::Turn, home_id });
+        }
     }
     if let Some(rest) = name.strip_prefix("optchat-chief-") {
         return home_id(rest).map(|home_id| Builtin { role: Role::Turn, home_id });
@@ -219,11 +292,24 @@ fn flags(env: &mut BTreeMap<String, String>, keys: &[&str], value: &str) {
 /// The env of built-in `b` for a harness of `family` (`codex`, `claude`, ...).
 pub fn env(b: &Builtin, family: &str, ctx: &Context) -> Result<BTreeMap<String, String>, String> {
     let codex = family == "codex";
+    // An open-source brain takes neither Claude Code's nor codex's settings: its home (below)
+    // holds its own.
+    let brain = BRAINS.iter().any(|(f, _)| *f == family);
     let key = |role: &str| format!("optchat-{}-{role}", b.home_id);
     let mut env = BTreeMap::new();
     // The Chief the name's home id names: an id of no Chief of this
     // daemon's Chief home refuses the preset (fail closed).
     let home = ctx.home_of(&b.home_id).transpose()?;
+    // A brain without the Chief's own home would run on the person's own (their keys, their
+    // jobs): refused (fail closed).
+    if brain && matches!(b.role, Role::Compact(_)) {
+        return Err(format!("an open-source brain ({family}) does not run the Chief's compactor"));
+    }
+    if brain && matches!(b.role, Role::Turn | Role::Sub) && home.is_none() {
+        return Err(format!(
+            "a built-in {family} preset needs {CHIEF_MUX_HOME_ENV} in this daemon's own environment"
+        ));
+    }
     // A turn or subagent of a Chief on the Chief home's shared acpmux gets
     // its own Chief's MUX_HOME (`chief agents`, the `chief` tools), never
     // that of whoever started this daemon.
@@ -231,6 +317,15 @@ pub fn env(b: &Builtin, family: &str, ctx: &Context) -> Result<BTreeMap<String, 
         && let Some(home) = &home
     {
         env.insert("MUX_HOME".into(), home.display().to_string());
+        if let Some((k, v)) = brain_home_env(family, home) {
+            env.insert(k, v);
+            // A brain's models go through the gateway its home names, never a key of the
+            // person's: every provider key the daemon would hand a multi-provider harness is
+            // blanked (Hermes' side models fall back to OpenRouter or OpenAI when one is set).
+            for key in crate::login_env::PROVIDER_KEYS {
+                env.insert(key.to_owned(), String::new());
+            }
+        }
     }
     match b.role {
         Role::Turn => {
@@ -255,7 +350,7 @@ pub fn env(b: &Builtin, family: &str, ctx: &Context) -> Result<BTreeMap<String, 
                 if let Some(path) = ctx.codex(&chief) {
                     env.insert("CODEX_PATH".into(), path);
                 }
-            } else {
+            } else if !brain {
                 flags(&mut env, &["DISABLE_AUTOUPDATER", "CLAUDE_CODE_DISABLE_CLAUDE_MDS"], "1");
                 env.insert(AUTO_MODE_SERVER_ENV.into(), "0".into());
                 env.insert("SUBROUTER_SESSION_KEY".into(), key("turn"));
@@ -297,7 +392,7 @@ pub fn env(b: &Builtin, family: &str, ctx: &Context) -> Result<BTreeMap<String, 
             flags(&mut env, &["CLAUDE_CODE_DISABLE_AUTO_MEMORY", "OPTCHAT_SUBAGENT"], "1");
             if codex {
                 env.insert("CODEX_PROMPT_CACHE_KEY".into(), key("sub"));
-            } else {
+            } else if !brain {
                 env.insert("DISABLE_AUTOUPDATER".into(), "1".into());
                 env.insert(AUTO_MODE_SERVER_ENV.into(), "0".into());
                 env.insert("SUBROUTER_SESSION_KEY".into(), key("sub"));

@@ -37,7 +37,7 @@
               {
                 "subtitle" : null,
                 "symbol" : null,
-                "title" : "Home",
+                "title" : "Chief",
                 "value" : "home"
               },
               {
@@ -169,7 +169,91 @@
     },
     {
       "arguments" : [
-
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "enumeration" : [
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Sidebar",
+                "value" : "sidebar"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Sidebar Section",
+                "value" : "sidebarSection"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Workspace",
+                "value" : "workspaceRow"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Title Bar",
+                "value" : "titlebar"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Tab Bar",
+                "value" : "tabBar"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Tab",
+                "value" : "tab"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Pane",
+                "value" : "pane"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Chat Composer",
+                "value" : "chatComposer"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Agent Chat",
+                "value" : "chatMessages"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Widget",
+                "value" : "widget"
+              }
+            ]
+          },
+          "name" : "element",
+          "suggestions" : null,
+          "title" : "Element"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "draft",
+          "suggestions" : null,
+          "title" : "Draft"
+        }
       ],
       "category" : "window",
       "cliName" : "action customize-open",
@@ -228,6 +312,313 @@
         "cli" : {
           "exempt" : "guiOnly"
         },
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "sidebarBackground",
+            "folder" : null,
+            "group" : "view",
+            "label" : null,
+            "parent" : null,
+            "rank" : 990,
+            "style" : "item"
+          },
+          {
+            "context" : "sidebarFooter",
+            "folder" : null,
+            "group" : "view",
+            "label" : null,
+            "parent" : null,
+            "rank" : 990,
+            "style" : "item"
+          },
+          {
+            "context" : "sidebarSection",
+            "folder" : null,
+            "group" : "view",
+            "label" : null,
+            "parent" : null,
+            "rank" : 990,
+            "style" : "item"
+          },
+          {
+            "context" : "machineSection",
+            "folder" : null,
+            "group" : "view",
+            "label" : null,
+            "parent" : null,
+            "rank" : 990,
+            "style" : "item"
+          },
+          {
+            "context" : "workspaceRow",
+            "folder" : null,
+            "group" : "view",
+            "label" : null,
+            "parent" : null,
+            "rank" : 990,
+            "style" : "item"
+          },
+          {
+            "context" : "tabStrip",
+            "folder" : null,
+            "group" : "view",
+            "label" : null,
+            "parent" : null,
+            "rank" : 990,
+            "style" : "item"
+          },
+          {
+            "context" : "tab",
+            "folder" : null,
+            "group" : "view",
+            "label" : null,
+            "parent" : null,
+            "rank" : 990,
+            "style" : "item"
+          },
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "view",
+            "label" : null,
+            "parent" : null,
+            "rank" : 990,
+            "style" : "item"
+          },
+          {
+            "context" : "agentChat",
+            "folder" : null,
+            "group" : "view",
+            "label" : null,
+            "parent" : null,
+            "rank" : 990,
+            "style" : "item"
+          },
+          {
+            "context" : "nowPlayingCard",
+            "folder" : null,
+            "group" : "view",
+            "label" : null,
+            "parent" : null,
+            "rank" : 990,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard",
+        "menu",
+        "contextMenu"
+      ],
+      "symbol" : "wand.and.rays",
+      "targets" : [
+
+      ],
+      "title" : "Customize…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "enumeration" : [
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Sidebar",
+                "value" : "sidebar"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Sidebar Section",
+                "value" : "sidebarSection"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Workspace",
+                "value" : "workspaceRow"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Title Bar",
+                "value" : "titlebar"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Tab Bar",
+                "value" : "tabBar"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Tab",
+                "value" : "tab"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Pane",
+                "value" : "pane"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Chat Composer",
+                "value" : "chatComposer"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Agent Chat",
+                "value" : "chatMessages"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Widget",
+                "value" : "widget"
+              }
+            ]
+          },
+          "name" : "element",
+          "suggestions" : null,
+          "title" : "Element"
+        }
+      ],
+      "category" : "window",
+      "cliName" : "action customize-reset",
+      "computed" : {
+        "canonical_action_id" : "customize.reset",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "WindowActionCatalog",
+      "hint" : null,
+      "id" : "customize.reset",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "customize",
+        "reset",
+        "defaults",
+        "element",
+        "inspector",
+        "undo"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : "noTargetSurface",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "arrow.uturn.backward",
+      "targets" : [
+
+      ],
+      "title" : "Reset Element to Defaults",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "settings",
+      "cliName" : "action customize-library-reset",
+      "computed" : {
+        "canonical_action_id" : "customize.library.reset",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "WindowActionCatalog",
+      "hint" : null,
+      "id" : "customize.library.reset",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : true,
+      "keywords" : [
+        "customize",
+        "customise",
+        "customization",
+        "library",
+        "reset",
+        "turn off",
+        "all off",
+        "disable",
+        "layers",
+        "entries",
+        "undo",
+        "rollback"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
         "contextMenuExemption" : "noObject",
         "contextMenus" : [
 
@@ -236,15 +627,13 @@
         "palette" : "offered"
       },
       "surfaces" : [
-        "palette",
-        "keyboard",
-        "menu"
+        "palette"
       ],
-      "symbol" : "wand.and.rays",
+      "symbol" : "arrow.counterclockwise",
       "targets" : [
 
       ],
-      "title" : "Customize…",
+      "title" : "Reset Customization Library",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -16064,6 +16453,94 @@
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
           "isTargetName" : false,
+          "kind" : "string",
+          "name" : "session",
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "personalSessions"
+          },
+          "title" : "Session"
+        }
+      ],
+      "category" : "workspace",
+      "cliName" : "action space-follow-session",
+      "computed" : {
+        "canonical_action_id" : "space.followSession",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "ProfileActionCatalog",
+      "hint" : null,
+      "id" : "space.followSession",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "room",
+        "profile",
+        "space",
+        "follow",
+        "session",
+        "machine",
+        "workspaces",
+        "show"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "eye",
+      "targets" : [
+        "room"
+      ],
+      "title" : "Follow Session in Space…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
           "kind" : {
             "target" : "room"
           },
@@ -17873,6 +18350,244 @@
         "pane"
       ],
       "title" : "Equalize Splits",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane toggle-floating",
+      "computed" : {
+        "canonical_action_id" : "toggleFloatingPane",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : {
+        "key" : "\r",
+        "modifiers" : [
+          "opt",
+          "shift",
+          "cmd"
+        ]
+      },
+      "description" : null,
+      "focuses" : false,
+      "group" : "PaneActionCatalog",
+      "hint" : null,
+      "id" : "toggleFloatingPane",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "floating",
+        "float",
+        "tile",
+        "overlay"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : "layout",
+            "group" : "layout",
+            "label" : null,
+            "parent" : null,
+            "rank" : 102,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard",
+        "contextMenu"
+      ],
+      "symbol" : "macwindow.on.rectangle",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Float Pane",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-floating",
+      "computed" : {
+        "canonical_action_id" : "newFloatingPane",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : {
+        "key" : "n",
+        "modifiers" : [
+          "ctrl",
+          "shift",
+          "cmd"
+        ]
+      },
+      "description" : null,
+      "focuses" : false,
+      "group" : "PaneActionCatalog",
+      "hint" : null,
+      "id" : "newFloatingPane",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "floating",
+        "float",
+        "overlay",
+        "scratch"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : true,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : true,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : "pointerMenuTrim",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "macwindow.badge.plus",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Floating Pane",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane toggle-quick-terminal",
+      "computed" : {
+        "canonical_action_id" : "toggleQuickTerminal",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : {
+        "first" : {
+          "key" : "j",
+          "modifiers" : [
+            "cmd"
+          ]
+        },
+        "second" : {
+          "key" : "t",
+          "modifiers" : [
+
+          ]
+        }
+      },
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "PaneActionCatalog",
+      "hint" : null,
+      "id" : "toggleQuickTerminal",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "quick",
+        "terminal",
+        "floating",
+        "scratch",
+        "drop down",
+        "visor"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : true,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : true,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "terminal",
+      "targets" : [
+
+      ],
+      "title" : "Toggle Quick Terminal",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -25394,6 +26109,17 @@
           "name" : "device",
           "suggestions" : null,
           "title" : "Device"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "bool",
+          "name" : "autoconnect",
+          "suggestions" : null,
+          "title" : "Connect Automatically"
         }
       ],
       "category" : "tab",
@@ -30166,6 +30892,118 @@
     },
     {
       "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "enumeration" : [
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Auto",
+                "value" : "auto"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Sharp Text",
+                "value" : "sharpText"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Smooth Motion",
+                "value" : "smoothMotion"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Low Bandwidth",
+                "value" : "lowBandwidth"
+              }
+            ]
+          },
+          "name" : "quality",
+          "suggestions" : null,
+          "title" : "Quality"
+        }
+      ],
+      "category" : "remote",
+      "cliName" : "action remote-set-quality",
+      "computed" : {
+        "canonical_action_id" : "remote.setQuality",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "CmuxRemoteActionCatalog",
+      "hint" : null,
+      "id" : "remote.setQuality",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "screen sharing",
+        "screen share",
+        "remote desktop",
+        "vnc",
+        "quality",
+        "sharp text",
+        "smooth motion",
+        "low bandwidth",
+        "auto",
+        "bitrate",
+        "resolution",
+        "lag"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "dial.medium",
+      "targets" : [
+        "tab"
+      ],
+      "title" : "Set Screen Sharing Quality…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
 
       ],
       "category" : "remote",
@@ -30223,21 +31061,112 @@
         "cli" : {
           "exempt" : "ownerVerb"
         },
-        "contextMenuExemption" : "noObject",
+        "contextMenuExemption" : null,
         "contextMenus" : [
-
+          {
+            "context" : "machineSection",
+            "folder" : null,
+            "group" : "connection",
+            "label" : null,
+            "parent" : null,
+            "rank" : 150,
+            "style" : "item"
+          }
         ],
         "mcpExemption" : null,
         "palette" : "offered"
       },
       "surfaces" : [
-        "palette"
+        "palette",
+        "contextMenu"
       ],
       "symbol" : "display",
       "targets" : [
 
       ],
       "title" : "Share This Mac",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "remote",
+      "cliName" : "machine view-screen",
+      "computed" : {
+        "canonical_action_id" : "machine.viewScreen",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : false,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : "Shows the machine's screen from its sidebar header's menu, as the header's View screen button does: a Cloud machine's desktop (cloudOpenDesktop), or a Mac's shared screen in a Screen Sharing tab. Offered only on a header that shows View screen: a Cloud machine, or a Mac with an online screen device; a Linux or unidentified SSH machine has none. The palette and CLI reach the same screens through cloud open-desktop and Screen Sharing.",
+      "focuses" : false,
+      "group" : "CmuxRemoteActionCatalog",
+      "hint" : null,
+      "id" : "machine.viewScreen",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "machine",
+        "screen",
+        "screen sharing",
+        "screen share",
+        "view",
+        "remote desktop",
+        "vnc",
+        "desktop",
+        "display"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "machineSection",
+            "folder" : null,
+            "group" : "connection",
+            "label" : null,
+            "parent" : null,
+            "rank" : 151,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : {
+          "exempt" : "duplicateOfDefault"
+        }
+      },
+      "surfaces" : [
+        "contextMenu"
+      ],
+      "symbol" : "display",
+      "targets" : [
+        "machine"
+      ],
+      "title" : "View Screen",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -30768,7 +31697,153 @@
       "targets" : [
 
       ],
-      "title" : "Go to Home",
+      "title" : "Go to Chief",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "window",
+      "cliName" : "home setup",
+      "computed" : {
+        "canonical_action_id" : "home.showSetup",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : true,
+      "group" : "HomeActionCatalog",
+      "hint" : null,
+      "id" : "home.showSetup",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "home",
+        "setup",
+        "set up",
+        "onboarding",
+        "first run",
+        "agents",
+        "account",
+        "history",
+        "cli"
+      ],
+      "mainMenu" : "app",
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "menu"
+      ],
+      "symbol" : "checklist",
+      "targets" : [
+
+      ],
+      "title" : "Set Up cmux…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "window",
+      "cliName" : "",
+      "computed" : {
+        "canonical_action_id" : "home.meetChief",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : true,
+      "group" : "HomeActionCatalog",
+      "hint" : null,
+      "id" : "home.meetChief",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "chief",
+        "meet",
+        "onboarding",
+        "intro",
+        "introduction",
+        "welcome",
+        "tour",
+        "first run",
+        "getting started",
+        "permissions",
+        "density",
+        "text size"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "sparkles",
+      "targets" : [
+
+      ],
+      "title" : "Meet Chief",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -30907,7 +31982,7 @@
       "targets" : [
 
       ],
-      "title" : "Open Home in Tab",
+      "title" : "Open Chief in Tab",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -30993,7 +32068,7 @@
               {
                 "subtitle" : null,
                 "symbol" : null,
-                "title" : "Home",
+                "title" : "Chief",
                 "value" : "messages"
               },
               {
@@ -31072,7 +32147,7 @@
       "targets" : [
 
       ],
-      "title" : "Switch Home View",
+      "title" : "Switch Chief View",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -31626,7 +32701,7 @@
                 ]
               }
             ],
-            "when" : "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
+            "when" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
           },
           {
             "keys" : [
@@ -31638,7 +32713,7 @@
                 ]
               }
             ],
-            "when" : "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
+            "when" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
           }
         ],
         "is_palette_visible" : true,
@@ -31719,7 +32794,7 @@
                 ]
               }
             ],
-            "when" : "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
+            "when" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
           }
         ],
         "is_palette_visible" : true,
@@ -31800,7 +32875,7 @@
                 ]
               }
             ],
-            "when" : "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
+            "when" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
           }
         ],
         "is_palette_visible" : true,
@@ -35349,7 +36424,7 @@
         "workspace",
         "tab"
       ],
-      "title" : "Send Message…",
+      "title" : "Ask Chief About This…",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -43813,6 +44888,97 @@
     },
     {
       "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "terminal",
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "op:terminal.list"
+          },
+          "title" : "Terminal"
+        }
+      ],
+      "category" : "workspace",
+      "cliName" : "action terminal-project",
+      "computed" : {
+        "canonical_action_id" : "terminal.project",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "TerminalActionCatalog",
+      "hint" : null,
+      "id" : "terminal.project",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "terminal",
+        "project",
+        "show",
+        "reattach",
+        "attach",
+        "restore",
+        "kept",
+        "detached",
+        "background",
+        "mirror",
+        "tab"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "rectangle.portrait.on.rectangle.portrait",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Show Terminal in New Tab…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
 
       ],
       "category" : "terminal",
@@ -45411,6 +46577,95 @@
         "pane"
       ],
       "title" : "Forward",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "entry",
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "browserBackForwardEntries"
+          },
+          "title" : "Page"
+        }
+      ],
+      "category" : "browser",
+      "cliName" : "action browser-go-to-history-entry",
+      "computed" : {
+        "canonical_action_id" : "browser.goToHistoryEntry",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserActionCatalog",
+      "hint" : null,
+      "id" : "browser.goToHistoryEntry",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "browser",
+        "history",
+        "back",
+        "forward",
+        "page",
+        "earlier page",
+        "navigate",
+        "back list",
+        "forward list"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "browserFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "clock.arrow.circlepath",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Go Back or Forward to…",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -48172,6 +49427,287 @@
 
       ],
       "category" : "browser",
+      "cliName" : "action browser-save-page-as",
+      "computed" : {
+        "canonical_action_id" : "browser.savePageAs",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserActionCatalog",
+      "hint" : null,
+      "id" : "browser.savePageAs",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "browser",
+        "save",
+        "page",
+        "download",
+        "html",
+        "web archive",
+        "save as"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "webViewFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "square.and.arrow.down",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Save Page As…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "browser",
+      "cliName" : "action browser-cast",
+      "computed" : {
+        "canonical_action_id" : "browser.cast",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserActionCatalog",
+      "hint" : null,
+      "id" : "browser.cast",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "browser",
+        "cast",
+        "chromecast",
+        "tv",
+        "stream",
+        "media",
+        "route",
+        "speaker"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "webViewFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "tv",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Cast…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "browser",
+      "cliName" : "action browser-create-qr-code",
+      "computed" : {
+        "canonical_action_id" : "browser.createQRCode",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserActionCatalog",
+      "hint" : null,
+      "id" : "browser.createQRCode",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "browser",
+        "qr",
+        "qr code",
+        "share",
+        "phone",
+        "page",
+        "link",
+        "url"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "webViewFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "qrcode",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Create QR Code for This Page",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "browser",
+      "cliName" : "action browser-translate",
+      "computed" : {
+        "canonical_action_id" : "browser.translate",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserActionCatalog",
+      "hint" : null,
+      "id" : "browser.translate",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "browser",
+        "translate",
+        "translation",
+        "language",
+        "google translate",
+        "page"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "webViewFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "character.bubble",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Translate Page…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "browser",
       "cliName" : "browser screenshot-page",
       "computed" : {
         "canonical_action_id" : "browserScreenshotPage",
@@ -49661,6 +51197,231 @@
     },
     {
       "arguments" : [
+
+      ],
+      "category" : "browser",
+      "cliName" : "browser diff-zoom-in",
+      "computed" : {
+        "canonical_action_id" : "diffViewerZoomIn",
+        "cli" : false,
+        "default_aliases" : [
+          {
+            "keys" : [
+              {
+                "key" : "=",
+                "modifiers" : [
+                  "shift",
+                  "cmd"
+                ]
+              }
+            ],
+            "when" : "diffViewerFocused"
+          }
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : {
+        "key" : "=",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserActionCatalog",
+      "hint" : null,
+      "id" : "diffViewerZoomIn",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "diff",
+        "zoom"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "diffViewerFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "stepAdjust"
+        },
+        "contextMenuExemption" : "stepAdjust",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "plus.magnifyingglass",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Diff: Zoom In",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "browser",
+      "cliName" : "browser diff-zoom-out",
+      "computed" : {
+        "canonical_action_id" : "diffViewerZoomOut",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : {
+        "key" : "-",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserActionCatalog",
+      "hint" : null,
+      "id" : "diffViewerZoomOut",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "diff",
+        "zoom"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "diffViewerFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "stepAdjust"
+        },
+        "contextMenuExemption" : "stepAdjust",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "minus.magnifyingglass",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Diff: Zoom Out",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "browser",
+      "cliName" : "browser diff-actual-size",
+      "computed" : {
+        "canonical_action_id" : "diffViewerZoomReset",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : {
+        "key" : "0",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserActionCatalog",
+      "hint" : null,
+      "id" : "diffViewerZoomReset",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "diff",
+        "zoom",
+        "reset"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "diffViewerFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "stepAdjust"
+        },
+        "contextMenuExemption" : "stepAdjust",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "1.magnifyingglass",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Diff: Actual Size",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
         {
           "isAskedInPalette" : false,
           "isRequired" : false,
@@ -50845,6 +52606,76 @@
         "pane"
       ],
       "title" : "Developer Tools: Open Docked",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "browser",
+      "cliName" : "action devtools-open-docked-left",
+      "computed" : {
+        "canonical_action_id" : "devtools.openDockedLeft",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : "devtools",
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "niche"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserActionCatalog",
+      "hint" : null,
+      "id" : "devtools.openDockedLeft",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "developer tools",
+        "web inspector",
+        "devtools",
+        "inspector",
+        "dock",
+        "left",
+        "side"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "webViewFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "familyMember",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "rectangle.lefthalf.inset.filled",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Developer Tools: Dock to Left",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -53788,6 +55619,626 @@
         "pane"
       ],
       "title" : "Show Downloads…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "download",
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "browserDownloads"
+          },
+          "title" : "Download"
+        }
+      ],
+      "category" : "browser",
+      "cliName" : "action browser-download-open",
+      "computed" : {
+        "canonical_action_id" : "browser.download.open",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserToolbarActionCatalog",
+      "hint" : null,
+      "id" : "browser.download.open",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "browser",
+        "download",
+        "downloads",
+        "open",
+        "file",
+        "launch"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "browserFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "arrow.up.forward.app",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Open Download",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "download",
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "browserDownloads"
+          },
+          "title" : "Download"
+        }
+      ],
+      "category" : "browser",
+      "cliName" : "action browser-download-reveal",
+      "computed" : {
+        "canonical_action_id" : "browser.download.reveal",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserToolbarActionCatalog",
+      "hint" : null,
+      "id" : "browser.download.reveal",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "browser",
+        "download",
+        "downloads",
+        "show in finder",
+        "reveal",
+        "finder",
+        "folder",
+        "file"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "browserFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "folder",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Show Download in Finder",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "download",
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "browserDownloads"
+          },
+          "title" : "Download"
+        }
+      ],
+      "category" : "browser",
+      "cliName" : "action browser-download-toggle-pause",
+      "computed" : {
+        "canonical_action_id" : "browser.download.togglePause",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserToolbarActionCatalog",
+      "hint" : null,
+      "id" : "browser.download.togglePause",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "browser",
+        "download",
+        "downloads",
+        "pause",
+        "resume",
+        "continue",
+        "stop"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "browserFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "pause.circle",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Pause or Resume Download",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "download",
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "browserDownloads"
+          },
+          "title" : "Download"
+        }
+      ],
+      "category" : "browser",
+      "cliName" : "action browser-download-retry",
+      "computed" : {
+        "canonical_action_id" : "browser.download.retry",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserToolbarActionCatalog",
+      "hint" : null,
+      "id" : "browser.download.retry",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "browser",
+        "download",
+        "downloads",
+        "retry",
+        "again",
+        "failed",
+        "restart"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "browserFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "arrow.clockwise",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Retry Download",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "download",
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "browserDownloads"
+          },
+          "title" : "Download"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "bool",
+          "name" : "confirm",
+          "suggestions" : null,
+          "title" : "Confirm"
+        }
+      ],
+      "category" : "browser",
+      "cliName" : "action browser-download-cancel",
+      "computed" : {
+        "canonical_action_id" : "browser.download.cancel",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserToolbarActionCatalog",
+      "hint" : null,
+      "id" : "browser.download.cancel",
+      "isDebugOnly" : false,
+      "isDestructive" : true,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "browser",
+        "download",
+        "downloads",
+        "cancel",
+        "stop",
+        "abort"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "browserFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "xmark.circle",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Cancel Download",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "download",
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "browserDownloads"
+          },
+          "title" : "Download"
+        }
+      ],
+      "category" : "browser",
+      "cliName" : "action browser-download-copy-link",
+      "computed" : {
+        "canonical_action_id" : "browser.download.copyLink",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserToolbarActionCatalog",
+      "hint" : null,
+      "id" : "browser.download.copyLink",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "browser",
+        "download",
+        "downloads",
+        "copy",
+        "link",
+        "url",
+        "address"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "browserFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "clipboard"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "link",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Copy Download Link",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "button",
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "browserToolbarButtons"
+          },
+          "title" : "Button"
+        }
+      ],
+      "category" : "browser",
+      "cliName" : "action browser-toolbar-toggle-pin",
+      "computed" : {
+        "canonical_action_id" : "browser.toolbar.togglePin",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserToolbarActionCatalog",
+      "hint" : null,
+      "id" : "browser.toolbar.togglePin",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "browser",
+        "toolbar",
+        "button",
+        "pin",
+        "unpin",
+        "show in toolbar",
+        "hide",
+        "more"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "pin",
+      "targets" : [
+
+      ],
+      "title" : "Pin or Unpin Browser Toolbar Button…",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -59255,6 +61706,355 @@
         "pane"
       ],
       "title" : "Remove Extension",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "extension",
+          "suggestions" : null,
+          "title" : "Extension"
+        }
+      ],
+      "category" : "browser",
+      "cliName" : "extension home-page",
+      "computed" : {
+        "canonical_action_id" : "browser.extension.homePage",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : "extensions",
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "niche"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "ExtensionActionCatalog",
+      "hint" : null,
+      "id" : "browser.extension.homePage",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "extension",
+        "extensions",
+        "chrome",
+        "chromium",
+        "addon",
+        "plugin",
+        "home page",
+        "web store",
+        "store page",
+        "website",
+        "about"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "familyMember",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard",
+        "contextMenu"
+      ],
+      "symbol" : "house",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Open Extension Home Page",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "extension",
+          "suggestions" : null,
+          "title" : "Extension"
+        }
+      ],
+      "category" : "browser",
+      "cliName" : "extension details",
+      "computed" : {
+        "canonical_action_id" : "browser.extension.details",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : "extensions",
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "niche"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "ExtensionActionCatalog",
+      "hint" : null,
+      "id" : "browser.extension.details",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "extension",
+        "extensions",
+        "chrome",
+        "chromium",
+        "addon",
+        "plugin",
+        "manage",
+        "details",
+        "settings",
+        "chrome://extensions",
+        "permissions",
+        "info"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "familyMember",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard",
+        "contextMenu"
+      ],
+      "symbol" : "info.circle",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Show Extension Details",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "extension",
+          "suggestions" : null,
+          "title" : "Extension"
+        }
+      ],
+      "category" : "browser",
+      "cliName" : "extension web-permissions",
+      "computed" : {
+        "canonical_action_id" : "browser.extension.webPermissions",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : "extensions",
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "niche"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "ExtensionActionCatalog",
+      "hint" : null,
+      "id" : "browser.extension.webPermissions",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "extension",
+        "extensions",
+        "chrome",
+        "chromium",
+        "addon",
+        "plugin",
+        "web permissions",
+        "permissions",
+        "site settings",
+        "camera",
+        "microphone",
+        "notifications",
+        "privacy"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "familyMember",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard",
+        "contextMenu"
+      ],
+      "symbol" : "hand.raised",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "View Extension Web Permissions",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "extension",
+          "suggestions" : null,
+          "title" : "Extension"
+        }
+      ],
+      "category" : "browser",
+      "cliName" : "extension site-access",
+      "computed" : {
+        "canonical_action_id" : "browser.extension.siteAccess",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : "extensions",
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "niche"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "ExtensionActionCatalog",
+      "hint" : null,
+      "id" : "browser.extension.siteAccess",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "extension",
+        "extensions",
+        "chrome",
+        "chromium",
+        "addon",
+        "plugin",
+        "site access",
+        "sites",
+        "on click",
+        "on this site",
+        "on all sites",
+        "host permissions",
+        "access"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "familyMember",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard",
+        "contextMenu"
+      ],
+      "symbol" : "globe",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Extension Site Access…",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -68028,7 +70828,7 @@
         "machine",
         "sleep"
       ],
-      "mainMenu" : null,
+      "mainMenu" : "file",
       "opensWorkspaceContent" : false,
       "paletteTarget" : null,
       "paletteTargetSource" : null,
@@ -68042,15 +70842,25 @@
         "cli" : {
           "exempt" : "guiOnly"
         },
-        "contextMenuExemption" : "guiOnly",
+        "contextMenuExemption" : null,
         "contextMenus" : [
-
+          {
+            "context" : "newTab",
+            "folder" : null,
+            "group" : "create",
+            "label" : null,
+            "parent" : null,
+            "rank" : 2,
+            "style" : "item"
+          }
         ],
         "mcpExemption" : null,
         "palette" : "offered"
       },
       "surfaces" : [
-        "palette"
+        "palette",
+        "menu",
+        "contextMenu"
       ],
       "symbol" : "cloud",
       "targets" : [
@@ -69587,6 +72397,564 @@
         "pane"
       ],
       "title" : "Switch Model…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "agents",
+      "cliName" : "action agent-pane-add-menu",
+      "computed" : {
+        "canonical_action_id" : "agentPane.composer.addMenu",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : {
+        "key" : "a",
+        "modifiers" : [
+          "ctrl",
+          "opt",
+          "cmd"
+        ]
+      },
+      "description" : null,
+      "focuses" : false,
+      "group" : "AgentActionCatalog",
+      "hint" : null,
+      "id" : "agentPane.composer.addMenu",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "agent",
+        "chat",
+        "composer",
+        "add",
+        "plus",
+        "attach",
+        "file",
+        "screenshot",
+        "mention",
+        "commands"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "agentPaneFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "plus",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Show Add Menu",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "agents",
+      "cliName" : "action agent-pane-choose-folder",
+      "computed" : {
+        "canonical_action_id" : "agentPane.composer.chooseFolder",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : {
+        "key" : "o",
+        "modifiers" : [
+          "ctrl",
+          "opt",
+          "cmd"
+        ]
+      },
+      "description" : null,
+      "focuses" : false,
+      "group" : "AgentActionCatalog",
+      "hint" : null,
+      "id" : "agentPane.composer.chooseFolder",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "agent",
+        "chat",
+        "composer",
+        "folder",
+        "project",
+        "workspace",
+        "location",
+        "directory",
+        "cwd"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "agentPaneFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "folder",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Choose Folder…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "agents",
+      "cliName" : "action agent-pane-choose-computer",
+      "computed" : {
+        "canonical_action_id" : "agentPane.composer.chooseComputer",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : {
+        "key" : "k",
+        "modifiers" : [
+          "ctrl",
+          "opt",
+          "cmd"
+        ]
+      },
+      "description" : null,
+      "focuses" : false,
+      "group" : "AgentActionCatalog",
+      "hint" : null,
+      "id" : "agentPane.composer.chooseComputer",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "agent",
+        "chat",
+        "composer",
+        "computer",
+        "machine",
+        "environment",
+        "cloud",
+        "remote",
+        "where",
+        "run"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "agentPaneFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "desktopcomputer",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Choose Computer…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "agents",
+      "cliName" : "action agent-pane-switch-mode",
+      "computed" : {
+        "canonical_action_id" : "agentPane.composer.switchMode",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : {
+        "key" : "m",
+        "modifiers" : [
+          "ctrl",
+          "opt",
+          "cmd"
+        ]
+      },
+      "description" : null,
+      "focuses" : false,
+      "group" : "AgentActionCatalog",
+      "hint" : null,
+      "id" : "agentPane.composer.switchMode",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "agent",
+        "chat",
+        "composer",
+        "mode",
+        "permission",
+        "access",
+        "approval",
+        "full access",
+        "read-only"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "agentPaneFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "lock.shield",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Switch Mode…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "agents",
+      "cliName" : "action agent-pane-toggle-plan",
+      "computed" : {
+        "canonical_action_id" : "agentPane.composer.togglePlan",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : {
+        "key" : "p",
+        "modifiers" : [
+          "ctrl",
+          "opt",
+          "cmd"
+        ]
+      },
+      "description" : null,
+      "focuses" : false,
+      "group" : "AgentActionCatalog",
+      "hint" : null,
+      "id" : "agentPane.composer.togglePlan",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "agent",
+        "chat",
+        "composer",
+        "plan",
+        "build",
+        "mode",
+        "toggle"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "agentPaneFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "list.bullet.clipboard",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Toggle Plan Mode",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "agents",
+      "cliName" : "action agent-pane-agent-options",
+      "computed" : {
+        "canonical_action_id" : "agentPane.composer.agentOptions",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : {
+        "key" : "g",
+        "modifiers" : [
+          "ctrl",
+          "opt",
+          "cmd"
+        ]
+      },
+      "description" : null,
+      "focuses" : false,
+      "group" : "AgentActionCatalog",
+      "hint" : null,
+      "id" : "agentPane.composer.agentOptions",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "agent",
+        "chat",
+        "composer",
+        "options",
+        "settings",
+        "config",
+        "harness"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "agentPaneFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "slider.horizontal.3",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Agent Options…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "agents",
+      "cliName" : "action agent-pane-show-context-usage",
+      "computed" : {
+        "canonical_action_id" : "agentPane.composer.showContextUsage",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : {
+        "key" : "u",
+        "modifiers" : [
+          "ctrl",
+          "opt",
+          "cmd"
+        ]
+      },
+      "description" : null,
+      "focuses" : false,
+      "group" : "AgentActionCatalog",
+      "hint" : null,
+      "id" : "agentPane.composer.showContextUsage",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "agent",
+        "chat",
+        "composer",
+        "context",
+        "usage",
+        "tokens",
+        "window",
+        "limits",
+        "ring"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "agentPaneFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "chart.pie",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Show Context Usage",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -72200,7 +75568,14 @@
           "isTargetName" : false,
           "kind" : "string",
           "name" : "session",
-          "suggestions" : null,
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "op:session/list"
+          },
           "title" : "Session"
         },
         {
@@ -72289,7 +75664,7 @@
         "default_aliases" : [
 
         ],
-        "is_palette_visible" : false,
+        "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
         "palette_tier" : "standard"
@@ -72329,11 +75704,10 @@
 
         ],
         "mcpExemption" : null,
-        "palette" : {
-          "exempt" : "noObject"
-        }
+        "palette" : "offered"
       },
       "surfaces" : [
+        "palette",
         "keyboard"
       ],
       "symbol" : "bubble.left.and.text.bubble.right",
@@ -72355,7 +75729,14 @@
           "isTargetName" : false,
           "kind" : "string",
           "name" : "session",
-          "suggestions" : null,
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "op:session/list"
+          },
           "title" : "Session"
         },
         {
@@ -72378,7 +75759,7 @@
         "default_aliases" : [
 
         ],
-        "is_palette_visible" : false,
+        "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
         "palette_tier" : "standard"
@@ -72419,11 +75800,10 @@
 
         ],
         "mcpExemption" : null,
-        "palette" : {
-          "exempt" : "noObject"
-        }
+        "palette" : "offered"
       },
       "surfaces" : [
+        "palette",
         "keyboard"
       ],
       "symbol" : "bubble.left.and.text.bubble.right",
@@ -72893,182 +76273,6 @@
 
       ],
       "title" : "Roll Back Chief Move",
-      "waitsForKeyedCreate" : false,
-      "waitsForPerson" : false,
-      "waitsForResult" : false
-    },
-    {
-      "arguments" : [
-        {
-          "isAskedInPalette" : false,
-          "isRequired" : false,
-          "isSuppliedByTarget" : false,
-          "isTargetDescription" : false,
-          "isTargetName" : false,
-          "kind" : "string",
-          "name" : "chief",
-          "suggestions" : null,
-          "title" : "Cloud Chief"
-        },
-        {
-          "isAskedInPalette" : false,
-          "isRequired" : false,
-          "isSuppliedByTarget" : false,
-          "isTargetDescription" : false,
-          "isTargetName" : false,
-          "kind" : "string",
-          "name" : "source",
-          "suggestions" : null,
-          "title" : "Source"
-        }
-      ],
-      "category" : "agents",
-      "cliName" : "action chief-import-memories",
-      "computed" : {
-        "canonical_action_id" : "chief.importMemories",
-        "cli" : false,
-        "default_aliases" : [
-
-        ],
-        "is_palette_visible" : true,
-        "palette_family" : null,
-        "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
-      },
-      "defaultChord" : null,
-      "defaultShortcut" : null,
-      "description" : null,
-      "focuses" : false,
-      "group" : "AgentActionCatalog",
-      "hint" : null,
-      "id" : "chief.importMemories",
-      "isDebugOnly" : false,
-      "isDestructive" : false,
-      "isGlobalHotKey" : false,
-      "isPersonOnly" : false,
-      "keywords" : [
-        "chief",
-        "memory",
-        "memories",
-        "import",
-        "claude",
-        "claude code",
-        "codex",
-        "chatgpt",
-        "openai",
-        "bring",
-        "migrate",
-        "onboard"
-      ],
-      "mainMenu" : null,
-      "opensWorkspaceContent" : false,
-      "paletteTarget" : null,
-      "paletteTargetSource" : null,
-      "requires" : [
-
-      ],
-      "shortcutFamily" : null,
-      "shortcutLabel" : null,
-      "startsTerminal" : false,
-      "surfacePlan" : {
-        "cli" : {
-          "exempt" : "guiOnly"
-        },
-        "contextMenuExemption" : "noObject",
-        "contextMenus" : [
-
-        ],
-        "mcpExemption" : null,
-        "palette" : "offered"
-      },
-      "surfaces" : [
-        "palette"
-      ],
-      "symbol" : "square.and.arrow.down",
-      "targets" : [
-
-      ],
-      "title" : "Bring Your History",
-      "waitsForKeyedCreate" : false,
-      "waitsForPerson" : false,
-      "waitsForResult" : false
-    },
-    {
-      "arguments" : [
-        {
-          "isAskedInPalette" : false,
-          "isRequired" : false,
-          "isSuppliedByTarget" : false,
-          "isTargetDescription" : false,
-          "isTargetName" : false,
-          "kind" : "string",
-          "name" : "chief",
-          "suggestions" : null,
-          "title" : "Cloud Chief"
-        }
-      ],
-      "category" : "agents",
-      "cliName" : "action chief-import-memories-undo",
-      "computed" : {
-        "canonical_action_id" : "chief.importMemories.undo",
-        "cli" : false,
-        "default_aliases" : [
-
-        ],
-        "is_palette_visible" : true,
-        "palette_family" : null,
-        "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
-      },
-      "defaultChord" : null,
-      "defaultShortcut" : null,
-      "description" : null,
-      "focuses" : false,
-      "group" : "AgentActionCatalog",
-      "hint" : null,
-      "id" : "chief.importMemories.undo",
-      "isDebugOnly" : false,
-      "isDestructive" : false,
-      "isGlobalHotKey" : false,
-      "isPersonOnly" : false,
-      "keywords" : [
-        "chief",
-        "memory",
-        "memories",
-        "import",
-        "undo",
-        "take back",
-        "restore"
-      ],
-      "mainMenu" : null,
-      "opensWorkspaceContent" : false,
-      "paletteTarget" : null,
-      "paletteTargetSource" : null,
-      "requires" : [
-
-      ],
-      "shortcutFamily" : null,
-      "shortcutLabel" : null,
-      "startsTerminal" : false,
-      "surfacePlan" : {
-        "cli" : {
-          "exempt" : "guiOnly"
-        },
-        "contextMenuExemption" : "noObject",
-        "contextMenus" : [
-
-        ],
-        "mcpExemption" : null,
-        "palette" : "offered"
-      },
-      "surfaces" : [
-        "palette"
-      ],
-      "symbol" : "arrow.uturn.backward",
-      "targets" : [
-
-      ],
-      "title" : "Undo Last Memory Import",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -78690,6 +81894,97 @@
     },
     {
       "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "machine",
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "chatMoveTargets"
+          },
+          "title" : "Machine"
+        }
+      ],
+      "category" : "cloud",
+      "cliName" : "agent move",
+      "computed" : {
+        "canonical_action_id" : "agent.moveToMachine",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : "Moves a started chat to an added machine or Auto, preserving history, queue, draft and worktree through acpmux session move. With no target, the palette lists connected machines and placement room. A running turn offers Move after this turn or Move now; uncommitted changes are explained before proceeding. The destination chat opens after a successful move. The CLI is cmux agent move SESSION --machine NAME|auto --json.",
+      "focuses" : false,
+      "group" : "CloudActionCatalog",
+      "hint" : null,
+      "id" : "agent.moveToMachine",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "move",
+        "machine",
+        "ssh",
+        "remote",
+        "peer",
+        "host",
+        "chat",
+        "agent",
+        "back",
+        "local",
+        "transfer"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "pointerMenuTrim",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "arrow.left.arrow.right",
+      "targets" : [
+        "tab"
+      ],
+      "title" : "Move Chat to Machine…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
 
       ],
       "category" : "cloud",
@@ -81854,6 +85149,107 @@
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
           "isTargetName" : false,
+          "kind" : "string",
+          "name" : "secret",
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "cloudSecrets"
+          },
+          "title" : "Secret"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "bool",
+          "name" : "confirm",
+          "suggestions" : null,
+          "title" : "Confirm"
+        }
+      ],
+      "category" : "cloud",
+      "cliName" : "action cloud-secret-remove",
+      "computed" : {
+        "canonical_action_id" : "cloud.secret.remove",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "CloudActionCatalog",
+      "hint" : null,
+      "id" : "cloud.secret.remove",
+      "isDebugOnly" : false,
+      "isDestructive" : true,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : true,
+      "keywords" : [
+        "vm",
+        "cloud",
+        "secret",
+        "secrets",
+        "keychain",
+        "env",
+        "remove",
+        "delete",
+        "forget",
+        "rm"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "key.slash",
+      "targets" : [
+
+      ],
+      "title" : "Remove Cloud Secret…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
           "kind" : {
             "enumeration" : [
               {
@@ -83751,6 +87147,17 @@
           "name" : "stateDir",
           "suggestions" : null,
           "title" : "State Directory"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "name",
+          "suggestions" : null,
+          "title" : "Name"
         }
       ],
       "category" : "remote",
@@ -88791,7 +92198,7 @@
       "hint" : null,
       "id" : "updates.rollback",
       "isDebugOnly" : false,
-      "isDestructive" : true,
+      "isDestructive" : false,
       "isGlobalHotKey" : false,
       "isPersonOnly" : false,
       "keywords" : [
@@ -88904,6 +92311,559 @@
 
       ],
       "title" : "Install an Earlier Nightly…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "enumeration" : [
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Hide Until a Newer Version",
+                "value" : "update-hide-version"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Remind Me in 1 Day",
+                "value" : "update-remind-day"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Remind Me in 3 Days",
+                "value" : "update-remind-3-days"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Remind Me in 1 Week",
+                "value" : "update-remind-week"
+              }
+            ]
+          },
+          "name" : "option",
+          "suggestions" : null,
+          "title" : "Snooze"
+        }
+      ],
+      "category" : "settings",
+      "cliName" : "action updates-snooze",
+      "computed" : {
+        "canonical_action_id" : "updates.snooze",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "SettingsActionCatalog",
+      "hint" : null,
+      "id" : "updates.snooze",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "update",
+        "snooze",
+        "remind",
+        "remind me later",
+        "later",
+        "hide",
+        "dismiss",
+        "close",
+        "card",
+        "nightly",
+        "version"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "clock.badge.xmark",
+      "targets" : [
+
+      ],
+      "title" : "Snooze Update Card…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "settings",
+      "cliName" : "action updates-cancel-download",
+      "computed" : {
+        "canonical_action_id" : "updates.cancelDownload",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "SettingsActionCatalog",
+      "hint" : null,
+      "id" : "updates.cancelDownload",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "update",
+        "download",
+        "cancel",
+        "stop",
+        "abort",
+        "nightly",
+        "version"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "xmark.circle",
+      "targets" : [
+
+      ],
+      "title" : "Cancel Update Download",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "settings",
+      "cliName" : "action updates-show-details",
+      "computed" : {
+        "canonical_action_id" : "updates.showDetails",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "SettingsActionCatalog",
+      "hint" : null,
+      "id" : "updates.showDetails",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "update",
+        "details",
+        "error",
+        "failed",
+        "failure",
+        "why",
+        "nightly",
+        "version"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "info.circle",
+      "targets" : [
+
+      ],
+      "title" : "Show Update Details",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "settings",
+      "cliName" : "action updates-release-notes",
+      "computed" : {
+        "canonical_action_id" : "updates.releaseNotes",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "SettingsActionCatalog",
+      "hint" : null,
+      "id" : "updates.releaseNotes",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "update",
+        "release notes",
+        "changelog",
+        "changes",
+        "new version",
+        "nightly"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "doc.text",
+      "targets" : [
+
+      ],
+      "title" : "Open Update Release Notes",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "settings",
+      "cliName" : "action tips-mute-day",
+      "computed" : {
+        "canonical_action_id" : "tips.muteDay",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "SettingsActionCatalog",
+      "hint" : null,
+      "id" : "tips.muteDay",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "tips",
+        "tip",
+        "did you know",
+        "mute",
+        "hide",
+        "snooze",
+        "card",
+        "sidebar",
+        "day"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "bell.slash",
+      "targets" : [
+
+      ],
+      "title" : "Mute Tips for 1 Day",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "settings",
+      "cliName" : "action tips-mute-week",
+      "computed" : {
+        "canonical_action_id" : "tips.muteWeek",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "SettingsActionCatalog",
+      "hint" : null,
+      "id" : "tips.muteWeek",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "tips",
+        "tip",
+        "did you know",
+        "mute",
+        "hide",
+        "snooze",
+        "card",
+        "sidebar",
+        "week"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "bell.slash",
+      "targets" : [
+
+      ],
+      "title" : "Mute Tips for 1 Week",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "button",
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "tabBarButtons"
+          },
+          "title" : "Button"
+        }
+      ],
+      "category" : "settings",
+      "cliName" : "action tabs-toolbar-toggle-pin",
+      "computed" : {
+        "canonical_action_id" : "tabs.toolbar.togglePin",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "SettingsActionCatalog",
+      "hint" : null,
+      "id" : "tabs.toolbar.togglePin",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "tab bar",
+        "toolbar",
+        "button",
+        "pin",
+        "unpin",
+        "show in tab bar",
+        "split",
+        "more"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "pin",
+      "targets" : [
+
+      ],
+      "title" : "Pin or Unpin Tab Bar Button…",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -92496,6 +96456,78 @@
 
       ],
       "category" : "settings",
+      "cliName" : "action debug-tooltip-gallery",
+      "computed" : {
+        "canonical_action_id" : "debug.tooltipGallery",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "niche"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "SettingsActionCatalog",
+      "hint" : null,
+      "id" : "debug.tooltipGallery",
+      "isDebugOnly" : true,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "tooltip",
+        "tooltips",
+        "hover",
+        "help",
+        "shortcut",
+        "keycap",
+        "gallery",
+        "playground",
+        "debug"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "devOnly"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "questionmark.bubble",
+      "targets" : [
+
+      ],
+      "title" : "Tooltip Gallery",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "settings",
       "cliName" : "action debug-tab-bar-playground",
       "computed" : {
         "canonical_action_id" : "debug.tabBarPlayground",
@@ -92632,6 +96664,121 @@
 
       ],
       "title" : "All Themes Playground",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "int" : {
+              "max" : 7,
+              "min" : 1
+            }
+          },
+          "name" : "variant",
+          "suggestions" : null,
+          "title" : "Variant"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "int" : {
+              "max" : 9,
+              "min" : 0
+            }
+          },
+          "name" : "state",
+          "suggestions" : null,
+          "title" : "Menu State"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "bool",
+          "name" : "dark",
+          "suggestions" : null,
+          "title" : "Dark Look"
+        }
+      ],
+      "category" : "settings",
+      "cliName" : "action debug-env-secrets-playground",
+      "computed" : {
+        "canonical_action_id" : "debug.envSecretsPlayground",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "niche"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "SettingsActionCatalog",
+      "hint" : null,
+      "id" : "debug.envSecretsPlayground",
+      "isDebugOnly" : true,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "environment",
+        "variables",
+        "secrets",
+        "env",
+        "cloud",
+        "keys",
+        "hosts",
+        "playground",
+        "variants",
+        "debug"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "devOnly"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "key.horizontal",
+      "targets" : [
+
+      ],
+      "title" : "Environment Secrets Playground",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -95950,7 +100097,9 @@
         "art",
         "painting",
         "backdrop",
-        "appearance"
+        "appearance",
+        "youtube",
+        "video"
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
@@ -98193,6 +102342,86 @@
 
       ],
       "title" : "Archive Idle Workspaces",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "workspace",
+      "cliName" : "workspace archive-settled",
+      "computed" : {
+        "canonical_action_id" : "workspace.archiveSettled",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "AutoArchiveActionCatalog",
+      "hint" : null,
+      "id" : "workspace.archiveSettled",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "archive",
+        "settled",
+        "finished",
+        "done",
+        "read",
+        "chats",
+        "threads",
+        "tidy",
+        "clean up",
+        "declutter"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "sidebarBackground",
+            "folder" : "group",
+            "group" : "organize",
+            "label" : null,
+            "parent" : null,
+            "rank" : 107,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "archivebox",
+      "targets" : [
+
+      ],
+      "title" : "Archive Settled Chats",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -105333,7 +109562,7 @@
       "hint" : null,
       "id" : "history.removeSite",
       "isDebugOnly" : false,
-      "isDestructive" : true,
+      "isDestructive" : false,
       "isGlobalHotKey" : false,
       "isPersonOnly" : false,
       "keywords" : [
@@ -105509,7 +109738,7 @@
       "hint" : null,
       "id" : "closed.delete",
       "isDebugOnly" : false,
-      "isDestructive" : true,
+      "isDestructive" : false,
       "isGlobalHotKey" : false,
       "isPersonOnly" : false,
       "keywords" : [
@@ -106576,289 +110805,6 @@
 
       ],
       "title" : "Stop Voice Room",
-      "waitsForKeyedCreate" : false,
-      "waitsForPerson" : false,
-      "waitsForResult" : false
-    },
-    {
-      "arguments" : [
-
-      ],
-      "category" : "agents",
-      "cliName" : "chief toggle-screen-share",
-      "computed" : {
-        "canonical_action_id" : "chief.screenShare.toggle",
-        "cli" : true,
-        "default_aliases" : [
-
-        ],
-        "is_palette_visible" : true,
-        "palette_family" : null,
-        "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
-      },
-      "defaultChord" : null,
-      "defaultShortcut" : null,
-      "description" : null,
-      "focuses" : false,
-      "group" : "ChiefScreenShareActionCatalog",
-      "hint" : null,
-      "id" : "chief.screenShare.toggle",
-      "isDebugOnly" : false,
-      "isDestructive" : false,
-      "isGlobalHotKey" : false,
-      "isPersonOnly" : true,
-      "keywords" : [
-        "chief",
-        "screen",
-        "share",
-        "sharing",
-        "capture",
-        "see",
-        "memory",
-        "record",
-        "toggle"
-      ],
-      "mainMenu" : null,
-      "opensWorkspaceContent" : false,
-      "paletteTarget" : null,
-      "paletteTargetSource" : null,
-      "requires" : [
-
-      ],
-      "shortcutFamily" : null,
-      "shortcutLabel" : null,
-      "startsTerminal" : false,
-      "surfacePlan" : {
-        "cli" : "offered",
-        "contextMenuExemption" : "noObject",
-        "contextMenus" : [
-
-        ],
-        "mcpExemption" : "systemChange",
-        "palette" : "offered"
-      },
-      "surfaces" : [
-        "palette"
-      ],
-      "symbol" : "display",
-      "targets" : [
-
-      ],
-      "title" : "Chief: Toggle Screen Sharing",
-      "waitsForKeyedCreate" : false,
-      "waitsForPerson" : false,
-      "waitsForResult" : false
-    },
-    {
-      "arguments" : [
-
-      ],
-      "category" : "agents",
-      "cliName" : "chief share-screen",
-      "computed" : {
-        "canonical_action_id" : "chief.screenShare.start",
-        "cli" : true,
-        "default_aliases" : [
-
-        ],
-        "is_palette_visible" : true,
-        "palette_family" : null,
-        "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
-      },
-      "defaultChord" : null,
-      "defaultShortcut" : null,
-      "description" : null,
-      "focuses" : false,
-      "group" : "ChiefScreenShareActionCatalog",
-      "hint" : null,
-      "id" : "chief.screenShare.start",
-      "isDebugOnly" : false,
-      "isDestructive" : false,
-      "isGlobalHotKey" : false,
-      "isPersonOnly" : true,
-      "keywords" : [
-        "chief",
-        "screen",
-        "share",
-        "sharing",
-        "capture",
-        "see",
-        "memory",
-        "record",
-        "start"
-      ],
-      "mainMenu" : null,
-      "opensWorkspaceContent" : false,
-      "paletteTarget" : null,
-      "paletteTargetSource" : null,
-      "requires" : [
-
-      ],
-      "shortcutFamily" : null,
-      "shortcutLabel" : null,
-      "startsTerminal" : false,
-      "surfacePlan" : {
-        "cli" : "offered",
-        "contextMenuExemption" : "noObject",
-        "contextMenus" : [
-
-        ],
-        "mcpExemption" : "systemChange",
-        "palette" : "offered"
-      },
-      "surfaces" : [
-        "palette"
-      ],
-      "symbol" : "display",
-      "targets" : [
-
-      ],
-      "title" : "Share Screen with Chief",
-      "waitsForKeyedCreate" : false,
-      "waitsForPerson" : false,
-      "waitsForResult" : false
-    },
-    {
-      "arguments" : [
-
-      ],
-      "category" : "agents",
-      "cliName" : "chief stop-sharing-screen",
-      "computed" : {
-        "canonical_action_id" : "chief.screenShare.stop",
-        "cli" : true,
-        "default_aliases" : [
-
-        ],
-        "is_palette_visible" : true,
-        "palette_family" : null,
-        "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
-      },
-      "defaultChord" : null,
-      "defaultShortcut" : null,
-      "description" : null,
-      "focuses" : false,
-      "group" : "ChiefScreenShareActionCatalog",
-      "hint" : null,
-      "id" : "chief.screenShare.stop",
-      "isDebugOnly" : false,
-      "isDestructive" : false,
-      "isGlobalHotKey" : false,
-      "isPersonOnly" : false,
-      "keywords" : [
-        "chief",
-        "screen",
-        "share",
-        "sharing",
-        "capture",
-        "see",
-        "memory",
-        "record",
-        "stop",
-        "end"
-      ],
-      "mainMenu" : null,
-      "opensWorkspaceContent" : false,
-      "paletteTarget" : null,
-      "paletteTargetSource" : null,
-      "requires" : [
-
-      ],
-      "shortcutFamily" : null,
-      "shortcutLabel" : null,
-      "startsTerminal" : false,
-      "surfacePlan" : {
-        "cli" : "offered",
-        "contextMenuExemption" : "noObject",
-        "contextMenus" : [
-
-        ],
-        "mcpExemption" : null,
-        "palette" : "offered"
-      },
-      "surfaces" : [
-        "palette"
-      ],
-      "symbol" : "stop.circle",
-      "targets" : [
-
-      ],
-      "title" : "Stop Sharing Screen with Chief",
-      "waitsForKeyedCreate" : false,
-      "waitsForPerson" : false,
-      "waitsForResult" : false
-    },
-    {
-      "arguments" : [
-
-      ],
-      "category" : "agents",
-      "cliName" : "chief look-at-screen",
-      "computed" : {
-        "canonical_action_id" : "chief.screenShare.look",
-        "cli" : true,
-        "default_aliases" : [
-
-        ],
-        "is_palette_visible" : true,
-        "palette_family" : null,
-        "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
-      },
-      "defaultChord" : null,
-      "defaultShortcut" : null,
-      "description" : null,
-      "focuses" : false,
-      "group" : "ChiefScreenShareActionCatalog",
-      "hint" : null,
-      "id" : "chief.screenShare.look",
-      "isDebugOnly" : false,
-      "isDestructive" : false,
-      "isGlobalHotKey" : false,
-      "isPersonOnly" : false,
-      "keywords" : [
-        "chief",
-        "screen",
-        "share",
-        "sharing",
-        "capture",
-        "see",
-        "memory",
-        "record",
-        "look",
-        "now",
-        "screenshot"
-      ],
-      "mainMenu" : null,
-      "opensWorkspaceContent" : false,
-      "paletteTarget" : null,
-      "paletteTargetSource" : null,
-      "requires" : [
-
-      ],
-      "shortcutFamily" : null,
-      "shortcutLabel" : null,
-      "startsTerminal" : false,
-      "surfacePlan" : {
-        "cli" : "offered",
-        "contextMenuExemption" : "noObject",
-        "contextMenus" : [
-
-        ],
-        "mcpExemption" : null,
-        "palette" : "offered"
-      },
-      "surfaces" : [
-        "palette"
-      ],
-      "symbol" : "eye",
-      "targets" : [
-
-      ],
-      "title" : "Chief: Look at Screen Now",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -109250,7 +113196,7 @@
       "targets" : [
 
       ],
-      "title" : "Add Home to Sidebar",
+      "title" : "Add Chief to Sidebar",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -109317,7 +113263,7 @@
       "targets" : [
 
       ],
-      "title" : "Remove Home from Sidebar",
+      "title" : "Remove Chief from Sidebar",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -109564,7 +113510,7 @@
               {
                 "subtitle" : null,
                 "symbol" : null,
-                "title" : "Home",
+                "title" : "Chief",
                 "value" : "home"
               },
               {
@@ -109630,7 +113576,7 @@
               {
                 "subtitle" : null,
                 "symbol" : null,
-                "title" : "Chief",
+                "title" : "Chief Activity",
                 "value" : "chief"
               },
               {
@@ -111807,11 +115753,11 @@
         "contextMenus" : [
           {
             "context" : "sidebarSection",
-            "folder" : null,
+            "folder" : "options",
             "group" : "view",
             "label" : null,
             "parent" : null,
-            "rank" : 100,
+            "rank" : 320,
             "style" : "item"
           }
         ],
@@ -111964,11 +115910,11 @@
         "contextMenus" : [
           {
             "context" : "sidebarBackground",
-            "folder" : null,
+            "folder" : "options",
             "group" : "view",
             "label" : null,
             "parent" : null,
-            "rank" : 110,
+            "rank" : 142,
             "style" : "item"
           }
         ],
@@ -115147,7 +119093,17 @@
     },
     {
       "arguments" : [
-
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "name",
+          "suggestions" : null,
+          "title" : "Name"
+        }
       ],
       "category" : "window",
       "cliName" : "automation show-page",
@@ -120364,6 +124320,199 @@
     },
     {
       "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "appId",
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "computerUseApprovals"
+          },
+          "title" : "App"
+        }
+      ],
+      "category" : "agents",
+      "cliName" : "agent forget-computer-use-approval",
+      "computed" : {
+        "canonical_action_id" : "computerUse.approval.forget",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "ComputerUseApprovalActionCatalog",
+      "hint" : null,
+      "id" : "computerUse.approval.forget",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "computer use",
+        "approval",
+        "forget",
+        "app",
+        "agent"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "keyboard"
+      ],
+      "symbol" : "xmark.circle",
+      "targets" : [
+
+      ],
+      "title" : "Forget a Computer Use Approval",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "appId",
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "computerUseApprovals"
+          },
+          "title" : "App"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "enumeration" : [
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Always Allow",
+                "value" : "always"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Never",
+                "value" : "never"
+              }
+            ]
+          },
+          "name" : "decision",
+          "suggestions" : null,
+          "title" : "Always or Never"
+        }
+      ],
+      "category" : "agents",
+      "cliName" : "agent set-computer-use-approval",
+      "computed" : {
+        "canonical_action_id" : "computerUse.approval.set",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "ComputerUseApprovalActionCatalog",
+      "hint" : null,
+      "id" : "computerUse.approval.set",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "computer use",
+        "approval",
+        "always",
+        "never",
+        "app",
+        "agent"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "keyboard"
+      ],
+      "symbol" : "checkmark.circle",
+      "targets" : [
+
+      ],
+      "title" : "Change a Computer Use Approval",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
 
       ],
       "category" : "settings",
@@ -122208,26 +126357,10 @@
                   "string" : "home-dock"
                 }
               ]
-            },
-            {
-              "equals" : [
-                "topPage",
-                {
-                  "string" : "import-history"
-                }
-              ]
-            },
-            {
-              "equals" : [
-                "pageId",
-                {
-                  "string" : "cmux.import-history"
-                }
-              ]
             }
           ]
         },
-        "when_text" : "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
+        "when_text" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
       },
       {
         "argument" : null,
@@ -122270,26 +126403,10 @@
                   "string" : "home-dock"
                 }
               ]
-            },
-            {
-              "equals" : [
-                "topPage",
-                {
-                  "string" : "import-history"
-                }
-              ]
-            },
-            {
-              "equals" : [
-                "pageId",
-                {
-                  "string" : "cmux.import-history"
-                }
-              ]
             }
           ]
         },
-        "when_text" : "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
+        "when_text" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
       },
       {
         "argument" : null,
@@ -122331,26 +126448,10 @@
                   "string" : "home-dock"
                 }
               ]
-            },
-            {
-              "equals" : [
-                "topPage",
-                {
-                  "string" : "import-history"
-                }
-              ]
-            },
-            {
-              "equals" : [
-                "pageId",
-                {
-                  "string" : "cmux.import-history"
-                }
-              ]
             }
           ]
         },
-        "when_text" : "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
+        "when_text" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
       },
       {
         "argument" : null,
@@ -122392,26 +126493,10 @@
                   "string" : "home-dock"
                 }
               ]
-            },
-            {
-              "equals" : [
-                "topPage",
-                {
-                  "string" : "import-history"
-                }
-              ]
-            },
-            {
-              "equals" : [
-                "pageId",
-                {
-                  "string" : "cmux.import-history"
-                }
-              ]
             }
           ]
         },
-        "when_text" : "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
+        "when_text" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
       },
       {
         "argument" : null,
@@ -122952,6 +127037,27 @@
         "source" : "default",
         "when" : null,
         "when_text" : null
+      },
+      {
+        "argument" : null,
+        "arguments" : {
+
+        },
+        "command" : "diffViewerZoomIn",
+        "keys" : [
+          {
+            "key" : "=",
+            "modifiers" : [
+              "shift",
+              "cmd"
+            ]
+          }
+        ],
+        "source" : "default",
+        "when" : {
+          "has" : "diffViewerFocused"
+        },
+        "when_text" : "diffViewerFocused"
       }
     ]
   },
@@ -123889,6 +127995,7 @@
         "id" : "devtools",
         "members" : [
           "devtools.openDocked",
+          "devtools.openDockedLeft",
           "devtools.openDockedRight",
           "devtools.openInWindow",
           "devtools.close",
@@ -123938,15 +128045,19 @@
         "id" : "extensions",
         "members" : [
           "browser.extension.command",
+          "browser.extension.details",
           "browser.extension.disable",
           "browser.extension.enable",
+          "browser.extension.homePage",
           "browser.extension.move",
           "browser.extension.options",
           "browser.extension.pin",
           "browser.extension.reload",
           "browser.extension.remove",
           "browser.extension.run",
-          "browser.extension.unpin"
+          "browser.extension.siteAccess",
+          "browser.extension.unpin",
+          "browser.extension.webPermissions"
         ],
         "parent" : "browser.extensions.menu",
         "symbol" : "",

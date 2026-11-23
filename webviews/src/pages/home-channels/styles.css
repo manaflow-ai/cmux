@@ -146,6 +146,11 @@ body,
   color: var(--hc-danger);
   border-bottom: 1px solid var(--page-separator);
 }
+/* A failed Cloud inbox read: the list's own note line, in the page's error color. */
+.lg-list-empty.lg-cloud-error {
+  display: block;
+  color: var(--hc-danger);
+}
 .hc-error button {
   margin-inline-start: auto;
   border: 0;
@@ -394,10 +399,8 @@ body,
 .hc-msg-toolbar {
   padding: var(--grid-half-step);
   gap: 0;
-  border: 1px solid var(--page-separator);
   border-radius: var(--ds-radius-popup);
-  background: var(--surface-popup);
-  box-shadow: var(--elevation-2);
+  --glass-elevation: var(--elevation-2);
 }
 .hc-tool.ui-toolbar-button,
 .hc-tool {
@@ -421,10 +424,11 @@ body,
 }
 /* The hover-actions experiment's "one" arm: More alone, framed as the card. */
 .hc-tool.hc-msg-more {
-  border: 1px solid var(--page-separator);
   border-radius: var(--ds-radius-popup);
-  background: var(--surface-popup);
-  box-shadow: var(--elevation-2);
+  --glass-elevation: var(--elevation-2);
+}
+.hc-tool.hc-msg-more:not(:hover, [aria-pressed="true"]) {
+  background: var(--glass-tint);
 }
 .hc-tool-glyph {
   display: inline-grid;

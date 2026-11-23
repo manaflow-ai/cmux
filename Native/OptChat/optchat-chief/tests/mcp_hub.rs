@@ -13,11 +13,23 @@ use std::time::{Duration, Instant};
 use optchat_chief::mcp_hub::{Caller, McpHub};
 use serde_json::{Value, json};
 
+/// The fake server's script, copied once to the temp folder: the tests add it as a command
+/// target, which the hub splits on spaces, and a checkout under a folder with a space in its path
+/// (a fleet Mac's "Application Support") would split the path itself.
 fn fake() -> String {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/mcp/fake_mcp.py")
-        .display()
-        .to_string()
+    static COPY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    COPY.get_or_init(|| {
+        let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mcp/fake_mcp.py");
+        let dir =
+            std::env::temp_dir().join(format!("optchat-chief-fake-mcp-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let copy = dir.join("fake_mcp.py");
+        std::fs::copy(&source, &copy).unwrap();
+        let path = copy.display().to_string();
+        assert!(!path.contains(' '), "the temp folder has a space: {path}");
+        path
+    })
+    .clone()
 }
 
 struct Rig {
@@ -370,30 +382,32 @@ fn unsafe_targets_are_refused_before_anything_runs() {
     );
 }
 
-fn free_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
-}
-
+/// The fake on Streamable HTTP and its port: it binds port 0 and prints the port the kernel gave
+/// it once it listens. A port picked here and bound later could be taken in between by a parallel
+/// test's server, which the connect probe then took for this one.
 fn http_server(args: &[&str]) -> (std::process::Child, u16) {
-    let port = free_port();
-    let child = std::process::Command::new("python3")
+    use std::io::BufRead;
+    let mut child = std::process::Command::new("python3")
         .arg(fake())
-        .args(["--http", &port.to_string()])
+        .args(["--http", "0"])
         .args(args)
+        .stdout(std::process::Stdio::piped())
         .spawn()
         .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while std::net::TcpStream::connect(("127.0.0.1", port)).is_err() {
-        assert!(
-            Instant::now() < deadline,
-            "the fake HTTP server did not start"
-        );
-        std::thread::sleep(Duration::from_millis(50));
-    }
+    let stdout = child.stdout.take().unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut line = String::new();
+        let _ = std::io::BufReader::new(stdout).read_line(&mut line);
+        let _ = tx.send(line);
+    });
+    let line = rx
+        .recv_timeout(Duration::from_secs(10))
+        .expect("the fake HTTP server did not start");
+    let port = line
+        .trim()
+        .parse()
+        .expect("the fake HTTP server printed no port");
     (child, port)
 }
 
@@ -643,4 +657,230 @@ fn a_rejected_token_is_refreshed_once_before_asking_for_a_sign_in() {
         secrets.contains("tok-123") && secrets.contains("ref-2"),
         "{secrets}"
     );
+}
+
+/// Sets who may see the shared record `name` (what acpmux's connect card
+/// writes for the person's scope).
+fn set_scope(shared: &Path, name: &str, scope: &str, owner: Option<&str>) {
+    let path = shared.join(format!("servers/{name}.json"));
+    let mut record: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    record["scope"] = json!(scope);
+    match owner {
+        Some(o) => record["owner"] = json!(o),
+        None => {
+            record.as_object_mut().unwrap().remove("owner");
+        }
+    }
+    std::fs::write(&path, serde_json::to_vec_pretty(&record).unwrap()).unwrap();
+}
+
+fn viewer_hub(root: &Path, shared: &Path, viewer: optchat_chief::mcp_hub::Viewer) -> McpHub {
+    McpHub::for_viewer(
+        root.to_path_buf(),
+        shared.to_path_buf(),
+        None,
+        Arc::new(|_| {}),
+        Arc::new(|k: &str| std::env::var(k).ok()),
+        viewer,
+    )
+}
+
+/// The scope the person picks on the connect card holds per Chief: "this
+/// Chief" is that Chief's (and its agents'), "this chat" that chat's; another
+/// Chief does not list, call or overwrite it, and a Chief's own save keeps
+/// the scope as it was.
+#[test]
+fn a_server_for_this_chief_is_that_chief_s_only() {
+    use optchat_chief::mcp_hub::Viewer;
+    let r = rig();
+    add_stdio(&r, "session");
+    set_scope(&r.shared, "fake", "chief", Some("aaaa0001"));
+    let base = r.root.parent().unwrap().to_path_buf();
+    let mine = viewer_hub(
+        &base.join("a/mcp"),
+        &r.shared,
+        Viewer::Chief("aaaa0001".into()),
+    );
+    let other = viewer_hub(
+        &base.join("b/mcp"),
+        &r.shared,
+        Viewer::Chief("bbbb0002".into()),
+    );
+    assert!(call(&mine, json!({"action": "list"})).contains("fake ("));
+    assert_eq!(
+        call(
+            &mine,
+            json!({"action": "call", "server": "fake", "tool": "echo", "args": {"text": "mine"}})
+        ),
+        "mine"
+    );
+    assert!(!call(&other, json!({"action": "list"})).contains("fake ("));
+    let refused = other
+        .handle(
+            &json!({"action": "call", "server": "fake", "tool": "echo", "args": {"text": "x"}}),
+            &Caller::Chief,
+        )
+        .unwrap_err();
+    assert!(refused.contains("fake"), "{refused}");
+    let taken = other
+        .handle(&json!({"action": "add", "name": "fake", "target": format!("python3 {} --era stateless", fake())}), &Caller::Chief)
+        .unwrap_err();
+    assert!(taken.contains("taken"), "{taken}");
+    // The owner's calls rewrote the record (state, tools): the scope stays.
+    let saved: Value =
+        serde_json::from_slice(&std::fs::read(r.shared.join("servers/fake.json")).unwrap())
+            .unwrap();
+    assert_eq!(saved["scope"], "chief", "{saved}");
+    assert_eq!(saved["owner"], "aaaa0001", "{saved}");
+    // A chat that Chief runs sees it too; a plain chat does not.
+    let sub = viewer_hub(
+        &base.join("s/mcp"),
+        &r.shared,
+        Viewer::Agent {
+            session: "s-1".into(),
+            chief: Some("aaaa0001".into()),
+        },
+    );
+    assert!(call(&sub, json!({"action": "list"})).contains("fake ("));
+    let chat = viewer_hub(
+        &base.join("c/mcp"),
+        &r.shared,
+        Viewer::Agent {
+            session: "s-2".into(),
+            chief: None,
+        },
+    );
+    assert!(!call(&chat, json!({"action": "list"})).contains("fake ("));
+    // Narrowed while a Chief runs: it goes from that Chief's list at once.
+    let list = call(&r.hub, json!({"action": "list"}));
+    assert!(
+        list.contains("fake ("),
+        "the person sees every server: {list}"
+    );
+    set_scope(&r.shared, "fake", "chat", Some("s-2"));
+    assert!(!call(&mine, json!({"action": "list"})).contains("fake ("));
+    assert!(call(&chat, json!({"action": "list"})).contains("fake ("));
+}
+
+/// An agent chat cmux starts reaches the person's servers through
+/// `optchat-chief integrations serve` (acpmux's `cmux-mcp` upstream, tool
+/// `mcp_servers`): MCP over stdio, the same hub on the shared store, its
+/// scope's servers only, no adding or removing.
+#[test]
+fn an_agent_chat_uses_the_saved_servers_over_stdio() {
+    use std::io::{BufRead, BufReader, Write};
+    let r = rig();
+    add_stdio(&r, "session");
+    call(
+        &r.hub,
+        json!({"action": "add", "name": "fake2", "target": format!("python3 {} --era stateless", fake())}),
+    );
+    set_scope(&r.shared, "fake2", "chat", Some("someone-else"));
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_optchat-chief"))
+        .args(["integrations", "serve"])
+        .env("CMUX_MCP_HOME", &r.shared)
+        .env("CMUX_AGENT_SESSION", "s-9")
+        .env("ACPMUX_SESSION_NAME", "my-chat")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let mut ask = |id: u64, method: &str, params: Value| -> Value {
+        let line = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
+        writeln!(stdin, "{line}").unwrap();
+        let mut answer = String::new();
+        stdout.read_line(&mut answer).unwrap();
+        serde_json::from_str(&answer).unwrap()
+    };
+    let init = ask(1, "initialize", json!({"protocolVersion": "2025-06-18"}));
+    assert_eq!(init["result"]["serverInfo"]["name"], "cmux-mcp", "{init}");
+    let tools = ask(2, "tools/list", json!({}));
+    assert_eq!(tools["result"]["tools"][0]["name"], "servers", "{tools}");
+    let text = |v: &Value| {
+        v["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap_or("")
+            .to_owned()
+    };
+    let list = ask(
+        3,
+        "tools/call",
+        json!({"name": "servers", "arguments": {"action": "list"}}),
+    );
+    assert!(text(&list).contains("fake ("), "{list}");
+    assert!(
+        !text(&list).contains("fake2"),
+        "another chat's server: {list}"
+    );
+    let echo = ask(
+        4,
+        "tools/call",
+        json!({"name": "servers", "arguments": {"action": "call", "server": "fake", "tool": "echo", "args": {"text": "from an agent"}}}),
+    );
+    assert_eq!(text(&echo), "from an agent", "{echo}");
+    for action in ["add", "remove", "subscribe"] {
+        let refused = ask(
+            5,
+            "tools/call",
+            json!({"name": "servers", "arguments": {"action": action, "server": "fake", "target": "linear"}}),
+        );
+        assert_eq!(refused["result"]["isError"], true, "{action}: {refused}");
+    }
+    assert!(r.shared.join("servers/fake.json").exists());
+    drop(stdin);
+    let _ = child.wait();
+}
+
+/// Settings > MCP Servers reads and changes the store through the CLI's JSON
+/// mode: every saved server (the person sees all of them) with its state and
+/// scope in plain fields, never a secret; remove forgets it everywhere.
+#[test]
+fn settings_lists_and_removes_saved_servers_through_the_cli() {
+    let r = rig();
+    call(
+        &r.hub,
+        json!({"action": "add", "name": "fake", "target": format!("python3 {} --era session", fake()), "env": {"FAKE_TOKEN": "s3cret-value"}}),
+    );
+    set_scope(&r.shared, "fake", "chat", Some("s-1"));
+    let cli = |args: &[&str]| -> (i32, Value) {
+        let out = std::process::Command::new(env!("CARGO_BIN_EXE_optchat-chief"))
+            .arg("integrations")
+            .args(args)
+            .env("CMUX_MCP_HOME", &r.shared)
+            .output()
+            .unwrap();
+        let text = String::from_utf8_lossy(&out.stdout).into_owned();
+        assert!(!text.contains("s3cret-value"), "{text}");
+        let last = text.lines().last().unwrap_or("{}");
+        (
+            out.status.code().unwrap_or(-1),
+            serde_json::from_str(last).unwrap(),
+        )
+    };
+    let (code, list) = cli(&["--json", "list"]);
+    assert_eq!(code, 0, "{list}");
+    let row = &list["servers"][0];
+    assert_eq!(row["name"], "fake", "{list}");
+    assert_eq!(row["kind"], "local");
+    assert_eq!(row["state"], "connected");
+    assert_eq!(row["scope"], "chat");
+    assert!(row["tools"].as_u64().unwrap() > 0, "{row}");
+    let (code, gone) = cli(&["--json", "remove", "fake"]);
+    assert_eq!(
+        (code, gone["status"].clone()),
+        (0, json!("removed")),
+        "{gone}"
+    );
+    assert!(!r.shared.join("servers/fake.json").exists());
+    assert!(!r.shared.join("secrets/fake.json").exists());
+    let (code, none) = cli(&["--json", "remove", "fake"]);
+    assert_eq!(
+        (code, none["status"].clone()),
+        (1, json!("failed")),
+        "{none}"
+    );
+    let (_, list) = cli(&["--json", "list"]);
+    assert_eq!(list["servers"], json!([]), "{list}");
 }

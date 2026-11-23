@@ -2,11 +2,11 @@
   "$comment": "Gallery states with layout moves the layout-motion contract does not declare yet (schemas/layout-motion/contract.json), each with its count and the cmuxterm-hq issue that tracks the fix. undeclared-baseline.ts: a state over its row fails gallery health, and a state with no row fails on its first undeclared move. Rows only go down.",
   "states": {
     "agent-pane.artifact-panel#html": {
-      "count": 1,
+      "count": 6,
       "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
     },
     "agent-pane.artifact-panel#svg": {
-      "count": 1,
+      "count": 4,
       "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
     },
     "agent-pane.attachment-chip#collapse-chevron": {
@@ -47,6 +47,10 @@
     },
     "agent-pane.background-tasks-runs#run-open": {
       "count": 7,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.blank-load-fade#stagger": {
+      "count": 4,
       "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
     },
     "agent-pane.chat-motion-pass#mid-turn-send": {

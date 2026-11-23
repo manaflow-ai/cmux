@@ -68,7 +68,6 @@ export function LoadingLayer({ label, status }: { label: DiffViewerLabelResolver
         data-error={status.error ? "true" : "false"}
         data-pending={status.pending ? "true" : "false"}
       >
-        <span id="status-icon" aria-hidden="true" />
         <span id="status-text">{status.message || label("loadingDiff")}</span>
       </div>
       {status.loading || status.pending ? <LoadingDiffSkeleton /> : null}

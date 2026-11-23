@@ -710,6 +710,91 @@ fn local_unix_route_is_promoted_and_remote_unix_route_is_demoted() {
     assert_eq!(routes, [candidate(local), candidate(websocket), candidate(missing)]);
 }
 
+/// `exec`'s own connect arguments, as `cmux remote exec ROUTE --state-dir DIR -- true` gives them.
+#[cfg(unix)]
+fn exec_connect_flags(route: &str, state_dir: &Path) -> ConnectFlags {
+    let args = [route, "--state-dir", state_dir.to_str().unwrap(), "--", "true"].map(String::from);
+    parse_connect_flags(&exec_cp::parse_exec_args(&args).unwrap().connect).unwrap()
+}
+
+#[cfg(unix)]
+#[test]
+fn a_link_socket_is_told_apart_from_a_daemon_unix_route() {
+    let directory = tempfile::tempdir().unwrap();
+    let link = directory.path().join("link.sock");
+    let daemon = directory.path().join("daemon.sock");
+    let _link = std::os::unix::net::UnixListener::bind(&link).unwrap();
+    let _link_admin =
+        std::os::unix::net::UnixListener::bind(cmux_remote::admin::link_admin_socket(&link))
+            .unwrap();
+    let _daemon = std::os::unix::net::UnixListener::bind(&daemon).unwrap();
+    // A plain file named like the admin socket is not a link's socket.
+    fs::write(cmux_remote::admin::link_admin_socket(&daemon), b"").unwrap();
+
+    assert_eq!(client_link_socket_route(&format!("unix://{}", link.display())), Some(link));
+    assert_eq!(client_link_socket_route(&format!("unix://{}", daemon.display())), None);
+    assert_eq!(client_link_socket_route("ws://127.0.0.1:47002"), None);
+    assert_eq!(client_link_socket_route("not a route"), None);
+}
+
+/// cmux-remote stress report finding 6: `exec unix://<connect --local-socket>` printed
+/// "still connecting" until its startup budget ran out. It now ends before any dial.
+#[cfg(unix)]
+#[test]
+fn exec_to_a_link_socket_fails_at_once_with_what_to_pass() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = directory.path().join("state");
+    let link = directory.path().join("link.sock");
+    let _link = std::os::unix::net::UnixListener::bind(&link).unwrap();
+    let _link_admin =
+        std::os::unix::net::UnixListener::bind(cmux_remote::admin::link_admin_socket(&link))
+            .unwrap();
+    let started = Instant::now();
+
+    let error = start_connected(exec_connect_flags(&format!("unix://{}", link.display()), &state))
+        .err()
+        .expect("a link socket is not a route")
+        .to_string();
+
+    assert!(started.elapsed() < Duration::from_secs(2), "took {:?}", started.elapsed());
+    assert_eq!(error, catalog().remote_client.route_is_link_socket(&link.display().to_string()));
+    assert!(!state.exists(), "refused before the state directory was touched");
+}
+
+/// cmux-remote stress report finding 7: `connect --local-socket` refused a group-writable
+/// `--state-dir` and `exec` used it. Every command now refuses it with the same words.
+#[cfg(unix)]
+#[test]
+fn exec_refuses_the_group_writable_state_dir_connect_refuses() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let directory = tempfile::tempdir().unwrap();
+    let state = directory.path().join("state");
+    fs::create_dir(&state).unwrap();
+    fs::set_permissions(&state, fs::Permissions::from_mode(0o770)).unwrap();
+    let expected = format!(
+        "secure directory {} must not be writable by group or other users",
+        state.display()
+    );
+    // What `connect --local-socket STATE/link.sock` says about the same directory (its socket
+    // directory check).
+    let connect_error =
+        ensure_secure_directory(&state, DirectoryAccess::OwnerControlled).unwrap_err().to_string();
+    assert_eq!(connect_error, expected);
+
+    for route in ["ws://127.0.0.1:9", "unix:///nonexistent/cmux-daemon.sock"] {
+        let error = start_connected(exec_connect_flags(route, &state))
+            .err()
+            .expect("a group-writable state directory is refused")
+            .to_string();
+        assert_eq!(error, expected, "{route}");
+    }
+    assert!(!state.join("client").exists(), "no identity was written there");
+
+    fs::set_permissions(&state, fs::Permissions::from_mode(0o700)).unwrap();
+    refuse_unusable_local_paths(&exec_connect_flags("ws://127.0.0.1:9", &state)).unwrap();
+}
+
 #[test]
 fn sidecar_mux_monitor_detects_the_connected_server_closing() {
     let directory = tempfile::tempdir().unwrap();
@@ -2975,4 +3060,13 @@ fn tty_eof_releases_an_unterminated_line_first() {
     assert!(!exec_cp::pty_line_open(Some(b'\n')));
     assert!(!exec_cp::pty_line_open(Some(0x04)));
     assert!(exec_cp::pty_line_open(Some(b'o')));
+}
+
+#[test]
+fn a_route_without_a_scheme_says_how_to_write_one() {
+    let error = format!("{:#}", parse_route("127.0.0.1:47911", "route").unwrap_err());
+    assert!(error.starts_with("invalid route (write it with a scheme"), "{error}");
+    assert!(error.contains("ws://HOST:PORT/"), "{error}");
+    assert!(error.contains("cmux remote known-daemons"), "{error}");
+    assert!(parse_route("ws://127.0.0.1:47911/v1/link", "route").is_ok());
 }

@@ -175,6 +175,35 @@ export default agentPaneEntry({
       },
       snapshot: earlierTurn(),
     },
+    "earlier-expired": {
+      note: 'Leo, 2026-11-21, on a "From before your last message" list of a coordinator\'s old tasks: "i dont think we have good enough prompting/calling/expiry maybe?". A list carries over one message only: here a whole turn went by without it, so the hat shows no earlier plan and the list stays folded in the turn that wrote it.',
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer"));
+        if (ctx.document.querySelector(".cv-plan[data-earlier]")) throw new Error("an expired list carried over");
+        const title = ctx.document.querySelector(".acpmux-running-tray__title")?.textContent ?? "";
+        if (title.includes("Earlier plan")) throw new Error(`unexpected hat: ${title}`);
+      },
+      snapshot: chat(
+        [
+          user("Add retry to the uploader, cover it and update the docs", 20),
+          row("plan", 19.9, {
+            plan: [
+              todo("Add retry to the uploader", "completed"),
+              todo("Cover it with a test", "in_progress"),
+              todo("Update the docs", "pending"),
+            ],
+          }),
+          assistant("Retry is in. Stopped before the test.", 19),
+          summary(19, { status: "cancelled", durationMs: 41_000, toolCount: 3 }),
+          user("What does the uploader log on a timeout?", 6),
+          assistant("It logs the URL and the attempt number.", 5.8),
+          summary(5.8, { status: "completed", durationMs: 9_000, toolCount: 1 }),
+          user("Make the log line say how long it waited", 0.4),
+          assistant("Adding the wait to the log line.", 0.2),
+        ],
+        { isWorking: true },
+      ),
+    },
     "earlier-replaced": {
       note: "The new turn wrote its own list: only that one shows, as the running turn's, and the earlier one stays folded in its turn.",
       play: async (ctx) => {

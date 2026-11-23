@@ -14,6 +14,9 @@ workspace = true
 anyhow.workspace = true
 base64.workspace = true
 bytes.workspace = true
+cmux-build-space.workspace = true
+# The Chief's push body as words, not Markdown (src/notify.rs).
+cmux-message-preview.workspace = true
 cmux-mobile-link.workspace = true
 cmux-rd-core.workspace = true
 # The shared rd media engine: the in-hostd host of a simulator surface (src/surface.rs).

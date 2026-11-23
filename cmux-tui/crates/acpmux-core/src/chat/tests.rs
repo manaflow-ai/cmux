@@ -680,15 +680,31 @@ fn actor_line_and_checkpoint_open_gate() {
         let home = tempfile::tempdir().unwrap();
         let config = ChatConfig::new("gate", home.path(), Harness::V1);
         let mut state = open_state(config.clone()).unwrap();
-        // Feed the actual translator and body/log writer. The synthetic source has
-        // no persistent raw cursor; checkpoint once after setup, outside measurement.
+        // Feed the actual translator and body/log writer, as the actor books a chat it reads:
+        // each setup line names its range of the source `open_state` put in `raw.map`. A row
+        // with no raw range is a daemon-created change that the log syncs on its own, one disk
+        // sync per row: 2M of them took 53 minutes of the nightly's 85 (cmux run 44942085835).
+        // The measured lines below keep the empty range they always had. Checkpoint once after
+        // setup, outside measurement.
+        let file = state.raw_file;
+        assert_ne!(file, 0, "open_state names the source in raw.map");
+        let mut place = 0u64;
         for seq in 1..=count {
             let line = format!(
                 "{{\"seq\":{seq},\"at\":1000,\"dir\":\"mux\",\"kind\":\"stopped\",\"msg\":{{}}}}"
             );
-            apply_ops(&mut state, line.as_bytes(), 0, 0, 0, false).unwrap();
+            // The line's newline is part of its span, as `read_source` applies it.
+            let span = line.len() as u64 + 1;
+            state.raw_place = place + span;
+            apply_ops(&mut state, line.as_bytes(), file, place, span, false).unwrap();
+            place += span;
         }
         assert_eq!(state.log.max_row(), count);
+        assert!(
+            state.log.stats().syncs < count / 1000 + 64,
+            "setup synced the log once per row: {} syncs",
+            state.log.stats().syncs
+        );
         checkpoint(&mut state).unwrap();
         homes.push(home);
         fixtures.push((count, config, state));

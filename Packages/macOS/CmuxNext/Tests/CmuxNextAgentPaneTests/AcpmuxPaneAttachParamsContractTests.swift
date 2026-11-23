@@ -30,7 +30,7 @@ struct AcpmuxPaneAttachParamsContractTests {
 
     @Test func everyAttachThePageSendsPassesTheParamsRule() throws {
         let attaches = try Self.contract()
-        #expect(attaches.count >= 4)
+        #expect(attaches.count >= 5)
         for attach in attaches {
             let name = attach["name"] as? String ?? "?"
             let params = try #require(attach["params"] as? [String: Any], "\(name) has no params")
@@ -43,6 +43,16 @@ struct AcpmuxPaneAttachParamsContractTests {
         let hold = try #require(try Self.contract().first { $0["name"] as? String == "hold" }?["params"] as? [String: Any])
         #expect(hold["hold"] as? Bool == true)
         #expect(!AcpmuxPaneMethods.breaksParamsRule(Self.frame(hold), modeFields: nil))
+    }
+
+    /// A reconnect that holds the chat's rows asks only what it missed (`afterSeq`, cmux#47119). The rule did
+    /// not know the key, so every such reconnect was refused as `transport.intent_invalid` and the pane said
+    /// "cmux blocked opening this chat" over the composer (Leo, 2026-11-22: "frequently should not even
+    /// appear in the first place").
+    @Test func theReconnectsForwardAttachIsInTheContract() throws {
+        let forward = try #require(try Self.contract().first { $0["name"] as? String == "forward, local" }?["params"] as? [String: Any])
+        #expect(forward["afterSeq"] as? Int == 120)
+        #expect(!AcpmuxPaneMethods.breaksParamsRule(Self.frame(forward), modeFields: nil))
     }
 
     @Test func aKeyThePageDoesNotSendIsStillRefused() throws {

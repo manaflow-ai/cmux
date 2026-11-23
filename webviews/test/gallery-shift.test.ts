@@ -6,6 +6,8 @@ import {
   afterEachPaint,
   type PaintClock,
   bottomFoldOf,
+  heldRowDrift,
+  insetCrop,
   isExpansionShift,
   sampleBoxes,
   scoreBoxFrames,
@@ -207,6 +209,109 @@ test("the running tray over the composer is a fold at the bottom only over the r
   window.close();
 });
 
+test("a sample records what paints, what the turn's end fold slides, the pinned live line and the box each sits in", () => {
+  // pinnedLiveLine.ts clips the reply over the live line with an inline inset; the model picker's
+  // scroller cuts its listbox; turnEndFold.ts slides the rows it keeps with element.animate.
+  const window = new Window({ width: 800, height: 600 });
+  const doc = window.document as unknown as Document;
+  doc.body.innerHTML = `
+    <div class="acpmux-thread" data-turn-end-folding="fade" data-pin-live>
+      <article data-row-id="reply" style="clip-path: inset(-4096px -4096px 20px -4096px)">reply</article>
+      <article data-row-id="answer">answer</article>
+      <article data-row-id="line">Thinking</article>
+    </div>
+    <div class="scroller" style="overflow: auto">
+      <div role="listbox"><button role="option">Opus</button></div>
+    </div>`;
+  const $ = (selector: string) => doc.querySelector(selector) as HTMLElement;
+  const place = (selector: string, y: number, height: number) => {
+    const box = { x: 0, y, width: 300, height, top: y, left: 0, right: 300, bottom: y + height };
+    $(selector).getBoundingClientRect = () => ({ ...box, toJSON: () => box }) as DOMRect;
+  };
+  place("[data-row-id=reply]", 300, 60);
+  place("[data-row-id=answer]", 380, 40);
+  place("[data-row-id=line]", 440, 32);
+  place(".scroller", 36, 274);
+  place("[role=listbox]", 26, 420);
+  place("[role=option]", 20, 28);
+  // The fold's slide on the answer, a CSS animation's on the line: only the first is the fold's.
+  const keyframes = () => [{ translate: "0 40px" }, { translate: "0 0" }];
+  const animations = [
+    { playState: "running", effect: { target: $("[data-row-id=answer]"), getKeyframes: keyframes } },
+    {
+      playState: "running",
+      animationName: "rise",
+      effect: { target: $("[data-row-id=line]"), getKeyframes: keyframes },
+    },
+  ];
+  (doc as unknown as { getAnimations: () => unknown[] }).getAnimations = () => animations;
+  const frame = sampleBoxes(doc, null);
+  const byLabel = (part: string) => [...frame.entries()].find(([, sample]) => sample.label.includes(part))!;
+  const [, reply] = byLabel("[row reply]");
+  expect(reply.box).toEqual({ x: 0, y: 300, width: 300, height: 60 });
+  expect(reply.shown).toEqual({ x: 0, y: 300, width: 300, height: 40 });
+  expect(byLabel("[row answer]")[1]).toMatchObject({ folding: true, animating: false });
+  expect(byLabel("[row line]")[1]).toMatchObject({ animating: true, pinned: true });
+  // The pinned thread's last row is its live line; no other row is.
+  expect(reply.pinned).toBeUndefined();
+  expect(byLabel("[row line]")[1].folding).toBeUndefined();
+  // A row is never cut by a scroller's edge, nor held in another box.
+  expect(byLabel("[row answer]")[1].shown).toBeUndefined();
+  expect(byLabel("[row answer]")[1].within).toBeUndefined();
+  const [listId, list] = byLabel("[listbox]");
+  expect(list).toMatchObject({
+    shown: { x: 0, y: 36, width: 300, height: 274 },
+    port: { x: 0, y: 36, width: 300, height: 274 },
+  });
+  const [, item] = byLabel("[option]");
+  expect(item).toMatchObject({
+    within: listId,
+    shown: { x: 0, y: 36, width: 300, height: 12 },
+    port: { y: 36, height: 274 },
+  });
+  expect(reply.port).toBeUndefined();
+  // With no fold playing, the same script animation is not the fold's.
+  $(".acpmux-thread").removeAttribute("data-turn-end-folding");
+  expect(byLabelIn(sampleBoxes(doc, null), "[row answer]").folding).toBeUndefined();
+  window.close();
+});
+
+const byLabelIn = (frame: BoxFrame, part: string) => [...frame.values()].find((sample) => sample.label.includes(part))!;
+
+test("insetCrop reads a px inset, never less than 0 a side, and nothing else", () => {
+  expect(insetCrop("inset(-4096px -4096px 20px -4096px)")).toEqual([0, 0, 20, 0]);
+  expect(insetCrop("inset(0px -4096px 6.98342px)")).toEqual([0, 0, 6.98342, 0]);
+  expect(insetCrop("inset(4px)")).toEqual([4, 4, 4, 4]);
+  expect(insetCrop("inset(4px 2px round 3px)")).toEqual([4, 2, 4, 2]);
+  expect(insetCrop("inset(10% 0px)")).toBeNull();
+  expect(insetCrop("circle(40%)")).toBeNull();
+  expect(insetCrop("none")).toBeNull();
+});
+
+test("the box score reads no sample's shown box, fold or holder: it scores the laid-out boxes", () => {
+  const plain = frames(...rested(1, 100), [[1, row(140)]]);
+  const marked = frames(
+    ...rested(1, 100, {
+      shown: { x: 0, y: 100, width: 800, height: 10 },
+      within: 7,
+      port: { x: 0, y: 0, width: 800, height: 50 },
+    }),
+    [
+      [
+        1,
+        row(140, {
+          shown: { x: 0, y: 140, width: 800, height: 10 },
+          folding: true,
+          pinned: true,
+          within: 7,
+          port: { x: 0, y: 9, width: 800, height: 5 },
+        }),
+      ],
+    ],
+  );
+  expect(scoreBoxFrames(marked, viewport)).toEqual(scoreBoxFrames(plain, viewport));
+});
+
 test("a resize lets each box move once; a second move is a bounce", () => {
   const once = frames(...rested(1, 100), [[1, row(120)]], [[1, row(120)]]);
   expect(scoreBoxFrames(once, viewport, { firstMoveFree: true }).score).toBe(0);
@@ -316,4 +421,55 @@ test("afterEachPaint: input before the read runs it first; a read the next frame
   hand.frame();
   hand.paint();
   expect(seen).toEqual(["painted", "after input"]);
+});
+
+// The held-bottom detector (Leo, 2026-11-18: "did we fix this scroll bounce at the bottom yet?").
+const transcriptRow = (y: number, extra: Partial<BoxSample> = {}) =>
+  row(y, { row: true, label: "div.acpmux-row", ...extra });
+
+test("a held run whose rows never move drifts 0", () => {
+  const still = frames(
+    [
+      [1, transcriptRow(100)],
+      [2, transcriptRow(140)],
+    ],
+    [
+      [1, transcriptRow(100)],
+      [2, transcriptRow(140)],
+    ],
+    [
+      [1, transcriptRow(100.3)],
+      [2, transcriptRow(140)],
+    ],
+  );
+  expect(heldRowDrift(still)).toEqual({ worst: 0, driftFrames: 0 });
+});
+
+test("rows that slide away together and come back are a bounce, though they moved as one follow", () => {
+  // Leo's recording: every row down 27, 56, 260 px over a few frames, then back up home.
+  const bounce = [0, 27, 56, 260, 120, 30, 0].map(
+    (dy) =>
+      new Map<number, BoxSample>([
+        [1, transcriptRow(100 + dy)],
+        [2, transcriptRow(140 + dy)],
+      ]),
+  );
+  const drift = heldRowDrift(bounce);
+  expect(drift.worst).toBe(260);
+  expect(drift.frame).toBe(3);
+  expect(drift.driftFrames).toBe(5);
+});
+
+test("the held detector skips boxes that are not rows and rows an entrance animates", () => {
+  const run = frames(
+    [
+      [1, row(100)],
+      [2, transcriptRow(200, { animating: true })],
+    ],
+    [
+      [1, row(160)],
+      [2, transcriptRow(240, { animating: true })],
+    ],
+  );
+  expect(heldRowDrift(run).worst).toBe(0);
 });

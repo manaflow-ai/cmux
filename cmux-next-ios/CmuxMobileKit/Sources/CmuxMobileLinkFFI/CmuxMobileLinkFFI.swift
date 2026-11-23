@@ -4912,6 +4912,21 @@ public func resetWarmState()async   {
         )
 }
 /**
+ * A dev build's cloud data space, `dev:<slug>` (Swift `CMUXBuildSpace`),
+ * set once at launch by the app's composition root before any `connect`
+ * or `prewarm`: every `GET /v1/ice` and signaling upgrade then carries
+ * `x-cmux-build-space`. `None`, or a value that is not `dev:<slug>`, sends
+ * no header (nightly, TestFlight and App Store builds never call it with a
+ * value). A change takes effect for the next socket opened; a socket opened
+ * in another space is not reused.
+ */
+public func setBuildSpace(value: String?)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_set_build_space(
+        FfiConverterOptionString.lower(value),$0
+    )
+}
+}
+/**
  * The device's network is cellular now, or not (iOS `NWPathMonitor`,
  * `NWPath.usesInterfaceType(.cellular)`; every path update, the first one
  * too). Every WireGuard link in Auto (`ConnectOptions::ultra`) reads it
@@ -5095,6 +5110,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_reset_warm_state() != 25219) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_set_build_space() != 53497) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_set_cellular_path() != 4068) {

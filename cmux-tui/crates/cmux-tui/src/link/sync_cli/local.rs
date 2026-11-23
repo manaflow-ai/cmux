@@ -305,6 +305,7 @@ fn list_into(set: &mut LocalSet, folder: &Path, rules: Rules) -> anyhow::Result<
     // Each untracked heavy folder is named once, as the folder.
     let mut heavy_named: BTreeSet<String> = BTreeSet::new();
     let top = place::Dir::open(folder)?;
+    let mut chain = place::Chain::default();
     // Each file is counted as git lists it: past the copy's limit the listing stops there.
     let mut skipped = 0;
     working_files(folder, &mut skipped, &mut |path, untracked| {
@@ -326,7 +327,7 @@ fn list_into(set: &mut LocalSet, folder: &Path, rules: Rules) -> anyhow::Result<
             set.skips.note(&path, why);
             return Ok(());
         }
-        add_working(set, &top, folder, &path)
+        add_working(set, &mut chain, &top, folder, &path)
     })?;
     set.skipped += skipped;
     // A share of files sends no git state (`cmux link access` keeps no `.git` path), so it reads none:
@@ -486,6 +487,7 @@ fn listed_files(folder: &Path, enter: &dyn Fn(&str) -> bool) -> anyhow::Result<L
     }
     set.git = true;
     let handle = place::Dir::open(folder)?;
+    let mut chain = place::Chain::default();
     // Run in the folder, git lists only what is under it, by paths from it.
     let mut refused: BTreeSet<String> = BTreeSet::new();
     let mut skipped = 0;
@@ -506,7 +508,7 @@ fn listed_files(folder: &Path, enter: &dyn Fn(&str) -> bool) -> anyhow::Result<L
             }
             return Ok(());
         }
-        add_working(&mut set, &handle, folder, &path)
+        add_working(&mut set, &mut chain, &handle, folder, &path)
     })?;
     set.skipped = set.skipped.saturating_add(skipped);
     Ok(set)

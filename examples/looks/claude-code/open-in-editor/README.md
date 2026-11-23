@@ -1,0 +1,13 @@
+# Open file citations in your editor
+
+In a local agent chat, click a citation such as `src/main.rs:42` to open the real file at line 42. Numbered search matches and read results use the same action. Set **Text Editor** in cmux Settings to VS Code, Cursor, Windsurf, or Zed. An editor without a supported line-link scheme opens the file at its usual position.
+
+From the repository root, preview and apply this profile:
+
+```sh
+cmux customize use ./examples/looks/claude-code/open-in-editor/profile.json
+cmux customize check
+cmux customize apply
+```
+
+To try it from this checkout, click `examples/looks/claude-code/open-in-editor/profile.json:6` in a local chat. Line 6 enables the setting. To undo the applied profile, run `cmux customize rollback`.

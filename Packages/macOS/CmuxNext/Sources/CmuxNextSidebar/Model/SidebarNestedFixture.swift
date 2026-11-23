@@ -34,10 +34,18 @@ public nonisolated struct SidebarNestedFixture: Sendable {
         /// The session tree's needs-you tray (`SidebarNeedsYou`): sessions started by other sessions,
         /// some blocked on you (a question, a permission, a sign-in), one failed, two finished unread.
         case needsYou
+        /// Lineage nesting in a group (#28103): a parent with two children, one of them a parent itself, folded
+        /// behind its count (a parent below the top level starts folded).
+        case lineageGroup
         /// Groups of one workspace named as the group (what `acpmux new --group X` makes), top level and nested,
         /// beside a group of one differently named member and a group of two (Leo 2026-10-29: "why is there all
         /// this weird stuff at the bottom of the sidebar").
         case soleMember
+        /// Studio's seeded demo state: three projects of agent threads, as the reference app's thread list shows them,
+        /// with an age on every row, one thread working, one waiting on an approval, one with a pull request and an
+        /// unread reply (Leo 2026-11-18 on Studio: "there is nothing in the sidebar, nothing at all"). A look's
+        /// screenshots and live tries draw over this, never over an empty profile.
+        case studio
     }
 
     /// The state this fixture captures.
@@ -45,15 +53,25 @@ public nonisolated struct SidebarNestedFixture: Sendable {
     /// The sidebar rows: one local machine section holding the scenario's group tree.
     public let sections: [SidebarSection]
 
-    /// Who started whom (the session tree's `parents`), for ``Scenario/needsYou``; empty for the others.
+    /// Who started whom (the session tree's `parents`), for ``Scenario/needsYou`` and ``Scenario/lineageGroup``;
+    /// empty for the others.
     public var parents: [WorkspaceID: WorkspaceID] {
-        guard scenario == .needsYou else { return [:] }
-        let links = ["settings": "release", "shrink": "settings", "notes": "release", "changelog": "notes"]
+        let links: [String: String] = switch scenario {
+        case .needsYou: ["settings": "release", "shrink": "settings", "notes": "release", "changelog": "notes"]
+        case .lineageGroup: ["settings": "release", "shrink": "settings", "notes": "release"]
+        default: [:]
+        }
         return Dictionary(uniqueKeysWithValues: links.map { (WorkspaceID("w-\($0.key)"), WorkspaceID("w-\($0.value)")) })
     }
 
     /// The sidebar width the scenario is captured at.
-    public var width: Double { scenario == .narrow ? 196 : 288 }
+    public var width: Double {
+        switch scenario {
+        case .narrow: 196
+        case .studio: 260
+        default: 288
+        }
+    }
     /// The old rails (one per group, stopping at its own last member), for ``Scenario/before``.
     public var legacyRails: Bool { scenario == .before }
 
@@ -101,8 +119,12 @@ public nonisolated struct SidebarNestedFixture: Sendable {
             nodes = Self.tallGroup
         case .needsYou:
             nodes = Self.needsYouRows.map(SidebarNode.workspace)
+        case .lineageGroup:
+            nodes = Self.lineageGroup
         case .soleMember:
             nodes = Self.soleMembers
+        case .studio:
+            nodes = Self.studioThreads(now: Date()).map(SidebarNode.workspace)
         }
         sections = [SidebarSection(kind: .machine(machine), nodes: nodes)]
     }
@@ -121,11 +143,57 @@ public nonisolated struct SidebarNestedFixture: Sendable {
         ws("docs", "Docs sweep", unread: .dot), ws("icons", "Icon pass", unread: .count(2)), ws("api", "API cleanup", busy: true),
     ]
 
+    /// ``Scenario/lineageGroup``'s rows: a person's own row, then a group whose members an agent started from
+    /// Release week (``parents`` nests them; model order is not the drawn order).
+    private static let lineageGroup: [SidebarNode] = [
+        .workspace(ws("docs", "Docs sweep", unread: .dot)),
+        group("release-week", "Release", .purple, [
+            ws("notes", "Release notes", activity: .working), ws("release", "Release week"),
+            ws("shrink", "Shrink large files", activity: .waiting(kind: .question)), ws("settings", "Settings pass"),
+        ]),
+    ]
+
     private static func group(_ id: String, _ name: String, _ color: GroupColor, parent: String? = nil, folded: Bool = false,
                               _ members: [SidebarWorkspace]) -> SidebarNode {
         var group = SidebarGroup(id: GroupID("g-\(id)"), name: name, color: color, isCollapsed: folded, workspaces: members)
         group.parent = parent.map { GroupID("g-\($0)") }
         return .group(group)
+    }
+
+    /// The thread selected in ``Scenario/studio``.
+    static let studioSelected = WorkspaceID("w-explain-structure")
+
+    /// ``Scenario/studio``'s threads, newest first: agent chats in three project folders (Group by Folder draws a
+    /// header per project), each with the time its chat last changed (`chatActivity`, the row's age).
+    static func studioThreads(now: Date) -> [SidebarWorkspace] {
+        func thread(_ id: String, _ title: String, _ project: String, minutesAgo: Double, activity: StatusIndicatorState = .idle,
+                    status: String? = nil, pullRequest: String? = nil, unread: UnreadState = .none, message: String) -> SidebarWorkspace {
+            let folder = "~/Developer/\(project)"
+            var ws = SidebarWorkspace(id: WorkspaceID("w-\(id)"), title: title, directory: folder, status: status, pullRequest: pullRequest,
+                                      kind: .harness, unread: unread, activity: activity, folder: folder)
+            ws.chatActivity = now.addingTimeInterval(-60 * minutesAgo)
+            ws.lastMessage = message
+            return ws
+        }
+        let day = 24.0 * 60
+        return [
+            thread("explain-structure", "Explain Todo App Structure", "todo-app", minutesAgo: 0,
+                   message: "Four bullets: package.json, server.js, todos.js and its test"),
+            thread("delete-endpoint", "Add Todo Delete Endpoint", "todo-app", minutesAgo: 1, activity: .waiting(kind: .permission),
+                   status: "Approval", message: "Waiting to run the focused test"),
+            thread("due-dates", "Add Due Dates to Todos", "todo-app", minutesAgo: 5, activity: .working(progress: nil),
+                   status: "Working", message: "Adding a dueAt field and a sort by it"),
+            thread("webhook-retries", "Retry Failed Payment Webhooks", "billing-api", minutesAgo: 48, pullRequest: "#212",
+                   unread: .dot, message: "Opened #212: retries with backoff, three attempts"),
+            thread("invoice-pdf", "Fix Invoice PDF Totals", "billing-api", minutesAgo: 3 * 60, pullRequest: "#209",
+                   message: "Rounding now happens once, at the line total"),
+            thread("pricing-copy", "Tighten Pricing Page Copy", "marketing-site", minutesAgo: day,
+                   message: "The new copy is shorter by a third"),
+            thread("og-images", "Generate Open Graph Images", "marketing-site", minutesAgo: 3 * day,
+                   message: "One image per blog post, built at deploy"),
+            thread("lighthouse", "Audit Lighthouse Scores", "marketing-site", minutesAgo: 12 * day,
+                   message: "Performance 97, accessibility 100"),
+        ]
     }
 
     /// The groups of the user's 2026-10-21 screenshot, Perf stored under Panes & layout.

@@ -178,6 +178,18 @@ pub fn background<T>(work: impl FnOnce() -> T) -> T {
     work()
 }
 
+/// Run `work`, a request's blocking read (a chat's log page, its prompt index), without holding a
+/// runtime worker: on the daemon's multi-thread runtime the worker hands its other tasks to a new
+/// one first (`block_in_place`), so a long read never queues a hello, a status or another chat's
+/// attach behind it. Leo's daemon, 2026-11-18: three of its workers sat in attach log reads for a
+/// whole 4 s sample and `acpmux daemon status` answered in 4.9 to 11.8 s. A current-thread
+/// runtime (a one-shot test) and a thread outside any runtime run it in place.
+pub fn off_worker<T>(work: impl FnOnce() -> T) -> T {
+    let multi = tokio::runtime::Handle::try_current()
+        .is_ok_and(|h| h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread);
+    if multi { tokio::task::block_in_place(work) } else { work() }
+}
+
 /// Run `work` (blocking) with this thread in [`Tier::OnScreen`], then put the
 /// thread back as it was: the reads for a chat being opened on screen, which
 /// the person is waiting on, ahead of agent work's CPU and disk. Tokio worker

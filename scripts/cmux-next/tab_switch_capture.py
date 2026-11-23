@@ -148,7 +148,16 @@ class CuaSession:
 
     def start(self, folder):
         os.makedirs(folder, exist_ok=True)
-        self.tool("start_recording", {"output_dir": os.path.realpath(folder), "record_video": True})
+        arguments = {"output_dir": os.path.realpath(folder), "record_video": True}
+        try:
+            self.tool("start_recording", arguments)
+        except CaptureError as error:
+            if "has ended" not in str(error):
+                raise
+            # CuaDriver ends a session that made no tool call for a while (a CI mini, 2026-11-18): a new one records.
+            self.close()
+            self.open()
+            self.tool("start_recording", arguments)
 
     def stop(self, folder):
         facts = self.tool("stop_recording", {})
