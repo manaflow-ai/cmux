@@ -79,6 +79,10 @@ impl WorkspaceRegistry {
     ) -> anyhow::Result<WorkspaceCommitIntent> {
         validate_identifier("mutation id", &mutation.id)?;
         validate_identifier("mutation origin", &mutation.origin)?;
+        // `workspaces.to_vec()`, the frame read and the fold's workspace digests below each
+        // walk the whole list.
+        #[cfg(test)]
+        crate::walk_counters::workspace_list_walked(workspaces.len());
         let stated_workspaces = if project_resource { self.stated_workspaces() } else { None };
         Ok(WorkspaceCommitIntent {
             mutation: mutation.clone(),
@@ -345,12 +349,6 @@ impl WorkspaceCommitIntent {
                 result_json,
                 sqlite_resource_revision,
             )?;
-            let resource_deltas = normalized_workspace_resource_deltas(
-                &self.session_id,
-                workspaces,
-                active_workspace.map(WorkspacePublicId::as_str),
-                previous_topology,
-            )?;
             // Only what the journal does not state already (#32408): each upsert is compared, decorated as the
             // journal writes it, with the public fold read at prepare. The commit's own workspace always goes
             // when extra rows ran (a metadata commit changes only its decorations). With no fold, or one
@@ -363,40 +361,57 @@ impl WorkspaceCommitIntent {
             // after a start stated the value of each workspace of the session (826 values for one new
             // workspace); the restatement in parts states the others
             // (`mux/startup_restore/restate_parts.rs`).
+            //
+            // With a fold at this base, the same set (`changed`) is all that is built: the fold holds the
+            // value of every other workspace, whose row this commit did not write, so its upsert is
+            // dropped by the prune below, and building it first (a JSON value for each workspace of the
+            // session) was most of the cost of a create.
             let stated = self
                 .stated_workspaces
                 .as_ref()
                 .filter(|(fold_revision, _)| *fold_revision == previous_resource_revision)
                 .map(|(_, workspaces)| workspaces);
             let keep = extra_ran.then_some(workspace_key);
-            let resource_deltas = match stated {
-                Some(stated) => {
-                    let resourced = previous_topology
-                        .active_screens
-                        .iter()
-                        .map(|(workspace, _)| workspace)
-                        .collect::<HashSet<_>>();
-                    let mut changed = workspaces
-                        .iter()
-                        .filter(|workspace| {
-                            workspace.key == workspace_key
-                                || written.contains(&workspace.key)
-                                || !resourced.contains(&workspace.public_id)
-                        })
-                        .map(|workspace| workspace.public_id.as_str())
-                        .collect::<HashSet<_>>();
-                    let was_active = previous_topology.active_workspace.as_ref();
-                    if was_active != active_workspace {
-                        changed.extend(
-                            [was_active, active_workspace]
-                                .into_iter()
-                                .flatten()
-                                .map(WorkspacePublicId::as_str),
-                        );
-                    }
-                    prune_stated_workspace_upserts(tx, &resource_deltas, stated, &changed, keep)?
+            let changed = stated.map(|_| {
+                #[cfg(test)]
+                crate::walk_counters::workspace_list_walked(workspaces.len());
+                let resourced = previous_topology
+                    .active_screens
+                    .iter()
+                    .map(|(workspace, _)| workspace)
+                    .collect::<HashSet<_>>();
+                let mut changed = workspaces
+                    .iter()
+                    .filter(|workspace| {
+                        workspace.key == workspace_key
+                            || written.contains(&workspace.key)
+                            || !resourced.contains(&workspace.public_id)
+                    })
+                    .map(|workspace| workspace.public_id.as_str())
+                    .collect::<HashSet<_>>();
+                let was_active = previous_topology.active_workspace.as_ref();
+                if was_active != active_workspace {
+                    changed.extend(
+                        [was_active, active_workspace]
+                            .into_iter()
+                            .flatten()
+                            .map(WorkspacePublicId::as_str),
+                    );
                 }
-                None => resource_deltas,
+                changed
+            });
+            let resource_deltas = normalized_workspace_resource_deltas(
+                &self.session_id,
+                workspaces,
+                active_workspace.map(WorkspacePublicId::as_str),
+                previous_topology,
+                changed.as_ref(),
+            )?;
+            let resource_deltas = match (stated, changed.as_ref()) {
+                (Some(stated), Some(changed)) => {
+                    prune_stated_workspace_upserts(tx, &resource_deltas, stated, changed, keep)?
+                }
+                _ => resource_deltas,
             };
             append_resource_journal_record(
                 tx,

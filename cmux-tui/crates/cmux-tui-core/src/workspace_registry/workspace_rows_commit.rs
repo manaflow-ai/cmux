@@ -45,6 +45,9 @@ pub(super) fn commit_workspace_rows_in_transaction(
     validate_identifier("mutation id", &mutation.id)?;
     validate_identifier("mutation origin", &mutation.origin)?;
     validate_workspace_key(workspace_key)?;
+    // `validate_registry`, `desired_rows` and `live_rows` (a row read for each live workspace).
+    #[cfg(test)]
+    crate::walk_counters::workspace_list_walked(workspaces.len());
     validate_registry(workspaces)?;
     let current = transaction_revision(transaction)?;
     if let Some(expected) = expected_revision

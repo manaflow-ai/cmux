@@ -14,6 +14,8 @@ impl Mux {
         // The app's hidden home is not one of the user's workspaces, so it
         // never counts: the first one after it is `workspace-1`. (The
         // presentation lock is a leaf, safe under the state lock.)
+        #[cfg(test)]
+        crate::walk_counters::workspace_list_walked(state.workspaces.len());
         let home = self.presentation_snapshot().home_workspace.clone();
         let counted = state
             .workspaces

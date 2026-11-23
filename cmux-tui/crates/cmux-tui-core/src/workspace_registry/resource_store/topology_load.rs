@@ -127,14 +127,25 @@ impl WorkspaceRegistry {
         workspaces: &[WorkspacePublicId],
     ) -> anyhow::Result<ResourceTopologySnapshot> {
         let connection = self.connection.get();
-        let mut topology =
-            load_topology_frame(&connection, self.session_id.clone(), self.generation.clone())?;
-        let mut scope = topology.active_workspace.iter().cloned().collect::<Vec<_>>();
+        // The frame holds the active screen of the scope's workspaces only (the one the focus
+        // leaves and the ones it goes to): the frame of every workspace made each focus
+        // read, and each caller then search, a row for each workspace of the session.
+        let mut scope = meta_value(&connection, "active_workspace_id")?
+            .map(WorkspacePublicId::parse)
+            .transpose()?
+            .into_iter()
+            .collect::<Vec<_>>();
         for workspace in workspaces {
             if !scope.contains(workspace) {
                 scope.push(workspace.clone());
             }
         }
+        let mut topology = load_scope_frame(
+            &connection,
+            self.session_id.clone(),
+            self.generation.clone(),
+            &scope,
+        )?;
         load_subtrees(&connection, &mut topology, &scope)?;
         Ok(topology)
     }

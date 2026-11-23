@@ -2839,6 +2839,8 @@ fn resource_change_is_stored<'t>(
             }
         }
         ResourceChange::SetWorkspaceOrder { workspace_ids } => {
+            #[cfg(test)]
+            crate::walk_counters::workspace_list_walked(workspace_ids.len());
             let mut statement = transaction.prepare(
                 "SELECT rw.public_id, w.position
                  FROM resource_workspaces rw
@@ -3188,6 +3190,8 @@ fn prepare_resource_order_slots(
     for change in &patch.changes {
         match change {
             ResourceChange::SetWorkspaceOrder { workspace_ids } => {
+                #[cfg(test)]
+                crate::walk_counters::workspace_list_walked(workspace_ids.len());
                 let desired = workspace_ids
                     .iter()
                     .enumerate()

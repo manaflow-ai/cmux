@@ -7,6 +7,8 @@ use cmux_json::JsonSet as _;
 
 impl Mux {
     pub(crate) fn registry_projection(&self, state: &State) -> Vec<RegistryWorkspace> {
+        #[cfg(test)]
+        crate::walk_counters::workspace_list_walked(state.workspaces.len());
         state
             .workspaces
             .iter()

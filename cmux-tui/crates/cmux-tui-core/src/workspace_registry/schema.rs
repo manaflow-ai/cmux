@@ -842,10 +842,19 @@ pub(super) fn normalized_workspace_resource_deltas(
     workspaces: &[RegistryWorkspace],
     active_workspace: Option<&str>,
     before: &ResourceTopologySnapshot,
+    owed: Option<&HashSet<&str>>,
 ) -> anyhow::Result<Value> {
+    #[cfg(test)]
+    crate::walk_counters::workspace_list_walked(workspaces.len());
+    // `owed` (public ids): only these workspaces get an upsert, built with their own index. A value
+    // built for every workspace of the session and then pruned against the public fold cost a
+    // serialization for each workspace of every create.
     let mut deltas = workspaces
         .iter()
         .enumerate()
+        .filter(|(_, workspace)| {
+            owed.is_none_or(|owed| owed.contains(workspace.public_id.as_str()))
+        })
         .map(|(index, workspace)| {
             Ok(serde_json::json!({
                 "kind":"upsert",
