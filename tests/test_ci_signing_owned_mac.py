@@ -958,8 +958,8 @@ class SigningOwnedMacTests(unittest.TestCase):
                                                 lambda token, repo: {}, now=NOW, sleep=lambda seconds: None)
         self.assertEqual(json.loads(labels), [slot, "glaeda-runner-cmux13-glaeda-nightly"], why)
         jobs = workflows()["nightly.yml"]["jobs"]
-        step = next(s for s in jobs["pick-nightly-sign-runner"]["steps"] if s.get("id") == "sign-owned")
-        self.assertEqual(step["env"].get("DRAIN_ANYWAY"), "1", "the legacy sign drains a mini before Blacksmith")
+        step = next(s for s in jobs["find-nightly-next-recovery"]["steps"] if s.get("id") == "sign-owned")
+        self.assertEqual(step["env"].get("DRAIN_ANYWAY"), "1", "the recovery sign drains a mini before Blacksmith")
 
     def test_signing_jobs_reach_only_the_signers_label(self) -> None:
         """On 2026-11-04 eleven sign-nightly-identity-legacy jobs queued on the std nightly label reached an M5 Ultra
@@ -1000,7 +1000,7 @@ class SigningOwnedMacTests(unittest.TestCase):
             self.assertFalse(signing_runner.signing_route_label(label), label)
         jobs = workflows()["nightly.yml"]["jobs"]
         route = "glaeda-trusted-next-signing"  # a literal: no variable chooses the label
-        for job, step_id in (("pick-nightly-sign-runner", "sign-owned"), ("find-nightly-next-recovery", "sign-owned")):
+        for job, step_id in (("find-nightly-next-recovery", "sign-owned"),):
             with self.subTest(job=job):
                 step = next(s for s in jobs[job]["steps"] if s.get("id") == step_id)
                 self.assertEqual(step["env"]["OWNED_LABELS"], route)

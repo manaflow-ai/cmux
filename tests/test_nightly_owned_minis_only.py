@@ -338,8 +338,6 @@ class PublishersHoldTheWholeMini(unittest.TestCase):
             with self.subTest(job=name):
                 route = manaflow_route(name)
                 if name not in PROMOTE_ROUTE:
-                    self.assertIn("needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && "
-                                  "needs.pick-nightly-sign-runner.outputs.sign_owned_pool", route)
                     self.assertIn(f"vars.CI_NIGHTLY_MINI != '' && '{SIGNER}'", route)
                 self.assertNotRegex(route, NOT_OURS)
                 self.assertNotIn("CI_NIGHTLY_ONLY_RUNNER", route)

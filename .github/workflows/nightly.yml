@@ -3610,7 +3610,8 @@ jobs:
     environment: ${{ needs.decide.outputs.environment }}
     # The only nightly signer: the Linux release-signer pool is retired (nightlies run on our own minis).
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant]
-    if: "!cancelled() && needs.decide.result == 'success' && needs.build-nightly-app.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.prepare-nightly-variant.result == 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'"
+    # A pipelined push run prepares the app and ends at the sign dispatch: its sign run signs.
+    if: "!cancelled() && needs.decide.result == 'success' && needs.build-nightly-app.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.prepare-nightly-variant.result == 'success' && needs.decide.outputs.pipeline != 'true' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'"
     outputs:
       # nightly-next is arm64 only, so its one matrix leg sets this; publish
       # waits for a later run when Apple had not accepted the build in time.

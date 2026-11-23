@@ -734,10 +734,10 @@ class SharedWait(unittest.TestCase):
 
 class Workflow(unittest.TestCase):
     def test_only_the_nightly_build_and_verify_picks_opt_into_the_unread_owned_fallback(self) -> None:
-        # nightly.yml's build pick and the sign picker's verify pick (run 41335987427): on only while the
+        # nightly.yml's build pick (run 41335987427): on only while the
         # CI_PR_POOL_OWNED kill switch is on.
         import yaml  # noqa: PLC0415
-        picks = {"pick-nightly-build-runner": "pick", "pick-nightly-sign-runner": "owned"}
+        picks = {"pick-nightly-build-runner": "pick"}
         for job, step_id in picks.items():
             steps = DOC["jobs"][job]["steps"]
             pick = next(step for step in steps if step.get("id") == step_id)
@@ -749,7 +749,7 @@ class Workflow(unittest.TestCase):
                     context = {"vars.CI_PR_POOL_OWNED": owned_on, "vars.CI_OWNED_POOL_RESCUE": rescue_on}
                     self.assertEqual(evaluate(parse_nightly_expression(flag), context) or "", want)
         # The signing pick (signing_runner.py owned) never takes it: its exclusive claim needs a pinned runner.
-        sign = next(step for step in DOC["jobs"]["pick-nightly-sign-runner"]["steps"] if step.get("id") == "sign-owned")
+        sign = next(step for step in DOC["jobs"]["find-nightly-next-recovery"]["steps"] if step.get("id") == "sign-owned")
         self.assertNotIn("UNREAD_OWNED_FALLBACK", sign.get("env") or {})
         # nightly-next-train.yml has no owned-pool rescue, so its pick never sets it.
         train = yaml.safe_load((ROOT / ".github" / "workflows" / "nightly-next-train.yml").read_text())

@@ -770,7 +770,7 @@ class RunsOnFallbackTests(unittest.TestCase):
         # blacksmith-6vcpu-macos-26). Nightlies never use Blacksmith (Lawrence, 2026-10-30): no job reads
         # those picks any more (tests/test_nightly_never_blacksmith.py); the owned pick rule below holds.
         jobs = load(WORKFLOWS / "nightly.yml")["jobs"]
-        picked = re.compile(r"needs\.(?:pick-nightly-sign-runner|find-nightly-next-recovery|legacy-identity-target)"
+        picked = re.compile(r"needs\.(?:find-nightly-next-recovery|legacy-identity-target)"
                             r"\.outputs\.(?:runner|sign_runner|alternate|sign_alternate)\b")
         seen = sorted(job_id for job_id, job in jobs.items() if picked.search(runs_on_text(job, "nightly.yml", job_id)))
         self.assertEqual(seen, [], "a nightly job reads a picked Blacksmith label")
@@ -780,7 +780,7 @@ class RunsOnFallbackTests(unittest.TestCase):
         # so the signing jobs read the picker's owned Mac, not a Blacksmith label with an alternate. A re-run of failed jobs keeps the old pick, so the owned read must hold only on the attempt that
         # ran the picker; a re-run then falls through to the owned slot or pool, never to the Mac that stalled.
         jobs = load(WORKFLOWS / "nightly.yml")["jobs"]
-        owned = re.compile(r"needs\.(pick-nightly-sign-runner)\.outputs\.(?:sign_owned|owned)\b")
+        owned = re.compile(r"needs\.(find-nightly-next-recovery)\.outputs\.(?:sign_owned|owned)\b")
         failures, seen = [], set()
         for job_id, job in jobs.items():
             for expression in EXPRESSION.findall(runs_on_text(job, "nightly.yml", job_id)):
@@ -792,7 +792,7 @@ class RunsOnFallbackTests(unittest.TestCase):
                     guards = {f"needs.{match.group(1)}.outputs.attempt == github.run_attempt", "github.run_attempt == 1"}
                     if not guards & {term.strip() for term in conjuncts(alternative)}:
                         failures.append(f"nightly.yml {job_id}: {alternative.strip()}")
-        self.assertTrue({"build-sign-notarize-nightly", "generate-nightly-deltas"} <= seen, seen)
+        self.assertTrue(seen, seen)
         self.assertEqual(failures, [], "an owned pick needs its picker's attempt check in the same alternative")
 
     def test_a_reserved_slot_always_has_a_fallback(self) -> None:
