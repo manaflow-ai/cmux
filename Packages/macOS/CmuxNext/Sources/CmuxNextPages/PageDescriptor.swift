@@ -31,6 +31,11 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     /// host shows the native confirmation of that kind, then runs the op as the user's own
     /// (deleting data, money, publishing, signing in). The page never calls them directly.
     public let confirmedOps: [String: PageConfirmation.Kind]
+    /// Confirmed ops that guard nothing irreversible (opening a machine, signing in or out, opening
+    /// billing): the person's own click in this page view (`PageCallContext.userGesture`, the host's
+    /// record) runs one with no sheet, as the palette does; page script alone still gets the sheet.
+    /// RFD 0058: a confirm stays only before an action that can't be undone.
+    public let clickRunsOps: Set<String>
     /// The page's Content Security Policy (``PageCSP``); strict unless a first-party page widens it, or
     /// another built-in page adds image sources.
     public let csp: PageCSP
@@ -69,7 +74,7 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
 
     public init(id: String, resource: String, namespaces: [String], nativeOps: Set<String> = [], denied: Set<String> = [],
                 actions: Set<String> = [], gestureActions: Set<String> = [], commands: Set<String> = PageNativeOp.commands,
-                confirmedOps: [String: PageConfirmation.Kind] = [:], csp: PageCSP = .strict, entry: String = "index.html",
+                confirmedOps: [String: PageConfirmation.Kind] = [:], clickRunsOps: Set<String> = [], csp: PageCSP = .strict, entry: String = "index.html",
                 dynamicPrefixes: Set<String> = [], ownsSearchField: Bool = false, acceptsFirstMouse: Bool = false,
                 passiveFrames: Bool = false, followsChatZoom: Bool = false, servesHostOps: Bool = true) {
         self.id = id
@@ -81,6 +86,7 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
         self.gestureActions = gestureActions.intersection(actions)
         self.commands = commands
         self.confirmedOps = confirmedOps
+        self.clickRunsOps = clickRunsOps.intersection(confirmedOps.keys)
         // Only a first-party page may widen its policy (PageID). Another built-in (`cmux.`) page may
         // add image sources only (the GitHub page's image proxy), which loads pixels and runs nothing,
         // and keeps no daemon access, while its own narrowing (inline script off) stands (review
@@ -195,6 +201,21 @@ public nonisolated struct PageNativeOp {
 }
 
 public extension PageDescriptor {
+    /// Whether OP runs with no sheet: one of ``clickRunsOps`` that the person's own click started.
+    func runsOnClick(_ op: String, _ context: PageCallContext) -> Bool {
+        context.userGesture && clickRunsOps.contains(op)
+    }
+}
+
+public extension PageCallContext {
+    /// The call as the user's own after a confirmation (or a click that stands for one), keeping
+    /// the click's record for an owner that needs it (opening the browser to sign in).
+    var asConfirmedUser: PageCallContext {
+        PageCallContext(page: page, origin: "user", confirmed: true, opid: opid, userGesture: userGesture, gestureEvent: gestureEvent)
+    }
+}
+
+public extension PageDescriptor {
     /// The Cloud app page (`cmux/cloud`, plans/cmux-next/cloud-app.md L7; React page by the Cloud
     /// lead). Deleting, publishing, firewall changes, billing, sign-in/out and connect run only
     /// through the native confirmation.
@@ -211,7 +232,9 @@ public extension PageDescriptor {
             "cmux.cloud.publication.create": .custom, "cmux.cloud.firewall.create": .custom,
             "cmux.cloud.billing.open": .custom, "cmux.cloud.auth.sign_in": .custom,
             "cmux.cloud.auth.sign_out": .custom, "cmux.cloud.machine.connect": .custom,
-        ])
+        ],
+        clickRunsOps: ["cmux.cloud.billing.open", "cmux.cloud.auth.sign_in", "cmux.cloud.auth.sign_out",
+                       "cmux.cloud.machine.connect"])
 
     /// The Settings page (R82: the only Settings UI). Its `cmux.settings.` ops and the native
     /// preview and sound ops share the namespace; the page may run only its own actions and the
