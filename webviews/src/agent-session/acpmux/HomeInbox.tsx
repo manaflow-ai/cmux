@@ -13,7 +13,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { useStableCallback } from "./stableCallback";
 
-import { AgentMark } from "../shared/AgentMark";
+import { SessionMark } from "../shared/AgentMark";
 import { useLabelClock } from "./clock";
 import { age, nextAge } from "./homeListsModel";
 import { type StringKey, useT } from "./i18n";
@@ -240,7 +240,7 @@ const InboxRow = memo(function InboxRow({
         {...pressToOpen(() => open(item))}
       >
         <span className="acpmux-home-inbox-mark">
-          <AgentMark agent={item.who.harness} size={14} reserve />
+          <SessionMark icon={item.who.icon} agent={item.who.harness} size={14} reserve />
         </span>
         <span className="acpmux-home-inbox-text">
           <span className="acpmux-home-inbox-ask">{ask}</span>
