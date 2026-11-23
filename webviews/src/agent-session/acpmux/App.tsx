@@ -3711,20 +3711,24 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const liveCardEdit = useMemo(() => ({ turn: lastEditTurn, changes: lastChanges }), [lastEditTurn, lastChanges]);
   const cardEdit = useHeldWhileScrolling(liveCardEdit, shownSessionId);
   // The header's Preview: the local page of the latest of the last few turns that started or mentioned one.
-  // Each turn is scanned again only when its rows change, so streaming rescans the live turn alone.
-  const previewTurns = useRef(new Map<string, { key: string; url: string | undefined }>());
+  // Each turn is scanned again only when its rows change (a row is a new object when it changes), so
+  // streaming rescans the live turn alone, and that reads only the texts that are new
+  // (previewUrl.ts `turnPreviewUrl`).
+  const previewTurns = useRef(new Map<string, { rows: readonly AcpmuxRow[]; url: string | undefined }>());
   const previewUrl = useMemo(() => {
     const rows = snapshot.rows;
-    const seen = new Map<string, { key: string; url: string | undefined }>();
+    const seen = new Map<string, { rows: readonly AcpmuxRow[]; url: string | undefined }>();
     let found: string | undefined;
     let end = rows.length;
     for (let index = rows.length - 1, turns = 0; index >= 0 && turns < PREVIEW_TURNS && !found; index -= 1) {
       const user = rows[index];
       if (user.kind !== "user") continue;
-      const turn = rows.slice(index + 1, end);
-      const key = [user, ...turn].map((row) => `${row.id}:${row.version}`).join("|");
+      const turn = rows.slice(index, end);
       const cached = previewTurns.current.get(user.id);
-      const entry = cached?.key === key ? cached : { key, url: turnPreviewUrl(user, turn) };
+      const entry =
+        cached && cached.rows.length === turn.length && cached.rows.every((row, at) => row === turn[at])
+          ? cached
+          : { rows: turn, url: turnPreviewUrl(user, turn.slice(1)) };
       seen.set(user.id, entry);
       found = entry.url;
       end = index;
