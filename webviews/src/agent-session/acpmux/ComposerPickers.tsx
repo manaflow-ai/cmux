@@ -29,12 +29,15 @@ import {
 } from "./defaultChoice";
 import { loadLastChips, rememberLastChips } from "./chipMemory";
 import type { AcpmuxSnapshot, AcpmuxUsageLimits } from "./model";
+import { useComposerContribution } from "./composer/extensionCommands";
+import { modelPickerLayoutFrom } from "./composer/modelPickerLayoutFrom";
 import { EffortPicker, type SpeedSection } from "./EffortPicker";
 import { useComposerLook } from "./composerLook";
 import { pendingSpeed } from "./pendingSpeed";
 import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
+import { Keycap } from "./Keycap";
 import { pickerFaceHarness } from "./modelPickerModel";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
 import { OnNewTab } from "./newTabComposer";
@@ -230,6 +233,7 @@ export function ComposerPickers({
   startsChat = false,
 }: Props) {
   acpmuxPerf.render("composer:pickers");
+  const reasoningMenu = useComposerContribution(modelPickerLayoutFrom, undefined);
   const t = useT();
   const lastFastValue = useRef<{ scope: string; value: string } | undefined>(undefined);
   // Context usage rides on the model chip's tooltip, unless the person hid it (composerSettings.ts).
@@ -430,6 +434,7 @@ export function ComposerPickers({
           onLabel: fastOn.name ?? fastOn.value,
           offLabel: fastOff.name ?? fastOff.value,
           values: fastOption.options.map((option) => option.value),
+          choices: fastOption.options,
           lastOnValue:
             fastOption.currentValue && fastOption.currentValue !== fastOff.value ? fastOption.currentValue : undefined,
           onPick: (value: string) => onEffort(fastOption.id, value),
@@ -1329,7 +1334,9 @@ export function ComposerPickers({
           harnessFixed={locked}
           {...(signIn ? { signedOut: pickableSignedOut(signIn.signedOut, summary), onLogIn: signIn.logIn } : {})}
           {...(claudeConnect.row ? { claudeConnect: claudeConnect.row } : {})}
-          {...(fastMode ? { fastMode: { ...fastMode, lastOnValue: fastMode.lastOnValue ?? rememberedFastValue } } : {})}
+          {...(fastMode && (!reasoningMenu || (fastOffered && !held && !switching))
+            ? { fastMode: { ...fastMode, lastOnValue: fastMode.lastOnValue ?? rememberedFastValue } }
+            : {})}
           catalogRefresh={catalogRefresh}
           harnessNotes={
             snapshot.switching?.phase === "failed"
@@ -1337,7 +1344,8 @@ export function ComposerPickers({
               : undefined
           }
           usage={usageNote}
-          quick={quick}
+          quick={reasoningMenu && (held || switching) ? { ...quick, effort: undefined } : quick}
+          reasoningMenu={reasoningMenu}
           {...(held
             ? heldDetail
               ? { detail: heldDetail }
@@ -1672,6 +1680,7 @@ function AccessMenu({
           side={newTab ? "bottom" : "top"}
           align="start"
           className="acpmux-access-menu"
+          resize={{ id: "composer.access" }}
           // ui-allow: 1 to 9 pick the mode in that place while the menu is open, as in Claude's mode menu.
           onKeyDown={(event) => {
             if (event.metaKey || event.ctrlKey || event.altKey || !/^[1-9]$/.test(event.key)) {
@@ -2152,6 +2161,8 @@ export function Picker({
   tooltip,
   shortcut,
   onOpen,
+  resizeId,
+  returnHint = false,
 }: {
   label: string;
   className: string;
@@ -2164,6 +2175,10 @@ export function Picker({
   /// The keycaps of the shortcut that opens it, shown after the tooltip (shortcuts.ts).
   shortcut?: string | undefined;
   onOpen?: () => void;
+  /// Resizable from its edges away from the button, its size kept under this name (ui/PopupResize.tsx).
+  resizeId?: string;
+  /// The highlighted row ends in the Return keycap and its choice's `verb` (the + menu). Off: no hint.
+  returnHint?: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement | null>(null);
@@ -2223,6 +2238,7 @@ export function Picker({
           finalFocus={undefined}
           className={cx("acpmux-menu acpmux-picker-menu", className)}
           {...(menu ? { onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void menu.keyDown(event) } : {})}
+          {...(resizeId ? { resize: { id: resizeId } } : {})}
         >
           {heading && (
             <div className="acpmux-menu-heading" aria-hidden="true">
@@ -2249,6 +2265,7 @@ export function Picker({
                       pick={pick}
                       place={starts[sectionIndex]! + index + 1}
                       size={menu.total}
+                      returnHint={returnHint}
                     />
                   );
                 }}
@@ -2262,6 +2279,7 @@ export function Picker({
                   current={choice.id === section.current}
                   warnUnrestricted={warnUnrestricted}
                   pick={pick}
+                  returnHint={returnHint}
                 />
               ))
             );
@@ -2290,6 +2308,7 @@ type PickerRowProps = {
   section: number;
   current: boolean;
   warnUnrestricted: boolean;
+  returnHint: boolean;
   pick(section: number, id: string): void;
   /** In a windowed menu: the row's place among all its rows, and their count. */
   place?: number;
@@ -2304,6 +2323,7 @@ const PickerMenuItem = memo(function PickerMenuItem({
   pick,
   place,
   size,
+  returnHint,
 }: PickerRowProps) {
   return (
     <MenuItem
@@ -2327,6 +2347,14 @@ const PickerMenuItem = memo(function PickerMenuItem({
         )}
       </span>
       {choice.hint && <kbd className="acpmux-menu-hint">{choice.hint}</kbd>}
+      {returnHint && choice.verb && (
+        // Drawn on every row and shown on the highlighted one only (styles.css), so moving the
+        // highlight re-renders nothing. Decoration: the row's name is what a screen reader reads.
+        <span className="acpmux-menu-return" aria-hidden="true">
+          <span className="acpmux-menu-return-verb">{choice.verb}</span>
+          <Keycap>↩</Keycap>
+        </span>
+      )}
       {current && <CheckIcon />}
     </MenuItem>
   );
@@ -2337,6 +2365,7 @@ function samePickerRow(a: PickerRowProps, b: PickerRowProps): boolean {
     a.section === b.section &&
     a.current === b.current &&
     a.warnUnrestricted === b.warnUnrestricted &&
+    a.returnHint === b.returnHint &&
     a.pick === b.pick &&
     a.place === b.place &&
     a.size === b.size &&
@@ -2345,6 +2374,7 @@ function samePickerRow(a: PickerRowProps, b: PickerRowProps): boolean {
         a.choice.name === b.choice.name &&
         a.choice.description === b.choice.description &&
         a.choice.hint === b.choice.hint &&
+        a.choice.verb === b.choice.verb &&
         a.choice.recommended === b.choice.recommended &&
         sameNode(a.choice.icon, b.choice.icon)))
   );

@@ -1,0 +1,16 @@
+/* The held surge row's losing design arms (SurgeHoldRow.gallery.tsx); the pick is SurgeHoldRow.css. */
+
+/* own-card: its own card one grid step over the composer, whatever the stack's seam. */
+[data-surge-design="own-card"] .acpmux-surge {
+  --acpmux-surge-radius: var(--ds-radius-control, 8px);
+  margin-bottom: var(--ds-space-1, 4px);
+}
+[data-surge-design="own-card"] .acpmux-surge[data-open] {
+  --acpmux-surge-radius: calc(var(--ds-radius-control, 8px) + var(--ds-space-2));
+}
+
+/* line: no card, a quiet line over the composer. */
+[data-surge-design="line"] .acpmux-surge {
+  background: transparent;
+  box-shadow: none;
+}

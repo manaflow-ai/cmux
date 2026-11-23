@@ -224,7 +224,7 @@ import CmuxNextDesignTokens
         swatch.wantsLayer = true
         swatch.layer?.backgroundColor = swatchColor.nsColor.cgColor
         container.addSubview(swatch)
-        let samples = catalog(scope: scope, disabled: disabled)
+        let samples = catalog(scope: scope, disabled: disabled, onMenuGlass: ground.isGlass)
         // The most any ink reaches on a see-through ground: the theme's own primary text there.
         // Read as the capture holds them, 8 bits a channel: Rose Pine Dawn's text is 2.363:1 on its exact ground and
         // 2.354:1 on the 8-bit one, so the theme's own ink failed its own ceiling.
@@ -299,8 +299,9 @@ import CmuxNextDesignTokens
         GlassMenuMaterial.glass(tokens, veil: GlassMenuMaterial.veil(for: tokens), over: page)
     }
 
-    /// Every shared button look, as the app constructs it.
-    static func catalog(scope: ThemeScope, disabled: Bool) -> [Sample] {
+    /// Every shared button look, as the app constructs it: SwiftUI content a menu panel hosts is marked as on its glass
+    /// (`cmuxOnMenuGlass`), as the Downloads popup marks its own.
+    static func catalog(scope: ThemeScope, disabled: Bool, onMenuGlass: Bool = false) -> [Sample] {
         let enabled = !disabled
         func appKit(_ name: String, _ button: NSControl, icon: Bool = false) -> Sample {
             button.isEnabled = enabled
@@ -342,7 +343,8 @@ import CmuxNextDesignTokens
             swiftUI("system bezel: SwiftUI Button, selection tint", Button("More…") {}.tint(selection), reference: true),
             swiftUI("system bezel: SwiftUI Button", Button("Remove") {}, reference: true),
             swiftUI("CmuxDialogActionButton (selection tint)", CmuxDialogActionButton("Done", hint: .return) {}.tint(selection)),
-            swiftUI("SwiftUI Button (cmuxPressFill)", Button("Rename") {}.buttonStyle(.cmuxPressFill).foregroundStyle(ink)),
+            swiftUI("SwiftUI Button (cmuxPressFill)", Button("Rename") {}.buttonStyle(.cmuxPressFill).foregroundStyle(ink)
+                .cmuxOnMenuGlass(onMenuGlass ? scope.tokens : nil)),
         ]
     }
 

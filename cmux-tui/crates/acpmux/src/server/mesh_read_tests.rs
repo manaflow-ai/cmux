@@ -508,6 +508,115 @@ async fn history_reads_through_the_hub_and_other_session_reads_never_answer_no_s
     }
 }
 
+/// `acpmux rename HOST/ID NAME [--handle]` for a session only the hub reaches renames it there,
+/// as `acpmux info HOST/ID` reads it. Leo, 2026-11-23: "the renaming paradigm still hasn't hit
+/// yet" (every such rename from a lane VM answered no_session). A sender granted `read` alone
+/// renames nothing, and a session verb the hub does not carry says so, never `no session`.
+#[tokio::test]
+async fn rename_reaches_a_session_only_the_hub_reaches_and_no_verb_answers_no_session() {
+    let b = machine_b();
+    let meta = json!({"acpmux": {"harness": "fake", "name": "own-e2e"}});
+    let made = call(
+        &b,
+        "session/new",
+        json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": meta}),
+    )
+    .await;
+    let session = made["sessionId"].as_str().unwrap().to_owned();
+    let dir = tempfile::tempdir().unwrap();
+    let a = machine_b();
+    let mesh: Arc<dyn MeshHub> = Arc::new(Loopback::new(&b, dir.path(), "person-1"));
+    let _ = a.mesh.set(mesh);
+    let hosts = std::collections::BTreeMap::from([("machine-b".to_owned(), 1)]);
+    let row = crate::mesh::BookSession {
+        name: "own-e2e".into(),
+        session_id: session.clone(),
+        host: "machine-b".into(),
+        daemon_id: "inst_b".into(),
+        harness: "fake".into(),
+        state: "idle".into(),
+        last_seen_at: 1,
+        ..Default::default()
+    };
+    a.set_mesh_book(hosts, vec![row]);
+    let on_b = |key: &str| call(&b, method::MUX_INFO, json!({"sessionId": key}));
+
+    // By name, as `acpmux rename machine-b/own-e2e renamed-e2e` sends it.
+    let renamed = call(
+        &a,
+        method::MUX_RENAME,
+        json!({"sessionId": "machine-b/own-e2e", "newName": "renamed-e2e"}),
+    )
+    .await;
+    assert_eq!(renamed["name"], "renamed-e2e", "{renamed}");
+    assert_eq!(
+        (renamed["peer"].as_str(), renamed["via"].as_str()),
+        (Some("machine-b"), Some("hub"))
+    );
+    assert_eq!(on_b(&session).await["name"], "renamed-e2e");
+    // By id, as the CLI sends it once it resolved `HOST/NAME` (`resolve_id`, `control_id`), and
+    // its spoken handle (`--handle`).
+    let by_id = format!("machine-b/{session}");
+    let handle =
+        call(&a, method::MUX_RENAME, json!({"sessionId": by_id, "newHandle": "Mango"})).await;
+    assert_eq!(handle["handle"], "Mango", "{handle}");
+    assert_eq!(on_b(&session).await["handle"], "Mango");
+    // The same rename again (the hub may lease a message twice) leaves it as once.
+    let again =
+        call(&a, method::MUX_RENAME, json!({"sessionId": by_id, "newHandle": "Mango"})).await;
+    assert_eq!(again["handle"], "Mango", "{again}");
+
+    // A sender B trusts only to read renames nothing.
+    let read_only = Loopback {
+        hook: super::super::MeshControlHook::new(
+            vec![MeshControlFrom {
+                same_user: true,
+                ops: vec!["read".into()],
+                ..Default::default()
+            }],
+            Some(dir.path().join("mesh-controls-read.json")),
+        )
+        .with_own_user(Arc::new(|| Some("person-1".to_owned()))),
+        ..Loopback::new(&b, dir.path(), "person-1")
+    };
+    let info = read(&read_only, "machine-b", &session, method::MUX_INFO, &json!({})).await;
+    assert!(info.is_ok(), "a read-only sender still reads: {info:?}");
+    let refused = read(
+        &read_only,
+        "machine-b",
+        &session,
+        method::MUX_RENAME,
+        &json!({"newName": "taken-over"}),
+    )
+    .await
+    .unwrap_err();
+    assert!(refused.message.contains("mesh.control_not_allowed"), "{refused:?}");
+    assert_eq!(on_b(&session).await["name"], "renamed-e2e");
+
+    // Every other session verb the hub does not carry says so, by name or by id.
+    for (m, key) in [
+        (method::MUX_PAUSE, "machine-b/renamed-e2e"),
+        (method::MUX_KILL, by_id.as_str()),
+        (method::MUX_WAKE, by_id.as_str()),
+        (method::MUX_SET_POLICY, by_id.as_str()),
+    ] {
+        let refused = call_error(&a, m, json!({"sessionId": key, "policy": "ask"})).await;
+        assert_eq!(
+            refused.pointer("/data/reason"),
+            Some(&json!("mesh.read_unsupported")),
+            "{m}: {refused}"
+        );
+        let said = refused["message"].as_str().unwrap_or_default();
+        assert!(!said.contains("no session"), "{m}: {refused}");
+        if m == method::MUX_KILL {
+            assert!(said.contains("--mesh"), "{m} names the route that stops it: {refused}");
+        }
+    }
+    // A host the hub does not list is still no session.
+    let typo = call_error(&a, method::MUX_PAUSE, json!({"sessionId": "machine-z/own-e2e"})).await;
+    assert_ne!(typo.pointer("/data/reason"), Some(&json!("mesh.read_unsupported")), "{typo}");
+}
+
 /// [`call`]'s error, for a request that must fail.
 async fn call_error(hub: &Arc<Hub>, m: &str, params: Value) -> Value {
     let (tx, in_rx) = mpsc::channel(16);
