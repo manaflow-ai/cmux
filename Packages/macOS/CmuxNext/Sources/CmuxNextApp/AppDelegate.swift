@@ -416,7 +416,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.themes.start()
         services.themes.followChromeTheme(settings)
         services.remoteLocalhost.follow(settings)
-        services.bookmarks.follow(settings)
+        services.bookmarks.follow(settings); DictationProviderEngine.follow(settings) { [weak services] in services.flatMap { QuitAgents.environment($0) } }
         services.apps.start()
         Task {
             await settings.waitForLoad(atLeast: 1); await launchSettle.settled(within: .seconds(4)) // control socket: after the first frames (cx-z9kz0)

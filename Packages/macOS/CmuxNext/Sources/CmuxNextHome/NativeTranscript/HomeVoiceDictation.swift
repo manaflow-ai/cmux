@@ -34,18 +34,18 @@ final class HomeVoiceDictation: HomeVoiceInput {
     var open: (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }
 
     init(claims: DictationMicrophoneClaims = .shared,
-         makeEngine: @escaping () -> any HomeDictationEngine = { HomeVoiceDictation.systemEngine() }) {
+         makeEngine: (() -> any HomeDictationEngine)? = nil) {
         self.claims = claims
-        self.makeEngine = makeEngine
+        self.makeEngine = makeEngine ?? { HomeVoiceDictation.systemEngine(claims) }
     }
 
-    /// The on-device engine. Debug builds hear a recorded clip instead when
+    /// The person's engine (`agentPane.dictationEngine`, on-device by default). Debug builds hear a recorded clip instead when
     /// `CMUX_NEXT_DICTATION_AUDIO_FILE` names one (machines without a microphone).
-    static func systemEngine() -> any HomeDictationEngine {
+    static func systemEngine(_ claims: DictationMicrophoneClaims) -> any HomeDictationEngine {
         #if DEBUG
         if let recorded = DictationSession.recorded() { return recorded }
         #endif
-        return DictationSession()
+        return claims.session()
     }
 
     var phase: DictationPhase { engine?.phase ?? .idle }
@@ -135,6 +135,7 @@ final class HomeVoiceDictation: HomeVoiceInput {
             String(localized: "home.voice.modelDownloadFailed", defaultValue: "The speech model could not be downloaded. Try again when you are online.", bundle: .localizedModule)
         case .audioCaptureFailed:
             String(localized: "home.voice.noMicrophone", defaultValue: "No microphone is available.", bundle: .localizedModule)
+        case .providerFailed(let code, let detail): providerFailureMessage(code: code, detail: detail)
         case .microphoneAccessDenied, .speechRecognitionAccessDenied, .transcriptionFailed:
             String(localized: "home.voice.failed", defaultValue: "Dictation stopped unexpectedly.", bundle: .localizedModule)
         }

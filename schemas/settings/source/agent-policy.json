@@ -992,6 +992,15 @@
       ]
     },
     {
+      "agent": "privacy",
+      "why": "Where the person's microphone audio goes: which dictation service hears each recording and at what address. An agent must never redirect it.",
+      "keys": [
+        "agentPane.dictationEngine",
+        "agentPane.dictationEngineURL",
+        "agentPane.dictationEngineModel"
+      ]
+    },
+    {
       "agent": "userOnly",
       "why": "The key chord the dictation mic posts to another app: only the person picks what cmux types into other apps.",
       "keys": [

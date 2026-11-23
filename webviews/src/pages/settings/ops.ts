@@ -767,6 +767,65 @@ export type ModelsRun =
   | { action: "orgKey"; agent: "claude" | "codex"; key: string | null }
   | { action: "members"; ownConnections?: boolean; chooseRunout?: boolean };
 
+/** A dictation engine's provider (acpmux `_acpmux/voice/state` `providers`; crate cmux-voice's catalog). */
+export type DictationProvider = {
+  /** The `agentPane.dictationEngine` value: `onDevice`, `openai`, `groq`, `localServer`, `whisperCpp`, `custom`. */
+  id: string;
+  label: string;
+  kind: "local" | "cloud";
+  wire: "builtin" | "openaiTranscriptions" | "whisperCppInference";
+  key: "none" | "optional" | "required";
+  defaultUrl: string;
+  defaultModel: string;
+};
+
+/** The dictation engine the three `agentPane.dictationEngine*` settings name, as acpmux resolves them
+ * (`cmux.settings.dictation.run` `state`, `setKey` and `removeKey`). The key itself never comes back:
+ * only whether the Keychain holds one for `keyAccount`. */
+export type DictationState = Omit<DictationProvider, "id" | "defaultUrl" | "defaultModel"> & {
+  engine: string;
+  /** The effective base URL; empty when the engine needs none or has none yet. */
+  url: string;
+  model: string;
+  /** `<provider>@<origin>`; null when no key can be stored (no URL yet, or a keyless engine). */
+  keyAccount: string | null;
+  keyService: string;
+  hasKey: boolean;
+  providers: DictationProvider[];
+};
+
+/** Why a dictation call failed (a closed set; crate cmux-voice). */
+export type DictationErrorCode =
+  | "key_missing"
+  | "key_invalid"
+  | "offline"
+  | "timeout"
+  | "rate_limited"
+  | "bad_endpoint"
+  | "rejected"
+  | "too_large"
+  | "provider_error"
+  | "bad_response"
+  | "not_configured";
+
+/** A dictation call's failure: `detail` is short, scrubbed of the key, and may be empty. */
+export type DictationError = { code: DictationErrorCode | (string & {}); detail: string };
+
+/** Check Connection's answer (`_acpmux/voice/check`): no audio is sent. */
+export type DictationCheck = { ok: true } | { ok: false; error: DictationError };
+
+/** One Settings > Agent Chat dictation gesture. `setKey` carries a pasted key once (it needs a user
+ * gesture, like Models' addKey): the app stores it in the Keychain at the account a fresh state
+ * names, and the page never sees it again. */
+export type DictationRun =
+  | { action: "state" }
+  | { action: "setKey"; key: string }
+  | { action: "removeKey" }
+  | { action: "check" };
+
+/** What a gesture answers: the check's result for `check`, else the state after it. */
+export type DictationAnswer<R extends DictationRun> = R extends { action: "check" } ? DictationCheck : DictationState;
+
 export type AccountsState = {
   github?: GitHubConnectionState;
   /** Older hosts omit it. */
@@ -1870,6 +1929,9 @@ export type SettingsOps = {
   "cmux.settings.models.state": [Record<string, never>, ModelsState];
   /** Native: one Settings > Models gesture; a refusal rejects with the host's text. */
   "cmux.settings.models.run": [ModelsRun, unknown];
+  /** Native: the dictation engine's key and connection check (`_acpmux/voice/*` through the app; the key
+   * goes to the Keychain). `check` answers a DictationCheck, every other gesture a DictationState. */
+  "cmux.settings.dictation.run": [DictationRun, DictationState | DictationCheck];
   /** Native: acpmux's harnesses (Settings > Agents). */
   "cmux.settings.harnesses.state": [Record<string, never>, HarnessesState];
   /** Native: one Harnesses gesture (a terminal tab for sign-in, or a refresh). */

@@ -46,8 +46,6 @@ import {
   newIdempotencyKey,
   wireError,
   type AccountsRun,
-  type AllotmentSet,
-  type AllotmentView,
   type AccountsState,
   type AgentsRun,
   type AgentsState,
@@ -85,6 +83,8 @@ import {
   type KeysState,
   type ModelsRun,
   type ModelsState,
+  type DictationAnswer,
+  type DictationRun,
   type AgentToolsCardRun,
   type AgentToolsCardState,
   type McpServersRun,
@@ -98,6 +98,8 @@ import {
   type AgentHooksState,
   type AgentConfigAnswer,
   type AgentConfigRun,
+  type AllotmentSet,
+  type AllotmentView,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -879,6 +881,12 @@ export class SettingsStore {
     const reply = await this.request("cmux.settings.models.run", run);
     await this.refreshModels();
     return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
+  }
+
+  /** One dictation engine gesture (the Agent Chat dictation rows' key card): the state after it, or the
+   * check's result; the host's refusal (no daemon, no gesture) as it came. */
+  async runDictation<R extends DictationRun>(run: R): Promise<Reply<DictationAnswer<R>>> {
+    return (await this.request("cmux.settings.dictation.run", run)) as Reply<DictationAnswer<R>>;
   }
 
   /** One Harnesses gesture (Settings > Agents), then a fresh read of the part. */

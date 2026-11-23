@@ -3105,6 +3105,9 @@ async fn dispatch_request_with_identity(
             }
             heap(|| super::connections::handle(hub, conn.origin, name, &params)).await
         }
+        name if super::voice::METHODS.contains(&name) => {
+            heap(|| super::voice::handle(conn.origin, name, &params)).await
+        }
         method::ACP_TRUST_GET | method::ACP_TRUST_SET => {
             // Recorded here, not on a peer: only a folder that exists here (`remote_guard.rs`).
             if m == method::ACP_TRUST_SET && conn.origin != Origin::Local {
