@@ -685,7 +685,7 @@ pub(super) fn overview(parts: [(u16, Value); 4]) -> Value {
             "ok": true,
             "available": false,
             "message": "The integrations hub is not available on this deployment yet.",
-            "connections": [], "approvals": [], "rules": [], "audit": [], "paused": false,
+            "connections": [], "approvals": [], "approvalCards": [], "rules": [], "audit": [], "paused": false,
             "hasStripe": false,
             "hasGithub": false,
         });
@@ -709,6 +709,7 @@ pub(super) fn overview(parts: [(u16, Value); 4]) -> Value {
         "hasStripe": has_stripe,
         "hasGithub": has_github,
         "approvals": a["approvals"],
+        "approvalCards": approval_cards(&a["approvals"], &p["rules"], &connections),
         "rules": p["rules"],
         "audit": l["audit"],
         "next": l.get("next").cloned().unwrap_or(Value::Null),
@@ -897,7 +898,107 @@ pub(super) fn call_view(c: &Value) -> Value {
     if let Some(e) = c.get("error").filter(|e| e.is_object()) {
         out["errorText"] = json!(clean(str_of(e, "message").unwrap_or("failed"), 300));
     }
+    let (outcome, tone) = call_outcome(c);
+    out["outcomeText"] = outcome.map_or(Value::Null, |o| json!(o));
+    out["outcomeTone"] = tone.map_or(Value::Null, |t| json!(t));
     out
+}
+
+/// What became of a call once a person answered it, in one sentence for the Chief card that answered it, with its
+/// tone (`done`, `denied`, `failed`): "Approved. It ran (re_123)." Null while it still waits or runs.
+pub(super) fn call_outcome(c: &Value) -> (Option<String>, Option<&'static str>) {
+    let error = c.pointer("/error/message").and_then(Value::as_str).map(|m| clean(m, 300));
+    match str_of(c, "status").unwrap_or("") {
+        "succeeded" => {
+            let text = match str_of(c, "providerRef") {
+                Some(r) => format!("Approved. It ran ({}).", clean(r, 80)),
+                None => "Approved. It ran.".into(),
+            };
+            (Some(text), Some("done"))
+        }
+        "denied" => (Some("Denied. Nothing ran.".into()), Some("denied")),
+        "failed" => (
+            Some(match error {
+                Some(e) => format!("Approved, but it failed: {e}"),
+                None => "Approved, but it failed.".into(),
+            }),
+            Some("failed"),
+        ),
+        "outcome_unknown" => (
+            Some("Approved, but the hub could not tell whether it ran. Check the provider before trying again.".into()),
+            Some("failed"),
+        ),
+        "expired" => (Some("This approval expired before the answer. Nothing ran.".into()), Some("denied")),
+        "blocked" => (Some("A rule blocked it. Nothing ran.".into()), Some("denied")),
+        _ => (None, None),
+    }
+}
+
+/// What the integration did: the action's verb for one call ("Refund"), where [`action_label`] names the kind.
+pub(super) fn action_title(name: &str) -> String {
+    match name {
+        "stripe.refund.create" => "Refund".into(),
+        "stripe.charges.list" => "List charges".into(),
+        "stripe.charge.get" => "Read a charge".into(),
+        "github.pulls.list" => "List pull requests".into(),
+        "github.issues.list" => "List issues".into(),
+        other => clean(other.rsplit_once('.').map_or(other, |(_, verb)| verb), 60),
+    }
+}
+
+/// One Chief card per approval that waits for a person: which agent asked, which integration and action (with its
+/// amount and the pinned line naming its target), and which rule sent it to the person. A rule is named by its
+/// sentence when the overview listed it; a limit's reason ("over the limit of ...") follows it. With no rule the
+/// hub's default decided, and its reason says so.
+pub(super) fn approval_cards(approvals: &Value, rules: &Value, connections: &Value) -> Value {
+    let by_id = |list: &Value, id: Option<&str>| -> Option<Value> {
+        let id = id?;
+        list.as_array()?.iter().find(|r| str_of(r, "id") == Some(id)).cloned()
+    };
+    let cards = approvals
+        .as_array()
+        .map(|list| {
+            list.iter()
+                .filter(|c| str_of(c, "status") == Some("approval_required"))
+                .filter(|c| c.pointer("/approval/id").and_then(Value::as_str).is_some())
+                .map(|c| {
+                    let action = str_of(c, "action").unwrap_or("");
+                    let provider = action.split('.').next().unwrap_or("");
+                    let connection = by_id(connections, str_of(c, "connection"));
+                    let integration = connection
+                        .as_ref()
+                        .and_then(|conn| str_of(conn, "title").map(str::to_owned))
+                        .unwrap_or_else(|| provider_label(provider));
+                    let reason = c.pointer("/policy/reason").and_then(Value::as_str);
+                    let rule = by_id(rules, c.pointer("/policy/rule").and_then(Value::as_str));
+                    let rule_line = match (&rule, reason) {
+                        (Some(r), Some(why)) if why.starts_with("over the limit") => {
+                            format!("{}: {}; {}", rule_owner(r), rule_text(r), clean(why, 200))
+                        }
+                        (Some(r), _) => format!("{}: {}", rule_owner(r), rule_text(r)),
+                        (None, Some(why)) => format!("Rule: {}", clean(why, 300)),
+                        (None, None) => "Rule: the hub's default for this action".into(),
+                    };
+                    json!({
+                        "approvalId": c.pointer("/approval/id").cloned().unwrap_or(Value::Null),
+                        "callId": c.get("id").cloned().unwrap_or(Value::Null),
+                        "agentText": requester(c.get("requestedBy")),
+                        "integrationText": integration,
+                        "actionText": action_title(action),
+                        "amountText": c.get("amountText").cloned().unwrap_or(Value::Null),
+                        "line": c.get("line").cloned().unwrap_or(Value::Null),
+                        "ruleText": rule_line,
+                        "expiresText": c.get("expiresText").cloned().unwrap_or(Value::Null),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Value::Array(cards)
+}
+
+fn rule_owner(rule: &Value) -> &'static str {
+    if str_of(rule, "owner") == Some("team") { "Team rule" } else { "Your rule" }
 }
 
 /// A rule in one sentence: "Ask before Stripe refunds over 50.00 USD, for agent ci (team rule)".
@@ -957,8 +1058,7 @@ pub(super) fn rule_text(rule: &Value) -> String {
 pub(super) fn rule_view(r: &Value) -> Value {
     let mut out = r.clone();
     out["text"] = json!(rule_text(r));
-    out["ownerLabel"] =
-        json!(if str_of(r, "owner") == Some("team") { "Team rule" } else { "Your rule" });
+    out["ownerLabel"] = json!(rule_owner(r));
     out["canRemove"] = json!(r.get("canRemove").and_then(Value::as_bool).unwrap_or(false));
     out["remembered"] = json!(r.get("remembered").and_then(Value::as_bool).unwrap_or(false));
     out
