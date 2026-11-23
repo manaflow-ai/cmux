@@ -307,7 +307,8 @@ for f in glob.glob(os.path.expanduser('~/.claude/projects/**/*.jsonl'), recursiv
         except Exception:
             continue
         u, mid = m.get('usage'), m.get('id')
-        if not isinstance(u, dict) or not mid or mid in seen:
+        # '<synthetic>' is Claude Code's own message (a limit notice), not a model's.
+        if not isinstance(u, dict) or not mid or mid in seen or m.get('model') == '<synthetic>':
             continue
         seen.add(mid)
         o = out.setdefault(str(m.get('model')), {'messages': 0, 'input': 0, 'cache_write': 0, 'cache_read': 0, 'output': 0})

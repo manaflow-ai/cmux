@@ -76,20 +76,26 @@ Counted from the Start page (draft, manaflow-ai/cmux#51171, unchanged through it
 | Through Chief | 15 | 7 | 1 | 7 | 7 | 11 | 4 |
 | From your phone | 9 | 2 | 0 | 7 | 7 | 3 | 6 |
 
-Cloud part on staging, run 45087298817 (2026-11-23, on its pull request):
+Cloud part on staging, the newcomer path (no Claude login), three runs on this pull request (2026-11-23):
 
-| timed route | result | time |
-|---|---|---:|
-| `signIn` | pass | 1.7 s |
-| `chat`: machine running | pass | 9.5 s from the create |
-| `chat`: first exec | pass | 15.4 s from the create |
-| `chat`: Claude agent session started | pass | 2.9 s more |
-| `chat`: first reply | refused | "Claude is not signed in here. This Cloud machine's Claude has no model route" |
-| `send` | not run | |
+| timed route | run 45087298817 | run 45096444143 | run 45098441768 |
+|---|---:|---:|---:|
+| `signIn` | 1.7 s | 1.3 s | 0.9 s |
+| `chat`: machine running, from the create | 9.5 s | 5.0 s | 4.0 s |
+| `chat`: first exec, from the create | 15.4 s | 6.0 s | 5.4 s |
+| `chat`: Claude agent session started | 2.9 s more | 4.3 s | 3.8 s |
+| `chat`: first reply | refused | refused | refused |
+| `send` | not run | not run | not run |
 
-So the newcomer has no Cloud number yet: a fresh account's machine has no Claude login and no model route, and the
-first reply is refused. That run is the newcomer path. A real person gets the same refusal: it is the "refused for
-a model connection" branch every level counts.
+The refusal each time: "Claude is not signed in here. This Cloud machine's Claude has no model route". So the
+newcomer has no first-reply number yet: a fresh account's machine has no Claude login and no model route. A real
+person gets the same refusal: it is the "refused for a model connection" branch every level counts.
+
+The Claude login path, run 45098441768: sign-in 1.2 s, then the agent session started with the login and took the
+prompt, and Claude answered "You've hit your weekly limit" (the login this repository's runs share is used up until
+2026-11-25 03:00 UTC). So this path has no first-reply time and no token count yet either: the run read the
+machine's transcripts and found no model message with usage. Run 45096444143 stopped earlier on this path, asking
+for a session before the machine's agent daemon listened; the script now asks again until it does.
 
 The workflow measures two paths, each on its own machine with its own rows:
 
