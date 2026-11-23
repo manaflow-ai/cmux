@@ -405,7 +405,15 @@ final class AppServices {
     /// The sidebar's workspace group editor: one warm page in a glass panel (GroupEditorService).
     private(set) lazy var groupEditor = GroupEditorService(overlayProcess: overlayProcess)
     /// cmux.json command `actions`, registered as `cmuxConfig.<name>`.
-    private(set) lazy var configActions: ConfigActionsController = ConfigActionsController(context: AppActionContext(services: self))  // first read in init (no IUO)
+    private(set) lazy var configActions = ConfigActionsController(registry: registry, run: runCommandAction)  // first read in init (no IUO)
+    /// The focused project's own actions file, registered as `cmuxProject.<name>`.
+    private(set) lazy var projectActions = ProjectActionsController(registry: registry, folder: { [weak self] in self.flatMap { s in s.windows.active.flatMap { s.fileExplorers.folder(focusedIn: $0) }?.path } },
+                                                                    connection: { [weak self] in self?.machines.local.connection }, run: runCommandAction)
+    private var runCommandAction: @MainActor (ConfigCommandAction, ActionInvocation) -> Void {
+        { [weak self] in if let self { ConfigCommandRunner.run($0, invocation: $1, context: AppActionContext(services: self)) } }
+    }
+    /// The focused project's own actions file, registered as `cmuxProject.<name>`.
+    private(set) lazy var projectActions = ProjectActionsController(context: AppActionContext(services: self))
     /// System-wide hot keys for catalog actions marked `isGlobalHotKey`.
     private(set) lazy var globalHotKeys = GlobalHotKeyService.app(self)
     let terminalDelegate = TerminalHostDelegate()
