@@ -7,6 +7,7 @@
     "freeModel": ["freeModel", "FreeModelSettings"],
     "sshLinks": ["sshLinks", "SSHLinkHostsSetting"],
     "cloud": ["cloud", "CloudNewWorkspaceSetting"],
+    "storage": ["storage", "MachineSettingsSchema"],
     "mobile": ["mobile", "MobileSettings"],
     "macScreen": ["macScreen", "MacScreenSettings"],
     "macScreenDebug": ["macScreenDebug", "MacScreenDebugSettings"],

@@ -67,7 +67,7 @@ jobs:
   pick-archive-runner:
     name: Pick the archive runner
     if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/rc/cnx-ios-builder'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     # The routing App key, as every other runner picker reads it.
     environment:
@@ -139,6 +139,48 @@ jobs:
           # testflight-build.sh archives the commit with `git archive`.
           fetch-depth: 0
 
+      # App Store Connect warns (ITMS-90725, one email per upload) on any build
+      # made with an SDK older than iOS 27, and will refuse it. Blacksmith's
+      # macOS 26 image carries Xcode 27 beside the pool's 26.6 pin
+      # (scripts/ci/xcode-pins.txt), so this job pins a released Xcode 27
+      # instead: vars.IOS_STORE_XCODE_APP if set, else Xcode 27.1, else the
+      # newest Xcode_27.x on the image. Betas and release candidates are refused (App
+      # Store Connect rejects their SDKs). No Xcode 27 fails the job: an
+      # upload on the old SDK is what this replaces.
+      - name: Pin Xcode 27 (iOS 27 SDK) for App Store Connect
+        env:
+          IOS_STORE_XCODE_APP: ${{ vars.IOS_STORE_XCODE_APP }}
+        run: |
+          set -euo pipefail
+          pick="${IOS_STORE_XCODE_APP:-}"
+          # 27.1 first: the release the hosted xcode-27 image defaults to. A
+          # newer 27.x on an image can still be a release candidate.
+          for app in /Applications/Xcode_27.1.app /Applications/Xcode_27.1.0.app; do
+            [ -n "$pick" ] || { [ -d "$app/Contents/Developer" ] && pick="$app"; } || true
+          done
+          if [ -z "$pick" ]; then
+            best=""; best_rank=-1
+            for app in /Applications/Xcode_27*.app /Applications/Xcode.app; do
+              [ -d "$app/Contents/Developer" ] || continue
+              case "$(basename "$app")" in *[Bb]eta*|*[Rr]elease_[Cc]andidate*|*RC*) continue ;; esac
+              v="$(DEVELOPER_DIR="$app/Contents/Developer" xcodebuild -version 2>/dev/null | awk 'NR==1{print $2}')"
+              echo "found $app: Xcode ${v:-?}"
+              case "$v" in 27|27.*) ;; *) continue ;; esac
+              IFS=. read -r maj min pat <<< "$v"
+              rank=$(( ${maj:-0} * 10000 + ${min:-0} * 100 + ${pat:-0} ))
+              if [ "$rank" -gt "$best_rank" ]; then best="$app"; best_rank="$rank"; fi
+            done
+            pick="$best"
+          fi
+          if [ -z "$pick" ] || [ ! -d "$pick/Contents/Developer" ]; then
+            echo "::error::No released Xcode 27 on this runner (looked for ${pick:-/Applications/Xcode_27*.app}); App Store Connect needs the iOS 27 SDK (ITMS-90725). Installed: $(ls -d /Applications/Xcode*.app 2>/dev/null | tr '\n' ' ')" >&2
+            exit 1
+          fi
+          sdk="$(DEVELOPER_DIR="$pick/Contents/Developer" xcrun --sdk iphoneos --show-sdk-version)"
+          case "$sdk" in 27|27.*) ;; *) echo "::error::$pick has iOS SDK $sdk, not 27" >&2; exit 1 ;; esac
+          echo "Pinned $pick (iOS SDK $sdk) for App Store Connect"
+          echo "CMUX_CI_XCODE_APP=$pick" >> "$GITHUB_ENV"
+
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
@@ -184,6 +226,10 @@ jobs:
           out="$(find "$root" -maxdepth 1 -type d -name "*-${SHA:0:10}-testflight" -print0 | xargs -0 ls -td | head -1)"
           python3 -I scripts/cmux-next/check-app-store-rules.py --source .
           python3 -I scripts/cmux-next/check-app-store-rules.py --app "$out/CmuxMobileApp.xcarchive/Products/Applications/CmuxMobileApp.app"
+          # The SDK App Store Connect reads (ITMS-90725 when it is below iOS 27).
+          sdk="$(/usr/libexec/PlistBuddy -c 'Print :DTSDKName' "$out/CmuxMobileApp.xcarchive/Products/Applications/CmuxMobileApp.app/Info.plist")"
+          echo "Built with $sdk ($(/usr/libexec/PlistBuddy -c 'Print :DTXcodeBuild' "$out/CmuxMobileApp.xcarchive/Products/Applications/CmuxMobileApp.app/Info.plist"))" | tee -a "$GITHUB_STEP_SUMMARY"
+          case "$sdk" in iphoneos27*) ;; *) echo "::error::The archive was built with $sdk; App Store Connect needs iphoneos27 or later (ITMS-90725)" >&2; exit 1 ;; esac
 
       - name: Hand the archive to the signer
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -244,7 +290,7 @@ jobs:
     name: What to Test (no secrets)
     needs: previous-build
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/rc/cnx-ios-builder' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 15
     continue-on-error: true
     permissions:
@@ -323,6 +369,48 @@ jobs:
             echo "::error::rc/cnx-ios-builder has no cmux-next-ios/scripts/testflight-build.sh. An admin fast-forwards it to a feat-cmux-next commit that has cmux-next-ios (plans/cmux-next/ios-testflight-builder-DESIGN.md, Operations)."
             exit 1
           }
+
+      # App Store Connect warns (ITMS-90725, one email per upload) on any build
+      # made with an SDK older than iOS 27, and will refuse it. Blacksmith's
+      # macOS 26 image carries Xcode 27 beside the pool's 26.6 pin
+      # (scripts/ci/xcode-pins.txt), so this job pins a released Xcode 27
+      # instead: vars.IOS_STORE_XCODE_APP if set, else Xcode 27.1, else the
+      # newest Xcode_27.x on the image. Betas and release candidates are refused (App
+      # Store Connect rejects their SDKs). No Xcode 27 fails the job: an
+      # upload on the old SDK is what this replaces.
+      - name: Pin Xcode 27 (iOS 27 SDK) for App Store Connect
+        env:
+          IOS_STORE_XCODE_APP: ${{ vars.IOS_STORE_XCODE_APP }}
+        run: |
+          set -euo pipefail
+          pick="${IOS_STORE_XCODE_APP:-}"
+          # 27.1 first: the release the hosted xcode-27 image defaults to. A
+          # newer 27.x on an image can still be a release candidate.
+          for app in /Applications/Xcode_27.1.app /Applications/Xcode_27.1.0.app; do
+            [ -n "$pick" ] || { [ -d "$app/Contents/Developer" ] && pick="$app"; } || true
+          done
+          if [ -z "$pick" ]; then
+            best=""; best_rank=-1
+            for app in /Applications/Xcode_27*.app /Applications/Xcode.app; do
+              [ -d "$app/Contents/Developer" ] || continue
+              case "$(basename "$app")" in *[Bb]eta*|*[Rr]elease_[Cc]andidate*|*RC*) continue ;; esac
+              v="$(DEVELOPER_DIR="$app/Contents/Developer" xcodebuild -version 2>/dev/null | awk 'NR==1{print $2}')"
+              echo "found $app: Xcode ${v:-?}"
+              case "$v" in 27|27.*) ;; *) continue ;; esac
+              IFS=. read -r maj min pat <<< "$v"
+              rank=$(( ${maj:-0} * 10000 + ${min:-0} * 100 + ${pat:-0} ))
+              if [ "$rank" -gt "$best_rank" ]; then best="$app"; best_rank="$rank"; fi
+            done
+            pick="$best"
+          fi
+          if [ -z "$pick" ] || [ ! -d "$pick/Contents/Developer" ]; then
+            echo "::error::No released Xcode 27 on this runner (looked for ${pick:-/Applications/Xcode_27*.app}); App Store Connect needs the iOS 27 SDK (ITMS-90725). Installed: $(ls -d /Applications/Xcode*.app 2>/dev/null | tr '\n' ' ')" >&2
+            exit 1
+          fi
+          sdk="$(DEVELOPER_DIR="$pick/Contents/Developer" xcrun --sdk iphoneos --show-sdk-version)"
+          case "$sdk" in 27|27.*) ;; *) echo "::error::$pick has iOS SDK $sdk, not 27" >&2; exit 1 ;; esac
+          echo "Pinned $pick (iOS SDK $sdk) for App Store Connect"
+          echo "CMUX_CI_XCODE_APP=$pick" >> "$GITHUB_ENV"
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -513,7 +601,7 @@ jobs:
     name: Submission receipt (gate said YES)
     needs: [upload, review-gate]
     if: ${{ !cancelled() && needs.review-gate.result == 'success' && needs.review-gate.outputs.blocking == '0' && needs.review-gate.outputs.sha == inputs.sha }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read

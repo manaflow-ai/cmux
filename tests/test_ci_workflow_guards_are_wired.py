@@ -104,6 +104,11 @@ UNWIRED: set[str] = {
     # 2026-11-18). It pins scripts/cmux-next/check-single-host-fallbacks.py, which the pre-push gate runs strictly and
     # CI runs with --advisory; it reads the workflows only as that script's data. Exit: as below.
     "tests/test_ci_single_host_fallbacks.py",
+    # lane = "manual" in tests/test-execution.d/ci.toml (kept manual under the 2026-10-23 no-new-CI rule, lifted
+    # 2026-11-18). It checks that every runs-on label, runners.json member and runner-label constant maps to one
+    # provider in tests/ci_label_providers.json; it reads the workflows only as data. Run it by hand after adding a
+    # runner label or moving a provider. Exit: as below.
+    "tests/test_ci_label_has_provider.py",
     # lane = "manual" in tests/test-execution.d/other.toml (kept manual under the 2026-10-23 no-new-CI rule, lifted
     # 2026-11-18). It pins scripts/install-axe-ci.sh's sha256 refusal and reads ios-e2e.yml only to check it calls that
     # script, not the Homebrew tap. Run it by hand when either changes. Exit: as below.

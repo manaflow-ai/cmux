@@ -165,7 +165,9 @@ public struct MacScreenActions {
     /// An empty, unknown or ambiguous name fails with the devices it could name, as "name (id)".
     static func deviceID(named text: String, among devices: [HubDevice]) throws -> String {
         if let id = MacScreenRecord.normalizedDeviceID(text) { return id }
-        let name = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        var name = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // A `cmux device list` row id (`peer:desk-1`) names the machine; its screen host registers by that name.
+        if name.hasPrefix("peer:") { name = String(name.dropFirst("peer:".count)) }
         guard !name.isEmpty else { throw ActionFailure(message: missingDevice(among: devices)) }
         for key: (String) -> String in [Self.folded, Self.slug] {
             let wanted = key(name)
@@ -271,11 +273,11 @@ public struct MacScreenListedDevice: Equatable, Sendable {
     /// The reason, as the clause after "offers no screen: ".
     var noScreenText: String {
         switch noScreenReason {
-        case "offline": L.t("macScreen.actions.noScreen.offline", "it is offline")
-        case "no-desktop": L.t("macScreen.actions.noScreen.noDesktop", "it is a server or VM with no desktop to share")
-        case "phone": L.t("macScreen.actions.noScreen.phone", "an iPhone or iPad cannot share its screen")
-        case nil: L.t("macScreen.actions.noScreen.notRegistered", "Screen Sharing does not list it yet; sign in to cmux on it and turn on Allow Mac Screen")
-        default: L.t("macScreen.actions.noScreen.unknown", "cmux cannot tell whether it has a desktop to share")
+        case "offline": L.t("macScreen.actions.refusal.noScreen.offline", "it is offline")
+        case "no-desktop": L.t("macScreen.actions.refusal.noScreen.noDesktop", "it is a server or VM with no desktop to share")
+        case "phone": L.t("macScreen.actions.refusal.noScreen.phone", "an iPhone or iPad cannot share its screen")
+        case nil: L.t("macScreen.actions.refusal.noScreen.notRegistered", "Screen Sharing does not list it yet; sign in to cmux on it and turn on Allow Mac Screen")
+        default: L.t("macScreen.actions.refusal.noScreen.unknown", "cmux cannot tell whether it has a desktop to share")
         }
     }
 }
