@@ -136,7 +136,7 @@ function arm(prompt: string) {
   addEventListener(
     "keydown",
     (e) => {
-      if (e.key === "Enter" && !p.keydownTs) p.keydownTs = e.timeStamp;
+      if ((e as KeyboardEvent).key === "Enter" && !p.keydownTs) p.keydownTs = e.timeStamp;
     },
     { capture: true },
   );
@@ -229,7 +229,7 @@ async function round(browser: Browser, url: string, profile: boolean, trace = fa
     await page.waitForTimeout(300);
     if (trace) {
       traceOut = [];
-      cdp.on("Tracing.dataCollected", (e: { value: TraceEv[] }) => traceOut.push(...e.value));
+      cdp.on("Tracing.dataCollected", (e) => traceOut.push(...(e.value as unknown as TraceEv[])));
       await cdp.send("Tracing.start", {
         categories:
           "devtools.timeline,disabled-by-default-devtools.timeline,disabled-by-default-devtools.timeline.stack",
@@ -473,8 +473,8 @@ if (import.meta.main) {
     }
   } finally {
     await browser.close();
-    statics.stop(true);
-    daemon.stop(true);
+    void statics.stop(true);
+    void daemon.stop(true);
     // KEEP_OUT=1 keeps the built pane, so a trace's line numbers can be read against it.
     if (process.env.KEEP_OUT === "1") console.log(`built pane kept at ${out}`);
     else fs.rmSync(out, { recursive: true, force: true });
