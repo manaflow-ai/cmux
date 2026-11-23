@@ -67,10 +67,12 @@ import { OpenAppCard, afterLatestFooter } from "./OpenAppCard";
 import { setCloudPreviewContext, useCloudPreviewPorts } from "./cloudPreviewPorts";
 import { useChatCloudEnvironment } from "./CloudEnvironmentChip";
 import { NativeError } from "./nativeError";
-import { errorMessage, isStartCancelled, knownRefusalText } from "./transportErrors";
+import { errorMessage, isStartCancelled, knownRefusalText, startErrorMessage } from "./transportErrors";
 import { pageHostClient } from "./pageHost";
 import { type NewTabChat, type NewTabHost, pickedNewTabApp } from "./newTabModel";
 import { type NewTabScreenActions } from "./newtab/NewTabScreen";
+import type { NewTabStartFailure } from "./newtab/StartFailure";
+import { startFailureCause, startFailureCode } from "./startFailure";
 import { HarnessesScreen } from "./harnesses/HarnessesScreen";
 import { ContextScreen } from "./context/ContextScreen";
 import { contextAccess, contextSave } from "./context/contextAccess";
@@ -99,6 +101,8 @@ import { cloudModePickFor as cloudModeFor, useCloudModePick } from "./cloudModeP
 import { rememberStartedProject } from "./newtab/startedProject";
 import { shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { TaskGoalStrip } from "./TaskGoalStrip";
+import { ApprovedPlanBand } from "./ApprovedPlanBand";
+import { approvedPlanPlace } from "./approvedPlan.experiment";
 import { hatPlanOf } from "./chatTaskList";
 import { goalHatPlace } from "./goalHat.experiment";
 import { jumpLatestPlace } from "./jumpPlace.experiment";
@@ -190,7 +194,6 @@ import { cloudSendWakes, cloudTypingWakes, type CloudWakeState } from "./cloudWa
 import { type PastTurn } from "./pastChatModel";
 import type { Project } from "./ProjectChooser";
 import { byRecentUse, parseProjectRepos } from "./projectRepos";
-import { agentDotGridArm } from "./dotGrid/agentDotGrid.experiment";
 import { lastChange, turnFiles, turnPathsOnly, turnRows, type PathRef, type TurnFile } from "./diff";
 import { opensTurn } from "./turnStart";
 import { TrustAsk } from "./TrustAsk";
@@ -238,6 +241,7 @@ import {
   backgroundRowCount,
 } from "./session-info/processes";
 import {
+  type SessionInfoSectionId,
   setSessionInfoOpen as setSessionInfoPanelOpen,
   setSessionInfoSection,
   useSessionInfoOpen,
@@ -447,6 +451,8 @@ import {
   cloudSendAfterCheck,
   composerCloudStartFolder,
   pageOnOtherMachine,
+  pickedChatCloudCall,
+  pickOnlyNewChat,
 } from "./cloudRun";
 import { promptBeforeTyped, type CloudStartDraft } from "./cloudStartCarry";
 import { folderRunLocation, newChatRunLocation, defaultFolderFor } from "./runLocationDefault";
@@ -888,6 +894,19 @@ const PARKED_STYLE = {
   inset: 0,
   pointerEvents: "none",
 } as const satisfies React.CSSProperties;
+
+/// A New Tab start the host refused, as the page's failure line says it (NewTabScreen's `failed`).
+function newTabStartFailureOf(error: unknown, harness?: string): Omit<NewTabStartFailure, "retry"> {
+  const code = startFailureCode(error);
+  const cause = startFailureCause(error);
+  return {
+    ...(harness ? { harness } : {}),
+    error: startErrorMessage(error) || translate("switch.unknownError"),
+    ...(code ? { code } : {}),
+    ...(cause ? { cause } : {}),
+    local: true,
+  };
+}
 
 function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Debug measurement (acpmuxPerf): the pane's own render, before its children.
@@ -2115,8 +2134,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const subagentTray = useSubagentTray();
   const trayPlacement = useSubagentTrayPlacement();
   const [goalHatPlaceArm] = useState(() => experimentArm(goalHatPlace));
-  // The agent dot grid on the home (dotGrid/agentDotGrid.experiment.ts): off unless opted in.
-  const [dotGridArm] = useState(agentDotGridArm);
+  const [approvedPlanArm] = useState(() => experimentArm(approvedPlanPlace));
   const doneLines = useRef<DoneLineCache>(new Map());
   const childDoneLines = useRef<DoneLineCache>(new Map());
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
@@ -3825,6 +3843,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   const [newTab, setNewTab] = useState<NewTabHost | undefined>(injectedNewTabContext);
   const [newTabFixError, setNewTabFixError] = useState<string>();
+  /// The New Tab page a queued start left, until that start opens a chat or fails (it then comes
+  /// back with `newTabStartFailure`, never the chat view's empty-chat hero).
+  const startLeftNewTab = useRef<NewTabHost | undefined>(undefined);
+  const [newTabStartFailure, setNewTabStartFailure] = useState<Omit<NewTabStartFailure, "retry">>();
+  const restoredAfterFailedStart = useRef(false);
+  /// The prompt a Classic New Tab start sent, until it opens a chat or fails; the page that comes
+  /// back takes it when the chat composer holds nothing yet (the switch hands it back later).
+  const startLeftDraft = useRef<{ text: string; attachments: ComposerAttachment[] } | undefined>(undefined);
+  const returnedDraft = useRef<{ text: string; attachments: ComposerAttachment[] } | undefined>(undefined);
   const newTabStartGeneration = useRef(0);
   const [sessionSelection, setSessionSelection] = useState<
     { sessionId: string; state: "pending" | "failed" } | undefined
@@ -3871,8 +3898,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const newTabGeneration = useNewTabAdoption(adoptNewTab, currentNewTab);
   // A Fix from a link's failure is that New Tab visit's: the next visit starts without it.
   useEffect(() => setNewTabFixError(undefined), [newTabGeneration]);
-  // `tabs.newTabApp` (newtab/NewTabAppPage.tsx): the visit (adoption) whose app page could not show
-  // draws cmux's own; the next Cmd-T tries the app again, also on a spare that keeps its screen.
+  // `tabs.newTabApp` (newtab/NewTabAppSlot.tsx): the visit (adoption) whose extension slot could not show
+  // leaves it empty; the next Cmd-T tries the app again, also on a spare that keeps its screen.
   const [newTabAppGone, setNewTabAppGone] = useState<number>();
   // A start owns this visit's screen until accepted, even while a switch publishes queued rows.
   // A new adoption has a different generation and never inherits this pending/error view.
@@ -5082,7 +5109,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // header state. Its open-in-pane row enables that same panel before revealing the requested list.
   const revealSessionInfo = sessionInfo.reveal;
   const openSummarySection = useCallback(
-    (section: "subagents" | "tasks") => {
+    (section: SessionInfoSectionId) => {
       if (revealSessionInfo) {
         revealSessionInfo(section);
         return;
@@ -6184,6 +6211,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const pendingWake = useRef<ComposerWake | undefined>(undefined);
   /// Where the shown transcript rests now (VirtualTranscript `anchorNow`).
   const transcriptAnchor = useRef<(() => ScrollAnchor | null | undefined) | undefined>(undefined);
+  /// The transcript's Toggle Terminal and Chat placement (VirtualTranscript `placeNow`).
+  const placeTranscript = useRef<((rowId: string | null) => boolean) | null>(null);
   /// Prompts sent from this pane (every `chat.send`): each puts the transcript at its latest message.
   const [sends, setSends] = useState(0);
   /// VirtualTranscript updates this synchronously on reader scrolls, so a disabled send-to-bottom
@@ -6697,7 +6726,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       "customize",
       "help",
     ]);
-    if (snapshot.summary) enabledCmuxActions.add("status");
+    if (snapshot.summary) {
+      enabledCmuxActions.add("status");
+      enabledCmuxActions.add("mcp");
+    }
     if (!quick) enabledCmuxActions.add("cd");
     if (forkable && forkSeq !== undefined) enabledCmuxActions.add("fork");
     // A working chat offers /side too: its fork is of the chat as it is now (#38042).
@@ -7226,6 +7258,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       untakenSends,
       pendingWake,
       transcriptAnchor,
+      placeTranscript,
       setSends,
       followingTranscript,
       setHostError,
@@ -7368,6 +7401,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         healthLocal,
         ignoreFailure,
         openCloudChatWith,
+        openSummarySection,
         sessionAuth,
         sessionInfo,
         setContinuing,
@@ -7936,7 +7970,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (newTabStartPage === newTabGeneration ||
       ((sessionSelection?.state === "pending" || !snapshot.sessionId) && snapshot.rows.length === 0)) &&
     (handshaken || hostError === undefined);
-  // The extension the person picked to draw the whole page (`tabs.newTabApp`), until it could not show.
+  // The extension the person picked to draw over the composer (`tabs.newTabApp`), until it could not show.
   const newTabApp = showNewTab ? pickedNewTabApp(newTab, newTabAppGone, newTabAdoptions) : undefined;
   /// The chat view (header, transcript, dock and composer) shows: no page or screen stands in its place.
   const showsChatView =
@@ -7973,7 +8007,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// Only where it draws: the chat composer, or the New Tab screen (not the classic New Tab page,
   /// history, nor an extension's page), so a claim never spends the budget on a hint nobody saw.
   const cloudHintDraws =
-    !showNewTab || (newTab !== undefined && !newTab.history && !newTabApp && shownTemplate(newTab) !== "classic");
+    !showNewTab || (newTab !== undefined && !newTab.history && shownTemplate(newTab) !== "classic");
   const cloudHintDue = !quick && !onOtherMachine && cloudHintDraws && cloudChatHintDue(cloudHintFacts);
   /// Only the page the person looks at asks: a spare in the pool never does.
   useCloudChatHintClaim(cloudHintDue, cloudHint.claim);
@@ -8065,10 +8099,80 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// A page coming back after the chat view stood in for it: what that composer held, as its draft.
   const takeNewTabDraft = () => {
     if (!composerStoodIn.current) return takeNewChatLeftover();
-    const waiting = composerHandle.current?.draft() ?? heldBack.current?.pop();
+    const sent = returnedDraft.current;
+    returnedDraft.current = undefined;
+    const typed = composerHandle.current?.draft();
+    // The Classic page's own prompt, when the switch has not handed it to the chat composer yet.
+    if (sent && !typed?.text && !typed?.attachments.length) {
+      // The failed switch may also have held it back for a chat composer not mounted yet: the
+      // page has it now, so no later composer takes it a second time.
+      const copy = heldBack.current?.findIndex((draft) => draft.text === sent.text) ?? -1;
+      if (copy >= 0) heldBack.current!.splice(copy, 1);
+      if (heldBack.current?.length === 0) heldBack.current = undefined;
+      return sent;
+    }
+    const waiting = typed ?? heldBack.current?.pop();
     if (heldBack.current?.length === 0) heldBack.current = undefined;
     return waiting;
   };
+  // A queued start from New Tab makes the page the chat at once (screenActions.ts: the switch's
+  // first row says "Starting Claude Code…"). When that start fails before any chat opened, the
+  // page comes back with the failure said in place (Retry, Details) and the prompt in its field.
+  // Before, the chat view's empty-chat hero stayed ("What should we build?", No folder, Needs you)
+  // under a "couldn't start" card: Leo, 2026-11-17, "this is an old ass deprecated view. this
+  // should not have been shown." (test/new-tab-start-frames.test.ts).
+  const failedSwitch = switchView.intent?.phase === "failed" ? switchView.intent : undefined;
+  /// Every New Tab start leaves its page this way (the screen's `leave`, the Classic page's
+  /// `chatFromNewTab`): the page is kept until the start opens a chat or fails.
+  const leaveNewTabForStart = (sent?: { text: string; attachments: ComposerAttachment[] }) => {
+    if (newTab) startLeftNewTab.current = newTab;
+    startLeftDraft.current = sent;
+    setNewTabStartFailure(undefined);
+    setNewTab(undefined);
+  };
+  /// A New Tab start failed before any chat opened: its page comes back, says the failure in place
+  /// (Retry, Details) and takes the prompt the chat view's composer was handed (`takeDraft`).
+  /// False when no page was left for a start (the chat view's own failure stays its own).
+  const returnToNewTab = useCallback((failure: Omit<NewTabStartFailure, "retry">) => {
+    const left = startLeftNewTab.current;
+    if (!left) return false;
+    startLeftNewTab.current = undefined;
+    returnedDraft.current = startLeftDraft.current;
+    startLeftDraft.current = undefined;
+    setNewTabStartFailure(failure);
+    composerStoodIn.current = true;
+    restoredAfterFailedStart.current = true;
+    setNewTab(left);
+    return true;
+  }, []);
+  // Before paint: the failed chat view never draws a frame.
+  useLayoutEffect(() => {
+    const left = startLeftNewTab.current;
+    if (!left) return;
+    // A chat opened: the page is that chat now, and a later failure is the chat's own.
+    if (snapshot.sessionId) {
+      startLeftNewTab.current = undefined;
+      return;
+    }
+    if (!failedSwitch || newTab !== undefined) return;
+    harnessSwitch.cancel();
+    // The switch handed the prompt to the chat view's composer: the page takes it as it mounts.
+    returnToNewTab({
+      harness: failedSwitch.harness,
+      error: failedSwitch.error || translate("switch.unknownError"),
+      ...(failedSwitch.code ? { code: failedSwitch.code } : {}),
+      // What actually failed, under Details, as the chat's start-failed card had it.
+      ...(failedSwitch.cause ? { cause: failedSwitch.cause } : {}),
+      local: true,
+    });
+  }, [failedSwitch, snapshot.sessionId, newTab, harnessSwitch, returnToNewTab]);
+  useEffect(() => {
+    if (newTab === undefined || !restoredAfterFailedStart.current) return;
+    // The page that came back took the draft and its failure as it mounted; no later page does.
+    restoredAfterFailedStart.current = false;
+    composerStoodIn.current = false;
+    setNewTabStartFailure(undefined);
+  }, [newTab]);
   // Activity disconnects the hidden page's draft/attachment/choice holds during setup. Keep
   // the reload hold in the parent until the page is visible and its own effects reconnect.
   useWebSwapHold(showNewTab && harnessesOpen ? "newtab.setup" : null);
@@ -8141,17 +8245,23 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // switch with nothing queued.
           const started = startNewTabTransition(
             () => callNative("chat.new", { ...chat, ...(folder ? { cwd: folder } : {}) }),
-            () => setNewTab(undefined),
+            // A blank Return already left the page (below); leaving again when the start settles
+            // would undo the page the `failedSwitch` effect brought back with its failure.
+            () => {
+              if (asks) leaveNewTabForStart({ text, attachments });
+            },
             isCurrent,
           ).then((session) => {
             if (isCurrent() && session && remembers) rememberStartedProject(folder, callNative);
             return session;
           });
+          // A refusal before any chat opened fails the switch: the page comes back with the reason
+          // and the prompt the switch handed back (the `failedSwitch` effect), never the old hero.
           if (!asks) {
             // A blank Agent Return has no prompt to make a deferred switch visible. Preserve the
             // old immediate transition and observe the unresolved start only to avoid an unhandled
             // rejection; a later prompt can still reveal the switch through the composer.
-            setNewTab(undefined);
+            leaveNewTabForStart();
             void started.catch(() => undefined);
             return;
           }
@@ -8170,7 +8280,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         try {
           started = await startNewTabTransition(
             () => (folder ? callNative("chat.new", { cwd: folder }) : Promise.resolve(undefined)),
-            () => setNewTab(undefined),
+            leaveNewTabForStart,
             isCurrent,
           );
         } catch (error) {
@@ -8181,6 +8291,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // in its place (Composer `restore`); a composer not mounted yet gets it when it mounts.
           if (composerHandle.current) composerHandle.current.restore(text, attachments);
           else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
+          // Any refusal but trust's: the page comes back with the reason and takes that prompt,
+          // not the chat view's empty-chat hero.
+          if (!isTrustRefusal(error) && !isStartCancelled(error) && returnToNewTab(newTabStartFailureOf(error))) return;
           if (isTrustRefusal(error)) {
             holdPrompt.current?.();
             trustRefused.current?.(error, () => {
@@ -8735,6 +8848,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                   anchorNow={
                                                                     quick || childRows ? undefined : transcriptAnchor
                                                                   }
+                                                                  placeNow={
+                                                                    quick || childRows ? undefined : placeTranscript
+                                                                  }
                                                                   inViewNow={
                                                                     quick || childRows ? undefined : transcriptInView
                                                                   }
@@ -8750,6 +8866,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                     childRows ? undefined : onTranscriptKeepFrom
                                                                   }
                                                                   onAnchor={
+                                                                    quick || childRows || !shownSessionId
+                                                                      ? undefined
+                                                                      : (anchor) =>
+                                                                          postScrollAnchor(shownSessionId, anchor)
+                                                                  }
+                                                                  onFollowingAnchor={
                                                                     quick || childRows || !shownSessionId
                                                                       ? undefined
                                                                       : (anchor) =>
@@ -9226,6 +9348,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       />
     ) : null;
   const goalAtFoot = goalNode !== null && goalHatPlaceArm === "foot";
+  // The plan the person approved stays in sight while the agent builds it (ApprovedPlanBand.tsx), a
+  // row of the hat under the goal. Leo: "plan pane that stays during the build".
+  const approvedPlanNode =
+    !showNewTab && composerSnapshot.summary?.approvedPlan ? (
+      <ApprovedPlanBand
+        key={`approved-plan:${composerSnapshot.summary.sessionId}`}
+        chat={composerSnapshot.summary.sessionId}
+        plan={composerSnapshot.summary.approvedPlan}
+        initiallyOpen={approvedPlanArm === "open"}
+      />
+    ) : null;
   // The dock draws the composer (a draft a refusal put back stays in reach even once the tab's run
   // shows), and with it the composer card's quiet row: the dock's `data-foot` (bottomStack.css).
   const dockFoot = (!sandboxHoldsChat || sandboxDraftMoved) && !viewedSandbox && (readOnlySubagent || !reviewing);
@@ -9308,6 +9441,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     hideManaged,
     goalAtFoot,
     goalNode,
+    approvedPlanNode,
+    approvedPlanAtFoot: approvedPlanArm === "foot",
     hatQuestionList,
     NO_HAT_QUESTIONS,
     hatQuestionActions,
@@ -9811,6 +9946,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     pendingCommands,
     extensionCommands,
     newTabFixError,
+    newTabStartFailure,
+    leaveNewTabForStart,
     newTabKnownProjects,
     startFolder,
     onNewTabPromptTyped,
@@ -9909,7 +10046,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     githubRepository,
     sandboxView,
     sandboxHoldsChat,
-    heroPicker,
     tourOffer,
     chatTones,
     chatAgentNames,
@@ -9927,7 +10063,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     paneToasts,
     toastTop,
     asks,
-    dotGridArm,
     hostLine,
     forkPendingLine,
     composer,

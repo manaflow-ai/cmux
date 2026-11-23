@@ -65,7 +65,7 @@ public nonisolated struct GlassMenuMaterial {
     /// The theme ink at `ink` fit to a menu's glass (``CmuxDialogButtonLook/menuCardSurfaces(_:lift:)``: the glass over the
     /// theme's window, a white and a black page, and the opaque popup under Reduce Transparency), moved toward its pole
     /// until it reads at `minimum` on each, or the pole that reads on most where none reads on all. A SwiftUI button on
-    /// menu glass takes it (``CmuxPressFillButtonStyle``, `cmuxOnMenuGlass(_:)`): Hot Dog Stand's text read 4.16:1 on
+    /// a menu panel takes it (``ThemedHostingView``, and ``CmuxPressFillButtonStyle``): Hot Dog Stand's text read 4.16:1 on
     /// its glass over a black page at the 90% cap (NativeControlContrastAuditTests).
     public static func ink(_ ink: KeyPath<ThemeTokens, ThemeRGB>, tokens: ThemeTokens,
                            minimum: Double = CmuxDialogButtonLook.minimumContrast) -> ThemeRGB {
