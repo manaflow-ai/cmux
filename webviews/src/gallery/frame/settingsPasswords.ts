@@ -114,6 +114,7 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
   if (state.channels !== undefined) mock.provider.channels = structuredClone(state.channels);
   if (state.channelSwitch !== undefined) mock.provider.channelSwitch = structuredClone(state.channelSwitch);
   if (state.switchRefusal !== undefined) mock.provider.switchRefusal = state.switchRefusal;
+  if (state.signInHold) mock.provider.signInHold = new Promise<void>(() => {});
   if (state.integrations) mock.provider.integrations = structuredClone(state.integrations);
   window.addEventListener("pagehide", mock.close, { once: true });
   const client: SettingsClient = {
