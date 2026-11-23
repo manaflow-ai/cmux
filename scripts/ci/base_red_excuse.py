@@ -5577,6 +5577,8 @@ PACKAGE_JOBS = {
                   "cmux-tui/crates/cmux-rd-link/",
                   "cmux-tui/crates/cmux-rd-proto/", "cmux-tui/crates/cmux-remote-browser/",
                   "cmux-tui/crates/cmux-terminal-prediction/",
+                  # cmux-mobile-link-ffi depends on cmux-terminal-projection (#42219)
+                  "cmux-tui/crates/cmux-terminal-projection/",
                   "cmux-tui/crates/cmux-transport/", "cmux-tui/crates/cmux-wg/",
                   # cmux-mobile-link-ffi depends on cmux-window-rules (#43111)
                   "cmux-tui/crates/cmux-window-rules/", "schemas/remote-tab/",
