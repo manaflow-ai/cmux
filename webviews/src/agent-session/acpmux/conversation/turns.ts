@@ -3079,7 +3079,8 @@ function shapeLiveTurn(
   // where the ended turn draws it (`underAnswer` in shapedTurn), so the turn's end does not carry it up
   // past them (Leo, 2026-11-22: "you need to simulate tons of situations exemplified by various situations
   // and steers coming in at various times").
-  const reply = shaped.findLastIndex(isReply);
+  let reply = shaped.length - 1;
+  while (reply >= 0 && !isReply(shaped[reply]!)) reply -= 1;
   if (reply >= 0 && shaped.slice(reply + 1).some(personCameIn))
     return [...shaped.slice(0, reply + 1), card, ...shaped.slice(reply + 1)];
   // Over the live line, which stays the turn's last row.
