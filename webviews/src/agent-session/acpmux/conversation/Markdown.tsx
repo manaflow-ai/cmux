@@ -6,7 +6,7 @@ import { BlockTail, InlineTail } from "./InlineTail";
 // code blocks rendered by @pierre/diffs (see CodeBlock.tsx), vega-lite charts (DiagramBlock.tsx), live
 // ```cmux-render pages (RenderCard.tsx), and `$…$`, `$$…$$`, `\(…\)`
 // and `\[…\]` math typeset by KaTeX (see Math.tsx).
-import { Fragment, memo, useId, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
+import { Fragment, memo, useId, useLayoutEffect, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 
 import { CodeBlock } from "./CodeBlock";
 import { InlinePreview } from "./InlinePreview";
@@ -406,7 +406,22 @@ function renderFresh(text: string, tail: FreshTail, opts: InlineOptions): ReactN
 
 /// A top-level block that renders again only when its parsed block changes: a streaming reply's
 /// finished blocks keep their objects (IncrementalMarkdown), so each delta renders only the tail.
-const BlockView = memo(Block);
+/// `closed`: the block lies before the streaming reply's last safe boundary. While measuring
+/// (perf.ts), each committed render of a closed block counts as `markdown.closed`, and every one
+/// after its first as `markdown.closed.rerender`: a closed block is drawn once, so that one stays 0.
+const BlockView = memo(function TopBlock({
+  closed = false,
+  ...props
+}: Parameters<typeof Block>[0] & { closed?: boolean }) {
+  const closedRenders = useRef(0);
+  useLayoutEffect(() => {
+    if (!closed || !acpmuxPerf.enabled) return;
+    acpmuxPerf.render("markdown.closed");
+    if (closedRenders.current > 0) acpmuxPerf.render("markdown.closed.rerender");
+    closedRenders.current += 1;
+  });
+  return <Block {...props} />;
+});
 
 export type MarkdownProps = InlineOptions & {
   /** Markdown source. */
@@ -468,6 +483,8 @@ export function Markdown({
   );
   const blocks =
     whole ?? acpmuxPerf.timed("markdown.parse", () => parser.current!.update(children, { streaming, messageAt }));
+  // While streaming, the blocks before the parser's last safe boundary are closed (BlockView).
+  const closedCount = streaming && !whole ? parser.current!.closedCount : 0;
   // Blocks there at the first render (history, a row scrolled into view) never animate.
   const atMount = useRef<Set<string> | null>(null);
   atMount.current ??= new Set(blocks.map((entry) => entry.key));
@@ -543,12 +560,14 @@ export function Markdown({
     return (
       <BlockView
         key={entry.key}
+        closed={index < closedCount}
         block={entry.block}
         opts={opts}
         depth={0}
         enter={streaming && live && !awayBlocks.current.has(entry.key)}
         code={open ? "open" : plainCode ? "plain" : live || streamedFences.current.has(entry.key) ? "handoff" : "final"}
-        tail={index === blocks.length - 1 ? freshTail : undefined}
+        // Only the open block fades its newest text in: a closed block is drawn once and never again.
+        tail={index === blocks.length - 1 && index >= closedCount ? freshTail : undefined}
         trailing={index === trailingIndex ? trailing : undefined}
         artifactIdentity={artifactIdentity ? `${artifactIdentity}\u0000${entry.key}` : undefined}
         artifactRevision={artifactRevisions.current.get(entry.block)}
