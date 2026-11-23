@@ -392,7 +392,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var lastGapOffsetY: CGFloat?
     private var resizeSettle = TerminalResizeSettle()
     private var settleTask: Task<Void, Never>?
-    /// Hide Toolbar: the key row's height is 0.
+    /// The key row is folded (keyboard down, or Hide Toolbar): its height is 0.
     private var keyRowCollapsed: NSLayoutConstraint!
     /// The composer is closed or hidden: its height is 0.
     private var composerCollapsed: NSLayoutConstraint!
@@ -1458,12 +1458,24 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     /// The terminal or the composer gained or lost focus.
     func inputFocusChanged() {
-        // The key row shows with or without focus (classic); nothing to fold.
+        // The key row follows the soft keyboard, not focus (`keyRowFollowsKeyboard`).
+    }
+
+    /// The key row rides the soft keyboard (`TerminalDockVisibility.showsKeyRow`):
+    /// when a keyboard notification changed whether it shows, its slot opens
+    /// or closes with the keyboard's movement, with no extra fade.
+    private func keyRowFollowsKeyboard(showedKeyRow: Bool) {
+        guard dock.showsKeyRow != showedKeyRow else { return }
+        dockChanged(fadesInKeyRow: false)
     }
 
     /// The model's composer or Hide Toolbar state changed: fold or unfold the
     /// key row and the composer, reflowed over 0.25 s (classic's dock).
     func dockChanged() {
+        dockChanged(fadesInKeyRow: true)
+    }
+
+    private func dockChanged(fadesInKeyRow: Bool) {
         dock.chromeHidden = model.chromeHidden
         dock.composerPresented = model.composerPresented
         guard keyRowCollapsed != nil else { return }
@@ -1474,7 +1486,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let revealsKeyRow = keyBarClip.isHidden && dock.showsKeyRow
         keyBarClip.isHidden = !dock.showsKeyRow
         // Unfolding: the row fades in once its slot is open, never over the composer.
-        if revealsKeyRow { keyBarClip.alpha = 0 }
+        if revealsKeyRow, fadesInKeyRow { keyBarClip.alpha = 0 }
         composerHost.view.isHidden = !dock.showsComposer
         updateBottomBacking()
         view.setNeedsLayout()
@@ -4149,8 +4161,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // In this app's points (an iPhone app on an iPad gets the iPad's keyboard in iPad points).
         let frame = keyboardDock.keyboardFrame(notified: notified, showing: true)
         let screen = view.window?.screen.bounds ?? UIScreen.main.bounds
+        let showedKeyRow = dock.showsKeyRow
         dock.keyboardWillShow(visibleHeight: max(0, screen.intersection(frame).height))
         setKeyBar(visible: dock.softKeyboard == .shown, note: note)
+        keyRowFollowsKeyboard(showedKeyRow: showedKeyRow)
         measured("keyboard-will") { keyboardWillMove(note) }
     }
 
@@ -4159,8 +4173,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         if CommandLine.arguments.contains("-CmuxMobileTermLog") { NSLog("mobileterm kbd willHide t=%.3f first=%d", CACurrentMediaTime(), surface.isFirstResponder ? 1 : 0) }
         startKeyboardProbe(showing: false)
         #endif
+        let showedKeyRow = dock.showsKeyRow
         dock.keyboardWillHide()
         setKeyBar(visible: false, note: note)
+        keyRowFollowsKeyboard(showedKeyRow: showedKeyRow)
         measured("keyboard-will") { keyboardWillMove(note) }
     }
 
@@ -4193,8 +4209,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// hide): the dock's guide is already back at rest; the key row's
     /// keyboard glyph, a TUI's rows and the saved frame follow as after a hide.
     private func keyboardDropped() {
+        let showedKeyRow = dock.showsKeyRow
         dock.keyboardWillHide()
         dock.keyboardDidHide()
+        keyRowFollowsKeyboard(showedKeyRow: showedKeyRow)
         if model.keyboardVisible { model.keyboardVisible = false }
         // As keyboardDidHide: output held while the keyboard moved goes out.
         keyboardStopped()
