@@ -1306,8 +1306,9 @@ export function drawPaneComposer({
             onQueueChange={(promptId, edit) => {
               // An edit that adds `@computer-use` while Computer Use is not ready is refused as a send is: the
               // queued prompt keeps its old text and the editor keeps the edit (CMUX-682).
+              // A typed refusal (not "refused by acpmux"): the queue editor opens again with the edit.
               if (edit.op === "update" && holdsForComputerUseSetup(edit.text, false, computerUsePlace))
-                return Promise.resolve(false);
+                return Promise.reject(Object.assign(new Error("held"), { code: "computer_use_held" }));
               // Send Now runs the queued text at once: held as a send is, the row stays queued.
               if (edit.op === "send_now") {
                 const queued = snapshot.queue.find((entry) => entry.id === promptId)?.prompt;

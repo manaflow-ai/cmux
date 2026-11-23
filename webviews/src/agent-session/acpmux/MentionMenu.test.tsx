@@ -332,3 +332,10 @@ test("a harness named like a built-in tool never takes the tool's @ word", () =>
   expect(keys).toEqual(["tool:browser-use"]);
   expect(guestMention("open it with @browser-use", catalog)).toBeUndefined();
 });
+
+test("a root file named like a built-in tool is written as ./ so it never reads as the tool", () => {
+  const [file] = mentionItems({ query: "computer-use", files: [{ path: "computer-use", matches: [] }] }).filter(
+    (item) => item.kind === "file",
+  );
+  expect(mentionInsert(file!).shown).toBe("@./computer-use ");
+});

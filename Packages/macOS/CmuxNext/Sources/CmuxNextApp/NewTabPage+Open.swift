@@ -339,8 +339,6 @@ extension NewTabPage {
     /// What a native submit opens: an empty field makes the kind as it is; a terminal runs the text; a
     /// browser opens an address or searches; an agent's text goes through `newTab.submit` (a prompt, or a
     /// URL or `!command` typed there). With the page's tab `key`, a pick beside another tab goes where links do (``opensBeside``).
-    /// Only a submission `newTab.submit` makes a chat of is held for Computer Use (`holdsSubmit`), on `event`: the person's
-    /// key or click from the native handler, nil for an accessibility press or a caller with none (never `NSApp.currentEvent`).
     static func submitNative(_ text: String, kind: AgentPaneTabKind, search: Bool, cwd: String?, in page: PaneController, page key: String? = nil, event: NSEvent? = nil) -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if let refusal = MacScreenPages.pairingLinkRefusal(for: trimmed) {

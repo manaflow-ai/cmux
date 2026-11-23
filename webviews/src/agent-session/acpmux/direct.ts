@@ -10955,6 +10955,15 @@ export class AcpmuxDirectClient {
     return this.failedPrompts.size ? "composer.send-failed" : null;
   }
 
+  /// The words of the steers still waiting for the agent to read them: Send Now releases them too, so
+  /// its Computer Use hold reads them with the queued prompt (CMUX-682).
+  waitingSteerTexts(): string[] {
+    return this.waitingSteers.flatMap((waiting) => {
+      const row = this.rows.get(waiting.rowId);
+      return row && "text" in row && typeof row.text === "string" ? [row.text] : [];
+    });
+  }
+
   /// The text a failed row's Retry would send again, or undefined: read, not taken, so the Retry
   /// can be held first (`@computer-use` while Computer Use is not ready, CMUX-682).
   failedPromptText(rowId: string): string | undefined {

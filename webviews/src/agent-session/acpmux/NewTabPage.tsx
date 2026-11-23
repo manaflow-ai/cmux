@@ -501,8 +501,10 @@ export function NewTabPage({
   const submit = (event?: React.FormEvent) => {
     event?.preventDefault();
     if (kind === "agent" && command.intercept(query.trim(), harness, attachments.length, true)) return;
-    // Held for Computer Use on this key press, before a screenshot still being read can outlast it.
-    if (kind === "agent" && query.trim() && holdsSend?.(query.trim())) return;
+    // Held for Computer Use on this key press, before a screenshot still being read can outlast it:
+    // only a chat prompt (no row picked, or an Ask row), never a workspace, tab or folder Return opens.
+    const picked = rows[selected];
+    if (kind === "agent" && query.trim() && (!picked || picked.type === "ask") && holdsSend?.(query.trim())) return;
     if (holdForAttachments(() => runResumed(sendResuming, () => submitNow.current()))) return;
     submitNow.current();
   };

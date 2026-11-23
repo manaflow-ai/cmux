@@ -1071,6 +1071,8 @@ function ComposerFrame({
   // hidden, the prompt loses focus or the prompt is sent (unsentDraftThrottle.ts). Declared ahead of the
   // handle that flushes it: one read before its declaration keeps the composer uncompiled.
   const unsentDraft = useRef<UnsentDraftThrottle | undefined>(undefined);
+  /// A send that resumes after a wait (`resumeSend`): its Computer Use hold only says why (`holdsSend` `late`).
+  const sendResuming = useRef(false);
   useImperativeHandle(
     handle,
     () => ({
@@ -1168,7 +1170,8 @@ function ComposerFrame({
         // Their places in the text go with them: no empty atom stays in the draft.
         for (const id of ids) field.current?.removeInline(id);
       },
-      send: () => submitNow.current(true),
+      // An imperative send (the Trust continuation's) runs long after its key press: notice-only.
+      send: () => runResumed(sendResuming, () => submitNow.current(true)),
       focus: () => field.current?.focus(),
       prefill(prefix) {
         const typed = (field.current?.value() ?? promptRef.current.text).trimStart();
@@ -1698,8 +1701,6 @@ function ComposerFrame({
     edit(`${text.slice(0, emojiAt.start)}${match.emoji}${space}${after}`, at);
     field.current?.focus();
   };
-  /// A send that resumes after a wait (`resumeSend`): its Computer Use hold only says why (`holdsSend` `late`).
-  const sendResuming = useRef(false);
   const resumeSend = <T,>(run: () => T): T => runResumed(sendResuming, run);
   /// `kept`: the gesture an earlier hold of this send bound (`useSendWhenAttached`). `route` "side":
   /// the draft goes as `/side`'s prompt, to a side chat forked from this one (Send's menu).

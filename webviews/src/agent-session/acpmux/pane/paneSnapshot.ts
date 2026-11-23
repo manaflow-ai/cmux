@@ -1726,12 +1726,19 @@ export function paneSnapshotEffect({
             change.op === "update"
               ? change.text
               : change.op === "send_now"
-                ? trustRouteSnapshot.current?.queue.find((entry) => entry.id === String(promptId))?.prompt
+                ? // Send Now also releases the steers still waiting to be read: their words count too.
+                  [
+                    trustRouteSnapshot.current?.queue.find((entry) => entry.id === String(promptId))?.prompt ?? "",
+                    ...client.waitingSteerTexts(),
+                  ].join("\n\n")
                 : undefined;
           const place = chatPlace(client);
           if (queued && computerUseGate(queued, computerUseState(), place) !== "free") {
             holdsForComputerUseSetupRef.current(queued, false, place);
-            return Promise.resolve(false);
+            // An edit's typed refusal keeps the editor's text; Send Now leaves the row queued.
+            return change.op === "update"
+              ? Promise.reject(Object.assign(new Error("held"), { code: "computer_use_held" }))
+              : Promise.resolve(false);
           }
           return client.editQueued(String(promptId), change);
         },
@@ -2366,7 +2373,12 @@ export function paneSnapshotEffect({
           if (lateHold) throw new CmuxCommandRefused(lateHold);
           void client
             .promptSide(sessionId, text, files, held ? { ...held, ticket: Promise.resolve(ticket) } : undefined)
-            .catch(sidePromptRefused);
+            .catch((error: unknown) => {
+              // Held right before the wire (the child attach outlasted Computer Use): the words and files
+              // come back to the composer, never lost with only a notice.
+              if ((error as { code?: unknown } | null)?.code === "computer_use_held") restorePrompt(text, files);
+              sidePromptRefused(error);
+            });
         },
         // An offer's Start (cx-807da): the offered chat starts beside this one, which stays shown.
         // `worktree`: the task's Options > Worktree, else the agent's ask; `harness`, `model`,

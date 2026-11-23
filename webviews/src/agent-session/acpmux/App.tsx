@@ -1204,6 +1204,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     }
     return true;
   };
+  /// Where the shown chat runs, for `@computer-use`: the route-aware machine check the Session Info row
+  /// uses (chatMachine.ts), so a chat attached over the app's wire to another daemon is that machine's.
+  const shownChatPlace = (): ComputerUsePlace => {
+    const shown = snapshotRef.current;
+    const kind = shown ? chatMachineOf(shown.summary, undefined, shown.peerKinds, chatPlace(shown)).kind : "local";
+    return kind === "cloud" ? "cloud" : kind === "local" ? "here" : "machine";
+  };
   // The bridge's long-lived handlers (`chat.side`) read the newest one, not the first render's.
   const holdsForComputerUseSetupRef = useRef(holdsForComputerUseSetup);
   holdsForComputerUseSetupRef.current = holdsForComputerUseSetup;
@@ -3465,9 +3472,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             return Promise.reject(new Error(translate("error.notOpen")));
           // `@computer-use` relayed to a subagent is held as the chat's own send is (CMUX-682): the
           // composer keeps the message, and setup opens on this key press when that helps.
-          const summary = snapshotRef.current?.summary;
-          const place: ComputerUsePlace =
-            summary?.hostKind === "cloud" ? "cloud" : summary?.host || summary?.peer ? "machine" : "here";
+          const place = shownChatPlace();
           const gate = computerUseGate(message, computerUseState(), place);
           if (gate !== "free" && holdsForComputerUseSetup(message, false, place))
             return Promise.reject(new CmuxCommandRefused(translate(computerUseHoldText(gate).title)));
@@ -3613,12 +3618,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     () =>
       turnActionsFrom({
         showCall,
-        holdsRetry: (prompt) => {
-          const summary = snapshotRef.current?.summary;
-          const place: ComputerUsePlace =
-            summary?.hostKind === "cloud" ? "cloud" : summary?.host || summary?.peer ? "machine" : "here";
-          return holdsForComputerUseSetupRef.current(prompt, false, place);
-        },
+        holdsRetry: (prompt) => holdsForComputerUseSetupRef.current(prompt, false, shownChatPlace()),
         restartChat,
         queuedMessageActionsRef,
         stableBranches,
