@@ -849,11 +849,14 @@ export async function moveRun(ctx: MoveContext, a: RunArgs): Promise<MoveResult>
     args.push("--sync", "relay", "--sync-from-socket", await proxy("sync-from", a.src.socket), "--sync-socket", await proxy("sync", a.dst.socket), "--sync-local", srcFolder, "--sync-remote", dstFolder, "--vm-kind", "owner");
   }
   const first = await runPump(ctx.cmux, args, pumpEnv, (p) => (pump = p));
-  for (const p of proxies) p.stop();
+  // The proxies stay up for the Retry: the pump's move record is keyed by --from-socket and names
+  // --to-socket, so the app's Retry runs on the same paths, as here. The wire fires once.
+  const stopProxies = () => { for (const p of proxies) p.stop(); };
   trace.push(...wire.trace);
   note(`pump: ${pumpText(first)}`);
   const faultS = a.kill === "cut" ? cutS : a.kill.startsWith("pause") ? pauseS : null;
   if (!wire.fired) {
+    stopProxies();
     return {
       run: a.run, seed: a.seed, direction: a.direction, step: a.step, button_step: buttonStep(a.step), kill: a.kill, outcome: "unmeasured", lost: [], open: "", queued_runs: -1, draft: "", edit: "", commit: "",
       pump_first: pumpText(first), pump_retry: "not run", seen_ms: null, fault_s: faultS, detail: `the pump never reached ${a.step} (${wire.refused ? `the step's answer was a refusal: ${pumpText(first)}` : a.step === "mid-copy" ? `${wire.writes} writes` : "no such request"})`, trace,
@@ -866,10 +869,10 @@ export async function moveRun(ctx: MoveContext, a: RunArgs): Promise<MoveResult>
   await bringBack(ctx, a.carriers, [a.src, a.dst], note);
   let retry: PumpAnswer | null = null;
   if (!first.ok) {
-    const direct = args.map((x) => (x === from ? a.src.socket : x === to ? a.dst.socket : x.startsWith(dir) && x.endsWith(".sock") ? (x.endsWith("sync-from.sock") ? a.src.socket : a.direction === "cloud-local" ? a.src.socket : a.dst.socket) : x));
-    retry = await runPump(ctx.cmux, direct, pumpEnv);
+    retry = await runPump(ctx.cmux, args, pumpEnv);
     note(`retry: ${pumpText(retry)}`);
   }
+  stopProxies();
   const last = retry ?? first;
   const seenMs = Date.now() - wire.firedAt - (retry ? 0 : 0);
 
