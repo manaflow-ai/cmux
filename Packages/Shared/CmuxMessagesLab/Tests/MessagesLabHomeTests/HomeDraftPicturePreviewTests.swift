@@ -141,4 +141,47 @@ import UniformTypeIdentifiers
         #expect(view.controller.pictureViewer == nil, "closing leaves the box")
         #expect(view.draftAttachments == [first, second], "the pictures stay in the box")
     }
+
+    // MARK: The size it opens at
+
+    @Test func aSmallPictureGrowsToFillThePaneAndALargeOneShrinksToFit() {
+        let room = CGSize(width: 760, height: 580)
+        // The user's screenshot: a 380 x 120 px paste drew at 190 x 60 pt in an empty viewer.
+        let small = HomePictureViewer.fitMagnification(CGSize(width: 190, height: 60), in: room)
+        #expect(abs(190 * small - 760) < 0.5, "fills the pane's width: \(190 * small) pt")
+        #expect(60 * small <= 580)
+        // A Retina screenshot (2880 x 1800 px, 1440 x 900 pt) fits, never past the pane.
+        let large = HomePictureViewer.fitMagnification(CGSize(width: 1440, height: 900), in: room)
+        #expect(large < 1)
+        #expect(abs(1440 * large - 760) < 0.5 && 900 * large <= 580)
+        // A tall picture fits the height; a tiny one stops at the zoom range's top.
+        let tall = HomePictureViewer.fitMagnification(CGSize(width: 100, height: 400), in: room)
+        #expect(abs(400 * tall - 580) < 0.5)
+        #expect(HomePictureViewer.fitMagnification(CGSize(width: 4, height: 4), in: room) == 8)
+        #expect(HomePictureViewer.fitMagnification(.zero, in: room) == 1)
+    }
+
+    /// The real viewer over a pane: the small paste opens filling the picture area, and still zooms in and out.
+    @Test func theViewerOpensASmallPasteLargeAndItStillZooms() async throws {
+        let (_, controller) = HomePictureViewerKeysAndWheelTests.pane()
+        let picture = try HomePictureViewerTests.image(width: 380, height: 120, gray: 0.5)
+        controller.presentPictures(HomePictureViewerKeysAndWheelTests.gallery()) { _ in picture }
+        let viewer = try #require(controller.pictureViewer)
+        viewer.reduceMotion = { true }
+        await viewer.loaded()
+        viewer.layoutSubtreeIfNeeded()
+        let scroll = try HomePictureViewerKeysAndWheelTests.scrollView(viewer)
+        let canvas = try #require(scroll.documentView)
+        let drawn = canvas.frame.width * scroll.magnification
+        #expect(drawn >= scroll.frame.width * 0.95, "the picture draws \(drawn) pt wide in a \(scroll.frame.width) pt area")
+        let fitted = scroll.magnification
+        _ = viewer.handle(.zoomIn)
+        #expect(scroll.magnification > fitted, "zooms in from fit")
+        _ = viewer.handle(.zoomOut)
+        _ = viewer.handle(.zoomOut)
+        #expect(scroll.magnification < fitted, "zooms out from fit")
+        _ = viewer.handle(.fit)
+        #expect(abs(scroll.magnification - fitted) < 0.001, "Command-0 fits again")
+        viewer.close()
+    }
 }
