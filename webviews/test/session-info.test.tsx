@@ -64,6 +64,7 @@ import { activity, assistant, chat, tool } from "../src/gallery/fixtures/acpmux"
 import { withCloudMachineSummary } from "../src/agent-session/acpmux/cloudSummary";
 import { SummaryCard } from "../src/agent-session/acpmux/summary/SummaryCard";
 import { settleReact } from "./support/domTeardown";
+import { LASTING_MS, setLastingGrace } from "../src/ui/lasting";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -920,41 +921,47 @@ test("a new chat in a narrow pane opens Session Info as a popover when the perso
 test("Connectors says how many to reconnect, else how many connected, else None; open, each server's status", async () => {
   const container = installDom(true);
   const base = chat([]);
-  await render(container, {
-    ...base,
-    summary: {
-      ...base.summary!,
-      mcpServers: [
-        { name: "github", status: "connected" },
-        { name: "linear", status: "failed" },
-        { name: "sentry", status: "pending" },
-      ],
-    },
-  });
-  // Usage always shows in the chat's own panel (None here), under the Show more line.
-  expect(sectionIds(container)).toEqual(["environment", "context", "usage", "connectors"]);
-  const connectors = section(container, "connectors")!;
-  // As Claude Code desktop's head: the servers to reconnect, when any failed.
-  expect(meta(connectors)).toBe("1 to reconnect");
-  expect(connectors.querySelector(".acpmux-session-info-row")).toBeNull();
-  await click(head(connectors));
-  const rows = [...section(container, "connectors")!.querySelectorAll(".acpmux-session-info-row")].map(
-    (row) => row.textContent,
-  );
-  expect(rows).toEqual(["githubConnected", "linearNeeds reconnect", "sentryConnecting"]);
+  // Every connect has lasted the shared bound (connectorState.ts): the gallery's zero grace shows it at once.
+  setLastingGrace(0);
+  try {
+    await render(container, {
+      ...base,
+      summary: {
+        ...base.summary!,
+        mcpServers: [
+          { name: "github", status: "connected" },
+          { name: "linear", status: "failed" },
+          { name: "sentry", status: "pending" },
+        ],
+      },
+    });
+    // Usage always shows in the chat's own panel (None here), under the Show more line.
+    expect(sectionIds(container)).toEqual(["environment", "context", "usage", "connectors"]);
+    const connectors = section(container, "connectors")!;
+    // As Claude Code desktop's head: the servers to reconnect, when any failed.
+    expect(meta(connectors)).toBe("1 to reconnect");
+    expect(connectors.querySelector(".acpmux-session-info-row")).toBeNull();
+    await click(head(connectors));
+    const rows = [...section(container, "connectors")!.querySelectorAll(".acpmux-session-info-row")].map(
+      (row) => row.textContent,
+    );
+    expect(rows).toEqual(["githubConnected", "linearNeeds reconnect", "sentryConnecting"]);
 
-  // None failed: how many the harness loaded, never a green connected count.
-  await render(container, {
-    ...base,
-    summary: { ...base.summary!, mcpServers: [{ name: "github", status: "connected" }] },
-  });
-  expect(meta(section(container, "connectors"))).toBe("1 loaded");
+    // None failed: how many the harness loaded, never a green connected count.
+    await render(container, {
+      ...base,
+      summary: { ...base.summary!, mcpServers: [{ name: "github", status: "connected" }] },
+    });
+    expect(meta(section(container, "connectors"))).toBe("1 loaded");
 
-  // A harness that reports none: the section stays, folded, with one plain line, None (Lucas,
-  // 2026-11-05: Usage and Connectors always show).
-  await render(container, base);
-  expect(meta(section(container, "connectors"))).toBe(translate("sessionInfo.none"));
-  expect(section(container, "connectors")!.querySelector(".acpmux-session-info-row")).toBeNull();
+    // A harness that reports none: the section stays, folded, with one plain line, None (Lucas,
+    // 2026-11-05: Usage and Connectors always show).
+    await render(container, base);
+    expect(meta(section(container, "connectors"))).toBe(translate("sessionInfo.none"));
+    expect(section(container, "connectors")!.querySelector(".acpmux-session-info-row")).toBeNull();
+  } finally {
+    setLastingGrace(LASTING_MS);
+  }
 });
 
 /// A `gh pr create` the agent ran, printing its pull request's URL.
