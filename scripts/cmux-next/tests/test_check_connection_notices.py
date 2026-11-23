@@ -342,6 +342,21 @@ class NativeShapes(unittest.TestCase):
         code, out = tree.check()
         self.assertEqual(code, 0, out)
 
+    def test_a_swift_row_model_that_names_its_action_passes(self):
+        """A row model whose state words come with the gesture its view draws (Connect) carries one action."""
+        model = ("public struct AccountRow {\n"
+                 "    var connecting: Bool\n"
+                 "    public var status: String { connecting ? \"Connecting\" : \"Connected\" }\n"
+                 "    public var action: Action? { connecting ? .connect : nil }\n"
+                 "    public enum Action { case connect }\n}\n")
+        tree = Tree(self)
+        tree.write(f"{IOS}/AccountRow.swift", model)
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+        tree.write(f"{IOS}/AccountRow.swift", model.replace("    public var action: Action? { connecting ? .connect : nil }\n", ""))
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+
     def test_tests_and_galleries_are_not_read(self):
         tree = Tree(self)
         tree.write(f"{IOS}/Tests/TerminalStatusLineTests.swift", IOS_OLD)

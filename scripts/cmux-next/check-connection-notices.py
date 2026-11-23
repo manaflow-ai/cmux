@@ -129,7 +129,9 @@ BOUND_COPIES: tuple[tuple[str, str, int], ...] = (
 PERSON_ACTIONS = re.compile(
     r"(\bonClick\s*=|\bonPress\s*=|<Button\b|<button\b|\bonAction\b|\bprimaryAction\b"  # web
     r"|\bButton\s*\(|\bNSButton\b|\.onTapGesture\b|\baddAction\b|#selector\(|\bUIAction\b|\.swipeActions\b"  # Swift
-    r"|\baction:\s*\{|\bactions:\s*\[|\baction:\s*\.)"
+    r"|\baction:\s*\{|\bactions:\s*\[|\baction:\s*\."
+    # A Swift row model that names the gesture for its state (`var action: Action?`) for its view to draw as a link.
+    r"|\bvar\s+action\s*:\s*\w+\??\s*\{)"
 )
 # Lines that are not UI text: logs, errors, assertions.
 NOT_UI_LINE = re.compile(
