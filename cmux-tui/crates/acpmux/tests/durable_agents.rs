@@ -60,6 +60,8 @@ mod stalled_turn;
 mod stop_if_idle_unadopted;
 #[path = "durable_agents/streaming_restart_gap.rs"]
 mod streaming_restart_gap;
+#[path = "durable_agents/take_over_dark_time.rs"]
+mod take_over_dark_time;
 #[path = "durable_agents/take_over_under_load.rs"]
 mod take_over_under_load;
 #[path = "durable_agents/transfer_authority.rs"]
