@@ -782,7 +782,7 @@ struct SessionArtifactsSheet: View {
     let surface: AgentChatSurface
 
     var body: some View {
-        let collected = SessionArtifacts.collect(turns: store.turns, subagents: store.subagents, cwd: store.summary.cwd)
+        let collected = store.artifacts
         ArtifactsBrowser(
             title: "Files and Artifacts",
             artifacts: collected.artifacts,
