@@ -645,12 +645,28 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           # One artifact per device; the report downloads every review-gate-*.
+          # The stills go in their own ios-gate-stills-* artifact below: the
+          # iPad's are over 200 MB, and downloading them before the verdict ran
+          # the report job past its timeout (a cancelled, red gate, run
+          # 45078446389, with every leg green).
           name: review-gate-path-${{ env.LANE }}-${{ matrix.family }}
           path: |
             ${{ env.RESULTS }}/*.json
             ${{ env.RESULTS }}/*.log
-            ${{ env.RESULTS }}/screens
           if-no-files-found: error
+          retention-days: 3
+      - name: Upload stills
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          # Not review-gate-*: only the screen diff reads these. The status file
+          # keeps RESULTS the common root, so the zip holds screens/<family>/.
+          name: ios-gate-stills-${{ env.LANE }}-${{ matrix.family }}
+          path: |
+            ${{ env.RESULTS }}/*.status.json
+            ${{ env.RESULTS }}/screens
+          if-no-files-found: warn
           retention-days: 3
       # The xcresult bundles (about 1 GB) are not uploaded: their test results,
       # logs and screenshots are exported above, which is all the report reads.
@@ -812,9 +828,11 @@ jobs:
     needs: [plan, lint, reviewer-path, asc-validate]
     if: ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    timeout-minutes: 10
+    # The verdict needs only the small review-gate-* files; the stills download
+    # and the screen diff that follow have their own step timeouts.
+    timeout-minutes: 20
     # actions: read lets the screen diff download the newest feat-cmux-next
-    # push run's review-gate-path-* stills (scripts/ci/ios_gate_screen_diff.py).
+    # push run's ios-gate-stills-* (scripts/ci/ios_gate_screen_diff.py).
     permissions:
       contents: read
       actions: read
@@ -907,12 +925,31 @@ jobs:
               echo '```json'; cat "$f"; echo '```'; } | tee -a review-gate.md >> "$GITHUB_STEP_SUMMARY"
             code=1
           done < <(find in -name 'device-plan-mismatch.json' -type f | sort)
+          exit $code
+      # Warn only, after the verdict: a slow stills download can no longer
+      # cancel the report (it did, run 45078446389).
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        timeout-minutes: 6
+        with:
+          pattern: ios-gate-stills-*
+          path: stills
+      - name: Screen diff
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        timeout-minutes: 9
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GATE_LANE: ${{ needs.plan.outputs.lane }}
+        run: |
+          set -uo pipefail
           # Each family's stills against the newest feat-cmux-next push run's,
           # by attachment name: changed, new and removed screens, each
           # justified by a `Visual-change: <screen or *>: <why>` line in the
           # pull request body or not. It warns only and never sets $code.
           if [ -f scripts/ci/ios_gate_screen_diff.py ]; then
-            timeout 420 python3 -I scripts/ci/ios_gate_screen_diff.py --head-root in \
+            timeout 420 python3 -I scripts/ci/ios_gate_screen_diff.py --head-root stills \
               --family iphone --family ipad --family duo --fetch-baseline --lane "$GATE_LANE" \
               --work "$RUNNER_TEMP/screen-baseline" --out "$RUNNER_TEMP/screens.md" \
               || echo "::warning::the iOS screen diff did not finish"
@@ -923,7 +960,6 @@ jobs:
               if [ -n "$unjustified" ]; then echo "::warning::$unjustified (see the run summary)"; fi
             fi
           fi
-          exit $code
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:

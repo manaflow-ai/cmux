@@ -14,7 +14,6 @@ export default componentEntry<OnboardingGalleryProps>({
     "pages/onboarding/AgentsStep.tsx",
     "pages/onboarding/ImportStep.tsx",
     "pages/onboarding/ComputerUseStep.tsx",
-    "pages/onboarding/AgentToolsStep.tsx",
     "pages/onboarding/MakeItYoursStep.tsx",
     "pages/onboarding/galleryFixture.tsx",
     "pages/onboarding/signInReadiness.ts",
@@ -112,19 +111,5 @@ export default componentEntry<OnboardingGalleryProps>({
     "computer-use-helper-failed": { props: { step: "computerUse", computerUse: "helperFailed" } },
     "computer-use-off": { props: { step: "computerUse", computerUse: "off" } },
     "computer-use-unavailable": { props: { step: "computerUse", computerUse: "unavailable" } },
-    // cmux Tools: do agents the person starts in cmux get cmux's MCP server (Computer Use included)?
-    "agent-tools-checking": { props: { step: "agentTools", agentTools: "checking" } },
-    "agent-tools-none": {
-      note: "No coding agent found: Turn On still records the answer for agents installed later.",
-      props: { step: "agentTools", agentTools: "none" },
-    },
-    "agent-tools-found": {
-      note: "Claude Code and Codex found: the question, Not Now and Turn On.",
-      props: { step: "agentTools", agentTools: "found" },
-    },
-    "agent-tools-adding": { props: { step: "agentTools", agentTools: "adding" } },
-    "agent-tools-added": { props: { step: "agentTools", agentTools: "added" } },
-    "agent-tools-declined": { props: { step: "agentTools", agentTools: "declined" } },
-    "agent-tools-failed": { props: { step: "agentTools", agentTools: "failed" } },
   },
 });
