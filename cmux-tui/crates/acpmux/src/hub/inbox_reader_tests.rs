@@ -326,3 +326,72 @@ async fn inbox_reader_live_haiku() {
         json!({"reads": took.len(), "p50_s": took[4].as_secs_f64(), "p90_s": took[7].as_secs_f64()})
     );
 }
+
+/// What the coordinator waits for, with and without the reader: the time from a message's
+/// coming (as `inbox_accept` takes it: in the thread, the read started, the inbox reviewed) to
+/// its notice going, for a reader that answers in `model` (the measured Haiku CLI first token
+/// and exit, PR body) and for none. Paths: a steer into a running turn, a wake of an idle chat
+/// (its 2 s debounce), and a burst of 50 messages from 50 threads 10 ms apart into each (load:
+/// the reader's 2 slots queue). Manual: `cargo test -p acpmux --lib inbox_reader_latency --
+/// --ignored --nocapture`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore]
+async fn inbox_reader_latency() {
+    let models: [Option<u64>; 5] = [None, Some(100), Some(2240), Some(2870), Some(5090)];
+    let mut n = 0;
+    for (path, burst) in [("steer", 1), ("wake", 1), ("steer", 50), ("wake", 50)] {
+        for model in models {
+            let mut took = Vec::new();
+            for _ in 0..3 {
+                n += 1;
+                let (hub, session) = hub_with_chat(&format!("lat-{n}"));
+                if path == "steer" {
+                    running(&session);
+                }
+                if let Some(ms) = model {
+                    set_test_summarizer(
+                        &session.id,
+                        Arc::new(move |_| {
+                            std::thread::sleep(Duration::from_millis(ms));
+                            Ok("2|a summary".into())
+                        }),
+                    );
+                }
+                let started = Instant::now();
+                for i in 0..burst {
+                    let id = format!("m-{i}");
+                    let mut it =
+                        item(&id, &format!("t-{i}"), PromptClass::Result, now_ms(), &long("x"));
+                    it.from = format!("lane-{i}");
+                    it.report = true;
+                    let text = it.text.clone();
+                    session.inbox().items.push(it);
+                    hub.inbox_reader_prefetch(
+                        &session,
+                        &id,
+                        &format!("lane-{i}"),
+                        PromptClass::Result,
+                        false,
+                        &text,
+                    );
+                    hub.inbox_review(&session);
+                    if i + 1 < burst {
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                }
+                while !went(&session) {
+                    assert!(started.elapsed() < Duration::from_secs(10), "no notice");
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+                took.push(started.elapsed().as_millis());
+            }
+            took.sort();
+            println!(
+                "{}",
+                json!({"path": path, "burst": burst,
+                       "model_ms": model.map_or(json!("off"), |m| json!(m)),
+                       "runs_ms": took, "median_ms": took[1]})
+            );
+        }
+    }
+}

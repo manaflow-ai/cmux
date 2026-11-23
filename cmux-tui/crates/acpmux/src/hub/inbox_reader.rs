@@ -102,6 +102,7 @@ fn cache() -> std::sync::MutexGuard<'static, Cache> {
 /// What answers in place of the small model (tests): the prompt in, the model's answer out.
 pub(in crate::hub) type Summarizer = Arc<dyn Fn(String) -> Result<String, String> + Send + Sync>;
 
+// test-hook-allow: armed per chat id, and only that chat's reads take it
 #[cfg(test)]
 static TEST_SUMMARIZERS: std::sync::LazyLock<StdMutex<HashMap<String, Summarizer>>> =
     std::sync::LazyLock::new(Default::default);
