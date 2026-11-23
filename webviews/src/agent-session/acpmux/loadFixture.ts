@@ -127,8 +127,8 @@ export function loadTurn(turn: number, opts: { diffLines?: number; logLines?: nu
   return steps;
 }
 
-/// A light finished turn: a one-line prompt and a one-line reply, two transcript rows (the
-/// renders-per-delta bench opens chats of an exact length with these).
+/// A light finished turn: a one-line prompt, a one-line reply and the turnSummary produced by
+/// turn_result: three model rows. The renders-per-delta bench opens exact lengths with these.
 export function lightTurn(turn: number): LoadStep[] {
   return [
     { mux: "user_message", msg: { text: `Turn ${turn}: one short question` } },

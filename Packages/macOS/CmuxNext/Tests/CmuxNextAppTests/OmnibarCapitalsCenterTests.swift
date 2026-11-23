@@ -60,7 +60,7 @@ import Testing
             defer { design.densityTokens = saved }
             design.densityTokens = preset.tokens
             _ = NSApplication.shared
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 500), styleMask: [.borderless], backing: .buffered, defer: false)
+            let window = TwoXWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 500), styleMask: [.borderless], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             defer { window.close() }
             let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: nil))
@@ -89,7 +89,7 @@ import Testing
         defer { design.densityTokens = saved }
         design.densityTokens = preset.tokens
         _ = NSApplication.shared
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 500), styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = TwoXWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 500), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.close() }
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com")))
@@ -100,6 +100,9 @@ import Testing
         let bar = chrome.addressBar
         bar.field.stringValue = "HHHH"
         bar.layoutSubtreeIfNeeded()
+        // A secure page's chip is clear at rest and shows on hover, in the same place (OmnibarCutsTests): draw it shown.
+        #expect(bar.chip.alphaValue == 0 && !bar.chip.isHidden, "\(preset): a secure page's chip is clear at rest and keeps its room")
+        bar.chip.alphaValue = 1
         let icon = try #require(bar.chip.subviews.compactMap { $0 as? NSImageView }.first { !$0.isHidden })
         let glyph = try Self.inkRows(icon, in: bar)
         // The first H's stem: the field's column with the most ink.

@@ -67,6 +67,8 @@ enum DebugLayers {
                 "class": .string(String(describing: type(of: child))),
                 "visible": .bool(child.isVisible),
                 "level": .number(Double(child.level.rawValue)),
+                // Mission Control lays out every child window that is not transient (cmux#48535).
+                "in_mission_control": .bool(!child.collectionBehavior.contains(.transient)),
                 "frame": rect(child.frame),
                 "layout_pass_limit": .number(Double(LayoutPassGuard.limit(viewCount: LayoutPassGuard.viewCount(of: child)))),
             ])

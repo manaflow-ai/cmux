@@ -66,6 +66,8 @@ struct ChatNativeLayout: @unchecked Sendable {
         var file: Int?
         /// The region is a disclosure ("collapsed" until opened).
         var isDisclosure = false
+        /// The identifier UI tests find the region by.
+        var identifier: String?
     }
 
     /// Text runs, SF symbols, boxes, separators and tap regions, positioned in the row.

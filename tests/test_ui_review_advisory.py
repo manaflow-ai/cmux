@@ -21,24 +21,48 @@ spec.loader.exec_module(module)
 
 class UiReviewAdvisoryTests(unittest.TestCase):
     def test_workflow_warns_when_base_script_is_missing_or_crashes(self):
+        # The ui-review step of the step table (ci/steps.toml), which pr-checks.yml's advisory job runs from the
+        # base checkout (CI v2 step 6). The changed paths come from git, or the files API when git cannot list them.
+        import tomllib
+
+        command = tomllib.loads((ROOT / "ci/steps.toml").read_text())["step"]["ui-review"]["run"]
         workflow = yaml.safe_load((ROOT / ".github/workflows/pr-checks.yml").read_text())
-        steps = workflow["jobs"]["ui-review"]["steps"]
+        steps = workflow["jobs"]["advisory"]["steps"]
         self.assertTrue(next(step for step in steps if step.get("id") == "checkout")["continue-on-error"])
-        command = next(step["run"] for step in steps if step["name"] == "Warn when the UI review is missing")
+        self.assertIn("scripts/ci/ui_review_advisory.py",
+                      next(step for step in steps if step.get("id") == "checkout")["with"]["sparse-checkout"])
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            for exists in (False, True):
-                with self.subTest(script_exists=exists):
-                    if exists:
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            # No git history and a files API that lists one webview file.
+            (bin_dir / "gh").write_text("#!/bin/sh\necho webviews/src/a.tsx\n")
+            (bin_dir / "gh").chmod(0o755)
+            env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "RUNNER_TEMP": str(root),
+                   "BODY": "", "MERGE_SHA": "0" * 40, "HEAD_SHA": "1" * 40, "REPOSITORY": "o/r", "PR": "1",
+                   "GIT_DIR": str(root / "no-repo")}
+            cases = (("missing", None, "the advisory script is not present"),
+                     ("crashes", "raise RuntimeError('script failure')\n", "could not run"),
+                     ("warns", SCRIPT.read_text(), "UI review"))
+            for name, text, expected in cases:
+                with self.subTest(script=name):
+                    if text is not None:
                         script = root / "scripts/ci/ui_review_advisory.py"
-                        script.parent.mkdir(parents=True)
-                        script.write_text("raise RuntimeError('script failure')\n")
+                        script.parent.mkdir(parents=True, exist_ok=True)
+                        script.write_text(text)
                     result = subprocess.run(
-                        ["bash", "-e", "-c", command], cwd=root, capture_output=True, text=True,
-                        env={**os.environ, "BODY_FILE": "body", "FILES_JSON": "files"},
+                        ["bash", "-euo", "pipefail", "-c", command], cwd=root, capture_output=True, text=True, env=env,
                     )
-                    self.assertEqual(result.returncode, 0, result.stderr)
-                    self.assertIn("::warning title=UI review::", result.stdout)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertIn("::warning", result.stdout)
+                    self.assertIn(expected, result.stdout)
+            # Neither git nor the API can list the files: a warning, and the step passes.
+            (bin_dir / "gh").write_text("#!/bin/sh\nexit 1\n")
+            result = subprocess.run(["bash", "-euo", "pipefail", "-c", command], cwd=root, capture_output=True,
+                                    text=True, env=env)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("::warning title=UI review::could not check out the advisory or read changed files",
+                          result.stdout)
 
     def test_webview_and_native_cmuxnext_paths_are_ui_changes(self):
         files = [

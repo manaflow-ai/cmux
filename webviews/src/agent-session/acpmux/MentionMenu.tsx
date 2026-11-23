@@ -29,7 +29,7 @@ export function MentionMenu({
   // Above the composer's box, or past the window's edge when the pane has no room there (cx-6k6cg).
   // The list draws out of the box (backdropLayer.tsx): the box is what it stands beside.
   const box = useComposerListBox();
-  const escape = useEscapingList("top", 6, undefined, box);
+  const escape = useEscapingList("top", 6, undefined, box, true);
   // Chats can list before a word is typed; the files' state still says what the search is doing.
   const note = !state
     ? undefined
@@ -74,6 +74,8 @@ export function MentionMenu({
             <span className="acpmux-slash-name">{runs(item.name)}</span>
             {item.kind === "session" ? (
               item.project && <span className="acpmux-slash-description">{item.project}</span>
+            ) : item.kind === "extension" ? (
+              <span className="acpmux-slash-description">{item.mention.detail ?? item.mention.extension}</span>
             ) : item.kind === "harness" ? (
               <span className="acpmux-slash-description">{t("mention.readOnlyGuest")}</span>
             ) : (

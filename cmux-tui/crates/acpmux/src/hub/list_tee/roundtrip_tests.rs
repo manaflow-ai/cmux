@@ -259,10 +259,11 @@ async fn v1_session_lifecycle_roundtrips_through_the_v2_list_tee() {
             msg: Value::Null,
             host_seq: None,
         }),
-        remote: Some(RemoteRef { peer: "other-daemon".into(), summary: peer_row }),
+        remote: Some(RemoteRef { peer: "other-daemon".into(), summary: peer_row.into() }),
         update_line: Default::default(),
         row: Default::default(),
         list_seq: 0,
+        peer_batch: false,
     });
     wait_roundtrip(&v1, &v2).await;
     assert!(

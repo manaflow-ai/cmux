@@ -175,7 +175,7 @@ struct ComputerUseSetupWindowTests {
 
     @Test func continueOnAComputerUseCardOpensTheWindowNotTheList() {
         let setup = ComputerUseSetup(inputs: { .init(disabledByPolicy: false, enabled: true, helper: .off) },
-                                     configuration: { nil }, resolveHelper: { _ in nil })
+                                     resolveHelper: { _ in nil })
         let log = Log()
         let opener = SystemPermissionOpener(setup: setup, showComputerUse: { log.count += 1 }, openURL: { log.urls.append($0) })
         opener.open(.computerUse, target: nil)

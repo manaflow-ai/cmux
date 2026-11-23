@@ -2,6 +2,7 @@
 // teammates share, summed by cmux-platform (`GET /v1/usage/audit`) and read through this Mac's
 // acpmux with its cmux sign-in (`_acpmux/team_audit`). A team admin sees every teammate; anyone
 // else their own turns. Counts and times only; a cost is shown as time (agent and machine time).
+import { intl } from "../../../ui/intl";
 
 export const TEAM_AUDIT_METHOD = "_acpmux/team_audit";
 
@@ -148,19 +149,21 @@ export const auditTokensIn = (totals: TeamAuditTotals) => totals.inputTokens + t
 /// A hit rate as a whole percent in the page's language; a dash when there was no input.
 export function formatHitRate(rate: number | null, locale?: string): string {
   if (rate === null) return "–";
-  return new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 0 }).format(rate);
+  return intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 0 }).format(rate);
 }
 
 /// What a row's key reads as: a day as a date, a machine that is the person's own as its label, the
 /// platform's `none` as `none` (localized by the screen), anything else as the key.
 export function auditRowLabel(group: TeamAuditGroup, row: TeamAuditRow, locale?: string): string {
   if (group === "day" && /^\d{4}-\d{2}-\d{2}$/.test(row.key)) {
-    return new Intl.DateTimeFormat(locale, {
-      month: "short",
-      day: "numeric",
-      weekday: "short",
-      timeZone: "UTC",
-    }).format(new Date(`${row.key}T12:00:00Z`));
+    return intl
+      .DateTimeFormat(locale, {
+        month: "short",
+        day: "numeric",
+        weekday: "short",
+        timeZone: "UTC",
+      })
+      .format(new Date(`${row.key}T12:00:00Z`));
   }
   return row.label ?? row.key;
 }

@@ -14,16 +14,15 @@ use std::sync::Arc;
 
 pub(super) const TOOLS: [&str; 3] = ["goal_set", "goal_update", "goal_get"];
 /// What every chat with the tools is told.
-pub(super) const STEER: &str = "For work that should run until a condition holds (make the \
-suite pass, land the PR, finish the migration), call goal_set with the objective and a checkable \
-done-when; the chat keeps them across compaction. Call goal_update with status complete, with \
-the evidence as the note, only once done-when holds, and with blocked when you need the person.";
+pub(super) const STEER: &str = "For work that runs until a condition holds, call goal_set with \
+the objective and a checkable done-when; call goal_update with complete (evidence as the note) \
+only once it holds, or blocked when you need the person.";
 
 pub(super) fn tools() -> Vec<Value> {
     vec![
         json!({
             "name": "goal_set",
-            "description": "Set this chat's goal: an objective and a done-when that can be checked (a command that passes, a PR that merged, a page that loads). The chat keeps both outside your context, so they survive compaction, and the person sees the goal above the composer. On harnesses without a goal of their own, acpmux prompts you to keep going after every turn until you call goal_update with complete or blocked, or a budget runs out. A new goal_set replaces the last. Refused in a Codex chat: use Codex's own /goal there.",
+            "description": "Set this chat's goal: an objective and a done-when that can be checked (a command that passes, a PR that merged, a page that loads). The chat keeps both outside your context, so they survive compaction, and the person sees the goal above the composer. On harnesses without a goal of their own, acpmux prompts you to keep going after every turn until you call goal_update with complete or blocked, or a budget runs out. A new goal_set replaces the last, and a new objective renames the chat after its task (its old name still reaches it). Refused in a Codex chat: use Codex's own /goal there.",
             "inputSchema": {
                 "type": "object",
                 "properties": {

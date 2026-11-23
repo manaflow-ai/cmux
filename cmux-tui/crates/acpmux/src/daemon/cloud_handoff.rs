@@ -190,6 +190,7 @@ pub(super) fn step_of(kind: &str, msg: &Value) -> Option<Step> {
             let turn = named_turn(msg["promptId"].as_str())?;
             let why = match msg["reason"].as_str().unwrap_or("transport") {
                 "capacity" => "The provider had no capacity.".to_owned(),
+                "rate_limit" => "The account hit its rate limit.".to_owned(),
                 "agent_exited" => "The agent exited before finishing.".to_owned(),
                 "context" => "The chat outgrew its context window.".to_owned(),
                 _ => "The connection was interrupted.".to_owned(),

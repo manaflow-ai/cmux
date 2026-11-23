@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentActivity
+import CmuxNextDesignTokens
 @testable import CmuxNextAgentLanes
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
@@ -9,7 +10,8 @@ import Testing
 /// Leo 2026-10-30: "that visibility into [one agent host's] guys was (and is?) pretty bad i feel like we can
 /// make more improvements to acpmux/cmux-next". A runaway agent chat (no autocompact cap, a huge
 /// context, a storm of subagents) gets a small warning triangle on its sidebar row, apart from the
-/// working spinner, whose tooltip says each rule acpmux found broken and the number.
+/// working spinner. The row's hover card says each rule acpmux found broken and the number (a1315's cut 3: rows,
+/// which have hover cards, carry no tooltips).
 @MainActor @Suite(.serialized) struct SidebarUsageWarningTests {
     static let warnings = [
         "No autocompact cap: context is 412k and only compacts at the model's limit",
@@ -66,14 +68,20 @@ import Testing
         let row = try Self.rowView(ws)
         #expect(!row.usageWarningMark.isHidden)
         #expect(row.usageWarningMark.frame.width > 0)
-        #expect(row.usageWarningMark.themedToolTip == Self.warnings.joined(separator: "\n"))
+        #expect(row.usageWarningMark.themedToolTip == nil, "a mark on a row has a tooltip")
         let label = try #require(row.accessibilityLabel())
         #expect(Self.warnings.allSatisfy(label.contains))
+        // The hover card says each one, in every layout.
+        for layout in WorkspaceHoverCardOptions.Layout.allCases {
+            var options = WorkspaceHoverCardOptions()
+            options.layout = layout
+            let facts = WorkspaceHoverCardContent.make(ws, machine: nil, now: Date(), options: options, timeline: []).facts
+            #expect(facts.filter { $0.kind == "usageWarning" }.map(\.text) == Self.warnings, "\(layout)")
+        }
     }
 
     /// Hovering the row shows its ⋯ and × over the row's end; the badge stays, left of them, so a
-    /// person can still point at it and read its tooltip (the first capture showed the controls in
-    /// its place).
+    /// person still sees it (the first capture showed the controls in its place).
     @Test func theBadgeStaysBesideTheHoverControls() throws {
         var ws = SidebarWorkspace(id: WorkspaceID("ws-runaway"), title: "runaway", lastActivity: Date(), agentWorking: true,
                                   kind: .harness, activity: .working)
@@ -88,7 +96,6 @@ import Testing
         for control in controls {
             #expect(mark.frame.maxX <= control.frame.minX, "badge \(mark.frame) clear of control \(control.frame)")
         }
-        #expect(mark.themedToolTip == Self.warnings.joined(separator: "\n"))
     }
 
     @Test func noWarningNoBadge() throws {

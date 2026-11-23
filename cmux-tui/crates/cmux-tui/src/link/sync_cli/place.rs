@@ -355,6 +355,11 @@ impl Dir {
         .map(drop)
     }
 
+    /// Removes the folder `name` here when it is empty (an error otherwise).
+    pub(super) fn remove_empty_dir(&self, name: &str) -> io::Result<()> {
+        self.unlink(name, true)
+    }
+
     fn unlink(&self, name: &str, folder: bool) -> io::Result<()> {
         let c = c_name(name)?;
         let flags = if folder { libc::AT_REMOVEDIR } else { 0 };
@@ -379,6 +384,43 @@ pub(super) fn parent_of(root: &Dir, relative: &str) -> io::Result<Option<(Dir, S
         None => root.dup()?,
     };
     Ok(Some((dir, name)))
+}
+
+/// The folders on the way to the last path asked for, held open: paths that
+/// come in order (git lists them sorted) reopen only the folders they do not
+/// share with the one before, so a listing costs one open per folder, not
+/// one per folder per file. Each folder is still opened by descriptor
+/// without following a symlink, as [`parent_of`] does.
+#[derive(Default)]
+pub(super) struct Chain {
+    open: Vec<(String, Dir)>,
+}
+
+impl Chain {
+    /// The folder holding `relative` under `root` and the name in it, as
+    /// [`parent_of`]: None when a folder on the way is missing; an error
+    /// when one is not a folder (a symlink).
+    pub(super) fn parent_of<'a>(
+        &'a mut self,
+        root: &'a Dir,
+        relative: &'a str,
+    ) -> io::Result<Option<(&'a Dir, &'a str)>> {
+        let (folders, name) = match relative.rsplit_once('/') {
+            Some((folders, name)) => (folders, name),
+            None => ("", relative),
+        };
+        let parts: Vec<&str> =
+            if folders.is_empty() { Vec::new() } else { folders.split('/').collect() };
+        let shared =
+            self.open.iter().zip(&parts).take_while(|((open, _), part)| open == *part).count();
+        self.open.truncate(shared);
+        for part in parts.iter().skip(shared) {
+            let at = self.open.last().map_or(root, |(_, dir)| dir);
+            let Some(next) = at.child(part)? else { return Ok(None) };
+            self.open.push(((*part).to_string(), next));
+        }
+        Ok(Some((self.open.last().map_or(root, |(_, dir)| dir), name)))
+    }
 }
 
 impl Dir {
@@ -583,6 +625,12 @@ impl Transaction {
             self.undo.push(Undo::RemovedLink { relative: relative.into(), aside, text: found });
         }
         Err(Changed(relative.into()).into())
+    }
+
+    /// Makes the folder `relative` and any missing folder above it (each undone by roll back);
+    /// nothing when it is there.
+    pub(super) fn folder(&mut self, relative: &str) -> anyhow::Result<()> {
+        self.folder_for(&format!("{relative}/.")).map(drop)
     }
 
     /// Puts back everything this pull changed, newest first. The error
@@ -855,68 +903,5 @@ fn rename_noreplace(fd: RawFd, from: &CStr, to: &CStr) -> io::Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
-    use sha2::{Digest as _, Sha256};
-
-    use super::*;
-
-    fn sha256(bytes: &[u8]) -> String {
-        Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect()
-    }
-
-    /// A file edited here after the plan read it (between the last check
-    /// and its move) is never replaced or deleted: the edit stays.
-    #[test]
-    fn a_file_edited_after_the_plan_is_never_replaced_or_deleted() {
-        let top = tempfile::tempdir().unwrap();
-        let (root, staging) = (top.path().join("root"), top.path().join("staging"));
-        std::fs::create_dir_all(&root).unwrap();
-        std::fs::create_dir_all(&staging).unwrap();
-        std::fs::write(root.join("a.txt"), "edited\n").unwrap();
-        std::fs::write(root.join("b.txt"), "edited\n").unwrap();
-        std::fs::write(staging.join("file-1"), "machine\n").unwrap();
-        let planned = Expected { sha256: sha256(b"planned\n"), permissions: 0o644 };
-
-        let mut transaction = Transaction::new(&root, &staging).unwrap();
-        let error = transaction.write("a.txt", "file-1", Some(&planned)).unwrap_err();
-        assert!(error.downcast_ref::<Changed>().is_some(), "{error:#}");
-        let error = transaction.delete("b.txt", &planned).unwrap_err();
-        assert!(error.downcast_ref::<Changed>().is_some(), "{error:#}");
-        // A file made after the plan saw none is not replaced either.
-        std::fs::write(root.join("c.txt"), "made here\n").unwrap();
-        let error = transaction.write("c.txt", "file-1", None).unwrap_err();
-        assert!(error.downcast_ref::<Changed>().is_some(), "{error:#}");
-        let _ = transaction.roll_back();
-
-        assert_eq!(std::fs::read_to_string(root.join("a.txt")).unwrap(), "edited\n");
-        assert_eq!(std::fs::read_to_string(root.join("b.txt")).unwrap(), "edited\n");
-        assert_eq!(std::fs::read_to_string(root.join("c.txt")).unwrap(), "made here\n");
-    }
-
-    /// A symlink made, replaced or removed by a pull is put back exactly by
-    /// a roll back, and one that changed after the plan stays.
-    #[test]
-    fn symlinks_are_placed_and_put_back_and_a_changed_one_stays() {
-        let top = tempfile::tempdir().unwrap();
-        let (root, staging) = (top.path().join("root"), top.path().join("staging"));
-        std::fs::create_dir_all(root.join("src")).unwrap();
-        std::fs::create_dir_all(&staging).unwrap();
-        std::os::unix::fs::symlink("src", root.join("old")).unwrap();
-        std::os::unix::fs::symlink("edited", root.join("mine")).unwrap();
-
-        let mut transaction = Transaction::new(&root, &staging).unwrap();
-        transaction.remove_link("old", "src").unwrap();
-        transaction.link("old", "src/a").unwrap();
-        transaction.link("deep/new", "../src").unwrap();
-        assert_eq!(std::fs::read_link(root.join("old")).unwrap(), Path::new("src/a"));
-        assert_eq!(std::fs::read_link(root.join("deep/new")).unwrap(), Path::new("../src"));
-        let error = transaction.remove_link("mine", "planned").unwrap_err();
-        assert!(error.downcast_ref::<Changed>().is_some(), "{error:#}");
-        assert_eq!(std::fs::read_link(root.join("mine")).unwrap(), Path::new("edited"));
-        transaction.roll_back().unwrap();
-
-        assert_eq!(std::fs::read_link(root.join("old")).unwrap(), Path::new("src"));
-        assert!(!root.join("deep").exists());
-        assert_eq!(std::fs::read_link(root.join("mine")).unwrap(), Path::new("edited"));
-    }
-}
+#[path = "place_tests.rs"]
+mod tests;

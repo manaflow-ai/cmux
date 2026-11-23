@@ -6,11 +6,6 @@
   ],
   "blockers": [
     {
-      "key": "metadata.screenshots|cmux-next-ios/AppStoreReview/screenshots/en-US/ipad",
-      "finding": "no ipad screenshots",
-      "fix": "#40927 (iPhone 6.9-inch screenshots)"
-    },
-    {
       "key": "metadata.screenshots|cmux-next-ios/AppStoreReview/screenshots/en-US/iphone",
       "finding": "no iphone screenshots",
       "fix": "#40927 (iPhone 6.9-inch screenshots)"

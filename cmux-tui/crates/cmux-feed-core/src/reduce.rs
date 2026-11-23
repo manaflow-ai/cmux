@@ -133,14 +133,22 @@ impl Feed {
         let outcome = match target {
             Some(index) => {
                 let item = &mut self.items[index];
-                item.title = notice.title;
-                item.body = notice.body;
-                item.level = notice.level;
-                item.source = notice.source;
-                item.actor = notice.actor;
-                item.context = notice.context;
-                item.updated_at_ms = notice.at_ms.max(item.updated_at_ms);
-                item.count = item.count.saturating_add(1);
+                // A program's own notice (OSC 9/777/7501) for the event its agent's hook just
+                // posted is the same event told twice (Claude Code reports both): the hook's
+                // text, which names the agent and carries its details, stays.
+                let echo = is_terminal_echo(item, &notice);
+                if !echo {
+                    item.title = notice.title;
+                    item.body = notice.body;
+                    item.level = notice.level;
+                    item.source = notice.source;
+                    item.actor = notice.actor;
+                    item.context = notice.context;
+                    item.count = item.count.saturating_add(1);
+                    // An echo leaves the time alone: the window stays measured from the
+                    // agent's own notice, so a program's frequent notices cannot hold it open.
+                    item.updated_at_ms = notice.at_ms.max(item.updated_at_ms);
+                }
                 item.aliases.push(notice.dedupe_key);
                 if item.aliases.len() > MAX_ALIASES {
                     let excess = item.aliases.len() - MAX_ALIASES;
@@ -362,6 +370,18 @@ fn refuse_unowned(item: &Item) -> Result<(), FeedError> {
     }
 }
 
+/// How long after an agent's notice a program's own notice on the same terminal is taken
+/// for the same event (the phone's Feed uses the same window, `TerminalFeed.echoWindow`).
+pub const ECHO_WINDOW_MS: u64 = 10_000;
+
+/// Whether `notice`, a terminal program's own notice, repeats the agent notice `item` stands
+/// for: the same terminal (the caller's coalescing target), within [`ECHO_WINDOW_MS`].
+fn is_terminal_echo(item: &Item, notice: &Notice) -> bool {
+    item.source == "agent"
+        && notice.source == "terminal"
+        && notice.at_ms.abs_diff(item.updated_at_ms) <= ECHO_WINDOW_MS
+}
+
 fn validate_notice(notice: &Notice) -> Result<(), FeedError> {
     if notice.id.is_empty() || notice.id.len() > 128 {
         return Err(FeedError::Invalid("item id must be 1 to 128 bytes".into()));
@@ -370,4 +390,66 @@ fn validate_notice(notice: &Notice) -> Result<(), FeedError> {
         return Err(FeedError::Invalid("dedupe key must be 1 to 256 bytes".into()));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod echo_tests {
+    use super::*;
+    use crate::model::Context;
+
+    fn notice(id: &str, source: &str, title: &str, body: &str, at_ms: u64) -> Notice {
+        Notice {
+            id: id.into(),
+            dedupe_key: format!("notify:s:{id}"),
+            title: title.into(),
+            body: body.into(),
+            level: "info".into(),
+            source: source.into(),
+            context: Context { terminal: Some("term_1".into()), ..Context::default() },
+            actor: None,
+            at_ms,
+            read: false,
+            coalesce: true,
+        }
+    }
+
+    /// Claude Code's own "claude-code is done" (OSC 7501) lands within milliseconds of its
+    /// Stop hook's "Claude finished": the item keeps the hook's text.
+    #[test]
+    fn a_programs_echo_after_its_agents_notice_keeps_the_agents_text() {
+        let mut feed = Feed::default();
+        feed.post(notice("fi_a", "agent", "Claude finished", "", 1_000)).unwrap();
+        let (outcome, _) =
+            feed.post(notice("fi_b", "terminal", "claude-code is done", "", 1_004)).unwrap();
+        let item = outcome.item();
+        assert_eq!(item.id, "fi_a");
+        assert_eq!(item.title, "Claude finished");
+        assert_eq!(item.source, "agent");
+        assert_eq!(item.count, 1, "one event, told twice");
+        assert!(item.has_key("notify:s:fi_b"), "the echo's key still dedupes to it");
+    }
+
+    /// The program told it first: the agent's notice, which names the agent, replaces it.
+    #[test]
+    fn an_agents_notice_after_its_programs_echo_replaces_it() {
+        let mut feed = Feed::default();
+        feed.post(notice("fi_b", "terminal", "claude-code is done", "", 1_000)).unwrap();
+        let (outcome, _) =
+            feed.post(notice("fi_a", "agent", "Claude finished", "", 1_003)).unwrap();
+        let item = outcome.item();
+        assert_eq!(item.title, "Claude finished");
+        assert_eq!(item.source, "agent");
+    }
+
+    /// A program's notice long after the agent's is news of its own: latest wins, as before.
+    #[test]
+    fn a_later_programs_notice_still_coalesces_as_news() {
+        let mut feed = Feed::default();
+        feed.post(notice("fi_a", "agent", "Claude finished", "", 1_000)).unwrap();
+        let (outcome, _) =
+            feed.post(notice("fi_b", "terminal", "build is done", "", 1_000 + 10_001)).unwrap();
+        let item = outcome.item();
+        assert_eq!(item.title, "build is done");
+        assert_eq!(item.count, 2);
+    }
 }

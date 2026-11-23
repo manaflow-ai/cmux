@@ -1,0 +1,174 @@
+name: base coalesce
+
+# One run per window on the feat-cmux-next tip, for a push workflow whose checks need not run on every merge
+# (cmuxterm-hq docs/rfd/0023-ci-10x.md, "everything else runs once post-merge, batched"). A caller adds one job,
+#
+#   coalesce:
+#     uses: ./.github/workflows/base-coalesce.yml
+#     with: { key: cmux-next-guards, hold_minutes: 30, no_coalesce: ${{ format('{0}', vars.NEXT_GUARDS_COALESCE) == '0' }} }
+#
+# and gives each of its other top-level jobs `needs: coalesce` and
+# `if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' && (its own condition) }}`.
+# Diffing steps read `needs.coalesce.outputs.base` (the last tip a run started on) where they read
+# github.event.before, so a run checks every commit since that run.
+#
+# The rule: the first feat-cmux-next push in each HOLD-minute window (wall clock, epoch / HOLD) runs the checks,
+# covering every commit since the last tip that ran; every other push skips them (run=false: its jobs report as
+# skipped, no runner taken). Nothing sleeps on a runner (cmux-next-web's coalesce job held one for up to its whole
+# window: about 2,200 runner-minutes a day, ci-dash feed 2026-11-14/16/17). Pushes on feat-cmux-next are about 2.5
+# minutes apart (median 1.3, p99 17, max 73 over 2026-11-13..21), so a window's first push comes minutes after it
+# opens; a base red is seen at most HOLD + the gap to the next push + the run's own time after it lands, and
+# base-red-watch (cmuxterm-hq fleet-reconcilers, commit_bisect) bisects the red job over the covered range.
+#
+# Always runs (run=true): a pull request, a workflow_dispatch or workflow_call, any ref but feat-cmux-next, the off
+# switch, and a re-run (attempt > 1), which routes from the base its first attempt recorded. State is two tiny
+# Actions cache entries per run on feat-cmux-next's scope: `base-coalesce-KEY-w-WINDOW` (this window has its run) and
+# `base-coalesce-KEY-t-SHA` (SHA ran; its content is the base it covered from). A lost entry costs one extra run, or
+# a run whose base is unknown (base=unknown: the caller checks everything or falls back to its own push range).
+# Two pushes racing into an empty window can both run; nothing is ever cancelled.
+on:
+  workflow_call:
+    inputs:
+      key:
+        description: the caller's coalescing key (its workflow file's stem)
+        type: string
+        required: true
+      hold_minutes:
+        description: the window; the checks run at most once per window on the tip
+        type: number
+        default: 30
+      no_coalesce:
+        description: no coalescing; every push runs (the caller passes its vars switch)
+        type: boolean
+        default: false
+    outputs:
+      run:
+        description: "'true' when this run's checks run, 'false' when a newer window's run covers this push"
+        value: ${{ jobs.coalesce.outputs.run }}
+      base:
+        description: "the last tip a run of KEY started on (a sha), 'unknown' when none is recorded, '' when not coalescing"
+        value: ${{ jobs.coalesce.outputs.base }}
+
+permissions: {}
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
+jobs:
+  coalesce:
+    name: coalesce
+    # Only pushes to feat-cmux-next decide anything: a pull request (and a workflow_call from one), a dispatch and any
+    # other ref skip this job, so its outputs are empty and the caller's jobs run as before.
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+      base: ${{ steps.decide.outputs.base }}
+    env:
+      KEY: ${{ inputs.key }}
+      HOLD_MINUTES: ${{ inputs.hold_minutes }}
+      ON: ${{ !inputs.no_coalesce && '1' || '0' }}
+    steps:
+      - name: Name this push's window
+        id: window
+        run: |
+          set -euo pipefail
+          [[ "$KEY" =~ ^[a-z0-9-]+$ ]] || { echo "::error::bad coalesce key: $KEY"; exit 1; }
+          hold=${HOLD_MINUTES%.*}; [[ "$hold" =~ ^[0-9]+$ && "$hold" -ge 1 ]] || { echo "::error::bad hold_minutes: $HOLD_MINUTES"; exit 1; }
+          echo "window=$(( $(date +%s) / (hold * 60) ))" >> "$GITHUB_OUTPUT"
+          mkdir -p .base-coalesce
+
+      # Every entry uses this one relative path: actions/cache versions an entry by its path strings, so a lookup
+      # under another path (or under runner.temp, which differs between runners) never matches.
+      # A re-run: the base its first attempt covered from, so it checks the same commits again.
+      - name: Read this push's own record (a re-run)
+        id: own
+        if: ${{ env.ON == '1' && github.run_attempt != '1' }}
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .base-coalesce/record
+          key: base-coalesce-${{ inputs.key }}-t-${{ github.sha }}
+
+      - name: Has this window's run started?
+        id: claimed
+        if: ${{ env.ON == '1' && github.run_attempt == '1' }}
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .base-coalesce/record
+          key: base-coalesce-${{ inputs.key }}-w-${{ steps.window.outputs.window }}
+          lookup-only: true
+
+      # The newest `-t-` entry is the last tip a run started on; its key names it.
+      - name: Find the last tested tip
+        id: last
+        if: ${{ env.ON == '1' && steps.claimed.outputs.cache-hit != 'true' && steps.own.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .base-coalesce/record
+          key: base-coalesce-${{ inputs.key }}-t-none
+          restore-keys: base-coalesce-${{ inputs.key }}-t-
+          lookup-only: true
+
+      - name: Decide
+        id: decide
+        env:
+          CLAIMED: ${{ steps.claimed.outputs.cache-hit }}
+          OWN_HIT: ${{ steps.own.outputs.cache-hit }}
+          LAST_KEY: ${{ steps.last.outputs.cache-matched-key }}
+          WINDOW: ${{ steps.window.outputs.window }}
+        run: |
+          set -euo pipefail
+          sha_re='^[0-9a-f]{40}$'
+          if [ "$ON" != 1 ]; then
+            echo "not coalescing (the off switch): the checks run on this push's own range"
+            printf 'run=true\nbase=\nsave=false\n' >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if [ "$OWN_HIT" = true ]; then
+            base=$(head -c 64 .base-coalesce/record | tr -dc '0-9a-z')
+            [[ "$base" =~ $sha_re ]] || base=unknown
+            echo "a re-run of ${GITHUB_SHA:0:12}: the checks run again from ${base:0:12}, the range its first attempt covered"
+            printf 'run=true\nbase=%s\nsave=false\n' "$base" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if [ "$CLAIMED" = true ]; then
+            echo "this ${HOLD_MINUTES}-minute window's run has started on an earlier push: the next window's first push covers ${GITHUB_SHA:0:12}"
+            echo "### $KEY: coalesced (a later push's run covers this one)" >> "$GITHUB_STEP_SUMMARY"
+            printf 'run=false\nbase=\nsave=false\n' >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          base=${LAST_KEY##*-t-}
+          [[ "$base" =~ $sha_re ]] || base=unknown
+          [ "$base" != "$GITHUB_SHA" ] || base=unknown  # a re-run whose own record was lost: its range is unknown
+          echo "the first push of this window: the checks run on ${GITHUB_SHA:0:12}, covering every push since ${base:0:12}"
+          echo "### $KEY: runs on ${GITHUB_SHA:0:12}, covering since ${base}" >> "$GITHUB_STEP_SUMMARY"
+          printf '%s\n' "$base" > .base-coalesce/record
+          printf 'run=true\nbase=%s\nsave=true\n' "$base" >> "$GITHUB_OUTPUT"
+
+      - name: Claim this window
+        if: ${{ steps.decide.outputs.save == 'true' && github.run_attempt == '1' }}
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .base-coalesce/record
+          key: base-coalesce-${{ inputs.key }}-w-${{ steps.window.outputs.window }}
+
+      - name: Record this tip as tested
+        if: ${{ steps.decide.outputs.save == 'true' && github.run_attempt == '1' }}
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .base-coalesce/record
+          key: base-coalesce-${{ inputs.key }}-t-${{ github.sha }}
+
+      # A persistent pool runner keeps its workspace: leave nothing behind for the next job's checkout.
+      - name: Clean up
+        if: ${{ always() }}
+        run: rm -rf .base-coalesce

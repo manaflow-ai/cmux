@@ -26,6 +26,8 @@ mod daemon_env;
 mod grant_cleared;
 #[path = "durable_agents/host_crash.rs"]
 mod host_crash;
+#[path = "durable_agents/host_level_move.rs"]
+mod host_level_move;
 #[path = "durable_agents/idle_adopted.rs"]
 mod idle_adopted;
 #[path = "durable_agents/idle_subsessions_restart.rs"]
@@ -54,6 +56,8 @@ mod stalled_turn;
 mod stop_if_idle_unadopted;
 #[path = "durable_agents/streaming_restart_gap.rs"]
 mod streaming_restart_gap;
+#[path = "durable_agents/take_over_under_load.rs"]
+mod take_over_under_load;
 #[path = "durable_agents/transfer_authority.rs"]
 mod transfer_authority;
 #[path = "durable_agents/translator_panic.rs"]
@@ -177,11 +181,25 @@ impl Daemon {
     }
 
     fn start(&mut self) {
+        self.start_with(&[]);
+    }
+
+    /// A new daemon takes this home over while this one runs (`daemon run --take-over`, as each
+    /// cmux NIGHTLY install starts one): the running one hands over and exits, its agents kept.
+    fn take_over(&mut self) {
+        let mut old = self.child.take().expect("a daemon runs");
+        self.start_with(&["--take-over"]);
+        let status = old.wait().unwrap();
+        assert!(status.success(), "the daemon taken over exited badly: {status}");
+    }
+
+    fn start_with(&mut self, extra: &[&str]) {
         assert!(self.child.is_none());
         let mut command = std::process::Command::new(&self.exe);
         daemon_env::apply(&mut command, &self.home, daemon_env::Agents::StandIn, &[]);
         command
             .args(["daemon", "run", "--listen", "127.0.0.1:0", "--ready-fd", "1", "--log", "warn"])
+            .args(extra)
             .env("ACPMUX_HOME", &self.home)
             .env("ACPMUX_SOCKET", &self.socket)
             // No catalog fetch: a test never reaches the network, and the fetch's

@@ -24,7 +24,8 @@ use serde_json::{Value, json};
 use crate::protocol::{AppInfo, FatalReason, FromHost};
 
 /// The engine-neutral runtime, built from `js/src` by `js/build.ts`.
-pub const RUNTIME_JS: &str = include_str!("../js/dist/cmux-app-runtime.js");
+pub static RUNTIME_JS: cmux_embed::PackedStr =
+    cmux_embed::packed_str!(include_str!("../js/dist/cmux-app-runtime.js"));
 
 /// Longest log message kept; longer ones are cut.
 const MAX_LOG_CHARS: usize = 4096;
@@ -421,7 +422,7 @@ impl AppVm {
         let (shared, gate) = (vm.shared.clone(), vm.gate.clone());
         vm.enter("runtime", move |ctx| {
             install_native(ctx, &shared, &gate)?;
-            ctx.eval::<(), _>(RUNTIME_JS)
+            ctx.eval::<(), _>(RUNTIME_JS.get())
         })
         .map_err(|e| format!("{e:?}"))?
         .map_err(|e| format!("runtime: {e}"))?;

@@ -127,9 +127,9 @@ public nonisolated struct CloudSizeLocked: Error, Equatable, Sendable {
     /// (by suffix, as cmux-cloud-start-core `machine_create` reads a definitive refusal).
     public static func isCode(_ code: String) -> Bool { code.hasSuffix("size.locked") || code.hasSuffix("size_locked") }
 
-    /// The plans a refusal may name to lift it: cmux NEXT's own (`next_pro`, `next_max`) and the classic ones a server
-    /// may still send (`pro`, `max`).
-    public static let plans = ["next_pro", "next_max", "pro", "max"]
+    /// The plans a refusal may name to lift it: cmux NEXT's own (`next_plus`, `next_pro`, `next_max`) and the classic
+    /// ones a server may still send (`pro`, `max`).
+    public static let plans = ["next_plus", "next_pro", "next_max", "pro", "max"]
 
     /// The plan that lifts it (one of ``plans``), nil when none does; ``upgradeNamed``: the server named one, or none.
     public var upgradePlan: String?

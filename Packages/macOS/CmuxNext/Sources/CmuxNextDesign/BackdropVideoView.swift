@@ -51,6 +51,9 @@ public final class BackdropVideoView: NSView {
         wantsLayer = true
         playerLayer.videoGravity = .resizeAspectFill
         playerLayer.opacity = 0
+        // Follows the view's size with no layout pass (sized only in layout(), it stayed bottom-left).
+        playerLayer.frame = bounds
+        playerLayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
         layer?.addSublayer(playerLayer)
         isHidden = true
         setAccessibilityElement(false)

@@ -6,7 +6,7 @@ import { EditorState, TextSelection } from "@milkdown/kit/prose/state";
 import { MockAppPanelsClient } from "../../../apps/scene/panelsMock";
 import { mergedCommands } from "../cmuxCommands";
 import { applyCommand, returnPicks, slashMatches, slashNames, slashTrigger } from "../slashCommands";
-import { ExtensionCommands, extensionCommandsFrom, withExtensionCommands } from "./extensionCommands";
+import { ComposerContributions, extensionCommandsFrom, withExtensionCommands } from "./extensionCommands";
 import { commandEdit, slashTokensPlugin } from "./slashTokens";
 
 const schema = new Schema({
@@ -39,8 +39,8 @@ const STANDUP = {
 };
 
 /// Reads the daemon's list the way the page does, through the page host client.
-async function listed(client: MockAppPanelsClient): Promise<ExtensionCommands> {
-  const owner = new ExtensionCommands(client);
+async function listed(client: MockAppPanelsClient): Promise<ComposerContributions> {
+  const owner = new ComposerContributions(client);
   owner.start();
   await owner.refresh();
   return owner;
@@ -51,7 +51,7 @@ describe("extension slash commands (cmux.composer.command/1)", () => {
     const client = new MockAppPanelsClient();
     client.composerCommands = [STANDUP];
     const owner = await listed(client);
-    const commands = withExtensionCommands(mergedCommands([]), owner.getSnapshot());
+    const commands = withExtensionCommands(mergedCommands([]), extensionCommandsFrom(owner.getSnapshot()));
 
     const rows = slashMatches(commands, slashTrigger("/stand", 0)!);
     expect([rows[0]!.command.name, rows[0]!.command.source, rows[0]!.command.extension]).toEqual([
@@ -75,7 +75,7 @@ describe("extension slash commands (cmux.composer.command/1)", () => {
       caret: "Write my standup notes.".length,
     });
     // Return on the whole name writes the text; it never sends `/standup` to the agent.
-    expect(returnPicks(rows[0], "standup", false)).toBe(true);
+    expect(returnPicks(rows[0], "standup")).toBe(true);
     owner.stop();
   });
 
@@ -102,7 +102,9 @@ describe("extension slash commands (cmux.composer.command/1)", () => {
     const owner = await listed(client);
     let heard = 0;
     owner.subscribe(() => heard++);
-    expect(owner.getSnapshot().map((command) => command.insert)).toEqual(["Write my standup notes."]);
+    expect(extensionCommandsFrom(owner.getSnapshot()).map((command) => command.insert)).toEqual([
+      "Write my standup notes.",
+    ]);
 
     // The daemon's local reload says `apps-changed`; the host forwards it as `cmux.apps.panels.changed`.
     client.setComposerCommands([
@@ -110,7 +112,7 @@ describe("extension slash commands (cmux.composer.command/1)", () => {
       { ...STANDUP, name: "retro", insert: "Retro." },
     ]);
     await owner.refresh();
-    expect(owner.getSnapshot().map((command) => [command.name, command.insert])).toEqual([
+    expect(extensionCommandsFrom(owner.getSnapshot()).map((command) => [command.name, command.insert])).toEqual([
       ["standup", "New standup text."],
       ["retro", "Retro."],
     ]);
@@ -138,7 +140,7 @@ describe("extension slash commands (cmux.composer.command/1)", () => {
     const client = new MockAppPanelsClient();
     client.call = () => Promise.reject(new Error("cmux.protocol.unknown_op"));
     const owner = await listed(client);
-    expect(owner.getSnapshot()).toEqual([]);
+    expect(extensionCommandsFrom(owner.getSnapshot())).toEqual([]);
     owner.stop();
   });
 

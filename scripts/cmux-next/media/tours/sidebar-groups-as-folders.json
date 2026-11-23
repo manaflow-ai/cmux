@@ -1,0 +1,16 @@
+{
+  "title": "Sidebar groups as plain folders",
+  "steps": [
+    {"title": "Launch: the sidebar as it opens", "wait": 2, "shot": false},
+    {"title": "Three workspaces", "cmux": ["workspace", "create", "--name", "api server"], "wait": 1, "shot": false},
+    {"title": "Web app", "cmux": ["workspace", "create", "--name", "web app"], "wait": 1, "shot": false},
+    {"title": "Release notes", "cmux": ["workspace", "create", "--name", "release notes"], "wait": 1, "shot": false},
+    {"title": "A group with no color", "cmux": ["workspace", "group", "create", "--name", "Backend"], "wait": 1, "shot": false},
+    {"title": "A red group", "cmux": ["workspace", "group", "create", "--name", "Design", "--color", "red"], "wait": 1, "shot": false},
+    {"title": "api server in Backend", "cmux": ["workspace", "group", "Backend", "add", "--workspace", "api server"], "wait": 1, "shot": false},
+    {"title": "web app in Backend", "cmux": ["workspace", "group", "Backend", "add", "--workspace", "web app"], "wait": 1, "shot": false},
+    {"title": "release notes in Design", "cmux": ["workspace", "group", "Design", "add", "--workspace", "release notes"], "wait": 2},
+    {"title": "Dark", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 2,
+     "optional": "debug.appearance is DEBUG only"}
+  ]
+}

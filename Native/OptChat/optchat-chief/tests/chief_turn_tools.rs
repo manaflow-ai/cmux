@@ -186,7 +186,11 @@ fn turn_tools_send_with_reply_to_goes_into_that_messages_thread() {
         ..send("Green on every Mac mini.")
     };
     let answer = run(&mut h, move || sp.send(call)).expect("send answers");
-    assert!(answer.starts_with("outcome: done"), "{answer}");
+    // Taken: posted now, or queued behind an upload or the gap.
+    assert!(
+        answer.starts_with("outcome: done") || answer.starts_with("outcome: queued"),
+        "{answer}"
+    );
     let posted = wait_send(&mut h, "Green on every Mac mini.");
     assert_eq!(posted[0].3.as_deref(), Some("msg_1"), "{posted:?}");
     assert_eq!(
@@ -209,7 +213,11 @@ fn turn_tools_send_attaches_any_file_and_refuses_a_missing_one() {
         ..send("Here is the report.")
     };
     let answer = run(&mut h, move || sp.send(call)).expect("send answers");
-    assert!(answer.starts_with("outcome: done"), "{answer}");
+    // Taken: posted now, or queued behind an upload or the gap.
+    assert!(
+        answer.starts_with("outcome: done") || answer.starts_with("outcome: queued"),
+        "{answer}"
+    );
     let posted = wait_send(&mut h, "REPORT.pdf");
     let parts = &posted[0].1;
     assert!(
@@ -343,7 +351,11 @@ fn turn_tools_send_a_refused_upload_goes_as_a_file_link() {
         ..send("The test alarm rang.")
     };
     let answer = run(&mut h, move || sp.send(call)).expect("send answers");
-    assert!(answer.starts_with("outcome: done"), "{answer}");
+    // Taken: posted now, or queued behind an upload or the gap.
+    assert!(
+        answer.starts_with("outcome: done") || answer.starts_with("outcome: queued"),
+        "{answer}"
+    );
     let posted = wait_send(&mut h, "Attachment upload failed:");
     let text = texts(&posted[0].1);
     assert_eq!(
@@ -666,4 +678,143 @@ fn turn_tools_send_marked_long_posts_on_the_first_try() {
     assert!(answer.starts_with("outcome: done"), "{answer}");
     let posted = wait_send(&mut h, "item item");
     assert_eq!(posted.len(), 1, "{posted:?}");
+}
+
+/// A follow-up the Chief set for a loop fires on time as a wake run; the run
+/// posts (its default turn reply), so a loop that says `Closes when:
+/// follow-up sent` closes by code, and the run is recorded with outcome send.
+#[test]
+fn turn_tools_an_on_time_follow_up_closes_its_loop_when_its_run_posts() {
+    let mut h = Harness::new(endless_first_turn());
+    let files = Arc::new(
+        optchat_chief::memory_files::MemoryFiles::open_in(&h.dir.path().join("optchat")).unwrap(),
+    );
+    h.brain.set_memory_files(files.clone());
+    files
+        .write(
+            "loops/renew-domain.md",
+            "renew cmux.dev before Fri",
+            "Left: tell the person it is due\nCloses when: follow-up sent",
+            optchat_chief::memory_files::Trust::Person,
+            "t",
+        )
+        .unwrap();
+    running(&mut h, "remind me tomorrow to renew the domain");
+    let sp = spawner(&h);
+    run(&mut h, move || sp.send(send("I'll remind you."))).expect("send answers");
+    let sp = spawner(&h);
+    let set = run(&mut h, move || {
+        sp.wake_tool(optchat_chief::tools::WakeCall::FollowUp {
+            note: "tell the person the domain renewal is due".into(),
+            at: None,
+            within: Some("2h".into()),
+            loop_path: Some("loops/renew-domain.md".into()),
+            for_person: true,
+        })
+    })
+    .expect("follow_up answers");
+    assert!(set.starts_with("outcome: done. follow-up fu_"), "{set}");
+    let sp = spawner(&h);
+    run(&mut h, move || sp.stop_turn()).expect("stop answers");
+    h.agents.hold(false);
+    h.settle_posts();
+    let wakes = h.brain.pending_wakes();
+    assert_eq!(wakes.len(), 1, "{wakes:?}");
+    assert_eq!(wakes[0].loop_path.as_deref(), Some("loops/renew-domain.md"));
+    // On time: no "late" text after the loop.
+    h.brain.fire_wakes_at(wakes[0].at_ms);
+    h.settle_posts();
+    let last =
+        serde_json::to_string(h.agents.inner.lock().unwrap().prompts.last().unwrap()).unwrap();
+    assert!(last.contains("[follow-up loops/renew-domain.md]"), "{last}");
+    let runs = files.wake_runs(5).unwrap();
+    let posts = sends(&h).len();
+    assert!(
+        files.get("loops/renew-domain.md").unwrap().is_none(),
+        "the loop closed when its follow-up's run posted: runs {runs:?}, posts {posts}"
+    );
+    assert_eq!(runs.len(), 1, "{runs:?}");
+    assert_eq!(runs[0].outcome, "send", "{runs:?}");
+    // The spec's fields: the wake's planned time, and what the send posted.
+    assert_eq!(
+        runs[0].scheduled_at,
+        Some(wakes[0].at_ms as i64),
+        "{runs:?}"
+    );
+    assert!(!runs[0].result.is_empty(), "{runs:?}");
+    assert!(runs[0].outcome_text.is_empty(), "{runs:?}");
+}
+
+/// The owner refuses a send it would not store (here the agent turn budget:
+/// six agent texts since the person last wrote). `send` must say so, not
+/// "sent": on 2026-11-20 the Chief got "outcome: done. sent" for 25 messages
+/// the owner refused, and the person saw none of them.
+#[test]
+fn turn_tools_send_reports_an_owner_refusal_instead_of_sent() {
+    let mut h = Harness::new(default_script());
+    running(&mut h, "how is the fleet?");
+    h.owner
+        .lock()
+        .unwrap()
+        .rejects
+        .push_back(Some("agent_budget".into()));
+    let sp = spawner(&h);
+    let answer = run(&mut h, move || sp.send(send("Fleet is at 9 of 28.")));
+    let error = answer.expect_err("a refused send is an error, not \"sent\"");
+    assert!(error.contains("nothing was posted"), "{error}");
+    assert!(error.contains("agent_budget"), "{error}");
+    assert!(
+        !sends(&h).is_empty(),
+        "the owner was asked: {:?}",
+        sends(&h)
+    );
+    // The refused key is not "already sent": the same send may try again,
+    // and posts once the owner takes it.
+    let sp = spawner(&h);
+    let again =
+        run(&mut h, move || sp.send(send("Fleet is at 9 of 28."))).expect("the owner takes it now");
+    assert!(again.starts_with("outcome: done"), "{again}");
+    h.agents.hold(false);
+    h.agents.release();
+    h.settle_posts();
+}
+
+/// A send still waiting in the outbox (the gap after the last agent message)
+/// says it is queued, not sent; a later refusal of it is told on the next
+/// `send`, so no refusal goes untold.
+#[test]
+fn turn_tools_send_says_queued_and_tells_a_later_refusal() {
+    let mut h = Harness::new(default_script());
+    running(&mut h, "two asks");
+    let sp = spawner(&h);
+    let first = run(&mut h, move || sp.send(send("First answer."))).expect("send answers");
+    assert!(first.starts_with("outcome: done. sent"), "{first}");
+    h.owner
+        .lock()
+        .unwrap()
+        .rejects
+        .push_back(Some("agent_budget".into()));
+    // Inside the gap: it waits in the outbox.
+    let sp = spawner(&h);
+    let second = run(&mut h, move || sp.send(send("Second answer."))).expect("send answers");
+    assert!(second.starts_with("outcome: queued"), "{second}");
+    // The gap passes and the owner refuses it.
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while sends(&h).len() < 2 {
+        assert!(std::time::Instant::now() < deadline, "{:?}", sends(&h));
+        std::thread::sleep(Duration::from_millis(10));
+        if let Some(at) = h.brain.next_timer()
+            && at <= std::time::Instant::now()
+        {
+            h.brain.on_timer();
+        }
+    }
+    let sp = spawner(&h);
+    let third = run(&mut h, move || sp.send(send("Third answer."))).expect("send answers");
+    assert!(third.contains("Second answer."), "{third}");
+    assert!(third.contains("agent_budget"), "{third}");
+    assert!(third.contains("not posted"), "{third}");
+    h.agents.hold(false);
+    h.agents.release();
+    h.settle_posts();
 }

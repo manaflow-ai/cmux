@@ -210,8 +210,9 @@ def menu_pass(app, mode):
     wait_for(lambda: not ((rpc("debug.hints") or {}).get("menu") or {}).get("open"), "the menu closes", 10)
 
 
+# Tips are off by default (UI simplification, 2026-11-20); this check turns them on to drive them.
 with open(CONFIG, "w") as f:
-    f.write("{}\n")
+    f.write('{"sidebar": {"cards": {"tips": true}}}\n')
 with open(GHOSTTY, "w") as f:
     f.write("")
 apps = []

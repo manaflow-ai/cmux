@@ -15,6 +15,7 @@ macro_rules! interfaces {
 }
 
 interfaces! {
+    "cmux.composer.toolbar/1" => "cmux.composer.toolbar",
     "cmux.composer.command/1" => "cmux.composer.command",
     "cmux.composer.mention/1" => "cmux.composer.mention",
     "cmux.chat.widget/1" => "cmux.chat.widget",

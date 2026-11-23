@@ -1415,8 +1415,7 @@ impl McpHub {
         let code = arg(args, "code").ok_or(
             "mcp run: give `code` (TypeScript/JavaScript; `await mcp.<server>.<tool>({...})`)",
         )?;
-        let runtime = codemode::find_runtime(&*self.inner.env)
-            .ok_or("mcp run: no JavaScript runtime (deno, node or bun) on this machine; use action call instead")?;
+        let runtime = codemode::runtime(&*self.inner.env)?;
         let timeout = Duration::from_secs(
             args.get("timeout_seconds")
                 .and_then(Value::as_u64)

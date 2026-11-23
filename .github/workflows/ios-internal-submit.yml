@@ -1,0 +1,158 @@
+name: cmux-next iPhone INTERNAL, submit for App Review
+run-name: ${{ github.event_name == 'push' && 'cmux INTERNAL submit workflow registered' || format('cmux INTERNAL submit, builder run {0} ({1})', inputs.build_run, inputs.confirm) }}
+
+# Submits one cmux INTERNAL build (App Store Connect app "cmux INTERNAL",
+# dev.cmux.app.internal, vars.IOS_INTERNAL_APP_ID) for App Review. Leo,
+# 2026-11-22: "esp cuz i NEED this shit on THE FUCKING APP STORE".
+#
+# A person's step, never automatic: only a workflow_dispatch with the confirm
+# input runs a job. No schedule, no workflow_call, and the push trigger below
+# only registers the file (every job skips on push). It submits only a build
+# that the INTERNAL builder (ios-internal-nightly.yml, `submittable: true`)
+# uploaded and its App Review gate judged with no blocker: the builder run's
+# receipt (written only then) must name the same commit, and the IPA artifact
+# of that run must hash to the receipt's checksum.
+#
+# Like the builder it runs on the admin-only branch rc/cnx-ios-builder (the
+# `release` environment, which holds the App Store Connect key, admits rc/**):
+#   gh workflow run ios-internal-submit.yml --ref rc/cnx-ios-builder \
+#     -f build_run=<builder run id> -f confirm=preview      # asc review submit --dry-run
+#   gh workflow run ios-internal-submit.yml --ref rc/cnx-ios-builder \
+#     -f build_run=<builder run id> -f confirm=SUBMIT       # submits for App Review
+on:
+  push:
+    branches: [rc/cnx-ios-builder]
+  workflow_dispatch:
+    inputs:
+      build_run:
+        description: The ios-internal-nightly.yml run (id) that built with submittable=true and whose gate said YES
+        required: true
+        type: string
+      confirm:
+        description: '"preview" runs asc review submit --dry-run; "SUBMIT" submits the build for App Review'
+        required: true
+        default: preview
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-mobile-internal-submit
+  cancel-in-progress: false
+
+jobs:
+  # No secret: reads the builder run, its receipt and its IPA, and hands on
+  # the version and build number the receipt names.
+  check:
+    name: The builder run's gate said YES on this IPA
+    if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/rc/cnx-ios-builder'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      marketing: ${{ steps.receipt.outputs.marketing }}
+      build_number: ${{ steps.receipt.outputs.build_number }}
+      sha: ${{ steps.receipt.outputs.sha }}
+    env:
+      BUILD_RUN: ${{ inputs.build_run }}
+      CONFIRM: ${{ inputs.confirm }}
+    steps:
+      - name: Check the inputs and the builder run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$BUILD_RUN" =~ ^[0-9]+$ ]] || { echo "::error::build_run must be a run id" >&2; exit 1; }
+          case "$CONFIRM" in preview|SUBMIT) ;; *) echo "::error::confirm must be preview or SUBMIT, not '$CONFIRM'" >&2; exit 1 ;; esac
+          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN" \
+            --jq '[.path, .head_branch, .event, .status, .conclusion] | join(" ")')"
+          want=".github/workflows/ios-internal-nightly.yml rc/cnx-ios-builder workflow_dispatch completed success"
+          [ "$run" = "$want" ] || { echo "::error::run $BUILD_RUN is '$run', not '$want'" >&2; exit 1; }
+
+      - name: Download the receipt
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-internal-submission-receipt-${{ inputs.build_run }}
+          run-id: ${{ inputs.build_run }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/receipt
+
+      - name: Download the IPA
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-internal-submission-ipa-${{ inputs.build_run }}
+          run-id: ${{ inputs.build_run }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/ipa
+
+      - name: The receipt names this run and the gate's YES; the IPA matches it
+        id: receipt
+        run: |
+          set -euo pipefail
+          sum="$(sha256sum "$RUNNER_TEMP/ipa/CmuxMobileApp.ipa" | cut -d' ' -f1)"
+          python3 -I -c '
+          import json, re, sys
+          r = json.load(open(sys.argv[1]))
+          run, ipa_sum = sys.argv[2], sys.argv[3]
+          checks = {
+              "github_run_id": r.get("github_run_id") == run,
+              "blocking": r.get("blocking") == "0",
+              "lane": r.get("lane") == "internal-submission",
+              "bundle_id": r.get("bundle_id") == "dev.cmux.app.internal",
+              "ipa_sha256": r.get("ipa_sha256") == ipa_sum,
+              "sha": bool(re.fullmatch(r"[0-9a-f]{40}", r.get("sha", ""))),
+              "marketing": bool(re.fullmatch(r"[0-9]+\.[0-9]+(\.[0-9]+)?", r.get("marketing", ""))),
+              "build_number": bool(re.fullmatch(r"[0-9]+", r.get("build_number", ""))),
+          }
+          bad = [k for k, ok in checks.items() if not ok]
+          if bad:
+              sys.exit(f"::error::the receipt does not allow a submission: {bad} ({r})")
+          for key in ("marketing", "build_number", "sha"):
+              print(f"{key}={r[key]}")
+          ' "$RUNNER_TEMP/receipt/submission.json" "$BUILD_RUN" "$sum" >> "$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
+
+  submit:
+    name: ${{ inputs.confirm == 'SUBMIT' && 'Submit for App Review' || 'Preview the App Review submission' }}
+    needs: check
+    if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/rc/cnx-ios-builder' && needs.check.result == 'success'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 20
+    environment: release
+    env:
+      ASC_APP_ID: ${{ vars.IOS_INTERNAL_APP_ID }}
+      CONFIRM: ${{ inputs.confirm }}
+      VERSION: ${{ needs.check.outputs.marketing }}
+      BUILD_NUMBER: ${{ needs.check.outputs.build_number }}
+      BUILD_RUN: ${{ inputs.build_run }}
+    steps:
+      - name: Checkout the builder branch (trusted script)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: cmux-next-ios/scripts
+
+      - name: Install asc
+        run: brew list asc >/dev/null 2>&1 || brew install asc
+
+      - name: asc review submit
+        env:
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+        run: |
+          set -euo pipefail
+          [[ "$ASC_APP_ID" =~ ^[0-9]+$ ]] || { echo "::error::repository variable IOS_INTERNAL_APP_ID (cmux INTERNAL's App Store Connect app id) is not set" >&2; exit 1; }
+          key_dir="$RUNNER_TEMP/asc"; mkdir -p "$key_dir"; chmod 700 "$key_dir"
+          trap 'rm -rf "$key_dir"' EXIT
+          printf '%s' "$ASC_API_KEY_P8_BASE64" | base64 --decode > "$key_dir/AuthKey.p8"
+          chmod 600 "$key_dir/AuthKey.p8"
+          export ASC_KEY_ID="$ASC_API_KEY_ID" ASC_ISSUER_ID="$ASC_API_ISSUER_ID" ASC_PRIVATE_KEY_PATH="$key_dir/AuthKey.p8"
+          mode=--dry-run
+          [ "$CONFIRM" != SUBMIT ] || mode=--confirm-submit
+          cmux-next-ios/scripts/asc_submit_review.sh submit --app "$ASC_APP_ID" --version "$VERSION" \
+            --build-number "$BUILD_NUMBER" "$mode"
+          echo "cmux INTERNAL $VERSION ($BUILD_NUMBER), builder run $BUILD_RUN: $CONFIRM done" >> "$GITHUB_STEP_SUMMARY"

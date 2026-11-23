@@ -160,6 +160,7 @@
     "keybindings.remove",
     "keybindings.reset",
     "keybindings.set",
+    "language_packs.ensure",
     "layout.bulk",
     "machine.get",
     "machine.list",
@@ -690,6 +691,9 @@
       "remote-host-call",
       "remote-host-config",
       "remote-host-app",
+      "computer-use-endpoint",
+      "computer-use-config",
+      "computer-use-approvals",
       "device-setup"
     ],
     "provider-authority": [
@@ -967,6 +971,12 @@
     },
     {
       "name": "chief-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "agent-session-share-changed",
       "streams": [
         "subscribe"
       ]

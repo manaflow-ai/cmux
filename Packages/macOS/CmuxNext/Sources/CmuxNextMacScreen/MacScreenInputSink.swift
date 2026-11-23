@@ -36,6 +36,11 @@ nonisolated final class MacScreenFrameCounter: Sendable {
         }
     }
 
+    /// A frame reached the glass (the presenter's presented handler, any thread).
+    func shown(_ times: RemoteViewerFrameTimes) {
+        state.withLock { $0.timings.shown(times) }
+    }
+
     /// The stream's timings so far (a copy of a few kilobytes at most).
     var timings: MacScreenFrameTimings { state.withLock { $0.timings } }
 

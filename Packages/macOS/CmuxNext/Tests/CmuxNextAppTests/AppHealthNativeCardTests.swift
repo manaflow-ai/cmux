@@ -68,5 +68,67 @@ import Testing
         }
     }
 
+    /// `part` with `key` set to `value`.
+    static func with(_ part: JSONValue, _ key: String, _ value: JSONValue) -> JSONValue {
+        guard case .object(var fields) = part else { return part }
+        fields[key] = value
+        return .object(fields)
+    }
+
+    /// The chat page `page:7` shows: "Fix the login bug" in workspace cmux-next; Show chat counts its presses.
+    static func places(_ reveals: RevealCount) -> AppHealthPlaces {
+        AppHealthPlaces { id in
+            id == "page:7" ? AppHealthPlace(chat: "Fix the login bug", workspace: "cmux-next", reveal: { reveals.count += 1 }) : nil
+        }
+    }
+
+    /// David Beyer, 2026-11-20 call: "Agent chat needs a repair" did not say which chat. The card names the chat and
+    /// its workspace, and Show chat goes to it (and closes the card); Repair now stays the default.
+    @Test func aFailedChatNamesItsChatAndWorkspaceAndShowChatGoesThere() throws {
+        let reveals = RevealCount()
+        let spec = AppHealthCard.spec(Self.snapshot([Self.failed]), places: Self.places(reveals))
+        #expect(spec.title == "“Fix the login bug” needs a repair")
+        #expect(spec.lines.first == "Agent chat in cmux-next")
+        #expect(spec.lines.contains("Agent chat stopped answering and three reloads did not bring it back."))
+        #expect(spec.buttons.map(\.id) == ["done", "show:page:7", "repair:page:7"])
+        #expect(spec.defaultButton?.id == "repair:page:7")
+
+        let popover = AppHealthPopover(health: AppHealth(), places: Self.places(reveals))
+        popover.fixture = Self.snapshot([Self.failed])
+        popover.open(over: nil)
+        defer { popover.close() }
+        let panel = try #require(popover.panel)
+        #expect(panel.dialogView?.spec.title == "“Fix the login bug” needs a repair")
+        _ = try #require(panel.dialogView).dialog.press("show:page:7")
+        #expect(reveals.count == 1, "Show chat goes to the chat")
+        #expect(!panel.isVisible, "and the card goes away")
+    }
+
+    /// The footer line names the chat too, in each state; a part with no place keeps its own label.
+    @Test func theFooterLineNamesTheChat() {
+        let places = Self.places(RevealCount())
+        let view = AppHealthIndicatorView()
+        view.show(places.headline(AppHealth.headline(of: Self.snapshot([Self.failed]))))
+        #expect(view.text == "“Fix the login bug” needs a repair")
+        view.show(places.headline(AppHealth.headline(of: Self.snapshot([Self.with(Self.failed, "state", "stuck")]))))
+        #expect(view.text == "“Fix the login bug” isn’t responding")
+        view.show(places.headline(AppHealth.headline(of: Self.snapshot([Self.with(Self.failed, "id", "page:8")]))))
+        #expect(view.text == "Agent chat needs a repair", "no place: the model's label")
+    }
+
+    /// A chat with no title yet: the card still says where it is and offers Show chat.
+    @Test func anUntitledChatStillSaysWhereItIs() {
+        let places = AppHealthPlaces { _ in AppHealthPlace(chat: nil, workspace: "cmux-next", reveal: {}) }
+        let spec = AppHealthCard.spec(Self.snapshot([Self.failed]), places: places)
+        #expect(spec.title == "Agent chat needs a repair")
+        #expect(spec.lines.first == "Agent chat in cmux-next")
+        #expect(spec.buttons.map(\.id) == ["done", "show:page:7", "repair:page:7"])
+    }
+
     static func views(under root: NSView) -> [NSView] { root.subviews.flatMap { [$0] + views(under: $0) } }
+}
+
+/// Counts Show chat's presses in the card tests.
+@MainActor final class RevealCount {
+    var count = 0
 }

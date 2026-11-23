@@ -96,10 +96,11 @@ async fn stop_with_a_steer_waiting_still_ends_the_turn_stopped() {
     assert_eq!(turn["stopReason"], "cancelled", "{turn}");
 }
 
-/// Claude Code's `interrupt` ends more than the step: every running subagent, background ones
-/// included, and every background shell (cosmic-gray, 2026-10-21: a Send now killed two
-/// background subagents 17 and 4 minutes in). While one runs, Send now stops nothing; the steer
-/// is read at the next tool boundary.
+/// Claude Code's `interrupt` ends a foreground subagent with the step: while one runs, Send now
+/// stops nothing and the steer is read at the next tool boundary. Background subagents and
+/// background shells run on through it (`perTaskStopAffordance`, `stop_spares_background_tests.rs`),
+/// so they no longer keep Send now from stopping the step (Leo, 2026-11-21: "They have tons of
+/// helpers and they're not really responding to my messages").
 async fn turn_with(t: &Translator, work: Value) {
     let Outbound::Lines(first) = t.outbound(&prompt(1, "run sleep 25", json!({}))).await else {
         panic!()
@@ -117,8 +118,8 @@ fn shell(id: &str, background: bool) -> Value {
 }
 
 #[tokio::test]
-async fn a_steer_sent_now_never_stops_a_running_subagent_or_background_shell() {
-    for work in [agent("toolu_bg", true), agent("toolu_fg", false), shell("toolu_sh", true)] {
+async fn a_steer_sent_now_never_stops_a_foreground_subagent() {
+    for work in [agent("toolu_fg", false)] {
         let t = Translator::new("acp-1".into(), "default", "haiku", "default");
         turn_with(&t, work.clone()).await;
         let meta = json!({"steer": true, "steerNow": true});
@@ -131,8 +132,8 @@ async fn a_steer_sent_now_never_stops_a_running_subagent_or_background_shell() {
 }
 
 #[tokio::test]
-async fn send_now_for_a_waiting_steer_never_stops_a_running_subagent_or_background_shell() {
-    for work in [agent("toolu_bg", true), agent("toolu_fg", false), shell("toolu_sh", true)] {
+async fn send_now_for_a_waiting_steer_never_stops_a_foreground_subagent() {
+    for work in [agent("toolu_fg", false)] {
         let t = Translator::new("acp-1".into(), "default", "haiku", "default");
         turn_with(&t, work.clone()).await;
         let steer = json!({"steer": true});
@@ -219,4 +220,55 @@ async fn send_now_ends_the_stopped_turn_and_the_steer_runs_as_its_own() {
         assert_eq!(next["stopReason"], "end_turn", "{meta}: {next}");
         assert!(answer(&msgs, 1).is_none(), "{meta}: {msgs:?}");
     }
+}
+
+/// Background helpers are no reason to leave the person's Send now unread: the step stops, once,
+/// beside a background subagent, a background shell, or both, and nothing else is written.
+#[tokio::test]
+async fn send_now_stops_the_step_beside_background_subagents_and_shells() {
+    let works = [
+        vec![agent("toolu_bg", true)],
+        vec![shell("toolu_sh", true)],
+        vec![agent("toolu_bg", true), agent("toolu_bg2", true), shell("toolu_sh", true)],
+    ];
+    for work in works {
+        for waiting in [false, true] {
+            let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+            turn_with_all(&t, &work).await;
+            let mut written = if waiting {
+                let Outbound::Lines(lines) =
+                    t.outbound(&prompt(2, "reply PINEAPPLE", json!({"steer": true}))).await
+                else {
+                    panic!()
+                };
+                let now = Message::request(9, method::MUX_STEP_NOW, json!({"sessionId": "acp-1"}));
+                let Outbound::Lines(more) = t.outbound(&now).await else {
+                    panic!("{work:?}: Send now stopped nothing")
+                };
+                [lines, more].concat()
+            } else {
+                let meta = json!({"steer": true, "steerNow": true});
+                let Outbound::Lines(lines) = t.outbound(&prompt(2, "reply PINEAPPLE", meta)).await
+                else {
+                    panic!()
+                };
+                lines
+            };
+            assert_eq!(
+                written.iter().filter(|l| is_interrupt(l)).count(),
+                1,
+                "{work:?}: {written:?}"
+            );
+            written.retain(|l| !is_interrupt(l));
+            assert_eq!(written.len(), 1, "only the steer's line: {work:?}: {written:?}");
+        }
+    }
+}
+
+async fn turn_with_all(t: &Translator, work: &[Value]) {
+    let Outbound::Lines(first) = t.outbound(&prompt(1, "run sleep 25", json!({}))).await else {
+        panic!()
+    };
+    t.inbound(&echo(&first[0])).await;
+    t.inbound(&json!({"type": "assistant", "message": {"content": work}})).await;
 }

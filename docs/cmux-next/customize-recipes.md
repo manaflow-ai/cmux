@@ -1,6 +1,6 @@
 # Customize recipes
 
-Ten ready-made changes to cmux. Press **Run** on a recipe's command to try it: cmux changes at
+Ready-made changes to cmux. Press **Run** on a recipe's command to try it: cmux changes at
 once, as a preview. Nothing is kept until you apply it.
 
 - Keep it: `cmux customize apply`
@@ -45,6 +45,23 @@ cmux customize use ~/.local/state/cmux/customize/recipes/glass.json
 ```
 
 Or ask: "make the window see-through glass"
+
+To put glass behind a piece of a view of your own, see [glass.md](glass.md).
+
+### Hairline: flat and neutral
+
+Opaque gray surfaces on one-pixel lines, one corner radius for panes, tabs, cards and the
+composer, a 2 px ring for focus, and no glass or shadows. The chat uses a dense 14 px Inter, the
+Markdown viewer the system font at the same size, and links are underlined text. It carries three palettes, each dark and light:
+`hairline` (zinc, 8 px corners), `hairline-slate` (6 px) and `hairline-stone` (10 px); switch with
+`cmux settings set appearance.themeFile hairline-slate`. The same look installs from
+`examples/looks/hairline`.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/hairline.json
+```
+
+Or ask: "make cmux flat and neutral: gray surfaces, one-pixel lines, one corner radius, a focus ring and no glass"
 
 ## Layout
 
@@ -129,6 +146,51 @@ cmux customize use ~/.local/state/cmux/customize/recipes/pane-keys.json
 ```
 
 Or ask: "let me move between panes with ctrl-cmd-h, j, k and l"
+
+## App looks
+
+Each of these changes the whole window at once: the colors, the sidebar, the chat and the
+composer. Each turns on a theme file of its own and a chat stylesheet, so to make one your own,
+edit `~/.config/cmux/themes/NAME.json` and `~/.config/cmux/agent-pane/theme.css` after you apply it.
+
+### Like the Codex app
+
+A gray sidebar of your chats by project with how long ago each ran, a white page, your prompts
+in gray pills, and a large rounded composer.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/codex-app.json
+```
+
+Or ask: "make cmux look and work like the Codex app"
+
+### Like the Claude desktop app
+
+The Claude desktop app's Code tab, dark, with colors measured from the real app: a #191919 page,
+a warm #282524 sidebar with a 1 pt line at its edge, sessions under their project with sub-sessions
+nested under the session that started them, title-only rows, a one-line #303030 composer with a
+1 pt edge and 12 pt corners, and your prompt in a #252525 pill. It ships its theme file
+(`themes/claude-code-app.json`) and chat stylesheet (`agent-pane/theme.css`), so you can copy and
+change either.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/claude-code-app.json
+```
+
+Or ask: "make cmux look and work like the Claude desktop app's Code tab"
+
+### Claude Code notification levels
+
+Show banners for permission requests, badges for questions, and turn task-complete alerts off.
+The profile maps Claude Code’s `permission_request`, `question`, and `task_complete` events
+to `notifications.delivery.permissionRequest`, `.question`, and `.taskComplete`.
+Source: Claude Code 6.28899.6, `app.asar`, `index.chunk-CknhaMei.js`, bytes 294195–294880.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/claude-code-notification-levels.json
+```
+
+Or ask: "show permission banners and question badges, with task-complete alerts off"
 
 ## For agents and scripts
 
