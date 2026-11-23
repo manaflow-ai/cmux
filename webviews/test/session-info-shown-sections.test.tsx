@@ -95,7 +95,8 @@ test("one Settings row per section: a toggle, on by default, on the Chat Layout 
     expect(policy).toContain(`"${row.key}"`);
   }
   // Every built-in section the panel draws has a row (the Show more line is no section).
-  expect([...PICKABLE_SESSION_INFO_SECTIONS].sort()).toEqual(DEFAULT_ORDER.filter((id) => id !== "more").sort());
+  const pickable: string[] = [...PICKABLE_SESSION_INFO_SECTIONS].sort();
+  expect(pickable).toEqual(DEFAULT_ORDER.filter((id) => id !== "more").sort());
 });
 
 test("only false turns a section off; nothing set hides nothing", () => {

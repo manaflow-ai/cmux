@@ -28,9 +28,9 @@ use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 
-/// The cap that asks a host for H.264 Constrained Baseline (cmux#44497), the profile OpenH264
-/// decodes. A host that does not know it ignores it.
-const H264_BASELINE: &str = "h264.baseline";
+// The cap that asks a host for H.264 Constrained Baseline (cmux#44497), the profile OpenH264
+// decodes. A host that does not know it ignores it; one that does encodes that profile.
+use cmux_rd_core::service::caps::H264_BASELINE;
 /// The reassembler's wait for a missing shard (the bench's default).
 const DEADLINE_US: u64 = 200_000;
 /// Input not yet acknowledged repeats this often.
@@ -446,7 +446,8 @@ fn start_session(net: &Net, config: &Config) -> Res<()> {
         max_datagram: MAX_DATAGRAM_VPC,
         token: None,
         service: SERVICE_DESKTOP.into(),
-        caps: vec![H264_BASELINE.into()],
+        // This viewer's reassembler rebuilds frames in interleaved FEC blocks.
+        caps: vec![H264_BASELINE.into(), cmux_rd_core::service::caps::FEC_BLOCKS.into()],
     };
     net.send_control(serde_json::to_vec(&hello)?);
     let start = Control::Start {

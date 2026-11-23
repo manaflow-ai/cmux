@@ -30,6 +30,16 @@
 //! goes ahead, instead of in the channel, where it would wait behind all of them. A read's answer
 //! shows nothing a line before it needs to have said: identify and status are about the daemon,
 //! and the client keeps each list row with the higher `listSeq` (`hub/row_log.rs`).
+//!
+//! A watcher's row (`_acpmux/session_changed` of a chat it did not attach) is the chat's whole row,
+//! not a change to apply: a newer one says all an older one did, as a follow from the client's
+//! cursor would ([`Row`]). So once a reader is behind (past [`COALESCE_FROM`] unread), a row still
+//! queued is dropped when a newer one of the same chat comes, and the queue holds at most one per
+//! chat. A reader that keeps up gets every row: each also names what changed (`kind`, a queued or
+//! dequeued prompt), which a watcher waits on. Past [`ROW_BYTE_BOUND`] of them the connection
+//! ends as at its own bound, and the client follows once from its cursor. Before this a reader
+//! that fell behind held every row of every change: 224 MB on one Mac under heavy load
+//! (2026-11-22), 62.8 MB of it in one watcher's 6,041 lines, all under the 64 MiB bound.
 
 use super::*;
 use std::collections::VecDeque;
@@ -86,6 +96,29 @@ pub(super) enum Lane {
 /// ([`crate::rpc::MAX_MESSAGE_BYTES`]) and change, so a whole list and the stream behind it fit.
 pub(super) const OUTBOUND_BYTE_BOUND: usize = 64 << 20;
 
+/// The bytes of rows ([`Row::Latest`]) one connection may have queued, one per chat at most: past
+/// it the connection ends as at [`OUTBOUND_BYTE_BOUND`], and the client follows once from its
+/// cursor, which costs it no more than these rows would.
+pub(super) const ROW_BYTE_BOUND: usize = 4 << 20;
+
+/// The bytes a connection holds unread past which its reader is behind and a chat's queued row is
+/// replaced by its newer one ([`Row::Latest`]): about sixty rows. Under it every row is sent.
+pub(super) const COALESCE_FROM: usize = 256 << 10;
+
+/// What a line is to the rows the queue keeps one of per chat ([module docs](self)).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(super) enum Row {
+    /// Any other line.
+    #[default]
+    None,
+    /// The whole row of the chat it names (its key: the id, qualified for a peer's): it replaces
+    /// that chat's row still queued.
+    Latest(Arc<str>),
+    /// A line about the chat that must come after its row queued before it (a permission ask, a
+    /// purge): that row is kept, and a newer one queues after this.
+    After(Arc<str>),
+}
+
 /// The bytes every connection's queue may hold together. Each connection alone may hold
 /// [`OUTBOUND_BYTE_BOUND`], so a host with a few hundred readers (agents' CLIs, the app, peers)
 /// could hold tens of GB before any one bound tripped: huge-blue's daemon reached 16.5 GB and
@@ -117,12 +150,15 @@ pub(crate) static TOTAL_OVERRUNS: AtomicU64 = AtomicU64::new(0);
 pub(super) struct Overrun {
     /// What it held when the line that did not fit came.
     pub(super) held: usize,
+    /// The bound it fell past: the connection's, or [`ROW_BYTE_BOUND`].
+    pub(super) limit: usize,
 }
 
 impl Overrun {
     /// The connection's last line: an error with no id, as a line over the limit ends a socket
     /// connection (`stream.rs`).
-    fn last_line(&self, bound: usize) -> String {
+    fn last_line(&self) -> String {
+        let bound = self.limit;
         let error = RpcError::new(
             -32000,
             format!(
@@ -142,8 +178,14 @@ impl Overrun {
 
 /// The queue's state, under its one lock.
 struct State {
-    /// The bulk lane.
+    /// The bulk lane, its lines' [`Line::serial`] rising.
     queue: VecDeque<Line>,
+    /// The serial the next bulk line gets.
+    next_serial: u64,
+    /// Each chat's row in [`State::queue`] ([`Row::Latest`]), by its key: the row's serial.
+    rows: HashMap<Arc<str>, u64>,
+    /// The bytes of the rows in [`State::rows`].
+    row_bytes: usize,
     /// The read lane, taken first.
     reads: VecDeque<Line>,
     /// Bytes queued and not yet taken by the transport's reader: both lanes, the pump's
@@ -205,6 +247,45 @@ impl State {
         }
     }
 
+    /// `line` left the bulk lane: its row, if it is one, is no longer queued.
+    fn unrow(&mut self, line: &Line) {
+        if let Row::Latest(key) = &line.row
+            && self.rows.get(key) == Some(&line.serial)
+        {
+            self.rows.remove(key);
+            self.row_bytes -= line.text.len();
+        }
+    }
+
+    /// Drops `key`'s row still queued, a newer one coming ([`Row::Latest`]).
+    fn drop_row(&mut self, key: &str) {
+        let Some(serial) = self.rows.remove(key) else { return };
+        if let Ok(at) = self.queue.binary_search_by_key(&serial, |line| line.serial)
+            && let Some(old) = self.queue.remove(at)
+        {
+            self.row_bytes -= old.text.len();
+            self.set_held(self.held - old.text.len());
+        }
+    }
+
+    /// Keeps `key`'s queued row but no longer replaces it: the reader is not behind, so it gets it.
+    fn forget_row(&mut self, key: &str) {
+        let Some(serial) = self.rows.remove(key) else { return };
+        if let Ok(at) = self.queue.binary_search_by_key(&serial, |line| line.serial)
+            && let Some(old) = self.queue.get(at)
+        {
+            self.row_bytes -= old.text.len();
+        }
+    }
+
+    /// Both lanes and the rows dropped (an overrun, or the pump ended).
+    fn clear(&mut self) {
+        self.queue = VecDeque::new();
+        self.reads = VecDeque::new();
+        self.rows = HashMap::new();
+        self.row_bytes = 0;
+    }
+
     /// Takes the read lane, then the bulk lane while the transport's channel holds less than
     /// `window` bytes (at least one line into an empty channel, whatever its size).
     fn take_into(&mut self, batch: &mut Vec<Line>, window: usize) -> Taken {
@@ -219,7 +300,10 @@ impl State {
                 }
                 ahead += line.text.len();
                 took += 1;
-                batch.extend(self.queue.pop_front());
+                if let Some(line) = self.queue.pop_front() {
+                    self.unrow(&line);
+                    batch.push(line);
+                }
             }
         }
         self.taken += took;
@@ -252,6 +336,8 @@ struct Shared {
     /// True once the queue overran or its pump ended.
     closed: watch::Sender<bool>,
     bound: usize,
+    /// [`ROW_BYTE_BOUND`], or a test's.
+    row_bound: usize,
     raised: Arc<Raised>,
     /// [`TOTAL_BYTE_BOUND`] and [`FAIR_SHARE`], or a test's.
     total_bound: usize,
@@ -276,6 +362,15 @@ impl Shared {
             written: self.raised.written.load(Ordering::SeqCst),
         };
         let size = line.text.len();
+        // A newer row says all the queued one did ([`Row`]); a line that must follow that one keeps it.
+        let row = if lane == Lane::Bulk { line.row.clone() } else { Row::None };
+        match &row {
+            Row::Latest(key) if state.held >= COALESCE_FROM => state.drop_row(key),
+            Row::Latest(key) => state.forget_row(key),
+            Row::After(key) => state.forget_row(key),
+            Row::None => {}
+        }
+        let over_rows = matches!(row, Row::Latest(_)) && state.row_bytes + size > self.row_bound;
         // A reader with nothing left to take is not behind.
         if state.held == 0 {
             state.progress_at = Instant::now();
@@ -288,13 +383,14 @@ impl Shared {
         if state.held + size > self.bound || over_total(state) {
             state.settle();
         }
-        let own = state.held + size > self.bound;
+        let own = state.held + size > self.bound || over_rows;
         if own || over_total(state) {
-            let overrun = Overrun { held: state.held };
+            let limit = if over_rows { self.row_bound } else { self.bound };
+            let overrun = Overrun { held: state.held, limit };
             tracing::warn!(
                 held = state.held,
                 line = size,
-                bound = self.bound,
+                bound = limit,
                 total = state.pool.load(Ordering::Relaxed),
                 total_bound = self.total_bound,
                 "{}",
@@ -311,8 +407,7 @@ impl Shared {
             state.overrun = Some(overrun);
             let in_channel = state.sent_bytes;
             state.set_held(in_channel);
-            state.queue = VecDeque::new();
-            state.reads = VecDeque::new();
+            state.clear();
             self.closed.send_replace(true);
             self.wake.notify_one();
             return false;
@@ -321,7 +416,15 @@ impl Shared {
         state.set_held(held);
         match lane {
             Lane::Read => state.reads.push_back(line),
-            Lane::Bulk => state.queue.push_back(line),
+            Lane::Bulk => {
+                line.serial = state.next_serial;
+                state.next_serial += 1;
+                if let Row::Latest(key) = row {
+                    state.rows.insert(key, line.serial);
+                    state.row_bytes += size;
+                }
+                state.queue.push_back(line);
+            }
         }
         self.wake.notify_one();
         true
@@ -354,7 +457,13 @@ impl Queue<'_> {
     }
 
     pub(super) fn push_in(&mut self, line: String, lane: Lane) -> bool {
-        self.shared.push_locked(&mut self.state, Line { text: line, ..Line::default() }, lane)
+        self.push_row(line, lane, Row::None)
+    }
+
+    /// [`Self::push_in`] of a line that is a chat's row, or must follow it ([`Row`]).
+    pub(super) fn push_row(&mut self, line: String, lane: Lane, row: Row) -> bool {
+        let line = Line { text: line, row, ..Line::default() };
+        self.shared.push_locked(&mut self.state, line, lane)
     }
 }
 
@@ -365,6 +474,10 @@ pub(super) struct Line {
     pub(super) ticket: Option<super::controls::Ticket>,
     /// What the journal must have reached before it goes out: set when it is queued.
     pub(super) needs: Needs,
+    /// A chat's row, or a line that must follow it ([`Row`]).
+    pub(super) row: Row,
+    /// Its place in the bulk lane: set when it is queued there.
+    pub(super) serial: u64,
 }
 
 /// The journal's LSNs a line may show (`durable_gate.rs`): the connection's [`Raised`] when it
@@ -397,11 +510,6 @@ impl Outbound {
     /// Queues `line` in the bulk lane; false when the connection overran or its reader is gone.
     pub(super) fn push(&self, line: String) -> bool {
         self.lock().push(line)
-    }
-
-    /// [`Self::push`] into `lane`.
-    pub(super) fn push_in(&self, line: String, lane: Lane) -> bool {
-        self.lock().push_in(line, lane)
     }
 
     pub(super) fn lock(&self) -> Queue<'_> {
@@ -468,11 +576,10 @@ impl Drop for Pump {
     fn drop(&mut self) {
         let mut state = self.shared.lock();
         if let Some(overrun) = state.overrun {
-            let _ = self.transport.try_send(overrun.last_line(self.shared.bound));
+            let _ = self.transport.try_send(overrun.last_line());
         }
         state.ended = true;
-        state.queue = VecDeque::new();
-        state.reads = VecDeque::new();
+        state.clear();
         drop(state);
         self.shared.closed.send_replace(true);
     }
@@ -600,6 +707,23 @@ pub(super) fn start_bounded(
     start_limited(scope, durability, transport, bound, limits)
 }
 
+/// [`start_bounded`] with its rows bounded at `row_bound` ([`ROW_BYTE_BOUND`]).
+#[cfg(test)]
+pub(super) fn start_rows_bounded(
+    scope: &cmux_scope::Scope,
+    transport: mpsc::Sender<String>,
+    bound: usize,
+    row_bound: usize,
+) -> Arc<Outbound> {
+    let limits = Limits {
+        pool: &TOTAL_HELD,
+        total_bound: TOTAL_BYTE_BOUND,
+        fair_share: FAIR_SHARE,
+        reader_stall: READER_STALL,
+    };
+    start_with(scope, None, transport, bound, row_bound, limits).0
+}
+
 /// The daemon-wide limits of a queue: the sum it counts toward ([`TOTAL_HELD`]), its bound
 /// ([`TOTAL_BYTE_BOUND`]), [`FAIR_SHARE`] and [`READER_STALL`]. A test gives its own pool, so other
 /// tests' queues, filling and draining beside it, never move its bound.
@@ -618,11 +742,25 @@ pub(super) fn start_limited(
     bound: usize,
     limits: Limits,
 ) -> (Arc<Outbound>, Option<Arc<durable_gate::Gate>>) {
+    start_with(scope, durability, transport, bound, ROW_BYTE_BOUND, limits)
+}
+
+fn start_with(
+    scope: &cmux_scope::Scope,
+    durability: Option<crate::store::Durability>,
+    transport: mpsc::Sender<String>,
+    bound: usize,
+    row_bound: usize,
+    limits: Limits,
+) -> (Arc<Outbound>, Option<Arc<durable_gate::Gate>>) {
     let Limits { pool, total_bound, fair_share, reader_stall } = limits;
     let (closed, _) = watch::channel(false);
     let shared = Arc::new(Shared {
         state: StdMutex::new(State {
             queue: VecDeque::new(),
+            next_serial: 0,
+            rows: HashMap::new(),
+            row_bytes: 0,
             reads: VecDeque::new(),
             held: 0,
             sent: VecDeque::new(),
@@ -639,6 +777,7 @@ pub(super) fn start_limited(
         wake: Notify::new(),
         closed,
         bound,
+        row_bound,
         raised: Arc::default(),
         total_bound,
         fair_share,

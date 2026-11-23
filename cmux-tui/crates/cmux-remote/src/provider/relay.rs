@@ -1176,6 +1176,7 @@ async fn request_allocation(
             generation,
             // `read_until_allocation` reads past `Parked` to the answer.
             accepts_parked: true,
+            grant: None,
         },
     )
     .await

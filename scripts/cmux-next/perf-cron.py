@@ -2301,90 +2301,101 @@ def tree_published(sha):
     return False
 
 
+# A plan takes about a minute. Each path check is bounded: in a partial clone `cat-file -e` can fetch a missing object
+# from the remote, and a fetch that never answers held the plan step until its 75-minute cap (run 44731310755,
+# 2026-11-20: no output for 74 minutes after fetch-state). No prompt either: the checkout has no credentials.
+PATH_CHECK_TIMEOUT_S = 60
+
+
+def has_path(sha, path):
+    """sha's tree holds path; False when git says no, fails, or takes past PATH_CHECK_TIMEOUT_S (logged)."""
+    try:
+        return subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{path}"], capture_output=True,
+                              timeout=PATH_CHECK_TIMEOUT_S, env={**os.environ, "GIT_TERMINAL_PROMPT": "0"}).returncode == 0
+    except subprocess.TimeoutExpired:
+        print(f"perf-cron: git cat-file {sha[:12]}:{path} took past {PATH_CHECK_TIMEOUT_S} s; counted as absent", flush=True)
+        return False
+
+
 def supported_parts_at(sha):
     names = []
     for p in PARTS:
         need = p.get("needs")
         if need == "stress":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:scripts/cmux-next/perf-stress-session.py"],
-                                capture_output=True).returncode == 0
+            ok = has_path(sha, f"scripts/cmux-next/perf-stress-session.py")
         elif need == "diff-viewer":
-            ok = all(subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{path}"], capture_output=True).returncode == 0
+            ok = all(has_path(sha, f"{path}")
                      for path in ("Native/DiffSidecar/Cargo.toml", "webviews/bench/diff-stream.bench.ts"))
         elif need == "web-ui":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{WEBUI_SUITE}"], capture_output=True).returncode == 0
+            ok = has_path(sha, f"{WEBUI_SUITE}")
         elif need == "web-ui-scale":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{UPDATE_ONE_BENCH}"], capture_output=True).returncode == 0
+            ok = has_path(sha, f"{UPDATE_ONE_BENCH}")
         elif need == "web-ui-god":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{GOD_FIXTURE}"], capture_output=True).returncode == 0
+            ok = has_path(sha, f"{GOD_FIXTURE}")
         elif need == "web-ui-growth":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{STATE_GROWTH_BENCH}"], capture_output=True).returncode == 0
+            ok = has_path(sha, f"{STATE_GROWTH_BENCH}")
         elif need == "web-ui-flat":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{FLAT_100K_BENCH}"], capture_output=True).returncode == 0
+            ok = has_path(sha, f"{FLAT_100K_BENCH}")
         elif need == "web-ui-scroll":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{CHAT_FAST_SCROLL_BENCH}"], capture_output=True).returncode == 0
+            ok = has_path(sha, f"{CHAT_FAST_SCROLL_BENCH}")
         elif need == "web-ui-typing":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{COMPOSER_TYPING_ROWS}"], capture_output=True).returncode == 0
+            ok = has_path(sha, f"{COMPOSER_TYPING_ROWS}")
         elif need == "web-ui-million":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{MILLION_EVENT_BENCH}"], capture_output=True).returncode == 0
+            ok = has_path(sha, f"{MILLION_EVENT_BENCH}")
         elif need == "infinite-items":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{INFINITE_ITEMS}"], capture_output=True).returncode == 0
+            ok = has_path(sha, f"{INFINITE_ITEMS}")
         elif need == "chat-disk":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{CHAT_DISK}"], capture_output=True).returncode == 0
+            ok = has_path(sha, f"{CHAT_DISK}")
         elif need == "typing":
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
-                                  capture_output=True, text=True).stdout
+                                  capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             bench = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/typing-frame-bench.py"],
-                                   capture_output=True, text=True).stdout
+                                   capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             ok = "--suite=typing-frame" in text and '"key_to_frame_values"' in bench
         elif need == "terminal-scroll":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{TERMINAL_SCROLL}"],
-                                capture_output=True).returncode == 0
+            ok = has_path(sha, f"{TERMINAL_SCROLL}")
         elif need == "daemon-restart":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{DAEMON_RESTART}"], capture_output=True).returncode == 0
+            ok = has_path(sha, f"{DAEMON_RESTART}")
         elif need == "coord-sim":
             # The harness, and a driver that is built (the crate landed with stub subcommands first).
-            drive = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:{COORD_SIM_DRIVE}"], capture_output=True, text=True)
-            ok = coord_sim_ready(subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{COORD_SIM}"],
-                                                capture_output=True).returncode == 0,
+            drive = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:{COORD_SIM_DRIVE}"], capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S)
+            ok = coord_sim_ready(has_path(sha, f"{COORD_SIM}"),
                                  drive.stdout if drive.returncode == 0 else None)
         elif need == "chat-search":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{CHAT_SEARCH}"], capture_output=True).returncode == 0
+            ok = has_path(sha, f"{CHAT_SEARCH}")
         elif need == "terminal-throughput":
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
-                                  capture_output=True, text=True).stdout
+                                  capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             ok = "--suite=terminal-throughput" in text
         elif need == "launch-dock":
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
-                                  capture_output=True, text=True).stdout
+                                  capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             bench = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/bench-startup.py"],
-                                   capture_output=True, text=True).stdout
+                                   capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             ok = "--suite=launch" in text and '"--activation"' in bench
         elif need == "launch-cold":
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
-                                  capture_output=True, text=True).stdout
+                                  capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             bench = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/bench-startup.py"],
-                                   capture_output=True, text=True).stdout
+                                   capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             ok = "--suite=launch" in text and '"--fresh-copy"' in bench and '"--ready-mark"' in bench
         elif need in ("perf-gate", "launch", "memory-agents", "relaunch", "wake", "power", "chat-size", "cef-resize"):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
-                                  capture_output=True, text=True).stdout
+                                  capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             ok = f"--suite={need}" in text
         elif need == "tabs":
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/perf-budgets.py"],
-                                  capture_output=True, text=True).stdout
+                                  capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             ok = '"surfaces_scale":' in text
         elif need == "idle-budget":
             # Its report's perf-cron rows (cron_report): an older idle-budget.py writes none.
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/idle-budget.py"],
-                                  capture_output=True, text=True).stdout
+                                  capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             ok = "def cron_report(" in text
         elif need == "workspace-scaling":
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
-                                  capture_output=True, text=True).stdout
-            ok = "--suite=workspace-scaling" in text and subprocess.run(
-                ["git", "-C", ROOT, "cat-file", "-e", f"{sha}:scripts/cmux-next/workspace-scaling-bench.py"],
-                capture_output=True).returncode == 0
+                                  capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
+            ok = "--suite=workspace-scaling" in text and has_path(sha, "scripts/cmux-next/workspace-scaling-bench.py")
         else:
             ok = True
         if ok:
@@ -2504,7 +2515,7 @@ def measure_version(sha):
     if not blob:
         return None
     if blob not in _versions_by_blob:
-        text = subprocess.run(["git", "-C", ROOT, "cat-file", "blob", blob], capture_output=True, text=True).stdout
+        text = subprocess.run(["git", "-C", ROOT, "cat-file", "blob", blob], capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
         _versions_by_blob[blob] = measure_version_of(blob, text)
     return _versions_by_blob[blob]
 
@@ -2549,7 +2560,7 @@ def commit_on_branch(repo, tip, known=()):
         if not is_sha(sha):
             return False
         if sha not in cache:
-            have = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}^{{commit}}"], capture_output=True).returncode == 0
+            have = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}^{{commit}}"], capture_output=True, timeout=PATH_CHECK_TIMEOUT_S).returncode == 0
             if have and is_ancestor(sha, tip):
                 cache[sha] = True
             else:
@@ -4627,8 +4638,7 @@ def linux_route(cur, part, t, controller, has_script):
 
 def commit_has(sha, path):
     """Whether commit SHA has PATH (the clone the plan runs in)."""
-    return bool(sha) and subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{path}"],
-                                        capture_output=True).returncode == 0
+    return bool(sha) and has_path(sha, path)
 
 
 def linux_step_files(artifact, result):

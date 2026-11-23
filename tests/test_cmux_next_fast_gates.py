@@ -1110,7 +1110,7 @@ class ScriptBehavior(unittest.TestCase):
         self.assertIn("not the pull request head", result.stderr)
 
     def test_a_catalog_or_protocol_spec_change_runs_the_webviews_checks_on_a_pull_request(self):
-        # ci-web runs them only for a webviews/ change; check:catalog-keys and acpmux-protocol:check read these.
+        # ci-web runs them only for a webviews/ change; check:catalog-keys and typecheck read these.
         seed = self.seed
         for path in ("Resources/Localizable.xcstrings", "cmux-tui/crates/acpmux/spec/acpmux-protocol.json"):
             with self.subTest(path=path):

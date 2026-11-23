@@ -875,3 +875,53 @@ fn a_hub_only_machine_reads_its_screen_from_the_device_hub() {
     let listing = model::merge(&down, tailscale_up(), &[]);
     assert_eq!(device(&listing, "peer:lane-bare").screen, none(NoScreen::Offline));
 }
+
+/// A Linux desktop reached over ssh (`linux-desktop` in its health) is shared through the screen
+/// host the device hub lists for it: its row carries that host's hub id (what `macScreen.open
+/// --device` opens), and with none listed it says so instead of a View that opens nothing.
+/// 2026-11-23: a Linux desktop's row read "view" while `--device peer:NAME` named no device.
+/// Leo, 2026-11-18: "i should be able to see into any connected mac or linux machine".
+#[test]
+fn an_ssh_linux_desktop_is_shared_through_the_screen_host_the_hub_lists() {
+    use cmux_device_kind::screen::{NoScreen, Screen, ScreenRoute};
+    let row = |name: &str, device_hub: Value| {
+        let mut row = json!({"name": name, "url": format!("ssh://{name}"), "connected": true,
+                             "health": {"os": "linux", "device": "linux-desktop"}});
+        if !device_hub.is_null() {
+            row["deviceHub"] = device_hub;
+        }
+        row
+    };
+    let src = Sources {
+        peers: json!({"peers": [
+            row("desk-on", json!({"listed": true, "id": "dev_on", "platform": "linux",
+                                  "online": true, "screenShared": true})),
+            row("desk-off", json!({"listed": true, "id": "dev_off", "platform": "linux",
+                                   "online": true, "screenShared": false})),
+            row("desk-none", json!({"listed": false})),
+            row("desk-unread", Value::Null),
+        ]}),
+        ..Sources::default()
+    };
+    let listing = model::merge(&src, tailscale_up(), &[]);
+    let view = Some(Screen::View { route: ScreenRoute::Hub });
+    let none = |reason| Some(Screen::None { reason });
+    for (id, screen, hub_device) in [
+        ("peer:desk-on", view, Some("dev_on")),
+        ("peer:desk-off", none(NoScreen::SharingOff), Some("dev_off")),
+        ("peer:desk-none", none(NoScreen::NoScreenHost), None),
+        // No share host here read the hub's list: its kind decides, as before.
+        ("peer:desk-unread", view, None),
+    ] {
+        let d = device(&listing, id);
+        assert_eq!((d.screen, d.hub_device.as_deref()), (screen, hub_device), "{id}");
+    }
+    let wire = serde_json::to_value(device(&listing, "peer:desk-on")).unwrap();
+    assert_eq!(wire["hub_device"], json!("dev_on"));
+    assert!(
+        serde_json::to_value(device(&listing, "peer:desk-none"))
+            .unwrap()
+            .get("hub_device")
+            .is_none()
+    );
+}

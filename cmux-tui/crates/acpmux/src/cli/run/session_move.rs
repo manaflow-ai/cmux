@@ -1,11 +1,16 @@
-//! `acpmux session move SESSION... --host PEER|auto [--interrupt] [--leave-dirty] [--dry-run]`
+//! `acpmux session move SESSION... --host PEER|auto [--after-turn|--interrupt] [--leave-dirty]
+//! [--dry-run]`
 //! (or `--all-idle` for every idle chat here): moves chats from this machine's daemon to an ssh
 //! peer's, with their history, queue and draft, and their folder made there.
 //!
 //! For each chat, in order, stopping at the first step that fails (nothing after it is done):
 //!
-//! 1. Refused while its turn runs (unless `--interrupt`), while it is being moved, once it moved
-//!    away, or when its folder is gone here (`session_move_plan.rs` `refusal`).
+//! 1. Refused while it is being moved, once it moved away, or when its folder is gone here
+//!    (`session_move_plan.rs` `refusal`). A running turn moves with it: step 3 waits for its
+//!    tool calls in flight to end and stops it there, and it goes on on the target
+//!    (`transfer.rs` `begin_move_live`); `--after-turn` waits for the turn to end instead,
+//!    `--interrupt` stops it at once. A dry run names a running turn (`running_turn`), so its
+//!    caller can offer those choices.
 //! 2. The target: the peer named, or with `auto` the daemon's placement (`_acpmux/place`) among
 //!    the peers, never this machine and never one the registry marks interactive (a machine a
 //!    person works at, `placement::interactive`). A host the fleet registry holds (its `hold`, or
@@ -49,6 +54,8 @@ use std::process::Command as StdCommand;
 
 #[path = "session_move_preflight.rs"]
 mod preflight;
+#[path = "session_move_snapshot.rs"]
+pub(crate) mod snapshot;
 
 /// `--timeout`'s default: the longest an `--after-turn` move waits for the running turn.
 pub(crate) const DEFAULT_TURN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
@@ -100,6 +107,11 @@ async fn begin_waiting(
     watch: Option<Value>,
     args: &MoveArgs,
 ) -> Result<super::transfer::Begun> {
+    // Neither flag: a running turn moves with the chat, between its tool calls.
+    if !args.interrupt && !args.after_turn {
+        let live = super::transfer::begin_move_live(src, id, watch, super::transfer::TOOL_WAIT);
+        return waiting(name, "freezing the chat for its move", live).await;
+    }
     let running = (args.interrupt, args.after_turn);
     let bound = args.after_turn.then_some(args.turn_timeout);
     let begin = super::transfer::begin_move(src, id, watch, running, bound);
@@ -201,6 +213,9 @@ pub(crate) struct MoveArgs {
     /// to reach the other: a Mac mini and a cloud VM that only this laptop reaches still trade
     /// chats, and `--machine local` brings one back here.
     pub from: Option<String>,
+    /// `--from-snapshot`: the chats start on the target from this machine's copy of them
+    /// (`session_move_snapshot.rs`), for a machine that does not answer.
+    pub from_snapshot: bool,
 }
 
 /// Where the chats being moved live: this machine, or (`--from`) a peer this machine reaches
@@ -244,7 +259,29 @@ struct Outcome {
     preflight: preflight::Preflight,
 }
 
+impl Outcome {
+    /// The chat `key` before any step ran: not moved, no error yet.
+    fn new(key: &str) -> Self {
+        Outcome {
+            session: key.to_owned(),
+            name: key.to_owned(),
+            host: None,
+            cwd: None,
+            moved: false,
+            there: None,
+            resumed: Ok(false),
+            carried: None,
+            error: None,
+            error_code: None,
+            preflight: preflight::Preflight::default(),
+        }
+    }
+}
+
 pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
+    if args.from_snapshot {
+        return snapshot::run(args, json_out).await;
+    }
     let local = connect(true).await?;
     let peers = local.request("_acpmux/peers", json!({})).await?;
     let here = crate::pairing::machine_name();
@@ -310,10 +347,22 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
             .collect();
         print_json(&json!({"moves": rows, "failed": failed}));
     }
-    if failed > 0 {
-        bail!("{failed} of {} chats did not move", outcomes.len());
+    match not_moved(&outcomes) {
+        Some(why) => bail!("{why}"),
+        None => Ok(()),
     }
-    Ok(())
+}
+
+/// The run's error when a chat did not move: how many, and each one's own reason (a caller
+/// that reads only the error, as `--json`'s does, still learns why).
+fn not_moved(outcomes: &[Outcome]) -> Option<String> {
+    let why: Vec<String> = outcomes
+        .iter()
+        .filter_map(|o| o.error.as_ref().map(|e| format!("{} ({}): {e}", o.name, o.session)))
+        .collect();
+    (!why.is_empty()).then(|| {
+        format!("{} of {} chats did not move: {}", why.len(), outcomes.len(), why.join("; "))
+    })
 }
 
 fn print_outcome(o: &Outcome, dry_run: bool) {
@@ -368,6 +417,7 @@ pub(crate) async fn move_off_interactive(src: &Client, id: &str) -> Result<Moved
         dry_run: false,
         resume_there: true,
         from: None,
+        from_snapshot: false,
     };
     let peers = src.request("_acpmux/peers", json!({})).await?;
     let mut targets = Targets::new(&args.host, &peers)?;
@@ -417,19 +467,7 @@ async fn move_one_from(
     home: &Path,
     targets: &mut Targets,
 ) -> Outcome {
-    let mut o = Outcome {
-        session: key.to_owned(),
-        name: key.to_owned(),
-        host: None,
-        cwd: None,
-        moved: false,
-        there: None,
-        resumed: Ok(false),
-        carried: None,
-        error: None,
-        error_code: None,
-        preflight: preflight::Preflight::default(),
-    };
+    let mut o = Outcome::new(key);
     if let Err(e) = move_steps(src, source, key, args, home, targets, &mut o).await {
         o.error = Some(format!("{e:#}"));
     }
@@ -475,9 +513,10 @@ async fn move_steps(
     let checkout = checkout_unless_named(&cwd, args, source).await?;
     o.preflight.dirty = Some(checkout.as_ref().is_some_and(|c| c.dirty));
     // A dry run is the preflight: it names a running turn even with --after-turn, so the caller
-    // can offer Move after this turn or Move now. A real --after-turn move goes on, and
+    // can offer Move after this turn or Move now. A real move goes on: by default it takes the
+    // turn along between its tool calls (`transfer.rs` `begin_move_live`), with --after-turn
     // transfer_begin waits for the turn under its lock.
-    let running_ok = args.interrupt || (args.after_turn && !args.dry_run);
+    let running_ok = args.interrupt || !args.dry_run;
     if let Some(why) = plan::refusal(&info, running_ok) {
         o.error_code = preflight::session_refusal_code(&info, running_ok);
         bail!("{why}");

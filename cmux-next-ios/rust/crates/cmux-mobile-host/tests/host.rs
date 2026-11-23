@@ -465,6 +465,7 @@ async fn exercise_services_with(fixture: &Fixture, kind: TransportKind, options:
             "appearance-v1",
             "pair-requests-v1",
             "phone-frames-v1",
+            "tab-snapshots-v1",
             "browser-stream-v1",
             "browser-video-track-v1",
             "surface-stream-v1",

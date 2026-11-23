@@ -83,6 +83,8 @@ class InstallGitHooksTests(unittest.TestCase):
             "scripts/ci/base_merge_warning.py",
             "scripts/ci/github_release_download.py",
             "scripts/ci/deadline_http.py",
+            "scripts/ci/generated_files_guard.py",
+            "scripts/ci/ci_process_tree.py",
             "scripts/webviews_bun_version.py",
             "scripts/check-webviews-bun-version.sh",
             *self.installed_sources(),

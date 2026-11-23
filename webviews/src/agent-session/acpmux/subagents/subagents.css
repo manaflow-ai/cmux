@@ -524,7 +524,8 @@ button.cv-subagent > :last-child {
   box-sizing: border-box;
   padding: 0;
   overflow: hidden;
-  border-radius: var(--acpmux-composer-radius, 11px);
+  /* The composer's corner, so the hat and the composer under it are one outline (ask-2351b8cf41). */
+  border-radius: var(--acpmux-composer-radius, var(--grid-composer-radius));
   background: var(--ds-surface-inset);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, transparent);
   color: var(--agent-text);
@@ -650,6 +651,20 @@ button.cv-subagent > :last-child {
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
+  /* What does not fit drops whole: each kind with its separator wraps onto a second line the
+     header's height hides, so the header never ends on half a word ("53 subagents running · 5 wa";
+     Leo, 2026-11-22: "this should not be cutting off so harshly like this"). */
+  flex-wrap: wrap;
+  align-content: flex-start;
+  height: var(--acpmux-tray-head-height, var(--ui-row-height, 28px));
+}
+.acpmux-running-tray__kinds > * {
+  height: var(--acpmux-tray-head-height, var(--ui-row-height, 28px));
+}
+.acpmux-running-tray__kind-unit {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
 }
 .acpmux-running-tray__kind {
   flex: none;

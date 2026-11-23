@@ -325,6 +325,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         family: Some(d.family.to_owned()),
         preset: d.preset,
         model_request: d.model_request,
+        effort_request: None,
         cwd: d.cwd,
         additional_directories: Vec::new(),
         stop_condition: None,

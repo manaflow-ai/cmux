@@ -105,8 +105,8 @@ fn prepare_hooks(
         launch.push(OsString::from("-c"));
         launch.push(OsString::from(setting));
     }
-    // cmux's server, Computer Use behind it (agent_computer_use.rs), once the
-    // person said yes to cmux's tools in agents started in cmux
+    // cmux's server, Computer Use behind it (agent_computer_use.rs), unless the
+    // person turned cmux's tools off for agents started in cmux
     // (agent_mcp_choice.rs).
     let cwd = std::env::current_dir().unwrap_or_default();
     // The Codex child's environment: this one, with the shims off PATH.
@@ -157,8 +157,8 @@ struct McpLaunch<'a> {
 }
 
 /// The `-c` values that give this launch this build's server as `cmux`
-/// (agent_computer_use.rs) when the person said yes to cmux's tools in agents
-/// started in cmux (`choice`), unless the person's own `cmux` entry, as the
+/// (agent_computer_use.rs) while cmux's tools are on for agents started in
+/// cmux (`choice`, on unless `off`), unless the person's own `cmux` entry, as the
 /// launch's Codex answers it (`entry`, `acpmux::codex_cmux_entry`), is HTTP:
 /// this build's command cannot merge into it, so none, and nothing is said.
 ///
@@ -168,7 +168,7 @@ struct McpLaunch<'a> {
 /// server nor env keys, and nothing is said: Codex starts with the person's
 /// config untouched.
 ///
-/// Without the yes, a stdio `cmux` entry of the person's own, as Codex answers
+/// With the setting off, a stdio `cmux` entry of the person's own, as Codex answers
 /// it, gets the env key `CMUX_AGENT_TOOLS_ANSWER` = `off` with exactly its own
 /// `command` and `args` beside it (the same entry, with the key added): its
 /// `cmux mcp serve` then follows the answer as an agent cmux started

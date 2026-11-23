@@ -84,7 +84,7 @@ main() {
     echo "LF-LAYOUT unknown: attach failed"
   fi
   OUT="$out"
-  CUA=/Applications/CuaDriver.app/Contents/MacOS/cua-driver
+  cua_pick "$out"
   [[ -x "$CUA" ]] && echo "LF cua $(console "$CUA" permissions status 2>&1 | tr '\n' ' ' | head -c 200)" || echo "LF cua none: a prompt cannot be pressed"
   # Where q drags the app: /Applications when the console user may write it, as on a person's Mac; else ~/Applications.
   APPS=/Applications
@@ -185,6 +185,23 @@ print(json.dumps({"schema": "expected-dialogs/v1", "kinds": ["gatekeeper"], "own
 marker_refresh() { [[ -n "$MARKER" ]] && (($(date +%s) + 900 > MARKER_EXPIRES)) && marker_write; return 0; }
 
 marker_remove() { [[ -n "$MARKER" ]] && rm -f "$MARKER"; MARKER=""; }
+
+# cua_pick DIR: CUA, the console's CuaDriver as a shim in DIR that reaches its daemon. cua-driver finds the daemon's
+# socket under $HOME/Library/Caches/cua-driver, and a fleet step's HOME is the step's own home, so every press there
+# failed with "Cua Driver daemon is not running" (cmux21, rows q and m, 2026-11-22). The shim runs it with the HOME
+# whose socket exists: this HOME, this user's own home, or the console user's.
+cua_pick() {
+  local real=/Applications/CuaDriver.app/Contents/MacOS/cua-driver home="" h u
+  CUA="$real"
+  [[ -x "$real" ]] || return 0
+  for u in "" "$(id -un)" "$(stat -f %Su /dev/console 2>/dev/null)"; do
+    if [[ -z "$u" ]]; then h="$HOME"; else h="$(dscl . -read "/Users/$u" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"; fi
+    [[ -n "$h" && -S "$h/Library/Caches/cua-driver/cua-driver.sock" ]] && { home="$h"; break; }
+  done
+  [[ -n "$home" ]] || { echo "cua: no daemon socket under $HOME or the console user's home; CuaDriver calls may fail" >&2; return 0; }
+  mkdir -p "$1" && printf '#!/bin/sh\nHOME=%q exec %q "$@"\n' "$home" "$real" >"$1/cua-driver" && chmod +x "$1/cua-driver" \
+    && CUA="$1/cua-driver"
+}
 
 # prompts ARGS...: launch-fresh-install-prompts.py in the console session, with the console's CuaDriver.
 prompts() {

@@ -94,6 +94,15 @@ impl Tool {
         schema
     }
 
+    /// Whether `tools/list` names the tool on this host. `record` needs an
+    /// H.264 encoder, which only the macOS desktop has (VideoToolbox): elsewhere
+    /// (a Linux cmux Cloud machine) a call answers `unsupported`, so the tool
+    /// is left out of the list, as the image check `cua-video-refused` requires
+    /// of a machine with no screen video. A direct call still reaches it.
+    pub fn listed(&self) -> bool {
+        self.name != "record" || cfg!(target_os = "macos")
+    }
+
     /// Whether the tool may change something (for retries and look-only).
     pub fn acts(&self) -> bool {
         self.access == Access::Act
@@ -109,7 +118,7 @@ fn delivery() -> Value {
 }
 
 fn window_id() -> Value {
-    json!({"type": "string", "description": "The window, from list_windows or a screenshot."})
+    json!({"type": "string", "description": "The window: its id from list_windows or a screenshot, or its title or app name (no list_windows needed; several matches are refused with the matches)."})
 }
 
 pub static TOOLS: &[Tool] = &[
@@ -400,6 +409,7 @@ pub fn find(name: &str) -> Option<&'static Tool> {
 pub fn mcp_list() -> Value {
     let tools: Vec<Value> = TOOLS
         .iter()
+        .filter(|t| t.listed())
         .map(|t| {
             json!({
                 "name": t.name,
@@ -418,15 +428,14 @@ pub fn mcp_list() -> Value {
 
 /// The instructions an agent gets with the server (MCP `instructions`).
 pub const INSTRUCTIONS: &str = "cmux Computer Use is built in (nothing to install; `machine` \
-reaches your other machines). For a task about this computer, look before you answer: \
-list_windows (or list_apps), then screenshot or get_ui_tree a window, and act on element ids or \
-pixels. Menu commands are in the tree's menu bar: click the menu's id, then the item. Each action \
-returns what changed and a screenshot; \"No change\" means it did nothing, so try another way \
-before saying it worked. batch runs a fixed sequence of steps on one window in one call. Act in \
-the background; use delivery foreground only when status says the person allowed it, and only for \
-a system-wide shortcut or to bring a window to them. If a call is refused, call status and tell \
-the person which Settings > Computer Use setting would allow it; never change those settings \
-yourself.";
+reaches your other machines). Use the fewest calls: a window_id can be the window's title or app \
+name, and each action returns what changed and a screenshot, so no look is needed before or after \
+it. When the task names the window and its controls, act at once: one batch whose steps name \
+elements by target {role, label}. Otherwise get_ui_tree the window, then act on element ids. Menu \
+commands are in the tree's menu bar. \"No change\" means it did nothing, so try another way before \
+saying it worked. Act in the background; use delivery foreground only when status says the person \
+allowed it, and only for a system-wide shortcut or to bring a window to them. If a call is refused, call status and tell the person which Settings > Computer Use \
+setting would allow it; never change those settings yourself.";
 
 #[cfg(test)]
 mod tests {
@@ -461,6 +470,19 @@ mod tests {
         assert_eq!(safe_tag("Fix\nthe\tbuild").as_deref(), Some("Fix the build"));
         assert_eq!(safe_tag(" \u{7} "), None);
         assert_eq!(safe_tag(&"y".repeat(61)).map(|t| t.chars().count()), Some(60));
+    }
+
+    /// `record` is listed only where the desktop can encode H.264 (macOS);
+    /// every other tool is listed everywhere, and `find` reaches them all.
+    #[test]
+    fn record_is_listed_only_on_macos() {
+        let list = mcp_list();
+        let names: Vec<&str> =
+            list["tools"].as_array().unwrap().iter().filter_map(|t| t["name"].as_str()).collect();
+        assert_eq!(names.contains(&"record"), cfg!(target_os = "macos"), "{names:?}");
+        assert_eq!(names.len(), TOOLS.iter().filter(|t| t.listed()).count());
+        assert!(TOOLS.iter().filter(|t| t.name != "record").all(Tool::listed));
+        assert!(find("record").is_some());
     }
 
     /// The batch schema names every step field an agent can use.

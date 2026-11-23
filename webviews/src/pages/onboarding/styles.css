@@ -219,6 +219,19 @@
   gap: var(--ds-space-3);
 }
 
+/* A provider signing in (logins done right): the row grows and the device card sits under its name. */
+.onb-agent-list[data-look] .onb-agent[data-signing] {
+  flex-wrap: wrap;
+  height: auto;
+  min-height: var(--onb-agent-row);
+  padding-block: var(--ds-space-2);
+}
+.onb-agent-signin {
+  flex: 1 0 100%;
+  min-width: 0;
+  padding-inline-start: calc(var(--onb-agent-icon) + var(--ds-space-3));
+}
+
 /* A: a rounded card per agent (the Swift step's look). */
 .onb-agent-list[data-look="cards"] {
   display: flex;
@@ -947,15 +960,6 @@
   :is(.onb-import-row, .onb-progress-bar, .onb-import input[type="checkbox"], .onb-box-mark) {
     transition: none;
   }
-}
-
-/* cmux Tools: the Agents step's list, its status line, then where Settings keeps the answer. */
-.onb-agent-tools-note {
-  margin-top: auto;
-  color: var(--page-text-3);
-  font-size: var(--text-caption);
-  line-height: var(--text-caption--line-height);
-  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 /* Make cmux Yours (cmux#48416): three groups of native radios in the 300-point body. The radio

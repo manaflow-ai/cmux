@@ -751,8 +751,18 @@ fn mount(
         (meta.uid(), meta.gid()),
     )
     .map_err(|error| io("opening the projection", &format!("{error:#}")))?;
-    let mounted = cmux_projection::mount::mount(Arc::new(overlay), at)
+    let overlay = Arc::new(overlay);
+    let mounted = cmux_projection::mount::mount(overlay.clone(), at)
         .map_err(|error| ("projection.mount_failed", format!("{error:#}")))?;
+    // Pinned folders an earlier mount recorded are fetched whole in the background, so they read
+    // with the Mac away again (a new manifest starts a fresh cache). Mac away: it stops at the
+    // first absence, and the next mount tries again.
+    if !overlay.pins().is_empty() {
+        let pinned = overlay.clone();
+        let _ = std::thread::Builder::new()
+            .name("projection-pins".into())
+            .spawn(move || drop(pinned.hydrate_pins()));
+    }
     let projected = Arc::new(Projected {
         link,
         digest,
@@ -760,6 +770,27 @@ fn mount(
         mounted: Mutex::new(Some(mounted)),
     });
     table.insert(name.to_owned(), projected.clone());
+    // RFD 0007, seed bundles: with `CMUX_PROJECTION_GIT_SWAP=1`, a `.git` with a public remote
+    // takes its objects from the remote (a blobless fetch the machine makes) and only what the
+    // Mac has unpushed over the link, then switches from projection to that repository. Opt-in
+    // until Bring Back reads the machine's repository after a swap.
+    if std::env::var_os("CMUX_PROJECTION_GIT_SWAP").is_some_and(|value| value == "1") {
+        let swapping = projected.clone();
+        let (overlay, at, state) = (overlay.clone(), at.to_path_buf(), state.to_path_buf());
+        let _ = std::thread::Builder::new().name("projection-git-swap".into()).spawn(move || {
+            let forget =
+                || match swapping.mounted.lock().unwrap_or_else(PoisonError::into_inner).as_ref() {
+                    Some(mounted) => mounted.forget_entry(overlay.root(), ".git"),
+                    None => Ok(()),
+                };
+            match cmux_projection::git_swap::run(&overlay, &forget, &at, &state) {
+                Ok(outcome) => eprintln!("cmux projection: {} .git: {outcome:?}", at.display()),
+                Err(error) => {
+                    eprintln!("cmux projection: {} .git stays projected: {error:#}", at.display())
+                }
+            }
+        });
+    }
     // The record the reaper reads: where it is, since when, and a release or Bring Back undone (a
     // dial again means the chat is live). One that cannot be written leaves the state to the orphan grace,
     // never freed early.

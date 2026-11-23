@@ -230,6 +230,47 @@ python3 "$PTR" newer --pointer "$TMP/rel.json" --keys "$TMP/keys-a.json" --curre
 rc=0; python3 "$PTR" newer --pointer "$TMP/badversion.json" --keys "$TMP/keys-a.json" 2>/dev/null || rc=$?
 [[ $rc == 1 ]] || fail "a malformed Linux release payload was taken (exit $rc)"
 
+# Phase 1b: `sequence` (publish order, YYYYMMDDHHMMSS) orders the files and the version carries it; a
+# phase-1 file (no sequence) is ordered by the commit-time stamp in its version.
+signed seq sequence=20261122110500 'version="1.0.0+20261122110500.cccccccccccc"' \
+  'targets.x86_64-unknown-linux-musl.cmux-tui-acpmux={"url":"https://files.cmux.com/cmux-tui/cccccccccccccccccccccccccccccccccccccccc/cmux-tui-acpmux-x86_64-unknown-linux-musl","sha256":"'"$(printf 'd%.0s' {1..64})"'","size":7}'
+accepts "a phase-1b file with sequence and acpmux" "$TMP/seq.json" "${LR[@]}"
+signed seqversion sequence=20261122110500 'version="1.0.0+20261109070012.cccccccccccc"'
+refuses "a version that does not carry the sequence" "$TMP/seqversion.json" "${LR[@]}"
+signed seqearly sequence=20261109070011 'version="1.0.0+20261109070011.cccccccccccc"'
+refuses "a sequence before the commit" "$TMP/seqearly.json" "${LR[@]}"
+signed seqbool sequence=true
+refuses "a sequence that is not a 14-digit integer" "$TMP/seqbool.json" "${LR[@]}"
+signed seqswap sequence=20261122110500 'version="1.0.0+20261122110500.cccccccccccc"' \
+  'targets.x86_64-unknown-linux-musl.cmux-tui-acpmux={"url":"https://files.cmux.com/cmux-tui/cccccccccccccccccccccccccccccccccccccccc/cmux-tui-x86_64-unknown-linux-musl","sha256":"'"$(printf 'd%.0s' {1..64})"'","size":7}'
+refuses "acpmux at another binary's URL" "$TMP/seqswap.json" "${LR[@]}"
+[[ "$(python3 "$PTR" sequence --pointer "$TMP/seq.json" --keys "$TMP/keys-a.json" --channel feat-cmux-next)" == 20261122110500 ]] \
+  || fail "sequence did not print the file's sequence"
+[[ "$(python3 "$PTR" sequence --pointer "$TMP/rel.json" --keys "$TMP/keys-a.json" --channel feat-cmux-next)" == 20261109070012 ]] \
+  || fail "sequence did not print a phase-1 file's version stamp"
+[[ "$(python3 "$PTR" sequence --pointer "$TMP/missing.json" --keys "$TMP/keys-a.json" --channel feat-cmux-next 2>/dev/null)" == 0 ]] \
+  || fail "sequence of a missing pointer was not 0"
+[[ "$(python3 "$PTR" sequence --pointer "$TMP/machine.json" --keys "$TMP/keys-a.json" --channel feat-cmux-next 2>/dev/null)" == 0 ]] \
+  || fail "sequence of a Cloud machine file was not 0"
+# A phase-1b file of a later commit moves a phase-1 pointer (its sequence is above the commit stamp).
+signed seqlater committed_at=1794207700 sequence=20261122110500 'version="1.0.0+20261122110500.cccccccccccc"'
+python3 "$PTR" newer --pointer "$TMP/seqlater.json" --keys "$TMP/keys-a.json" --current "$TMP/rel.json" \
+  || fail "a phase-1b file did not move a phase-1 pointer"
+# A later commit whose sequence is not above the published one keeps the pointer (installers refuse lower).
+signed seqlow committed_at=1794207800 sequence=20261122110500 'version="1.0.0+20261122110500.cccccccccccc"'
+rc=0; python3 "$PTR" newer --pointer "$TMP/seqlow.json" --keys "$TMP/keys-a.json" --current "$TMP/seqlater.json" 2>/dev/null || rc=$?
+[[ $rc == 3 ]] || fail "a file with an equal sequence moved the pointer (exit $rc)"
+signed seqhigh committed_at=1794207800 sequence=20261122110501 'version="1.0.0+20261122110501.cccccccccccc"'
+python3 "$PTR" newer --pointer "$TMP/seqhigh.json" --keys "$TMP/keys-a.json" --current "$TMP/seqlater.json" \
+  || fail "a later commit with a higher sequence did not move the pointer"
+# A rerun signs the same build with another sequence: the write-once per-commit file keeps the first.
+signed seqrerun sequence=20261122120000 'version="1.0.0+20261122120000.cccccccccccc"' \
+  'targets.x86_64-unknown-linux-musl.cmux-tui-acpmux={"url":"https://files.cmux.com/cmux-tui/cccccccccccccccccccccccccccccccccccccccc/cmux-tui-acpmux-x86_64-unknown-linux-musl","sha256":"'"$(printf 'd%.0s' {1..64})"'","size":7}'
+python3 "$PTR" same-build --pointer "$TMP/seqrerun.json" --current "$TMP/seq.json" --keys "$TMP/keys-a.json" 2>/dev/null \
+  || fail "a rerun with another sequence was not the same build"
+python3 "$PTR" same-build --pointer "$TMP/seqrerun.json" --current "$TMP/rel.json" --keys "$TMP/keys-a.json" 2>/dev/null \
+  && fail "a file with acpmux was the same build as one without"
+
 # The committed key list is well formed.
 python3 - "$ROOT/Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json" <<'PY' || fail "the committed key list is malformed"
 import base64, hashlib, json, sys

@@ -12,7 +12,7 @@
   "appearance.appTheme": "followTerminal",
   // background: the page. foreground: the ink. selection: a highlighter under the text, not the
   // accent. accent: the link and focus ink.
-  "colors": { "background": "#161615", "foreground": "#e9e6df", "selection": "#4a4330", "accent": "#a3bbf5" },
+  "colors": { "background": "#161615", "foreground": "#e9e6df", "selection": "#7b745f", "accent": "#a3bbf5" },
   "appearance.accent": "theme",
   // The terminal: the page and ink above, the cursor in the ink, and sixteen colors at a soft
   // chroma, each readable over the page (the Folio look's palette, solved in OKLCH over a page
@@ -83,7 +83,7 @@
 
   // The margin: the sidebar, tab strip, address bar and docks, one step of lightness off the page.
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#1f1e1c",
+  "appearance.surfaces.sidebar.color": "#171614",
   "appearance.surfaces.sidebar.opacity": 1,
   "appearance.surfaces.tabBar.color": "#1f1e1c",
   "appearance.surfaces.tabBar.opacity": 1,

@@ -13,12 +13,15 @@ import CmuxNextSettings
 ///   are the hub's own; `error` is the text the tab's card says for a failure, refusal or end (null otherwise);
 /// - `phase` (`connecting`, `connected`, `failed`, `ended`; null with no session), `connected`,
 ///   `has_frame` (a picture is up in this connection), `path` (Direct, Relayed, ...);
+/// - `started_by`: who started the view without a person's click (the agent session's title or the
+///   calling app, else `agent`), null for a tab a person opened or one waiting at the Connect card;
 /// - `connect_started_at` (ISO 8601, when this session's connect began) and `first_frame_ms`
 ///   (from it to the first decoded frame reaching the screen; null until then);
 /// - `fps`, `target_fps`, `rtt_ms` (latest), `frames_decoded`, `frames_dropped` (frames the other
 ///   Mac numbered that never showed here), `frame` (the stream's pixel size);
 /// - `rtt_ms_window`, `frame_interval_ms` and `present_ms` (decoded to shown): {count, p50, p95,
 ///   max} over the last 60 round trips and 120 frames; null before the first sample.
+/// And `hub` (``hubStateRow``): this Mac's device hub, whether it runs, is registered and shares.
 /// No credential, no device address, no pixel of the screen. Nothing here connects, disconnects or
 /// sends input: those stay the person's clicks in the pane (and `debug.mac_screen` in DEV builds).
 extension MacScreenPages {
@@ -54,7 +57,54 @@ extension MacScreenPages {
                 row["store_tab"] = events.storeTabID(tab.key).map(JSONValue.string) ?? .null
                 return .object(row)
             }
-        return ["tabs": .array(rows)]
+        return ["tabs": .array(rows), "hub": hubStateRow]
+    }
+
+    /// This Mac's device hub as `mac_screen.state` reads it (every build): whether it runs, and
+    /// with it this device, whether it shares its screen, the hub link and the user's devices, so
+    /// a Release build says why a Mac is not listed or not shareable without DEV tools (CMUX-572).
+    /// Ids, names and states only: no key, ticket, token or relay secret.
+    var hubStateRow: JSONValue {
+        var row: [String: JSONValue] = [
+            "configured": .bool(hubConfigured), "running": .bool(hub != nil),
+            "startup_error": hubStartupError.map(JSONValue.string) ?? .null,
+        ]
+        guard let hub else { return .object(row) }
+        let me = hub.identity.id
+        row["status"] = .string(Self.hubStatusName(hub.status))
+        row["connection"] = .string(Self.connectionName(hub.connection))
+        row["this_device"] = .string(me)
+        row["registered"] = .bool(hub.thisDevice != nil)
+        row["sharing"] = .bool(hubHost.isSharing)
+        row["served_by_cmux_remote"] = .bool(remoteHosted)
+        row["last_error"] = hub.lastError.map { .string($0.description) } ?? .null
+        row["devices"] = .array(hub.devices.sorted { $0.name < $1.name }.map { device in
+            ["id": .string(device.id), "name": .string(device.name),
+             "platform": device.platform.map { .string($0.rawValue) } ?? .null,
+             "online": .bool(device.online), "shared": .bool(device.macScreenShared), "this": .bool(device.id == me)]
+        })
+        return .object(row)
+    }
+
+    static func hubStatusName(_ status: DeviceHub.Status) -> String {
+        switch status {
+        case .idle: "idle"
+        case .starting: "starting"
+        case .ready: "ready"
+        case .failed: "failed"
+        }
+    }
+
+    static func connectionName(_ state: DeviceHubSocket.State) -> String {
+        switch state {
+        case .disconnected: "disconnected"
+        case .connecting: "connecting"
+        case .connected: "connected"
+        case .reconnecting: "reconnecting"
+        case .replaced: "replaced"
+        case .removed: "removed"
+        case .signedOut: "signed_out"
+        }
     }
 
     static func stateRow(_ tab: MacScreenTab) -> JSONValue {
@@ -68,13 +118,16 @@ extension MacScreenPages {
         ]
         guard let pane = tab.pane else { return .object(row) }
         row["has_frame"] = .bool(pane.model.hasFrame)
+        row["started_by"] = pane.model.startedBy.map { .string($0.stateValue) } ?? .null
         let hubPhase = pane.model.hub?.phase
         row["state"] = .string(stateName(hub: hubPhase, session: pane.session?.phase, hasFrame: pane.model.hasFrame))
         row["hub_phase"] = hubPhase.map { .string(hubPhaseName($0)) } ?? .null
         row["scope"] = hubPhase.flatMap(Self.scope).map { .string($0.rawValue) } ?? .null
         row["error"] = errorText(pane.model).map(JSONValue.string) ?? .null
         guard let session = pane.session else { return .object(row) }
-        row["phase"] = .string(phaseName(session.phase))
+        // A session that never connected sits in its initial `.ended`: no stream, not one that ended.
+        let started = session.timings.startedAt != nil || session.phase != .ended
+        row["phase"] = started ? .string(phaseName(session.phase)) : .null
         row["connected"] = .bool(session.phase == .connected)
         // Where a connect is (no_answer, no_link, no_frame, shown), and where one that timed out stopped.
         row["connect_stage"] = .string(session.connectStage.name)

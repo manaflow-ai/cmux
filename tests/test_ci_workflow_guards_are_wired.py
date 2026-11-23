@@ -45,6 +45,10 @@ INVOKED_PATH = re.compile(r"(?:\./)?(tests(?:_v2)?/[A-Za-z0-9_.-]+\.(?:py|sh))")
 # an allowlist that can be appended to without argument is the failure mode
 # this test exists to prevent.
 UNWIRED: set[str] = {
+    # Manual capture harness regression; the workflow path is an admission identity fixture,
+    # not a workflow file read. Run after changing the harness or its HQ workflow identity.
+    # Exit: remove if this test begins reading workflows or gains an approved CI execution lane.
+    "tests/test_ios_screen_sharing_proof.py",
     # lane = "manual" in tests/test-execution.d/other.toml. Checks that every job of
     # each workflow in its GATED set carries the draft-head condition and that its trigger lists ready_for_review (the
     # draft tier, scripts/ci/head_tier.py); it reads the workflows as data. Run it by hand when a workflow is added to

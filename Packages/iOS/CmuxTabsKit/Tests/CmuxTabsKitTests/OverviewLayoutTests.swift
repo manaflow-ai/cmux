@@ -130,4 +130,30 @@ struct OverviewLayoutTests {
         // The page points a card shows: the page width at the card's aspect.
         #expect(abs(g.cardPageHeight - 402 * 249.3 / 177) < 1e-9)
     }
+
+    /// An unfolded foldable's detail pane (643 pt wide, assumed): three
+    /// columns, the outer ones at the 16 pt insets, evenly spaced, three to a row.
+    @Test func threeColumnsOnAWidePage() {
+        let g = OverviewLayout(size: CGSize(width: 643, height: 992), safeTop: 24, safeBottom: 20, count: 7, columns: 3)
+        #expect(g.cardWidth == ((643 - 64) / 3).rounded(.down))
+        #expect(g.card(0).minX == 16)
+        #expect(abs(g.card(2).maxX - (643 - 16)) < 1e-9)
+        #expect(abs((g.card(1).minX - g.card(0).maxX) - (g.card(2).minX - g.card(1).maxX)) < 1e-9)
+        #expect(g.card(3).minX == 16 && g.card(3).minY == g.card(0).minY + g.pitch)
+        #expect(g.rows == 3)
+        for i in 0..<7 {
+            let c = g.card(i)
+            #expect(g.slot(at: CGPoint(x: c.midX, y: c.midY)) == i)
+        }
+    }
+
+    /// Two columns stay Safari's measured geometry, and a count below two is two.
+    @Test func twoColumnsAreTheMeasuredLayout() {
+        for columns in [0, 1, 2] {
+            let g = OverviewLayout(size: CGSize(width: 402, height: 874), safeTop: 62, safeBottom: 34, count: 5, columns: columns)
+            #expect(g.card(0) == CGRect(x: 16, y: 122, width: 177, height: 177 * OverviewLayout.cardAspect))
+            #expect(g.card(1).minX == 209)
+            #expect(g.rows == 3)
+        }
+    }
 }

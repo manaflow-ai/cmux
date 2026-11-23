@@ -77,7 +77,7 @@ struct PageFactory {
     func appsWebPage(route: String?) -> PageWebView? {
         let confirming = appsStoreProvider(fromPage: true)
         let native = AppPageNativeProvider(services: services, page: .apps)
-        let routes = [PageRoute(prefix: "cmux.apps.", provider: confirming), PageRoute(prefix: "cmux.app.", provider: native), AppsPanelsPageProvider.route(services.apps.client)]
+        let routes = [PageRoute(prefix: "cmux.apps.", provider: confirming), PageRoute(prefix: "cmux.app.", provider: PageGestureActionProvider(page: .apps, wrapping: native)), AppsPanelsPageProvider.route(services.apps.client)]
         guard let page = PageWebView(descriptor: .apps, routes: routes, route: route, dynamicResources: AppsGlyphResource()) else { return nil }
         confirming.anchor = { [weak page] in page }
         native.anchor = { [weak page] in page }
@@ -181,8 +181,8 @@ struct PageFactory {
             guard let services else { return nil }
             return await services.cloudVmHost.set(id, on: on, reachable: services.settingsWindow.vmHostReach(id) == true)
         }
-        (provider.accountsState, provider.accountsRun) = services.accounts.github.accountsPage(services.accounts.model, agentKeys: services.accounts.agentKeys)
         provider.agents = services.agentHarnesses
+        let native = AppPageNativeProvider(services: services, page: .settings)
         let harnesses = SettingsHarnesses(
             environment: { [weak services] in services.flatMap(QuitAgents.environment) },
             openTerminal: { [weak services] line in services?.inFrontPane { $0.newTerminalTab(typing: line + "\r") } ?? false },
@@ -192,8 +192,9 @@ struct PageFactory {
             },
             updateState: { [weak services] in services?.agentHarnesses.updates?.state ?? .array([]) },
             refreshUpdates: { [weak services] in await services?.agentHarnesses.updates?.refresh() },
-            unsupported: { AgentHarnessStrings.unsupported }
-        )
+            unsupported: { AgentHarnessStrings.unsupported },
+            openSignInPage: { [weak services, weak native] url in services?.linkOpener.openSignInPage(url, beside: native?.anchor()) })
+        (provider.accountsState, provider.accountsRun) = services.accounts.github.accountsPage(services.accounts.model, agentKeys: services.accounts.agentKeys, signIn: harnesses)
         provider.harnessesState = { harnesses.state }
         provider.harnessesRun = { params, context in try await harnesses.run(params, context: context) }
         let models = SettingsModels.live(environment: { [weak services] in services.flatMap(QuitAgents.environment) }, harnesses: harnesses, settings: settings,
@@ -304,7 +305,6 @@ struct PageFactory {
                 value: { [weak services] id in services?.themes.workspaceOpacity(id) },
                 set: { [weak services] value, id in services?.themes.setWorkspaceOpacity(value, for: id) },
                 preview: { [weak services] value, id in services?.themes.previewWorkspaceOpacity(value, for: id) }))
-        let native = AppPageNativeProvider(services: services, page: .settings)
         // Your own backgrounds from a link, removed or revealed (BackdropImagesPageProvider).
         let images = provider.backdropImages.map { images in
             BackdropImagesPageProvider(images: images.images, use: { [weak provider] in try await provider?.useBackdropImage($0) ?? "" },

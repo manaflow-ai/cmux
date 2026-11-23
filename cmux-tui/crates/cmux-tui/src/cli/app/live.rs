@@ -32,6 +32,7 @@ use std::path::{Path, PathBuf};
 use super::UsageError;
 
 mod chromium;
+mod web_abi;
 
 /// The script in a cmux checkout that runs the dev server and writes `web-dev.json`.
 const SCRIPT: &str = "scripts/cmux-next/web-overlay.sh";
@@ -305,6 +306,23 @@ pub(super) fn run(command: &Command) -> i32 {
         eprintln!("{}", messages.no_checkout);
         return 2;
     };
+    if matches!(command, Command::Start { .. })
+        && let Some(found) = web_abi::mismatch(
+            &tree,
+            &web_abi::target_apps(std::env::var_os("CMUX_WEB_OVERLAY_APP")),
+        )
+    {
+        // Nothing is started or written: a write to web-dev.json reloads every page of every app.
+        eprintln!(
+            "{}",
+            messages
+                .abi_mismatch
+                .replace("{tree_abi}", &found.tree_abi.to_string())
+                .replace("{app}", &found.app.display().to_string())
+                .replace("{app_abi}", &found.app_abi.to_string())
+        );
+        return 1;
+    }
     let mut process = Process::new("bash");
     process.arg(tree.join(SCRIPT)).args(&args).current_dir(&tree);
     if let Some(path) = tool_path(std::env::var_os("PATH"), std::env::var_os("HOME")) {
