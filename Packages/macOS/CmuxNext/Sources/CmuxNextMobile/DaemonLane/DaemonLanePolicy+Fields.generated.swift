@@ -7,7 +7,7 @@ extension DaemonLanePolicy {
     static let commandFields: [String: Set<String>] = [
         "ack-tab-notifications": ["surface"],
         "add-tabs-to-tab-group": ["group", "surfaces", "transaction"],
-        "attach-surface": ["cols", "expected_generation", "expected_terminal_id", "hybrid_frame", "hybrid_stream", "mode", "output_coalesce_ms", "replay_history_rows", "replay_history_start", "rows", "snapshot", "snapshot_images", "snapshot_local_history", "snapshot_version", "surface", "viewer_backlog_bytes"],
+        "attach-surface": ["cols", "expected_generation", "expected_terminal_id", "hybrid_frame", "hybrid_stream", "mode", "output_coalesce_ms", "replay_history_rows", "replay_history_start", "resume_generation", "resume_offset", "rows", "snapshot", "snapshot_images", "snapshot_local_history", "snapshot_version", "surface", "viewer_backlog_bytes"],
         "browser-activate": ["surface"],
         "browser-back": ["surface"],
         "browser-forward": ["surface"],
@@ -103,7 +103,7 @@ extension DaemonLanePolicy {
         "select-screen": ["delta", "index"],
         "select-tab": ["delta", "index", "pane"],
         "select-workspace": ["delta", "index"],
-        "send": ["bytes", "expect_agent", "expect_foreground", "flow", "paste", "submit", "surface", "terminal_id", "text"],
+        "send": ["bytes", "expect_agent", "expect_foreground", "flow", "key", "paste", "submit", "surface", "terminal_id", "text"],
         "send-key": ["keys", "surface"],
         "server-stats": ["include"],
         "set-cell-pixels": ["height_px", "width_px"],

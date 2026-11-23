@@ -17,6 +17,7 @@
 
 pub mod client;
 pub mod codemode;
+mod device;
 pub mod oauth;
 pub mod serve;
 pub mod store;
@@ -777,9 +778,9 @@ impl McpHub {
                 }
             ));
             out.push_str(&format!(
-                "\nUse it in code mode: `mcp` action describe (server {0}) for the TypeScript API, then action run with code like `const r = await mcp.{0}.{1}({{...}}); console.log(r)`. Declarations are also in {2}.",
+                "\nUse it in code mode: `mcp` action describe (server {0}) for the TypeScript API, then action run with code like `const r = await mcp.{0}{1}({{...}}); console.log(r)`. Declarations are also in {2}.",
                 s.name,
-                names.first().copied().unwrap_or("tool"),
+                codemode::member(names.first().copied().unwrap_or("tool")),
                 self.inner.dir.api_path(&s.name).display()
             ));
         }
@@ -1102,6 +1103,10 @@ impl McpHub {
     // ---- sign-in ----
 
     fn sign_in(&self, name: &str, header: &str) -> Result<String, String> {
+        // A registry server that signs in with a device code (RFC 8628).
+        if let Some(reply) = self.device_sign_in(name, header) {
+            return reply;
+        }
         let url = match self.state().server(name).and_then(|s| s.transport.clone()) {
             Some(Transport::Http { url }) => url,
             _ => {
@@ -1125,37 +1130,13 @@ impl McpHub {
             .insert(name.to_owned());
         let hub = self.clone();
         let name_owned = name.to_owned();
-        let _ = std::thread::Builder::new().name("mcp-signin".into()).spawn(move || {
-            let result = oauth::wait(started);
-            hub.inner.signing_in.lock().unwrap().remove(&name_owned);
-            match result {
-                Ok(tokens) => {
-                    let mut secrets = hub.inner.dir.secrets(&name_owned);
-                    secrets.oauth = Some(tokens);
-                    if let Err(e) = hub.inner.dir.save_secrets(&name_owned, &secrets) {
-                        hub.note(format!("[mcp {name_owned}] the sign-in worked but its token could not be saved: {e}"));
-                        return;
-                    }
-                    hub.drop_live(&name_owned);
-                    match hub.connect(&name_owned) {
-                        Ok(_) => hub.note(format!(
-                            "[mcp {name_owned}] signed in and connected. {}\nGo on with what the person asked.",
-                            hub.summary(&name_owned, true)
-                        )),
-                        Err(ConnectError::Auth(_)) => hub.note(format!(
-                            "[mcp {name_owned}] the sign-in finished but the server still refuses the token (401). Try `mcp signin` once more."
-                        )),
-                        Err(ConnectError::Other(why)) => {
-                            hub.note(format!("[mcp {name_owned}] signed in, but connecting failed: {why}"))
-                        }
-                    }
-                }
-                Err(why) => {
-                    hub.set_state(&name_owned, "needs sign-in");
-                    hub.note(format!("[mcp {name_owned}] the sign-in did not finish: {why}"))
-                }
-            }
-        });
+        let _ = std::thread::Builder::new()
+            .name("mcp-signin".into())
+            .spawn(move || {
+                let result = oauth::wait(started);
+                hub.inner.signing_in.lock().unwrap().remove(&name_owned);
+                hub.finish_sign_in(&name_owned, result);
+            });
         if matches!(self.inner.viewer, Viewer::Agent { .. }) {
             // `integrations serve` has no way to wake the agent, and the
             // `cmux mcp serve` upstream it runs in stops after 10 quiet minutes.
@@ -1166,6 +1147,41 @@ impl McpHub {
         Ok(format!(
             "outcome: waiting. {name} needs the person to sign in. Open this page for them (your auth-escalation flow: a cmux browser tab where they are signed in; they only approve):\n{authorize}\nThe hub waits for the approval off your turn (20 minutes) and wakes you with a note when {name} is connected. Do not poll."
         ))
+    }
+
+    /// Saves a finished sign-in's tokens, connects and wakes the Chief (or
+    /// says why it did not finish). Both sign-ins end here: the loopback
+    /// redirect and the device code.
+    fn finish_sign_in(&self, name: &str, result: Result<store::OAuthTokens, String>) {
+        match result {
+            Ok(tokens) => {
+                let mut secrets = self.inner.dir.secrets(name);
+                secrets.oauth = Some(tokens);
+                if let Err(e) = self.inner.dir.save_secrets(name, &secrets) {
+                    self.note(format!(
+                        "[mcp {name}] the sign-in worked but its token could not be saved: {e}"
+                    ));
+                    return;
+                }
+                self.drop_live(name);
+                match self.connect(name) {
+                    Ok(_) => self.note(format!(
+                        "[mcp {name}] signed in and connected. {}\nGo on with what the person asked.",
+                        self.summary(name, true)
+                    )),
+                    Err(ConnectError::Auth(_)) => self.note(format!(
+                        "[mcp {name}] the sign-in finished but the server still refuses the token (401). Try `mcp signin` once more."
+                    )),
+                    Err(ConnectError::Other(why)) => {
+                        self.note(format!("[mcp {name}] signed in, but connecting failed: {why}"))
+                    }
+                }
+            }
+            Err(why) => {
+                self.set_state(name, "needs sign-in");
+                self.note(format!("[mcp {name}] the sign-in did not finish: {why}"))
+            }
+        }
     }
 
     fn reconnect_or_sign_in(&self, name: &str) -> Result<String, String> {
@@ -1282,7 +1298,7 @@ impl McpHub {
             return Err(format!("mcp describe: {name} has no tool {t}"));
         }
         Ok(format!(
-            "{}\n// Each call returns structuredContent, else the text (parsed when it is JSON); an error result throws.\n// Use: action run, code: `const r = await mcp.{name}.<tool>({{...}}); console.log(r);`",
+            "{}\n// Each call returns structuredContent, else the text (parsed when it is JSON); an error result throws.\n// Use: action run, code: `const r = await mcp.{name}.<tool>({{...}}); console.log(r);` (a tool name that is no identifier: `mcp.{name}[\"<tool>\"](...)`)",
             codemode::declarations(&name, &s.tools, &s.flagged, tool)
         ))
     }
@@ -1415,8 +1431,7 @@ impl McpHub {
         let code = arg(args, "code").ok_or(
             "mcp run: give `code` (TypeScript/JavaScript; `await mcp.<server>.<tool>({...})`)",
         )?;
-        let runtime = codemode::find_runtime(&*self.inner.env)
-            .ok_or("mcp run: no JavaScript runtime (deno, node or bun) on this machine; use action call instead")?;
+        let runtime = codemode::runtime(&*self.inner.env)?;
         let timeout = Duration::from_secs(
             args.get("timeout_seconds")
                 .and_then(Value::as_u64)

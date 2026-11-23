@@ -1,0 +1,33 @@
+{
+  "family": "usage_app",
+  "ops": {
+    "usage_app.cycle_variant": {
+      "source": "app",
+      "owner": "app:cmux/usage",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "6b93b097488bb15c"
+    },
+    "usage_app.refresh": {
+      "source": "app",
+      "owner": "app:cmux/usage",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "100bd303334ffb11"
+    },
+    "usage_app.show": {
+      "source": "app",
+      "owner": "app:cmux/usage",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "ab83b3faeb7afd6c"
+    },
+    "usage_app.status": {
+      "source": "app",
+      "owner": "app:cmux/usage",
+      "class": "read",
+      "risk": "read",
+      "digest": "5df24f1c0b992a2f"
+    }
+  }
+}
