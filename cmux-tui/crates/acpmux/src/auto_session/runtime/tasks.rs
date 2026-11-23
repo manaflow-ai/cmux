@@ -62,14 +62,6 @@ async fn answered<T>(call: impl Future<Output = CloudResult<T>>) -> CloudResult<
     }
 }
 
-/// The store's view of the chat that came with an answer or a refusal.
-fn view_of(result: &CloudResult<SessionView>) -> Option<Box<SessionView>> {
-    match result {
-        Ok(view) => Some(Box::new(view.clone())),
-        Err(error) => error.session().cloned().map(Box::new),
-    }
-}
-
 /// The harness's name as the store takes it: lower case letters, digits, `_ . -`, at most 32.
 fn harness_name(harness: &str) -> String {
     let name: String = harness
@@ -154,15 +146,15 @@ impl<C: AutoCloud + 'static> Ctx<C> {
         }
     }
 
-    /// `Register`: Auto on for the chat in the store.
+    /// `Register`: Auto on for the chat in the store. The loop gets the store's own answer:
+    /// whoever switched Auto on waits for it (`register.rs`).
     pub(super) async fn register(self, id: String, request: u64, keep: Option<bool>) {
         let put = self.put_request(&id, true, keep).await;
         let result = answered(self.cloud.put(&id, &put)).await;
         if let Err(error) = &result {
             tracing::info!(session = %id, "auto session: registering did not go through: {error}");
         }
-        let event = Event::from_registration(request, &self.me, &result);
-        self.tell(Command::Step { id, event, view: view_of(&result) });
+        self.tell(Command::Registered { id, request, result });
     }
 
     /// `Renew`: the lease, as the holder or as a laptop standing by.
@@ -196,10 +188,11 @@ impl<C: AutoCloud + 'static> Ctx<C> {
         self.tell(Command::Closed { id, result });
     }
 
-    /// Whether the chat stays in the Cloud when this machine returns.
-    pub(super) async fn keep(self, id: String, keep: bool) {
+    /// Whether the chat stays in the Cloud when this machine returns. `reply` goes back with
+    /// the store's answer: the loop answers it once the row follows that answer.
+    pub(super) async fn keep(self, id: String, keep: bool, reply: Option<Reply>) {
         let result = answered(self.cloud.keep(&id, keep)).await;
-        self.tell(Command::Kept { id, result });
+        self.tell(Command::Kept { id, result, reply });
     }
 
     /// One copy: the events the store lacks after `after`, then a snapshot.

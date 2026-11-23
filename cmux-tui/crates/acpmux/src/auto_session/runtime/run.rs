@@ -165,8 +165,11 @@ impl<C: AutoCloud + 'static> Loop<C> {
             Command::Copied { id, copy, result } => self.copied(&id, copy, result).await,
             Command::Imported { id, epoch, result } => self.imported(&id, epoch, result).await,
             Command::Leftover { id, result } => self.leftover_written(&id, result),
+            Command::Registered { id, request, result } => {
+                self.registered(&id, request, result).await;
+            }
             Command::Closed { id, result } => self.closed(&id, result).await,
-            Command::Kept { id, result } => self.kept(&id, result),
+            Command::Kept { id, result, reply } => self.kept(&id, result, reply),
             Command::LaneDone { id, drained } => self.lane_done(&id, drained),
         }
     }

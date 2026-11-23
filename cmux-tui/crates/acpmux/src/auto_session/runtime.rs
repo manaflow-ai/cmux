@@ -14,6 +14,7 @@
 //!   and comes back as a [`Command`], so a slow answer never holds another chat's renewal.
 //! - [`inbox`]: the Cloud inbox's messages into the chat's queue, each once.
 //! - [`switch`]: Auto switched on or off for a chat, and a prompt to a chat held elsewhere.
+//! - [`register`]: the store's answer to Auto on, which answers whoever switched it on.
 //! - [`away`]: the person's Auto chats this laptop does not have, which it stands by for.
 //! - [`chats`]: what the loop keeps of each chat, and the chat's record and row kept in step.
 //! - [`clock`]: the wall clock, injected.
@@ -29,6 +30,7 @@ mod chats;
 pub mod clock;
 mod effects;
 mod inbox;
+mod register;
 mod run;
 mod settle;
 mod signals;
@@ -105,10 +107,12 @@ pub(crate) enum Command {
     Imported { id: String, epoch: u64, result: Result<Imported, ImportError> },
     /// The leftover patch was written, or there was nothing to keep.
     Leftover { id: String, result: Result<Option<Leftover>, String> },
+    /// The registration numbered `request` ended: the store's answer to Auto on, or none.
+    Registered { id: String, request: u64, result: Result<SessionView, AutoCloudError> },
     /// The store answered Auto off.
     Closed { id: String, result: Result<SessionView, AutoCloudError> },
-    /// The store answered whether the chat stays in the Cloud.
-    Kept { id: String, result: Result<SessionView, AutoCloudError> },
+    /// The store answered whether the chat stays in the Cloud. `reply`: who asked.
+    Kept { id: String, result: Result<SessionView, AutoCloudError>, reply: Option<Reply> },
     /// The chat's lane finished what it was doing. `drained`: it was the inbox.
     LaneDone { id: String, drained: bool },
 }
