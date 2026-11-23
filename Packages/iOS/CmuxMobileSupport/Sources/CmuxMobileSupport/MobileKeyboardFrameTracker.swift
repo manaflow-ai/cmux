@@ -40,6 +40,10 @@ public final class MobileKeyboardFrameTracker {
     /// when it carries none of its own; see ``interruptedAnimation``.
     public private(set) var interruptedAnimation: (duration: TimeInterval, curve: UIView.AnimationCurve)?
     private let now: () -> CFTimeInterval
+    /// Whether anything in the app can own a software keyboard now: a first
+    /// responder that takes text (``MobileKeyboardOwner``), read by
+    /// ``dropKeyboardWithoutOwner()``. Tests set their own.
+    public var keyboardOwnerPresent: @MainActor () -> Bool = { MobileKeyboardOwner.isPresent }
 
     /// Which keyboard notification a subscriber hears.
     public enum Change: Sendable {
@@ -80,6 +84,40 @@ public final class MobileKeyboardFrameTracker {
                 }
             }
         }
+    }
+
+    /// Forgets a recorded keyboard nothing in the app can own: this app's
+    /// keyboard is on record as shown, yet no first responder takes text.
+    /// Such a record is a hide UIKit never posted (the keyboard went while
+    /// the app was in the background: Leo, 2026-11-17, "the freaking built in
+    /// keyboard accounting is there when I'm loading back in even when
+    /// there's no keyboard!"). A host calls it when the app comes back to
+    /// the foreground and when its view is back in a window, the moments a
+    /// hide can have gone unposted. The keyboard is recorded hidden, where a
+    /// shown one ends, and every subscriber hears it as a will-change, so a
+    /// dock riding it goes back to rest. Returns whether it forgot one.
+    @discardableResult
+    public func dropKeyboardWithoutOwner() -> Bool {
+        guard isShown, let shown = lastEndFrame, !keyboardOwnerPresent() else { return false }
+        let hidden = CGRect(x: shown.minX, y: shownBottom ?? shown.maxY, width: shown.width, height: shown.height)
+        latestWill = nil
+        interruptedAnimation = nil
+        record(change: .willChangeFrame, endFrame: hidden, duration: 0, curve: UIView.AnimationCurve.easeInOut.rawValue)
+        // A dropped record is not a transition the next did-change interrupts.
+        latestWill = nil
+        dropSubscribers.removeAll { $0.owner() == nil }
+        for subscriber in dropSubscribers { subscriber.handler() }
+        return true
+    }
+
+    private var dropSubscribers: [(owner: () -> AnyObject?, handler: @MainActor () -> Void)] = []
+
+    /// Calls `handler` after ``dropKeyboardWithoutOwner()`` forgot a keyboard
+    /// (no will-hide or did-hide notification comes for it), for as long as
+    /// `owner` lives: a host that tracks the keyboard from UIKit's
+    /// show and hide notifications settles as after a hide.
+    public func subscribeToDrops(_ owner: AnyObject, handler: @escaping @MainActor () -> Void) {
+        dropSubscribers.append((owner: { [weak owner] in owner }, handler: handler))
     }
 
     /// Calls `handler` with the end frame of every keyboard notification after

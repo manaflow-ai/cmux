@@ -160,6 +160,7 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         ),
         (method::MUX_STATUS, Run(json!({}))),
         (method::MUX_SESSIONS, Run(json!({"usage": true}))),
+        (method::MUX_USAGE, Run(json!({}))),
         (
             method::MUX_WEB_MODES,
             Run(json!({"sessionId": "$S", "configId": "model", "value": "m1"})),
@@ -236,6 +237,44 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::MUX_COMPOSERS, Run(json!({"sessionId": "$S"}))),
         (method::MUX_BOOKMARK_GET, Run(json!({"sessionId": "$S"}))),
         (method::MUX_BOOKMARK_SET, Run(json!({"sessionId": "$S", "seq": 1, "bookmarked": false}))),
+        (method::MUX_PROMPTS_LIST, Run(json!({}))),
+        (
+            method::MUX_PROMPTS_SAVE,
+            Any(
+                json!({"name": "stack", "text": "on a small stack"}),
+                "the person check refuses this connection",
+            ),
+        ),
+        (
+            method::MUX_PROMPTS_DELETE,
+            Any(json!({"name": "stack"}), "the person check refuses this connection"),
+        ),
+        (
+            method::MUX_STASH_LIST,
+            Any(json!({"chat": "stack"}), "the person check refuses this connection"),
+        ),
+        (
+            method::MUX_STASH_PUSH,
+            Any(
+                json!({"chat": "stack", "text": "aside"}),
+                "the person check refuses this connection",
+            ),
+        ),
+        (
+            method::MUX_STASH_GET,
+            Any(json!({"chat": "stack", "id": "x"}), "the person check refuses this connection"),
+        ),
+        (
+            method::MUX_STASH_DROP,
+            Any(json!({"chat": "stack", "id": "x"}), "the person check refuses this connection"),
+        ),
+        (
+            method::MUX_STASH_MOVE,
+            Any(
+                json!({"chat": "stack", "to": "other"}),
+                "the person check refuses this connection",
+            ),
+        ),
         (method::MUX_ASK, Run(json!({"sessionId": "$S", "text": "what did you say?"}))),
         (
             method::MUX_BTW,
@@ -368,6 +407,7 @@ pub fn table() -> Vec<(&'static str, Ask)> {
                 json!({"sessionId": "$S", "id": "0000000000000000000000000000000000000000000000000000000000000000"}),
             ),
         ),
+        (method::MUX_TURN_SHOTS, Run(json!({"sessionId": "$S", "turnId": "t1"}))),
         (method::MUX_QUEUE_TEXT, Run(json!({"sessionId": "$S", "promptId": "p1"}))),
         (
             method::MUX_MAIL_SEND,
@@ -408,6 +448,10 @@ pub fn table() -> Vec<(&'static str, Ask)> {
                 json!({"name": "lso-register"}),
                 "taken only from the unix socket, by the peer's pid (invalid params)",
             ),
+        ),
+        (
+            method::MUX_INBOX_RELAY,
+            Any(json!({}), "taken only from a process a Claude Code session runs (invalid params)"),
         ),
         (method::MUX_RENAME, Run(json!({"sessionId": "$S", "newName": "renamed-s"}))),
         (
@@ -568,5 +612,9 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::SESSION_CLOSE, Run(json!({"sessionId": "$T"}))),
         (method::SESSION_DELETE, Run(json!({"sessionId": "$T"}))),
         (method::MUX_KILL, Run(json!({"sessionId": "$T"}))),
+        // Pauses its own new chat, which the next `$T` row replaces.
+        (method::MUX_PAUSE, Run(json!({"sessionId": "$T"}))),
+        // `$S` runs: nothing to wake.
+        (method::MUX_WAKE, Run(json!({"sessionId": "$S"}))),
     ]
 }

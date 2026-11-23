@@ -7,6 +7,12 @@ export type AppTier = "first-party" | "verified" | "unverified";
 
 export type AppSource = "default" | "user" | "bundled" | "local";
 
+/**
+ * Where a listing belongs (the owner's `Shelf`, cmux-tui-core apps/store.rs): `store` is Discover,
+ * `example` the SDK examples (developers only), `local` a `cmux ext dev` app (Installed only).
+ */
+export type AppShelf = "store" | "example" | "local";
+
 /** The risk class of a scope (cmux-app-host schema/v2/scope-classes.json). */
 export type ScopeRisk = "standard" | "sensitive" | "restricted";
 
@@ -24,6 +30,8 @@ export interface CatalogApp {
   id: string;
   name: string;
   description: string;
+  /** One line on what the person gets (the manifest's `tagline`); absent from an older owner. */
+  tagline?: string;
   publisher: string;
   publisher_verified: boolean;
   tier: AppTier;
@@ -37,12 +45,20 @@ export interface CatalogApp {
   hidden?: boolean;
   /** The owner's word: hidable, never removable (first-party apps; FIRST-PARTY-APPS). */
   hide_only?: boolean;
+  /** The app draws on the New Tab page (`cmux.newtab/1`), so it can be the New Tab app. */
+  new_tab?: boolean;
+  /** Absent from an owner older than shelves: the page treats it as `store`. */
+  shelf?: AppShelf;
+  /** The host failed to load the app (the listing's install `failure`); Discover leaves it out. */
+  failed?: boolean;
 }
 
 export interface CatalogListResult {
   apps: CatalogApp[];
   revision: number;
   next_cursor?: string;
+  /** The owner offers the Examples shelf (developer mode, or a `cmux ext dev` app). */
+  examples?: boolean;
 }
 
 export interface ScopeRequest {
@@ -59,9 +75,12 @@ export interface AppVersion {
   yanked?: boolean;
 }
 
-/** One thing an app puts in cmux (the manifest's `contributes`): its kind and its title. */
+/** One place an app shows up in cmux (the owner's `contributes`): its kind and its title. */
 export interface AppContribution {
-  /** `section`, `command`, `statusItem`; another kind shows as its name. */
+  /**
+   * `section`, `sidebarWidget`, `statusItem`, `pane`, `newTab`, `sessionInfo` or `command`; the
+   * page names the place, and a kind it does not know shows only its title.
+   */
   kind: string;
   title: string;
 }
@@ -90,9 +109,12 @@ export interface AppDetail extends CatalogApp {
   scopes: ScopeRequest[];
   versions: AppVersion[];
   repository?: string;
+  /** Package paths (the manifest's `screenshots`); the store loads each through `asset.get`. */
   screenshots: string[];
+  /** The screenshots the store loaded, as data URLs in the owner's order; a failed one is left out. */
+  screenshotImages?: string[];
   notices?: string[];
-  /** "What it adds" on the app's page; absent until the owner sends it. */
+  /** "Shows up in" on the app's page; absent until the owner sends it. */
   contributes?: AppContribution[];
   /** Where the app's server runs; absent for an app with no `deploy` block. */
   deploy?: AppDeploy;
@@ -111,6 +133,8 @@ export interface InstalledApp {
   tier?: AppTier;
   /** The owner's word on Hide versus Remove; wins over `tier`. */
   hide_only?: boolean;
+  /** The app draws on the New Tab page (`cmux.newtab/1`). */
+  new_tab?: boolean;
   icon?: AppIconRef;
   update?: { version: string };
   /** The host's last failure for this app, when it has one. */
@@ -206,3 +230,10 @@ export const AppsOps = {
 
 /** Open is a host verb: the page runs the host action `app.open` (cx-hnmbt.13). */
 export const OPEN_ACTION = { op: "cmux.app.action.run", action: "app.open" } as const;
+/** Settings > Customize (the Customize cmux… card): `openSettings` on its checklist card, a
+ * page-only category the host routes by card (WindowHandlers `pageOnlyCardRoute`). */
+export const CUSTOMIZE_ACTION = {
+  op: "cmux.app.action.run",
+  action: "openSettings",
+  args: { setting: "card.customizeChecklist" },
+} as const;
