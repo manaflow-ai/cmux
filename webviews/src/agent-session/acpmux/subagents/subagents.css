@@ -1938,8 +1938,8 @@ button.cv-subagent > :last-child {
 }
 
 /* The grid: every failed line has the same columns, so Retry and the time line up from row to row
-   whatever the title's or reason's length. The title and the reason split the line's room evenly,
-   each cut with an ellipsis, so the reason starts at one x on every line. */
+   whatever the title's or reason's length. The title and the reason share the words' room, the
+   reason cut first, each with an ellipsis. */
 .cv-tool.cv-subagent-done-row[data-look="grid"] {
   display: grid;
   /* words | Retry | refusal note | ⋯ | time | chevron. Retry and the time have a floor that lines
@@ -1952,13 +1952,21 @@ button.cv-subagent > :last-child {
   align-items: center;
   column-gap: var(--cv-tool-gap);
 }
+/* A line with no Retry keeps no room for one: the 64px floor was the title's, cut to "B." in a
+   280px pane (Leo, 2026-11-23: "the fuck are these cutting off into ellipses so soon anyways?"). */
+.cv-tool.cv-subagent-done-row[data-look="grid"]:not(:has(> :is(.cv-subagent-retry, .cv-subagent-retry-link))) {
+  --cv-failed-retry-width: 0px;
+}
 .cv-subagent-done-row[data-look="grid"] > .cv-subagent-done {
   grid-column: 1;
   grid-row: 1;
 }
+/* The title takes the room it needs first and the reason the rest, so the reason is cut before the
+   title (as the flow look's suffix is): an even split cut a 26-letter title to "B." beside a whole
+   "Failed" with room to spare. */
 .cv-subagent-done-row[data-look="grid"] .cv-subagent-failed__text {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
 }
 .cv-subagent-done-row[data-look="grid"] > :is(.cv-subagent-retry, .cv-subagent-retry-link) {
   grid-column: 2;

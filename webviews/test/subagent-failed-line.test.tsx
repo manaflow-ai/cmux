@@ -118,7 +118,7 @@ test("the grid's columns are fixed, and red is on the mark only", () => {
     /\.cv-tool\.cv-subagent-done-row\[data-look="grid"\] \{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) minmax\(var\(--cv-failed-retry-width, 64px\), max-content\) auto auto\s+minmax\(var\(--cv-failed-time-width, 7ch\), max-content\)/,
   );
   expect(css).toMatch(
-    /\[data-look="grid"\] \.cv-subagent-failed__text \{[^}]*grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1fr\)/,
+    /\[data-look="grid"\] \.cv-subagent-failed__text \{[^}]*grid-template-columns: minmax\(0, auto\) minmax\(0, 1fr\)/,
   );
   expect(css).toMatch(
     /:is\(\[data-look="grid"\], \[data-look="quiet"\]\) > \.cv-subagent-done\[data-state="failed"\] \{\s*color: var\(--cv-activity-text\)/,
