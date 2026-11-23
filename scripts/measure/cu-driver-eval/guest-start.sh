@@ -6,8 +6,12 @@
 #   guest-start.sh REV REPS DRIVERS [ARG...]
 # Each ARG (bench=run, condition=..., as cu-driver-eval.sh takes them) is passed on after the rest.
 # The A/B writes ~/cu-eval/eval.log, then its exit status to ~/cu-eval/eval.status.
+# CU_EVAL_RUNNER (a path under the tree) runs another script the same way: suite=cueval's
+# scripts/measure/cu-driver-eval/cueval-guest.sh.
 set -euo pipefail
 rev=$1 reps=$2 drivers=$3
+runner=${CU_EVAL_RUNNER:-scripts/measure/cu-driver-eval.sh}
+[[ "$runner" =~ ^scripts/measure/[A-Za-z0-9/._-]+\.sh$ ]] || { echo "guest-start.sh: CU_EVAL_RUNNER is a script under scripts/measure" >&2; exit 2; }
 shift 3
 extra=""
 (($#)) && extra=$(printf ' %q' "$@")
@@ -18,7 +22,7 @@ cat >"$tree/run.sh" <<EOF
 cd "$tree"
 CU_DRIVER_EVAL_ROOT="$tree" CU_DRIVER_EVAL_REV="$rev" CU_DRIVER_EVAL_DISPLAY=1920x1080 \\
   CU_DRIVER_EVAL_GRANT="bash $tree/scripts/measure/cu-driver-eval/tcc-grant.sh" \\
-  bash scripts/measure/cu-driver-eval.sh "reps=$reps" "drivers=$drivers" electron=1$extra >"$tree/eval.log" 2>&1
+  bash $runner "reps=$reps" "drivers=$drivers" electron=1$extra >"$tree/eval.log" 2>&1
 echo \$? >"$tree/eval.status"
 EOF
 cat >"$tree/agent.plist" <<EOF
