@@ -77,6 +77,10 @@ pub enum Answer {
     Found(Vec<u8>),
     /// The source does not hold it (404).
     Absent,
+    /// Refused (403). An S3 bucket answers this for an object it lacks when the key may read
+    /// objects but not list the bucket (a read-only `GetObject` key), so for the `s3` tier it is a
+    /// miss; for any other tier it is a failure.
+    Denied,
     /// Up but at its limit (503, 429): ask the next source; it is not counted as a failure, since
     /// a seed answers busy by design when more checkouts ask it than it serves at once.
     Busy,
@@ -115,6 +119,7 @@ impl Get for Http {
         }
         match request.send() {
             Ok(response) if response.status().as_u16() == 404 => Answer::Absent,
+            Ok(response) if response.status().as_u16() == 403 => Answer::Denied,
             Ok(response) if matches!(response.status().as_u16(), 429 | 503) => Answer::Busy,
             Ok(response) if response.status().is_success() => {
                 response.bytes().map_or(Answer::Failed, |bytes| Answer::Found(bytes.to_vec()))
@@ -179,9 +184,10 @@ pub fn s3_key_from_env() -> Option<crate::s3::Key> {
     let text = match std::env::var("CMUX_PROJECTION_S3_KEY_FILE") {
         Ok(file) => std::fs::read_to_string(file).ok()?,
         Err(_) => format!(
-            "AWS_ACCESS_KEY_ID={}\nAWS_SECRET_ACCESS_KEY={}\n",
+            "AWS_ACCESS_KEY_ID={}\nAWS_SECRET_ACCESS_KEY={}\nAWS_SESSION_TOKEN={}\n",
             std::env::var("AWS_ACCESS_KEY_ID").ok()?,
-            std::env::var("AWS_SECRET_ACCESS_KEY").ok()?
+            std::env::var("AWS_SECRET_ACCESS_KEY").ok()?,
+            std::env::var("AWS_SESSION_TOKEN").unwrap_or_default()
         ),
     };
     crate::s3::Key::parse(&text, &region)
@@ -329,7 +335,8 @@ impl Chain {
                     failed.fetch_add(1, Ordering::Relaxed);
                 }
                 Answer::Absent | Answer::Busy => failed.store(0, Ordering::Relaxed),
-                Answer::Failed => {
+                Answer::Denied if remote.s3.is_some() => failed.store(0, Ordering::Relaxed),
+                Answer::Denied | Answer::Failed => {
                     failed.fetch_add(1, Ordering::Relaxed);
                 }
             }

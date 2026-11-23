@@ -21,24 +21,32 @@ pub struct Key {
     pub id: String,
     pub secret: String,
     pub region: String,
+    /// A temporary key's session token (`AWS_SESSION_TOKEN`), sent and signed as
+    /// `x-amz-security-token`.
+    pub session: Option<String>,
 }
 
 impl std::fmt::Debug for Key {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // Never the secret, so a key in a log line or a panic message leaks nothing.
-        f.debug_struct("Key").field("id", &self.id).field("region", &self.region).finish()
+        f.debug_struct("Key")
+            .field("id", &self.id)
+            .field("region", &self.region)
+            .field("session", &self.session.is_some())
+            .finish()
     }
 }
 
 impl Key {
     /// The key from a `KEY=VALUE` file (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and
-    /// optionally `AWS_REGION`; blank lines and `#` comments skipped), or `None` when either half
+    /// optionally `AWS_REGION` and `AWS_SESSION_TOKEN`; blank lines and `#` comments skipped), or `None` when either half
     /// is missing.
     #[must_use]
     pub fn parse(text: &str, default_region: &str) -> Option<Self> {
         let mut id = None;
         let mut secret = None;
         let mut region = None;
+        let mut session = None;
         for line in text.lines().map(str::trim) {
             if line.is_empty() || line.starts_with('#') {
                 continue;
@@ -50,6 +58,7 @@ impl Key {
                 "AWS_ACCESS_KEY_ID" => id = Some(value),
                 "AWS_SECRET_ACCESS_KEY" => secret = Some(value),
                 "AWS_REGION" | "AWS_DEFAULT_REGION" => region = Some(value),
+                "AWS_SESSION_TOKEN" => session = Some(value),
                 _ => {}
             }
         }
@@ -57,6 +66,7 @@ impl Key {
             id: id.filter(|id| !id.is_empty())?,
             secret: secret.filter(|secret| !secret.is_empty())?,
             region: region.unwrap_or_else(|| default_region.to_owned()),
+            session: session.filter(|session| !session.is_empty()),
         })
     }
 }
@@ -99,6 +109,9 @@ fn split(url: &str) -> anyhow::Result<(String, String)> {
         None => (rest, "/"),
     };
     anyhow::ensure!(!host.is_empty() && !host.contains('@'), "{url}: no host");
+    // The client sends the host lowercased, so it is signed lowercased.
+    let host = host.to_ascii_lowercase();
+    let host = host.as_str();
     let host = match scheme {
         "https" => host.strip_suffix(":443").unwrap_or(host),
         _ => host.strip_suffix(":80").unwrap_or(host),
@@ -108,6 +121,12 @@ fn split(url: &str) -> anyhow::Result<(String, String)> {
     anyhow::ensure!(
         path.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"/-._~".contains(&byte)),
         "{url}: the path may hold only letters, digits and / - . _ ~"
+    );
+    // The client folds `.` and `..` segments out of the path it sends, so a signature over them
+    // would never match.
+    anyhow::ensure!(
+        !path.split('/').any(|segment| segment == "." || segment == ".."),
+        "{url}: no . or .. path segments"
     );
     Ok((host.to_owned(), path.to_owned()))
 }
@@ -150,6 +169,9 @@ pub fn sign(
     let mut headers: Vec<(&'static str, String)> = vec![("host", host), ("x-amz-date", stamp)];
     if service == SERVICE {
         headers.push(("x-amz-content-sha256", payload_sha256.to_owned()));
+    }
+    if let Some(session) = &key.session {
+        headers.push(("x-amz-security-token", session.clone()));
     }
     headers.sort_by(|a, b| a.0.cmp(b.0));
     let canonical_headers: String =

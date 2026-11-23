@@ -331,7 +331,12 @@ impl Get for Guarded {
 
 #[test]
 fn the_bucket_tier_signs_each_request_and_counts_as_s3() {
-    let key = crate::s3::Key { id: "AKID".into(), secret: "s".into(), region: "auto".into() };
+    let key = crate::s3::Key {
+        id: "AKID".into(),
+        secret: "s".into(),
+        region: "auto".into(),
+        session: None,
+    };
     let bucket = Remote {
         tier: "s3",
         base: "http://bucket:9000/blobs/fleet".into(),
@@ -353,7 +358,12 @@ fn the_bucket_tier_signs_each_request_and_counts_as_s3() {
 
 #[test]
 fn a_bucket_url_the_signer_refuses_fails_that_source_only() {
-    let key = crate::s3::Key { id: "AKID".into(), secret: "s".into(), region: "auto".into() };
+    let key = crate::s3::Key {
+        id: "AKID".into(),
+        secret: "s".into(),
+        region: "auto".into(),
+        session: None,
+    };
     let bad =
         Remote { tier: "s3", base: "http://bucket:9000/a b".into(), token: None, s3: Some(key) };
     let fake = Arc::new(Fake::new(&[(&format!("http://r2/objects/{HELLO}"), b"hello\n")]));
@@ -362,4 +372,43 @@ fn a_bucket_url_the_signer_refuses_fails_that_source_only() {
     assert!(rest.is_empty());
     assert_eq!((filled.s3, filled.r2), (0, 1));
     assert_eq!(fake.asked.lock().unwrap().len(), 1, "the unsigned URL never went out");
+}
+
+/// A read-only bucket key answers 403 for an object the bucket lacks: a miss for the `s3` tier,
+/// never a reason to drop it; for another tier 403 is still a failure.
+struct Forbids;
+
+impl Get for Forbids {
+    fn get(&self, url: &str, _headers: &[(&'static str, String)], _deadline: Duration) -> Answer {
+        if url.ends_with(HELLO) { Answer::Found(b"hello\n".to_vec()) } else { Answer::Denied }
+    }
+}
+
+#[test]
+fn a_403_from_a_bucket_is_a_miss_not_a_failure() {
+    let key = crate::s3::Key {
+        id: "AKID".into(),
+        secret: "s".into(),
+        region: "auto".into(),
+        session: None,
+    };
+    let bucket = Remote { tier: "s3", base: "http://bucket/b".into(), token: None, s3: Some(key) };
+    // Five misses in a row, then a hit: a source dropped after three failures would miss HELLO.
+    let mut oids: Vec<String> = (0..5).map(|n| format!("{n:040x}")).collect();
+    oids.push(HELLO.to_owned());
+    let chain = Chain::new(vec![bucket], Box::new(Forbids));
+    let mut found = 0;
+    for oid in &oids {
+        let (rest, filled) = chain.fill(std::slice::from_ref(oid), &|_, _| Ok(()));
+        found += filled.s3;
+        assert_eq!(filled.dropped, 0);
+        assert_eq!(rest.len(), 1 - filled.s3);
+    }
+    assert_eq!(found, 1);
+    let (_, filled) = chain.fill(&oids, &|_, _| Ok(()));
+    assert_eq!((filled.s3, filled.dropped), (1, 0));
+
+    let ssd = Remote { tier: "ssd", base: "http://ssd".into(), token: Some("t".into()), s3: None };
+    let (_, filled) = Chain::new(vec![ssd], Box::new(Forbids)).fill(&oids, &|_, _| Ok(()));
+    assert_eq!(filled.dropped, 1);
 }

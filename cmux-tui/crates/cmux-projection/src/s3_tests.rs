@@ -5,6 +5,7 @@ fn example(region: &str) -> Key {
         id: "AKIDEXAMPLE".to_owned(),
         secret: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY".to_owned(),
         region: region.to_owned(),
+        session: None,
     }
 }
 
@@ -112,4 +113,60 @@ fn keys_parse_from_an_env_file_and_hide_the_secret() {
     assert_eq!(key.unwrap().region, "us-east-1");
     assert!(Key::parse("AWS_ACCESS_KEY_ID=a\n", "auto").is_none());
     assert!(Key::parse("AWS_ACCESS_KEY_ID=\nAWS_SECRET_ACCESS_KEY=b", "auto").is_none());
+}
+
+/// botocore 1.34.46 with a temporary key: the session token is sent and signed.
+#[test]
+fn signs_a_session_token_as_botocore_does() {
+    let key = Key { session: Some("SESSIONTOKEN123".to_owned()), ..example("auto") };
+    let get = sign(
+        "GET",
+        "http://127.0.0.1:9000/blobs/fleet/objects/ce013625030ba8dba906f756967f9e9ca394464a",
+        &key,
+        SERVICE,
+        1_795_406_706,
+        EMPTY_SHA256,
+    )
+    .unwrap();
+    assert_eq!(header(&get, "x-amz-security-token"), "SESSIONTOKEN123");
+    assert!(header(&get, "authorization").ends_with(
+        "SignedHeaders=host;x-amz-content-sha256;x-amz-date;x-amz-security-token, \
+         Signature=cd0c3031b2d0aaac8ed164ee8da8fd97fac9d201554e52da15cb204f9d71c7dd"
+    ));
+    assert!(!format!("{key:?}").contains("SESSIONTOKEN123"));
+}
+
+#[test]
+fn an_uppercase_host_signs_as_the_client_sends_it() {
+    let key = example("auto");
+    let url = "http://127.0.0.1:9000/blobs/fleet/objects/ce013625030ba8dba906f756967f9e9ca394464a";
+    let lower = sign("GET", url, &key, SERVICE, 1_795_406_706, EMPTY_SHA256).unwrap();
+    let mixed = sign(
+        "GET",
+        "https://Acct.R2.cloudflarestorage.com/b/objects/x",
+        &key,
+        SERVICE,
+        1_795_406_706,
+        EMPTY_SHA256,
+    )
+    .unwrap();
+    let plain = sign(
+        "GET",
+        "https://acct.r2.cloudflarestorage.com/b/objects/x",
+        &key,
+        SERVICE,
+        1_795_406_706,
+        EMPTY_SHA256,
+    )
+    .unwrap();
+    assert_eq!(mixed, plain);
+    assert_eq!(header(&lower, "x-amz-security-token"), "");
+}
+
+#[test]
+fn dot_segments_are_refused() {
+    let key = example("auto");
+    for url in ["https://host/b/./objects/x", "https://host/b/../objects/x"] {
+        assert!(sign("GET", url, &key, SERVICE, 0, EMPTY_SHA256).is_err(), "{url}");
+    }
 }
