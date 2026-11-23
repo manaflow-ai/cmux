@@ -307,6 +307,12 @@ async fn a_whole_paged_read_builds_each_row_once_not_per_page() {
             "PERF whole-paged-read chats={n} live={idle} pages={} built={built} ms={ms:.1}",
             pages
         );
+        let (old_pages, old_built, old_ms) = old_whole_paged_read(&hub);
+        println!(
+            "PERF whole-paged-read-before chats={n} live={idle} pages={old_pages} \
+             built={old_built} ms={old_ms:.1} (every picked row built, then cut to the page bytes)"
+        );
+        assert_eq!(old_pages, pages, "{n} chats: the old and new paths page alike");
         times.push((n, built, ms));
         assert!(pages > 1, "{n} chats: one page; the rows are too narrow to test cutting");
         let unique: std::collections::HashSet<&String> = ids.iter().collect();
