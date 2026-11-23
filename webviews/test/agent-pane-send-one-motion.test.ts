@@ -77,6 +77,7 @@ await requireBrowserLane("agent-pane-send-one-motion.test.ts", async () => {
                 (window as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport ?? null,
               ).slice(0, 2000),
             }));
+            console.log(await page.evaluate(() => document.documentElement.dataset.sendFrames));
             console.log(`${variant}: phases ${result.phases}, max jump ${result.maxJump}px, play ${result.status}`);
             expect({ variant, phases: result.phases, report: result.phases === "1" ? "" : result.report }).toEqual({
               variant,

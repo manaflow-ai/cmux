@@ -51,6 +51,8 @@ import { fieldGrowthMotion, type FieldGrowthArm } from "./fieldGrowth.experiment
 // An edit that lands while the field moves retargets from the height drawn, keeping the motion's
 // end. A value set from outside (a send clearing the prompt, a chat's draft), Reduce Motion and
 // motion off change the height in the frame, as before; motion turned off mid-growth lands it at once.
+// The one exception: under the compound-motion transaction a send from the latest row claims the
+// clear's shrink (FieldGrowthDetail.outside), and the field collapses on the rows' clock instead.
 // Nothing runs at rest: the animation, the text's observer and the motion gate's watch exist only
 // while the field moves, and all go when it lands or the editor goes.
 
@@ -79,6 +81,8 @@ type Motion = {
   unwatch: () => void;
   /** Stops holding the text on its edge (`holdBottom`, `holdTop`); nothing for a reveal. */
   release: () => void;
+  /** Another clock plays it (a send's collapse claimed by the transcript): a same-end call leaves it. */
+  ridden?: boolean;
 };
 
 /** While a growth holds the text's end on the field's bottom edge, keeps the field scrolled to its
@@ -277,6 +281,16 @@ export function fieldGrowth(external: () => boolean): Plugin {
         const from = running ? field.getBoundingClientRect().height : shown;
         // Its natural height, with no motion on it. Taller for that read, the field would clamp its
         // scroll to the taller box's end: the scroll it draws with is kept.
+        if (running?.ridden) {
+          // A collapse the transcript plays on the send's clock: a call that ends where it lands (a second
+          // transaction of the clear) leaves it riding. Replayed on its own clock it drew the tall field
+          // again during the rows' glide and collapsed after them. Read with its effect off, kept paused.
+          const effect = running.animation.effect;
+          running.animation.effect = null;
+          const natural = measuredTo ?? field.getBoundingClientRect().height;
+          running.animation.effect = effect;
+          if (Math.abs(natural - running.to) < 0.5) return;
+        }
         const started = running?.animation.startTime ?? null;
         const scrolled = field.scrollTop;
         running?.animation.cancel();
@@ -284,7 +298,9 @@ export function fieldGrowth(external: () => boolean): Plugin {
         shown = to;
         // Read before the same-end path: an edit after motion went off (or a value set from outside)
         // lands a running growth instead of playing it on.
-        const moves = arm !== "instant" && !external() && motionMode(field.ownerDocument) === "full";
+        const outside = external();
+        const full = arm !== "instant" && motionMode(field.ownerDocument) === "full";
+        const moves = full && !outside;
         if (running && moves && Math.abs(to - running.to) < 0.5) {
           // The same end (a second edit on the same line, the text's observer's first call): the
           // motion goes on where it was, on the same curve and clock. A started animation given its
@@ -299,7 +315,9 @@ export function fieldGrowth(external: () => boolean): Plugin {
         }
         if (running) land(field);
         if (from < 0 || Math.abs(to - from) < 0.5) return;
-        if (!moves) return;
+        // A value set from outside that shrinks the field (a send clearing it) is offered to the
+        // transcript below, which may take it into the send's one motion; else it lands at once.
+        if (!moves && !(full && outside && to < from)) return;
         const capped = field.scrollHeight > field.clientHeight + 1;
         // The rects include the composer's density zoom; line height and keyframes are in its CSS pixels. Unscaled, a
         // zoomed composer (every density but Default) animated toward the wrong height and jumped at the end.
@@ -335,7 +353,10 @@ export function fieldGrowth(external: () => boolean): Plugin {
                   observed = true;
                   return;
                 }
-                if (moving.get(field) === motion) follow();
+                // A collapse the transcript plays on the send's clock (`ridden`) is left riding: the
+                // cleared text's resize ends where it lands, and replayed on its own clock it drew the
+                // tall field again during the rows' glide and collapsed after them.
+                if (moving.get(field) === motion && !motion.ridden) follow();
               })
             : undefined;
         const motion: Motion = {
@@ -358,8 +379,18 @@ export function fieldGrowth(external: () => boolean): Plugin {
         run(field, motion, animation);
         observer?.observe(view.dom);
         // The transcript takes the end height into its room now and moves its rows on this curve.
-        const detail: FieldGrowthDetail = { to, easing, duration, animation, ...(progress ? { progress } : {}) };
+        let claimed = !outside;
+        if (outside) motion.ridden = true;
+        const detail: FieldGrowthDetail = {
+          to,
+          easing,
+          duration,
+          animation,
+          ...(progress ? { progress } : {}),
+          ...(outside ? { outside: { claim: () => (claimed = true) } } : {}),
+        };
         field.dispatchEvent(new CustomEvent(FIELD_GROWTH_EVENT, { bubbles: true, detail }));
+        if (!claimed) land(field);
       };
       attach();
       // A tile's new shape, told in its render's commit: the move starts before this frame's layout.
