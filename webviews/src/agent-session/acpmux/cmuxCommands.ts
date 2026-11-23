@@ -22,7 +22,8 @@ export type CmuxCommand = SlashCommand & {
     | "cd"
     | "resume"
     | "login"
-    | "customize";
+    | "customize"
+    | "help";
   descriptionKey?: SlashCommand["descriptionKey"];
 };
 
@@ -156,6 +157,16 @@ export const CMUX_COMMANDS: readonly CmuxCommand[] = [
     hint: "<change>",
     source: "cmux",
     action: "customize",
+  },
+  // Every command, skill and key in one searchable sheet (composerHelp.ts, HelpSheet.tsx), for
+  // every harness: Claude Code's own /help needs its terminal (Leo 2026-11-22: "is there a /help?
+  // apparently not").
+  {
+    name: "help",
+    description: "",
+    descriptionKey: "composer.slashHelp",
+    source: "cmux",
+    action: "help",
   },
 ];
 
@@ -339,6 +350,7 @@ export function cmuxCommandRefusal(
     case "passThrough":
     case "resume":
     case "login":
+    case "help":
       return undefined;
     case "customize":
       // The agent edits this machine's cmux: a chat on a Cloud machine would change that machine's,

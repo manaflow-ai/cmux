@@ -18,4 +18,6 @@ regexes = [
   '''^pck_[a-z0-9]+$''',
   '''^(?i)(cmd|command|ctrl|control|alt|opt|option|shift|super|meta|hyper|fn)([+-][^\s"']+)+$''',
   '''(?i)(not[-_]?real|fake|dummy|placeholder|redacted|example)''',
+  # The made-up Stripe test key in cmux hub's parser tests (cmux-tui cli/hub_tests.rs): no account has it.
+  '''^rk_test_abc123$''',
 ]

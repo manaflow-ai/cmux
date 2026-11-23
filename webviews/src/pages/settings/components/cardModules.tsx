@@ -100,6 +100,8 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
     import("./KeysCard").then(({ KeysCard }) => (_focus, _workspace, reveal) => <KeysCard reveal={reveal} />),
   mcpServers: () =>
     import("./McpServersCard").then(({ McpServersCard }) => () => <McpServersCard />),
+  integrationsHub: () =>
+    import("./IntegrationsHubCard").then(({ IntegrationsHubCard }) => () => <IntegrationsHubCard />),
   tailnet: () =>
     import("./TailnetCard").then(({ TailnetCard }) => () => <TailnetCard />),
   models: () =>

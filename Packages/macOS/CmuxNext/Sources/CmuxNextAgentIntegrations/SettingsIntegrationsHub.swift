@@ -76,8 +76,8 @@ public final class SettingsIntegrationsHub: PageProvider {
     /// One gesture: `refresh`; `link` with `provider` (`stripe` with `key`, or `github`) and
     /// optional `sharing`; `remove` with a listed
     /// connection `id`; `approve` / `deny` with a waiting approval `id` (approve takes
-    /// `remember`); `addRule` with the rule's fields; `removeRule` with a listed rule `id`;
-    /// `pause` with `paused`. Only refresh runs without the person's click.
+    /// `remember`); `addRule` with the rule's fields (its action as `ruleAction`, since `action`
+    /// is the gesture); `removeRule` with a listed rule `id`; `pause` with `paused`. Only refresh runs without the person's click.
     func run(_ params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         let action = params["action"]?.stringValue ?? ""
         if action == "refresh" {
@@ -192,7 +192,7 @@ public final class SettingsIntegrationsHub: PageProvider {
         case "addRule":
             var words = ["rule", "add"]
             let fields: [(String, String)] = [
-                ("action", "--action"), ("effect", "--effect"), ("owner", "--owner"), ("connection", "--connection"),
+                ("ruleAction", "--action"), ("effect", "--effect"), ("owner", "--owner"), ("connection", "--connection"),
                 ("agent", "--agent"), ("amountLte", "--amount-lte"), ("amountGt", "--amount-gt"), ("currency", "--currency"),
                 ("repo", "--repo"), ("limitWindow", "--limit-window"), ("limitAmount", "--limit-amount"),
                 ("limitCalls", "--limit-calls"), ("limitOver", "--limit-over"),
