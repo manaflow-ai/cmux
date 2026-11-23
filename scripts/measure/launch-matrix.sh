@@ -139,6 +139,7 @@ lm_main() {
     [[ "$scenario" == large-session && -z "$state_dir" ]] && { echo "LM-SKIP $NAME large-session: needs --state-dir"; continue; }
     [[ "$scenario" == first-install ]] && { PROMPT_BASELINE="$(prompts ids 2>/dev/null)"; marker_write; }
     for ((rep = 1; rep <= reps; rep++)); do
+      quiet
       arm "$scenario" "$rep" "$state_dir" "$source_file" || rc=1
     done
   done
@@ -353,6 +354,17 @@ install_copy() {
 
 boot_time() { sysctl -n kern.boottime | sed -n 's/.*sec = \([0-9]*\),.*/\1/p'; }
 
+# quiet: before each launch, wait (at most LM_QUIET_MAX_S, default 300 s) until the 1-minute load is at most
+# LM_QUIET_LOAD (default 4), so a busy host does not set the row; the row's load says what it got.
+quiet() {
+  local i max="${LM_QUIET_MAX_S:-300}"
+  for ((i = 0; i < max / 5; i++)); do
+    awk -v l="$(load1)" -v m="${LM_QUIET_LOAD:-4}" 'BEGIN { exit !(l <= m) }' && return 0
+    sleep 5
+  done
+  echo "LM-QUIET load $(load1) still above ${LM_QUIET_LOAD:-4} after ${max} s; launching anyway"
+}
+
 # seed_state DIR N: large-session's state (the header's --seed). Prints LM-SEED.
 seed_state() {
   local dir="$1" n="$2"
@@ -376,7 +388,8 @@ seed_state() {
     launch seed "$APP" "$dir" 600 >"$OUT/seed.json" &
     local held=$!
     for ((i = 0; i < 600; i++)); do [[ -S "$sock" ]] && break; sleep 0.1; done
-    python3 -I "$LM_DIR/launch-ready-seed.py" "$sock" --windows 3 --total-workspaces "$n" | tee "$OUT/seed.log"; rc=${PIPESTATUS[0]}
+    quiet
+    nice -n 10 python3 -I "$LM_DIR/launch-ready-seed.py" "$sock" --windows 3 --total-workspaces "$n" | tee "$OUT/seed.log"; rc=${PIPESTATUS[0]}
     wait "$held"; gone "$APP"
     echo "LM-SEED {\"kind\": \"home\", \"workspaces\": $n, \"rc\": $rc}"
     return "$rc"
