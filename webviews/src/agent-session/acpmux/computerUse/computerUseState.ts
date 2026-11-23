@@ -116,10 +116,10 @@ export function useComputerUseState(): ComputerUseState | undefined {
 
 declare global {
   interface Window {
-    /// The pane's own WebKit host's script for the `computerUseState` event (a dev-server pane, the
-    /// bundled WebKit fallback: CmuxNextAgentPane AgentPaneComputerUse `push(to:)`). The page host
-    /// delivers the same value as an event (pageHost.ts).
+    /// The old host's script for the `computerUseState` event (CmuxNextAgentPane AgentPaneComputerUse):
+    /// with `agent.pageHost` off (the default) the state comes this way, not as a page host event.
     cmuxAcpmuxComputerUseState?: (value: unknown) => void;
   }
 }
-if (typeof window !== "undefined") window.cmuxAcpmuxComputerUseState = setComputerUseState;
+// On globalThis, which is the page's window in WebKit and stands in for it in a test (no window there).
+(globalThis as Window & typeof globalThis).cmuxAcpmuxComputerUseState = setComputerUseState;

@@ -35,6 +35,14 @@ struct AgentPaneComputerUseStateTests {
         #expect(AgentPageEvent.computerUseState(nil).value == .null)
     }
 
+    /// Review of #48024 (WebKit skips setup): with `agent.pageHost` off, the default, a page hears the
+    /// state only through the old host's script, the hook computerUseState.ts installs.
+    @Test func theOldHostGetsTheStateThroughThePagesHook() {
+        #expect(AgentPaneComputerUse.oldHostScript(.needsSetup) == "window.cmuxAcpmuxComputerUseState?.(\"needs_setup\");")
+        #expect(AgentPaneComputerUse.oldHostScript(.ready) == "window.cmuxAcpmuxComputerUseState?.(\"ready\");")
+        #expect(AgentPaneComputerUse.oldHostScript(nil) == "window.cmuxAcpmuxComputerUseState?.(null);")
+    }
+
     @Test func theFollowerKeepsTheLatestState() {
         let follower = AgentPaneComputerUse(read: nil)
         #expect(follower.state == nil)
@@ -61,14 +69,14 @@ struct AgentPaneComputerUseStateTests {
         #expect(pushes().isEmpty, "a page that never shook hands was told")
 
         _ = await AgentPaneBridge(view: view).reply(to: .ready)
-        #expect(pushes() == [AgentPaneComputerUse.script(.computerUseState(.needsSetup))])
+        #expect(pushes() == [AgentPaneComputerUse.oldHostScript(.needsSetup)])
         #expect(pushes().last == "window.cmuxAcpmuxComputerUseState?.(\"needs_setup\");")
 
         follower.set(.ready)
         #expect(pushes().last == "window.cmuxAcpmuxComputerUseState?.(\"ready\");", "a change missed the page")
         // A reloaded document shakes hands again and gets the state as it is now.
         _ = await AgentPaneBridge(view: view).reply(to: .ready)
-        #expect(pushes().count == 3 && pushes().last == AgentPaneComputerUse.script(.computerUseState(.ready)))
+        #expect(pushes().count == 3 && pushes().last == AgentPaneComputerUse.oldHostScript(.ready))
         view.close()
     }
 

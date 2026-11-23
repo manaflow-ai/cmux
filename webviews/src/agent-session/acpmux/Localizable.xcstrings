@@ -458348,6 +458348,800 @@
           }
         }
       }
+    },
+    "transcript.loading": {"comment":"Agent pane: accessible label of the spinner the transcript shows while a chat's messages are still loading (VirtualTranscript.tsx)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"جارٍ تحميل الدردشة…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Učitavanje razgovora…"}},"da":{"stringUnit":{"state":"needs_review","value":"Indlæser chat…"}},"de":{"stringUnit":{"state":"needs_review","value":"Chat wird geladen…"}},"en":{"stringUnit":{"state":"translated","value":"Loading chat…"}},"es":{"stringUnit":{"state":"needs_review","value":"Cargando el chat…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Chargement de la discussion…"}},"it":{"stringUnit":{"state":"needs_review","value":"Caricamento della chat…"}},"ja":{"stringUnit":{"state":"needs_review","value":"チャットを読み込み中…"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងផ្ទុកការជជែក…"}},"ko":{"stringUnit":{"state":"needs_review","value":"채팅 불러오는 중…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Laster inn chat…"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wczytywanie czatu…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Carregando o chat…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Загрузка чата…"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังโหลดแชต…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Sohbet yükleniyor…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Завантаження чату…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang tải cuộc trò chuyện…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在加载对话…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在載入對話…"}}}},
+    "transcript.loadingOlder": {"comment":"Agent pane: accessible label of the spinner above a chat's loaded messages while earlier ones load (VirtualTranscript.tsx)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"جارٍ تحميل الرسائل السابقة…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Učitavanje ranijih poruka…"}},"da":{"stringUnit":{"state":"needs_review","value":"Indlæser tidligere beskeder…"}},"de":{"stringUnit":{"state":"needs_review","value":"Frühere Nachrichten werden geladen…"}},"en":{"stringUnit":{"state":"translated","value":"Loading earlier messages…"}},"es":{"stringUnit":{"state":"needs_review","value":"Cargando mensajes anteriores…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Chargement des messages précédents…"}},"it":{"stringUnit":{"state":"needs_review","value":"Caricamento dei messaggi precedenti…"}},"ja":{"stringUnit":{"state":"needs_review","value":"以前のメッセージを読み込み中…"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងផ្ទុកសារមុនៗ…"}},"ko":{"stringUnit":{"state":"needs_review","value":"이전 메시지 불러오는 중…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Laster inn tidligere meldinger…"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wczytywanie wcześniejszych wiadomości…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Carregando mensagens anteriores…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Загрузка предыдущих сообщений…"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังโหลดข้อความก่อนหน้า…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Önceki mesajlar yükleniyor…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Завантаження попередніх повідомлень…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang tải tin nhắn trước đó…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在加载更早的消息…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在載入較早的訊息…"}}}},
+    "worktreeSetup.awaitingApproval": {
+      "comment": "Agent pane: a new worktree chat's setup line while the repository's setup script waits for the person to read and approve it; nothing has run yet",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review setup before it runs"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "راجع الإعداد قبل تشغيله"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pregledajte postavljanje prije pokretanja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gennemgå opsætningen, før den kører"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Setup vor dem Ausführen prüfen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Revisa la configuración antes de ejecutarla"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vérifiez la configuration avant son exécution"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Controlla la configurazione prima che venga eseguita"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "実行前にセットアップを確認"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពិនិត្យការរៀបចំមុនពេលដំណើរការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "실행 전에 설정 검토"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se gjennom oppsettet før det kjøres"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sprawdź konfigurację przed uruchomieniem"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Revise a configuração antes de executá-la"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Проверьте настройку перед запуском"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตรวจสอบการตั้งค่าก่อนเรียกใช้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kurulumu çalışmadan önce gözden geçirin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перевірте налаштування перед запуском"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xem lại thiết lập trước khi chạy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "运行前检查设置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "執行前檢查設定"
+          }
+        }
+      }
+    },
+    "worktreeSetup.reviewSetup": {
+      "comment": "Agent pane: label above the repository's setup command the person reviews before approving it",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Runs in this worktree"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعمل في شجرة العمل هذه"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokreće se u ovom radnom stablu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kører i dette arbejdstræ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Läuft in diesem Worktree"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se ejecuta en este worktree"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "S'exécute dans ce worktree"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Viene eseguito in questo worktree"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "この worktree で実行"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដំណើរការក្នុង worktree នេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 worktree에서 실행"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kjøres i dette arbeidstreet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uruchamiane w tym worktree"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Executa neste worktree"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Выполняется в этом рабочем дереве"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ทำงานใน worktree นี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu çalışma ağacında çalışır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Виконується в цьому робочому дереві"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chạy trong worktree này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在此工作树中运行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在此工作樹中執行"
+          }
+        }
+      }
+    },
+    "worktreeSetup.reviewTeardown": {
+      "comment": "Agent pane: label above the repository's teardown command, which runs when the worktree is removed, shown for review before approval",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Runs when the worktree is removed"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعمل عند إزالة شجرة العمل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokreće se kada se radno stablo ukloni"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kører, når arbejdstræet fjernes"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Läuft beim Entfernen des Worktrees"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se ejecuta al eliminar el worktree"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "S'exécute à la suppression du worktree"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Viene eseguito quando il worktree viene rimosso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "worktree の削除時に実行"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដំណើរការនៅពេលលុប worktree"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "worktree를 제거할 때 실행"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kjøres når arbeidstreet fjernes"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uruchamiane po usunięciu worktree"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Executa quando o worktree é removido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Выполняется при удалении рабочего дерева"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ทำงานเมื่อลบ worktree"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalışma ağacı kaldırıldığında çalışır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Виконується під час видалення робочого дерева"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chạy khi worktree bị xóa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "移除工作树时运行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "移除工作樹時執行"
+          }
+        }
+      }
+    },
+    "worktreeSetup.reviewInclude": {
+      "comment": "Agent pane: label above the .worktreeinclude lines: ignored files copied from the main checkout into this worktree only, on this Mac, never committed",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copies these ignored files from the main checkout to this worktree only"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ينسخ هذه الملفات المتجاهلة من النسخة الرئيسية إلى شجرة العمل هذه فقط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopira ove ignorisane datoteke iz glavne kopije samo u ovo radno stablo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopierer disse ignorerede filer fra hovedkopien kun til dette arbejdstræ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiert diese ignorierten Dateien aus dem Haupt-Checkout nur in diesen Worktree"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copia estos archivos ignorados del checkout principal solo a este worktree"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copie ces fichiers ignorés du checkout principal dans ce worktree uniquement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copia questi file ignorati dal checkout principale solo in questo worktree"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "これらの無視ファイルをメインのチェックアウトからこの worktree にのみコピー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចម្លងឯកសារដែលមិនអើពើទាំងនេះពីការទាញយកមេទៅ worktree នេះតែប៉ុណ្ណោះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "무시된 이 파일을 메인 체크아웃에서 이 worktree로만 복사"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopierer disse ignorerte filene fra hovedutsjekken kun til dette arbeidstreet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiuje te ignorowane pliki z głównego checkoutu tylko do tego worktree"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copia estes arquivos ignorados do checkout principal apenas para este worktree"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Копирует эти игнорируемые файлы из основной копии только в это рабочее дерево"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คัดลอกไฟล์ที่ถูกละเว้นเหล่านี้จาก checkout หลักไปยัง worktree นี้เท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu yok sayılan dosyaları ana kopyadan yalnızca bu çalışma ağacına kopyalar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Копіює ці ігноровані файли з основної копії лише в це робоче дерево"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chỉ sao chép các tệp bị bỏ qua này từ bản checkout chính sang worktree này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仅将这些被忽略的文件从主检出复制到此工作树"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "僅將這些被忽略的檔案從主要檢出複製到此工作樹"
+          }
+        }
+      }
+    },
+    "worktreeSetup.runSetup": {
+      "comment": "Agent pane: button that approves the repository's setup recipe the person just read and runs it in the new worktree",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run Setup"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تشغيل الإعداد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokreni postavljanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kør opsætning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Setup ausführen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ejecutar configuración"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lancer la configuration"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esegui configurazione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "セットアップを実行"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដំណើរការការរៀបចំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "설정 실행"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kjør oppsett"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uruchom konfigurację"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Executar configuração"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запустить настройку"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เรียกใช้การตั้งค่า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kurulumu Çalıştır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запустити налаштування"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chạy thiết lập"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "运行设置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "執行設定"
+          }
+        }
+      }
+    },
+    "worktreeSetup.retry": {
+      "comment": "Agent pane: button that runs a failed, timed-out or interrupted worktree setup again",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إعادة المحاولة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokušaj ponovo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prøv igen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Erneut versuchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reintentar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Réessayer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Riprova"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "再試行"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ព្យាយាមម្ដងទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다시 시도"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prøv igjen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ponów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tentar novamente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Повторить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeniden dene"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Повторити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thử lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "重試"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

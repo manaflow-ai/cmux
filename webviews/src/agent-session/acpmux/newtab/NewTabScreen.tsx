@@ -465,11 +465,11 @@ export function NewTabScreen(props: Props) {
   const [commandActive, setCommandActive] = useState(0);
   /// The `/word` the arrows chose a row at: Return picks that row while the word and the list stay.
   const [commandArrowedAt, setCommandArrowedAt] = useState<string>();
+  /// The caret in the prompt's shown text (MarkdownField onChange/onCaret), for the `@word` it is in; unknown: the end.
+  const [promptCaret, setPromptCaret] = useState<number>();
   const [commandDismissed, setCommandDismissed] = useState<string>();
   /// The `/word` the field's caret ends (MarkdownField `onSlash`), as in the chat composer.
   const [commandTrigger, setCommandTrigger] = useState<SlashTrigger>();
-  /// Where the field's caret is (its last `onChange` or `onCaret`), for the `@word` it ends.
-  const [fieldCaret, setFieldCaret] = useState<number>();
   const requestedCommands = useRef<string | undefined>(undefined);
   // The location stays a suggestion until edited: no rows for it.
   const [touched, setTouched] = useState(Boolean(carried?.text));
@@ -1045,9 +1045,7 @@ export function NewTabScreen(props: Props) {
   // An `@word` the text ends in lists the plugins, as Codex's @ does (Lucas 2026-11-21: "@ is for
   // plugins"): computer use, browser use (toolMentions.ts) and extension commands, every row that
   // writes its own text. In the same menu as `/`, never in the address rows below the field.
-  // The `@word` the caret ends (not the draft's end): `@comp please` with the caret after `@comp` lists
-  // Computer Use too (`fieldCaret`, the field's last report; none yet: the end).
-  const atCaret = fieldCaret === undefined ? text.length : Math.min(markdownOffset(text, fieldCaret), text.length);
+  const atCaret = promptCaret === undefined ? text.length : Math.min(text.length, markdownOffset(text, promptCaret));
   const atWord = shell || commandAt || profilePick ? undefined : mentionQuery(text, atCaret);
   const atMatches = atWord ? matchCommands((snapshot.commands ?? []).filter(insertsText), atWord.query, false) : [];
   const atOpen = !slashOpen && atWord !== undefined && commandDismissed !== text && atMatches.length > 0;
@@ -1069,14 +1067,13 @@ export function NewTabScreen(props: Props) {
     setCommandActive(0);
     // From the @ menu: its text over the `@word` the draft ends in.
     if (atOpen && atWord && insertsText(command)) {
-      // Over the `@word` the caret ends; the text after it stays (one space between them).
-      const insert = command.insert ?? "";
-      const after = text.slice(atCaret).replace(/^ /, "");
-      setText(text.slice(0, atWord.start) + insert + after);
-      // The field keeps focus while the menu is open (a row's press never takes it): only the caret moves.
-      const caretAt = atWord.start + insert.length;
-      setFieldCaret(after ? caretAt : undefined);
-      requestAnimationFrame(() => field.current?.setCaret(after ? caretAt : field.current.plainText().length));
+      // Over the `@word` at the caret, the text after it kept.
+      setText(text.slice(0, atWord.start) + command.insert + text.slice(atCaret));
+      // The field keeps focus while the menu is open (a row's press never takes it): only the caret
+      // moves, to just after what the row wrote.
+      // The caret counts shown characters: the typed `@` and its word as shown (the query, unescaped).
+      const after = promptCaret === undefined ? undefined : promptCaret - (1 + atWord.query.length) + command.insert.length;
+      requestAnimationFrame(() => field.current?.setCaret(after ?? field.current.plainText().length));
       return;
     }
     // A picked Codex skill goes as `/$name` even where a command shares its name (withSkillDollars).
@@ -2556,9 +2553,9 @@ export function NewTabScreen(props: Props) {
                 onBeforeInput={(data, state) =>
                   !shell && state.paste && !state.composing ? pastedChips.take(data) : false
                 }
-                onCaret={setFieldCaret}
+                onCaret={setPromptCaret}
                 onChange={(value, caret) => {
-                  setFieldCaret(caret);
+                  setPromptCaret(caret);
                   // The editor canonicalizes escaping while mounting; that is still the untouched
                   // location, not a typed draft or a reason to show suggestions or hold a web swap.
                   if (!fieldReady && field.current?.agentText(value) === originalLocation.current) {

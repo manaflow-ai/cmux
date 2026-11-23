@@ -33,7 +33,7 @@ public final class ComputerUseStepModel {
     /// The done view's time is up: the window closes (OnboardingModel ends it as Done).
     @ObservationIgnored var onFinished: (@MainActor () -> Void)?
     /// The done view's close; ``stop()`` (a manual close) cancels it.
-    @ObservationIgnored private let closeTimer: DemandTimer
+    @ObservationIgnored let closeTimer: DemandTimer
     /// A grant an entry asked for (`allowOnceKnown`) before the first grants read came in.
     @ObservationIgnored private var pendingAllow: ComputerUsePermissionPane?
     @ObservationIgnored private var received = false
@@ -127,9 +127,6 @@ public final class ComputerUseStepModel {
         allowedHere.contains(.screenRecording) && permissions.screenRecording
             && !permissions.helperFailed && !permissions.helperVersionMismatch
     }
-
-    /// Whether the done view's close is pending (tests).
-    var closesSoon: Bool { closeTimer.isScheduled }
 
     /// Allow: the pane in System Settings, with the drag panel docked to it.
     /// Without a Developer ID signed helper there is nothing a grant would

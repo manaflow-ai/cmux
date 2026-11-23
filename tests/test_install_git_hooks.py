@@ -83,11 +83,16 @@ class InstallGitHooksTests(unittest.TestCase):
             "scripts/ci/base_merge_warning.py",
             "scripts/ci/github_release_download.py",
             "scripts/ci/deadline_http.py",
+            "scripts/ci/generated_files_guard.py",
+            "scripts/ci/ci_process_tree.py",
             "scripts/webviews_bun_version.py",
             "scripts/check-webviews-bun-version.sh",
             *self.installed_sources(),
+            *self.copy_input_files(),
         ):
             source, target = SOURCE / relative, root / relative
+            if target.exists():
+                continue  # named twice (a list above and the copy inputs)
             if not source.exists():
                 continue  # a tree from before the file; the installer then fails on it if it needs it
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -105,6 +110,15 @@ class InstallGitHooksTests(unittest.TestCase):
         """
         text = (SOURCE / INSTALLER).read_text(encoding="utf-8")
         return sorted(set(re.findall(r"^\s*install\s+-m\s+\d+\s+(scripts/\S+)", text, re.MULTILINE)))
+
+    @staticmethod
+    def copy_input_files():
+        """Every single-file entry of scripts/git-hooks/checks-copy-inputs, so a file the copy adds (as
+        scripts/ci/generated_files_guard.py did) never leaves the fixture behind; folders are copied above."""
+        lines = (SOURCE / "scripts/git-hooks/checks-copy-inputs").read_text(encoding="utf-8").splitlines()
+        entries = [line.strip().split(" -> ")[0].strip() for line in lines
+                   if line.strip() and not line.strip().startswith("#")]
+        return sorted({entry for entry in entries if not entry.endswith("/")})
 
     def git(self, *args, check=True):
         return subprocess.run(["git", "-C", str(self.repo), *args], env=self.env,

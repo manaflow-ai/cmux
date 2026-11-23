@@ -12,6 +12,8 @@ import { mockAllotments, runMockAllotment } from "./mockAllotments";
 import { createMockPair } from "../../protocol/adapters/mock";
 import { updatable } from "./harnesses";
 import { MockTeams } from "./mockTeams";
+import { ACCOUNT_ACTIONS } from "../shared/signIn/accountSignIn";
+import { MockAccountSignIn } from "../shared/signIn/mockSignIn";
 import { mockContextMenus, setMockMenuLayout } from "./mockMenus";
 import { recentAfterPick } from "./fontPickerModel";
 import { ProtocolError, ProtocolErrorCode } from "../../protocol/errors";
@@ -23,8 +25,7 @@ import {
   type AccountsCmux,
   type AccountsRow,
   type AccountsRun,
-  type AllotmentSet,
-  type AllotmentView,
+  type AccountsRunReply,
   type AgentsRun,
   type AgentsState,
   type ChannelsProgress,
@@ -76,6 +77,8 @@ import {
   type AgentConfigAgent,
   type AgentConfigRun,
   type AgentConfigState,
+  type AllotmentSet,
+  type AllotmentView,
 } from "./ops";
 import { rowsByKey, schema } from "./schema";
 import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
@@ -1583,10 +1586,10 @@ export class MockSettingsProvider {
     loaded: true,
     applying: false,
     failed: false,
-    choice: "ask",
+    choice: "on",
     rows: [
-      { id: "claude", name: "Claude Code", state: "ready" },
-      { id: "codex", name: "Codex", state: "ready" },
+      { id: "claude", name: "Claude Code", state: "terminals" },
+      { id: "codex", name: "Codex", state: "terminals" },
     ],
     manual: [
       "claude mcp add --scope user cmux -- '/Applications/cmux NEXT.app/Contents/Resources/bin/cmux' mcp serve",
@@ -1866,6 +1869,11 @@ export class MockSettingsProvider {
   /** Like the host's account gestures: a listed account only, and Add account for Codex and Claude (a
    * login folder under ~/.cmux/accounts, signed out until its sign-in runs, or an API key). */
   private runAccount(run: HarnessesRun): Record<string, never> {
+    // Like the host: GitHub's terminal sign-in is gh's own `gh auth login`, needing no account list.
+    if (run.action === "accountAdd" && run.family === "github" && run.way === "new") {
+      this.harnessRuns.push(run);
+      return {};
+    }
     const accounts = this.harnesses.accounts;
     if (!accounts) throw new ProtocolError("cmux.settings.invalid", "this daemon lists no accounts");
     if (run.action === "accountAdd") {
@@ -2130,8 +2138,9 @@ export class MockSettingsProvider {
   }
 
   /** What the app's AccountsModel does to the state (enough for the page's tests). */
-  private runAccounts(run: AccountsRun): { error?: string } {
+  private runAccounts(run: AccountsRun): AccountsRunReply | Promise<AccountsRunReply> {
     this.accountRuns.push(run);
+    if ((Object.values(ACCOUNT_ACTIONS) as string[]).includes(run.action)) return this.signIn.run(run);
     const rows = (edit: (row: AccountsRow) => AccountsRow) => ({
       ...this.accounts,
       groups: this.accounts.groups.map((group) => ({ ...group, rows: group.rows.map(edit) })),
@@ -2187,6 +2196,37 @@ export class MockSettingsProvider {
     }
     for (const ctx of this.accountsChanged) ctx.emit(this.accountsState());
     return error ? { error } : {};
+  }
+
+  /** The in-place sign-in (shared/signIn/mockSignIn.ts) as the daemon answers it, on
+   * `accounts.signInAccounts`; onboarding's mock runs the same one. */
+  readonly signIn = new MockAccountSignIn({
+    rows: () => this.accounts.signInAccounts ?? [],
+    set: (next) => {
+      this.accounts = { ...this.accounts, signInAccounts: next };
+      for (const ctx of this.accountsChanged) ctx.emit(this.accountsState());
+    },
+  });
+  /** A sign-in's finish waits for this when set (tests and the gallery hold the code on screen). */
+  get signInHold(): Promise<void> | null {
+    return this.signIn.hold;
+  }
+  set signInHold(hold: Promise<void> | null) {
+    this.signIn.hold = hold;
+  }
+  /** The next sign-in start is refused with this reason (`not_installed`, `shared_machine`, ...). */
+  get signInRefusal(): string | null {
+    return this.signIn.refusal;
+  }
+  set signInRefusal(reason: string | null) {
+    this.signIn.refusal = reason;
+  }
+  /** How long a started sign-in's code lasts (tests shorten it to see the expiry). */
+  get signInExpiresInMs(): number {
+    return this.signIn.expiresInMs;
+  }
+  set signInExpiresInMs(ms: number) {
+    this.signIn.expiresInMs = ms;
   }
 
   /** Replaces the host lists and sends `cmux.settings.host.changed`. */

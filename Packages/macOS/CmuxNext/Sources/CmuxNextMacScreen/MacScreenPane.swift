@@ -36,6 +36,8 @@ public final class MacScreenPaneModel {
     public internal(set) var relayOnly = false
     /// Send System Shortcuts to the Remote Mac (the toolbar's Send Keys menu).
     public internal(set) var systemShortcuts: MacScreenSystemShortcuts?
+    /// Set up cmux and Start cmux (the offline card's Start cmux on NAME).
+    public internal(set) var deviceSetup: MacScreenDeviceSetup?
     /// The device hub tab's session: its request, approval and ticket; nil for an unsupported record.
     public let hub: MacScreenHubViewer?
     /// The agent that started this tab's view without a person's click; nil for a person's.

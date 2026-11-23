@@ -88,11 +88,11 @@ struct ComputerUseSetupParityTests {
         source.current.screenRecording = true
         await settle(model) { model.permissions.screenRecording }
         #expect(model.finished)
-        #expect(model.closesSoon, "the done view's close is pending")
+        #expect(model.closeTimer.isScheduled, "the done view's close is pending")
         #expect(page(window)?.finished == true)
         #expect(ended.count == 0)
         window.leave()
-        #expect(!model.closesSoon, "the close button cancels the timed close")
+        #expect(!model.closeTimer.isScheduled, "the close button cancels the timed close")
         #expect(ended.count == 0, "a manual close is not Done")
     }
 
@@ -102,7 +102,7 @@ struct ComputerUseSetupParityTests {
         let model = window.computerUse
         await settle(model) { model.allGranted }
         #expect(!model.finished)
-        #expect(!model.closesSoon)
+        #expect(!model.closeTimer.isScheduled)
         #expect(page(window)?.finished == false)
         #expect(page(window)?.allGranted == true, "the ready line and Done, as before")
         #expect(ended.count == 0)
@@ -116,11 +116,11 @@ struct ComputerUseSetupParityTests {
         model.allow(.screenRecording)
         source.current.screenRecording = true
         await settle(model) { model.permissions.screenRecording }
-        #expect(model.closesSoon)
+        #expect(model.closeTimer.isScheduled)
         source.current.screenRecording = false
         await settle(model) { !model.permissions.screenRecording }
         #expect(!model.finished)
-        #expect(!model.closesSoon)
+        #expect(!model.closeTimer.isScheduled)
         #expect(ended.count == 0)
     }
 

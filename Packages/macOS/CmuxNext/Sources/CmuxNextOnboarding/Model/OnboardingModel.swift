@@ -12,9 +12,8 @@ public import Observation
 public final class OnboardingModel {
     public enum Step: String, CaseIterable, Sendable {
         // Agents comes first at a first run. importData is the browser importer (Import from Browser).
-        // agentTools asks whether cmux may add its MCP server to the person's coding agents.
         // makeItYours: a new person's one setup screen (how they work, density, background), cmux#48416.
-        case agents, importData, computerUse, agentTools, makeItYours
+        case agents, importData, computerUse, makeItYours
     }
 
     /// The tool this window shows; it never changes.
@@ -24,7 +23,6 @@ public final class OnboardingModel {
     public let importer: ImportStepModel
     public let computerUse: ComputerUseStepModel
     public let agents: AgentsStepModel
-    public let agentTools: AgentToolsStepModel
     public let makeItYours: MakeItYoursStepModel
     @ObservationIgnored public let services: any OnboardingServices
     /// Set once the window ended, so a second close does not report twice.
@@ -32,16 +30,15 @@ public final class OnboardingModel {
     /// The window asks to close (the controller observes this).
     public var onEnd: ((Bool) -> Void)?
 
-    /// `agentTools`: the cmux Tools source, else the services' own; `choices`: Make cmux Yours' source, else the services' own.
-    /// `clock` times the Computer Use done view's close (tests pass their own).
-    public init(services: any OnboardingServices, step: Step, agentTools tools: (any AgentToolsSource)? = nil,
-                choices: (any FirstRunChoicesSource)? = nil, clock: any Clock<Duration> = ContinuousClock()) {
+    /// `choices`: Make cmux Yours' source, else the services' own. `clock` times the Computer Use done
+    /// view's close (tests pass their own).
+    public init(services: any OnboardingServices, step: Step, choices: (any FirstRunChoicesSource)? = nil,
+                clock: any Clock<Duration> = ContinuousClock()) {
         self.services = services
         self.step = step
         importer = ImportStepModel(services: services)
         computerUse = ComputerUseStepModel(source: services.computerUsePermissions, clock: clock)
         agents = AgentsStepModel(source: services.agentSignIns)
-        agentTools = AgentToolsStepModel(source: tools ?? services.agentTools)
         makeItYours = MakeItYoursStepModel(source: choices ?? services.firstRunChoices)
         // The done view's time is up: the window closes as Done.
         computerUse.onFinished = { [weak self] in self?.finish(completed: true) }
@@ -57,7 +54,6 @@ public final class OnboardingModel {
         if step == .importData, importer.isConfirmingPasswords { return OnboardingStrings.beginImporting }
         if step == .importData, importer.canStart { return OnboardingStrings.importButton }
         if step == .agents || step == .makeItYours { return OnboardingStrings.continueTitle }
-        if step == .agentTools, !agentTools.answered { return OnboardingStrings.turnOnTools }
         return OnboardingStrings.done
     }
 
@@ -90,12 +86,6 @@ public final class OnboardingModel {
         case .computerUse where !computerUse.allGranted:
             if computerUse.permissions.helperFailed { computerUse.restart() } else { computerUse.allowNext() }
             return
-        // cmux Tools: Turn On answers yes and stays, so the rows show what it did; then Done.
-        case .agentTools where !agentTools.answered:
-            agentTools.add()
-            return
-        case .agentTools where agentTools.applying:
-            return
         default:
             finish(completed: true)
         }
@@ -120,8 +110,6 @@ public final class OnboardingModel {
     /// not offer a misleading Done action while the scan is still running.
     public var canAdvance: Bool {
         !(step == .importData && importer.phase == .detecting)
-            // cmux Tools: Return answers only once the agents it would change are listed, and not twice.
-            && !(step == .agentTools && (agentTools.applying || !agentTools.loaded))
     }
 
     /// Back: from either explainer to the list, nothing read.
@@ -138,10 +126,6 @@ public final class OnboardingModel {
     /// answers after the window is gone.
     public func skipStep() {
         if step == .importData, importer.isConfirmingPasswords { importer.backFromConsent() }
-        // cmux Tools' Not Now is the person's no (Escape too): nothing is written to any agent.
-        if step == .agentTools, !agentTools.answered { agentTools.decline() }
-        // Once answered, Escape is Done (the step's work is finished).
-        if step == .agentTools, agentTools.answered, !agentTools.applying { return finish(completed: true) }
         finish(completed: false)
     }
 
@@ -154,7 +138,6 @@ public final class OnboardingModel {
         case .importData: importer.detect()
         case .computerUse: computerUse.start()
         case .agents: agents.start()
-        case .agentTools: agentTools.start()
         case .makeItYours: makeItYours.start()
         }
     }
@@ -172,7 +155,6 @@ public final class OnboardingModel {
         computerUse.stop()
         importer.stopDetecting()
         agents.stop()
-        agentTools.stop()
         makeItYours.stop()
     }
 
@@ -182,7 +164,6 @@ public final class OnboardingModel {
         computerUse.stop()
         importer.stopDetecting()
         agents.stop()
-        agentTools.stop()
         makeItYours.stop()
         onEnd?(completed)
     }
