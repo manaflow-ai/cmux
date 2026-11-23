@@ -4306,6 +4306,7 @@
       "base": "Base",
       "nextSection": "cmux-next",
       "nextGettingStarted": "Getting started",
+      "nextStart": "Start here",
       "nextUpdates": "Install and update",
       "nextHome": "Home and Chief",
       "nextAgents": "Agents and subagents",
