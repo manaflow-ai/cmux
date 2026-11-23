@@ -8317,15 +8317,6 @@ export class AcpmuxDirectClient {
       return;
     }
     this.rows.closeBackground(event.seq, turn);
-    // Its reply is done when it ends: the row stops streaming here, so its footer (turns.ts
-    // `backgroundFooters`) draws in this frame, not with whatever record comes next, 6 s later in
-    // the log Leo sent (2026-11-22: "this wrap-up had a very delayed set of icons appearing").
-    // The segment stays open: a chunk of the same reply that arrives late goes on in its row.
-    if (stamped) {
-      const reply = this.rows.get(this.streamingAssistant!);
-      if (reply?.streaming && reply.inBackground === turn.id)
-        this.rows.set(reply.id, { ...reply, version: reply.version + 1, streaming: false });
-    }
     if (!existing) return;
     const hasRows = existing.background?.hasRows;
     // The started record's cause and where its reply went stay.
