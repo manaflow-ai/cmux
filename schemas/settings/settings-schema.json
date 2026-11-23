@@ -71581,7 +71581,10 @@
         "auto",
         "glass",
         "solid",
-        "sections"
+        "sections",
+        "chip",
+        "tree",
+        "card"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -71620,6 +71623,27 @@
             "text" : "Sections"
           },
           "value" : "sections"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupBackgroundChip",
+            "text" : "Chips"
+          },
+          "value" : "chip"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupBackgroundTree",
+            "text" : "Tree"
+          },
+          "value" : "tree"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupBackgroundCard",
+            "text" : "Cards"
+          },
+          "value" : "card"
         }
       ],
       "consumers" : [
@@ -71652,7 +71676,14 @@
         "sections",
         "section",
         "heading",
-        "plain"
+        "plain",
+        "chip",
+        "chromium",
+        "rail",
+        "tree",
+        "guide",
+        "card",
+        "cards"
       ],
       "kind" : "choice",
       "page_hidden" : false,
