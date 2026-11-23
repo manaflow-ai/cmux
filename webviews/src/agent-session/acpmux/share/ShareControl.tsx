@@ -162,6 +162,11 @@ export function ShareDialogHost({
           onInvite={invite}
           onRole={(account: string, role: ShareRole) => void step(() => client.setRole(account, role))}
           onRemove={(account: string) => void step(() => client.remove(account))}
+          onApprove={(account: string, role: ShareRole) =>
+            void step(() => client.approve(account, role), translate("share.approved", { account }))
+          }
+          // Silent (RFD 0077 D2): the row goes, nothing is said here or to them.
+          onDecline={(account: string) => void step(() => client.decline(account))}
           onGeneral={general}
           onCopy={copy}
           onDone={() => onOpenChange(false)}
