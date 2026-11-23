@@ -18,6 +18,17 @@ declare global {
   }
 }
 
+/// snapshotCache.ts's sessionStorage key for the reload copy of the pane's snapshot.
+export const SNAPSHOT_KEY = "cmux.acpmux.snapshot";
+
+function dropSavedSnapshot(): void {
+  try {
+    sessionStorage.removeItem(SNAPSHOT_KEY);
+  } catch {
+    // Storage that is unavailable holds no copy to repaint.
+  }
+}
+
 export class PaneBoundary extends Component<Props, State> {
   state: State = { failed: false };
 
@@ -32,6 +43,13 @@ export class PaneBoundary extends Component<Props, State> {
       ...(info.componentStack ? { componentStack: info.componentStack } : {}),
     };
     console.error("agent pane failed to draw", window.__cmuxPaneFailure);
+    // The reload copy of the snapshot (snapshotCache.ts `cachedSnapshot`) would paint the rows that
+    // threw again on Retry's reload, and fail the same way: the reloaded pane starts empty instead
+    // and draws from its live client. A write still pending (its timer, or the save on `pagehide`,
+    // whose listener was added before this one) would put the copy back, so it goes again as the
+    // page unloads.
+    dropSavedSnapshot();
+    window.addEventListener("pagehide", dropSavedSnapshot);
   }
 
   render() {
