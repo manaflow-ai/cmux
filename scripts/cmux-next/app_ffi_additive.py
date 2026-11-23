@@ -69,11 +69,11 @@ def strip(text: str) -> str:
                   r"^[ \t]*#[ \t]*endif[^\n]*$", " ", text, flags=re.S | re.M)
 
 
-def parse(text: str) -> tuple[list[tuple[tuple[str, ...], str]], set[tuple[tuple[str, ...], int, str]]]:
+def parse(text: str) -> tuple[list[tuple[tuple[str, ...], str]], list[tuple[tuple[str, ...], int, str]]]:
     """(directives, declarations) of a C header. A directive is (its enclosing conditionals, its text), in order. A
-    declaration is (its enclosing conditionals, how many directives come before it, its text)."""
+    declaration is (its enclosing conditionals, how many directives come before it, its text), in source order."""
     directives: list[tuple[tuple[str, ...], str]] = []
-    found: set[tuple[tuple[str, ...], int, str]] = set()
+    found: list[tuple[tuple[str, ...], int, str]] = []
     stack: list[str] = []
     current: list[str] = []
     depth = 0
@@ -97,11 +97,11 @@ def parse(text: str) -> tuple[list[tuple[tuple[str, ...], str]], set[tuple[tuple
             elif ch == "}":
                 depth = max(depth - 1, 0)
             elif ch == ";" and depth == 0:
-                found.add((tuple(stack), len(directives), " ".join("".join(current).split())))
+                found.append((tuple(stack), len(directives), " ".join("".join(current).split())))
                 current = []
     rest = " ".join("".join(current).split())
     if rest:
-        found.add((tuple(stack), len(directives), rest))
+        found.append((tuple(stack), len(directives), rest))
     return directives, found
 
 
@@ -132,8 +132,16 @@ def differences(old: str, new: str, paths: list[str]) -> list[str]:
             now = new_directives[changed][1] if changed < len(new_directives) else "(none)"
             found.append(f"{header}: preprocessor directives changed, first at #{changed + 1}: {was!r} -> {now!r}")
             continue
-        for stack, _, declaration in sorted(old_declarations - new_declarations):
+        for stack, _, declaration in sorted(set(old_declarations) - set(new_declarations)):
             found.append(f"{header}: {declaration[:200]}{where(stack)}")
+        # Order matters inside a directive interval: a typedef moved below the prototypes that use it still compiles
+        # as the same set of declarations, and C rejects it. OLD must stay an ordered subsequence of NEW.
+        remaining = iter(new_declarations)
+        for entry in old_declarations:
+            if not any(entry == candidate for candidate in remaining):
+                if entry in set(new_declarations):
+                    found.append(f"{header}: {entry[2][:200]}{where(entry[0])} (moved: declaration order changed)")
+                break
     return found
 
 
