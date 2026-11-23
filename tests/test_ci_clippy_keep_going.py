@@ -19,6 +19,11 @@ collectors (the panic ratchet and the affected-package list), which deny nothing
 
 The shell script passes the flag through its `keep_going` array, which
 CMUX_RUST_CHECK_FAIL_FAST=1 empties; that counts as carrying the flag.
+
+A detector, not a gate: it is registered `manual` and no workflow step runs it,
+so a pull request that adds another multi-crate gate is not made red for it.
+Run it yourself after changing a clippy command. Keep it out of a blocking lane
+unless Leo asks for a guard.
 """
 
 from __future__ import annotations
