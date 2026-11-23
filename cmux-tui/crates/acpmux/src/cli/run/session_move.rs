@@ -404,6 +404,13 @@ pub(crate) struct MovedOff {
 /// same steps and pick as `session move ID --host auto`. `Err`: it did not move, and why (no peer
 /// has room, a refusal, a failed step given back); the chat is here as it was.
 pub(crate) async fn move_off_interactive(src: &Client, id: &str) -> Result<MovedOff> {
+    move_auto(src, id, true).await
+}
+
+/// The idle chat `id` moved off this machine as `session move ID --host auto` moves it, with no
+/// one asking: the daemon's automatic evacuation (`hub/auto_evacuate.rs`) calls this with
+/// `resume_there` false. `Err`: it did not move, and why; the chat is here as it was.
+pub(crate) async fn move_auto(src: &Client, id: &str, resume_there: bool) -> Result<MovedOff> {
     let args = MoveArgs {
         sessions: vec![id.to_owned()],
         host: "auto".into(),
@@ -415,7 +422,7 @@ pub(crate) async fn move_off_interactive(src: &Client, id: &str) -> Result<Moved
         carry_changes: false,
         cwd: None,
         dry_run: false,
-        resume_there: true,
+        resume_there,
         from: None,
         from_snapshot: false,
     };
