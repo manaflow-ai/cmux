@@ -347,20 +347,25 @@ pub(super) fn drive(driver: &mut dyn Drive) -> State {
         };
         let answer = hybrid::step(state, event, driver.now_ms());
         state = answer.state;
+        let mut moving = false;
         for effect in answer.effects {
             match effect {
                 // The chat already started here; prompts go to the chat itself, which acpmux
                 // holds while it moves, so none passes through the driver.
                 Effect::StartHere | Effect::Deliver { .. } | Effect::Hold { .. } => {}
                 Effect::CreateMachine => driver.create_machine(),
-                Effect::Move => queue.push_back(match driver.move_chat() {
-                    Ok(()) => Event::MoveCommitted,
-                    Err((reason, again)) => Event::MoveFailed { reason, again },
-                }),
+                // Run once this answer's effects are (its `Show moving` first).
+                Effect::Move => moving = true,
                 Effect::PauseMachine => driver.pause_machine(),
                 Effect::Show { cloud, reason } => driver.show(cloud, reason.as_deref()),
                 Effect::Log { line } => driver.log(&line),
             }
+        }
+        if moving {
+            queue.push_back(match driver.move_chat() {
+                Ok(()) => Event::MoveCommitted,
+                Err((reason, again)) => Event::MoveFailed { reason, again },
+            });
         }
     }
 }
