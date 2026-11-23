@@ -58,7 +58,9 @@
       "read": [
         "apps.catalog.list",
         "apps.catalog.get",
+        "apps.catalog.sections",
         "apps.installed.list",
+        "apps.updates.list",
         "apps.grants.get",
         "apps.logs",
         "apps.asset.get"
@@ -70,6 +72,7 @@
       ],
       "confirm": [
         "apps.set",
+        "apps.update",
         "apps.uninstall",
         "apps.grant.set"
       ],
@@ -147,7 +150,9 @@
       "read": [
         "apps.catalog.list",
         "apps.catalog.get",
+        "apps.catalog.sections",
         "apps.installed.list",
+        "apps.updates.list",
         "apps.grants.get",
         "apps.logs",
         "apps.asset.get"
@@ -155,6 +160,7 @@
       "mutation": [
         "apps.set",
         "apps.install",
+        "apps.update",
         "apps.uninstall",
         "apps.hidden.set",
         "apps.grant.set",

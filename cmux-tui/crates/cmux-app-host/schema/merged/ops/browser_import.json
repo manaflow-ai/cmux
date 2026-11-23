@@ -1,0 +1,10 @@
+{
+  "family": "browser_import",
+  "ops": {
+    "browser_import.read": {
+      "source": "local",
+      "class": "read",
+      "digest": "3dd6868274d69704"
+    }
+  }
+}

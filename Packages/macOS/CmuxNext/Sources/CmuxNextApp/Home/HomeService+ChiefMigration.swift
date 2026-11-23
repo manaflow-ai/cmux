@@ -1,4 +1,5 @@
 import CmuxHomeCore
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHomeEngine
 import Foundation
@@ -32,8 +33,7 @@ extension HomeService {
         let home = chief.home
         guard home.importsOldChiefs else { return }
         let create = HomeChiefName.createRequest(user: Self.localUser, mux: Self.mux)
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
+        let support = NextSupport.applicationSupportDirectory()
         let olds = ChiefMigration.oldChiefs(userHome: FileManager.default.homeDirectoryForCurrentUser, applicationSupport: support)
         let logger = logger
         let tool = BundledChiefMemoryTool.bundled()
