@@ -1,3 +1,4 @@
+import CmuxConversationUI
 import CmuxMobileAuth
 import CmuxMobileDesign
 import CmuxMobileLive
@@ -20,6 +21,10 @@ struct CmuxMobileApp: App {
     init() {
         // Launch to first interaction (LaunchMarks): dyld, static initializers and UIKit's start end here.
         LaunchMarks.shared.mark("app_init")
+        #if DEBUG
+        // `CMUX_MOBILE_LAUNCH_MARKS=1`: resume-after-switch marks for ResumeFromSwitchUITests.
+        ResumeMarks.startIfRequested()
+        #endif
         // An update from the classic app (the same bundle id) left its Keychain items and
         // settings here: they are deleted once, before anything reads either, so this app
         // starts signed out instead of half-reading a classic session.
@@ -29,6 +34,16 @@ struct CmuxMobileApp: App {
         // The Agent Chats list draws the account's stored first page at once on a cold open
         // (the Rust read-first store), then the Mac's page replaces it.
         PhoneReadFirst.installAgentChats()
+        #if !CMUX_MOBILE_PRODUCTION
+        // Messages' own + menu and tapback art (ConversationSystemArt). Every shipping
+        // build (Production, TestFlight/cmux INTERNAL, AppStore) carries no
+        // PrivateFrameworks path (App Review 2.5.1) and draws them.
+        var chatKitPath = "/System/Library/PrivateFrameworks/ChatKit.framework"
+        #if targetEnvironment(simulator)
+        if let root = ProcessInfo.processInfo.environment["IPHONE_SIMULATOR_ROOT"] { chatKitPath = root + chatKitPath }
+        #endif
+        ConversationSystemArt.bundle = Bundle(path: chatKitPath)
+        #endif
         #if !DEBUG
         // Release and Production have no Developer page: remove any developer
         // setting (mock data, a scripted demo, relay only) an earlier Debug
@@ -93,6 +108,9 @@ struct CmuxMobileApp: App {
                 AgentCLIHybridBenchRoot()
             } else if TerminalDemoRoot.isRequested || DeveloperOptions.launchDemo == "terminal" {
                 TerminalDemoRoot()
+            } else if FoldSimulatorFrame<RootView>.isRequested {
+                // A live fold and unfold inside one simulator window (UITests/FoldResizeUITests).
+                FoldSimulatorFrame { RootView(auth: auth, store: .mock()) }
             } else {
                 RootView(auth: auth, store: .mock())
             }
@@ -105,6 +123,7 @@ struct CmuxMobileApp: App {
             // `CMUX_MOBILE_LAUNCH_MARKS=1`: the launch marks for LaunchTTIUITests.
             .overlay(alignment: .topLeading) { LaunchMarksProbe() }
             .overlay(alignment: .topTrailing) { InputLatencyProbe() }
+            .overlay(alignment: .bottomLeading) { ResumeMarksProbe() }
             #endif
             .modifier(ChiefCallCover(
                 controller: ChiefVoice.controller,
@@ -116,6 +135,9 @@ struct CmuxMobileApp: App {
             // App Shortcut's own perform() at launch, as the system would on a tap (a headless
             // simulator's Spotlight opens the app without running an app's intents).
             .task { await NewAgentChatIntent.runFromLaunchArguments() }
+            // `-cmux-mobile-kbd-pin-trace` for every root, not only RootView's (TerminalDemoRoot's
+            // terminal for the keyboard motion bench); it starts once.
+            .task { KeyboardPinTrace.startIfRequested() }
             #endif
         }
     }
