@@ -1080,6 +1080,14 @@
       ]
     },
     {
+      "agent": "settable",
+      "why": "Whether a chat's sealed log segments are compressed on disk as it grows, and how hard: lossless (every byte reads back, nothing is removed), a local disk policy.",
+      "keys": [
+        "agents.chats.coldSegments",
+        "agents.chats.coldSegmentsLevel"
+      ]
+    },
+    {
       "agent": "destructive",
       "why": "Machine cleanup removes worktrees and build caches from this Mac's disk: only the person turns it on or off.",
       "keys": [
