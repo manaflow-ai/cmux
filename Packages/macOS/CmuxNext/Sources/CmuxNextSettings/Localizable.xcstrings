@@ -242329,7 +242329,7 @@
       }
     },
     "settings.agentPane.composerLook": {
-      "comment": "Settings > Agent Chat > Message Box: the row that picks the composer's look (Automatic, Codex or Claude)",
+      "comment": "Settings > Agent Chat > Message Box: the row that picks the composer's look (Automatic or Studio)",
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -242857,7 +242857,7 @@
       }
     },
     "settings.choice.composerLookAuto": {
-      "comment": "Settings > Agent Chat > Composer Look choice: the look the chat's look dots picked, else the default",
+      "comment": "Settings > Agent Chat > Composer Look choice: the app's own composer, with the model and access in the row under the box",
       "extractionState": "manual",
       "localizations": {
         "ar": {

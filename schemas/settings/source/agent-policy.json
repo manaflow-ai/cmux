@@ -1058,6 +1058,13 @@
       ]
     },
     {
+      "agent": "destructive",
+      "why": "Deleting old chats removes their history from this machine for good: only the person sets it.",
+      "keys": [
+        "agents.chats.deleteHistoryAfterDays"
+      ]
+    },
+    {
       "agent": "settable",
       "why": "Whether inactive chats are archived on their own, and after how long: reversible (Unarchive brings a chat back), it only moves chats off the lists.",
       "keys": [
