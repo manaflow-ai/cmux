@@ -2566,7 +2566,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         let row = if full { full_row } else { list_row };
         let summary = row.get_or_build(|| {
             let s = hub.resolve(&ev.session_id).ok()?;
-            Some(if full { hub.session_summary(&s) } else { hub.session_list_summary(&s) })
+            Some(if full { hub.session_change_summary(&s) } else { hub.session_list_summary(&s) })
         });
         if let Some(summary) = summary {
             let row = if attached { outbound::Row::None } else { outbound::Row::Latest(row_key()) };
