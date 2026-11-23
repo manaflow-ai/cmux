@@ -1891,14 +1891,7 @@ function ComposerFrame({
       setAttachError(undefined);
       plusDraft.current = undefined;
       if (field.current && rest) field.current.type(rest);
-      else {
-        // The editor empties here, in the send's handler before React writes the sent row, not in the
-        // field's layout effect after: there its selection write (ProseMirror selectionToDOM) recalculated
-        // the style of the page the commit had just changed (12.7 ms of a 99 ms Enter at 2,001 rows,
-        // cmuxterm-hq docs/findings/2026-11-23-agent-pane-send-paint.md). The same task, the same frame.
-        if (!rest) field.current?.reset("");
-        edit(rest, rest.length);
-      }
+      else edit(rest, rest.length);
       if (sentDoneWhen !== undefined && doneWhenRef.current === sentDoneWhen) setDoneWhen("");
       // The sent text is no draft any more: a read still on its way never brings it back.
       noteDraftSent(persistedSession.current);

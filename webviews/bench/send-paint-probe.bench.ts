@@ -475,7 +475,9 @@ if (import.meta.main) {
     await browser.close();
     statics.stop(true);
     daemon.stop(true);
-    fs.rmSync(out, { recursive: true, force: true });
+    // KEEP_OUT=1 keeps the built pane, so a trace's line numbers can be read against it.
+    if (process.env.KEEP_OUT === "1") console.log(`built pane kept at ${out}`);
+    else fs.rmSync(out, { recursive: true, force: true });
   }
   const keys = [
     "keyToMount",
