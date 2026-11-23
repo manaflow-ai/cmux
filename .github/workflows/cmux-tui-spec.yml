@@ -40,6 +40,7 @@ on:
       - "tests/test_ci_affected_jobs.py"
       # Files outside cmux-tui that acpmux or its path dependencies include_str!
       # (tests/test_cargo_test_verdict.py keeps this list whole).
+      - "Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
       - "Resources/theme-files/*.json"
       - "Resources/sidebar-looks/*.json"
@@ -51,6 +52,7 @@ on:
       - "schemas/link-token/keyset-vectors.json"
       - "schemas/link-token/native.json"
       - "schemas/link-token/vectors.json"
+      - "schemas/settings/source/updates.json"
       - "schemas/settings/retired-keys.json"
       - "schemas/settings/settings-schema.json"
       - "schemas/settings/source/agent-cache.json"

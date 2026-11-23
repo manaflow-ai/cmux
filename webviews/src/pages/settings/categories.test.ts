@@ -64,6 +64,8 @@ test("the categories are the approved ones, in order", () => {
     "computerUse",
     // Settings > MCP Servers: the services agents use for the person (user 2026-11-18).
     "mcpServers",
+    // Settings > Extensions: each installed extension's own declared settings.
+    "extensions",
     // Settings > Cloud: what Cloud chats run on, Cloud Environments and Cloud Workspaces.
     "cloud",
     // Keys: the keys agents keep and ask the person for (design/settings-keys.md).

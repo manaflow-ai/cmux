@@ -133,6 +133,64 @@ export function isCommandLabel(value: unknown): boolean {
   return rule.program !== undefined || rule.match !== undefined;
 }
 
+/** An ssh endpoint of a host: `ssh://[user@]host[:port]`, or what ssh takes (`[user@]host`, an alias). */
+export function isHostEndpoint(text: unknown): boolean {
+  if (typeof text !== "string" || text === "" || text.startsWith("-") || /[\s\p{Cc}]/u.test(text)) return false;
+  const scheme = text.indexOf("://");
+  if (scheme < 0) return true;
+  if (text.slice(0, scheme).toLowerCase() !== "ssh") return false;
+  let authority = text.slice(scheme + 3);
+  if (authority.endsWith("/")) authority = authority.slice(0, -1);
+  if (authority.includes("/")) return false;
+  const at = authority.lastIndexOf("@");
+  if (at === 0) return false;
+  const hostPort = at > 0 ? authority.slice(at + 1) : authority;
+  let host = hostPort;
+  let port: string | undefined;
+  if (hostPort.startsWith("[")) {
+    const close = hostPort.indexOf("]");
+    if (close < 0) return false;
+    host = hostPort.slice(1, close);
+    const after = hostPort.slice(close + 1);
+    if (after.startsWith(":")) port = after.slice(1);
+    else if (after !== "") return false;
+  } else {
+    const colon = hostPort.lastIndexOf(":");
+    if (colon >= 0) {
+      host = hostPort.slice(0, colon);
+      if (host.includes(":")) return false;
+      port = hostPort.slice(colon + 1);
+    }
+  }
+  if (port !== undefined && (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535)) return false;
+  return host !== "" && !host.startsWith("-");
+}
+
+/**
+ * One host of `machines.hosts`: a label and its ssh endpoints tried in order. The Rust rule is
+ * cmux-config `hosts::host`, the Swift one `HostsSetting`; a list also needs unique labels.
+ */
+export function isMachineHost(value: unknown): boolean {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const host = value as Record<string, unknown>;
+  if (typeof host.label !== "string" || host.label.trim() === "" || Array.from(host.label).length > 64) return false;
+  let endpoints: unknown[];
+  if (host.endpoints !== undefined && host.endpoint === undefined) {
+    if (!Array.isArray(host.endpoints) || host.endpoints.length < 1 || host.endpoints.length > 16) return false;
+    endpoints = host.endpoints;
+  } else if (host.endpoints === undefined && host.endpoint !== undefined) {
+    endpoints = [host.endpoint];
+  } else return false;
+  if (!endpoints.every(isHostEndpoint)) return false;
+  return ["icon", "id"].every((key) => host[key] === undefined || typeof host[key] === "string");
+}
+
+function isMachineHostList(value: unknown): boolean {
+  if (!Array.isArray(value) || !value.every(isMachineHost)) return false;
+  const labels = value.map((host) => (host as { label: string }).label.trim().toLowerCase());
+  return new Set(labels).size === labels.length;
+}
+
 /**
  * A fixed picture (`appearance.backgroundLight` / `backgroundDark`, a Time of Day entry): a listed
  * painting or `desktop`, or a macOS wallpaper or image by absolute path; never a shuffle or none.
@@ -215,6 +273,9 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
     return Array.isArray(value) && value.every(isCommandLabel)
       ? null
       : "expected a list of preset names and rules, each with a label and a program or match";
+  }
+  if (row.validation === "domain:hosts") {
+    return isMachineHostList(value) ? null : "expected a list of hosts, each with a unique label and ssh endpoints";
   }
   if (row.validation === "domain:app_id") {
     // The manifest's own id pattern, which the export carries on the row.
@@ -315,5 +376,12 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
       return Array.isArray(value) && value.every((item) => typeof item === "string" && item.length > 0)
         ? null
         : "expected a list of non-empty strings";
+    case "json":
+      // The top-level type only, as the app: the daemon checks the shape and the row's domain
+      // (the sidebar row reducer's bounds) and its refusal says where (`accepted.problems`).
+      if (row.shape?.type === "object") {
+        return typeof value === "object" && value !== null && !Array.isArray(value) ? null : "expected an object";
+      }
+      return Array.isArray(value) ? null : "expected a list";
   }
 }
