@@ -583,6 +583,29 @@ mod tests {
     }
 
     #[test]
+    fn a_relay_row_given_handle_names_it_and_a_derived_one_still_matches() {
+        let id = "0198f2a4-0000-7000-8000-0000000000e1";
+        let mut given =
+            json!({"peer": "far", "sessionId": id, "name": "old", "displayName": "Mango"});
+        given_handle(given.as_object_mut().unwrap());
+        assert_eq!(given["handle"], "Mango");
+        let mut bad = json!({"peer": "far", "sessionId": "01z", "displayName": "not a handle"});
+        given_handle(bad.as_object_mut().unwrap());
+        assert!(bad.get("handle").is_none());
+        let rows = vec![given, bad];
+        let found = |key: &str| find_row(&rows, key).and_then(|r| r["sessionId"].as_str());
+        assert_eq!(found("Mango"), Some(id));
+        assert_eq!(found("mango"), Some(id));
+        assert_eq!(found("far/Mango"), Some(id));
+        assert_eq!(found("old"), Some(id));
+        assert_eq!(found("other/Mango"), None);
+        // A row with no given handle is still found by its derived one, never put on the row.
+        let derived = crate::session_handle::default_handle("01z");
+        assert_eq!(found(&derived), Some("01z"));
+        assert_eq!(found(&format!("far/{derived}")), Some("01z"));
+    }
+
+    #[test]
     fn merged_rows_are_each_listed_once_by_machine_and_id() {
         let row = |peer: &str, id: &str| json!({"peer": peer, "sessionId": id});
         let mut rows = vec![row("hostb", "a")];
