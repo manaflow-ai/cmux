@@ -231,3 +231,11 @@ if [[ "$EVENT_NAME" == pull_request ]]; then
   python3 -I scripts/ci/fast_tier_cargo_route.py --changed-files "$changed" --labels "$labels" \
     --github-output "$GITHUB_OUTPUT" >> "$GITHUB_STEP_SUMMARY" || echo "fast_tier_cargo=true" >> "$GITHUB_OUTPUT"
 fi
+# Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period." A Mac job red on the base for a
+# reason this pull request does not touch skips with the base's verdict instead of spending ~27 Mac-min to report it
+# again (scripts/ci/base_red_skip.py). Any failure fails open: the jobs run.
+if [[ "$EVENT_NAME" == pull_request && "${BASE_RED_SKIP:-1}" != 0 ]]; then
+  python3 -I scripts/ci/base_red_skip.py --changed-files "$changed" --labels "$labels" \
+    --base-sha "$(git rev-parse HEAD^1)" --branch "$PR_BASE_REF" --github-output "$GITHUB_OUTPUT" \
+    >> "$GITHUB_STEP_SUMMARY" || echo "base_red_jobs=" >> "$GITHUB_OUTPUT"
+fi
