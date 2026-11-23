@@ -5,6 +5,12 @@
 
 use serde::{Deserialize, Serialize};
 
+/// The longest workspace key or group id, in UTF-8 bytes, that
+/// `classic_import.record` takes (its `key` and `classic_group`): a classic
+/// id longer than this is never one a plan names, so every step the app
+/// records for a plan fits.
+pub const MAX_KEY_BYTES: usize = 256;
+
 /// A whole classic session file, window by window.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Snapshot {
@@ -34,6 +40,20 @@ impl Snapshot {
             }
         }
         opened
+    }
+
+    /// This snapshot with each terminal's scrollback as the text its new
+    /// shell prints ([`crate::replay::replay`]); none when nothing printable
+    /// is left.
+    pub fn replaying_scrollback(mut self) -> Snapshot {
+        for window in &mut self.windows {
+            for workspace in &mut window.workspaces {
+                workspace.layout.for_each_tab(&mut |tab| {
+                    tab.scrollback = tab.scrollback.as_deref().and_then(crate::replay::replay);
+                });
+            }
+        }
+        self
     }
 }
 
@@ -234,6 +254,29 @@ impl Layout {
                 first: Box::new(first.mapping_folders(folder)),
                 second: Box::new(second.mapping_folders(folder)),
             },
+        }
+    }
+
+    /// Tabs in pane order, first side first, to change in place.
+    pub fn tabs_mut(&mut self) -> Vec<&mut Tab> {
+        match self {
+            Layout::Pane(pane) => pane.tabs.iter_mut().collect(),
+            Layout::Split { first, second, .. } => {
+                let mut tabs = first.tabs_mut();
+                tabs.extend(second.tabs_mut());
+                tabs
+            }
+        }
+    }
+
+    /// Calls `change` on every tab, in pane order.
+    pub fn for_each_tab(&mut self, change: &mut dyn FnMut(&mut Tab)) {
+        match self {
+            Layout::Pane(pane) => pane.tabs.iter_mut().for_each(&mut *change),
+            Layout::Split { first, second, .. } => {
+                first.for_each_tab(change);
+                second.for_each_tab(change);
+            }
         }
     }
 

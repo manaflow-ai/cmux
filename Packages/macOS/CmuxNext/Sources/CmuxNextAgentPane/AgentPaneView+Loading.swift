@@ -21,7 +21,10 @@ public final class AgentPaneLoadingView: NSView {
     /// How long the mark waits: a page that paints sooner shows only its background before it
     /// fades in, never a mark that pops up and goes. Longer than a pane's hold on the chat it
     /// showed (`PanePaintHold.limit`), so the mark never shows the moment a hold gives up.
-    static let markDelay: Duration = .milliseconds(800)
+    /// Every chat still loading past it shows the mark, one shown before too (cmux#48605: a
+    /// rebuilt chat's cover stayed a blank pane for seconds, because a chat seen in the last
+    /// hour opened with no mark however long its page took).
+    static let markDelay: Duration = .milliseconds(600)
     /// How often the loading state checks on a page that has not painted (cx-txnr): WebKit
     /// holds the animation frames of a page it thinks is not visible (a window occluded at a
     /// relaunch), and its `pane.painted` may then never come. Seen unpainted at ``silentChecks``
@@ -272,7 +275,7 @@ extension AgentPaneView {
         // the watchdog, which has no drawn-frame report.
         let replacesSavedFrame = loadingView.isHidden && model.pageReportedPaint
         loadingView.leave(over: pageContent,
-                          fades: !replacesSavedFrame && Self.pageFades(hasNewTab: model.newTab != nil, isVisible: alphaValue > 0,
+                          fades: !replacesSavedFrame && Self.pageFades(hasNewTab: model.newTab != nil, isVisible: isOpaqueUpToItsWindow,
                                                                        fromKeptTail: model.paintedFromKeptTail,
                                                                        settled: model.paintedSettled))
     }

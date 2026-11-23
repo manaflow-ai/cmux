@@ -137,6 +137,33 @@ pub fn self_exe_for_spawn() -> io::Result<PathBuf> {
     }
 }
 
+/// Environment variable naming the runtime scope: the app launcher sets it on
+/// an owner whose HOME is not the account's own (a second, isolated app of
+/// the same user), so that owner's sockets and locks live in their own
+/// directory instead of the one every other app of the user shares. Unset,
+/// empty or malformed: the unscoped, historical directories.
+pub const RUNTIME_SCOPE_ENV: &str = "CMUX_TUI_RUNTIME_SCOPE";
+
+/// The runtime scope of this process (`CMUX_TUI_RUNTIME_SCOPE`), if valid.
+pub fn runtime_scope() -> Option<String> {
+    let value = std::env::var(RUNTIME_SCOPE_ENV).ok()?;
+    valid_runtime_scope(&value).then_some(value)
+}
+
+/// A scope is 1 to 16 lowercase hex digits, so it is one short path component.
+pub fn valid_runtime_scope(scope: &str) -> bool {
+    (1..=16).contains(&scope.len())
+        && scope.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+/// The `cmux-tui-<uid>` directory name, with `-<scope>` for a scoped owner.
+fn runtime_component(scope: Option<&str>) -> String {
+    match scope.filter(|scope| valid_runtime_scope(scope)) {
+        Some(scope) => format!("{}-{scope}", user_id_component()),
+        None => user_id_component(),
+    }
+}
+
 /// Runtime socket/pidfile directory for the current user.
 pub fn runtime_dir() -> PathBuf {
     runtime_dir_for_base(&runtime_base_dir())
@@ -145,7 +172,12 @@ pub fn runtime_dir() -> PathBuf {
 /// The runtime directory an owner started with `TMPDIR=base` (and no
 /// `XDG_RUNTIME_DIR`) uses, for a client whose own environment differs.
 pub fn runtime_dir_for_base(base: &Path) -> PathBuf {
-    base.join(format!("cmux-tui-{}", user_id_component()))
+    runtime_dir_for_base_scoped(base, runtime_scope().as_deref())
+}
+
+/// [`runtime_dir_for_base`] for an owner of the given runtime scope.
+pub fn runtime_dir_for_base_scoped(base: &Path, scope: Option<&str>) -> PathBuf {
+    base.join(format!("cmux-tui-{}", runtime_component(scope)))
 }
 
 /// Short, user-private runtime directory used when the preferred runtime
@@ -155,7 +187,13 @@ pub fn runtime_dir_for_base(base: &Path) -> PathBuf {
 /// fallback without first connecting to the server.
 #[cfg(unix)]
 pub fn fallback_runtime_dir() -> PathBuf {
-    PathBuf::from("/tmp").join(format!("cmux-tui-{}", user_id_component()))
+    fallback_runtime_dir_scoped(runtime_scope().as_deref())
+}
+
+/// [`fallback_runtime_dir`] for an owner of the given runtime scope.
+#[cfg(unix)]
+pub fn fallback_runtime_dir_scoped(scope: Option<&str>) -> PathBuf {
+    PathBuf::from("/tmp").join(format!("cmux-tui-{}", runtime_component(scope)))
 }
 
 /// Preferred root for socket paths that need a fixed-length digest leaf.
@@ -174,7 +212,12 @@ pub fn fallback_hashed_runtime_dir() -> PathBuf {
 /// Construct the digest root below an explicit runtime base. This keeps the
 /// path resolver testable without mutating process environment.
 pub fn hashed_runtime_dir_for_base(base: &Path) -> PathBuf {
-    base.join(format!("cmux-tui-hashed-{}", user_id_component()))
+    hashed_runtime_dir_for_base_scoped(base, runtime_scope().as_deref())
+}
+
+/// [`hashed_runtime_dir_for_base`] for an owner of the given runtime scope.
+pub fn hashed_runtime_dir_for_base_scoped(base: &Path, scope: Option<&str>) -> PathBuf {
+    base.join(format!("cmux-tui-hashed-{}", runtime_component(scope)))
 }
 
 /// Private root for compatibility paths produced from invalid session text.
@@ -954,47 +997,6 @@ pub fn foreground_process_name(pid: u32) -> Option<String> {
     process_name(foreground_process_group(pid)?)
 }
 
-/// Name (basename only) of the program a terminal's foreground job runs:
-/// the process-group leader's executable, or, when the leader is a shell
-/// running a script file, that script. On macOS `man` is a shell script, so
-/// its job leader is `/bin/sh /usr/bin/man ls` and this names `man` where
-/// [`foreground_process_name`] names `sh`. A shell with no script (`sh`,
-/// `sh -c ...`, a login shell) stays the shell's name. Two reads of one known
-/// process (the leader's path and argv), never a process scan. `None` when
-/// the lookup fails.
-pub fn foreground_program(pid: u32) -> Option<String> {
-    let leader = foreground_process_group(pid)?;
-    let executable = process_name(leader)?;
-    // Linux reads argv[0], which a program that sets its title can fill
-    // with arguments: keep only its first word.
-    #[cfg(target_os = "linux")]
-    let executable = executable.split_whitespace().next()?.to_string();
-    let argv = process_launch(leader, &[]).map(|launch| launch.argv).unwrap_or_default();
-    job_program(&executable, &argv)
-}
-
-/// Shells that run a script file named as their first argument.
-const SCRIPT_SHELLS: &[&str] = &["sh", "bash", "dash", "zsh", "ksh"];
-
-/// The program a job runs, from its leader's `executable` and `argv` (see
-/// [`foreground_program`]).
-pub(crate) fn job_program(executable: &str, argv: &[String]) -> Option<String> {
-    let name = program_basename(executable)?;
-    if SCRIPT_SHELLS.contains(&name.as_str())
-        && let Some(script) = argv.get(1).filter(|arg| !arg.starts_with('-'))
-    {
-        return program_basename(script).or(Some(name));
-    }
-    Some(name)
-}
-
-fn program_basename(path: &str) -> Option<String> {
-    let base = Path::new(path.trim()).file_name()?.to_string_lossy().into_owned();
-    // Login shells: `-zsh`.
-    let base = base.trim_start_matches('-');
-    (!base.is_empty()).then(|| base.to_string())
-}
-
 /// PID of a terminal's live foreground process-group leader (see
 /// [`foreground_cwd`] for the leader resolution contract): the program that
 /// holds the terminal now. `None` when the lookup fails.
@@ -1072,7 +1074,7 @@ fn process_name(pid: u32) -> Option<String> {
 
 #[cfg(target_os = "linux")]
 fn foreground_process_group(pid: u32) -> Option<u32> {
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let stat = crate::process_resources::stat_line(format!("/proc/{pid}/stat")).ok()?;
     // Fields after the parenthesized command name are state(3) ppid(4)
     // pgrp(5) session(6) tty_nr(7) tpgid(8); tpgid is -1 without a
     // controlling terminal.

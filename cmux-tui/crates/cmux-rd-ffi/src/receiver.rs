@@ -6,9 +6,9 @@ use std::collections::VecDeque;
 
 use cmux_rd_core::reassembly::{CompleteFrame, Reassembler};
 use cmux_rd_proto::{
-    Arrival, DatagramHeader, DatagramKind, DecodeError, Feedback, HEADER_LEN, MAX_ARRIVALS,
-    MAX_NACK_FRAMES, MAX_NACK_INDEXES, Nack, REF_NONE, STREAM_BULK, STREAM_CONTROL,
-    STREAM_DATAGRAM, StreamDeframer, encode_stream_frame, flags,
+    Arrival, DatagramHeader, DatagramKind, DecodeError, Feedback, HEADER_LEN, MAX_ARRIVALS, Nack,
+    REF_NONE, STREAM_BULK, STREAM_CONTROL, STREAM_DATAGRAM, StreamDeframer, encode_stream_frame,
+    flags,
 };
 
 /// How the session's datagrams travel.
@@ -190,6 +190,13 @@ impl Receiver {
         self.decode_us.push_back(decode_us);
     }
 
+    /// Retries NACKs a measured repair round trip apart instead of every
+    /// [`FEEDBACK_INTERVAL_US`] (design D6; `Reassembler::set_rtt_nack_retry`).
+    /// Off by default.
+    pub fn set_rtt_nack_retry(&mut self, on: bool) {
+        self.reassembler.set_rtt_nack_retry(on);
+    }
+
     /// Asks the host for a keyframe (a decode error or a frame gap). The
     /// request rides every feedback until a keyframe is released.
     pub fn request_keyframe(&mut self) {
@@ -230,6 +237,10 @@ impl Receiver {
         if let Some(expiry) = self.reassembler.next_expiry_us() {
             deadline = deadline.min(expiry);
         }
+        if let Some(nack) = self.reassembler.next_nack_us(self.nack_after_us, FEEDBACK_INTERVAL_US)
+        {
+            deadline = deadline.min(nack);
+        }
         deadline
     }
 
@@ -244,9 +255,14 @@ impl Receiver {
         let due = since.is_none_or(|s| s >= FEEDBACK_INTERVAL_US);
         let keepalive = since.is_none_or(|s| s >= KEEPALIVE_US);
         let overflow = self.arrivals.len() > MAX_ARRIVALS;
+        let nack_due = self
+            .reassembler
+            .next_nack_us(self.nack_after_us, FEEDBACK_INTERVAL_US)
+            .is_some_and(|deadline| now_us >= deadline);
         if !(self.released_since_feedback
             || keepalive
             || overflow
+            || nack_due
             || (due && (!self.arrivals.is_empty() || self.need_recovery())))
         {
             return None;
@@ -280,16 +296,8 @@ impl Receiver {
         sorted.get(sorted.len() / 2).copied().unwrap_or(0)
     }
 
-    fn nacks(&self, now_us: u64) -> Vec<Nack> {
-        self.reassembler
-            .missing(now_us, self.nack_after_us)
-            .into_iter()
-            .take(MAX_NACK_FRAMES)
-            .map(|(frame, indexes)| Nack {
-                frame,
-                indexes: indexes.into_iter().take(MAX_NACK_INDEXES).collect(),
-            })
-            .collect()
+    fn nacks(&mut self, now_us: u64) -> Vec<Nack> {
+        self.reassembler.take_nacks(now_us, self.nack_after_us, FEEDBACK_INTERVAL_US)
     }
 
     fn frame_datagram(&self, payload: &[u8]) -> Vec<u8> {
@@ -325,21 +333,29 @@ impl Receiver {
         let (header, payload) = DatagramHeader::decode(datagram).map_err(ReceiverError::Invalid)?;
         match header.kind {
             DatagramKind::Video | DatagramKind::Fec => {
-                if self.arrivals.len() >= MAX_PENDING_ARRIVALS {
-                    self.arrivals.pop_front();
-                }
-                // Viewer monotonic microseconds; the field wraps and only differences matter.
-                self.arrivals.push_back(Arrival {
-                    transport_seq: header.transport_seq,
-                    arrival_us: now_us as u32,
-                });
+                self.note_arrival(header.transport_seq, now_us);
                 let released = self.reassembler.push(&header, payload, now_us);
                 released.into_iter().for_each(|f| self.on_released(f));
                 self.count_losses();
                 Ok(())
             }
+            // An ultra capacity probe is padding: only its arrival time matters. It rides
+            // the same transport feedback as media, so the host's probe planner can read
+            // the train's dispersion.
+            DatagramKind::Probe => {
+                self.note_arrival(header.transport_seq, now_us);
+                Ok(())
+            }
             _ => self.queue_message(STREAM_DATAGRAM, datagram.to_vec()),
         }
+    }
+
+    fn note_arrival(&mut self, transport_seq: u16, now_us: u64) {
+        if self.arrivals.len() >= MAX_PENDING_ARRIVALS {
+            self.arrivals.pop_front();
+        }
+        // Viewer monotonic microseconds; the field wraps and only differences matter.
+        self.arrivals.push_back(Arrival { transport_seq, arrival_us: now_us as u32 });
     }
 
     fn queue_message(&mut self, kind: u8, bytes: Vec<u8>) -> Result<(), ReceiverError> {

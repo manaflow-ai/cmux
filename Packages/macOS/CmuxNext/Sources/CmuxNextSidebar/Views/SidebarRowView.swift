@@ -33,11 +33,24 @@ class SidebarRowView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerCurve = Metrics.tabCornerCurve // one curve with the tabs (`TabCornerCurve`)
-        layer?.cornerRadius = SidebarStyle.rowCornerRadius
+        layer?.cornerRadius = fillCornerRadius
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
+
+    /// The fill's corner is the tab's at the density now, read on every layout: set once at `init`, a row made at a
+    /// roomier density kept that density's corner after a switch, nearly a pill on Compact's 20 pt row beside its 5 pt
+    /// tabs (Lucas 2026-11-14: "the left sidebar tab becomes too circular ... match the sidebar item roundness to the
+    /// tab roundness"). A density change lays every row out again (its height changes).
+    override func layout() {
+        super.layout()
+        let radius = fillCornerRadius
+        if layer?.cornerRadius != radius { layer?.cornerRadius = radius }
+    }
+
+    /// The fill's corner: the tab's at the density now. A row that draws no rounded fill (a section block) answers 0.
+    var fillCornerRadius: CGFloat { SidebarStyle.rowCornerRadius }
 
     nonisolated override var isFlipped: Bool { true }
     nonisolated override var wantsUpdateLayer: Bool { true }
@@ -200,6 +213,10 @@ class SidebarRowView: NSView {
 
     /// The frame as drawn now: the presentation mid-animation (debug).
     var shownFrame: CGRect { layer?.presentation()?.frame ?? frame }
+    /// The frame as drawn now, where a new group line starts (`groupLines(current:)`): mid-move the presentation (a
+    /// render-server move sets the model frame to its end at once, `SidebarDragSpring`), else the model frame (a
+    /// recycled layer's presentation can still show its last row's).
+    var drawnFrame: CGRect { layer?.animationKeys()?.isEmpty == false ? shownFrame : frame }
 
     /// Size the row is animating toward. Content lays out for the final size
     /// up front, so an animated frame change never shows a stale layout.
@@ -241,38 +258,7 @@ class SidebarRowView: NSView {
 
 // MARK: - Workspace
 
-/// An empty section's row. Pinned's says "Drop here to pin"; any other empty list draws
-/// nothing, as classic draws nothing there (https://github.com/manaflow-ai/cmux/issues/32728),
-/// and stays only as the list's drop target.
-final class EmptySectionRowView: SidebarRowView {
-    private let label = SidebarRowView.label(font: SidebarStyle.subtitleFont)
-
-    required init(key: SidebarRowKey) {
-        super.init(key: key)
-        // Left-aligned where a workspace's title would start, so the drop
-        // zone reads as the list's first line.
-        label.alignment = .natural
-        addSubview(label)
-    }
-
-    func configure(pinned: Bool) { // a document Pinned too (`.custom(sec_pinned)`, SidebarListView.configure)
-        label.setString(pinned ? Strings.pinnedEmpty : "")
-        label.setFont(SidebarStyle.subtitleFont)
-        label.isHidden = !pinned
-        needsLayout = true
-    }
-
-    override func layout() {
-        super.layout()
-        let b = layoutBounds
-        let x = SidebarStyle.columns(rowWidth: b.width).text(hasLeadingMark: false) - SidebarStyle.labelCellPadding
-        let width = max(0, b.width - x - Metrics.space2)
-        let height = ceil(label.intrinsicContentSize.height)
-        label.frame = NSRect(x: x, y: SidebarStyle.textY(label, centerY: b.midY), width: width, height: height)
-        needsDisplay = true
-    }
-
-    override func updateLayer() {
-        performWithTheme { label.setColor(Palette.textTertiary) }
-    }
-}
+/// An empty section's row: it draws nothing, as classic draws nothing there
+/// (https://github.com/manaflow-ai/cmux/issues/32728), and stays only as the list's drop target. Pinned's drop zone says
+/// nothing either (plans/cmux-next/ui-simplify.md, Pin: "no drop overlay text"): the gap a drag opens there is the cue.
+final class EmptySectionRowView: SidebarRowView {}

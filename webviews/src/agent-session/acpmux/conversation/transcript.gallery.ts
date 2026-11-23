@@ -19,6 +19,7 @@ import {
   LOGIN_SCREENSHOT_PNG,
   LOGIN_TESTS_MP4,
 } from "../../../gallery/fixtures/toolImages";
+import { JUMP_LATEST_SHOWN } from "../transcriptSelectors";
 
 const prompt = "Add retries with backoff to the fetch helper";
 
@@ -765,6 +766,74 @@ const BUILD_CHART = [
   "Splitting the app target's type check (41% of its time) is the biggest win.",
 ].join("\n");
 
+// A ```chart fence (chartSpec.ts): the same kinds of answer in the small JSON an agent writes without
+// Vega-Lite, one per chart type.
+const chartReply = (lead: string, chart: unknown, tail: string) =>
+  [lead, "", "```chart", JSON.stringify(chart, null, 2), "```", "", tail].join("\n");
+const CHART_FENCE = {
+  bar: chartReply(
+    "Per-target build time from the last 20 CI runs on main, in seconds:",
+    {
+      type: "bar",
+      title: "Build time by target",
+      data: [
+        { target: "app", p50: 312, p90: 371 },
+        { target: "api", p50: 204, p90: 229 },
+        { target: "worker", p50: 171, p90: 190 },
+        { target: "ui-kit", p50: 122, p90: 140 },
+        { target: "docs", p50: 88, p90: 97 },
+      ],
+      x: "target",
+      y: ["p50", "p90"],
+    },
+    "The app target is most of it.",
+  ),
+  line: chartReply(
+    "Cold start over the last week, by build:",
+    {
+      type: "line",
+      labels: ["Nov 8", "Nov 9", "Nov 10", "Nov 11", "Nov 12", "Nov 13", "Nov 14"],
+      series: [
+        { name: "nightly", values: [910, 880, 870, 640, 610, 600, 590] },
+        { name: "release", values: [940, 940, 930, 930, 925, 930, 920] },
+      ],
+      yTitle: "ms",
+    },
+    "The nightly dropped by a third after the cache landed on Nov 11.",
+  ),
+  pie: chartReply(
+    "Where this week's CI minutes went:",
+    {
+      type: "pie",
+      data: [
+        { job: "macOS build", minutes: 2400 },
+        { job: "Linux tests", minutes: 900 },
+        { job: "Web checks", minutes: 600 },
+        { job: "Other", minutes: 200 },
+      ],
+    },
+    "The macOS build is more than half.",
+  ),
+  scatter: chartReply(
+    "Chat length against memory, one point per open chat:",
+    {
+      type: "scatter",
+      data: [
+        { messages: 40, mb: 61 },
+        { messages: 120, mb: 66 },
+        { messages: 300, mb: 70 },
+        { messages: 800, mb: 74 },
+        { messages: 1500, mb: 79 },
+        { messages: 2600, mb: 82 },
+        { messages: 4000, mb: 86 },
+      ],
+      xTitle: "messages",
+      yTitle: "MB",
+    },
+    "Memory grows slowly with length.",
+  ),
+};
+
 const MARKDOWN_MIX = [
   "## What changed",
   "",
@@ -909,10 +978,11 @@ const liveLineClear = async (ctx: PlayContext) => {
   const live = doc.querySelector<HTMLElement>(".cv-worked.is-below")!.getBoundingClientRect();
   // Resolve through a box so both Interface Size and document zoom enter the same geometry.
   const probe = doc.createElement("span");
-  // Resolve the same run-gap token the transcript grid uses, including Interface Size.
-  probe.style.cssText = "position:absolute;visibility:hidden;width:0;height:var(--grid-gap-run)";
-  doc.body.append(probe);
-  const runGap = probe.getBoundingClientRect().height;
+  // The gap over the live line in a run, from its one source (transcriptGrid.ts transcriptLiveVars, set on the
+  // scroller), including Interface Size.
+  probe.style.cssText = "position:absolute;visibility:hidden;width:0;height:var(--cv-live-step-gap)";
+  (doc.querySelector<HTMLElement>(".acpmux-scroll") ?? doc.body).append(probe);
+  const stepGap = probe.getBoundingClientRect().height;
   probe.style.height = "var(--grid-gap-footer)";
   const footerGap = probe.getBoundingClientRect().height;
   probe.remove();
@@ -926,8 +996,8 @@ const liveLineClear = async (ctx: PlayContext) => {
   if (!over.length) throw new Error("no tool row or reply draws over the live line");
   const nearest = over.reduce((a, b) => (b.bottom > a.bottom ? b : a));
   const gap = live.top - nearest.bottom;
-  if (nearest.step && Math.abs(gap - runGap) > 0.5)
-    throw new Error(`the live line sits ${gap.toFixed(1)}px under the run over it, not the scaled ${runGap}px run gap`);
+  if (nearest.step && Math.abs(gap - stepGap) > 0.5)
+    throw new Error(`the live line sits ${gap.toFixed(1)}px under the run over it, not its ${stepGap}px gap`);
   if (!nearest.step && gap < footerGap - 0.5)
     throw new Error(`the live line sits ${gap.toFixed(1)}px under the reply over it, not ${footerGap}px or more`);
   const hint = doc.querySelector<HTMLElement>(".cv-worked.is-below .cv-command__bg");
@@ -1281,10 +1351,8 @@ const ENVELOPE_TOOLS = [
       ],
     }),
   }),
-  tool("Read package.json", "read", "completed", {
-    output:
-      '{\n  "name": "@cmux/webviews",\n  "private": true,\n  "type": "module",\n  "scripts": {\n    "test": "bun test"\n  }\n}\n',
-  }),
+  // (A read of a JSON file drew here, kept as printed; a read is a plain row that does not open since
+  // 2026-11-17, readPath.ts, so its output has no card.)
 ];
 
 /// A render call (renderCall.ts); one with `update` redraws the card it names and draws nothing itself.
@@ -1972,14 +2040,17 @@ export default agentPaneEntry({
       },
     },
     "thought-row": {
-      note: 'Play: a finished thought is one quiet row, for Codex parity: the brain glyph and its words on one line, cut with an ellipsis, with no tooltip. Opened, it reads Thought for 12s over its text. Debug Settings agentPane.debug.thoughtFoldThreshold "Taller than the transcript" brings back the short thought in full after Thought.',
+      note: 'Play: a finished thought is one quiet row, for Codex parity: the brain glyph and its own first line, cut with an ellipsis when it runs past the row, with no tooltip and how long it took at the row\'s end. Opened, the rest of its text unfolds under that line. Debug Settings agentPane.debug.thoughtFoldThreshold "Taller than the transcript" brings back the short thought in full after Thought.',
       snapshot: thoughtChat([thought(SHORT_THOUGHT, { startedAt: 0, endedAt: 12_000 })]),
       play: async (ctx) => {
         await openEndedStretch(ctx);
         const row = () => ctx.document.querySelector<HTMLElement>(".cv-thought");
-        // Its words on one line, its paragraphs joined with spaces (ThoughtRow.tsx thoughtLine).
-        const line = SHORT_THOUGHT.split("\n").filter(Boolean).join(" ");
-        await ctx.waitFor(() => row()?.textContent === line);
+        // Its own first line (thoughtRowModel.ts thoughtHead), then how long it took.
+        const line = SHORT_THOUGHT.split("\n")[0]!;
+        await ctx.waitFor(() => row()?.querySelector(".cv-thought__preview")?.textContent === line);
+        if (row()!.querySelector(".cv-thought__time")?.textContent !== "12s")
+          throw new Error("a dated thought shows how long it took at the row's end");
+        if (row()!.textContent?.includes("Thought")) throw new Error("a thought's row reads its words, not Thought");
         await ctx.hover({ selector: ".cv-thought" });
         if (!row()!.matches("button") || row()!.getAttribute("aria-expanded") !== "false")
           throw new Error("a finished thought is a closed toggle");
@@ -1994,7 +2065,7 @@ export default agentPaneEntry({
       },
     },
     "thought-expanded": {
-      note: "Play: the folded thought opens to its full text under its label, which reads Thought for 12s.",
+      note: "Play: the folded thought opens to the rest of its text under its own first line, which stays where it was.",
       checks: {
         layoutShiftMax: {
           value: 0.02,
@@ -2005,13 +2076,22 @@ export default agentPaneEntry({
       snapshot: thoughtChat([thought(SHORT_THOUGHT, { startedAt: 0, endedAt: 12_000 })]),
       play: async (ctx) => {
         await openEndedStretch(ctx);
+        const line = () => ctx.document.querySelector<HTMLElement>("button.cv-thought .cv-thought__preview");
+        await ctx.waitFor(() => line());
+        const before = line()!.getBoundingClientRect();
+        const words = line()!.textContent;
         await ctx.click({ selector: "button.cv-thought" });
         const body = () => ctx.document.querySelector<HTMLElement>(".cv-thought__body");
         await ctx.waitFor(() => body()?.textContent?.includes("jittered backoff capped at three attempts") ?? false);
         if (ctx.document.querySelector("button.cv-thought")?.getAttribute("aria-expanded") !== "true")
           throw new Error("the opened thought is not expanded");
-        const label = ctx.document.querySelector("button.cv-thought .cv-thought__label")?.textContent;
-        if (label !== "Thought for 12s") throw new Error(`the opened thought reads ${label}, not Thought for 12s`);
+        // No word is swapped and the line does not move: the rest opens under it.
+        const after = line()!.getBoundingClientRect();
+        if (line()!.textContent !== words || words !== SHORT_THOUGHT.split("\n")[0])
+          throw new Error(`the opened thought's line reads ${line()!.textContent}, not its own first line`);
+        if (Math.abs(after.left - before.left) > 0.5 || Math.abs(after.top - before.top) > 0.5)
+          throw new Error("the thought's line moved when it opened");
+        if (body()!.textContent?.includes(words!)) throw new Error("the opened thought repeats its first line");
       },
     },
     "thoughts-merged": {
@@ -2035,10 +2115,13 @@ export default agentPaneEntry({
         await ctx.waitFor(() => rows()[0]?.textContent?.includes("parses errors first") ?? false);
         if (rows().length !== 1) throw new Error(`two thoughts side by side draw ${rows().length} rows, not one`);
         await ctx.click({ selector: "button.cv-thought" });
+        // The first thought is the row's line; the second opens under it.
         const body = () => ctx.document.querySelector<HTMLElement>(".cv-thought__body")?.textContent ?? "";
-        await ctx.waitFor(() => body().includes("parses errors first") && body().includes("On second thought"));
-        const label = ctx.document.querySelector("button.cv-thought .cv-thought__label")?.textContent;
-        if (label !== "Thought for 12s") throw new Error(`the opened thoughts read ${label}, not Thought for 12s`);
+        await ctx.waitFor(() => body().includes("On second thought"));
+        if (!rows()[0]!.querySelector(".cv-thought__preview")?.textContent?.includes("parses errors first"))
+          throw new Error("the first thought is not the row's line");
+        const time = ctx.document.querySelector("button.cv-thought .cv-thought__time")?.textContent;
+        if (time !== "12s") throw new Error(`the opened thoughts took ${time}, not 12s`);
       },
     },
     "thought-quiet": {
@@ -2057,7 +2140,7 @@ export default agentPaneEntry({
       },
     },
     "thought-codex-headings": {
-      note: 'Play: a Codex reasoning summary opened: "Thought for 12s", then each **Heading** as a muted title of its own over its text, never with its marks and never after "Thought".',
+      note: "Play: a Codex reasoning summary: its leading **Heading** is the row's line, in bold without its marks; opened, its text and each later heading as a muted title of its own unfold under it.",
       checks: {
         layoutShiftMax: {
           value: 0.01,
@@ -2074,7 +2157,10 @@ export default agentPaneEntry({
         await openEndedStretch(ctx);
         await ctx.click({ selector: "button.cv-thought" });
         const titles = () => [...ctx.document.querySelectorAll(".cv-thought__title")].map((node) => node.textContent);
-        await ctx.waitFor(() => titles().length === 2);
+        await ctx.waitFor(() => titles().length === 1);
+        const line = ctx.document.querySelector("button.cv-thought .cv-thought__preview.is-title")?.textContent;
+        if (line !== "Planning the retry fix") throw new Error(`the leading heading is not the row's line: ${line}`);
+        if (titles()[0] !== "Checking the callers") throw new Error(`the later heading reads ${titles()[0]}`);
         if (ctx.document.querySelector(".cv-thought__body")?.textContent?.includes("**"))
           throw new Error("a heading shows its ** marks");
       },
@@ -2086,7 +2172,7 @@ export default agentPaneEntry({
       }),
     },
     "long-thought-done": {
-      note: "A long thought followed by a step folds to its brain glyph and its words on one line; opened, it reads Thought for 12s.",
+      note: "A long thought followed by a step folds to its brain glyph and its leading heading; opened, the rest of its text unfolds under that line.",
       snapshot: chat(
         [
           user(prompt, 2),
@@ -2364,6 +2450,45 @@ export default agentPaneEntry({
         ],
         { isWorking: true },
       ),
+    },
+    "turn-end-tool-only": {
+      note: "A finished turn that only ran a command ends on its footer row at rest: Copy copies the command's line and its output (G04).",
+      snapshot: chat([
+        user("Run the sidebar tests", 6),
+        activity(
+          [
+            tool("bun test src/sidebar", "execute", "completed", {
+              command: "bun test src/sidebar",
+              output: "12 pass\n0 fail\n",
+              exitCode: 0,
+            }),
+          ],
+          5.9,
+        ),
+        summary(5.6, { status: "completed", durationMs: 24_000, toolCount: 1 }),
+      ]),
+    },
+    "turn-end-api-error": {
+      note: "A turn that ran a command and then ended in an API error: the error card, then its footer row with Copy and the failed mark (G04).",
+      snapshot: chat([
+        user("Run the sidebar tests", 6),
+        activity(
+          [
+            tool("bun test src/sidebar", "execute", "completed", {
+              command: "bun test src/sidebar",
+              output: "12 pass\n0 fail\n",
+              exitCode: 0,
+            }),
+          ],
+          5.9,
+        ),
+        summary(5.6, {
+          status: "failed",
+          durationMs: 41_000,
+          toolCount: 1,
+          error: "API Error: Request rejected (429) · This request would exceed your account's rate limit.",
+        }),
+      ]),
     },
     "dense-live-run": {
       note: "A running turn folds its finished calls into one counted summary line (Read a file, ran 7 commands) and names the running MCP call on the live line, never a growing stack of rows.",
@@ -2656,7 +2781,7 @@ export default agentPaneEntry({
     "codex-turn-raw-commands": {
       // Reads the clock on the live line (liveTurnClock.experiment.ts `line`); the shipped `top` puts it over the work.
       experiments: { "live-turn-clock": "line" },
-      note: "Leo's turn-toolcalls-now.png: commands that all start with export PATH=… and send no description. Each reads as its meaningful command (acpmux ls, gh pr view 22363); the two runs and the short note between them are one folded line; the call in flight is the one live line at the bottom (Running acpmux send 13s), shimmering, no dots, flush under the run over it as one more 22px line of it (#31497); ⌃B to run in background shows on hover. Play: hover the line.",
+      note: "Leo's turn-toolcalls-now.png: commands that all start with export PATH=… and send no description. Each reads as its meaningful command (acpmux ls, gh pr view 22363); the two runs and the short note between them are one folded line; the call in flight is the one live line at the bottom (Running acpmux send 13s), shimmering, no dots, under the run over it, its words in a 22px box at the top of the 32px slot it has under a reply, the footer gap (8) over it, so it holds still when a run or a reply lands (#31497, cmux#47098; transcriptGrid.ts LIVE_GAP_LOOKS); ⌃B to run in background shows on hover. Play: hover the line.",
       snapshot: chat(
         [
           user("What did the lanes decide? Relay it and answer.", 2),
@@ -2839,7 +2964,7 @@ export default agentPaneEntry({
       ),
     },
     "tool-result-envelopes": {
-      note: "Opened tool results read as their content, not the JSON a harness wrapped them in: one-line JSON pretty-printed, an MCP text list as Markdown, a result envelope and Codex's output as their text, a JSON file kept as printed.",
+      note: "Opened tool results read as their content, not the JSON a harness wrapped them in: one-line JSON pretty-printed, an MCP text list as Markdown, a result envelope and Codex's output as their text.",
       height: 1100,
       snapshot: chat(
         // The reply under the calls keeps every call a row: with nothing after it, the live line
@@ -3261,8 +3386,7 @@ export default agentPaneEntry({
         summary(5.5, { status: "completed" }),
         user("Why does the dashboard look like this on the staging build?", 1, {
           failed: true,
-          error:
-            "Not sent: this message is too large to send at once. Take out dashboard-recording.png with Edit, or send it in a message of its own.",
+          error: "Not sent: too large. Remove dashboard-recording.png with Edit, or send it separately.",
           delivery: {
             state: "failed",
             promptId: "p1",
@@ -3394,6 +3518,30 @@ export default agentPaneEntry({
       note: "A vega-lite fence in a reply draws as a chart (the markdown viewer's bundled Vega); Code shows the spec.",
       height: 520,
       snapshot: chat([user("Which build targets are slowest?", 3), assistant(BUILD_CHART, 2.9), summary(2.9)]),
+    },
+    "chart-fence-bar": {
+      note: "A ```chart fence (small JSON): two y fields draw as grouped bars, one color per field.",
+      height: 560,
+      snapshot: chat([user("Which build targets are slowest?", 3), assistant(CHART_FENCE.bar, 2.9), summary(2.9)]),
+    },
+    "chart-fence-line": {
+      note: "A ```chart fence in the labels-and-series shape: a line per series, labels in order.",
+      height: 560,
+      snapshot: chat([user("How did cold start move this week?", 3), assistant(CHART_FENCE.line, 2.9), summary(2.9)]),
+    },
+    "chart-fence-pie": {
+      note: "A ```chart pie: one slice per row, colored by category in the order given.",
+      height: 520,
+      snapshot: chat([user("Where do our CI minutes go?", 3), assistant(CHART_FENCE.pie, 2.9), summary(2.9)]),
+    },
+    "chart-fence-scatter": {
+      note: "A ```chart scatter: numeric x and y, axis titles from xTitle and yTitle.",
+      height: 560,
+      snapshot: chat([
+        user("Does memory grow with chat length?", 3),
+        assistant(CHART_FENCE.scatter, 2.9),
+        summary(2.9),
+      ]),
     },
     "long-code": {
       note: "Long code blocks: wide lines, many lines, two languages.",
@@ -3537,7 +3685,7 @@ export default agentPaneEntry({
       snapshot: chat(longChatRows),
       play: async (ctx) => {
         await ctx.scroll({ selector: ".acpmux-scroll" }, "top");
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]"));
+        await ctx.waitFor(() => ctx.document.querySelector(JUMP_LATEST_SHOWN));
       },
     },
     "jump-latest-working": {
@@ -3546,7 +3694,7 @@ export default agentPaneEntry({
       snapshot: chat(longChatRows, { isWorking: true }),
       play: async (ctx) => {
         await ctx.scroll({ selector: ".acpmux-scroll" }, "top");
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]"));
+        await ctx.waitFor(() => ctx.document.querySelector(JUMP_LATEST_SHOWN));
       },
     },
     selection: {
@@ -3678,7 +3826,7 @@ export default agentPaneEntry({
       note: "A command's output with Wrap lines off: each line stays whole, the right edge fades while more lies past it, and a thin sideways scrollbar shows under the lines at rest.",
       checks: shellDisclosureChecks,
       snapshot: chat(
-        shellRows("gallery-shell-unwrapped", "Print the retry log", "cat logs/retry.log", {
+        shellRows("gallery-shell-unwrapped", "Print the retry log", "./scripts/retry-log.sh", {
           output: SHELL_LONG_LOG,
           exitCode: 0,
         }),
@@ -3692,7 +3840,7 @@ export default agentPaneEntry({
       note: "The same output after Wrap lines: each long row folds back under its start, so a table's columns no longer line up. Output opens aligned instead (blockWrap.ts); this is what the toggle gives.",
       checks: shellDisclosureChecks,
       snapshot: chat(
-        shellRows("gallery-shell-wrapped", "Print the retry log", "cat logs/retry.log", {
+        shellRows("gallery-shell-wrapped", "Print the retry log", "./scripts/retry-log.sh", {
           output: SHELL_LONG_LOG,
           exitCode: 0,
         }),
@@ -3712,7 +3860,7 @@ export default agentPaneEntry({
       note: "A long command output with Wrap lines off: it scrolls in an eight-line box whose bottom fades, and below the lines the thin sideways scrollbar, shown at rest while the lines run past the right edge.",
       checks: shellDisclosureChecks,
       snapshot: chat(
-        shellRows("gallery-shell-unwrapped-cut", "Print the retry log", "cat logs/retry.log", {
+        shellRows("gallery-shell-unwrapped-cut", "Print the retry log", "./scripts/retry-log.sh", {
           output: SHELL_LONG_LOG_CUT,
           exitCode: 0,
         }),

@@ -6,9 +6,11 @@
 // DESKTOP-FEEL (R139): the shared desktop layer loads first.
 import "../shared/desktop";
 import { useSyncExternalStore } from "react";
+import "../shared/transientMaterial";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { createStrings, type Strings } from "../shared/i18n";
+import { renderLocalized } from "../shared/localizedRoot";
 import { CloudPage } from "./CloudPage";
 import table from "./generated/strings.json";
 import { MockCloudProvider } from "./mockProvider";
@@ -42,13 +44,15 @@ export function mountCloudPage(root: HTMLElement, client: PageClient | null = de
   // The page has no find or search field yet; it answers page commands as not handled so the
   // dispatcher can fall back. It never reads Cmd or Ctrl chords itself.
   client?.handle(PAGE_COMMAND, () => ({ handled: false }));
-  const strings = createStrings(table);
-  document.documentElement.lang = strings.language;
-  document.title = strings.t("page.title");
-  createRoot(root).render(
-    <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
-      <CloudOrBoard store={store} strings={strings} client={client} />
-    </UiProvider>,
+  renderLocalized(
+    createRoot(root),
+    table,
+    (strings) => (
+      <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
+        <CloudOrBoard store={store} strings={strings} client={client} />
+      </UiProvider>
+    ),
+    (strings) => strings.t("page.title"),
   );
   return store;
 }

@@ -1,5 +1,5 @@
 //! Attaching to a session and reading its log: `_acpmux/attach`,
-//! `_acpmux/events`, `_acpmux/detach`, `_acpmux/view`, `_acpmux/markUnread`,
+//! `_acpmux/events`, `_acpmux/detach`, `_acpmux/view`, `_acpmux/markUnread`, `_acpmux/markRead`,
 //! `_acpmux/watch` and the `_acpmux/event` notification.
 //!
 //! A session is named by `sessionId`; the daemon also takes `session` or a
@@ -128,8 +128,9 @@ pub struct EventsParams {
     /// Default 5000.
     pub limit: Option<u64>,
     pub max_bytes: Option<u64>,
-    /// Every prompt before `beforeSeq`, oldest first, each cut to its id and the start of its text,
-    /// in one reply (`Hub::prompt_index`): `kinds`, `limit` and `maxBytes` are not read.
+    /// The prompts before `beforeSeq`, newest page first and oldest first within a page, each cut
+    /// to its id and the start of its text (`Hub::prompt_index`). `limit` and `maxBytes` bound the
+    /// page; `hasMore` says an older page remains, whose `beforeSeq` is the first event's seq.
     pub prompt_index: Option<bool>,
     /// Only this subagent's own records: the updates acpmux tagged with it and those that start
     /// or change it (`EventFilter::of_subagent`). A subagent pane reads its subagent with it.

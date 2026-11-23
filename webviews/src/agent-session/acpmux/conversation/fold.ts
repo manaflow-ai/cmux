@@ -1,7 +1,7 @@
 // The transcript's collapsibles (tool groups, tool and command rows, MCP calls, a folded thought, a
 // settled run) open and close in one motion: the body's height and opacity, over the shared fold
 // duration on the settle curve (--cmux-ease-settle), while the chevron turns with it (conversation.css `.cv-rotor`). Reduce
-// Motion, the host's animation switches (`data-agent-motion="off"`, a 0 ms token) and a page with no
+// Motion, the host's animation switches (`data-agent-motion="off"`, `data-cmux-motion` off or reduced, a 0 ms token) and a page with no
 // Web Animations open and close at once. Away from the bottom, VirtualTranscript holds the clicked
 // line. At the very bottom the body's height plays here too, and VirtualTranscript moves the offset
 // with it on each frame of the fold, before paint, so the text above glides up (or down) as one stack
@@ -11,6 +11,7 @@
 import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { MOTION_MS, MOTION_SETTLE, MOTION_SETTLE_MS } from "../../../motion/scale.generated";
 import { isAgentMotionOff } from "../../shared/motion";
+import { exitLeadMs, exitThenClose } from "./exitLead";
 
 /// The fold's duration token. conversation.css sets it from the settle (`--cmux-motion-settle`, the
 /// one fold length every web fold shares, schemas/motion-scale), and the chevron reads the same token.
@@ -68,9 +69,11 @@ export const foldMotion = {
     typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true,
 };
 
-/// Whether a fold may move at all now (before its body is drawn).
+/// Whether a fold may move at all now (before its body is drawn): the pane's switch, Reduce Motion, and
+/// the app's motion gate (`data-cmux-motion` off or reduced, as ui/motion/motionMode.ts reads it).
 function motionAllowed(): boolean {
-  return !isAgentMotionOff() && !foldMotion.reducedMotion();
+  const gate = typeof document === "undefined" ? undefined : document.documentElement.dataset.cmuxMotion;
+  return !isAgentMotionOff() && gate !== "off" && gate !== "reduced" && !foldMotion.reducedMotion();
 }
 
 /// How long a fold on `node` plays, or 0 when it applies at once.
@@ -212,11 +215,18 @@ export function clipFold(node: HTMLElement, on: boolean): void {
 /// it) to the height it lays out at now: a cut card opening whole, or cut again. The fold's duration
 /// and easing, clipped while it plays; at once when the fold may not move. A resize that turns back
 /// midway starts from where it was drawn, as `from` is read while it plays.
-export function playResize(node: HTMLElement, from: number): void {
+///
+/// `to` and `done` are for a box that closes to a height it does not lay out at while it plays (a
+/// thought's line keeps its wrapped words until it is one line tall again, ThoughtRow.tsx): the
+/// height to end at, and what to do once the resize is over or dropped.
+export function playResize(node: HTMLElement, from: number, to?: number, done?: () => void): void {
   resizing.get(node)?.cancel();
   const ms = node.closest("[data-bottom-fold]") ? 0 : foldMs(node);
-  const to = node.getBoundingClientRect().height;
-  if (ms <= 0 || Math.abs(to - from) < 0.5) return;
+  to ??= node.getBoundingClientRect().height;
+  if (ms <= 0 || Math.abs(to - from) < 0.5) {
+    done?.();
+    return;
+  }
   // The rows below are placed before paint while it plays, as a fold's are (`heightFoldInFlight`).
   markHeightFold(node, ms);
   clipFold(node, true);
@@ -233,9 +243,27 @@ export function playResize(node: HTMLElement, from: number): void {
     if (resizing.get(node) !== animation) return;
     resizing.delete(node);
     clipFold(node, false);
+    done?.();
   };
   animation.onfinish = release;
   animation.oncancel = release;
+  restartAfterSlowFirstFrame(node, animation);
+}
+
+/// A resize's first gap that comes slow (the toggle's own render and layout: a permission card's full
+/// command, gallery `agent-pane.transcript` permission-expanded, cost a 64 ms first frame under load)
+/// restarts its clock, as a fold's does (`settleOnDroppedFrames`), so the first frame the reader sees
+/// moved is near the start rather than most of the way. Two frame callbacks, once per resize.
+function restartAfterSlowFirstFrame(node: HTMLElement, animation: Animation): void {
+  const view = node.ownerDocument.defaultView;
+  if (!view?.requestAnimationFrame) return;
+  view.requestAnimationFrame((first) =>
+    view.requestAnimationFrame((now) => {
+      if (resizing.get(node) !== animation) return;
+      const gap = now - first;
+      if (gap > FOLD_FRAME_MS * 1.5) restartClock(node, animation, gap - FOLD_FRAME_MS);
+    }),
+  );
 }
 
 /// Stops the resize `node` is playing, if any (`playResize`), leaving it at the height it lays out at.
@@ -390,7 +418,12 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
     if (open) extent.current = toHeight;
     else if (!turning) extent.current = fromHeight;
     // A fold that turns back midway retargets: it plays only the share of the travel left.
-    const ms = turning && foldLook(node) !== "stack" ? turnMs(full, fromHeight, toHeight, extent.current) : full;
+    const move = turning && foldLook(node) !== "stack" ? turnMs(full, fromHeight, toHeight, extent.current) : full;
+    // A close takes its text away before its height moves (exitLead.ts): the body fades out over a
+    // short lead while it holds its height, then shuts, so no text is drawn while the rows under it
+    // travel (Leo, 2026-11-21: "we must hide text faster and sooner"). An open plays no lead.
+    const lead = open ? 0 : exitLeadMs(move, fromOpacity, node);
+    const ms = lead + move;
     markHeightFold(node, ms);
     clipFold(node, true);
     // The box holds its start height under the motion: a new animation is pending until a frame
@@ -399,13 +432,21 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
     // "sometimes ... there's, like, some elements in between"). It lets go when the fold ends.
     node.style.height = `${fromHeight}px`;
     const animation = node.animate(
-      [
-        { height: `${fromHeight}px`, opacity: fromOpacity },
-        { height: `${toHeight}px`, opacity: open ? 1 : 0 },
-      ],
+      open
+        ? [
+            { height: `${fromHeight}px`, opacity: fromOpacity },
+            { height: `${toHeight}px`, opacity: 1 },
+          ]
+        : exitThenClose(
+            { height: fromHeight, opacity: fromOpacity },
+            { height: toHeight },
+            lead,
+            move,
+            foldMotion.easing(node),
+          ),
       // It holds its end until it lets go (`settled`), so the frame it ends on never draws the held
-      // start height.
-      { duration: ms, easing: foldMotion.easing(node), fill: "forwards" },
+      // start height. A close carries its curves on its keyframes (the exit's, then the fold's).
+      { duration: ms, easing: open ? foldMotion.easing(node) : "linear", fill: "forwards" },
     );
     running.current = animation;
     watchMotion(node, open);

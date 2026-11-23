@@ -45,11 +45,24 @@ USAGE
   cmux notification clear [--terminal <term_id> | --workspace <ws_id> |
     --notification <notification_id>]
   cmux notification ack --client <id> <notification_id>...
+  cmux notification banners
+  cmux notification open <banner-id>
 
 clear without a scope clears every notification of the session;
 --workspace clears that workspace's rows and those of its terminals;
 --notification clears that one row. `cmux
 notify` takes the flags of the macOS `cmux notify` (`cmux notify --help`).
+
+banners and open ask the cmux app, not the session. banners lists the macOS
+banners the app asked for, newest last, as JSON {banners: [{id, title,
+subtitle, body, reply, approval, category, ...}], authorization}, each with
+the app's number for the tab it opens; it moves no focus. open shows one
+banner's tab, as a click on it does, and moves the app's focus there, then
+answers {opened, ...} with that tab's number. An id banners does not list is
+not_found and opens nothing. Only a tab's banner opens, and a web page's
+banner runs none of the page's click handler: a passkey, pairing, attention
+or Run banner acts on the person's own click, so opening one is
+person_required.
 ";
 
 pub(super) const ATTENTION_HELP: &str = "\
@@ -195,6 +208,7 @@ USAGE
     [--patch] [--max-patch-bytes <n>]
     [--max-files <n>] [--context-lines <n>] [--after-path <path>]
     [--patch-offset <n> [--patch-revision <revision>]] [<path>...]
+  cmux git fingerprint [TARGET] [--scope uncommitted|unstaged|staged|branch]
   cmux git branches [TARGET] [--limit <n>]
   cmux git files [TARGET] [--limit <n>] <query>...
   cmux git list [TARGET] [--limit <n>]
@@ -216,9 +230,11 @@ USAGE
   cmux git worktree apply [TARGET]
   cmux git worktree remove [TARGET] [--discard]
   cmux git worktree setup [TARGET] [--since <offset>]
+  cmux git worktree setup run [TARGET] [--approve <fingerprint>]
   cmux git comments list [--root <path>]
   cmux git comments save [--root <path>] --comment <json-object>
   cmux git comments delete [--root <path>] <comment-id>... [--versions-json <json-object>]
+  cmux git comments send [--root <path>] <comment-id>... --acp-session <id> --text <prompt> --versions-json <json-object>
 
 TARGET
   --path <path>          A file or folder in the repository
@@ -251,6 +267,10 @@ With --patch and one file path, --patch-offset reads that file's whole patch
 in pages from a byte offset (start at 0); pass the first page's revision as
 --patch-revision to read the later pages. Paths are relative to the repository
 root and taken literally.
+
+fingerprint prints 64 hex digits that stay equal while the diff of --scope
+(uncommitted by default) stays equal. It makes no patch: it lists the changed
+and untracked files and hashes only those whose stat entry moved.
 
 branches lists local branches, then remote-tracking ones, newest commit first:
 each one's ref and commit, and for a local branch its upstream and how far it
@@ -304,7 +324,11 @@ The main checkout is never removed. Before it goes, the project's teardown runs.
 
 worktree setup shows the project's worktree recipe (.worktreeinclude,
 .cmux/worktree.toml and the saved one) and, in a worktree worktree create made,
-its setup: state, port and output (from byte --since).
+its setup: state, port and output (from byte --since). A setup or teardown
+command from the repository's own files waits (awaiting_approval) until you
+approve the recipe you read: worktree setup run --approve with its
+recipe.approval.fingerprint. worktree setup run also runs a failed, timed-out
+or interrupted setup again; it never starts one while one runs.
 
 comments are the diff page's review comments, kept by the session host for a
 worktree root (--root, the current directory by default; give the worktree's

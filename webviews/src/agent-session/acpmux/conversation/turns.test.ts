@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
 import { BACKGROUND_TURN } from "./backgroundTurns";
-import { THINKING, WORKED, WORKING, turnView, turnViewFrom } from "./turns";
+import { THINKING, WORKED, turnView, turnViewFrom } from "./turns";
 
 const user = (at: number): AcpmuxRow => ({ id: "user", version: 1, at, kind: "user", text: "resume" });
 
@@ -31,7 +31,7 @@ test("a completed turn has no live timer row", () => {
     new Set(),
     { now: 10_000, working: false, turnStartedAtMs: 1_000 },
   );
-  expect(shown.some((row) => row.kind === THINKING || row.kind === WORKING)).toBe(false);
+  expect(shown.some((row) => row.kind === THINKING || row.turnPhase === "running")).toBe(false);
 });
 
 test("a partial same-chat refresh keeps an assistant row while tool rows arrive", () => {
@@ -381,4 +381,34 @@ test("a running turn's run waiting on an edit's permission keeps its thought and
   const run = shown.find((row) => row.id === "act");
   expect(run?.items?.map((item) => item.kind)).toEqual(["thought", "tool"]);
   expect(run?.foldRun).toBe(false);
+});
+
+// Leo's long coordinator chat ran its renderer at 110% CPU: steers keep its turn running, so the
+// running turn holds thousands of rows, and it is shaped again on every record. Its unchanged rows
+// must come back as the same objects, or the layout, the height cache and every mounted row redo
+// the whole turn for each streamed token.
+test("a streamed token keeps the running turn's unchanged rows as the same objects", () => {
+  const folds = new Set<string>();
+  const options = { now: 110_000, working: true, turnStartedAtMs: 100_000 };
+  const rows: AcpmuxRow[] = [user(1_000)];
+  for (let step = 0; step < 40; step += 1) {
+    rows.push({ id: `reply-${step}`, version: 1, at: 2_000 + step * 10, kind: "assistant", text: `Step ${step}.` });
+    rows.push({
+      id: `tools-${step}`,
+      version: 1,
+      at: 2_005 + step * 10,
+      kind: "activity",
+      items: [{ kind: "tool", id: `call-${step}`, title: `check ${step}`, status: "completed" }],
+      toolCount: 1,
+    } as unknown as AcpmuxRow);
+  }
+  const previous = turnViewFrom(rows, folds, options);
+  const streamed = rows.slice();
+  const last = streamed.length - 2;
+  streamed[last] = { ...streamed[last]!, version: 2, text: `${streamed[last]!.text} more` };
+  const shown = turnViewFrom(streamed, folds, { ...options, now: 110_100 }, previous);
+  const before = new Map(previous.rows.map((row) => [row.id, row]));
+  const changed = shown.rows.filter((row) => before.get(row.id) !== row).map((row) => row.id);
+  // The reply the token went to, and what holds it, may change; nothing earlier does.
+  expect(changed.length).toBeLessThanOrEqual(3);
 });

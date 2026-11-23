@@ -84,6 +84,10 @@ parser.add_argument("--checks", default="all", choices=["all", "hosted"], help="
 parser.add_argument("--tunables", default="scratch", choices=["scratch", "build"],
                     help="build: set the tunable in the build's own debug-tunables.json (what the benches read)")
 opts = parser.parse_args()
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from bench_launch import require_no_person_mac  # noqa: E402
+from state_wait import wait_until, wait_stable  # noqa: E402
+require_no_person_mac("cef-layer-verify")  # it posts real input (CGEventPost): never on a person's Mac
 
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
@@ -200,7 +204,7 @@ KEYCODES = {"a": 0, "b": 11, "c": 8, "escape": 53}
 def post(event):
     CG.CGEventPost(0, event)  # kCGHIDEventTap
     CF.CFRelease(event)
-    time.sleep(0.02)  # test harness: the WindowServer delivers in order
+    time.sleep(0.02)  # sleep-ok: input pacing between posted HID events (the event tap gives no delivery ack)
 
 
 DEBUG_MOUSE = {5: "move", 1: "down", 2: "up", 6: "drag", 3: "down", 4: "up"}
@@ -301,7 +305,7 @@ def hid_click(point, right=False):
 def hid_key(name):
     if opts.input == "cua":
         cua("press_key", {"scope": "desktop", "key": name})  # the frontmost app: the click before activated it
-        time.sleep(0.02)  # test harness: keys in order
+        time.sleep(0.02)  # sleep-ok: input pacing between keys (press_key gives no delivery ack)
         return
     if opts.input == "debug":
         rpc("debug.key", {"key": name})
@@ -488,6 +492,16 @@ def bars_ok(red, blue):
     return bool(red) and bool(blue) and max(red) < min(blue)
 
 
+def new_menu_windows(pid, before):
+    """The app's on-screen windows above layer 0 that were not there before (a popup or context menu)."""
+    return [w for w in app_windows(pid) if w["layer"] > 0 and w["window"] not in before]
+
+
+def all_pages_hidden():
+    pages = (rpc("debug.cef_pages") or {}).get("pages")
+    return bool(pages) and all(p.get("hidden") for p in pages)
+
+
 def check_show_again():
     """show.again: hide the page (a new workspace) and show it again; its last frame must show at once."""
     probe_ws = ((rpc("snapshot.get") or {}).get("topology") or {}).get("focus", {}).get("workspace")
@@ -495,7 +509,9 @@ def check_show_again():
     if not wait(lambda: page_rect() is None, 5, 0.05):
         row("show.again", False, {"note": "the page still shows after workspace.newAtBottom", "reply": json.dumps(created)[:200]})
         return
-    time.sleep(0.5)  # test harness: the hidden page window's deferred hide and Widget::Hide run
+    # The hidden page window's deferred hide and Widget::Hide ran: the app reports every Chromium page hidden.
+    if not wait_until(all_pages_hidden, "the probe page reported hidden", timeout=5, raise_on_timeout=False):
+        FACTS["show_again_hidden_unconfirmed"] = (rpc("debug.cef_pages") or {}).get("pages")
     # Back to the probe's own workspace (openBrowser.chromium may open the probe in a workspace of its own, so
     # selectFirst showed the launch's terminal workspace and every later row read no page).
     back = action("goToWorkspace", {"workspace": probe_ws}) if probe_ws else action("workspace.selectFirst")
@@ -628,8 +644,9 @@ def check_select(pid):
         return
     before = {w["window"] for w in app_windows(pid) if w["layer"] > 0}
     hid_click(point)
-    time.sleep(1)  # test harness: the popup opens (its tracking holds the app's main thread: no socket call until it closes)
-    menus = [w for w in app_windows(pid) if w["layer"] > 0 and w["window"] not in before]
+    # The popup's window is on screen (CGWindowList, not the socket: its tracking holds the app's main thread).
+    menus = wait_until(lambda: new_menu_windows(pid, before), "the select popup window", timeout=5,
+                       raise_on_timeout=False) or []
     detail = None
     if menus and opts.input == "cua":
         main = CG.CGDisplayBounds(CG.CGMainDisplayID())
@@ -646,7 +663,9 @@ def check_select(pid):
     b, pad = menus[0]["bounds"], 6
     item = (b["height"] - 2 * pad) / 3
     hid_click((b["x"] + b["width"] / 2, b["y"] + b["height"] - pad - item / 2))
-    time.sleep(0.5)  # test harness: the menu closes
+    # The menu's window left the screen (else it is closed with escape below).
+    wait_until(lambda: not any(w["window"] == menus[0]["window"] for w in app_windows(pid)), "the select popup to close",
+               timeout=3, raise_on_timeout=False)
     still = [w for w in app_windows(pid) if w["window"] == menus[0]["window"]]
     if still:
         hid_key("escape")
@@ -673,8 +692,14 @@ def check_popup():
         return
     ok, now = hosted_grew(before)
     row("popup.hosted", ok, {"hosted_pages_before": before, "hosted_pages": now, "engine": panel.get("engine")})
-    time.sleep(1.5)  # test harness: the popup's first frames
     snapshots = os.path.join(opts.out, f"verify-{opts.mode}-popup")
+
+    def popup_drawn():
+        # The popup's first frames: its own window image shows the page's bars.
+        got = next((p for p in (rpc("debug.popups", {"snapshot_dir": snapshots}) or {}).get("panels") or []
+                    if str(p.get("url") or "").endswith("popup.html")), None)
+        return bool(got and got.get("snapshot")) and bars_ok(*snapshot_bars(got["snapshot"]))
+    wait_until(popup_drawn, "the popup's first frames", timeout=10, interval=0.25, raise_on_timeout=False)
     panel = next((p for p in (rpc("debug.popups", {"snapshot_dir": snapshots}) or {}).get("panels") or []
                   if str(p.get("url") or "").endswith("popup.html")), panel)
     seen = {}
@@ -718,7 +743,12 @@ def check_devtools():
         return
     ok, now = hosted_grew(before)
     row("devtools.hosted", ok, {"hosted_pages_before": before, "hosted_pages": now, "dock": entry.get("dock")})
-    time.sleep(2.5)  # test harness: the DevTools front end loads and draws
+    # The DevTools front end loaded and drew: its rect on the display holds more than a flat fill.
+    def drawn():
+        now = devtools_entry() or entry
+        shot = screen_image(appkit_rect(now["devtools_frame"]), "devtools-screen")
+        return shot and image_detail(shot) > 8
+    wait_until(drawn, "the DevTools front end to draw", timeout=15, interval=0.25, raise_on_timeout=False)
     entry = devtools_entry() or entry
     image = screen_image(appkit_rect(entry["devtools_frame"]), "devtools-screen")
     detail = image_detail(image) if image else 0
@@ -786,7 +816,9 @@ def main():
         if not wait(up, 120):
             row("launch", False, "the app did not come up")
             return
-        time.sleep(4)  # test harness: launch work settles
+        # Launch work settled: the app's window list reads the same several times in a row.
+        wait_stable(lambda: rpc("debug.windows"), "the launched app's windows", timeout=20, interval=0.1, reads=5,
+                    raise_on_timeout=False)
         if opts.tunables == "build":
             # The benches launch with no override: they read this file. Set the value live for this launch too.
             state = rpc("debug.tunables", {"action": "set", "key": KEY, "value": opts.mode == "on"}) or {}
@@ -815,7 +847,9 @@ def main():
         check_show_again()
         if opts.checks == "hosted":
             return
-        time.sleep(1.5)  # test harness: first frames settle
+        # First frames settled: the page's layers and its rect on screen hold still.
+        wait_stable(lambda: rpc("debug.layers"), "the page's layers", timeout=10, interval=0.1, reads=5,
+                    raise_on_timeout=False)
 
         # Two images: the app's own composited window (no page images painted in, `webviews: false`; without
         # Screen Recording the window server may leave out the GPU process's layers) and screencapture of the
@@ -842,7 +876,9 @@ def main():
             row("click", False, "no page rect in debug.layers")
             return
         hid_click(point)  # the first click may only activate the app
-        time.sleep(0.3)  # test harness: activation settles
+        if not wait_until(lambda: (rpc("debug.focus") or {}).get("app_active"), "the app to activate", timeout=5,
+                          raise_on_timeout=False):
+            FACTS["click_app_not_active"] = True
         page("window.__clicks = 0")
         hid_click(point)
         clicks = wait(lambda: page("window.__clicks || 0"), 3)
@@ -850,7 +886,8 @@ def main():
                                    "note": None if clicks else "no click reached the page (or this process may not post events)"})
 
         hid_click(screen_point(0.7, 0.5))
-        time.sleep(0.3)  # test harness: focus lands in the input
+        wait_until(lambda: page("document.activeElement && document.activeElement.id") == "t", "focus in the input",
+                   timeout=5, raise_on_timeout=False)
         for key in "abc":
             hid_key(key)
         value = wait(lambda: page("document.getElementById('t').value"), 3)
@@ -882,10 +919,14 @@ def main():
         row("drag", "mousedown" in events and "mousemove" in events and "mouseup" in events, {"events": events[:120]})
 
         page("window.__events = []")
+        menu_before = {w["window"] for w in app_windows(app.pid) if w["layer"] > 0}
         hid_click(dp, right=True)
         if opts.input != "debug":
             # An open context menu's tracking holds the app's main thread, so the socket answers only once it closes.
-            time.sleep(1)  # test harness: the menu opens
+            # The menu's window is on screen (CGWindowList: the socket is held while it tracks).
+            if not wait_until(lambda: new_menu_windows(app.pid, menu_before), "the context menu window", timeout=5,
+                              raise_on_timeout=False):
+                FACTS["context_menu_window_unseen"] = True
             hid_key("escape")
         events = wait(lambda: page("window.__events.join(',')"), 3) or ""
         row("context", "contextmenu" in events, {"events": events[:120]})
@@ -899,7 +940,9 @@ def main():
         # The page gets shorter: its red bar must stay at the top edge while Chromium catches up and after.
         action("splitDown")
         moving = capture_bars("resize-moving")
-        time.sleep(1.2)  # test harness: the split's spring lands
+        # The split's spring landed: the page's rect on screen holds still.
+        wait_stable(page_rect, "the page rect after the split", timeout=10, interval=0.05, reads=5,
+                    raise_on_timeout=False)
         settled = capture_bars("resize-settled")
 
         def at_top(bars):

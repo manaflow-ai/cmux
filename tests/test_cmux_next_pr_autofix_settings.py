@@ -85,7 +85,10 @@ class SettingsExportsRegenerateOnPullRequests(unittest.TestCase):
         self.assertIn("needs.action-exports.outputs.exports == 'true'", download["if"])
         env = step(PR, "repair", "Repair")["env"]
         self.assertIn("needs.action-areas.outputs.settings", env["SETTINGS"])
-        self.assertEqual(env["SETTINGS_VERIFIED"], "${{ needs.action-exports.outputs.settings-verified }}")
+        # A pack from the same merge commit's cmux-next generated-files job counts as verified exports too
+        # (tests/test_base_autofix_pushed_exports.py PrAutofixTakesTheGeneratedFilesPack).
+        self.assertEqual(env["SETTINGS_VERIFIED"], "${{ needs.generated-exports.outputs.hit == 'true' && 'true' || "
+                                                   "needs.action-exports.outputs.settings-verified }}")
 
 
 class ExportGuardBehavior(unittest.TestCase):
@@ -317,6 +320,9 @@ class FleetBundleHandsBackEveryExport(unittest.TestCase):
             (repo / rel).parent.mkdir(parents=True, exist_ok=True)
             (repo / rel).write_text("old\n")
         bin_dir.mkdir()
+        # This fixture supplies a fake Swift compiler, not a Mac toolchain.
+        (bin_dir / "uname").write_text("#!/bin/sh\necho Linux\n")
+        (bin_dir / "uname").chmod(0o755)
         # swift test writes the exports from the package directory, as the export tests do.
         (bin_dir / "swift").write_text(
             "#!/usr/bin/env bash\n"

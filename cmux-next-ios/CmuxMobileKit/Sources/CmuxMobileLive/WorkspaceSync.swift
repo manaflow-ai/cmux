@@ -13,8 +13,17 @@ private let log = Logger(subsystem: "dev.cmux.mobile", category: "daemon")
 @MainActor
 @Observable
 public final class WorkspaceSync {
-    public private(set) var tree: DaemonTree?
+    public private(set) var tree: DaemonTree? {
+        didSet { tabsBySurface = nil }
+    }
     public private(set) var identity: String?
+    /// What the phone shows of this Mac (the tree, its activity times, its
+    /// order and pins) is the last link's: unbound, or bound again and its
+    /// first answer not in yet. Kept on screen meanwhile, never cleared, and
+    /// replaced by the new link's values as they arrive (Leo, 2026-11-22:
+    /// "shit shouldnt somehow instantly dissipate after i navigate away for
+    /// like one second").
+    public private(set) var isStale = false
     public private(set) var lastError: String? {
         didSet { if lastError != oldValue { onErrorChanged?() } }
     }
@@ -26,6 +35,12 @@ public final class WorkspaceSync {
     @ObservationIgnored public var onRows: (@MainActor (DaemonTree, Set<String>, Bool) -> Void)?
     /// A notification was posted on the Mac (terminal agents, `cmux notify`).
     @ObservationIgnored public var onNotification: (@MainActor (NotificationPost) -> Void)?
+    /// A terminal tab drew output on the Mac (`surface-output`), or (nil) any
+    /// may have: the event stream started again, so output in between was not
+    /// heard. Grid cards read the Mac's screen only after this.
+    @ObservationIgnored public var onTerminalOutput: (@MainActor (String?) -> Void)?
+    /// The tabs of each surface in `tree`, built on the first output after it changes.
+    @ObservationIgnored private var tabsBySurface: [Int: [String]]?
     @ObservationIgnored private var client: DaemonClient?
     @ObservationIgnored private var eventTask: Task<Void, Never>?
     @ObservationIgnored private var setupTask: Task<[Result<DaemonClient.ReceivedLine, any Error>], Never>?
@@ -47,6 +62,10 @@ public final class WorkspaceSync {
     @ObservationIgnored private var pendingChanged = false
     @ObservationIgnored private var initializing = false
     @ObservationIgnored private var dirty = false
+    /// The daemon takes `known` on `list-workspaces` (`list-workspaces-known-v1` in its
+    /// `identify`): a list then answers `unchanged` when the held tree is current. An older
+    /// daemon (and the Mac lane in front of it, which refuses a field it does not know) never gets it.
+    @ObservationIgnored private var listsKnown = false
     @ObservationIgnored private var agents = AgentStates()
     /// When each surface's agent last started a turn the person prompted (Jump to Last
     /// Prompt), kept across reconnects as the Mac's `AgentRoster.lastPromptBySurface` is.
@@ -90,8 +109,10 @@ public final class WorkspaceSync {
         client = nil
         connectionSerial += 1
         let serial = connectionSerial
-        activity = [:]
+        // The activity times stay with the rows they date until the next
+        // link's list replaces them: only the title repeats are per link.
         titles = [:]
+        if tree != nil { isStale = true }
         if channel == nil {
             lastError = nil
             identity = nil
@@ -159,11 +180,18 @@ public final class WorkspaceSync {
         initializing = true
         projection = WorkspaceProjection()
         let projection = projection
-        activity = [:]
+        // The same Mac again (a redial): its activity times, order and pins
+        // stay, marked stale (`isStale`, `arrangementStale`), for the first
+        // list to keep and the next reads to replace. Another Mac's never do.
+        if macID != self.macID {
+            activity = [:]
+            arrangement = nil
+        }
+        if tree != nil { isStale = true }
         titles = [:]
         agents.bySurface = [:]
-        arrangement = nil
         arrangementStale = true
+        listsKnown = false
         self.macID = macID
         let client = prepared.client
         self.client = client
@@ -211,6 +239,7 @@ public final class WorkspaceSync {
                 return
             }
             identity = setup.identity
+            listsKnown = setup.listsKnown
             // A reconnect's list counts a prompt only by its own time (a turn already running
             // when the link came back is not a new prompt at the moment it is seen).
             for (surface, state) in setup.agents.bySurface where state.updatedAt != nil {
@@ -230,9 +259,11 @@ public final class WorkspaceSync {
             // reply arrival is not a watermark for the captured snapshot.
             discardBeforeSnapshot()
             tree = next
+            isStale = false
             lastError = nil
             initializing = false
             onTree?(next)
+            onTerminalOutput?(nil)
             drain()
             // The Mac's own order and pins follow in one more round trip.
             Task {
@@ -304,6 +335,10 @@ public final class WorkspaceSync {
 
     private func enqueue(_ event: DaemonEvent, sequence: UInt64?) {
         guard event != .other else { return }
+        if case .surfaceOutput(let surface) = event {
+            terminalOutput(surface)
+            return
+        }
         let entry = QueuedEvent(event: event, sequence: sequence)
         // An event the latest snapshot covers is dropped before it counts for anything: a stale
         // title recorded as the surface's last one hid the next real event with the same text.
@@ -331,6 +366,16 @@ public final class WorkspaceSync {
             queued.append(entry)
         }
         drain()
+    }
+
+    private func terminalOutput(_ surface: Int) {
+        guard let onTerminalOutput, let tree else { return }
+        if tabsBySurface == nil {
+            var map: [Int: [String]] = [:]
+            for (tab, surface) in tree.surfaces { map[surface, default: []].append(tab) }
+            tabsBySurface = map
+        }
+        for tab in tabsBySurface?[surface] ?? [] { onTerminalOutput(tab) }
     }
 
     private func isBeforeSnapshot(_ entry: QueuedEvent) -> Bool {
@@ -385,6 +430,7 @@ public final class WorkspaceSync {
                         case .resubscribe:
                             arrangementStale = true
                             _ = try await client.request("subscribe", params: ["tree_events": "deltas"])
+                            onTerminalOutput?(nil)
                         default:
                             break
                         }
@@ -431,7 +477,7 @@ public final class WorkspaceSync {
         }
     }
 
-    private nonisolated static func decodeSetup(_ replies: [Result<Data, any Error>]) throws -> (identity: String?, agents: AgentStates) {
+    private nonisolated static func decodeSetup(_ replies: [Result<Data, any Error>]) throws -> (identity: String?, agents: AgentStates, listsKnown: Bool) {
         _ = try check(replies[0].get())
         let identify = try check(replies[1].get())["data"] as? [String: Any]
         _ = try check(replies[2].get())
@@ -442,7 +488,8 @@ public final class WorkspaceSync {
             }
         }
         let identity = identify.map { "\($0["app"] as? String ?? "cmux-tui") \($0["version"] as? String ?? "") protocol \($0["protocol"] as? Int ?? 0)" }
-        return (identity, agents)
+        let capabilities = identify?["capabilities"] as? [String] ?? []
+        return (identity, agents, capabilities.contains(Self.knownCapability))
     }
 
     public func refresh() async {
@@ -476,8 +523,27 @@ public final class WorkspaceSync {
                     }
                     await loadArrangementIfStale(client)
                     let coveredThrough = await client.receivedPosition
-                    let reply = try await client.requestOrdered("list-workspaces")
+                    // What the phone holds goes back as `known` ({} before a whole list gave
+                    // a revision), so a current tree costs the daemon's ~300-byte `unchanged`
+                    // answer instead of the whole tree (1.7 MB at 1,000 workspaces).
+                    let held = listsKnown ? await projection.known : nil
+                    let sendsKnown = listsKnown
+                    let params = Self.listParams(known: held, sendsKnown: sendsKnown)
+                    let reply = try await client.requestOrdered("list-workspaces", params: params)
                     guard self.client === client, !Task.isCancelled else { return }
+                    if sendsKnown, Self.isUnchanged(reply.data) {
+                        let next = await projection.rearrange(arrangement)
+                        guard self.client === client, !Task.isCancelled else { return }
+                        snapshotSequence = coveredThrough
+                        if reloadArrangement { arrangementSequence = arrangementCoveredThrough }
+                        discardBeforeSnapshot()
+                        lastError = nil
+                        if let next {
+                            tree = next
+                            onTree?(next)
+                        }
+                        continue
+                    }
                     let next = try await projection.reset(snapshot: reply.data, macID: macID,
                                                           previous: tree?.workspaces ?? [], agents: agents,
                                                           activity: activity, arrangement: arrangement)
@@ -548,6 +614,29 @@ public final class WorkspaceSync {
             throw DaemonReplyError(message: error?["message"] as? String ?? "request failed", code: error?["code"] as? String)
         }
         return object
+    }
+
+    /// The daemon's capability for `known` on `list-workspaces`.
+    nonisolated static let knownCapability = "list-workspaces-known-v1"
+
+    /// `list-workspaces`' params: the held tree as `known` (`{}` before a revision) when the
+    /// daemon takes it, else none. Built off the main actor so the dictionary starts in its own
+    /// region and can be sent to the client.
+    nonisolated static func listParams(known held: WorkspaceProjection.KnownTree?, sendsKnown: Bool) -> [String: Any] {
+        guard sendsKnown else { return [:] }
+        var known: [String: Any] = [:]
+        if let held { known = held.params }
+        return ["known": known]
+    }
+
+    /// Whether `reply` is the daemon's `{"unchanged": true}` answer to a `known` (the held
+    /// tree is current). Only a short line can be one, so a whole tree is not parsed twice.
+    nonisolated static func isUnchanged(_ reply: Data) -> Bool {
+        guard reply.count < 4096,
+              let object = try? JSONSerialization.jsonObject(with: reply) as? [String: Any],
+              object["ok"] as? Bool != false else { return false }
+        let data = object["data"] as? [String: Any] ?? object
+        return data["unchanged"] as? Bool == true
     }
 
     /// Throws a daemon error line; returns the parsed reply object.

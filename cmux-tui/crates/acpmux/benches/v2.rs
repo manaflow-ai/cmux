@@ -9,6 +9,7 @@ mod home;
 
 fn main() {
     let mut measures = Vec::new();
+    let mut measures_requested = false;
     let mut output = None;
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     let mut index = 0;
@@ -21,6 +22,7 @@ fn main() {
                 }
             }
             "--measures" => {
+                measures_requested = true;
                 index += 1;
                 while index < args.len() && !args[index].to_string_lossy().starts_with("--") {
                     measures.push(std::path::PathBuf::from(&args[index]));
@@ -43,7 +45,9 @@ fn main() {
         }
         index += 1;
     }
-    if let Err(error) = home::print_report(&measures, output.as_deref()) {
+    if let Err(error) =
+        home::print_report_with_mode(&measures, output.as_deref(), measures_requested)
+    {
         eprintln!("v2 bench: {error}");
         std::process::exit(2);
     }

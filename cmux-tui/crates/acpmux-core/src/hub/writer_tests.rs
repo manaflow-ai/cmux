@@ -1,5 +1,8 @@
 use super::*;
 use acpmux_book::index::SortedSnapshot;
+use std::fs;
+#[cfg(target_os = "linux")]
+use std::path::Path;
 
 fn closed(id: &str) -> Summary {
     let mut row = Summary::new(id);
@@ -96,7 +99,7 @@ async fn close_drains_more_than_one_batch_of_recovered_writes() {
 fn unwritten_changes_never_escape_before_a_same_boot_restart() {
     const CHILD: &str = "V2_APPEND_FAILURE_FIXTURE";
     if let Some(directory) = std::env::var_os(CHILD) {
-        let directory = std::path::Path::new(&directory);
+        let directory = Path::new(&directory);
         let (hub, mut writer) = Hub::open(directory, 101, || 7).unwrap();
         let sub = hub.subscribe(&Sub::new("durable", "list")).unwrap();
         let window: Window<Summary> = sub.window.decode_json().unwrap();
@@ -143,9 +146,19 @@ fn unwritten_changes_never_escape_before_a_same_boot_restart() {
             "--nocapture",
         ])
         .env(CHILD, dir.path())
-        .status()
+        // Pipes, not the suite's own stdout: under `ulimit -f 0` a write to an inherited log
+        // file fails (EFBIG), so the child's first line panicked it (exit 101) in CI.
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
         .unwrap();
-    assert!(status.success(), "append failure child: {status}");
+    assert!(
+        status.status.success(),
+        "append failure child: {}\n{}{}",
+        status.status,
+        String::from_utf8_lossy(&status.stdout),
+        String::from_utf8_lossy(&status.stderr)
+    );
 }
 
 #[test]
@@ -156,16 +169,23 @@ fn an_unreadable_cold_comparison_does_not_defer_its_replacement() {
     let (hub, mut writer) = Hub::open(dir.path(), 101, || 7).unwrap();
     let sub = hub.subscribe(&Sub::new("repair", "list")).unwrap();
     // Preserve the header and extent, but invalidate the row checksum.
-    let mut bytes = std::fs::read(&path).unwrap();
+    let mut bytes = fs::read(&path).unwrap();
     let at = bytes.windows(b"damaged".len()).position(|part| part == b"damaged").unwrap();
     *bytes.get_mut(at).unwrap() ^= 1;
-    std::fs::write(&path, bytes).unwrap();
+    fs::write(&path, bytes).unwrap();
     let before = writer.log_errors();
     let mut replacement = closed("damaged");
     replacement.title = "restored from the owning chat".into();
     writer.apply(replacement).unwrap();
     writer.sync_batch().unwrap();
-    assert!(writer.log_errors() > before);
+    assert_eq!(writer.log_errors(), before);
+    assert_eq!(hub.damaged_snapshot_frames(), 0, "a comparison does not count damage");
+    writer.start_hydration();
+    while writer.hydration.is_some() {
+        writer.process_batch();
+    }
+    assert_eq!(hub.damaged_snapshot_frames(), 1);
+    assert_eq!(writer.log_errors(), before);
     assert!(writer.retry_log.is_empty());
     assert_eq!(hub.snapshot().seq(), 2);
     assert_eq!(hub.snapshot().get("damaged").unwrap().title, "restored from the owning chat");

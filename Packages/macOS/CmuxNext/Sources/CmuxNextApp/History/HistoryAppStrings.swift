@@ -3,7 +3,7 @@ import Foundation
 /// App strings for history (table History.xcstrings).
 enum HistoryAppStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "History", bundle: .module)
+        String(localized: key, defaultValue: value, table: "History", bundle: .module.inAppLanguage)
     }
 
     static var nothingBack: String { t("history.refusal.nothingBack", "No earlier location to go back to") }
@@ -26,10 +26,6 @@ enum HistoryAppStrings {
         String(format: t("history.commands.deleteBody",
                          "Recording is off. Each connected machine keeps the commands it already recorded until they are %lld days old."),
                days)
-    }
-
-    static func undoClosesPanes(_ count: Int) -> String {
-        String(format: t("history.refusal.undoClosesPanes", "Undo closes %lld pane(s). Run Undo Layout Change again to confirm."), count)
     }
 
     static func screenTitle(_ number: Int) -> String {

@@ -35,27 +35,39 @@
     clippy::unwrap_used,
     reason = "progenitor's Client::new unwraps a reqwest build with fixed timeouts; this crate's callers use client_for, which returns that error"
 )]
+#[cfg(feature = "http")]
 mod generated {
     include!(concat!(env!("OUT_DIR"), "/generated.rs"));
 }
 
+#[cfg(feature = "http")]
 pub mod backend;
+#[cfg(feature = "http")]
+pub mod connect_retry;
 mod error;
+pub mod lifecycle;
 pub mod machine;
+#[cfg(feature = "http")]
 pub mod ops;
+#[cfg(feature = "http")]
+pub mod transcript;
 
 pub use error::ApiError;
+#[cfg(feature = "http")]
 pub use generated::*;
 
 /// The header that names the team a person's session acts for. Install and
 /// `cmm_` machine credentials already belong to one team.
 pub const TEAM_HEADER: &str = "x-cmux-team";
 
+#[cfg(feature = "http")]
 const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+#[cfg(feature = "http")]
 const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
 /// Why a client could not be built.
 #[derive(Debug)]
+#[cfg(feature = "http")]
 pub enum BuildError {
     /// The bearer contains bytes that are not allowed in an HTTP header.
     InvalidBearer,
@@ -65,8 +77,12 @@ pub enum BuildError {
     InvalidBaseUrl(String),
     /// The HTTP client could not be constructed.
     Http(reqwest::Error),
+    /// This process is a dev build without a usable build space
+    /// (`cmux_build_space`): it calls no cloud rather than nightly's.
+    BuildSpace(cmux_build_space::Unusable),
 }
 
+#[cfg(feature = "http")]
 impl std::fmt::Display for BuildError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -76,10 +92,12 @@ impl std::fmt::Display for BuildError {
                 write!(f, "the base URL {url:?} is not an absolute http or https URL")
             }
             Self::Http(e) => write!(f, "could not build the HTTP client: {e}"),
+            Self::BuildSpace(e) => std::fmt::Display::fmt(e, f),
         }
     }
 }
 
+#[cfg(feature = "http")]
 impl std::error::Error for BuildError {}
 
 /// Callers bring their own rustls provider (the cmux CLI and acpmux install
@@ -87,9 +105,11 @@ impl std::error::Error for BuildError {}
 ///
 /// A client for `base_url` that sends `Authorization: Bearer <bearer>`
 /// (marked sensitive, so it never shows in debug output) and, with `team`,
-/// [`TEAM_HEADER`] on every request. Pass `None` for the generated methods'
+/// [`TEAM_HEADER`] on every request, plus this process's build space
+/// (`x-cmux-build-space`, [`cmux_build_space::process`]) for a dev build. Pass `None` for the generated methods'
 /// own team arguments; this client already sends it. Redirects are never
 /// followed, so the bearer cannot be forwarded to another origin.
+#[cfg(feature = "http")]
 pub fn client(
     base_url: &str,
     bearer: &str,
@@ -101,12 +121,14 @@ pub fn client(
 
 /// A client with no credential, for the routes that take none (health,
 /// client config, join-token redeem, the install challenge).
+#[cfg(feature = "http")]
 pub fn anonymous_client(base_url: &str, user_agent: &str) -> Result<Client, BuildError> {
     client_for(base_url, None, None, user_agent, REQUEST_TIMEOUT)
 }
 
 /// [`client`] or [`anonymous_client`] with a deadline of its own for each
 /// request (acpmux's join answers in 10 s or reports the hub down).
+#[cfg(feature = "http")]
 pub fn client_for(
     base_url: &str,
     bearer: Option<&str>,
@@ -119,7 +141,10 @@ pub fn client_for(
 }
 
 /// The `reqwest::Client` [`client`] wraps, for [`ops`] and for the routes
-/// cmux-platform does not describe yet (cmux-platform#825).
+/// cmux-platform does not describe yet (cmux-platform#825). Every client of
+/// this crate is made here, so each one carries the process's build space;
+/// a process that may not call the cloud gets [`BuildError::BuildSpace`].
+#[cfg(feature = "http")]
 pub fn http(
     base_url: &str,
     bearer: Option<&str>,
@@ -132,7 +157,7 @@ pub fn http(
         Ok(url) if matches!(url.scheme(), "http" | "https") && url.has_host() => {}
         _ => return Err(BuildError::InvalidBaseUrl(base_url.to_owned())),
     }
-    let mut headers = reqwest::header::HeaderMap::new();
+    let mut headers = cmux_build_space::headers().map_err(BuildError::BuildSpace)?;
     if let Some(bearer) = bearer {
         let mut auth = reqwest::header::HeaderValue::try_from(format!("Bearer {bearer}"))
             .map_err(|_| BuildError::InvalidBearer)?;
@@ -157,6 +182,7 @@ pub fn http(
 
 /// A fresh idempotency key (`ck_` and 32 hex digits from the OS's random
 /// source). Make one per intent and send the same one on every retry of it.
+#[cfg(feature = "http")]
 pub fn client_key() -> String {
     let mut bytes = [0u8; 16];
     if getrandom::fill(&mut bytes).is_err() {
@@ -173,6 +199,7 @@ pub fn client_key() -> String {
 /// The key bytes when the OS random source fails (it does not on the
 /// platforms cmux runs on): the clock, the process id and a per-process
 /// counter, so two keys of one process never repeat, even in one clock tick.
+#[cfg(feature = "http")]
 fn fallback_key_bytes() -> [u8; 16] {
     use std::sync::atomic::{AtomicU32, Ordering};
     static NEXT: AtomicU32 = AtomicU32::new(0);
@@ -192,12 +219,12 @@ fn fallback_key_bytes() -> [u8; 16] {
 }
 
 /// Installs ring as the process's rustls provider, for tests.
-#[cfg(test)]
+#[cfg(all(test, feature = "http"))]
 pub(crate) fn test_tls() {
     let _ = rustls::crypto::ring::default_provider().install_default();
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "http"))]
 mod tests {
     use super::*;
 

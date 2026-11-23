@@ -220,7 +220,13 @@ impl Hub {
         }
         // The remote floor: a Web turn does not go on in a mode that does
         // not ask, whatever the mode was before (`remote_floor.rs`).
-        if !asks && session.turn().is_some_and(|t| t.control == Control::Web) {
+        // The owner's phone with Full access drives the chat in the mode it has, so a report of
+        // that mode (Claude's per-turn `system/init` options) does not end its turn: the floor
+        // decides (`remote_floor_breach`).
+        if !asks
+            && session.turn().is_some_and(|t| t.control == Control::Web)
+            && self.remote_floor_breach(session).is_some()
+        {
             self.remote_floor_cancel(session, "remote.mode_not_asking");
         }
     }
@@ -238,14 +244,17 @@ impl Hub {
     /// Whether `control` may control `session` now: for the Web, only
     /// while the sticky flag is clear, the current mode asks (or there is
     /// none), and the permission policy and rules ask. The one check, used
-    /// by the guard and again at dispatch.
+    /// by the guard and again at dispatch. `device`: the paired device that
+    /// sent the request (`server/remote_guard.rs` `sending_device`), which D13
+    /// reads (`local_claude_refusal`).
     pub(crate) fn web_control_check(
         &self,
         session: &Session,
         control: Control,
+        device: Option<&str>,
     ) -> Result<(), RpcError> {
         let meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-        self.web_control_verdict(session, &meta, control)
+        self.web_control_verdict(session, &meta, control, device)
     }
 
     /// A steer into the running turn: checked like a prompt, and a Web steer
@@ -256,23 +265,32 @@ impl Hub {
         control: Control,
         device: Option<&str>,
     ) -> Result<(), RpcError> {
-        self.web_control_check(session, control)?;
+        self.web_control_check(session, control, device)?;
         self.full_access_hold(&session.meta(), control, device)?;
         if control != Control::Web {
             return Ok(());
         }
+        // The turn's control and its sender are the turn's own (`TurnInfo::device`) and change
+        // together, under the turn lock: the turn stays the one device's only while every Web
+        // steer into it is that device's. Kept apart, a steer that promoted the turn could write
+        // its device after another client's steer cleared it, a mixed turn the phone exception
+        // still covered (review of cmux#43251 at 8b9e2f5d, P1-F1).
         let raised = session.turn.lock().unwrap_or_else(|e| e.into_inner()).as_mut().map(|t| {
+            let was_web = t.control == Control::Web;
             t.control = Control::Web;
-            t.turn_id.clone()
+            if !was_web || t.device.as_deref() != device {
+                t.device = (!was_web).then(|| device.map(str::to_owned)).flatten();
+            }
+            (t.turn_id.clone(), t.device.clone())
         });
-        if let Some(turn_id) = raised {
-            session.floor.last_turn_web.store(true, Ordering::SeqCst);
+        if let Some((turn_id, device)) = raised {
+            session.floor.mark_last_turn(true, device.clone());
             // Read back when a host is adopted (`hosts.rs`).
             self.append(
                 session,
                 "mux",
                 "turn_control",
-                json!({"turnId": turn_id, "control": Control::Web.as_str()}),
+                json!({"turnId": turn_id, "control": Control::Web.as_str(), "device": device}),
             );
         }
         Ok(())
@@ -295,7 +313,7 @@ impl Hub {
     ) -> Result<(), RpcError> {
         let refused = {
             let m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            self.web_control_verdict(session, &m, control)
+            self.web_control_verdict(session, &m, control, device)
                 .and_then(|()| {
                     if cloud_mobile && control == Control::Web && !self.cloud_mobile_mode_asks(&m) {
                         return Err(RpcError::invalid_params(
@@ -384,12 +402,19 @@ impl Hub {
         session: &Session,
         meta: &crate::store::SessionMeta,
         control: Control,
+        device: Option<&str>,
     ) -> Result<(), RpcError> {
         if control != Control::Web {
             return Ok(());
         }
-        if let Some(e) = self.local_claude_refusal(meta) {
+        if let Some(e) = self.local_claude_refusal(meta, device) {
             return Err(e);
+        }
+        // The rules below keep a remote device from steering a chat that acts without asking.
+        // The owner's own phone with Full access on is the person's opt-in to exactly that
+        // (`owner_phone_full_access`); only the sandbox rule still holds it.
+        if self.owner_phone_full_access(device) {
+            return unsandboxed_refusal(session, meta).map_or(Ok(()), Err);
         }
         let mode = crate::web_modes::mode_of(meta);
         let shown = mode.as_deref().unwrap_or("(unknown)").to_owned();
@@ -403,10 +428,16 @@ impl Hub {
             .with_data(json!({"reason": "remote.mode_left_asking_table", "mode": mode})));
         }
         if !self.session_asks_now(session, meta) {
+            // The owner's own phone is refused here only for its Full access switch: name it.
+            let switch = if device.is_some_and(|d| self.pairing.own_phone(d)) {
+                "; Full access is off for this phone: turn it on on the Mac in Settings > Mobile > Phones"
+            } else {
+                "; your own phone runs it with Full access on (Mac: Settings > Mobile > Phones)"
+            };
             return Err(RpcError::new(
                 -32000,
                 format!(
-                    "this session runs in mode {shown}, which does not ask before it acts; a paired device cannot prompt it or answer its permissions until the local user sets an asking mode"
+                    "this session runs in mode {shown}, which does not ask before it acts; a paired device cannot prompt it or answer its permissions until the local user sets an asking mode{switch}"
                 ),
             )
             .with_data(json!({
@@ -462,27 +493,40 @@ impl Hub {
     /// phone, for this one request: the mode, policy and lasting-grant rules,
     /// which keep a paired device from steering a session that acts without
     /// asking, add nothing to it. It still allows once only
-    /// (`lasting_grant_refused`), and a Claude session the Mac started (D13)
-    /// or an unsandboxed agent stays refused. Any other Web answer is held
-    /// to the whole check.
+    /// (`lasting_grant_refused`), and a Claude session the Mac started (D13,
+    /// but from the owner's own phone, `device`) or an unsandboxed agent stays
+    /// refused. Any other Web answer is held to the whole check.
     pub(crate) fn web_answer_check(
         &self,
         session: &Session,
         control: Control,
         narrows: bool,
         proved: bool,
+        device: Option<&str>,
     ) -> Result<(), RpcError> {
         if control != Control::Web || narrows {
             return Ok(());
         }
         if !proved {
-            return self.web_control_check(session, control);
+            return self.web_control_check(session, control, device);
         }
         let meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(e) = self.local_claude_refusal(&meta) {
+        if let Some(e) = self.local_claude_refusal(&meta, device) {
             return Err(e);
         }
         unsandboxed_refusal(session, &meta).map_or(Ok(()), Err)
+    }
+
+    /// Whether `device` is the owner's own phone (`Pairing::own_phone`) with its Full-access
+    /// setting on (`Pairing::full_access`; on by default for a phone, the person's own switch,
+    /// `crate::pairing` module docs): it drives a chat in the mode the chat has, as the Mac does,
+    /// one that does not ask included, so a Claude chat the Mac started in a mode that does not
+    /// ask takes its prompt (Leo, 2026-11-14: "chat writable in both directions"). Both are read
+    /// from the store on every call: removing the phone or turning the setting off puts every
+    /// rule of the Web back at its next request, and the floor holds its running turn
+    /// (`remote_floor_breach`).
+    pub(crate) fn owner_phone_full_access(&self, device: Option<&str>) -> bool {
+        device.is_some_and(|d| self.pairing.own_phone(d) && self.pairing.full_access(d))
     }
 
     /// D13: a Claude Code session the Mac started (not a remote chain) runs
@@ -492,10 +536,28 @@ impl Hub {
     /// Claude Code runs with ask-only settings in the sandbox
     /// (`remote_sandbox.rs`). Unknown (the profile is gone, or the config is
     /// being written): refused.
+    ///
+    /// The owner's own paired phone is not a remote device here: `device`, the
+    /// paired credential the request's connection presented (`ConnAuth::Device`,
+    /// from the handshake, never the request), names a live `phone` record
+    /// (`Pairing::own_phone`): the phone the Mac app pairs under the Mac
+    /// owner's account, listed under Settings > Mobile > Phones. It controls
+    /// the chat as the Mac does, with the owner's own Claude rules, which are
+    /// the owner's to use from their own phone (Leo, 2026-11-14: "chat writable
+    /// in both directions / this is obviously what we need"). Removing the phone
+    /// revokes the record, so its next request is refused again. The shared
+    /// dashboard token, any other account, a paired machine that is not a
+    /// phone and a peer forwarding for its Web client stay refused, and the
+    /// refusal names the one action that works there (`action: new_chat`):
+    /// a new chat from that device, which runs under the Web's own rules.
     pub(crate) fn local_claude_refusal(
         &self,
         meta: &crate::store::SessionMeta,
+        device: Option<&str>,
     ) -> Option<RpcError> {
+        if device.is_some_and(|d| self.pairing.own_phone(d)) {
+            return None;
+        }
         // Claude Code itself (claude-stdio) or a Claude adapter (family
         // claude): both read the user's Claude settings.
         let stdio = match self.config.try_read() {
@@ -516,7 +578,11 @@ impl Hub {
                 -32000,
                 "Only the cmux app on this Mac can control a Claude chat started on this Mac. From another device, start a new chat there. On this Mac itself, close and reopen the chat to reconnect.",
             )
-            .with_data(json!({"reason": "remote.local_claude_session", "harness": meta.harness}))
+            .with_data(json!({
+                "reason": "remote.local_claude_session",
+                "harness": meta.harness,
+                "action": "new_chat",
+            }))
         })
     }
 }
@@ -615,7 +681,7 @@ impl Control {
 }
 
 /// The rules a request that controls a session runs under.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Control {
     /// The unix socket or the local app: no mode rule.
     #[default]

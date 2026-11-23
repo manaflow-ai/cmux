@@ -1,5 +1,8 @@
 //! Crash-safe snapshot installation after an O(1) log-generation rotation.
-use super::{DiskSnapshot, RowKey, SortedSnapshot, Summary, SummaryIndex};
+use super::{
+    DiskSnapshot, RowKey, SortedSnapshot, StreamGeneration, Summary, SummaryIndex,
+    is_corrupt_snapshot_row,
+};
 use std::collections::VecDeque;
 use std::fs::{self, File, OpenOptions};
 use std::io;
@@ -29,6 +32,7 @@ pub struct CompactionResult {
     pub covered_generation: u64,
     pub seq: u64,
     pub cleanup_errors: u64,
+    pub skipped_snapshot_rows: usize,
 }
 
 impl Compaction {
@@ -94,18 +98,37 @@ impl Compaction {
         // The write path streams rows and keeps only sparse checkpoint state.
         let mut cold_keys = VecDeque::new();
         let mut missing_hot = VecDeque::new();
-        SortedSnapshot::write_stream_generation(
-            stage,
-            self.seq,
-            0,
-            None,
-            self.covered_generation,
-            index.origins().cloned().collect(),
-            index.merged_rows().map(|row| {
+        let mut skipped_snapshot_rows = 0;
+        let table_stage = {
+            let mut path = stage.as_os_str().to_os_string();
+            path.push(".kin");
+            PathBuf::from(path)
+        };
+        SortedSnapshot::write_stream_generation_with_table(StreamGeneration {
+            path: stage,
+            seq: self.seq,
+            log_offset: 0,
+            log_name: None,
+            covered_generation: self.covered_generation,
+            meta: super::snapshot::SnapshotMeta {
+                origins: index.origins().cloned().collect(),
+                marks: index.mirror_marks().collect(),
+            },
+            rows: index.merged_rows().filter_map(|row| {
                 if cancelled.load(Ordering::Acquire) {
-                    return Err(io::Error::new(io::ErrorKind::Interrupted, "compaction cancelled"));
+                    return Some(Err(io::Error::new(
+                        io::ErrorKind::Interrupted,
+                        "compaction cancelled",
+                    )));
                 }
-                let row = row?;
+                let row = match row {
+                    Ok(row) => row,
+                    Err(error) if is_corrupt_snapshot_row(&error) => {
+                        skipped_snapshot_rows += 1;
+                        return None;
+                    }
+                    Err(error) => return Some(Err(error)),
+                };
                 let held = index.get_row(&row.key()).is_some();
                 if row.is_hot_at(self.captured_now) {
                     if !held {
@@ -114,9 +137,10 @@ impl Compaction {
                 } else if held {
                     cold_keys.push_back(row.key());
                 }
-                Ok(row)
+                Some(Ok(row))
             }),
-        )?;
+            table_path: Some(&table_stage),
+        })?;
         if cancelled.load(Ordering::Acquire) {
             return Err(io::Error::new(io::ErrorKind::Interrupted, "compaction cancelled"));
         }
@@ -124,7 +148,23 @@ impl Compaction {
         // must not leave the publisher believing the old generation is current.
         let snapshot = DiskSnapshot::open(stage)?
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "staged snapshot"))?;
+        let table_path = {
+            let mut path = self.snapshot_path.as_os_str().to_os_string();
+            path.push(".kin");
+            PathBuf::from(path)
+        };
         fs::rename(stage, &self.snapshot_path)?;
+        // A stale sidecar is ignored by its binding. Never unlink it by name:
+        // a reader may already hold its old inode, and rename replaces it atomically.
+        if snapshot.has_kin_table()
+            && let Err(error) = fs::rename(&table_stage, &table_path)
+        {
+            // The staged handle remains safe, but this generation installs
+            // without the optional accelerator when its rename fails.
+            snapshot.disable_kin_table(&error);
+            super::snapshot::record_kin_write_failure(&error);
+            let _ = fs::remove_file(&table_stage);
+        }
         let mut cleanup_errors = 0;
         if File::open(&self.directory).and_then(|directory| directory.sync_all()).is_err() {
             // Keep every old log until the rename is known durable.
@@ -160,12 +200,13 @@ impl Compaction {
             covered_generation: self.covered_generation,
             seq: self.seq,
             cleanup_errors,
+            skipped_snapshot_rows,
         })
     }
 }
 
 struct StageFiles {
-    paths: [PathBuf; 3],
+    paths: [PathBuf; 4],
     armed: bool,
 }
 
@@ -177,10 +218,12 @@ impl StageFiles {
             name.push(suffix);
             PathBuf::from(name)
         };
-        let paths = [stage.clone(), sidefile(".new"), sidefile(".directory.new")];
+        let paths = [stage.clone(), sidefile(".new"), sidefile(".directory.new"), sidefile(".kin")];
         // There is one compactor per directory. Known abandoned files were
         // removed before reservation; do not overwrite unexpected entries.
-        for path in &paths {
+        // Optional leftovers must not prevent the authoritative snapshot.
+        // create_new and binding checks keep an unreclaimed table out of use.
+        for path in &paths[..3] {
             match fs::symlink_metadata(path) {
                 Ok(_) => {
                     return Err(io::Error::new(
@@ -237,6 +280,22 @@ pub(super) fn cleanup_stages(directory: &Path) -> io::Result<bool> {
         let Some(name) = name.to_str() else { continue };
         let Some(suffix) = name.strip_prefix("index.snap.stage.") else { continue };
         let (number, suffix) = suffix.split_once('.').unwrap_or((suffix, ""));
+        if number.parse::<u64>().is_ok() && suffix == "kin.work" && entry.file_type()?.is_dir() {
+            // Only the sole compactor creates this reserved numeric-stage
+            // namespace; spill runs from a process crash are safe to reclaim.
+            match fs::remove_dir_all(entry.path()) {
+                Ok(()) => cleaned = true,
+                Err(error) => super::snapshot::record_kin_write_failure(&error),
+            }
+            continue;
+        }
+        if number.parse::<u64>().is_ok() && suffix == "kin" && entry.file_type()?.is_file() {
+            match fs::remove_file(entry.path()) {
+                Ok(()) => cleaned = true,
+                Err(error) => super::snapshot::record_kin_write_failure(&error),
+            }
+            continue;
+        }
         if number.parse::<u64>().is_ok()
             && matches!(
                 suffix,

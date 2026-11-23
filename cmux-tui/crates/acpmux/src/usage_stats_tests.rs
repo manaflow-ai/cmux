@@ -5,7 +5,7 @@ use std::io::Write;
 const SID: &str = "01a18ad5-89bc-7a02-905f-8f4fbef7fed2";
 
 fn ms(text: &str) -> u64 {
-    crate::server::machine_health::rfc3339_ms(text).unwrap()
+    crate::clock_text::rfc3339_ms(text).unwrap()
 }
 
 fn models() -> Models {
@@ -916,6 +916,13 @@ fn the_day_reports_the_cache_read_share_and_the_cost_per_call() {
     let mut tracker = Tracker::default();
     let stats = tracker.refresh(&source, now, &models()).unwrap();
     assert_eq!(stats.calls24h, Some(3));
+    assert_eq!(stats.tokens_by_model1h.as_ref().unwrap()["claude-opus-5-5"], 270_330);
+    let next = tracker.refresh(&source, now + 15 * MINUTE_MS, &models()).unwrap();
+    assert_eq!(next.tokens_by_model1h.as_ref().unwrap()["claude-opus-5-5"], 90_110);
+    assert_eq!(next.tokens_by_model_previous_utc_hour, stats.tokens_by_model1h);
+    let later = tracker.refresh(&source, now + HOUR_MS, &models()).unwrap();
+    assert!(later.tokens_by_model_previous_utc_hour.unwrap().is_empty());
+    assert_eq!(next.tokens24h, stats.tokens24h);
     // 180,000 of 270,030 prompt tokens came from the cache.
     assert_eq!(stats.cache_read_share24h, Some(0.6666));
     // 1h writes at twice the $4 input: 90,000 * 8 = $0.72; 30 input at $4, 300 output at $20,

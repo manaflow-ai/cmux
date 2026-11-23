@@ -18,22 +18,36 @@ struct TerminalJumpToBottomRow: View {
         JumpToBottomVisibility.showsInTerminal(scrolledUp: model.isScrolledUp, isTUI: model.isTUI, enabled: jumpToBottomEnabled)
     }
 
+    /// Taps so far: each one plays a light haptic.
+    @State private var taps = 0
+
     var body: some View {
         ZStack {
             if showsJumpToBottom {
                 Button {
+                    taps += 1
                     model.scrollToBottom()
                 } label: {
                     Label("Jump to bottom", systemImage: "arrow.down")
                         .font(.footnote.weight(.semibold))
                         .padding(.horizontal, 12)
-                        .frame(height: 28)
+                        .frame(height: Self.pillHeight)
                         .glassSurface(in: .rect(cornerRadius: KeyRowGlass.cornerRadius, style: .continuous))
+                        // The pill looks the same; its tap target is larger (Leo,
+                        // 2026-11-22: "make the tapping of the jump to bottom button
+                        // ... a bit easier to tap"). It reaches out sideways, up into
+                        // the page and down across the gap to the key row, so the
+                        // target is `hitHeight` tall, past Apple's 44 pt minimum
+                        // (HIG, Accessibility: "at least 44x44 pt").
+                        .padding(.horizontal, Self.hitSlop)
+                        .padding(.top, Self.hitHeight - Self.pillHeight - TerminalDockMetrics.keyRowGap)
+                        .padding(.bottom, TerminalDockMetrics.keyRowGap)
+                        .contentShape(.rect)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressGlass)
+                .sensoryFeedback(.impact(weight: .light), trigger: taps)
                 .accessibilityLabel("Scroll to bottom")
                 .accessibilityIdentifier("terminal.jumpToBottom")
-                .padding(.bottom, TerminalDockMetrics.keyRowGap)
                 .frame(maxWidth: .infinity, alignment: .center)
                 // It rises out of the key row: up 14 pt from 92 % and
                 // transparent, on a light spring. Its removal is at once
@@ -52,6 +66,13 @@ struct TerminalJumpToBottomRow: View {
         // Reduce Motion: no animation.
         .animation(showsJumpToBottom ? Animation.cmuxMobileSnappy.unlessReduceMotion : nil, value: showsJumpToBottom)
     }
+
+    /// The pill as drawn.
+    static let pillHeight: CGFloat = 28
+    /// The tap target's height, the key-row gap included.
+    static let hitHeight: CGFloat = 56
+    /// The tap target's reach past each side of the pill.
+    static let hitSlop: CGFloat = 28
 }
 
 /// The pill's entrance: from 14 pt low, 92 % and transparent (0) to its

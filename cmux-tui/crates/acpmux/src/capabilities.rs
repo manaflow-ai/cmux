@@ -27,6 +27,24 @@ pub const TRIGGER_CHAT: &str = "trigger-chat-v1";
 /// `_acpmux/attach` with `settled: true` answers the chat's settled view first, then the records
 /// logged since (`hub/settled_view.rs`, `server/requests/settled_attach.rs`, cmuxterm-hq#9655).
 pub const SETTLED_ATTACH: &str = "settled-attach-v1";
+/// `_acpmux/attach {hold:true}` keeps a chat attached while reading no log records.
+pub const HOLD_ATTACH: &str = "attach-hold-v1";
+
+/// `_acpmux/info` with `sessionIds` answers the list's rows by key, and `_acpmux/status` says
+/// `closedListed` (`server/requests/info.rs` `rows`).
+pub const INFO_ROWS: &str = "info-rows-v1";
+
+/// A client that sends `initialize` with `_meta.acpmux.peerRowBatches: true` hears a burst of one
+/// peer's rows (more than 32, a peer's list) as one `_acpmux/peer_rows_changed`, and follows the
+/// list for them (`hub/list_guard.rs` `send_remote_batch`). Every other client hears each row's
+/// `_acpmux/session_changed`, as before.
+pub const PEER_ROW_BATCHES: &str = "peer-row-batches-v1";
+
+/// Session summaries carry `hasDraft` and `workingBelow` (absent means false only with this id).
+pub const SESSION_IDLE_FACTS: &str = "session-idle-facts-v1";
+
+/// Pre-copy for a chat move (`hub/transfer_precopy.rs`).
+pub const TRANSFER_PRECOPY: &str = "transfer-precopy-v1";
 
 pub struct Capability {
     pub id: &'static str,
@@ -96,12 +114,32 @@ pub const CAPABILITIES: &[Capability] = &[
     // `_acpmux/sessions {pendingOnly: true}`: only the chats with a pending ask, without the
     // list's pace (the app's dialog list). Older daemons would answer the whole list.
     Capability { id: "session-list-pending-v1", wire: &[method::MUX_SESSIONS] },
+    // `_acpmux/usage`: every listed chat's `usageStats` and nothing else, `unchanged` while the
+    // digest the client holds is current (Session Info's Usage). Older daemons: the client reads
+    // the list's pages with `usage: true`.
+    Capability { id: "session-usage-v1", wire: &[method::MUX_USAGE] },
+    // Each local session summary says `hasDraft` and `workingBelow`, omitted when false
+    // (`protocol/session.rs`, `Hub::holds_work_below_read`). Only from a daemon that lists this
+    // id does a missing field mean false; the app's Update When Idle holds on any other (absent
+    // is unknown).
+    Capability { id: SESSION_IDLE_FACTS, wire: &[method::MUX_SESSIONS] },
+    // `_acpmux/info {sessionIds, row: true}`: the session list's rows of up to 100 chats by key,
+    // the bytes `_acpmux/sessions` lists, and `_acpmux/status`'s `closedListed`. A list caller
+    // that reads the v2 list's keys asks for the rows it prints (agent service v2, row 7b); a
+    // daemon without this id gets its v1 list read.
+    Capability { id: INFO_ROWS, wire: &[method::MUX_INFO, method::MUX_STATUS] },
+    // `_acpmux/markRead`: mark a chat read without showing it (cmux's `chat.mark_read`).
+    Capability { id: "mark-read-v1", wire: &[method::MUX_MARK_READ] },
     // The session list as a row log (`hub/row_log.rs`): `session_changed` and a watch's list
     // carry `listSeq`/`listEpoch`, and `_acpmux/watch {afterSeq, listEpoch}` answers the rows
     // changed since, not the list. Older daemons ignore `afterSeq` and send the list.
     Capability {
         id: crate::hub::row_log::CAPABILITY,
         wire: &[method::MUX_WATCH, method::MUX_SESSION_CHANGED],
+    },
+    Capability {
+        id: PEER_ROW_BATCHES,
+        wire: &[method::INITIALIZE, method::MUX_WATCH, method::MUX_PEER_ROWS_CHANGED],
     },
     Capability { id: "machine.join.stdin.v1", wire: &[] },
     // `acpmux machine vault pull|status|forget` (crate::vault): the CLI, which
@@ -118,8 +156,24 @@ pub const CAPABILITIES: &[Capability] = &[
         id: "machine-consent-v1",
         wire: &[method::MUX_MACHINE_CONSENT_SET, method::MUX_MACHINE_CONSENT_GET],
     },
+    // Signing in enrolls this machine on the hub; signing out leaves only that join
+    // (`server/machine_enroll.rs`). A literal id, which the app's reference check reads.
+    Capability {
+        id: "machine-enroll-v1",
+        wire: &[method::MUX_MACHINE_ENROLL, method::MUX_MACHINE_LEAVE_IF_AUTO],
+    },
+    // Door A: a machine this computer reaches by ssh joins through the hub in one call, and the
+    // ones it reaches but has not added are listed (`server/machine_join_ssh.rs`).
+    Capability {
+        id: crate::cli::ssh_join::CAPABILITY,
+        wire: &[method::MUX_MACHINE_JOIN_SSH, method::MUX_MACHINE_CANDIDATES],
+    },
+    // The app reports only who is signed in; acpmux decides the enroll, its retry and the leave
+    // (`server/sign_in_follow.rs`). A literal id, which the app's reference check reads.
+    Capability { id: "machine-signed-in-v1", wire: &[method::MUX_MACHINE_SIGNED_IN] },
     Capability { id: SESSION_MESSAGES, wire: &[method::MUX_MESSAGE] },
     Capability { id: SETTLED_ATTACH, wire: &[method::MUX_ATTACH] },
+    Capability { id: HOLD_ATTACH, wire: &[method::MUX_ATTACH] },
     Capability {
         id: TRIGGER_CHAT,
         wire: &[
@@ -146,6 +200,9 @@ pub const CAPABILITIES: &[Capability] = &[
     // Who else works on these files, topic, branch or folder, here and on peers
     // (`hub/touched.rs`).
     Capability { id: "who-else-v1", wire: &[method::MUX_WHO_ELSE] },
+    // One caller's same prompt to many sessions in a minute, noted per send
+    // (`send_fanout.rs`).
+    Capability { id: "send-fanout-v1", wire: &[method::MUX_SEND_FANOUT] },
     // What turns cost, indexed by day and session (`hub/ledger`).
     Capability { id: "cost-ledger-v1", wire: &[method::MUX_LEDGER] },
     // The team's agent spend from cmux-platform (`server/chats/team_audit.rs`).
@@ -295,6 +352,22 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: "memory-inbox-v1", wire: &[method::MUX_MEMORY_RESOLVE] },
     // The rewrite a chat that took several corrections offers (`server/prompt_coach.rs`).
     Capability { id: "prompt-coach-v1", wire: &[method::MUX_PROMPT_COACH] },
+    // Pre-copy for a chat move (`hub/transfer_precopy.rs`): `transfer_prepare` exports the log
+    // without a freeze, a target stages it (`transfer_stage`, `transfer_stage_finish`), and
+    // `transfer_begin {prepareId, afterSeq}` freezes the chat for only what followed. A client
+    // pre-copies only between two daemons that both list it; `transfer_base` names the copy a
+    // target still holds from the chat's last move, for a prepare of only what came after.
+    Capability {
+        id: TRANSFER_PRECOPY,
+        wire: &[
+            "_acpmux/transfer_base",
+            "_acpmux/transfer_prepare",
+            "_acpmux/transfer_stage",
+            "_acpmux/transfer_stage_finish",
+            "_acpmux/transfer_begin",
+            "_acpmux/transfer_receive",
+        ],
+    },
     // An agent CLI's own sign-in on this machine, for a chat's sign-in card (`agent_login.rs`).
     Capability {
         id: "agent-login-v1",
@@ -305,6 +378,9 @@ pub const CAPABILITIES: &[Capability] = &[
             method::MUX_AGENT_LOGIN_API_KEY,
         ],
     },
+    // A turn's before and after picture of the chat's page, for its edited-files card
+    // (`hub/turn_shots.rs`).
+    Capability { id: "turn-shots-v1", wire: &[method::MUX_TURN_SHOTS] },
 ];
 
 /// The ids of [`CAPABILITIES`], in its order.
