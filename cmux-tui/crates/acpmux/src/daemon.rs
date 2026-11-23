@@ -1328,6 +1328,9 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             usize::MAX
         }
     };
+    // The requests still in flight are answered as restarting before the close cancels their
+    // connections, within a bound inside the deadline (`server/shutdown_drain.rs`).
+    crate::server::shutdown_drain::drain_in_flight(&hub, cleanup_deadline).await;
     // The hub's own tasks after its agents: cancelled and joined, any left named (`hub/shutdown.rs`).
     hub.close_owned_tasks_until(cleanup_deadline).await;
     let (cleanup_done, cleanup_finished) = tokio::sync::oneshot::channel::<()>();
