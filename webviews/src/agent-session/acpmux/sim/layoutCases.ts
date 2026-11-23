@@ -83,7 +83,7 @@ const PARAGRAPH =
 const IMAGE =
   "data:image/svg+xml;utf8," +
   encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" width="480" height="270"><rect width="480" height="270" fill="#4a7"/></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg" width="480" height="270"><rect width="480" height="270"/></svg>',
   );
 
 /** The streamed reply of each generated kind: its text arrives in `chunks` deltas, so a block (a table's
