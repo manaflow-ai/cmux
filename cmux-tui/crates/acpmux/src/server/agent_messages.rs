@@ -131,7 +131,12 @@ pub(super) async fn person_prompt(
 ) {
     // An old acpmux CLI or a shell that declared no terminal is no person's presence either.
     let in_session = conn.agent_side();
-    if counts_as_person_prompt(agent_message, conn.is_trigger(), in_session) {
+    // A Chief's own session (its turn or compactor, `route_switch::is_chief`): the prompt is the Chief
+    // host relaying a message it took from its queue, not a person at this machine. On a Chief's Cloud
+    // machine it must not open the platform's 10-minute post-chat window: the machine pauses on its
+    // short idle window after the Chief acts (cmuxterm-hq RFD 0037, wake on message).
+    let chief = crate::hub::is_chief(&s.meta());
+    if !chief && counts_as_person_prompt(agent_message, conn.is_trigger(), in_session) {
         hub.person_prompted(crate::store::now_ms());
     }
     if !agent_message && local_person(conn) {
