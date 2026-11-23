@@ -13,6 +13,12 @@ pub struct Frontmatter {
     pub description: Option<String>,
     /// Claude Code: `disable-model-invocation: true` keeps the skill out of the model's list.
     pub disable_model_invocation: bool,
+    /// A Claude Code subagent's `model` (`sonnet`, `opus`, `inherit`, a full id).
+    pub model: Option<String>,
+    /// A Claude Code subagent's `color`.
+    pub color: Option<String>,
+    /// A Claude Code subagent's `tools`: a comma-separated string or a YAML list; empty is every tool.
+    pub tools: Vec<String>,
 }
 
 /// `text`'s `---` block (without its fences) and what follows its closing line, or `None` when it
@@ -58,10 +64,29 @@ pub fn parse(text: &str) -> Option<Frontmatter> {
             })
             .filter(|text| !text.is_empty())
     };
+    let tools = match map.get(&Yaml::String("tools".to_owned())) {
+        Some(Yaml::Array(items)) => items
+            .iter()
+            .filter_map(|item| item.as_str().map(|t| t.trim().to_owned()))
+            .filter(|t| !t.is_empty())
+            .collect(),
+        _ => field("tools")
+            .map(|text| {
+                text.split(',')
+                    .map(str::trim)
+                    .filter(|t| !t.is_empty())
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default(),
+    };
     Some(Frontmatter {
         name: field("name"),
         description: field("description"),
         disable_model_invocation: field("disable-model-invocation").as_deref() == Some("true"),
+        model: field("model"),
+        color: field("color"),
+        tools,
     })
 }
 
@@ -119,5 +144,17 @@ mod tests {
         // A `---` that starts a longer word does not end the block.
         let dashes = "---\nname: a\ndescription: |\n  x\n  ---word\n---\n";
         assert_eq!(parse(dashes).unwrap().description.as_deref(), Some("x\n---word"));
+    }
+
+    #[test]
+    fn subagent_fields_take_a_tools_string_or_list() {
+        let comma = "---\nname: r\ndescription: d\ntools: Read, Grep ,Bash\nmodel: sonnet\ncolor: blue\n---\n";
+        let front = parse(comma).unwrap();
+        assert_eq!(front.tools, ["Read", "Grep", "Bash"]);
+        assert_eq!(front.model.as_deref(), Some("sonnet"));
+        assert_eq!(front.color.as_deref(), Some("blue"));
+        let list = "---\nname: r\ndescription: d\ntools:\n  - Read\n  - Edit\n---\n";
+        assert_eq!(parse(list).unwrap().tools, ["Read", "Edit"]);
+        assert!(parse("---\nname: r\n---\n").unwrap().tools.is_empty());
     }
 }

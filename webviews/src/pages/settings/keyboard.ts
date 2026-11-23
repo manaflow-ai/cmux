@@ -1,7 +1,9 @@
 // Plain keys only (react-pages.md 1.2, Q3): Up/Down between rows, Space toggles a row's
 // switch, Return reveals a search result (or enters a row's control). The page never handles
 // Cmd or Ctrl chords; the app's key dispatcher owns them and sends page commands
-// (`cmux.page.command`: find, back, forward, reset), which `runPageCommand` performs.
+// (`cmux.page.command`: find, back, forward, reset), which `runPageCommand` performs. One exception:
+// on the appearance pages, Cmd-Z and Shift-Cmd-Z outside a text field run the appearance Undo and
+// Redo (AppearanceBar), as a text field's own undo would there.
 import { focusSearchField } from "../shared/searchField";
 export type KeyboardActions = {
   back(): void;
