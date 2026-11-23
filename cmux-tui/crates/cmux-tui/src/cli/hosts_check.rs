@@ -171,7 +171,7 @@ fn first_line(
         match stream.read(&mut chunk) {
             Ok(0) | Err(_) => break,
             Ok(read) => {
-                line.extend_from_slice(&chunk[..read]);
+                line.extend_from_slice(chunk.get(..read).unwrap_or_default());
                 if line.contains(&b'\n') || line.len() >= 255 {
                     break;
                 }
@@ -218,17 +218,14 @@ pub(super) fn check_all(hosts: &[HostDecl], timeout: Duration, probe: &Probe) ->
         })
         .take(MAX_PROBES);
     for (h, e, endpoint) in jobs {
-        let (tx, probe, endpoint) = (tx.clone(), Arc::clone(probe), endpoint.clone());
+        let (tx, probe, dial) = (tx.clone(), Arc::clone(probe), endpoint.clone());
         let spawned = std::thread::Builder::new().name("hosts-check".into()).spawn(move || {
-            let _ = tx.send((h, e, probe(&endpoint, start, deadline)));
+            let _ = tx.send((h, e, probe(&dial, start, deadline)));
         });
         if spawned.is_ok() {
-            slots[h][e] = result(
-                &hosts[h].endpoints[e],
-                Status::Unreachable,
-                "no answer by the timeout",
-                None,
-            );
+            if let Some(slot) = slot_at(&mut slots, h, e) {
+                *slot = result(endpoint, Status::Unreachable, "no answer by the timeout", None);
+            }
             pending += 1;
         }
     }
@@ -237,13 +234,20 @@ pub(super) fn check_all(hosts: &[HostDecl], timeout: Duration, probe: &Probe) ->
         let left = deadline.saturating_duration_since(Instant::now());
         match rx.recv_timeout(left) {
             Ok((h, e, answer)) => {
-                slots[h][e] = answer;
+                if let Some(slot) = slot_at(&mut slots, h, e) {
+                    *slot = answer;
+                }
                 pending -= 1;
             }
             Err(_) => break,
         }
     }
     hosts.iter().zip(slots).map(|(host, endpoints)| summarize(&host.label, endpoints)).collect()
+}
+
+/// Endpoint `e` of host `h` (every job's indices come from `slots`' own shape).
+fn slot_at(slots: &mut [Vec<EndpointResult>], h: usize, e: usize) -> Option<&mut EndpointResult> {
+    slots.get_mut(h).and_then(|host| host.get_mut(e))
 }
 
 /// The host's status: the first endpoint, in order, with the best status.
