@@ -4770,17 +4770,6 @@ class SharedRunnerStateTests(unittest.TestCase):
             self.assertIsNotNone(rows)
             self.assertEqual(picker.idle_runner(rows), picker.FLEET)
 
-    def test_portable_live_capacity_accepts_linux_from_document(self):
-        import portable_job_placement as picker
-        doc = self.linux_document()
-        env = {"JOBS": "control", "FLEET_LINUX": "cmux-fleet-linux-x64", "REQUIRE_LIVE_CAPACITY": "1"}
-        clock = dt.datetime.now(dt.timezone.utc)
-        snapshot = {"generated_at": clock.isoformat(), "pools": {}}
-        with unittest.mock.patch.dict(pool.os.environ, {"CI_RUNNER_STATE": self.encode(doc)}), \
-                unittest.mock.patch.object(pool.GitHub, "get_api", side_effect=AssertionError("live read")):
-            rows = pool.GitHub("synthetic-token", "manaflow-ai/cmux").runners()
-            self.assertEqual(picker.decide(env, rows, snapshot, clock).linux_jobs, ("control",))
-
     def test_document_groups_cannot_expand_the_existing_trusted_groups(self):
         clock = dt.datetime(2026, 11, 2, 5, 1, tzinfo=dt.timezone.utc)
         doc = self.document()
@@ -4812,12 +4801,13 @@ class SharedRunnerStateTests(unittest.TestCase):
 
     def test_all_requested_picker_workflows_receive_repository_context(self):
         expected = {
-            "cmux-next.yml": ("side_lane_placement.py", "portable_job_placement.py", "dev_landing_place.py"),
+            "cmux-next.yml": ("side_lane_placement.py", "dev_landing_place.py"),
             "ci-macos.yml": ("admission_placement.py", "late_placement.py"),
             "ios-internal-nightly.yml": ("ios_internal_runner.py",),
-            "cmux-tui-artifacts.yml": ("portable_job_placement.py",),
-            "nightly.yml": ("portable_job_placement.py", "nightly_build_runner.py", "signing_runner.py",
-                            "nightly_runner_preflight.py", "nightly_next_signer_pick.py"),
+            "cmux-next-guards.yml": (),
+            "cmux-tui-artifacts.yml": (),
+            "nightly.yml": ("nightly_build_runner.py", "signing_runner.py", "nightly_runner_preflight.py",
+                            "nightly_next_signer_pick.py"),
         }
 
         def mappings(value):
@@ -4859,7 +4849,7 @@ class SharedRunnerStateTests(unittest.TestCase):
         # cannot accidentally restore workflow-wide repository context or leak
         # it onto an unrelated appcast/build/test step.
         picker_scripts = {
-            "simple_pool_picker.py", "portable_job_placement.py", "side_lane_placement.py",
+            "simple_pool_picker.py", "side_lane_placement.py",
             "e2e_runner_pool.py", "ios_runner_pool.py", "owned_pool_rescue.py",
             "signing_runner.py", "nightly_build_runner.py", "nightly_sign_runner.py",
             "cmux_next_media_runner.py", "admission_placement.py", "late_placement.py",

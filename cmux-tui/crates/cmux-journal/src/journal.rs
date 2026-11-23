@@ -40,7 +40,13 @@ pub struct JournalStats {
     pub failures: u64,
     /// The last failure, while the writer has not recovered from it, or why the writer stopped.
     pub failing: Option<String>,
+    /// The last failure was a full disk or quota (`ENOSPC`, `EDQUOT`), and the writer has not
+    /// synced since: [`Journal::on_out_of_space`] heard it.
+    pub out_of_space: bool,
 }
+
+/// Hears the writer's first failure for a full disk ([`Journal::on_out_of_space`]).
+pub(crate) type SpaceListener = Arc<dyn Fn() + Send + Sync>;
 
 pub(crate) struct State {
     pub(crate) pending: Vec<u8>,
@@ -75,6 +81,9 @@ pub(crate) struct Shared {
     /// Called with the new written LSN after each batch's write, before its sync
     /// ([`Journal::on_written`]).
     pub(crate) written_listeners: Mutex<Vec<Listener>>,
+    /// Called when a failure for a full disk follows a sync or another kind of failure
+    /// ([`Journal::on_out_of_space`]).
+    pub(crate) space_listeners: Mutex<Vec<SpaceListener>>,
     /// The live segments, oldest first: recovery's, then each one the writer makes.
     pub(crate) segments: Mutex<Vec<LiveSegment>>,
 }
@@ -270,6 +279,7 @@ impl Journal {
             durable: Condvar::new(),
             listeners: Mutex::new(Vec::new()),
             written_listeners: Mutex::new(Vec::new()),
+            space_listeners: Mutex::new(Vec::new()),
             segments: Mutex::new(recovered.live),
         });
         let report = recovered.report;
@@ -436,6 +446,19 @@ impl Journal {
             .push(Arc::new(listener));
     }
 
+    /// Calls `listener` on the writer's thread when a write, sync or segment creation fails for
+    /// a full disk or quota, unless the last failure was one already and nothing synced since
+    /// ([`JournalStats::out_of_space`]). The writer retries after its backoff as for any failure:
+    /// space the listener frees (a reserve file) lets the retry write. The rules of
+    /// [`Journal::on_durable`] hold.
+    pub fn on_out_of_space(&self, listener: impl Fn() + Send + Sync + 'static) {
+        self.shared
+            .space_listeners
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(Arc::new(listener));
+    }
+
     /// Ends the reports of the damage that earlier opens found: every open reports it again
     /// ([`OpenReport::damage`]) until the daemon has told the person and calls this. The record
     /// moves into `quarantine/` (kept, never deleted). It renames and syncs folders on the
@@ -514,6 +537,22 @@ impl Journal {
         state.stats.segments_retired = state.stats.segments_retired.saturating_add(retired);
     }
 
+    /// Asks the writer to sync record `lsn` at once, and returns: a daemon's reply or event held
+    /// for a client until `lsn` is durable asks this, so an acked batch does not wait out the rest
+    /// of [`Config::ack_group_window`] while someone waits to see it (the window then groups only
+    /// the records nobody waits for). The listeners say when it is durable.
+    pub fn ask_durable(&self, lsn: Lsn) {
+        let mut state = self.shared.lock();
+        self.ask_locked(&mut state, lsn);
+    }
+
+    fn ask_locked(&self, state: &mut State, lsn: Lsn) {
+        if state.stats.durable_lsn < lsn && lsn < state.stats.next_lsn && !state.sync_asked {
+            state.sync_asked = true;
+            self.shared.wake.notify_one();
+        }
+    }
+
     /// Blocks until record `lsn` is durable. For tests, tools and background threads (a
     /// checkpoint): a daemon's request path never blocks on the disk; it holds its reply until a
     /// listener says the LSN is durable. A wait asks the writer to sync what it wrote at once, so
@@ -521,10 +560,7 @@ impl Journal {
     pub fn wait_durable(&self, lsn: Lsn, timeout: Duration) -> Result<(), WaitError> {
         let deadline = Instant::now().checked_add(timeout);
         let mut state = self.shared.lock();
-        if state.stats.durable_lsn < lsn && lsn < state.stats.next_lsn && !state.sync_asked {
-            state.sync_asked = true;
-            self.shared.wake.notify_one();
-        }
+        self.ask_locked(&mut state, lsn);
         loop {
             if state.stats.durable_lsn >= lsn {
                 return Ok(());

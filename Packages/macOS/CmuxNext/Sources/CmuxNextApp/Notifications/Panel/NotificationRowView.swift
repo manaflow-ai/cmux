@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
+import CmuxNextNotifications
 
 /// One notification in the panel: unread dot, title and time, the source
 /// workspace, the body (two lines), and a dismiss button. A press opens it;

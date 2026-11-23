@@ -1245,6 +1245,7 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
     """
     if deadline is None:
         deadline = now() + dt.timedelta(seconds=target.watch_limit)
+    # sleep-ok: the poll's first interval; no job can wait long enough to rescue before it, and a look costs quota
     sleep(FIRST_LOOK_SECONDS)
     looks = 0
     on_persistent = False
