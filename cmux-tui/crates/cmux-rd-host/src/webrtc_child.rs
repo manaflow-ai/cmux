@@ -168,9 +168,7 @@ mod platform {
                 // SAFETY: `pid` is our unreaped child; the kill cannot reach another process.
                 unsafe { libc::kill(pid, libc::SIGKILL) };
                 let _ = wait(pid);
-                return Err(format!(
-                    "{executable} is not signed by this helper's team: {e}"
-                ));
+                return Err(format!("{executable} is not signed by this helper's team: {e}"));
             }
         }
         // SAFETY: as above: our own unreaped, suspended child.
@@ -184,10 +182,8 @@ mod platform {
         for arg in args {
             argv_owned.push(CString::new(arg.as_str()).map_err(|_| "an argument holds a NUL")?);
         }
-        let mut argv: Vec<*mut c_char> = argv_owned
-            .iter()
-            .map(|arg| arg.as_ptr().cast_mut())
-            .collect();
+        let mut argv: Vec<*mut c_char> =
+            argv_owned.iter().map(|arg| arg.as_ptr().cast_mut()).collect();
         argv.push(ptr::null_mut());
         // SAFETY: plain C structures, initialized and destroyed in this scope; every pointer
         // passed (the path, argv, environ) is live and NUL-terminated for the call.
@@ -248,10 +244,7 @@ mod platform {
     fn own_team() -> Result<Option<String>, String> {
         let mut code: CFTypeRef = ptr::null();
         // SAFETY: the out-pointer is valid.
-        status(
-            unsafe { SecCodeCopySelf(0, &raw mut code) },
-            "SecCodeCopySelf",
-        )?;
+        status(unsafe { SecCodeCopySelf(0, &raw mut code) }, "SecCodeCopySelf")?;
         let code = Owned::new(code, "SecCodeCopySelf")?;
         let mut static_code: CFTypeRef = ptr::null();
         // SAFETY: `code.0` is live; the out-pointer is valid.
@@ -275,12 +268,8 @@ mod platform {
         let information = Owned::new(information, "SecCodeCopySigningInformation")?;
         // SAFETY: the dictionary is live and the key a framework constant; the value is borrowed
         // and copied before `information` drops.
-        let team = unsafe {
-            string(CFDictionaryGetValue(
-                information.0,
-                kSecCodeInfoTeamIdentifier,
-            ))
-        };
+        let team =
+            unsafe { string(CFDictionaryGetValue(information.0, kSecCodeInfoTeamIdentifier)) };
         match team {
             Some(team) if plain_team(&team) => Ok(Some(team)),
             Some(team) => Err(format!("unexpected Team ID {team:?}")),
@@ -290,10 +279,7 @@ mod platform {
 
     /// A Team ID is ten upper-case letters or digits; anything else never goes into a requirement.
     pub(super) fn plain_team(team: &str) -> bool {
-        team.len() == 10
-            && team
-                .bytes()
-                .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
+        team.len() == 10 && team.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
     }
 
     /// The suspended child's running code satisfies Apple's anchor and `team`.
@@ -344,10 +330,7 @@ mod platform {
         )?;
         let requirement = Owned::new(requirement, "SecRequirementCreateWithString")?;
         // SAFETY: both references are live owned objects.
-        status(
-            unsafe { SecCodeCheckValidity(guest.0, 0, requirement.0) },
-            "SecCodeCheckValidity",
-        )?;
+        status(unsafe { SecCodeCheckValidity(guest.0, 0, requirement.0) }, "SecCodeCheckValidity")?;
         // The identifier is read only once the signature is valid, so it is the signed one.
         let mut information: CFTypeRef = ptr::null();
         // SAFETY: `guest.0` is live; the out-pointer is valid.
@@ -361,19 +344,14 @@ mod platform {
             unsafe { string(CFDictionaryGetValue(information.0, kSecCodeInfoIdentifier)) };
         match identifier {
             Some(id) if cmux_app_identifier(&id) => Ok(()),
-            other => Err(format!(
-                "its signing identifier {other:?} is not a cmux app's"
-            )),
+            other => Err(format!("its signing identifier {other:?} is not a cmux app's")),
         }
     }
 
     /// `com.cmuxterm.app` itself or one of its dotted children (`.nightly`, `.debug.TAG`).
     pub(super) fn cmux_app_identifier(id: &str) -> bool {
         let prefix = super::CHILD_IDENTIFIER_PREFIX;
-        id == prefix
-            || id
-                .strip_prefix(prefix)
-                .is_some_and(|rest| rest.starts_with('.'))
+        id == prefix || id.strip_prefix(prefix).is_some_and(|rest| rest.starts_with('.'))
     }
 
     /// # Safety
@@ -427,9 +405,7 @@ mod tests {
     fn only_a_cmux_app_identifier_is_a_child() {
         assert!(platform::cmux_app_identifier("com.cmuxterm.app"));
         assert!(platform::cmux_app_identifier("com.cmuxterm.app.nightly"));
-        assert!(platform::cmux_app_identifier(
-            "com.cmuxterm.app.debug.my-tag"
-        ));
+        assert!(platform::cmux_app_identifier("com.cmuxterm.app.debug.my-tag"));
         assert!(!platform::cmux_app_identifier("com.cmuxterm.appx"));
         assert!(!platform::cmux_app_identifier("com.cmuxterm.cli"));
         assert!(!platform::cmux_app_identifier("cmux-server-helper"));
