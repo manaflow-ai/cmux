@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use cmux_config::managed::FixedManagedReader;
 use cmux_config::migrations::once::{Ledger, ledger_path};
-use cmux_config::{ConfigStore, ManagedPreferences};
+use cmux_config::{ConfigStore, ManagedPreferences, Target};
 use serde_json::{Value, json};
 
 const OLD: &str = "sidebar.showCounts";
@@ -80,10 +80,8 @@ fn a_renamed_key_moves_in_the_file_once_and_is_recorded() {
     std::fs::write(dirs.config(), pasted).unwrap();
     let store = dirs.open();
     assert_eq!(std::fs::read_to_string(dirs.config()).unwrap(), pasted);
-    assert_eq!(
-        store.state().effective().root.pointer("/sidebar/workspaceRow/tabCount"),
-        Some(&json!(false))
-    );
+    let row = store.state().get(&Target::Key(NEW.to_string())).row.expect("the row");
+    assert_eq!(row.value, Some(json!(false)), "the row reads the old key through the table");
 }
 
 #[test]
