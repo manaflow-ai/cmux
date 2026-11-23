@@ -56,8 +56,7 @@ fn a_server_leaves_out_instructions_already_in_the_system_prompt() {
         });
         assert!(given.0.is_some());
         assert_eq!(given.0, given.1);
-        let left_out =
-            crate::tool_env::sync_scope(env(true), || make(&Arc::default()).unwrap());
+        let left_out = crate::tool_env::sync_scope(env(true), || make(&Arc::default()).unwrap());
         assert_eq!(left_out.instructions, None, "{}", left_out.name);
     }
     // The acpmux server's follow its tool allowlist: none without the tools they name.

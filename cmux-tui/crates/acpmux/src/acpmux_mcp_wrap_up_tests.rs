@@ -6,8 +6,10 @@ fn shown(args: Value) -> Value {
 
 #[test]
 fn a_recap_with_an_ask_and_two_answers_is_shown() {
-    let (got, notes) = check(&json!({"recap": " Done. ", "ask": "Open a PR?", "actions": ["Yes, open PR", "Not now"]}))
-        .unwrap();
+    let (got, notes) = check(
+        &json!({"recap": " Done. ", "ask": "Open a PR?", "actions": ["Yes, open PR", "Not now"]}),
+    )
+    .unwrap();
     assert_eq!(
         got,
         json!({"recap": "Done.", "ask": "Open a PR?", "actions": ["Yes, open PR", "Not now"]})

@@ -14,10 +14,7 @@ fn a_row_round_trips_and_lists_with_no_member_twice() {
     assert_eq!(row.value(), summary);
     assert_eq!(row, PeerRow::new(&row.value()));
     assert_eq!(row.pair(), Some(("p".into(), "h".into())));
-    assert_eq!(
-        (row.updated_ms(), row.created_at(), row.pending_permissions()),
-        (5, Some(3), 2)
-    );
+    assert_eq!((row.updated_ms(), row.created_at(), row.pending_permissions()), (5, Some(3), 2));
     let listed: Value = serde_json::from_str(&row.listed(Some("connected"), false)).unwrap();
     let mut want = super::super::views::without_summary_tools(summary.clone());
     want.set("peerState", json!("connected"));
