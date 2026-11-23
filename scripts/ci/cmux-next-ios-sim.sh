@@ -1328,7 +1328,7 @@ ui_duress_runs() {
   ui_action=test-without-building
   if [[ " ${duress_specs[*]} " != " off " ]]; then
     t1=$SECONDS
-    if ! cargo build --release --quiet --manifest-path cmux-tui/Cargo.toml -p cmux-duress >"$work/duress-build.log" 2>&1; then
+    if ! cargo build --release --quiet --manifest-path cmux-tui/Cargo.toml -p cmux-duress --no-default-features >"$work/duress-build.log" 2>&1; then
       tail -40 "$work/duress-build.log"; cp "$work/duress-build.log" "$out/duress-build.log" 2>/dev/null || true
       note "- duress: cmux-duress did not build (duress-build.log)"; ui_status=1; return
     fi

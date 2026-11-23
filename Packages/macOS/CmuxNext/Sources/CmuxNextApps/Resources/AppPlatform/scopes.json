@@ -249,6 +249,14 @@
       "scope": "chat:write",
       "class": "mutation"
     },
+    "chief.automation.list": {
+      "scope": "chief:read",
+      "class": "read"
+    },
+    "chief.automation.update": {
+      "scope": "chief:write",
+      "class": "mutation"
+    },
     "chief.continue": {
       "scope": "chief:write",
       "class": "mutation"
