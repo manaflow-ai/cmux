@@ -37,6 +37,7 @@ fn item(
         sender: Value::Null,
         class,
         report: false,
+        waited: false,
         at,
         text: text.to_owned(),
         details: None,
@@ -639,6 +640,56 @@ async fn surge_receipt_restores_the_same_held_message_and_searches_its_original_
     assert!(!ordinary_fyi(&urgent));
 }
 
+#[tokio::test]
+async fn a_thread_read_finds_the_surge_held_messages_that_left_memory() {
+    // The surge notice's link, `acpmux session inbox ID --thread T`, answered "no messages" for
+    // a busy chat's held thread while `--search` found them (2026-11-23).
+    let (hub, session) = hub_with_chat("busy-thread");
+    for (seq, at, kind) in [(1, 10_000, "turn_started"), (2, 40_000, "turn_result")] {
+        let msg = json!({"turnSeq":1,"turnId":"finished","status":"completed"});
+        session.time_breakdown.lock().unwrap().record(&EventRecord {
+            seq,
+            at,
+            kind: kind.into(),
+            dir: "mux".into(),
+            msg,
+            host_seq: None,
+        });
+    }
+    let opts = PromptOptions {
+        provenance: Some(crate::prompt_provenance::notice(
+            &json!({"sender":"watcher","severity":"warn","title":"Runner warning"}),
+            "busy-thread",
+        )),
+        class: Some(PromptClass::Fyi),
+        ..Default::default()
+    };
+    let body = [json!({"type":"text","text":"Read the runner report for #418."})];
+    assert!(hub.hold_surge_message(&session, "first", "cli", &body, &opts).unwrap().is_none());
+    let receipt = hub.hold_surge_message(&session, "held", "cli", &body, &opts).unwrap().unwrap();
+    let thread = receipt["threadId"].as_str().unwrap().to_owned();
+    // A burst of other unread messages: `trim` lets the held one go first.
+    {
+        let mut inbox = session.inbox();
+        for n in 0..KEEP {
+            let other = item(&format!("o{n}"), "other", "lane", PromptClass::Fyi, n as u64, "x");
+            inbox.items.push(other);
+        }
+        trim(&mut inbox);
+        assert!(inbox.items.iter().all(|i| i.prompt_id != "held"), "evicted");
+    }
+    assert_eq!(hub.inbox_thread(&session, &thread, false)["messages"], json!([]));
+    let whole = hub.inbox_thread_whole(&session, &thread, false).unwrap();
+    let messages = whole["messages"].as_array().unwrap();
+    assert_eq!(messages.len(), 1, "{whole}");
+    assert_eq!(messages[0]["promptId"], "held");
+    assert_eq!(messages[0]["text"], body[0]["text"]);
+    assert_eq!(messages[0]["surgeHeld"], true);
+    // A thread with nothing evicted reads memory alone.
+    let other = hub.inbox_thread_whole(&session, "other", false).unwrap();
+    assert_eq!(other["messages"].as_array().unwrap().len(), KEEP);
+}
+
 #[test]
 fn surge_eviction_preserves_unanswered_questions_without_growing_the_removed_id_set() {
     let mut inbox = Inbox::default();
@@ -699,8 +750,8 @@ async fn fyis_alone_steer_into_a_running_turn_only_at_their_flush() {
     assert!(session.inbox().timer.is_none(), "the delivery ends the timer");
 }
 
-/// A message that is no FYI steers into the running turn at once, and carries the FYIs that
-/// waited for it in the same notice.
+/// A blocker steers into the running turn at once, and carries the FYIs that waited for it in
+/// the same notice. A result does too once its coalescing window passed.
 #[tokio::test]
 async fn a_message_that_is_no_fyi_steers_in_and_carries_the_waiting_fyis() {
     for class in [PromptClass::Result, PromptClass::Question, PromptClass::Block] {
@@ -710,12 +761,81 @@ async fn a_message_that_is_no_fyi_steers_in_and_carries_the_waiting_fyis() {
         session.inbox().items.push(fyi);
         hub.inbox_review(&session);
         assert_eq!(carried(&session), None, "the FYI waits ({class:?})");
-        let other = item("r1", "t2", "lane-b", class, now_ms(), "done with #9");
+        let at = match class {
+            PromptClass::Result => now_ms().saturating_sub(STEER_COALESCE_MS + 1),
+            _ => now_ms(),
+        };
+        let other = item("r1", "t2", "lane-b", class, at, "done with #9");
         session.inbox().items.push(other);
         hub.inbox_review(&session);
         let both = Some(vec!["f1".to_owned(), "r1".to_owned()]);
         assert_eq!(carried(&session), both, "one steer carries both ({class:?})");
     }
+}
+
+/// Results to a running turn coalesce: none steers in before [`STEER_COALESCE_MS`] after the
+/// oldest, so a burst goes in as ONE steer (one prompt-hook run, not one each). A blocker that
+/// comes meanwhile brings the whole batch at once.
+#[tokio::test]
+async fn results_to_a_running_turn_coalesce_into_one_steer_and_a_blocker_brings_them() {
+    let (hub, session) = hub_with_chat("coalesce");
+    running(&session);
+    for id in ["r1", "r2", "r3"] {
+        let result = item(id, id, "lane-b", PromptClass::Result, now_ms(), "done");
+        session.inbox().items.push(result);
+        hub.inbox_review(&session);
+        assert_eq!(carried(&session), None, "{id} waits for the window");
+        assert!(session.inbox().timer.is_some(), "the window is timed");
+    }
+    // The window's deadline: the timer's review steers all three in as one notice.
+    session.inbox().items[0].at = now_ms().saturating_sub(STEER_COALESCE_MS + 1);
+    hub.inbox_review(&session);
+    let all = Some(vec!["r1".to_owned(), "r2".to_owned(), "r3".to_owned()]);
+    assert_eq!(carried(&session), all, "one steer carries the burst");
+
+    for class in [PromptClass::Block, PromptClass::Question] {
+        let (hub, session) = hub_with_chat("coalesce-blocker");
+        running(&session);
+        session.inbox().items.push(item(
+            "r1",
+            "t",
+            "lane-b",
+            PromptClass::Result,
+            now_ms(),
+            "done",
+        ));
+        hub.inbox_review(&session);
+        assert_eq!(carried(&session), None, "the result waits ({class:?})");
+        session.inbox().items.push(item("b1", "t2", "lane-c", class, now_ms(), "stuck"));
+        hub.inbox_review(&session);
+        let both = Some(vec!["b1".to_owned(), "r1".to_owned()]);
+        assert_eq!(carried(&session), both, "the blocker brings it at once ({class:?})");
+    }
+}
+
+/// What steers into a running turn at once: blockers, and a result from the chat's parent or
+/// delegator. Other results (reports included) and FYIs wait.
+#[test]
+fn blockers_and_the_chats_parent_or_delegator_steer_at_once() {
+    let mut meta: SessionMeta = serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA, "id": "s", "name": "lane", "harness": "fake",
+        "cwd": "/tmp", "status": "running", "createdAt": 1, "updatedAt": 1, "turnCount": 3,
+    }))
+    .unwrap();
+    let from = |class, session: Option<&str>| {
+        let mut i = item("p", "t", "x", class, 0, "");
+        i.from_session = session.map(str::to_owned);
+        i
+    };
+    assert!(steers_at_once(&meta, &from(PromptClass::Block, None)));
+    assert!(steers_at_once(&meta, &from(PromptClass::Question, None)));
+    assert!(!steers_at_once(&meta, &from(PromptClass::Fyi, Some("coord"))));
+    let mut report = from(PromptClass::Result, Some("child"));
+    report.report = true;
+    assert!(!steers_at_once(&meta, &report), "a report waits for the window");
+    assert!(!steers_at_once(&meta, &from(PromptClass::Result, Some("coord"))));
+    meta.delegator = Some("coord".into());
+    assert!(steers_at_once(&meta, &from(PromptClass::Result, Some("coord"))), "its delegator");
 }
 
 /// FYIs alone that the person's own turn held back start no turn of their own when it ends:
