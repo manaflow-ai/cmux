@@ -17,16 +17,22 @@ cleanup() {
 }
 trap cleanup EXIT
 status=0
+# step SHA WHAT CMD...: run one build step quietly; on failure print its last lines so a missing row says why.
+step() {
+  local sha="$1" what="$2"; shift 2
+  "$@" >"$scratch/step.log" 2>&1 && return 0
+  echo "PANE-STARTUP $sha FAILED at $what:" >&2; tail -15 "$scratch/step.log" >&2; return 1
+}
 for sha in "$@"; do
   tree="$scratch/$sha"
   git -C "$root" fetch -q origin "$sha" 2>/dev/null || true
   git -C "$root" worktree add -q --detach "$tree" "$sha" || { status=1; continue; }
   trees+=("$tree")
-  (cd "$tree/webviews" && bun install --frozen-lockfile --ignore-scripts >/dev/null) || { status=1; continue; }
+  step "$sha" "bun install" bash -c 'cd "$1/webviews" && bun install --frozen-lockfile --ignore-scripts' _ "$tree" || { status=1; continue; }
   # build-agent-pane-web.sh writes only the agentPane strings table, but the pane also imports other pages'
   # tables (cloud's, from CloudEnvironmentEditorContent), which a full app build writes first: write them all.
-  (cd "$tree/webviews" && bun scripts/pages/gen-strings.mjs >/dev/null) || { status=1; continue; }
-  (cd "$tree" && scripts/cmux-next/build-agent-pane-web.sh --out "$scratch/out-$sha" >/dev/null) || { status=1; continue; }
+  step "$sha" "gen-strings" bash -c 'cd "$1/webviews" && bun scripts/pages/gen-strings.mjs' _ "$tree" || { status=1; continue; }
+  step "$sha" "pane build" bash -c 'cd "$1" && scripts/cmux-next/build-agent-pane-web.sh --out "$2"' _ "$tree" "$scratch/out-$sha" || { status=1; continue; }
   line="$(cd "$tree/webviews" && bun -e '
     const { readFileSync, readdirSync } = require("fs");
     const { dirname, resolve } = require("path");
