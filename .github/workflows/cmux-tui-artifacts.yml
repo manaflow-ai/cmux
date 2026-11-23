@@ -1432,6 +1432,7 @@ jobs:
     permissions:
       actions: read # this run's artifacts and its legs' conclusions
       contents: read # a branch push's current head (BRANCH_BUILD_SUPERSEDED)
+      statuses: write # the non-required cmux-tui/linux-cross status
     outputs:
       target_set: ${{ steps.plan.outputs.target_set }}
       recovered: ${{ steps.plan.outputs.recovered }}
@@ -1502,9 +1503,38 @@ jobs:
           [[ -z "$set" ]] && recovered=true || recovered=false
           echo "recovered=$recovered" >> "$GITHUB_OUTPUT"
           if [[ -n "$set" ]]; then
+            echo "cross_failed=true" >> "$GITHUB_OUTPUT"
             echo "::warning title=macOS fallback build::the Linux cross build of the macOS targets ended $BUILD_RESULT (aarch64 $arm, x86_64 $intel); building target_set=$set on a Mac in this run. After a failed link, regenerate the stubs: scripts/ci/macos_stubs.py"
           fi
           echo "target_set=$set" >> "$GITHUB_OUTPUT"
+
+      # Leo: "instead of ffixing it if it's broken and warning earlier with a fast guard".
+      # A Mac rebuilds the macOS targets after a failed Linux cross build, so the
+      # artifacts still ship and the run stays green while each tree pays for a
+      # second build. Post a red status that blocks nothing (no ruleset requires
+      # cmux-tui/linux-cross) and names the failed step, so the cross build is fixed.
+      - name: Mark the failed Linux cross build with a non-required red status
+        if: steps.plan.outputs.cross_failed == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          # The failed macOS leg of build, and its first failed step.
+          rows="$(gh api --paginate "repos/$REPOSITORY/actions/runs/$RUN_ID/attempts/$RUN_ATTEMPT/jobs?per_page=100" \
+            --jq '.jobs[] | select(.conclusion == "failure" and (.name | test("apple-darwin"))) | [.html_url, ([.steps[] | select(.conclusion == "failure") | .name][0] // "unknown step")] | @tsv')"
+          first="${rows%%$'\n'*}"
+          url="$RUN_URL"; step="unknown step"
+          if [[ -n "$first" ]]; then url="${first%%$'\t'*}"; step="${first#*$'\t'}"; fi
+          description="linux-cross: failed at $step, covered by macOS fallback"
+          gh api --method POST "repos/$REPOSITORY/statuses/$HEAD_SHA" -f state=failure \
+            -f context=cmux-tui/linux-cross -f target_url="$url" -f description="${description:0:140}" >/dev/null
+          echo "posted cmux-tui/linux-cross=failure on $HEAD_SHA: $description ($url)"
 
   build-darwin-fallback:
     if: ${{ !cancelled() && needs.darwin-fallback-plan.outputs.target_set != '' }}
@@ -1574,7 +1604,18 @@ jobs:
     # a runner suffix still count. Leo, 2026-10-27: "ok do NOT label stuff as
     # os=linux...": the name, steps and marker name no runner OS.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 60
+    # 60 was the green run's whole length: job 137409209815 (7d439038, 2026-11-23,
+    # cmux-runner-pool) took 59:56: setup 11 min (runner 2:20, checkout 2,
+    # supersede check 1:40, Zig packages 2:16), the test compile 22:40 on a
+    # partial cache hit (18 min of it the cmux-tui and cmux-tui-core lib test
+    # builds), the tests 15:04 (open_file_limit 293 s, cli 196 s, idle_wakeups
+    # 78 s), the cargo cache save 9:35. The next testing run, job 137459375926,
+    # restored no cargo cache (4 s) and was cut at 60 with cargo test 47:39 in,
+    # and a cut job never saves its cache, so the next run compiles cold and is
+    # cut the same way: the feat-cmux-next channel stayed at 7d439038
+    # (cmuxterm-hq#20161). 90 holds a cold compile; cargo test has its own bound
+    # below, so a cut test step still leaves time to save what it compiled.
+    timeout-minutes: 90
     env:
       # Cargo's default registry retry is too small for a transient index DNS
       # outage. Keep the registry and git checkouts in the runner cache, then
@@ -1761,9 +1802,14 @@ jobs:
           workspaces: cmux-tui -> target
           shared-key: ${{ runner.os == 'macOS' && 'cmux-tui-macos' || 'cmux-tui-linux' }}
           cache-all-crates: true
+          # A red or cut test step still saves the compile, so the next run is warm
+          # (job 137459375926: a cut run saved nothing and the next ones compiled cold).
+          cache-on-failure: true
 
       - name: cargo test cmux_next_
         if: steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true'
+        # Below the job's 90: setup (about 12 min) + this + the cache save (about 10 min).
+        timeout-minutes: 65
         working-directory: cmux-tui
         shell: bash
         run: |
