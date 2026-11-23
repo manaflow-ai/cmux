@@ -7,6 +7,8 @@
 //!                           [--keep DIR] [--trees DIR] [--ready-file FILE] [--allow-other]
 //! cmux-projection git-unmount --at PATH
 //! cmux-projection seed --git-dir MIRROR --listen ADDR [--rate BYTES_PER_S] [--conns N]
+//! cmux-projection share --listen ADDR --allow CIDR[,CIDR...]
+//! cmux-projection share-mount --from HOST[:PORT] --path FOLDER --at DIR [--keep DIR] [--ready-file FILE]
 //! ```
 //!
 //! `git-lower` mounts commit REV's tree read only at PATH (every write answers EROFS) for many
@@ -32,6 +34,10 @@
 //! environment names, each answer checked against its id (`cmux_projection::peers`, hq RFD 0008),
 //! and only the rest come from GitHub; `CMUX_PROJECTION_PEERS=0` sends them all to GitHub. `seed` serves MIRROR's blobs read only on ADDR
 //! (a tailnet or VPC address, never 0.0.0.0) for the other hosts' chains.
+//!
+//! `share` serves this machine's readable folders, read only and under machine_read's policy, to
+//! the peers `--allow` admits; `share-mount` mounts one of another machine's folders read only
+//! (`cmux_projection::share`).
 
 #[cfg(target_os = "linux")]
 fn main() -> std::process::ExitCode {
@@ -125,6 +131,9 @@ mod linux {
 
     pub fn run(args: Vec<String>) -> anyhow::Result<()> {
         let (command, rest) = args.split_first().ok_or_else(|| anyhow::anyhow!(USAGE))?;
+        if command == "share" || command == "share-mount" {
+            return cmux_projection::share::cli(command, rest);
+        }
         let args = parse(rest)?;
         if command == "seed" {
             return seed(&args);

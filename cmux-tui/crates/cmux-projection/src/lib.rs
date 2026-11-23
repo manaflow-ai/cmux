@@ -23,6 +23,8 @@ pub mod peers;
 pub mod reap;
 pub mod revision;
 #[cfg(unix)]
+pub mod share;
+#[cfg(unix)]
 pub mod state;
 #[cfg(target_os = "linux")]
 pub mod upper;
