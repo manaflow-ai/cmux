@@ -51,7 +51,8 @@ struct MoveToNewSplitCommitFrameTests {
             presenter.placeHook = { view, frame in
                 guard commits.moving, frame.size != view.bounds.size else { return }
                 let stack = Thread.callStackSymbols.dropFirst(1).prefix(18).joined(separator: "\n    ")
-                print("SPLIT MOVE place commit \(commits.count) \(Self.name(view)): \(Self.text(view.bounds.size)) -> \(Self.text(frame.size))\n    \(stack)")
+                print("SPLIT MOVE place commit \(commits.count) \(Self.name(view)): \(Self.text(view.bounds.size)) -> \(Self.text(frame.size)) "
+                      + "screens \(Self.screens(window))\n    \(stack)")
             }
             let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue | CFRunLoopActivity.exit.rawValue,
                                                               true, 2_000_001) { _, _ in
@@ -81,11 +82,30 @@ struct MoveToNewSplitCommitFrameTests {
                                                    report: { "panes \(workspace.screens.flatMap(\.panes).map { $0.tabs.map(\.id) })" })
     }
 
+    /// Each shown screen's held snap and pane frames (shown rect, target, host frame).
+    private static func screens(_ window: NSWindow) -> String {
+        guard let root = window.contentView else { return "" }
+        var out: [String] = []
+        var stack: [NSView] = [root]
+        while let view = stack.popLast() {
+            stack.append(contentsOf: view.subviews)
+            guard let screen = view as? ScreenContentView, !screen.isHiddenOrHasHiddenAncestor else { continue }
+            let panes = screen.paneFrames.sorted { $0.key.rawValue < $1.key.rawValue }.map { pane, frame in
+                "\(pane.rawValue.suffix(4)) rect \(rect(frame.rect)) target \(rect(frame.targetRect)) host \(screen.context.hosts[pane].map { rect($0.frame) } ?? "-")"
+            }
+            out.append("[snap waits \(screen.frameInput.snapWaitsForContent), holds \(screen.context.holdsPresentations): \(panes.joined(separator: "; "))]")
+        }
+        return out.joined(separator: " ")
+    }
+
+    private static func rect(_ r: CGRect) -> String { "(\(Int(r.minX)),\(Int(r.minY)) \(Int(r.width))x\(Int(r.height)))" }
+
     /// One commit as the screen shows it: each shown terminal's layer, its host's area and its pane's size.
     private static func read(_ window: NSWindow, into commits: Commits) {
         guard let root = window.contentView else { return }
         let index = commits.count
         commits.count += 1
+        commits.lines.append("commit \(index) screens \(screens(window))")
         var stack: [NSView] = [root]
         while let view = stack.popLast() {
             stack.append(contentsOf: view.subviews)
