@@ -25,7 +25,7 @@ function storedMode(): PerfBudgetMode | undefined {
   }
 }
 
-if (import.meta.env.DEV) {
+if (import.meta.env?.DEV) {
   const win = window as DevWindow;
   if (!win.__cmuxPerfBudgetsHandle) {
     const options = win.__cmuxPerfBudgets ?? {};
