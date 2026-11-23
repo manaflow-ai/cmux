@@ -130,4 +130,57 @@ struct OverviewLayoutTests {
         // The page points a card shows: the page width at the card's aspect.
         #expect(abs(g.cardPageHeight - 402 * 249.3 / 177) < 1e-9)
     }
+
+    /// An unfolded foldable (about 800 pt wide, nearly square): more columns of
+    /// phone-sized cards, centred, instead of two cards 380 pt wide; every
+    /// iPhone width keeps Safari's two.
+    @Test func wideScreenAddsColumns() {
+        for width: CGFloat in [375, 402, 440, 500] { #expect(OverviewLayout.columns(width: width) == 2) }
+        let wide = OverviewLayout(size: CGSize(width: 800, height: 700), safeTop: 24, safeBottom: 20, count: 9)
+        #expect(wide.columns == 4)
+        #expect(wide.cardWidth <= OverviewLayout.maxColumnCard)
+        #expect(wide.card(3).minY == wide.card(0).minY && wide.card(4).minY > wide.card(0).minY)
+        #expect(abs(wide.card(0).minX - (800 - wide.card(3).maxX)) <= 1)
+        #expect(wide.card(1).minX - wide.card(0).maxX == OverviewLayout.gridInset)
+        #expect(wide.rows == 3)
+        // A lone tab stays a phone's lone card, not two thirds of the wide screen.
+        let lone = OverviewLayout(size: CGSize(width: 800, height: 700), safeTop: 24, safeBottom: 20, count: 1)
+        #expect(lone.cardWidth == OverviewLayout.maxLoneCard)
+        // The host's card picture scale follows the same grid.
+        #expect(TabsKitGrid(pageWidth: 800).cardScale(lone: false) == wide.cardWidth / 800)
+        #expect(TabsKitGrid(pageWidth: 402).cardScale(lone: false) == 177.0 / 402)
+    }
+
+    /// Folding or unfolding under a settled grid keeps the grid's place: the
+    /// card that led the screen still leads it in the new column count.
+    @Test func resizeKeepsTheGridsPlace() {
+        let folded = OverviewLayout(size: CGSize(width: 402, height: 874), safeTop: 62, safeBottom: 34, count: 40)
+        let unfolded = OverviewLayout(size: CGSize(width: 800, height: 700), safeTop: 24, safeBottom: 20, count: 40)
+        // Folded, scrolled so card 20 (row 10) leads the screen.
+        let atTwenty = folded.card(20).minY - folded.top
+        let wide = folded.offset(keepingPlace: atTwenty, in: unfolded)
+        // Card 20 is on the first row's line again (the safe area changes with the fold).
+        #expect(abs(unfolded.card(20).minY - unfolded.pinnedTop - wide) < 1e-9)
+        #expect(wide > 0 && wide <= unfolded.maxOffset)
+        // And back: card 20 leads the folded screen again.
+        let back = unfolded.offset(keepingPlace: wide, in: folded)
+        #expect(abs(back - atTwenty) < 1e-9)
+        // At the top it stays at the top; past the end it clamps to the content.
+        #expect(folded.offset(keepingPlace: 0, in: unfolded) == 0)
+        #expect(folded.offset(keepingPlace: folded.maxOffset, in: unfolded) == unfolded.maxOffset)
+    }
+
+    /// A grid scrolled into its pinned section keeps its place too: the
+    /// leading pinned capsule leads again, instead of the grid jumping to the top.
+    @Test func resizeKeepsThePinnedSectionsPlace() {
+        let unfolded = OverviewLayout(size: CGSize(width: 800, height: 700), safeTop: 24, safeBottom: 20, count: 110, pinned: 100)
+        let folded = OverviewLayout(size: CGSize(width: 402, height: 874), safeTop: 62, safeBottom: 34, count: 110, pinned: 100)
+        // Unfolded (4 columns), scrolled so pinned capsule 20 (row 5) is on the first row's line.
+        let at = unfolded.card(20).minY - unfolded.pinnedTop
+        let narrow = unfolded.offset(keepingPlace: at, in: folded)
+        // Folded (2 columns): capsule 20 (row 10) is on that line again, though the safe area changed.
+        #expect(abs(folded.card(20).minY - folded.pinnedTop - narrow) < 1e-9)
+        #expect(narrow > at)
+        #expect(abs(folded.offset(keepingPlace: narrow, in: unfolded) - at) < 1e-9)
+    }
 }
