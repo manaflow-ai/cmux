@@ -428,20 +428,18 @@ final class AgentChatSessionRegistry {
                 if let current = records[sessionID] {
                     var candidate = current
                     candidate.adoptMissingBindings(from: entry, includingPID: false)
-                    // A record made by the resume path or by observation has
-                    // seen no hook yet, so the store is the only place that
-                    // knows its last turn ended.
-                    let adoptsSettledTurn = entry.turnSettled
-                        && !current.hasHookLifecycleState
-                        && !current.hookTurnSettled
-                    guard adoptsSettledTurn
+                    // A record made by the resume path, by observation or by
+                    // a SessionStart has seen no prompt or Stop yet, so the
+                    // store is the only place that knows its last turn ended.
+                    let turn = current.hookTurn.adoptingStored(settled: entry.turnSettled)
+                    guard turn != current.hookTurn
                         || candidate.surfaceID != current.surfaceID
                         || candidate.workspaceID != current.workspaceID
                         || candidate.transcriptPath != current.transcriptPath
                         || candidate.workingDirectory != current.workingDirectory || candidate.hookStoreSessionID != current.hookStoreSessionID else { continue }
                     update(sessionID: sessionID) { record in
                         record.adoptMissingBindings(from: entry, includingPID: false)
-                        if adoptsSettledTurn { record.hookTurnSettled = true }
+                        record.hookTurn = record.hookTurn.adoptingStored(settled: entry.turnSettled)
                     }
                     continue
                 }
@@ -458,7 +456,7 @@ final class AgentChatSessionRegistry {
                     title: nil,
                     pid: entry.pid
                 )
-                record.hookTurnSettled = entry.turnSettled
+                record.hookTurn = record.hookTurn.adoptingStored(settled: entry.turnSettled)
                 record.rememberHookStoreSessionID(entry.sessionID)
                 stampLifecycleTransition(previous: nil, current: &record, at: entry.updatedAt ?? Date())
                 stampVersion(&record)
@@ -554,10 +552,8 @@ final class AgentChatSessionRegistry {
         Self.applyChildRunEvent(&record, event: event)
 
         let previous = records[sessionID]
-        record.setHookLifecycleState(
-            Self.nextState(previous: record.state, turnSettled: record.hookTurnSettled, event: event)
-        )
-        record.hookTurnSettled = Self.nextTurnSettled(previous: record.hookTurnSettled, event: event)
+        record.setHookLifecycleState(Self.nextState(previous: record.state, turn: record.hookTurn, event: event))
+        record.hookTurn = record.hookTurn.after(Self.turnHook(for: event))
         stampLifecycleTransition(previous: previous, current: &record, at: event.receivedAt)
         stampVersion(&record)
         storeRecord(record, replacing: previous)

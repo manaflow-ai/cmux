@@ -78,7 +78,7 @@ extension AgentChatSessionRegistry {
 
     nonisolated static func nextState(
         previous: ChatAgentState,
-        turnSettled: Bool = false,
+        turn: AgentChatHookTurn = .unknown,
         event: WorkstreamEvent
     ) -> ChatAgentState {
         if stateIsEnded(previous), event.hookEventName != .sessionStart {
@@ -98,21 +98,12 @@ extension AgentChatSessionRegistry {
             return .needsInput(since: event.receivedAt)
         }
         // A Claude plugin or helper can call tools after the turn's Stop, and
-        // no Stop follows those calls. The hook handler keeps the built-in
-        // status idle for them (its `turnSettled` check), so they must not
-        // leave this session working until the next prompt either. Such a
-        // call can still raise a permission prompt; its result settles the
-        // session again, whether the prompt is still showing or typed input
-        // already moved the session to working.
-        if turnSettled, event.source == "claude" {
-            switch event.hookEventName {
-            case .preToolUse, .todoWrite:
-                return previous
-            case .postToolUse, .postToolUseFailure:
-                return .idle
-            default:
-                break
-            }
+        // no Stop follows those calls, so they must not leave this session
+        // working until the next prompt. Only Claude's hook handler has this
+        // rule for the built-in status, so only Claude gets it here.
+        if event.source == "claude",
+           let settled = turn.stateOverride(previous: previous, hook: turnHook(for: event)) {
+            return settled
         }
         switch event.hookEventName {
         case .sessionStart:
@@ -144,17 +135,19 @@ extension AgentChatSessionRegistry {
         }
     }
 
-    /// Whether the session's last turn boundary is a `Stop`. Only a prompt
-    /// opens the next turn, as in the hook store: a `SessionStart` from a
-    /// resume or a compaction leaves it as is, like every other event.
-    nonisolated static func nextTurnSettled(previous: Bool, event: WorkstreamEvent) -> Bool {
+    /// The part of `event` that matters to the session's turn.
+    nonisolated static func turnHook(for event: WorkstreamEvent) -> AgentChatHookTurn.Hook {
         switch event.hookEventName {
-        case .stop:
-            return true
         case .userPromptSubmit:
-            return false
+            return .promptSubmitted
+        case .stop:
+            return .stopped
+        case .preToolUse, .todoWrite:
+            return .toolStarting
+        case .postToolUse, .postToolUseFailure:
+            return .toolFinished
         default:
-            return previous
+            return .other
         }
     }
 
