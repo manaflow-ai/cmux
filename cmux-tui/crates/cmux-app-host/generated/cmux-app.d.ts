@@ -1851,6 +1851,10 @@ interface CmuxGlobal {
       /** `terminal.state.read` (read, scope `terminal:read`) */
       read: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string }, Cmux.TerminalStateResult>
     }
+    tail_pin: {
+      /** `terminal.tail_pin.set` (mutation, scope `terminal:write`) */
+      set: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; expected_revision?: string; pinned?: boolean }, Cmux.MutationResult<Cmux.EmptyResult>>
+    }
     viewport: {
       /** `terminal.viewport.scroll` (mutation, scope `terminal:write`) */
       scroll: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; delta_rows: number; expected_revision?: string }, Cmux.MutationResult<Cmux.EmptyResult>>

@@ -9,31 +9,36 @@ import Testing
 /// Quit are one origin and keep every session whatever `app.quitBehavior` says; no quit asks how to quit (Leo
 /// 2026-11-05). Quit and End Sessions and Quit and End Everything (the command palette, the CLI flags) end them.
 struct QuitChoiceTests {
+    /// What `QuitCoordinator` decides with `app.quitBehavior` set to BEHAVIOR.
+    private func decide(_ origin: QuitOrigin, behavior: QuitBehavior) -> QuitSessionsChoice {
+        QuitRules.decide(origin, remembered: QuitSessionsChoice(rawValue: behavior.rawValue))
+    }
+
     @Test(arguments: QuitBehavior.allCases)
     func cmdQMenuAndDockQuitOnlyTheApp(behavior: QuitBehavior) {
-        #expect(QuitPolicy.decide(.interactive, behavior: behavior) == .keep, "Cmd-Q with \(behavior) ended the sessions")
+        #expect(decide(.interactive, behavior: behavior) == .keep, "Cmd-Q with \(behavior) ended the sessions")
     }
 
     @Test func cmdQKeepsTheSessionsByDefault() {
         #expect(QuitBehaviorSetting.fallback == .keep)
-        #expect(QuitPolicy.decide(.interactive, behavior: QuitBehaviorSetting.fallback) == .keep)
+        #expect(decide(.interactive, behavior: QuitBehaviorSetting.fallback) == .keep)
     }
 
     /// `cmux app quit` with no flag still follows the remembered choice.
     @Test(arguments: [(QuitBehavior.keep, QuitSessionsChoice.keep), (.endKeepLayout, .endKeepLayout)])
     func aScriptedQuitAppliesTheRememberedChoice(behavior: QuitBehavior, choice: QuitSessionsChoice) {
-        #expect(QuitPolicy.decide(.scripted, behavior: behavior) == choice)
+        #expect(decide(.scripted, behavior: behavior) == choice)
     }
 
     @Test func signalsAndPowerOffKeepTheSessions() {
         for origin in [QuitOrigin.signal, .powerOff] {
-            #expect(QuitPolicy.decide(origin, behavior: .endKeepLayout) == .keep, "\(origin) ended the sessions")
+            #expect(decide(origin, behavior: .endKeepLayout) == .keep, "\(origin) ended the sessions")
         }
     }
 
     @Test(arguments: [QuitSessionsChoice.keep, .endKeepLayout, .endEverything])
     func theQuitActionsRunAsAsked(choice: QuitSessionsChoice) {
-        #expect(QuitPolicy.decide(.explicit(choice), behavior: .keep) == choice)
+        #expect(decide(.explicit(choice), behavior: .keep) == choice)
     }
 
     /// "ask" (the removed alert) reads as the default with no diagnostic, so a cmux-next.json that set it keeps working.

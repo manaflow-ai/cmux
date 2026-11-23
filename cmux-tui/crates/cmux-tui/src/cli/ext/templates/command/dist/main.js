@@ -2363,6 +2363,7 @@
       "terminal.close",
       "terminal.history.clear",
       "terminal.renderer_grant.create",
+      "terminal.tail_pin.set",
       "terminal.viewer.release",
       "terminal.viewer.resize",
       "tunnel.attach",

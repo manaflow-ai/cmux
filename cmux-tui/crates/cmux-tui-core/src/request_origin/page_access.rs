@@ -81,6 +81,7 @@ const fn access(operation: Op) -> Access {
         Op::TerminalScreenRead
         | Op::TerminalHistoryRead
         | Op::TerminalHistoryClear
+        | Op::TerminalTailPinSet
         | Op::TerminalOutputRead
         | Op::TerminalStateRead
         | Op::TerminalCopy

@@ -17,7 +17,13 @@ const DESTRUCTIVE_OPERATIONS: &[&str] =
 const SINGLE_PICK_REMOVES: &[&str] = &["history.removeSite", "closed.delete"];
 
 /// The target kinds whose daemon id the app's `CatalogRequestHandlers` resolves.
-const RESOLVED_TARGETS: &[&str] = &["workspace", "pane"];
+const RESOLVED_TARGETS: &[&str] = &["workspace", "pane", "terminal"];
+
+/// The target a target param kind reads from: a `terminal` param reads the terminal in the
+/// row's tab target (Swift `ActionCatalogRequest.Source.terminal`).
+fn target_kind_taken(kind: &str) -> &str {
+    if kind == "terminal" { "tab" } else { kind }
+}
 
 fn well_formed(action: &Action) -> Result<(), String> {
     let Some(request) = &action.request else { return Ok(()) };
@@ -47,7 +53,8 @@ fn well_formed(action: &Action) -> Result<(), String> {
                 ));
             }
             ParamSource::Target(kind)
-                if !action.targets.contains(&kind) && action.palette_target != Some(kind) =>
+                if !action.targets.contains(&target_kind_taken(kind))
+                    && action.palette_target != Some(target_kind_taken(kind)) =>
             {
                 return Err(format!(
                     "{id}: param {} reads a {kind} target it does not take",

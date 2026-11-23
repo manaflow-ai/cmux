@@ -7,7 +7,7 @@ import Darwin
 /// launched the app, or that terminal closing. `SignalRelay` delivers them
 /// on the main queue, where the first starts a normal quit with origin
 /// `.signal`, which never shows the alert and never ends a terminal
-/// (`QuitPolicy`); windows still save and the run marker records the quit
+/// (`QuitRules`); windows still save and the run marker records the quit
 /// (`AppRunMarker.markQuitting`), so the next launch is clean even when the
 /// sender escalates to SIGKILL before the quit finishes. A second signal
 /// while that quit runs exits at once (`forceExit`), so a stuck quit never

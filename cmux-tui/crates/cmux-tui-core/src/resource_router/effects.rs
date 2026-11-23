@@ -281,6 +281,7 @@ pub(super) fn receipt_only_operation(operation: &str) -> bool {
             | "terminal.input.mouse"
             | "terminal.input.focus"
             | "terminal.history.clear"
+            | "terminal.tail_pin.set"
             | "terminal.viewport.scroll"
             | "browser.input.key"
             | "browser.input.text"

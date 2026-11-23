@@ -62,6 +62,21 @@ struct CatalogRequestHandlersTests {
         #expect(missing == .failure(ActionCatalogRequest.MissingTarget(kind: .workspace)))
     }
 
+    /// A `target: "terminal"` param (Pin to Bottom's `terminal.tail_pin.set`) takes the terminal
+    /// of the invocation's tab; with no terminal tab it fails as a missing tab.
+    @Test func terminalParamTakesTheTabsTerminal() throws {
+        let request = try #require(ActionCatalogRequest.decode([
+            "lane": "session", "operation": "terminal.tail_pin.set",
+            "params": [["name": "terminal", "target": "terminal"], ["name": "pinned", "argument": "on"]],
+        ]))
+        #expect(request.params.map(\.source) == [.terminal, .argument("on")])
+        let invocation = ActionInvocation(arguments: ["on": .bool(true)])
+        let values = try request.values(arguments: [], invocation: invocation, terminal: { "term_1" }) { _ in nil }.get()
+        #expect(values == ["terminal": .string("term_1"), "pinned": .bool(true)])
+        let missing = request.values(arguments: [], invocation: invocation) { _ in "ws_9" }
+        #expect(missing == .failure(ActionCatalogRequest.MissingTarget(kind: .tab)))
+    }
+
     @Test func listRowsBecomeSuggestions() throws {
         let list = ActionCatalogListSource(lane: .session, operation: "closed.list", items: nil, value: "id", title: "name")
         let data = try JSONSerialization.data(withJSONObject: [["id": "cl_1", "name": "Tab"], ["id": "cl_2"], ["name": "no id"]])
