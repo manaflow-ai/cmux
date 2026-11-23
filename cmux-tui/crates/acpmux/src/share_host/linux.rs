@@ -441,12 +441,25 @@ pub(crate) fn still_running(pid: Option<u32>, disabled: bool) -> String {
 
 /// Whether cmux-rd's own record says it signed in for the join `mark` (its `joined.json`):
 /// a unit that runs is that join's only when it says so too.
-pub(crate) fn rd_signed_in_for(rd_config: &Path, mark: &Value) -> bool {
+///
+/// A record from a cmux-rd before joins were named in it (no `machine_id`, cmux-rd-host's
+/// `Joined::unmarked_from`) still says its sign-in came from a join of `acpmux_home`, never from
+/// a person's token. Taken with the mark (this daemon's enable for this join and this cmux-rd
+/// finished) and a running unit, it is this join's. Refusing it re-ran the enable, which restarts
+/// the host and cuts a share, at every daemon start on every machine joined with such a cmux-rd
+/// (27 times a day on a lane VM: hq docs/findings/2026-11-23-screen-host-restart-loop.md).
+pub(crate) fn rd_signed_in_for(rd_config: &Path, mark: &Value, acpmux_home: &Path) -> bool {
     identity::read_private(&rd_config.join("joined.json"))
         .ok()
         .flatten()
         .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
         .is_some_and(|joined| {
+            let named =
+                joined.get("machine_id").and_then(Value::as_str).is_some_and(|id| !id.is_empty());
+            if !named {
+                return joined.get("acpmux_home").and_then(Value::as_str).map(Path::new)
+                    == Some(acpmux_home);
+            }
             joined.get("machine_id") == mark.get("machineId")
                 && joined.get("credential_generation") == mark.get("credentialGeneration")
         })
@@ -639,7 +652,7 @@ fn set_up(
 ) {
     // A unit that runs is left alone only when cmux-rd's own record says it is this join's: a
     // person's sign-in that replaced it is set up over.
-    let rd_signed_in = identity::config_dir().is_ok_and(|c| rd_signed_in_for(&c, mark));
+    let rd_signed_in = identity::config_dir().is_ok_and(|c| rd_signed_in_for(&c, mark, home));
     if marked(folder, mark) && rd_signed_in && host_active(env) {
         tracing::info!("{}: cmux-rd's host already runs for this join", super::LOG);
         let detail = format!("{HOST_UNIT} runs for this join");

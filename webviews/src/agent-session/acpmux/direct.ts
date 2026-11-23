@@ -78,8 +78,17 @@ import type { PeerLinkDetail } from "./linkState";
 import { peerResourcesFromStatus } from "./machineResources";
 import { type ChatUnavailable, chatUnavailable, type PeerStatus, peerStatusFromStatus } from "./chatUnavailable";
 import { resolvedTarget } from "./conversation/sessionRefs";
+import { isNews } from "./conversation/sinceNews";
 import { noteReplaced } from "./sessionIndex";
-import { hostKind, sessionEntry, sessionTitle, summaryActivityAt, text, type AcpmuxSessionEntry } from "./sessionList";
+import {
+  formerNamesOf,
+  hostKind,
+  sessionEntry,
+  sessionTitle,
+  summaryActivityAt,
+  text,
+  type AcpmuxSessionEntry,
+} from "./sessionList";
 import { sameUsageStats, type SessionUsageStats } from "./usageStats";
 import { usageLimitsOf } from "./usageLimits";
 import { clampRunning, subsessionLimits } from "./subsessionLimits";
@@ -208,6 +217,7 @@ import { taskGoal } from "./goal";
 import { shownPresence } from "./multiplayer/livePresenceModel";
 import { PresenceClient } from "./multiplayer/presenceClient";
 import { recordedConversationEvents } from "./conversation/exportEvents";
+import { parseSessionIcon } from "../shared/harnessIcons";
 import { liveModes, permissionModes } from "./permissionModes";
 import { handoffPromptId, namesHandoffTurn, TURN_WAIT_MS } from "./cloudHandoffTurn";
 import { STALL_CHECK_MS, type StallCause, quietDelay, stallLine, stallTiming } from "./stallLog";
@@ -222,6 +232,7 @@ import {
   memoryRowId,
   settleMemoryOffer,
 } from "./conversation/memoryInbox";
+import { withAttachmentRetries } from "../../pages/shared/attachmentRetry";
 import { readTurnShots, type TurnShotPair } from "./turnChanges/turnShots";
 import {
   coachIdOf,
@@ -997,10 +1008,13 @@ function afterPaint(run: () => void): () => void {
 }
 
 /// "New since you looked" from acpmux's `lastReturn` (`{since, turns}`, `hub/seen.rs`), when it has one.
-function returnOf(sessionId: string, value: unknown): (Omit<AcpmuxSince, "key"> & { sessionId: string }) | undefined {
+function returnOf(
+  sessionId: string,
+  value: unknown,
+): (Omit<AcpmuxSince, "key"> & { sessionId: string; lands: true }) | undefined {
   const back = value as { since?: unknown; turns?: unknown } | null | undefined;
   return typeof back?.since === "number" && typeof back.turns === "number" && back.turns > 0
-    ? { sessionId, seq: back.since, turns: back.turns }
+    ? { sessionId, seq: back.since, turns: back.turns, lands: true }
     : undefined;
 }
 
@@ -4333,11 +4347,25 @@ export class AcpmuxDirectClient {
     return unavailable;
   }
 
-  /// Reconnect on the unavailable chat: reads the machines and the chat list again now, and opens
-  /// the chat when it is listed.
+  /// Reconnect on the unavailable chat: reconnects the chat's machine when acpmux lists it down
+  /// (`_acpmux/peer_reconnect`, waiting for its handshake; before, the button only read the lists
+  /// again, so the machine sat out acpmux's backoff of up to a minute), then reads the machines and
+  /// the chat list again, and opens the chat when it is listed.
   async recheckMissing(): Promise<void> {
     const missing = this.missingSession;
     if (missing === undefined || this.selectedSessionId !== undefined) return;
+    const [peer, generation] = [this.missingPeer, this.selectionGeneration];
+    if (peer !== undefined && this.peerConnected[peer] === false) {
+      await this.reconnectPeer(peer).catch(() => undefined);
+      // Another chat was selected (or this one opened) meanwhile: not this press's to read.
+      if (
+        this.closed ||
+        this.missingSession !== missing ||
+        this.selectionGeneration !== generation ||
+        this.selectedSessionId !== undefined
+      )
+        return;
+    }
     await this.refreshPeers().catch(() => undefined);
     await this.refreshSessions().catch(() => undefined);
     // Asked by itself when the rows held lack it (`listOne`), never by reading every page.
@@ -4684,7 +4712,9 @@ export class AcpmuxDirectClient {
     const turns = listed?.unreadTurns;
     const seq = listed?.seenSeq;
     if (typeof turns === "number" && turns > 0 && typeof seq === "number") {
-      this.since = { sessionId, seq, turns, ...(inPlace && { inPlace: true as const }) };
+      // A return by hand to a chat left on screen never moves the view; a chat picked or shown
+      // again opens at the line (`lands`, App.tsx).
+      this.since = { sessionId, seq, turns, ...(inPlace ? { inPlace: true as const } : { lands: true as const }) };
       this.placeSince();
     } else if (this.since?.sessionId !== sessionId) this.since = returnOf(sessionId, listed?.lastReturn);
     this.sessions = this.sessions.map((session) =>
@@ -4696,7 +4726,8 @@ export class AcpmuxDirectClient {
 
   /// "New since you looked" for the chat on screen (`markSeen`): its row, after the record at
   /// `since.seq`. Placed again after a reset clears the rows; O(1) when it is there already.
-  private since?: Omit<AcpmuxSince, "key"> & { sessionId: string };
+  /// `lands`: a return placed it, so the view opens at it (App.tsx); a scroll up's line does not move the view.
+  private since?: Omit<AcpmuxSince, "key"> & { sessionId: string; lands?: true };
   /// Only the latest recap survives replay, paging and live updates, including its dismissal.
   private latestRecap?: { sessionId: string; seq: number; since?: number; recap?: AcpmuxRecap };
   /// An older page folded in (`foldOlder`): a reply it brought may span `since.seq`, so the drawn
@@ -6726,7 +6757,45 @@ export class AcpmuxDirectClient {
   /// The pane's transcript follows its latest row, or the reader scrolled away (VirtualTranscript `following`).
   setFollowing(following: boolean): void {
     this.following = following;
+    // Scrolled up from the latest row of a chat that has drawn its rows: what comes after the last
+    // record they followed is new to them (`placeScrolledSince`). A chat still opening has no place.
+    const sessionId = this.selectedSessionId;
+    if (
+      following ||
+      !sessionId ||
+      this.replayThrough !== undefined ||
+      this.attachedGeneration !== this.selectionGeneration
+    )
+      this.scrolledFrom = undefined;
+    else this.scrolledFrom ??= { sessionId, seq: this.lastSeq };
     if (!following) this.shedFollowingGeneration = undefined;
+  }
+
+  /// Where the reader scrolled up from while the chat kept going: the log seq the view last followed.
+  private scrolledFrom?: { sessionId: string; seq: number };
+  /// The reader scrolled up and a message came after what they had followed (Leo, 2026-11-15, of the
+  /// terminal's "157 new messages" rule): "New" goes after that record, unless the chat already draws
+  /// a line. That line stays where it is until another chat is selected, read or not, with its recap
+  /// (design/transcript-overlays.md): moving it would take a row out above the reader. Placed once per
+  /// scroll away and never moves the view (`lands` unset). O(1) while nothing new came; else O(the rows
+  /// after it) until one message has.
+  private placeScrolledSince(): void {
+    const from = this.scrolledFrom;
+    if (!from || from.sessionId !== this.selectedSessionId || this.lastSeq <= from.seq) return;
+    if (this.since?.sessionId === from.sessionId && this.rows.has(SINCE_DIVIDER)) {
+      this.scrolledFrom = undefined;
+      return;
+    }
+    const rows = this.rows.sorted();
+    let message = false;
+    for (let index = rows.length - 1; index >= 0 && !message; index -= 1) {
+      const row = rows[index]!;
+      if (this.rows.orderOf(row.id) <= from.seq) break;
+      message = isNews(row);
+    }
+    if (!message) return;
+    this.scrolledFrom = undefined;
+    this.since = { sessionId: from.sessionId, seq: from.seq, turns: 0, inPlace: true };
   }
 
   /// The oldest row the pane's view draws while it follows the latest row (VirtualTranscript), or null: the oldest
@@ -10399,6 +10468,9 @@ export class AcpmuxDirectClient {
           additionalDirectories: summaryExtraFolders(summary.additionalDirectories),
           title: summary.title,
           name: summary.name,
+          displayName: text(summary.displayName),
+          formerNames: formerNamesOf(summary.formerNames),
+          icon: parseSessionIcon(summary.icon),
           goal: taskGoal(summary.goal),
           taskList: (this.publishedTaskList = chatTaskListOf(summary.taskList, this.publishedTaskList)),
           harness: summary.harness,
@@ -10525,6 +10597,7 @@ export class AcpmuxDirectClient {
     const effort = (summary?.configOptions ?? []).find(
       (option: any) => option.category === "thought_level" || option.id === "reasoning_effort",
     );
+    this.placeScrolledSince();
     this.placeSince();
     // A chat on the store draws its rows, queue and paging from it (rows/chatSource.ts).
     const fromStore = this.chatRows.view(this.selectedSessionId);
@@ -10636,6 +10709,7 @@ export class AcpmuxDirectClient {
       ...(this.waitingSteers.length > 1 ? { waitingSteers: this.steerRowIds() } : {}),
       ...(this.waitingSteers.length > 1 && this.newestOwnSteer() ? { newestOwnSteer: this.newestOwnSteer() } : {}),
       ...(this.rows.get(SINCE_DIVIDER)?.since && { sinceKey: this.rows.get(SINCE_DIVIDER)!.since!.key }),
+      ...(this.rows.get(SINCE_DIVIDER)?.since && this.since?.lands && { sinceLands: true as const }),
       permission: this.pendingPermission,
       ...(this.pendingPermission && this.waitingPermissions.size > 0
         ? { permissionsWaiting: this.waitingPermissions.size, permissionsQueued: this.queuedPermissions() }
@@ -11841,29 +11915,45 @@ export class AcpmuxDirectClient {
     return read;
   }
   /// The image `id` a prompt of the open chat sent, as a data URL; undefined when acpmux has none.
-  /// An id names the image's bytes, so one read serves every bubble that shows it.
+  /// An id names the image's bytes, so one read serves every bubble that shows it. A read that
+  /// failed for any other reason (the socket reconnecting, acpmux busy) throws, so the bubble tries
+  /// again and then offers Retry (imageEntries.ts loadSentImage), instead of drawing nothing as
+  /// though the image were gone.
   async promptImage(id: string): Promise<string | undefined> {
     const shown = this.promptImageUrls.get(id);
     if (shown) return shown;
-    const data = await this.promptImageData(id);
+    const data = await this.readPromptImage(id);
     const url = data && `data:${data.mimeType};base64,${data.data}`;
     if (url) this.promptImageUrls.set(id, url);
     return url;
   }
   private readonly promptImageUrls = new Map<string, string>();
+  /// For a resend: the image's bytes, tried again on its own after a failed read; undefined when
+  /// they still cannot be read.
   private async promptImageData(id: string): Promise<{ mimeType: string; data: string } | undefined> {
-    const sessionId = this.selectedSession;
-    if (!sessionId) return undefined;
     try {
-      const reply = await this.request("_acpmux/attachment", { sessionId, id });
-      return typeof reply?.data === "string"
-        ? {
-            mimeType: typeof reply.mimeType === "string" ? reply.mimeType : "image/png",
-            data: reply.data,
-          }
-        : undefined;
+      return await withAttachmentRetries(() => this.readPromptImage(id));
     } catch {
       return undefined;
+    }
+  }
+  /// One read of the image `id`: undefined when acpmux has none (it answers not found, or the id
+  /// is not one), throws on any other failure.
+  private async readPromptImage(id: string): Promise<{ mimeType: string; data: string } | undefined> {
+    const sessionId = this.selectedSession;
+    // No chat selected for a moment (a reconnect, a switch): a read now cannot tell, so try again.
+    // l10n-allow: a code for the retry, never shown.
+    if (!sessionId) throw new Error("no_session");
+    try {
+      const reply = await this.request("_acpmux/attachment", { sessionId, id });
+      // acpmux answers an image it has with its bytes and one it has none of with an error, so a
+      // reply without bytes is a failure to try again, never a gone image.
+      // l10n-allow: a code for the retry, never shown.
+      if (typeof reply?.data !== "string") throw new Error("attachment_reply_without_data");
+      return { mimeType: typeof reply.mimeType === "string" ? reply.mimeType : "image/png", data: reply.data };
+    } catch (error) {
+      if (error instanceof AcpmuxRpcError && !refusedByHost(error) && ATTACHMENT_GONE.has(error.code)) return undefined;
+      throw error;
     }
   }
   /// Turn `turnId`'s before and after picture of the chat's page, as data URLs
@@ -15862,6 +15952,9 @@ function readerHere(): boolean {
 
 /// JSON-RPC's method-not-found code: a daemon that predates the method.
 const METHOD_NOT_FOUND = -32601;
+/// acpmux's answers for an image it has none of: not found (hub/prompt_images.rs), or an id that
+/// is not one (invalid params). Reading again never finds it.
+const ATTACHMENT_GONE = new Set<unknown>([-32002, -32602]);
 
 /// Methods the pane's host refused because they are not on its allowlist, said once each.
 const notAllowlisted = new Set<string>();

@@ -24,7 +24,7 @@ def row(p95, unit="ms", floor=1.0, budget=None):
     return {"p50": p95, "p95": p95, "unit": unit, "floor": floor, "budget": budget}
 
 
-LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-flat", "web-ui-scroll-up", "web-ui-flat-grown", "web-ui-typing", "web-ui-scroll", "chat-disk", "terminal-scroll", "daemon-restart", "coord-sim", "chat-search"]
+LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-flat", "web-ui-scroll-up", "web-ui-flat-grown", "web-ui-typing", "web-ui-scroll", "chat-disk", "cloud-claim", "terminal-scroll", "daemon-restart", "coord-sim", "chat-search"]
 FLEET = [n for n in ALL if n not in ("build", *LINUX_PARTS)]
 
 
@@ -41,6 +41,71 @@ class OneRunRule(unittest.TestCase):
         for patcher in (mock.patch.object(cron, "confirm_regressions", confirm_all), mock.patch.object(cron, "RECOVER_RUNS", 1)):
             patcher.start()
             self.addCleanup(patcher.stop)
+
+
+_claim_spec = importlib.util.spec_from_file_location("cloud_claim_rows", os.path.join(HERE, "..", "cloud-claim-rows.py"))
+claim_mod = importlib.util.module_from_spec(_claim_spec)
+_claim_spec.loader.exec_module(claim_mod)
+
+
+class CloudClaimRowsTests(unittest.TestCase):
+    """scripts/cmux-next/cloud-claim-rows.py: production journey probe rows to the cloud-claim part's rows."""
+
+    @staticmethod
+    def probe(ready=None, spare=False, error=None, backend="prod", name="cloud-chat-replies-production"):
+        p = {"probe": name, "at": "2026-11-19T01:41:52Z", "backend": backend, "claimed_spare": spare,
+             "outcome": "fail" if error else "ok"}
+        if ready is not None:
+            p["ready_ms"] = ready
+        if error:
+            p["error"] = error
+        return p
+
+    def test_a_probe_row_is_a_ready_claim_a_claim_that_failed_before_ready_or_nothing(self):
+        self.assertEqual(claim_mod.claim_of(self.probe(46701)), {"ready_ms": 46701.0, "spare": False,
+                                                                 "at": "2026-11-19T01:41:52Z"})
+        self.assertTrue(claim_mod.claim_of(self.probe(9000, spare=True))["spare"])
+        self.assertEqual(claim_mod.claim_of(self.probe(error="create machine: failed after 34 s"))["failed"],
+                         "create machine")
+        self.assertEqual(claim_mod.claim_of(self.probe(error="start agent (claude): exit 1"))["failed"], "start agent")
+        # A failure after ready keeps its ready_ms; one that names no ready step, another backend or probe says nothing.
+        self.assertEqual(claim_mod.claim_of(self.probe(30000, error="reply: timeout"))["ready_ms"], 30000.0)
+        self.assertIsNone(claim_mod.claim_of(self.probe(error="reply: timeout")))
+        self.assertIsNone(claim_mod.claim_of(self.probe(error="no reply step ran")))
+        self.assertIsNone(claim_mod.claim_of(self.probe(9000, backend="staging")))
+        self.assertIsNone(claim_mod.claim_of(self.probe(9000, name="machine-ready-after-create")))
+
+    def test_rows_are_p50_and_p95_over_the_newest_claims_against_the_plan_targets(self):
+        claims = [{"ready_ms": float(v), "spare": v < 5000} for v in (40000, 3000, 50000, 45000, 4000, 60000)]
+        claims.insert(2, {"failed": "create machine"})
+        rows = {r["name"]: r for r in claim_mod.claim_rows(claims, samples=5)}
+        # The newest 5 ready claims (40, 3, 50, 45, 4 s) and the one failure among them; the sixth is past the sample.
+        self.assertEqual((rows["claim_to_ready"]["p50"], rows["claim_to_ready"]["p95"]), (40000.0, 50000.0))
+        self.assertEqual(rows["claim_to_ready"]["target"], 15000)
+        self.assertEqual((rows["claim_to_ready.p50"]["p95"], rows["claim_to_ready.p50"]["target"]), (40000.0, 8000))
+        self.assertEqual(rows["claim_to_ready.failed_claims"]["p95"], 1)
+        self.assertEqual((rows["claim_to_ready.spare"]["p95"], rows["claim_to_ready.spare"]["samples"],
+                          rows["claim_to_ready.spare"]["target"]), (4000.0, 2, 1000))
+        # Every row parses as a cloud-claim row.
+        parsed = cron.rows_of_part(cron.PART_BY_NAME["cloud-claim"], {"rows": list(rows.values())}, budgets_mod, {"rows": {}})
+        self.assertEqual(sorted(parsed), sorted(f"cloud.{n}" for n in rows))
+
+    def test_reading_stops_at_the_deadline_and_counts_unread_artifacts(self):
+        arts = {"artifacts": [{"id": i, "name": "cloud-journey-prod-stub", "created_at": "2026-11-19T0%d:00:00Z" % i,
+                               "expired": False} for i in range(1, 4)]}
+        ticks = iter([0, 1, 2, 999])
+        with mock.patch.object(claim_mod, "gh_json", lambda path: arts if "name=cloud-journey-prod-stub" in path else {}), \
+                mock.patch.object(claim_mod, "gh_bytes", side_effect=RuntimeError("refused")), \
+                contextlib.redirect_stderr(io.StringIO()):
+            claims, unread = claim_mod.fetch_claims("o/r", datetime.datetime(2026, 11, 18, tzinfo=datetime.timezone.utc), 24,
+                                                    deadline_s=10, clock=lambda: next(ticks))
+        self.assertEqual((claims, unread), ([], 2))  # newest first; the third waits past the deadline
+
+    def test_too_few_ready_claims_make_no_rows_and_no_spare_row_without_a_spare(self):
+        few = [{"ready_ms": 40000.0, "spare": False}] * (claim_mod.MIN_SAMPLES - 1) + [{"failed": "create machine"}]
+        self.assertEqual(claim_mod.claim_rows(few), [])
+        enough = [{"ready_ms": 40000.0, "spare": False}] * claim_mod.MIN_SAMPLES
+        self.assertNotIn("claim_to_ready.spare", [r["name"] for r in claim_mod.claim_rows(enough)])
 
 
 class DecideTests(unittest.TestCase):
@@ -1192,6 +1257,29 @@ class WebUiTests(unittest.TestCase):
             {"name": "chat_disk.growth_ratio", "p50": 374.0, "p95": 374.0, "unit": "x", "target": 1.2}]},
             budgets_mod, {"rows": {}})
         self.assertEqual(rows["webui.chat_disk.growth_ratio"]["p95"], 374.0)
+
+    def test_the_cloud_claim_rows_have_their_own_linux_part_judged_against_their_targets_only(self):
+        self.assertTrue(cron.is_linux_part("cloud-claim"))
+        self.assertEqual(cron.part_for_row("cloud.claim_to_ready@linux"), "cloud-claim")
+        self.assertEqual(cron.part_for_row("cloud.claim_to_ready.spare@linux"), "cloud-claim")
+        self.assertEqual(cron.linux_bench_runs("/r", "cloud-claim")["suite"][0],
+                         ["python3", "/r/scripts/cmux-next/cloud-claim-rows.py"])
+        report = {"rows": [
+            {"name": "claim_to_ready", "p50": 41000, "p95": 63000, "unit": "ms", "target": 15000, "version": 1},
+            {"name": "claim_to_ready.p50", "p50": 41000, "p95": 41000, "unit": "ms", "target": 8000, "version": 1},
+            {"name": "claim_to_ready.failed_claims", "p50": 1, "p95": 1, "unit": "claims", "target": 0, "floor": 0.5}]}
+        rows = cron.rows_of_part(cron.PART_BY_NAME["cloud-claim"], report, budgets_mod, {"rows": {}})
+        self.assertEqual(sorted(rows), ["cloud.claim_to_ready", "cloud.claim_to_ready.failed_claims",
+                                        "cloud.claim_to_ready.p50"])
+        self.assertEqual((rows["cloud.claim_to_ready"]["p50"], rows["cloud.claim_to_ready"]["p95"]), (41000, 63000))
+        # The plan's targets, not the 10 ms latency default, and marked over target.
+        self.assertEqual(cron.target_of("cloud.claim_to_ready@linux", rows["cloud.claim_to_ready"], None), 15000)
+        self.assertEqual(cron.target_of("cloud.claim_to_ready.p50@linux", rows["cloud.claim_to_ready.p50"], None), 8000)
+        self.assertTrue(cron.over_target("cloud.claim_to_ready@linux", rows["cloud.claim_to_ready"], None))
+        # Report-only: the deployed Cloud's number, never a regression a cmux bisect would chase.
+        keyed = {f"{n}@linux": r for n, r in rows.items()}
+        self.assertEqual(cron.find_regressions(keyed, {}, None, None, budgets_mod), [])
+        self.assertIn("| cloud.claim_to_ready | 63000 ms | 15000 ms | 420 % |", cron.webui_summary(report, "cloud"))
 
     def test_the_terminal_scroll_rows_keep_their_names_and_are_judged_against_zero(self):
         self.assertTrue(cron.is_linux_part("terminal-scroll"))

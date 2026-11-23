@@ -17,6 +17,11 @@
 //! - Exit or crash: started again after [`Backoff`] (200 ms doubling to 30 s,
 //!   reset after a healthy run) while Computer Use is on. Its state directory
 //!   is the same on every launch, so grants and saved approvals survive.
+//! - Hot upgrade: a worker whose executable was replaced on disk (a newer
+//!   build swapped the signed helper in at its fixed path, or cmux-tui was
+//!   updated) lets its running calls finish, says `replaced` and exits
+//!   (`cmux_computer_use::replaced`); the next worker starts at once, from the
+//!   new executable, with no backoff and no relaunch of the app or the daemon.
 //! - No desktop (a headless box without DISPLAY): `unavailable` with the
 //!   reason; tried again on the next request.
 //! - Off (`computerUse.mode` = off): the worker is stopped (stdin closed) and
@@ -30,7 +35,7 @@
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{SyncSender, sync_channel};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::{Duration, Instant};
@@ -133,6 +138,8 @@ struct Link {
     input: Mutex<Option<Box<dyn Write + Send>>>,
     started: Instant,
     secret: String,
+    /// The worker said its executable was replaced: start the new one at once.
+    replaced: AtomicBool,
 }
 
 impl Link {
@@ -416,6 +423,7 @@ impl Inner {
             input: Mutex::new(Some(process.input)),
             started: Instant::now(),
             secret: secret.clone(),
+            replaced: AtomicBool::new(false),
         });
         let configure = json!({
             "type": "configure", "config": config, "socket": paths.endpoint, "secret": secret,
@@ -475,6 +483,7 @@ impl Inner {
                     said_unavailable = Some(reason);
                 }
                 "ask" => Self::asked(&inner, link, &message),
+                "replaced" => link.replaced.store(true, Ordering::SeqCst),
                 "approvals" => {
                     if let Some(id) = message.get("id").and_then(Value::as_u64)
                         && let Some(waiting) = lock(&inner.replies).remove(&id)
@@ -524,6 +533,17 @@ impl Inner {
         }
         if !this.wanted() {
             this.set_phase(Phase::Idle);
+            return;
+        }
+        // An update, not a failure: the new executable starts now, and the
+        // backoff starts over.
+        if link.replaced.load(Ordering::SeqCst) {
+            eprintln!("cmux-tui: the Computer Use helper was updated; starting the new one");
+            if let Some(backoff) = lock(&this.backoff).as_mut() {
+                backoff.reset();
+            }
+            this.set_phase(Phase::Idle);
+            Self::start_in_background(this);
             return;
         }
         if !was_ready {

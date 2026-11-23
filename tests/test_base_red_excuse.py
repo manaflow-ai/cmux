@@ -3285,6 +3285,48 @@ class WebShardBaseVerdict(unittest.TestCase):
                 with self.assertRaisesRegex(excuse.Refused, "refused at setup: re-run"):
                     excuse.judge(REPO, "feat-cmux-next", HEAD, runs, gh, checks=checks)
 
+    def test_a_web_status_whose_need_was_cancelled_names_the_job_state_and_the_rerun(self):
+        """Run 45093415114: 'web / Web status' red, 'web / web-subarea-scope' cancelled, nothing failed under it.
+
+        The gate went red because a dependency holds no verdict. That is an inability to compare, not a verdict on
+        this PR's red, and a lander may not judge the red itself: the refusal must name the job, its state and the
+        call that resolves it, never only "no failed job under its needs" (which the lander read as the PR's own and
+        parked with no step on it).
+        """
+        scope = "web / web-subarea-scope"
+        for checks, runs in (([WEB_STATUS], []), ([], [10])):
+            with self.subTest(checks=checks, runs=runs):
+                gh = self.red_web_status(WebShardBaseGitHub(name=SWIFT))
+                gh.jobs[6] = dict(failed_job(6, 10, HEAD, name=scope), conclusion="cancelled")
+                with self.assertRaises(excuse.Refused) as caught:
+                    excuse.judge(REPO, "feat-cmux-next", HEAD, runs, gh, checks=checks)
+                said = str(caught.exception)
+                self.assertIn(scope, said)
+                self.assertIn("cancelled", said)
+                self.assertIn("holds no verdict", said)
+                self.assertIn(f"run-requeue {REPO} 10", said)
+                self.assertIn(f"gh run rerun 10 -R {REPO} --failed", said)
+                self.assertNotIn("no failed job under its needs", said)
+
+    def test_a_web_status_whose_gate_says_no_verdict_is_refused_with_the_rerun(self):
+        """A required dependency GitHub shows `skipped` is never listed as a child at all (head_jobs drops skipped),
+        so only the gate's own `no verdict: ` annotation (scripts/ci/needs_verdict.py) names it. It must read as an
+        inability with a step, like a cancelled one."""
+        no_verdict = ("no verdict: web: web-subarea-scope skipped; nothing it summarizes was judged: "
+                      "re-run the run")
+        for checks, runs in (([WEB_STATUS], []), ([], [10])):
+            with self.subTest(checks=checks, runs=runs):
+                gh = self.red_web_status(WebShardBaseGitHub(name=SWIFT))
+                gh.logs[5] = log(WEB_STATUS, "Check routed web jobs", "##[error]" + no_verdict,
+                                 "##[error]Process completed with exit code 3.")
+                with self.assertRaises(excuse.Refused) as caught:
+                    excuse.judge(REPO, "feat-cmux-next", HEAD, runs, gh, checks=checks)
+                said = str(caught.exception)
+                self.assertIn("gave no verdict", said)
+                self.assertIn("web-subarea-scope skipped", said)
+                self.assertIn(f"run-requeue {REPO} 10", said)
+                self.assertNotIn("no failed job under its needs", said)
+
     def test_a_web_shard_green_on_the_pushed_base_is_the_prs_own_red(self):
         gh = WebShardBaseGitHub()
         gh.jobs[4].update(conclusion="success",
@@ -12086,7 +12128,7 @@ RAW_LOG_READERS = {
 # The functions that read a log from GitHub: they hand it to failed_view, a gate or a per-test verdict above, and
 # return no raw log to a comparator.
 LOG_FETCHERS = frozenset({"lost_runner_log", "read_head", "base_evidence", "unplaced_base_evidence", "unplaced_head_evidence", "compile_base_evidence", "shared_generated_host", "shared_catalog_host", "pr_only_step_verdict", "other_pr_setup_verdict", "passed_on_base_verdict", "guard_routes_view", "guard_group_report",
-                          "web_test_verdict", "cut_short_web_verdict", "windows", "ws_check_verdict", "log"})
+                          "web_test_verdict", "cut_short_web_verdict", "windows", "ws_check_verdict", "rollup_no_verdict", "log"})
 RAW_NAME = re.compile(r"^(?:\w+_)?logs?$")
 # next_batch's expand_job may read its raw log only into these (keying a red as its own) and failed_view.
 # unjudged: an unplaced log split by its echoes, no step judged (owned_unnamed; #41329's review follow-up F3).
@@ -15799,6 +15841,9 @@ SCANNERS = {
     "test_reds.unjudged": lambda f: TR.unjudged(f.log),
     "test_reds.red_steps": lambda f: TR.red_steps(f.log),
     "test_reds.red_lines": lambda f: TR.red_lines(f.log),
+    "test_reds.cargo_captured": lambda f: TR.cargo_captured(f.lines),
+    "test_reds._cargo_closing_lists": lambda f: TR._cargo_closing_lists(f.lines),
+    "test_reds.outer_lines": lambda f: TR.outer_lines(f.lines),
     "test_reds.failed_in": lambda f: TR.failed_in(f.log, []),
     "test_reds.step_lines": lambda f: TR.step_lines(f.log),
     "test_reds.crash_rule_failure": lambda f: TR.crash_rule_failure(f.log),
@@ -15852,6 +15897,10 @@ NOT_SWEPT = {
     "test_reds._kept": "the parse cache: it calls the reader it is given",
     "base_red_excuse.ws_check_step": "counted, not timed (WsCheckStepIsLinear): on HostileLog it reads no section, so "
                                      "the sweep timed only a list copy, whose CPU time grows past 8x on a runner",
+    "base_red_excuse.validate_run_rollup": "reads no log: `said` is the one `no verdict: ` line its caller already "
+                                           "read for it (rollup_no_verdict, a fetcher, swept through "
+                                           "summary_no_verdict), and all it does with it is put said[:300] in a "
+                                           "refusal",
 }
 
 
