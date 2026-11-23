@@ -58,7 +58,55 @@ enum ViewerIo {
         udp: Option<(UdpSocket, SocketAddr)>,
     },
     #[cfg(feature = "link")]
-    Link(cmux_rd_link::net::Net),
+    Link(LinkIo),
+}
+
+/// `--link`'s driver and its connect times on this Mac's protocol clock (µs), printed once
+/// as `{"link":{..}}` on stdout when the link comes up or fails: the connect a person waits
+/// for, without the time a measuring script's relay adds (scripts/screen-share-vs.py).
+#[cfg(feature = "link")]
+struct LinkIo {
+    net: cmux_rd_link::net::Net,
+    /// The answer line (the host's key and candidates) was read.
+    answer_us: u64,
+    /// The host's candidates reached the link driver. Message 1 is queued at start and
+    /// goes out on the driver's next turn, once a route exists, so this is its send time
+    /// to within one thread wake.
+    first_send_us: u64,
+    reported: bool,
+}
+
+#[cfg(feature = "link")]
+impl LinkIo {
+    /// The `{"link":{..}}` line, once: `established_us` when the link came up, else the
+    /// failure (`heard 0` and the like), so a link that never answers still has its times.
+    fn report(&mut self, failed: Option<&str>) {
+        if self.reported {
+            return;
+        }
+        self.reported = true;
+        println!("{}", link_line(self.answer_us, self.first_send_us, now_ns() / 1000, failed));
+    }
+}
+
+/// `{"link":{"answer_us","first_send_us","established_us"}}`, or with `failed_us` and
+/// `failed` in place of `established_us` when the link failed.
+#[cfg(feature = "link")]
+fn link_line(
+    answer_us: u64,
+    first_send_us: u64,
+    now_us: u64,
+    failed: Option<&str>,
+) -> serde_json::Value {
+    let mut link = json!({"answer_us": answer_us, "first_send_us": first_send_us});
+    match failed {
+        None => link["established_us"] = json!(now_us),
+        Some(reason) => {
+            link["failed_us"] = json!(now_us);
+            link["failed"] = json!(reason);
+        }
+    }
+    json!({ "link": link })
 }
 
 /// One control record or datagram that arrived.
@@ -74,8 +122,8 @@ impl ViewerIo {
             Self::Socket { udp: Some((sock, host)), .. } => sock.send_to(d, *host).map(|_| ()),
             Self::Socket { tcp, .. } => write_frame(tcp, FRAME_DATAGRAM, d),
             #[cfg(feature = "link")]
-            Self::Link(net) => {
-                net.send_datagram(d.to_vec());
+            Self::Link(link) => {
+                link.net.send_datagram(d.to_vec());
                 Ok(())
             }
         }
@@ -85,8 +133,8 @@ impl ViewerIo {
         match self {
             Self::Socket { tcp, .. } => write_control(tcp, c),
             #[cfg(feature = "link")]
-            Self::Link(net) => {
-                net.send_control(serde_json::to_vec(c).map_err(io::Error::other)?);
+            Self::Link(link) => {
+                link.net.send_control(serde_json::to_vec(c).map_err(io::Error::other)?);
                 Ok(())
             }
         }
@@ -102,7 +150,7 @@ impl ViewerIo {
                 fds
             }
             #[cfg(feature = "link")]
-            Self::Link(net) => vec![net.event_fd()],
+            Self::Link(link) => vec![link.net.event_fd()],
         }
     }
 
@@ -131,10 +179,10 @@ impl ViewerIo {
                 }
             }
             #[cfg(feature = "link")]
-            Self::Link(net) => {
+            Self::Link(link) => {
                 use cmux_rd_link::net::NetEvent;
                 use cmux_rd_link::{EndpointEvent, Event};
-                for event in net.events() {
+                for event in link.net.events() {
                     if let Some(line) = event.phase_line() {
                         println!("{line}");
                     }
@@ -148,7 +196,11 @@ impl ViewerIo {
                         NetEvent::Endpoint(EndpointEvent::Link(Event::Closed)) => {
                             out.push(Arrived::Closed("host closed the link".into()))
                         }
+                        NetEvent::Endpoint(EndpointEvent::Link(Event::Established)) => {
+                            link.report(None)
+                        }
                         NetEvent::Failed(e) => {
+                            link.report(Some(&e));
                             out.push(Arrived::Closed(format!("link failed: {e}")))
                         }
                         NetEvent::Endpoint(EndpointEvent::PathChanged { kind, rtt_us, .. }) => {
@@ -1304,6 +1356,7 @@ fn link_io() -> Res<ViewerIo> {
     );
     let mut line = String::new();
     io::stdin().lock().read_line(&mut line)?;
+    let answer_us = now_ns() / 1000;
     let answer: Answer = serde_json::from_str(&line).map_err(|e| format!("answer line: {e}"))?;
     let mut peer = [0u8; 32];
     if answer.peer_key.len() != 64 {
@@ -1332,6 +1385,7 @@ fn link_io() -> Res<ViewerIo> {
     for c in answer.candidates.iter().filter_map(|c| Candidate::from_wire(c)) {
         net.add_remote_candidate(c);
     }
+    let first_send_us = now_ns() / 1000;
     // This side's candidates go out through the test's stand-in hub.
     for event in net.events() {
         if let Some(line) = event.phase_line() {
@@ -1341,5 +1395,28 @@ fn link_io() -> Res<ViewerIo> {
             println!("{}", json!({"candidate": c.to_wire()}));
         }
     }
-    Ok(ViewerIo::Link(net))
+    Ok(ViewerIo::Link(LinkIo { net, answer_us, first_send_us, reported: false }))
+}
+
+#[cfg(all(test, feature = "link"))]
+mod link_line_tests {
+    use super::link_line;
+    use serde_json::json;
+
+    #[test]
+    fn an_established_link_reports_its_three_times() {
+        assert_eq!(
+            link_line(100, 150, 900, None),
+            json!({"link": {"answer_us": 100, "first_send_us": 150, "established_us": 900}})
+        );
+    }
+
+    #[test]
+    fn a_failed_link_still_reports_when_it_sent_and_why_it_failed() {
+        let reason = "the secure handshake timed out (local host 3; heard 0)";
+        assert_eq!(
+            link_line(100, 150, 10_150, Some(reason)),
+            json!({"link": {"answer_us": 100, "first_send_us": 150, "failed_us": 10_150, "failed": reason}})
+        );
+    }
 }
