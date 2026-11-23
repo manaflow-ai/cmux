@@ -446,10 +446,18 @@ type PasteStep = { event: Event | undefined; timer: ReturnType<typeof setTimeout
  * and joins that removal's step, so one undo brings the chip back. */
 function beginPasteStep(view: EditorView, step: PasteStep, event: Event, joins: { current: boolean }) {
   if (step.event === event) return;
-  if (step.event) endPasteStep(view, step);
+  if (joins.current) {
+    // The chip just taken out for this paste stays in its step, even when this paste starts inside
+    // another's (the same block pasted again opens its chip: `pasteText`'s own event inside the
+    // person's). Ending the outer step here split them, so ⌘Z took the text out and left the chip
+    // gone (composer-paste-again.test.tsx).
+    joins.current = false;
+    clearTimeout(step.timer);
+  } else {
+    if (step.event) endPasteStep(view, step);
+    endUndoStep(view);
+  }
   step.event = event;
-  if (joins.current) joins.current = false;
-  else endUndoStep(view);
   step.timer = setTimeout(() => endPasteStep(view, step), 0);
 }
 
