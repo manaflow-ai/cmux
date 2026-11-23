@@ -11,7 +11,7 @@ nonisolated private let hangLogger = Logger(subsystem: "com.cmuxterm.app.next", 
 /// working. Only the Chromium engine reported a hung page, so a WebKit page whose main thread hung showed
 /// its last frame with no notice and no way out but closing the tab: a reload goes to the same hung process.
 /// WebKit's responsiveness timer reports the hang through its private navigation delegate calls below
-/// (`WKNavigationDelegatePrivate`); Exit page ends the process (`_killWebContentProcess`), which shows the
+/// (`WKNavigationDelegatePrivate`); Exit page ends the process (SIGKILL to its pid), which shows the
 /// sad tab with Reload, and stays there: a page that hung while loading would hang again on a reload.
 extension WebKitTab: BrowserHangAnswering {
     /// WebKit's responsiveness timer saw no answer from the page's web content process.
@@ -48,16 +48,16 @@ extension WebKitTab: BrowserHangAnswering {
             return
         }
         hangRecheck.cancel()
-        // crash-allow: WebKit SPI, sent only after webView.responds(to:) (no unknown-selector exception).
-        let kill = NSSelectorFromString("_killWebContentProcess")
-        guard webView.responds(to: kill) else {
-            // No way to end the process here: a reload is the best this WebKit offers.
+        // The page's own web content process, ended by its pid: WebKit's `_killWebContentProcess` left the tab with no
+        // process end on the fleet's WebKit (no `webContentProcessDidTerminate`), so the notice stayed and Exit did nothing.
+        guard case .pids(let pids) = contentProcesses, !pids.isEmpty else {
+            // No process to end here: a reload is the best this WebKit offers.
             apply(.unresponsiveChanged(false))
             return reload()
         }
         hangLogger.error("ending unresponsive web content process tab=\(self.id.rawValue, privacy: .public)")
         endedByPerson = true
-        webView.perform(kill)
+        for pid in pids { kill(pid, SIGKILL) }
     }
 
     /// How long after Wait the page is looked at again.
