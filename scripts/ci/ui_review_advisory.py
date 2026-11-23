@@ -23,6 +23,14 @@ UI_PATHS = (
 )
 HEADING = re.compile(r"(?im)^#{2,6}\s+UI review\s*$")
 VERDICT = re.compile(r"(?im)^\s*Verdict:\s*(blocked|approve with changes|ship it)\s*$")
+# A reviewer tries the change before reading the diff: the body names the command that opens this pull
+# request in a copy of cmux NEXT (scripts/cmux-next/try-pr.sh, or `cmux app try`), or says why not.
+TRY = re.compile(r"(?im)^\s*Try:\s*\S")
+
+
+def try_line(pr: str | None) -> str:
+    """The `Try:` line a UI pull request's body carries."""
+    return f"Try: `scripts/cmux-next/try-pr.sh {pr if pr and pr.isdigit() else 'N'}`"
 
 
 def ui_files(files: Iterable[Any]) -> list[str]:
@@ -42,6 +50,8 @@ def missing_parts(body: str) -> list[str]:
         missing.append("the `## UI review` heading")
     if not VERDICT.search(body or ""):
         missing.append("a `Verdict:` line")
+    if not TRY.search(body or ""):
+        missing.append("a `Try:` line")
     return missing
 
 
@@ -55,6 +65,7 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--body-file", type=Path, required=True)
     parser.add_argument("--files-json", type=Path, required=True)
+    parser.add_argument("--pr", help="the pull request number, for the suggested `Try:` line")
     args = parser.parse_args(argv)
     try:
         body = args.body_file.read_text(encoding="utf-8")
@@ -68,7 +79,8 @@ def main(argv: list[str]) -> int:
     if result["warning"]:
         paths = ", ".join(f"`{path}`" for path in result["touched"])
         missing = " and ".join(result["missing"])
-        print(f"::warning title=UI review::{missing} is missing for {paths}")
+        hint = f"; add `{try_line(args.pr)}` (or `Try: none, <why>`)" if "a `Try:` line" in result["missing"] else ""
+        print(f"::warning title=UI review::{missing} is missing for {paths}{hint}")
     else:
         print("UI review advisory: no missing review fields")
     return 0

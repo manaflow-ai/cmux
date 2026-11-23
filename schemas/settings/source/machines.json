@@ -1,5 +1,5 @@
 {
-  "$comment": "Settings rows of this Mac's machines, phones, Cloud and connectors (Computer Use, free model, SSH links, Cloud workspaces, iPhone, Mac Screen, cmux Remote, Device Hub, iMessage). Each list is one run of rows in SettingsSchema.all; gen-settings-sources.py writes the Swift (SettingsSchema+Machines*.generated.swift).",
+  "$comment": "Settings rows of this Mac's machines, phones, Cloud and connectors (Computer Use, free model, SSH links, Cloud workspaces, worktree and build cache cleanup, iPhone, Mac Screen, cmux Remote, Device Hub, iMessage). Each list is one run of rows in SettingsSchema.all; gen-settings-sources.py writes the Swift (SettingsSchema+Machines*.generated.swift).",
   "lists": [
     {
       "name": "computerUse",
@@ -633,6 +633,64 @@
             "turn",
             "back",
             "machine"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "storage",
+      "section": "general",
+      "group": {
+        "key": "settings.group.storage",
+        "text": "Storage"
+      },
+      "rows": [
+        {
+          "key": "worktrees.autoCleanup",
+          "name": "autoCleanup",
+          "note": "On by default. The acpmux daemon archives and removes the worktrees agents finished with and trims the build output of idle ones; unpushed work stays in git and comes back when the chat reopens (cmux-tui acpmux hub/worktree_care.rs, auto_cleanup_enabled, read from the settings file at each pass).",
+          "title": {
+            "key": "settings.worktrees.autoCleanup",
+            "text": "Clean Up Agent Worktrees"
+          },
+          "help": {
+            "key": "settings.worktrees.autoCleanup.help",
+            "text": "Archive and remove worktrees agents finished with, and trim the build output of idle ones. Unpushed work is kept in git and comes back when the chat reopens."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "disk",
+            "storage",
+            "cleanup",
+            "worktree",
+            "cache",
+            "DerivedData",
+            "free space"
+          ]
+        },
+        {
+          "key": "worktrees.cleanBuildCaches",
+          "name": "cleanBuildCaches",
+          "note": "Off by default. On: machine cleanup also removes this Mac's build caches nobody used lately (Xcode DerivedData and the like); package caches only when the disk is nearly full (cmux-tui cmux-worktree-care).",
+          "title": {
+            "key": "settings.worktrees.cleanBuildCaches",
+            "text": "Clean Up Build Caches"
+          },
+          "help": {
+            "key": "settings.worktrees.cleanBuildCaches.help",
+            "text": "Also remove this Mac's build caches nobody used lately, such as Xcode DerivedData. Package caches go only when the disk is nearly full."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "disk",
+            "storage",
+            "cleanup",
+            "worktree",
+            "cache",
+            "DerivedData",
+            "free space"
           ]
         }
       ]

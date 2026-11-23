@@ -6,7 +6,8 @@ export function canResumeFromComposer(
   snapshot: AcpmuxSnapshot,
   state: {
     offered: boolean;
-    text: string;
+    /// The prompt is exactly empty.
+    blank: boolean;
     attachments: number;
     pending: number;
     shell: boolean;
@@ -32,7 +33,7 @@ export function canResumeFromComposer(
     !state.blocked &&
     !state.shell &&
     !state.dictating &&
-    state.text.length === 0 &&
+    state.blank &&
     state.attachments === 0 &&
     state.pending === 0
   );
