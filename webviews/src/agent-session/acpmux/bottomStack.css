@@ -131,7 +131,7 @@
    is the card's vivid one. Reduce Transparency, Lens and Spectrum over art, and the gallery's `cards`
    look keep what they drew. test/composer-hat-material.test.ts measures it. */
 @media not (prefers-reduced-transparency: reduce) {
-  :root:not([data-reduce-transparency], [data-bottom-stack="cards"]):not(
+  :root:not([data-reduce-transparency], [data-glass="off"], [data-bottom-stack="cards"]):not(
       [data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"])
     )
     .acpmux-dock
@@ -154,12 +154,12 @@
       inset 1px 1.5px 1px -1px var(--acpmux-tray-specular),
       inset 0 16px 20px -16px var(--acpmux-tray-sheen);
   }
-  :root[data-cmux-see-through]:not([data-reduce-transparency], [data-bottom-stack="cards"], [data-glass="lens"], [data-glass="spectrum"])
+  :root[data-cmux-see-through]:not([data-reduce-transparency], [data-glass="off"], [data-bottom-stack="cards"], [data-glass="lens"], [data-glass="spectrum"])
     .acpmux-dock
     > .acpmux-running-tray[data-card]:has(+ .acpmux-composer > .acpmux-composer-box.ui-glass-material) {
     --acpmux-tray-frost: var(--glass-material-backdrop);
   }
-  :root:not([data-reduce-transparency], [data-bottom-stack="cards"]):not(
+  :root:not([data-reduce-transparency], [data-glass="off"], [data-bottom-stack="cards"]):not(
       [data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"])
     )
     .acpmux-dock
