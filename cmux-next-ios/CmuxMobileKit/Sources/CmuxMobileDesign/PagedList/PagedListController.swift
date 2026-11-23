@@ -748,6 +748,15 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
               let now = windowY(of: pick.id, bottom: anchor.fromBottom) else { return nil }
         let delta = now - (pick.windowY + shift)
         note(pick.id == anchor.rows.first?.id ? "r" : "r'", delta)
+        if abs(delta) > 50, probe?.shiftDetail != nil {
+            // DIAG: the anchor around a large restore: straddle, kept row, each of the first 5 rows'
+            // index before > after (- when gone).
+            let head = anchor.rows.prefix(5).map { row in
+                "\(row.index)>\(dataSource.indexPath(for: row.id).map { String($0.item) } ?? "-")"
+            }.joined(separator: "/")
+            let kept = anchor.rows.firstIndex(where: { $0.id == pick.id }) ?? -1
+            note("R[s\(anchor.straddles ? 1 : 0) k\(kept) \(head)]", 0)
+        }
         guard abs(delta) > 0.25 else { return pick }
         if deliberate { moveOffset(to: collectionView.contentOffset.y + delta) } else { correctOffset(by: delta) }
         return pick
@@ -1080,8 +1089,12 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         let shift = (now - was) + ledger.committedExplained
         report(shift)
         if abs(shift) > 0.5, let detail = probe.shiftDetail {
+            let appended = !visible.contains { $0.id == followed.id }
             detail(shift, shiftDetail(at: "commit", moved: now - was, explained: ledger.committedExplained,
                                       offset: offsetY - last.offsetY, frame: frame)
+                + String(format: " DIAG followed=%@ reader=%@ was=%.1f now=%.1f offscreen=%d prevRows=%d rows=%d",
+                         String(describing: followed.id), String(describing: last.id), was, now, appended ? 1 : 0,
+                         committedRows.count, rows.count)
                 + " frames=" + drawnFrames.map { f in
                     String(format: "#%d[read=%.1f next=%.1f off=%.1f expl=%+.1f spring=%d ", f.number, f.read, f.next,
                            f.offset, f.explained, f.spring ? 1 : 0) + f.trail.map(\.text).joined(separator: ",") + "]"
