@@ -2179,6 +2179,10 @@ path = "tests/test_release_changelog_lines.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_release_whats_new_gate.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_pr_proof_section.py"
 lane = "linux-guard"
 
@@ -2413,5 +2417,5 @@ path = "tests/test_ci_pr_media_lint.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_release_whats_new_gate.py"
+path = "tests/test_ci_select_ios_simulator.py"
 lane = "linux-guard"
