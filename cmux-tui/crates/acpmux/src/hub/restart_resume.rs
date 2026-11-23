@@ -516,6 +516,12 @@ impl Hub {
         // Every `auto_resume_scheduled` a move logged, by the prompt it continues: a move is no
         // failed attempt (`moves_behind`).
         let mut moved: Vec<String> = Vec::new();
+        // The last prompt that was no continuation: a continuation of a continuation quotes it,
+        // never the continuation before it (ten moves nested the same words ten deep).
+        let mut first_ask = None::<(String, String)>;
+        // The newest turn before the cut one and the newest prompt text before it, each by turn
+        // id: the two records come in either order.
+        let (mut ask_turn, mut ask_text) = (None::<(String, String)>, None::<(String, String)>);
         let _ = self.store.scan_heads(&session.id, &mut |head: &RecordHead<'_>| {
             // Headers are cheap to inspect. Parse payloads only after the interrupted turn starts,
             // and stop at its result so a long session does not deserialize historical tool I/O.
@@ -561,7 +567,7 @@ impl Hub {
                         .map(str::to_owned)
                         .collect();
                 }
-                "turn_started" if e.msg.get("carried").is_none_or(Value::is_null) => {
+                "turn_started" if started && e.msg.get("carried").is_none_or(Value::is_null) => {
                     steered.clear();
                 }
                 "turn_control" if is_turn => {
@@ -589,6 +595,23 @@ impl Hub {
                         (shown > 0).then(|| format!("({shown} image(s), attached again below)"))
                     }));
                 }
+                "turn_started" | "user_message" if !started => {
+                    if e.kind == "turn_started" {
+                        ask_turn = field("turnId").zip(field("promptId"));
+                    } else {
+                        ask_text = field("turnId").zip(field("text"));
+                    }
+                    if let (Some((turn, id)), Some((of, text))) = (&ask_turn, &ask_text)
+                        && turn == of
+                        && split_attempt(id).1 == 0
+                        && !text.trim().is_empty()
+                    {
+                        first_ask = Some((id.clone(), text.clone()));
+                    }
+                    if e.kind == "turn_started" && e.msg.get("carried").is_none_or(Value::is_null) {
+                        steered.clear();
+                    }
+                }
                 "turn_result" if is_turn => {
                     tool_end = Some(e.seq);
                     return false;
@@ -601,6 +624,14 @@ impl Hub {
         // continuation would drop its principal and execute as the person.
         if trigger {
             return None;
+        }
+        // A continuation's own prompt is the continuation before it: quote what was asked.
+        if let (Some((root, n)), Some((id, text)), Some(own)) =
+            (prompt_id.as_deref().map(split_attempt), first_ask, prompts.first_mut())
+            && n > 0
+            && id == root
+        {
+            *own = text;
         }
         // The carried steers come first: they started the turn.
         let mut carried_prompts = Vec::new();
@@ -841,7 +872,7 @@ mod tests {
     #[tokio::test]
     async fn a_move_spends_no_attempt_and_is_never_refused_for_the_count() {
         let (root, hub, session) = cut_turn(Some(vec![10_000]), 0);
-        let mut prompt = "p1".to_owned();
+        let (mut prompt, mut said) = ("p1".to_owned(), String::new());
         for hop in 1..=10 {
             let turn = format!("t{hop}");
             if hop > 1 {
@@ -851,10 +882,16 @@ mod tests {
                     "turn_started",
                     json!({"turnId": turn, "promptId": prompt}),
                 );
-                hub.append(&session, "in", "user_message", json!({"turnId": turn, "text": "on"}));
+                hub.append(&session, "in", "user_message", json!({"turnId": turn, "text": said}));
             }
             let id = hub.log_continuation(&session, &turn, Cut::Move);
             assert_eq!(id, Some(format!("p1{SUFFIX}{hop}")), "move {hop}");
+            // Each continuation quotes what the person asked, once, never the one before it.
+            let events = hub.events("c1", 0, 10_000).unwrap();
+            let queued = events.iter().rfind(|e| e.kind == "queued").expect("queued").msg.clone();
+            said = queued["text"].as_str().unwrap().to_owned();
+            assert_eq!(said.matches("<message>").count(), 1, "move {hop}: {said}");
+            assert!(said.contains("<message>\ndo the thing\n</message>"), "move {hop}: {said}");
             hub.append(&session, "in", "turn_result", json!({"turnId": turn}));
             prompt = id.unwrap();
         }

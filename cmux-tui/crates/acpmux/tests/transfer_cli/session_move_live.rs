@@ -54,6 +54,15 @@ async fn events(rpc: &mut Rpc, id: &str) -> Vec<Value> {
     }
 }
 
+/// Every text of `kind` in the chat, read to the log's end (`Rpc::texts` reads one page).
+async fn texts(rpc: &mut Rpc, id: &str, kind: &str) -> Vec<String> {
+    let text = |event: &Value| {
+        let update = event["msg"].pointer("/params/update/content/text");
+        event["msg"]["text"].as_str().or_else(|| update.and_then(Value::as_str)).map(str::to_owned)
+    };
+    events(rpc, id).await.iter().filter(|event| event["kind"] == kind).filter_map(text).collect()
+}
+
 /// The chat's steps in log order: each tool call's id with how many times it was announced and
 /// how many times its result came.
 fn steps(events: &[Value]) -> Vec<(String, usize, usize)> {
@@ -179,19 +188,23 @@ async fn there_and_back(tag: &str, mode: &[&str]) {
         )
         .await;
     assert_eq!(ready["timedOut"], false, "the moved queue finished: {ready}");
-    let prompts = here.texts(&id, "user_message").await;
+    let prompts = texts(&mut here, &id, "user_message").await;
     assert_eq!(
         prompts.len(),
         2 + 2 * HOPS,
-        "history, a continuation a hop, the queue: {prompts:?}"
+        "history, a continuation a hop, the queue: {} prompts",
+        prompts.len()
     );
     assert_eq!(prompts[..2], ["hi", "steps"]);
     for moved in &prompts[2..2 + HOPS] {
-        assert!(moved.starts_with("This chat moved to another machine"), "{prompts:?}");
+        assert!(moved.starts_with("This chat moved to another machine"), "{moved}");
+        // Each quotes the person's ask once, never the continuation before it.
+        assert_eq!(moved.matches("<message>").count(), 1, "{moved}");
+        assert!(moved.contains("<message>\nsteps\n</message>"), "{moved}");
     }
     let sent: Vec<String> = (1..=HOPS).map(|hop| format!("queued {hop}")).collect();
     assert_eq!(prompts[2 + HOPS..], sent[..], "each queued prompt runs once, in order");
-    let replies = here.texts(&id, "agent_message_chunk").await;
+    let replies = texts(&mut here, &id, "agent_message_chunk").await;
     for text in &sent {
         let echo = format!("echo: {text}");
         assert_eq!(replies.iter().filter(|r| **r == echo).count(), 1, "{echo}: {replies:?}");
