@@ -93,6 +93,7 @@ impl Hub {
         let value = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             let stop_condition = m.stop_condition.clone();
+            let harness_goal = m.goal.as_ref().is_some_and(|g| !generic_goal::is_generic(g));
             let goal = match m.goal.as_mut().filter(|g| generic_goal::is_generic(g)) {
                 Some(goal) => goal,
                 // A stop: blocked or complete is recorded also with no goal set, as a goal whose
@@ -102,6 +103,13 @@ impl Hub {
                 None if status == Reported::Running => {
                     return Err(RpcError::invalid_params(
                         "this chat has no goal set with goal_set",
+                    ));
+                }
+                // The harness's own goal (Claude's plan or loop) stays as it is.
+                None if harness_goal => {
+                    return Err(RpcError::invalid_params(
+                        "this chat's goal is its harness's own (a plan or loop), not one set with \
+                         goal_set; say what you wait for in your final reply",
                     ));
                 }
                 None => {
@@ -324,5 +332,16 @@ mod tests {
         let other = chat(&hub);
         hub.goal_update(&other, Reported::Complete, None).unwrap();
         assert_eq!(other.meta.lock().unwrap().goal.as_ref().unwrap().lifecycle(), "done");
+
+        // A harness's own goal (a Claude plan) is never replaced by one.
+        let planned = chat(&hub);
+        let plan = crate::goal::GoalState::from_plan_update(&json!({
+            "sessionUpdate": "plan",
+            "entries": [{"content": "Fix it", "status": "in_progress", "priority": "high"}]
+        }))
+        .unwrap();
+        planned.meta.lock().unwrap().goal = Some(plan.clone());
+        assert!(hub.goal_update(&planned, Reported::Blocked, Some("waits")).is_err());
+        assert_eq!(planned.meta.lock().unwrap().goal.as_ref(), Some(&plan));
     }
 }
