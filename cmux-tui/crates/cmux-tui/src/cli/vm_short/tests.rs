@@ -2,7 +2,7 @@ use serde_json::json;
 
 use super::{
     Resolved, Short, app_list, cloud_words, confirmed, misuse, not_listed, not_loaded, parse,
-    pausable, pause_all_misuse, resolve, restore_machine, table,
+    pausable, pause_all_misuse, pause_all_requested, resolve, restore_machine, table,
 };
 
 fn words(list: &[&str]) -> Vec<String> {
