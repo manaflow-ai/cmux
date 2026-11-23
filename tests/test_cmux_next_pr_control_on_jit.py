@@ -38,7 +38,8 @@ ONE_LABEL_TAIL = f"|| '{LABEL}' }}}}"
 
 
 def one_label(runs_on: str) -> bool:
-    return "vars." not in runs_on and runs_on.rstrip().endswith(ONE_LABEL_TAIL)
+    # The fork arm's own runner variable (scripts/ci/one_linux_label.py) is no pool.
+    return "vars." not in runs_on.replace("vars.CI_FORK_LINUX_RUNNER", "") and runs_on.rstrip().endswith(ONE_LABEL_TAIL)
 
 
 class PrControlOnJit(unittest.TestCase):
@@ -65,7 +66,11 @@ class PrControlOnJit(unittest.TestCase):
         for name, job in self.jobs.items():
             with self.subTest(job=name):
                 runs_on = str(job.get("runs-on", ""))
-                self.assertEqual(runs_on.count(ARM), 1 if name in HOPS and not one_label(runs_on) else 0)
+                if name in HOPS and one_label(runs_on):
+                    # A one-label hop may keep its PR control arm: it names the same label as its tail.
+                    self.assertLessEqual(runs_on.count(ARM), 1)
+                else:
+                    self.assertEqual(runs_on.count(ARM), 1 if name in HOPS else 0)
 
     def test_no_pull_request_arm_names_the_jit_label(self) -> None:
         jit_arm = ARM.replace(f"'{LABEL}'", f"'{JIT_LABEL}'")
