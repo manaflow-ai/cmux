@@ -3802,6 +3802,169 @@ public func FfiConverterTypeProjectionStats_lower(_ value: ProjectionStats) -> R
 
 
 /**
+ * One tap's approval before it is signed: what the target reads, plus the bytes to sign.
+ */
+public struct ShareApprovalDraft: Equatable, Hashable {
+    public var target: String
+    public var targetName: String
+    public var asker: String
+    public var askerName: String
+    public var confirmedBy: String
+    /**
+     * The tap, Unix seconds.
+     */
+    public var confirmedAt: UInt64
+    public var nonce: String
+    /**
+     * What the device key signs (UTF-8): `ShareApproval::canonical`.
+     */
+    public var canonical: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(target: String, targetName: String, asker: String, askerName: String, confirmedBy: String, 
+        /**
+         * The tap, Unix seconds.
+         */confirmedAt: UInt64, nonce: String, 
+        /**
+         * What the device key signs (UTF-8): `ShareApproval::canonical`.
+         */canonical: String) {
+        self.target = target
+        self.targetName = targetName
+        self.asker = asker
+        self.askerName = askerName
+        self.confirmedBy = confirmedBy
+        self.confirmedAt = confirmedAt
+        self.nonce = nonce
+        self.canonical = canonical
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ShareApprovalDraft: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeShareApprovalDraft: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ShareApprovalDraft {
+        return
+            try ShareApprovalDraft(
+                target: FfiConverterString.read(from: &buf), 
+                targetName: FfiConverterString.read(from: &buf), 
+                asker: FfiConverterString.read(from: &buf), 
+                askerName: FfiConverterString.read(from: &buf), 
+                confirmedBy: FfiConverterString.read(from: &buf), 
+                confirmedAt: FfiConverterUInt64.read(from: &buf), 
+                nonce: FfiConverterString.read(from: &buf), 
+                canonical: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ShareApprovalDraft, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.target, into: &buf)
+        FfiConverterString.write(value.targetName, into: &buf)
+        FfiConverterString.write(value.asker, into: &buf)
+        FfiConverterString.write(value.askerName, into: &buf)
+        FfiConverterString.write(value.confirmedBy, into: &buf)
+        FfiConverterUInt64.write(value.confirmedAt, into: &buf)
+        FfiConverterString.write(value.nonce, into: &buf)
+        FfiConverterString.write(value.canonical, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeShareApprovalDraft_lift(_ buf: RustBuffer) throws -> ShareApprovalDraft {
+    return try FfiConverterTypeShareApprovalDraft.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeShareApprovalDraft_lower(_ value: ShareApprovalDraft) -> RustBuffer {
+    return FfiConverterTypeShareApprovalDraft.lower(value)
+}
+
+
+/**
+ * Who asks to share what: the Mac (its device hub id and name), this phone (its device hub
+ * id and name) and the signed-in account (device hub user id).
+ */
+public struct ShareAsk: Equatable, Hashable {
+    public var targetId: String
+    public var targetName: String
+    public var askerId: String
+    public var askerName: String
+    public var account: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(targetId: String, targetName: String, askerId: String, askerName: String, account: String) {
+        self.targetId = targetId
+        self.targetName = targetName
+        self.askerId = askerId
+        self.askerName = askerName
+        self.account = account
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ShareAsk: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeShareAsk: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ShareAsk {
+        return
+            try ShareAsk(
+                targetId: FfiConverterString.read(from: &buf), 
+                targetName: FfiConverterString.read(from: &buf), 
+                askerId: FfiConverterString.read(from: &buf), 
+                askerName: FfiConverterString.read(from: &buf), 
+                account: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ShareAsk, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.targetId, into: &buf)
+        FfiConverterString.write(value.targetName, into: &buf)
+        FfiConverterString.write(value.askerId, into: &buf)
+        FfiConverterString.write(value.askerName, into: &buf)
+        FfiConverterString.write(value.account, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeShareAsk_lift(_ buf: RustBuffer) throws -> ShareAsk {
+    return try FfiConverterTypeShareAsk.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeShareAsk_lower(_ value: ShareAsk) -> RustBuffer {
+    return FfiConverterTypeShareAsk.lower(value)
+}
+
+
+/**
  * One of the Mac's acpmux chats (`_acpmux/sessions`), as far as the pairing needs it.
  */
 public struct TerminalChatCandidate: Equatable, Hashable {
@@ -6022,6 +6185,31 @@ public func linkOpenSide(url: String) -> LinkOpenSide  {
 })
 }
 /**
+ * The approval for the tap happening now, unsigned: call it only from the tap.
+ */
+public func shareApprovalDraft(ask: ShareAsk)throws  -> ShareApprovalDraft  {
+    return try  FfiConverterTypeShareApprovalDraft_lift(try rustCallWithError(FfiConverterTypeCmuxMobileError_lift) {
+    uniffi_cmux_mobile_link_ffi_fn_func_share_approval_draft(
+        FfiConverterTypeShareAsk_lower(ask),$0
+    )
+})
+}
+/**
+ * The signed approval as the JSON the target Mac admits, once `signature` (base64 raw r||s
+ * ECDSA P-256 SHA-256 of `draft.canonical`) checks against `signing_key` (base64 X9.63, this
+ * phone's key as the device hub lists it). A signature by any other key would be refused on
+ * the Mac (`share.bad_signature`), so it is refused here first.
+ */
+public func shareApprovalSigned(draft: ShareApprovalDraft, signature: String, signingKey: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeCmuxMobileError_lift) {
+    uniffi_cmux_mobile_link_ffi_fn_func_share_approval_signed(
+        FfiConverterTypeShareApprovalDraft_lower(draft),
+        FfiConverterString.lower(signature),
+        FfiConverterString.lower(signingKey),$0
+    )
+})
+}
+/**
  * The faces `facts`' tab offers.
  */
 public func terminalChatFaces(facts: TerminalChatFacts) -> TerminalChatFaces  {
@@ -6176,6 +6364,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_link_open_side() != 2441) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_share_approval_draft() != 27332) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_share_approval_signed() != 12150) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_chat_faces() != 48000) {

@@ -59,6 +59,7 @@ extension UpdaterService {
         }
         attachTips(registry: services.registry)
         UpdateSimulation(updater: self).follow(simulating)
+        attachInstallCheck(host: services.agentTabs.host) { [weak services] title, body in services?.daemon.send("install check notice") { try await $0.notify(title: title, body: body, level: .error, source: NotificationSource.cli.rawValue) } }
         #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarnessProbe.install(updater: self)
         #endif
@@ -101,19 +102,5 @@ extension UpdaterService {
                 if self?.announcementsEnabled != announcements.enabled { self?.announcementsEnabled = announcements.enabled }
             }
         }
-    }
-
-    func apply(_ updates: UpdatesSettings) {
-        WebUpdates.shared.follow(updates)
-        WebDevOverride.setAllowed(updates.liveWebReload)
-        let preferences = UpdatePreferences(
-            installOnQuit: updates.installOnQuit,
-            notify: UpdateNotifyMode(rawValue: updates.notify.rawValue) ?? .badge,
-            keepPreviousVersions: updates.keepPreviousVersions, oneClickInstall: updates.oneClickInstall, whatsNewInstall: updates.whatsNewInstall)
-        if self.preferences != preferences { self.preferences = preferences }
-        configure(checkAutomatically: updates.checkAutomatically, checkInterval: updates.checkIntervalSeconds,
-                  downloadAutomatically: updates.downloadAutomatically,
-                  metered: UpdateMeteredMode(rawValue: updates.meteredNetwork.rawValue) ?? .deferLowData, ring: updates.channel.rawValue, idleInstall: (updates.idleInstallMaxWaitSeconds, updates.idleInstallQuietSeconds),
-                  installWhenIdleMinutes: updates.installWhenIdle ? updates.installWhenIdleMinutes : nil)
     }
 }
