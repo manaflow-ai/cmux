@@ -79,6 +79,7 @@ import {
 import { galleryHost, galleryModules } from "./galleryHost";
 import { perfLintOnSave } from "./perfLint";
 import { devEntrySrc } from "./devEntrySrc";
+import { gswProbe } from "./gswProbe";
 import { liveRecoveryScript } from "./liveRecovery";
 import { viteCacheDir } from "./viteCacheDir.mjs";
 
@@ -106,6 +107,7 @@ export function cmuxDevServer(): Plugin[] {
     galleryHost(),
     { ...galleryModules(), apply: "serve" },
     perfLintOnSave(),
+    gswProbe(webviewsRoot),
   ];
 }
 
