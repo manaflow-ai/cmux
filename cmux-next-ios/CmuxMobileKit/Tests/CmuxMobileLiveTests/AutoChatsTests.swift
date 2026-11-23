@@ -401,6 +401,22 @@ import Testing
         model.leave()
     }
 
+    @Test func aMessageThatFailsAfterThePersonLeftComesBackWhenTheChatOpensAgain() async throws {
+        let service = Service()
+        let model = AutoChatsModel(service: service)
+        let row = try Self.parsed(Self.row("a1"))
+        // Sent, and the person goes back to the list before the send is answered. It gets no answer.
+        model.chat(row).source.send(Self.prompt("go", id: "m1"))
+        model.leave()
+        #expect(try await Self.eventually { service.handed[0].sent == ["m1 go"] })
+        // Opened again, the chat's composer gets the message back under the id it had.
+        let again = model.chat(row)
+        #expect(try await Self.eventually { again.store.returnedDraft?.text == "go" })
+        #expect(again.store.returnedDraft?.promptID == "m1")
+        #expect(again.store.clientError == AutoChatWords.notSent)
+        model.leave()
+    }
+
     // MARK: A new chat
 
     @Test func aNewChatStartsInTheChosenRepositoryWithItsFirstMessage() async throws {
