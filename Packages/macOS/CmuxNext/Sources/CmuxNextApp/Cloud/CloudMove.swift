@@ -138,29 +138,29 @@ struct CloudMove {
         asks.moveStarted(tabID, services: services)
         let place = services.cloud.place
         let work: ActionWork = Task { @MainActor in
-            defer { if let session { place.finished(session) } }
+            defer { place.finished(session) }
             do {
                 let machine = try await body()
                 retries[tabID] = nil
-                if let session { place.live(session) }
+                place.live(session)
                 toast(toastID, CloudMoveStrings.moved(machine), duration: .seconds(6))
                 asks.moveEnded(tabID, failure: nil, services: services)
                 return nil
             } catch {
                 // Cancel stopped it (the reducer's Cancelled): the chat stays, with no failure and no Retry.
-                if let session, place.wasCancelled(session) {
+                if place.wasCancelled(session) {
                     retries[tabID] = nil
                     CmuxToastCenter.shared.close(id: toastID)
                     asks.moveEnded(tabID, failure: nil, services: services)
                     return nil
                 }
                 let failure = stopped(error, tab: tabID, toast: carded ? nil : toastID, invocation: invocation)
-                if let session { place.failed(session, reason: failure.message) }
+                place.failed(session, reason: failure.message)
                 asks.moveEnded(tabID, failure: failure.message, services: services)
                 return failure
             }
         }
-        if let session { place.onCancel(session) { work.cancel() } }
+        place.onCancel(session) { work.cancel() }
         services.registry.track(work)
     }
 
@@ -199,7 +199,7 @@ struct CloudMove {
         let workspace = services.machines.local.store.workspace(containing: pane.handle)
         // The flow the chat's header draws (``CloudPlaceFlows``): each step below reports itself.
         let place = services.cloud.place
-        place.begin(session: session, toCloud: true, trigger: .init(argument: invocation["trigger"]?.stringValue), from: CloudPlaceFlows.thisMac, to: "",
+        place.begin(session: session, toCloud: true, trigger: invocation["trigger"]?.stringValue, from: CloudPlaceFlows.thisMac, to: "",
                     cargo: CloudPlaceCargo.read(tab: tab, session: session, services: services))
         guard let chat = try await chatFolder(tab: tab, workspace: workspace, session: session, invocation: invocation),
               let folder = CloudMoveFolder(chat: chat) else { throw Failure(message: CloudMoveStrings.noFolder) }
@@ -229,7 +229,6 @@ struct CloudMove {
         }
         try place.advance(session, "sync")
         let remote = try await sync(folder, to: machineSocket, machine: name, cli: cli, retry: again)
-        try Task.checkCancellation()
         try place.advance(session, "freeze") // the CLI's answer names no phases: freeze before the move, commit after it
         let owner = await Self.ownerAnswer(machine)
         let moved: CloudMoveCLI.Answer
@@ -265,7 +264,7 @@ struct CloudMove {
     /// A Retry of a move that committed: opens the chat's tab on its machine, nothing else.
     private func reshow(_ shown: CloudMoveRetries.Shown, tab: TabModel, invocation: ActionInvocation) async throws -> String {
         let retry = CloudMoveRetries.Retry.show(shown)
-        services.cloud.place.begin(session: shown.session, toCloud: true, trigger: .init(argument: invocation["trigger"]?.stringValue), from: CloudPlaceFlows.thisMac,
+        services.cloud.place.begin(session: shown.session, toCloud: true, trigger: invocation["trigger"]?.stringValue, from: CloudPlaceFlows.thisMac,
                                    to: services.machines.machineName(shown.machineID) ?? "", cargo: .init())
         guard let session = services.machines.session(shown.machineID) else {
             // Gone from the loaded machine list: deleted, so a Retry could never reach it and none is kept.
