@@ -16,10 +16,20 @@ import Testing
     static let draft = String(repeating: "a pasted line of the draft, long enough to matter\n", count: 120)
         + "re if its like the connection is actually working"
 
-    private func rig(pasteSubmit: Bool, channels: ChannelLog = ChannelLog(), clock: (() -> TimeInterval)? = nil) async throws -> (FakeTerminalDaemon, DaemonTerminalSession, TerminalModel) {
+    /// `pasteSubmit`: a daemon of today, listing `send-key-v1` and `send-expect-agent-v1` (false: one
+    /// older than both). `projected`: the screen drives the session through the projection wrapper,
+    /// as every terminal does by default (#49901). `attached`: wait for the first attach.
+    private func rig(
+        pasteSubmit: Bool,
+        channels: ChannelLog = ChannelLog(),
+        clock: (() -> TimeInterval)? = nil,
+        projected: Bool = false,
+        attached: Bool = true
+    ) async throws -> (FakeTerminalDaemon, DaemonTerminalSession, TerminalModel) {
         let daemon = FakeTerminalDaemon()
         daemon.afterAttach = nil
         daemon.pasteSubmit = pasteSubmit
+        daemon.sendKeys = pasteSubmit
         let link = MockMacLink { service, line in daemon.respond(service, line) }
         let session = DaemonTerminalSession(surface: 7) {
             let channel = try await link.openChannel(service: "daemon", args: [:])
@@ -27,9 +37,12 @@ import Testing
             return DaemonClient(channel: channel)
         }
         if let clock { session.now = clock }
-        session.start { _ in }
-        try await waitUntil { session.isAttached }
-        let model = TerminalModel(session: session, artifactSource: UnavailableArtifactSource(), title: "composer-paste")
+        let screen: any TerminalSession = projected ? TerminalProjectingSession(inner: session) : session
+        let model = TerminalModel(session: screen, artifactSource: UnavailableArtifactSource(), title: "composer-paste")
+        if attached {
+            session.start { _ in }
+            try await waitUntil { session.isAttached }
+        }
         return (daemon, session, model)
     }
 
@@ -168,6 +181,46 @@ import Testing
         model.send()
         #expect(model.composerText == Self.draft)
         #expect(model.composerNotice == TerminalConnectionState.composerSendNotSentNotice)
+    }
+
+    /// The terminal screen drives a projected session by default (#49901). Its Send reaches the
+    /// daemon as the same one request, never the mirror's paste and a separate Return (the
+    /// wrapper did not pass the Send on, so every Send was two: "the text goes through. But then
+    /// the send doesn't go through").
+    @Test func aProjectedTerminalSendsOneDaemonPasteWithSubmit() async throws {
+        let (daemon, session, model) = try await rig(pasteSubmit: true, projected: true)
+        defer { session.stop() }
+        model.composerText = Self.draft
+        model.send()
+        try await waitUntil { !sends(daemon).isEmpty }
+        try await waitWhile(for: ComposerSubmit.enterDelay * 5) { sends(daemon).count == 1 }
+        let sent = sends(daemon)
+        #expect(sent.count == 1, "one request, no separate Enter: \(sent)")
+        #expect(sent.first?["text"] as? String == Self.draft)
+        #expect(sent.first?["submit"] as? Bool == true)
+        #expect(sent.first?["key"] is String)
+        #expect(model.composerText.isEmpty)
+    }
+
+    /// A Send made before the terminal first attached ("if it wasn't connected properly in
+    /// time, the send doesn't go through") waits for the attach and goes as one keyed request.
+    @Test func aSendBeforeTheFirstAttachWaitsAndGoesAsOne() async throws {
+        let (daemon, session, model) = try await rig(pasteSubmit: true, clock: { 1000 }, attached: false)
+        defer { session.stop() }
+        model.composerText = Self.draft
+        model.send()
+        #expect(model.composerText.isEmpty)
+        #expect(sends(daemon).isEmpty)
+        session.start { _ in }
+        try await waitUntil { session.isAttached }
+        try await waitUntil { !sends(daemon).isEmpty }
+        try await waitWhile(for: ComposerSubmit.enterDelay * 5) { sends(daemon).count == 1 }
+        let sent = sends(daemon)
+        #expect(sent.count == 1, "one request: \(sent)")
+        #expect(sent.first?["text"] as? String == Self.draft)
+        #expect(sent.first?["submit"] as? Bool == true)
+        #expect(sent.first?["key"] is String)
+        #expect(model.composerNotice == nil)
     }
 
     /// Holds while `condition` stays true, for at most `window`: returns early when it turns false.
