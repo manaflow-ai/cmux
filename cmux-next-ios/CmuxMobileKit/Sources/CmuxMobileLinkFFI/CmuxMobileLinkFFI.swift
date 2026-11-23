@@ -625,17 +625,17 @@ fileprivate struct FfiConverterData: FfiConverterRustBuffer {
  * caughtUp, ended, retryAfterMs}`. `records` are transcript records to draw, oldest first.
  */
 public protocol AutoChatProtocol: AnyObject, Sendable {
-
+    
     /**
      * The app left the chat: a held `next` answers `ended` now, and so does every later one.
      */
-    func close()
-
+    func close() 
+    
     /**
      * Keeps the chat in the Cloud when a Mac returns, or stops keeping it.
      */
     func keep(keepInCloud: Bool) async throws  -> String
-
+    
     /**
      * The next records. The call is held until the chat changes, or about 25 s, so the app
      * calls it again as soon as it answers, until a batch says `ended`. After a read that got
@@ -643,18 +643,18 @@ public protocol AutoChatProtocol: AnyObject, Sendable {
      * the service refusing the chat.
      */
     func next() async throws  -> String
-
+    
     /**
      * Reads the chat and its first page of records.
      */
     func `open`() async throws  -> String
-
+    
     /**
      * Sends `text` under `message_id`. The same id again is not a second message, so a send
      * that failed is sent again with the id it had.
      */
     func send(messageId: String, text: String) async throws  -> String
-
+    
 }
 /**
  * One open chat. Every answer is the JSON of a batch: `{chat: row, records: [record],
@@ -710,9 +710,9 @@ open class AutoChat: AutoChatProtocol, @unchecked Sendable {
         try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_autochat(handle, $0) }
     }
 
+    
 
-
-
+    
     /**
      * The app left the chat: a held `next` answers `ended` now, and so does every later one.
      */
@@ -722,7 +722,7 @@ open func close()  {try! rustCall() {
     )
 }
 }
-
+    
     /**
      * Keeps the chat in the Cloud when a Mac returns, or stops keeping it.
      */
@@ -742,7 +742,7 @@ open func keep(keepInCloud: Bool)async throws  -> String  {
             errorHandler: FfiConverterTypeAutoChatError_lift
         )
 }
-
+    
     /**
      * The next records. The call is held until the chat changes, or about 25 s, so the app
      * calls it again as soon as it answers, until a batch says `ended`. After a read that got
@@ -755,7 +755,7 @@ open func next()async throws  -> String  {
             rustFutureFunc: {
                 uniffi_cmux_mobile_link_ffi_fn_method_autochat_next(
                     self.uniffiCloneHandle()
-
+                    
                 )
             },
             pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_rust_buffer,
@@ -765,7 +765,7 @@ open func next()async throws  -> String  {
             errorHandler: FfiConverterTypeAutoChatError_lift
         )
 }
-
+    
     /**
      * Reads the chat and its first page of records.
      */
@@ -775,7 +775,7 @@ open func `open`()async throws  -> String  {
             rustFutureFunc: {
                 uniffi_cmux_mobile_link_ffi_fn_method_autochat_open(
                     self.uniffiCloneHandle()
-
+                    
                 )
             },
             pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_rust_buffer,
@@ -785,7 +785,7 @@ open func `open`()async throws  -> String  {
             errorHandler: FfiConverterTypeAutoChatError_lift
         )
 }
-
+    
     /**
      * Sends `text` under `message_id`. The same id again is not a second message, so a send
      * that failed is sent again with the id it had.
@@ -806,9 +806,9 @@ open func send(messageId: String, text: String)async throws  -> String  {
             errorHandler: FfiConverterTypeAutoChatError_lift
         )
 }
+    
 
-
-
+    
 }
 
 
@@ -861,17 +861,17 @@ public func FfiConverterTypeAutoChat_lower(_ value: AutoChat) -> UInt64 {
  * The person's Auto chats.
  */
 public protocol AutoChatsProtocol: AnyObject, Sendable {
-
+    
     /**
      * One chat, to open.
      */
     func chat(id: String)  -> AutoChat
-
+    
     /**
      * Whether the person has a Cloud machine for Auto chats to run on.
      */
     func hasMachine() async throws  -> Bool
-
+    
     /**
      * The person's open chats, newest first, and the repositories they work in: the JSON of
      * `{chats: [row], repos: [{remote, branch}], more}`. A row is `{id, title, harness, place,
@@ -879,14 +879,14 @@ public protocol AutoChatsProtocol: AnyObject, Sendable {
      * `coming_back`, `on_mac`, `idle` or `no_machine`.
      */
     func list() async throws  -> String
-
+    
     /**
      * Starts a chat in `remote` at `branch` with a first message. `message_id` is made once
      * for the message: the same call again reaches the chat the first one made. The JSON of
      * `{outcome: "chat", chat: row}`, `{outcome: "no_machine"}` or `{outcome: "incomplete"}`.
      */
     func start(remote: String, branch: String, messageId: String, text: String) async throws  -> String
-
+    
 }
 /**
  * The person's Auto chats.
@@ -949,9 +949,9 @@ public convenience init(http: AutoHttp) {
         try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_autochats(handle, $0) }
     }
 
+    
 
-
-
+    
     /**
      * One chat, to open.
      */
@@ -963,7 +963,7 @@ open func chat(id: String) -> AutoChat  {
     )
 })
 }
-
+    
     /**
      * Whether the person has a Cloud machine for Auto chats to run on.
      */
@@ -973,7 +973,7 @@ open func hasMachine()async throws  -> Bool  {
             rustFutureFunc: {
                 uniffi_cmux_mobile_link_ffi_fn_method_autochats_has_machine(
                     self.uniffiCloneHandle()
-
+                    
                 )
             },
             pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_i8,
@@ -983,7 +983,7 @@ open func hasMachine()async throws  -> Bool  {
             errorHandler: FfiConverterTypeAutoChatError_lift
         )
 }
-
+    
     /**
      * The person's open chats, newest first, and the repositories they work in: the JSON of
      * `{chats: [row], repos: [{remote, branch}], more}`. A row is `{id, title, harness, place,
@@ -996,7 +996,7 @@ open func list()async throws  -> String  {
             rustFutureFunc: {
                 uniffi_cmux_mobile_link_ffi_fn_method_autochats_list(
                     self.uniffiCloneHandle()
-
+                    
                 )
             },
             pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_rust_buffer,
@@ -1006,7 +1006,7 @@ open func list()async throws  -> String  {
             errorHandler: FfiConverterTypeAutoChatError_lift
         )
 }
-
+    
     /**
      * Starts a chat in `remote` at `branch` with a first message. `message_id` is made once
      * for the message: the same call again reaches the chat the first one made. The JSON of
@@ -1028,9 +1028,9 @@ open func start(remote: String, branch: String, messageId: String, text: String)
             errorHandler: FfiConverterTypeAutoChatError_lift
         )
 }
+    
 
-
-
+    
 }
 
 
@@ -1083,9 +1083,9 @@ public func FfiConverterTypeAutoChats_lower(_ value: AutoChats) -> UInt64 {
  * The app's HTTP path to the Cloud service as the signed-in person.
  */
 public protocol AutoHttp: AnyObject, Sendable {
-
+    
     func send(request: AutoHttpRequest) async throws  -> AutoHttpReply
-
+    
 }
 /**
  * The app's HTTP path to the Cloud service as the signed-in person.
@@ -1140,9 +1140,9 @@ open class AutoHttpImpl: AutoHttp, @unchecked Sendable {
         try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_autohttp(handle, $0) }
     }
 
+    
 
-
-
+    
 open func send(request: AutoHttpRequest)async throws  -> AutoHttpReply  {
     return
         try  await uniffiRustCallAsync(
@@ -1159,9 +1159,9 @@ open func send(request: AutoHttpRequest)async throws  -> AutoHttpReply  {
             errorHandler: FfiConverterTypeAutoHttpError_lift
         )
 }
+    
 
-
-
+    
 }
 
 
@@ -3697,9 +3697,9 @@ public struct AutoHttpReply: Equatable, Hashable {
         self.body = body
     }
 
+    
 
-
-
+    
 }
 
 #if compiler(>=6)
@@ -3713,7 +3713,7 @@ public struct FfiConverterTypeAutoHttpReply: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AutoHttpReply {
         return
             try AutoHttpReply(
-                status: FfiConverterUInt16.read(from: &buf),
+                status: FfiConverterUInt16.read(from: &buf), 
                 body: FfiConverterString.read(from: &buf)
         )
     }
@@ -3757,10 +3757,10 @@ public struct AutoHttpRequest: Equatable, Hashable {
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(method: String, path: String,
+    public init(method: String, path: String, 
         /**
          * A JSON body, when the request has one.
-         */body: String?,
+         */body: String?, 
         /**
          * Give up after this long. A held request asks for more than an ordinary one.
          */timeoutMs: UInt64) {
@@ -3770,9 +3770,9 @@ public struct AutoHttpRequest: Equatable, Hashable {
         self.timeoutMs = timeoutMs
     }
 
+    
 
-
-
+    
 }
 
 #if compiler(>=6)
@@ -3786,9 +3786,9 @@ public struct FfiConverterTypeAutoHttpRequest: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AutoHttpRequest {
         return
             try AutoHttpRequest(
-                method: FfiConverterString.read(from: &buf),
-                path: FfiConverterString.read(from: &buf),
-                body: FfiConverterOptionString.read(from: &buf),
+                method: FfiConverterString.read(from: &buf), 
+                path: FfiConverterString.read(from: &buf), 
+                body: FfiConverterOptionString.read(from: &buf), 
                 timeoutMs: FfiConverterUInt64.read(from: &buf)
         )
     }
@@ -5364,8 +5364,8 @@ public func FfiConverterTypeWindowLayout_lower(_ value: WindowLayout) -> RustBuf
  */
 public enum AutoChatError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
 
-
-
+    
+    
     /**
      * No answer arrived. The same call may work later.
      */
@@ -5383,15 +5383,15 @@ public enum AutoChatError: Swift.Error, Equatable, Hashable, Foundation.Localize
     case Unreadable(message: String
     )
 
+    
 
+    
 
-
-
-
+    
     public var errorDescription: String? {
         String(reflecting: self)
     }
-
+    
 }
 
 #if compiler(>=6)
@@ -5408,15 +5408,15 @@ public struct FfiConverterTypeAutoChatError: FfiConverterRustBuffer {
         let variant: Int32 = try readInt(&buf)
         switch variant {
 
+        
 
-
-
+        
         case 1: return .Unreachable(
             message: try FfiConverterString.read(from: &buf)
             )
         case 2: return .Refused(
-            status: try FfiConverterUInt16.read(from: &buf),
-            code: try FfiConverterString.read(from: &buf),
+            status: try FfiConverterUInt16.read(from: &buf), 
+            code: try FfiConverterString.read(from: &buf), 
             message: try FfiConverterString.read(from: &buf)
             )
         case 3: return .Unreadable(
@@ -5430,26 +5430,26 @@ public struct FfiConverterTypeAutoChatError: FfiConverterRustBuffer {
     public static func write(_ value: AutoChatError, into buf: inout [UInt8]) {
         switch value {
 
+        
 
-
-
-
+        
+        
         case let .Unreachable(message):
             writeInt(&buf, Int32(1))
             FfiConverterString.write(message, into: &buf)
-
-
+            
+        
         case let .Refused(status,code,message):
             writeInt(&buf, Int32(2))
             FfiConverterUInt16.write(status, into: &buf)
             FfiConverterString.write(code, into: &buf)
             FfiConverterString.write(message, into: &buf)
-
-
+            
+        
         case let .Unreadable(message):
             writeInt(&buf, Int32(3))
             FfiConverterString.write(message, into: &buf)
-
+            
         }
     }
 }
@@ -5475,20 +5475,20 @@ public func FfiConverterTypeAutoChatError_lower(_ value: AutoChatError) -> RustB
  */
 public enum AutoHttpError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
 
-
-
+    
+    
     case Failed(message: String
     )
 
+    
 
+    
 
-
-
-
+    
     public var errorDescription: String? {
         String(reflecting: self)
     }
-
+    
 }
 
 #if compiler(>=6)
@@ -5505,9 +5505,9 @@ public struct FfiConverterTypeAutoHttpError: FfiConverterRustBuffer {
         let variant: Int32 = try readInt(&buf)
         switch variant {
 
+        
 
-
-
+        
         case 1: return .Failed(
             message: try FfiConverterString.read(from: &buf)
             )
@@ -5519,14 +5519,14 @@ public struct FfiConverterTypeAutoHttpError: FfiConverterRustBuffer {
     public static func write(_ value: AutoHttpError, into buf: inout [UInt8]) {
         switch value {
 
+        
 
-
-
-
+        
+        
         case let .Failed(message):
             writeInt(&buf, Int32(1))
             FfiConverterString.write(message, into: &buf)
-
+            
         }
     }
 }
@@ -7408,10 +7408,10 @@ public func overviewColumns(width: Double) -> UInt32  {
 })
 }
 /**
- * The layout of a window `width` by `height` points. A size that is not
- * finite or not positive is a compact phone's of that width (zero when
- * unknown), so a transient zero size during a scene change never shows two
- * panes.
+ * The layout of a window `width` by `height` points. A size with either side
+ * not finite or not positive is unknown, laid out as a zero-sized compact
+ * window, so a transient zero size during a scene change never shows two
+ * panes or a wide overview.
  */
 public func windowLayout(width: Double, height: Double) -> WindowLayout  {
     return try!  FfiConverterTypeWindowLayout_lift(try! rustCall() {
@@ -7506,7 +7506,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_overview_columns() != 48015) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_window_layout() != 29754) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_window_layout() != 34233) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_channelhandle_close() != 40361) {
