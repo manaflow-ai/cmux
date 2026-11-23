@@ -16,6 +16,7 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
+import { intl } from "../../ui/intl";
 import type { Strings } from "../shared/i18n";
 import { isRunning, type BoardFilter, type BoardRow, type BoardTotals, type Owner } from "./model";
 import type { BoardStore, RowView } from "./store";
@@ -131,8 +132,8 @@ type Money = { total: (usd: number) => string; rate: (usd: number) => string };
 
 function useMoney(language: string): Money {
   const [money] = useState<Money>(() => {
-    const total = new Intl.NumberFormat(language, { style: "currency", currency: "USD", maximumFractionDigits: 2 });
-    const rate = new Intl.NumberFormat(language, { style: "currency", currency: "USD", maximumFractionDigits: 3 });
+    const total = intl.NumberFormat(language, { style: "currency", currency: "USD", maximumFractionDigits: 2 });
+    const rate = intl.NumberFormat(language, { style: "currency", currency: "USD", maximumFractionDigits: 3 });
     return { total: (usd) => total.format(usd), rate: (usd) => rate.format(usd) };
   });
   return money;
@@ -140,7 +141,7 @@ function useMoney(language: string): Money {
 
 function Totals({ totals, strings, money }: { totals: BoardTotals; strings: Strings; money: Money }) {
   const { t, language } = strings;
-  const [count] = useState(() => new Intl.NumberFormat(language));
+  const [count] = useState(() => intl.NumberFormat(language));
   const stat = (key: string, value: string, tone?: string) => (
     <div className={`board-stat${tone ? ` ${tone}` : ""}`} key={key}>
       <span className="board-stat-value">{value}</span>
