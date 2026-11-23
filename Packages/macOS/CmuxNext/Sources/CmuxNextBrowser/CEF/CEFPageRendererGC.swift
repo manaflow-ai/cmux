@@ -55,6 +55,9 @@ final class CEFPageRendererGC {
     /// Each renderer's used heap right after its last collection.
     private var live: [Int32: Int] = [:]
     private var checking = false
+    /// What the collector did, for `debug.cef_pages` (a bench reads why a renderer was or was not collected).
+    private(set) var stats: [String: Int] = [:]
+    private func count(_ key: String, _ value: Int? = nil) { stats[key] = value ?? (stats[key, default: 0] + 1) }
 
     init(pages: @escaping @MainActor () -> [Page],
          heapUsed: @escaping @MainActor (Int32) async -> Int?,
@@ -66,6 +69,7 @@ final class CEFPageRendererGC {
 
     /// A cmux page closed: its renderer is checked within ``delay``, and once more ``quietDelay`` after the newest close.
     func pageClosed() {
+        count("closes")
         timer.scheduleIfIdle(after: Self.delay) { @MainActor [weak self] in await self?.check() }
         scheduleQuietCheck()
     }
@@ -79,17 +83,24 @@ final class CEFPageRendererGC {
         guard !checking else {
             // The burst's check is running: the quiet one still runs, later.
             if quiet { scheduleQuietCheck() }
+            count("busy")
             return
         }
         checking = true
         defer { checking = false }
         let targets = Self.targets(pages())
+        count(quiet ? "quiet_checks" : "checks")
+        count("last_targets", targets.count)
         live = live.filter { renderer, _ in targets.contains { $0.renderer == renderer } }
         for target in targets {
             let bound = quiet ? Self.quietBound(afterLastCollection: live[target.renderer]) : Self.bound(afterLastCollection: live[target.renderer])
-            guard let used = await heapUsed(target.browser), used >= bound else { continue }
+            let used = await heapUsed(target.browser)
+            count("last_used_mb", (used ?? -(1 << 20)) >> 20)
+            count("last_bound_mb", bound >> 20)
+            guard let used, used >= bound else { continue }
             await collect(target.browser)
-            if let after = await heapUsed(target.browser) { live[target.renderer] = after }
+            count(quiet ? "quiet_collections" : "collections")
+            if let after = await heapUsed(target.browser) { live[target.renderer] = after; count("last_live_mb", after >> 20) }
         }
     }
 

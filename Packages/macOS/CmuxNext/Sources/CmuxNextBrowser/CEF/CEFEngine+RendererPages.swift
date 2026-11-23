@@ -33,6 +33,9 @@ extension CEFEngine {
         }
     }
 
+    /// What the cmux page collector did so far (`CEFPageRendererGC.stats`), for `debug.cef_pages`.
+    public var pageCollectorStats: [String: Int] { CEFRuntime.shared.pageRendererGC.stats }
+
     /// Runs DevTools `method` on the live page `browserID` (`debug.cef_page_devtools`: the idle
     /// bench's page metrics and CPU profile). Nil when no live page has that id.
     public func devTools(browserID: Int32, method: String, params: [String: any Sendable]) async throws -> String? {

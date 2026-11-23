@@ -106,9 +106,14 @@ def phase(pid: int, bundle: str, sock: str, label: str, items: int, seconds: flo
     return result
 
 
-def renderer_footprints(pid: int, bundle: str) -> list[float]:
-    """Every Chromium renderer's footprint now (MB), largest first: no window, one read per process."""
+RENDERER_RSS: dict = {}
+
+
+def renderer_footprints(pid: int, bundle: str, step: str = "") -> list[float]:
+    """Every Chromium renderer's footprint now (MB), largest first: no window, one read per process. Its resident
+    sizes at the same read go to RENDERER_RSS[step]."""
     rows = bm.sample(pid, bundle, "chat-heap", 0)["processes"]
+    RENDERER_RSS[step] = sorted((r["rss_mb"] for r in rows if r["kind"] == "cef-renderer"), reverse=True)
     return sorted((r["footprint_mb"] for r in rows if r["kind"] == "cef-renderer"), reverse=True)
 
 
@@ -127,7 +132,9 @@ def chat_heap(app: bm.App, pid: int, bundle: str, label: str, away: str | None =
     then back to `back`: on the Linux stand-in (webviews/bench/chat-pages-memory.bench.ts PURGE_EXPERIMENT=1) the
     garbage 30 closed chats left (blink_gc 85 -> 16 MB, malloc 95 -> 77 MB) went back only once the renderer had
     no visible page; a collection and a critical notice with one shown gave back nothing."""
-    pages = (app.call("debug.cef_pages", timeout=30) or {}).get("pages")
+    listed = app.call("debug.cef_pages", timeout=30) or {}
+    print(f"INFTABS-CHATHEAP label={label} page_gc={json.dumps(listed.get('page_gc'))}", flush=True)
+    pages = listed.get("pages")
     if not isinstance(pages, list):
         print(f"INFTABS-CHATHEAP label={label} error=no-debug.cef_pages", flush=True)
         return []
@@ -159,24 +166,24 @@ def chat_heap(app: bm.App, pid: int, bundle: str, label: str, away: str | None =
         row = {"renderer": renderer, "pages": len(members), "hidden": sum(1 for p in members if p.get("hidden")),
                "paths": sorted({str(p.get("path") or "/") for p in members}), "before": read(browser)}
         rows.append((browser, row))
-    steps = {"before": renderer_footprints(pid, bundle)}
+    steps = {"before": renderer_footprints(pid, bundle, "before")}
     for browser, row in rows:
         call(browser, "HeapProfiler.collectGarbage", timeout=60)
     time.sleep(2)  # test script: the collection's freed pages go back before the process is read
-    steps["gc"] = renderer_footprints(pid, bundle)
+    steps["gc"] = renderer_footprints(pid, bundle, "gc")
     for browser, row in rows:
         row["gc"] = read(browser)
     if rows:
         call(rows[0][0], "Memory.simulatePressureNotification", {"level": "critical"})  # reaches every process
     time.sleep(3)  # test script: the purge's discards land before the process is read
-    steps["purge"] = renderer_footprints(pid, bundle)
+    steps["purge"] = renderer_footprints(pid, bundle, "purge")
     for browser, row in rows:
         row["purge"] = read(browser)
     order = ["before", "gc", "purge"]
     if away and rows:
         app.action("goToWorkspace", workspace=away)
         time.sleep(20)  # test script: the renderer with no page shown lets its free pages go (seconds, on Linux)
-        steps["away"] = renderer_footprints(pid, bundle)
+        steps["away"] = renderer_footprints(pid, bundle, "away")
         shown = (app.call("debug.cef_pages", timeout=30) or {}).get("pages") or []
         hidden = {p.get("browser"): bool(p.get("hidden")) for p in shown if isinstance(p, dict)}
         for browser, row in rows:
@@ -193,6 +200,8 @@ def chat_heap(app: bm.App, pid: int, bundle: str, label: str, away: str | None =
         out.append(row)
     print(f"INFTABS-CHATHEAP label={label} renderer_footprints_mb "
           + " ".join(f"{step}={json.dumps(values[:4])}" for step, values in steps.items()), flush=True)
+    print(f"INFTABS-CHATHEAP label={label} renderer_rss_mb "
+          + " ".join(f"{step}={json.dumps(RENDERER_RSS.get(step, [])[:4])}" for step in steps), flush=True)
     return out
 
 
