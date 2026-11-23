@@ -75,6 +75,18 @@ function load() {
     "the content surface is near-solid, never opaque, and no denser in dark",
   );
   assert(data.glassUnderlay.value > 0 && data.glassUnderlay.value <= 50, "the see-through underlay stays light");
+  {
+    // A menu covers the same share of the text under it in light and dark (design/glass-system.md,
+    // rule 6): the dark underlay makes up for the menu's clearer dark tint, and no more.
+    const menu = data.glass.find((level) => level.name === "menu");
+    const cover = (tint, underlay) => tint + ((100 - tint) * underlay) / 100;
+    const light = cover(menu.tint, data.glassUnderlay.value);
+    const dark = cover(menu.darkTint ?? menu.tint, data.glassUnderlay.darkValue);
+    assert(
+      data.glassUnderlay.darkValue >= data.glassUnderlay.value && Math.abs(dark - light) < 1 && dark < 90,
+      `the menu covers the same share of the text under it in dark (${dark.toFixed(1)}%) as in light (${light.toFixed(1)}%), never opaque`,
+    );
+  }
   assert(
     data.glassInk.secondary >= 50 &&
       data.glassInk.darkSecondary >= data.glassInk.secondary &&
@@ -416,6 +428,7 @@ function cssBlock(data, roles) {
     `    --ds-glass-content-tint: ${data.glassContent.darkTint}%;`,
     `    --ds-glass-ink-secondary: ${data.glassInk.darkSecondary}%;`,
     `    --ds-glass-ink-status: ${data.glassInk.darkStatus}%;`,
+    `    --ds-glass-underlay: ${data.glassUnderlay.darkValue}%;`,
   ];
   out.push("@media (prefers-color-scheme: dark) {", '  :root:not([data-theme="light"]) {', ...dark, "  }", "}");
   out.push(':root[data-theme="dark"] {', ...dark.map((line) => line.slice(2)), "}");
