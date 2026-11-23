@@ -230,6 +230,31 @@ python3 "$PTR" newer --pointer "$TMP/rel.json" --keys "$TMP/keys-a.json" --curre
 rc=0; python3 "$PTR" newer --pointer "$TMP/badversion.json" --keys "$TMP/keys-a.json" 2>/dev/null || rc=$?
 [[ $rc == 1 ]] || fail "a malformed Linux release payload was taken (exit $rc)"
 
+# Key rotation (linux-signed-packages.md section 3): --extra-key adds a second signature when the
+# list names it, so the file verifies with either key alone; an unlisted extra key is skipped, not fatal.
+python3 - "$TMP/keys-a.json" "$TMP/keys-b.json" "$TMP/keys-ab.json" <<'PY2'
+import json, sys
+a, b = (json.load(open(p))["keys"] for p in sys.argv[1:3])
+json.dump({"keys": a + b}, open(sys.argv[3], "w"))
+PY2
+python3 "$PTR" sign --payload "$TMP/p1" --key "$TMP/a.pem" --extra-key "$TMP/b.pem" --keys "$TMP/keys-ab.json" \
+  --out "$TMP/dual.json" || fail "dual signing failed"
+python3 -c 'import json,sys; assert len(json.load(open(sys.argv[1]))["signatures"]) == 2' "$TMP/dual.json" \
+  || fail "a dual-signed file does not carry two signatures"
+python3 "$PTR" verify --pointer "$TMP/dual.json" --keys "$TMP/keys-a.json" >/dev/null || fail "dual-signed: old key alone refused"
+python3 "$PTR" verify --pointer "$TMP/dual.json" --keys "$TMP/keys-b.json" >/dev/null || fail "dual-signed: new key alone refused"
+warn=$(python3 "$PTR" sign --payload "$TMP/p1" --key "$TMP/a.pem" --extra-key "$TMP/b.pem" --keys "$TMP/keys-a.json" \
+  --out "$TMP/single.json" 2>&1) || fail "an unlisted extra key failed the signing"
+[[ "$warn" == *"extra signing key skipped"* ]] || fail "an unlisted extra key was skipped silently: $warn"
+python3 -c 'import json,sys; assert len(json.load(open(sys.argv[1]))["signatures"]) == 1' "$TMP/single.json" \
+  || fail "an unlisted extra key signed"
+python3 "$PTR" sign --payload "$TMP/p1" --key "$TMP/a.pem" --extra-key "$TMP/a.pem" --keys "$TMP/keys-a.json" \
+  --out "$TMP/same.json" 2>/dev/null || fail "the same key as --extra-key failed"
+python3 -c 'import json,sys; assert len(json.load(open(sys.argv[1]))["signatures"]) == 1' "$TMP/same.json" \
+  || fail "the same key signed twice"
+python3 "$PTR" sign --payload "$TMP/p1" --key "$TMP/b.pem" --extra-key "$TMP/a.pem" --keys "$TMP/keys-a.json" \
+  --out "$TMP/x.json" 2>/dev/null && fail "an unlisted primary key signed because the extra key is listed"
+
 # Phase 1b: `sequence` (publish order, YYYYMMDDHHMMSS) orders the files and the version carries it; a
 # phase-1 file (no sequence) is ordered by the commit-time stamp in its version.
 signed seq sequence=20261122110500 'version="1.0.0+20261122110500.cccccccccccc"' \
