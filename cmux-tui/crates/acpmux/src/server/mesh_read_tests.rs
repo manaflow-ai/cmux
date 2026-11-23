@@ -272,7 +272,7 @@ async fn the_same_persons_machine_reads_a_reply_through_the_hub_and_no_one_else_
 /// Concurrent callers of one hub-routed read share the single network round trip while it is
 /// held in flight. The gate is event-driven, so a caller that arrives after release would make a
 /// second send and fail the count below.
-#[tokio::test(start_paused = true)]
+#[tokio::test]
 async fn concurrent_hub_reads_share_one_send() {
     const CALLERS: usize = 8;
     let b = machine_b();
