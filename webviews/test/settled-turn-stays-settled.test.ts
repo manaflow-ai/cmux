@@ -93,7 +93,8 @@ for (const family of ["claude", "codex"]) {
 
 test("settledTail: an ended turn's summary under prompts on their way and the typing placeholder", () => {
   const tail = (rows: AcpmuxRow[]) => settledTail(rows, 0, rows.length);
-  expect(tail(ended)).toBe(true);
+  // A bare summary with the chat running is the turn going on after it, not settled (ContinueAfterStop).
+  expect(tail(ended)).toBe(false);
   expect(tail([...ended, sending, typing])).toBe(true);
   expect(tail([...ended, { ...sending, pending: undefined, failed: true }])).toBe(true);
   // Work after the summary (the agent went on by itself) runs again; a turn with no summary runs.

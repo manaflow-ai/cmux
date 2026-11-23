@@ -1686,7 +1686,9 @@ export function settledTail(rows: readonly AcpmuxRow[], start: number, end: numb
   for (let at = end - 1; at > start; at -= 1) {
     const row = rows[at]!;
     // A stop the person's prompt made goes on under that prompt (``hidesContinuedSummary``).
-    if (row.kind === "turnSummary") return !row.continued;
+    // Only under what the person's send drew: a bare summary with the chat running is the turn going
+    // on after it (ContinueAfterStop.test.tsx).
+    if (row.kind === "turnSummary") return !row.continued && at < end - 1;
     if (row.kind === "typing" || (row.kind === "user" && isUnsent(row))) continue;
     return false;
   }
@@ -2198,11 +2200,19 @@ function shapeTurn(
               }),
           })),
         );
-    } else if (style.conclusion && first && segments.length === 1 && headedPrompt(user)) {
+    } else if (
+      style.conclusion &&
+      first &&
+      segments.length === 1 &&
+      final &&
+      summary.status === "completed" &&
+      headedPrompt(user)
+    ) {
       // The person's turn that only replied keeps its heading's slot too: its "Working for" stood over
       // the reply from the send (shapeLiveTurn `headedPrompt`), so its end swaps the words in place and
       // draws an inert "Worked for", with nothing to open (Leo, 2026-11-22: "accounting for space for
-      // the worked for/working heading should always be there anyways").
+      // the worked for/working heading should always be there anyways"). A turn that stopped or failed
+      // ends on its card alone (emptyWorkedFold.test.ts: "the error card has to stand alone").
       folded = true;
       shaped.push({
         id,
