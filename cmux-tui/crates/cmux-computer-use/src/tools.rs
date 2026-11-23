@@ -424,10 +424,9 @@ it. When the task names the window and its controls, act at once: one batch whos
 elements by target {role, label}. Otherwise get_ui_tree the window, then act on element ids. Menu \
 commands are in the tree's menu bar. \"No change\" means it did nothing, so try another way before \
 saying it worked. Act in the background; use delivery foreground only when status says the person \
-allowed it, and only for a system-wide shortcut or to bring a window to them. If a call says Computer Use is off or a permission is missing, open setup for the person with \
-`cmux action run palette.computerUse.setup` and retry once they finish. If a call is refused \
-otherwise, call status and tell the person which Settings > Computer Use setting would allow it; \
-never change those settings yourself.";
+allowed it, and only for a system-wide shortcut or to bring a window to them. If a call is refused, \
+take the setup step it names, else call status and tell the person which Settings > Computer Use \
+setting would allow it; never change those settings yourself.";
 
 #[cfg(test)]
 mod tests {
