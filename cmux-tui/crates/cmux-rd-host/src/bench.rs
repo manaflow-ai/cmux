@@ -15,6 +15,7 @@ use crate::args::Opts;
 use crate::clock::{now_ns, Rng};
 use crate::fdwait::wait_readable;
 use crate::marker;
+use crate::scaled::Scale;
 use crate::wire::{
     write_control, write_frame, Control, FrameReader, FRAME_CONTROL, FRAME_DATAGRAM,
 };
@@ -57,7 +58,55 @@ enum ViewerIo {
         udp: Option<(UdpSocket, SocketAddr)>,
     },
     #[cfg(feature = "link")]
-    Link(cmux_rd_link::net::Net),
+    Link(LinkIo),
+}
+
+/// `--link`'s driver and its connect times on this Mac's protocol clock (µs), printed once
+/// as `{"link":{..}}` on stdout when the link comes up or fails: the connect a person waits
+/// for, without the time a measuring script's relay adds (scripts/screen-share-vs.py).
+#[cfg(feature = "link")]
+struct LinkIo {
+    net: cmux_rd_link::net::Net,
+    /// The answer line (the host's key and candidates) was read.
+    answer_us: u64,
+    /// The host's candidates reached the link driver. Message 1 is queued at start and
+    /// goes out on the driver's next turn, once a route exists, so this is its send time
+    /// to within one thread wake.
+    first_send_us: u64,
+    reported: bool,
+}
+
+#[cfg(feature = "link")]
+impl LinkIo {
+    /// The `{"link":{..}}` line, once: `established_us` when the link came up, else the
+    /// failure (`heard 0` and the like), so a link that never answers still has its times.
+    fn report(&mut self, failed: Option<&str>) {
+        if self.reported {
+            return;
+        }
+        self.reported = true;
+        println!("{}", link_line(self.answer_us, self.first_send_us, now_ns() / 1000, failed));
+    }
+}
+
+/// `{"link":{"answer_us","first_send_us","established_us"}}`, or with `failed_us` and
+/// `failed` in place of `established_us` when the link failed.
+#[cfg(feature = "link")]
+fn link_line(
+    answer_us: u64,
+    first_send_us: u64,
+    now_us: u64,
+    failed: Option<&str>,
+) -> serde_json::Value {
+    let mut link = json!({"answer_us": answer_us, "first_send_us": first_send_us});
+    match failed {
+        None => link["established_us"] = json!(now_us),
+        Some(reason) => {
+            link["failed_us"] = json!(now_us);
+            link["failed"] = json!(reason);
+        }
+    }
+    json!({ "link": link })
 }
 
 /// One control record or datagram that arrived.
@@ -73,8 +122,8 @@ impl ViewerIo {
             Self::Socket { udp: Some((sock, host)), .. } => sock.send_to(d, *host).map(|_| ()),
             Self::Socket { tcp, .. } => write_frame(tcp, FRAME_DATAGRAM, d),
             #[cfg(feature = "link")]
-            Self::Link(net) => {
-                net.send_datagram(d.to_vec());
+            Self::Link(link) => {
+                link.net.send_datagram(d.to_vec());
                 Ok(())
             }
         }
@@ -84,8 +133,8 @@ impl ViewerIo {
         match self {
             Self::Socket { tcp, .. } => write_control(tcp, c),
             #[cfg(feature = "link")]
-            Self::Link(net) => {
-                net.send_control(serde_json::to_vec(c).map_err(io::Error::other)?);
+            Self::Link(link) => {
+                link.net.send_control(serde_json::to_vec(c).map_err(io::Error::other)?);
                 Ok(())
             }
         }
@@ -101,7 +150,7 @@ impl ViewerIo {
                 fds
             }
             #[cfg(feature = "link")]
-            Self::Link(net) => vec![net.event_fd()],
+            Self::Link(link) => vec![link.net.event_fd()],
         }
     }
 
@@ -130,10 +179,13 @@ impl ViewerIo {
                 }
             }
             #[cfg(feature = "link")]
-            Self::Link(net) => {
+            Self::Link(link) => {
                 use cmux_rd_link::net::NetEvent;
                 use cmux_rd_link::{EndpointEvent, Event};
-                for event in net.events() {
+                for event in link.net.events() {
+                    if let Some(line) = event.phase_line() {
+                        println!("{line}");
+                    }
                     match event {
                         NetEvent::Endpoint(EndpointEvent::Link(Event::Datagram(d))) => {
                             out.push(Arrived::Datagram(d))
@@ -144,7 +196,11 @@ impl ViewerIo {
                         NetEvent::Endpoint(EndpointEvent::Link(Event::Closed)) => {
                             out.push(Arrived::Closed("host closed the link".into()))
                         }
+                        NetEvent::Endpoint(EndpointEvent::Link(Event::Established)) => {
+                            link.report(None)
+                        }
                         NetEvent::Failed(e) => {
+                            link.report(Some(&e));
                             out.push(Arrived::Closed(format!("link failed: {e}")))
                         }
                         NetEvent::Endpoint(EndpointEvent::PathChanged { kind, rtt_us, .. }) => {
@@ -166,6 +222,10 @@ struct Viewer {
     io: ViewerIo,
     reassembler: Reassembler,
     decoder: Decoder,
+    /// Refuses frames under a High-profile SPS, which OpenH264 decodes to wrong pictures with
+    /// no error (cmux#50591): they count as decode errors, and the first one is printed.
+    h264_gate: cmux_encode::h264_profile::ProfileGate,
+    h264_gate_said: bool,
     sender: InputSender,
     arrivals: Vec<Arrival>,
     marker: Option<u16>,
@@ -219,6 +279,9 @@ struct Viewer {
     record: Option<std::fs::File>,
     /// `--marker-origin X,Y`: the marker's top-left in stream pixels (default 0,0).
     marker_origin: (usize, usize),
+    /// The stream's size once the host negotiated cap `video.scaled` (`--caps video.scaled`):
+    /// a decoded picture smaller than it is read scaled up to it (src/scaled.rs).
+    scaled_stream: Option<(usize, usize)>,
     /// macOS: the hardware decoder the viewer pane uses (`--decoder videotoolbox`, the
     /// default there); OpenH264 decodes constrained baseline only.
     #[cfg(target_os = "macos")]
@@ -321,8 +384,11 @@ impl Viewer {
                                 if let Some(log) = self.eval_decode.as_mut() {
                                     log.record(frame.frame, frame.body.t_capture_us, t1 / 1000);
                                 }
+                                let scale = scale_of(self.scaled_stream, picture.size());
                                 if let Some(quality) = self.eval_quality.as_mut() {
-                                    if let Some(pixels) = picture.with_luma(crate::eval::roi) {
+                                    if let Some(pixels) =
+                                        picture.with_luma(|y, stride| quality_roi(scale, y, stride))
+                                    {
                                         quality.decoded(
                                             u64::from(frame.frame),
                                             frame.body.t_capture_us,
@@ -332,9 +398,8 @@ impl Viewer {
                                     }
                                 }
                                 let origin = self.marker_origin;
-                                let read = picture.with_luma(|y, stride| {
-                                    marker::decode_luma_at(y, stride, true, origin)
-                                });
+                                let read = picture
+                                    .with_luma(|y, stride| read_marker(scale, y, stride, origin));
                                 self.saw_marker(
                                     read,
                                     frame.frame,
@@ -363,8 +428,12 @@ impl Viewer {
                                 if let Some(log) = self.eval_decode.as_mut() {
                                     log.record(frame.frame, frame.body.t_capture_us, t1 / 1000);
                                 }
+                                let scale = scale_of(
+                                    self.scaled_stream,
+                                    (pic.width, pic.y.len() / pic.width.max(1)),
+                                );
                                 if let Some(quality) = self.eval_quality.as_mut() {
-                                    if let Some(pixels) = crate::eval::roi(&pic.y, pic.width) {
+                                    if let Some(pixels) = quality_roi(scale, &pic.y, pic.width) {
                                         quality.decoded(
                                             u64::from(frame.frame),
                                             frame.body.t_capture_us,
@@ -373,12 +442,8 @@ impl Viewer {
                                         );
                                     }
                                 }
-                                let read = marker::decode_luma_at(
-                                    &pic.y,
-                                    pic.width,
-                                    true,
-                                    self.marker_origin,
-                                );
+                                let read =
+                                    read_marker(scale, &pic.y, pic.width, self.marker_origin);
                                 self.saw_marker(
                                     read,
                                     frame.frame,
@@ -394,6 +459,13 @@ impl Viewer {
                     }
                     let t1;
                     // A block, so the decoder's borrowed picture ends before saw_marker.
+                    if let Err(why) = self.h264_gate.check(&frame.body.access_unit) {
+                        self.decode_errors += 1;
+                        if !std::mem::replace(&mut self.h264_gate_said, true) {
+                            eprintln!("bench: {why}");
+                        }
+                        continue;
+                    }
                     let read = {
                         let decoded = self.decoder.decode(&frame.body.access_unit);
                         t1 = now_ns();
@@ -416,8 +488,10 @@ impl Viewer {
                                 if let Some(log) = self.eval_decode.as_mut() {
                                     log.record(frame.frame, frame.body.t_capture_us, t1 / 1000);
                                 }
+                                let scale = scale_of(self.scaled_stream, yuv.dimensions());
                                 if let Some(quality) = self.eval_quality.as_mut() {
-                                    if let Some(pixels) = crate::eval::roi(yuv.y(), yuv.strides().0)
+                                    if let Some(pixels) =
+                                        quality_roi(scale, yuv.y(), yuv.strides().0)
                                     {
                                         quality.decoded(
                                             u64::from(frame.frame),
@@ -435,12 +509,7 @@ impl Viewer {
                                     yuv.write_rgb8(&mut rgb);
                                     self.snapshot = Some((w, h, rgb));
                                 }
-                                marker::decode_luma_at(
-                                    yuv.y(),
-                                    yuv.strides().0,
-                                    true,
-                                    self.marker_origin,
-                                )
+                                read_marker(scale, yuv.y(), yuv.strides().0, self.marker_origin)
                             }
                             Ok(None) => None,
                             Err(_) => {
@@ -451,6 +520,13 @@ impl Viewer {
                     };
                     self.saw_marker(read, frame.frame, frame.body.t_capture_us, now, t1);
                 }
+            }
+            // An ultra capacity probe: only its arrival goes back, in the media feedback.
+            DatagramKind::Probe => {
+                self.arrivals.push(Arrival {
+                    transport_seq: h.transport_seq,
+                    arrival_us: (now / 1000) as u32,
+                });
             }
             DatagramKind::Feedback if h.stream == UP_STREAM => {
                 let resends = match self.upstream.as_mut() {
@@ -513,9 +589,12 @@ impl Viewer {
             };
             match serde_json::from_slice::<Control>(&payload)? {
                 Control::Stats { .. } => self.stats.push(serde_json::from_slice(&payload)?),
-                Control::Welcome { max_datagram, .. } => {
+                Control::Welcome { max_datagram, width, height, caps: ref negotiated, .. } => {
                     // Upstream datagrams use the size the host agreed to.
                     self.max_datagram = max_datagram;
+                    if negotiated.iter().any(|c| c == caps::VIDEO_SCALED) {
+                        self.scaled_stream = Some((width as usize, height as usize));
+                    }
                     let welcome: serde_json::Value = serde_json::from_slice(&payload)?;
                     // An older host refuses the probe kinds: ping only when it lists `clock`.
                     let lists = |cap: &str| {
@@ -794,6 +873,15 @@ fn cpu_s() -> f64 {
         + ru.ru_stime.tv_usec as f64 / 1e6
 }
 
+/// Whether the bench decodes H.264 with OpenH264 for `--decoder` (default: VideoToolbox on
+/// macOS, OpenH264 elsewhere; `vp9` or `av1` is not H.264).
+fn bench_decodes_with_openh264(decoder: Option<&str>) -> bool {
+    match decoder {
+        None => !cfg!(target_os = "macos"),
+        Some(name) => name == "openh264",
+    }
+}
+
 pub fn run(opts: &Opts) -> Res<()> {
     // The first decoder session in a process is the slow one: create a throwaway one now,
     // in parallel with connecting, so the first IDR does not pay for it.
@@ -855,6 +943,8 @@ pub fn run(opts: &Opts) -> Res<()> {
         io,
         reassembler: Reassembler::new(opts.num_or("deadline-ms", 200u64)? * 1000),
         decoder: Decoder::new()?,
+        h264_gate: Default::default(),
+        h264_gate_said: false,
         sender: InputSender::new(),
         arrivals: Vec::new(),
         marker: None,
@@ -911,6 +1001,7 @@ pub fn run(opts: &Opts) -> Res<()> {
             }
             None => (0, 0),
         },
+        scaled_stream: None,
         #[cfg(target_os = "linux")]
         presenter: opts.get("present").map(crate::present::Presenter::open).transpose()?,
         present_errors: 0,
@@ -946,12 +1037,23 @@ pub fn run(opts: &Opts) -> Res<()> {
             None => None,
         },
         service: cmux_rd_core::service::SERVICE_DESKTOP.into(),
-        // Upstream media needs both caps (rd change C4).
+        // Upstream media needs both caps (rd change C4). This reassembler rebuilds frames in
+        // interleaved FEC blocks. `--caps A,B` offers more, such as `video.scaled` (the
+        // resolution ladder).
         caps: {
-            let mut offered = vec![caps::CLOCK.into(), caps::LEDGER.into()];
+            let mut offered =
+                vec![caps::CLOCK.into(), caps::LEDGER.into(), caps::FEC_BLOCKS.into()];
+            // Decoding with OpenH264 (Linux's only H.264 decoder, `--decoder openh264` on macOS):
+            // ask an H.264 host for Constrained Baseline, the profile it shows correctly.
+            if bench_decodes_with_openh264(opts.get("decoder")) {
+                offered.push(caps::H264_BASELINE.into());
+            }
             if upstream.is_some() {
                 offered.extend([caps::UP_MEDIA.into(), caps::STREAM_OPEN.into()]);
             }
+            offered.extend(opts.get("caps").into_iter().flat_map(|list| {
+                list.split(',').map(str::trim).filter(|c| !c.is_empty()).map(str::to_owned)
+            }));
             offered
         },
     })?;
@@ -1210,6 +1312,33 @@ fn run_passive(opts: &Opts, v: &mut Viewer, addr: SocketAddr, carrier: &str) -> 
     Ok(())
 }
 
+/// How a decoded picture of size `picture` maps onto the stream, when the host negotiated cap
+/// `video.scaled` (`stream`) and sent a picture smaller than it; `None`: read it directly.
+fn scale_of(stream: Option<(usize, usize)>, picture: (usize, usize)) -> Option<Scale> {
+    stream.map(|stream| Scale::new(picture, stream)).filter(|scale| !scale.is_identity())
+}
+
+/// The quality region (`eval::RECT`, stream pixels) of a decoded luma plane.
+fn quality_roi(scale: Option<Scale>, y: &[u8], stride: usize) -> Option<Vec<u8>> {
+    match scale {
+        Some(scale) => scale.luma_rect(y, stride, crate::eval::RECT),
+        None => crate::eval::roi(y, stride),
+    }
+}
+
+/// The marker (at `origin`, stream pixels) of a decoded luma plane.
+fn read_marker(
+    scale: Option<Scale>,
+    y: &[u8],
+    stride: usize,
+    origin: (usize, usize),
+) -> Option<u16> {
+    match scale {
+        Some(scale) => marker::decode_with(true, origin, |x, row| scale.luma(y, stride, x, row)),
+        None => marker::decode_luma_at(y, stride, true, origin),
+    }
+}
+
 /// `--snapshot PATH`: the newest decoded frame, so a run shows what the viewer received.
 fn write_snapshot(opts: &Opts, v: &Viewer) -> Res<()> {
     #[cfg(target_os = "macos")]
@@ -1219,6 +1348,11 @@ fn write_snapshot(opts: &Opts, v: &Viewer) -> Res<()> {
     if let (Some(path), Some((w, h, rgb))) =
         (opts.get("snapshot"), converted.as_ref().or(v.snapshot.as_ref()))
     {
+        // A smaller picture (cap `video.scaled`) is written as a viewer shows it: stream size.
+        let scaled = scale_of(v.scaled_stream, (*w, *h)).map(|scale| scale.rgb(rgb));
+        let (w, h, rgb) = scaled
+            .as_ref()
+            .map_or((*w, *h, rgb.as_slice()), |(w, h, rgb)| (*w, *h, rgb.as_slice()));
         let mut ppm = format!("P6\n{w} {h}\n255\n").into_bytes();
         ppm.extend_from_slice(rgb);
         std::fs::write(path, ppm)?;
@@ -1251,6 +1385,7 @@ fn link_io() -> Res<ViewerIo> {
     );
     let mut line = String::new();
     io::stdin().lock().read_line(&mut line)?;
+    let answer_us = now_ns() / 1000;
     let answer: Answer = serde_json::from_str(&line).map_err(|e| format!("answer line: {e}"))?;
     let mut peer = [0u8; 32];
     if answer.peer_key.len() != 64 {
@@ -1279,11 +1414,50 @@ fn link_io() -> Res<ViewerIo> {
     for c in answer.candidates.iter().filter_map(|c| Candidate::from_wire(c)) {
         net.add_remote_candidate(c);
     }
+    let first_send_us = now_ns() / 1000;
     // This side's candidates go out through the test's stand-in hub.
     for event in net.events() {
+        if let Some(line) = event.phase_line() {
+            println!("{line}");
+        }
         if let NetEvent::Candidate(c) = event {
             println!("{}", json!({"candidate": c.to_wire()}));
         }
     }
-    Ok(ViewerIo::Link(net))
+    Ok(ViewerIo::Link(LinkIo { net, answer_us, first_send_us, reported: false }))
+}
+
+#[cfg(all(test, feature = "link"))]
+mod link_line_tests {
+    use super::link_line;
+    use serde_json::json;
+
+    #[test]
+    fn an_established_link_reports_its_three_times() {
+        assert_eq!(
+            link_line(100, 150, 900, None),
+            json!({"link": {"answer_us": 100, "first_send_us": 150, "established_us": 900}})
+        );
+    }
+
+    #[test]
+    fn a_failed_link_still_reports_when_it_sent_and_why_it_failed() {
+        let reason = "the secure handshake timed out (local host 3; heard 0)";
+        assert_eq!(
+            link_line(100, 150, 10_150, Some(reason)),
+            json!({"link": {"answer_us": 100, "first_send_us": 150, "failed_us": 10_150, "failed": reason}})
+        );
+    }
+}
+
+#[cfg(test)]
+mod h264_baseline_cap_tests {
+    /// The bench asks for Constrained Baseline exactly when it decodes with OpenH264.
+    #[test]
+    fn offers_the_cap_when_openh264_decodes() {
+        assert_eq!(super::bench_decodes_with_openh264(None), !cfg!(target_os = "macos"));
+        assert!(super::bench_decodes_with_openh264(Some("openh264")));
+        assert!(!super::bench_decodes_with_openh264(Some("videotoolbox")));
+        assert!(!super::bench_decodes_with_openh264(Some("vp9")));
+    }
 }

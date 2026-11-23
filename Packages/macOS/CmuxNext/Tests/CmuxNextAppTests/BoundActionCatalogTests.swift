@@ -23,6 +23,9 @@ struct BoundActionCatalogTests {
         "macScreen.sendSpotlight", "macScreen.reconnect", "macScreen.stopAllViewing",
         // #50515 (Open Chief on the Left/Right) adds these rows to the Rust catalog in the same PR.
         "home.tabLeft", "home.tabRight",
+        // Adjust Background…, Fill and Fit (PR #49748, step B) bind before their step A catalog rows
+        // (cmux-action-catalog backdrop.rs) re-pin: until then they do nothing.
+        "appearance.adjustBackground", "appearance.background.fill", "appearance.background.fit",
     ]
 
     @Test func everyBoundActionIsInTheCatalog() {
