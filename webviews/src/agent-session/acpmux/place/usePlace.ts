@@ -30,14 +30,23 @@ const refusal = (say: ((text: string) => void) | undefined) =>
     ? sayActionRefusal(say, () => translate("composer.offloadNotRun", { action: translate("place.label") }))
     : () => undefined;
 
-/// The calls bound to `session`: the app runs them only while its tab still shows that chat.
-export function placeActions(session: string, say?: (text: string) => void): PlaceActions {
+/// What only the page knows of what a move carries: the prompts queued behind the turn and an unsent
+/// draft. Read when the person picks, so the card's list is what is there then.
+export interface PlaceClaims {
+  readonly queued: number;
+  readonly hasDraft: boolean;
+}
+
+/// The calls bound to `session`: the app runs them only while its tab still shows that chat. A place
+/// pick and a Retry send `claims()` (chatPlace.set, chatMove.retry take `queued` and `hasDraft`).
+export function placeActions(session: string, say?: (text: string) => void, claims?: () => PlaceClaims): PlaceActions {
   const fail = refusal(say);
   const run = (payload: Record<string, unknown>) => void callNative("action.run", { ...payload, session }).catch(fail);
+  const carried = () => (claims ? { ...claims() } : {});
   return {
-    setMode: (mode) => run({ id: "chatPlace.set", mode }),
+    setMode: (mode) => run({ id: "chatPlace.set", mode, ...carried() }),
     cancel: () => run({ id: "chatMove.cancel" }),
-    retry: () => run({ id: "chatMove.retry" }),
+    retry: () => run({ id: "chatMove.retry", ...carried() }),
   };
 }
 

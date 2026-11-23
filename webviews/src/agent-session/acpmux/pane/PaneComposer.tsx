@@ -706,7 +706,16 @@ export function drawPaneComposer({
           </output>
         </Notice>
         {!showNewTab && <AutoResumeNotice state={liveAutoResume(liveTurnPhase, snapshot.autoResume)} />}
-        {!showNewTab && !quick && <MoveDock session={snapshot.sessionId} say={notices.transient} />}
+        {!showNewTab && !quick && (
+          <MoveDock
+            session={snapshot.sessionId}
+            say={notices.transient}
+            claims={() => ({
+              queued: snapshot.queue.length,
+              hasDraft: (composerHandle.current?.draftText() ?? "").trim() !== "",
+            })}
+          />
+        )}
         {!showNewTab && (
           <ShareNudge
             open={shareNudge.shown}
@@ -1326,7 +1335,18 @@ export function drawPaneComposer({
             // A started chat's Local, Cloud, Auto (beside the picker's own move row); the floating chat has none.
             {...(quick || !snapshot.sessionId
               ? {}
-              : { placeControl: <PlaceChip session={snapshot.sessionId} say={notices.transient} /> })}
+              : {
+                  placeControl: (
+                    <PlaceChip
+                      session={snapshot.sessionId}
+                      say={notices.transient}
+                      claims={() => ({
+                        queued: snapshot.queue.length,
+                        hasDraft: (composerHandle.current?.draftText() ?? "").trim() !== "",
+                      })}
+                    />
+                  ),
+                })}
             // The floating chat has no tab to move.
             {...(quick
               ? {}
