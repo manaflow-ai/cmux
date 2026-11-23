@@ -1,5 +1,4 @@
 use super::*;
-use std::io::{BufRead as _, Write as _};
 
 #[test]
 fn the_manifest_holds_what_a_copy_sends_and_never_a_secret() {
