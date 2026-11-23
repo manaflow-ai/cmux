@@ -31,8 +31,9 @@ public final class AgentPanePictures {
     /// A new picture of tab `key`'s chat, at most `maxPixelSize`, when it is on screen and its last is older than
     /// ``freshness``; nil asks the caller for its last kept one.
     public func freshPicture(_ key: String, fit maxPixelSize: CGSize) async -> CGImage? {
+        // The page picture starts in this turn, right after the on-screen check: a later start could picture it hidden.
         guard let chat = startable(key, within: Self.freshness),
-              let kept = await finish(AgentPaneHibernationCapture(view: chat).frame()?.image, of: chat, key: key) else { return nil }
+              let kept = await finish(await Self.picture(of: chat), of: chat, key: key) else { return nil }
         let side = Int(min(maxPixelSize.width, maxPixelSize.height))
         return side >= Self.side ? kept : await Task.detached(priority: .userInitiated) { AgentPaneVideoInfo.scaled(kept, toFit: side) }.value
     }
@@ -43,9 +44,13 @@ public final class AgentPanePictures {
     public func willLeaveScreen(_ key: String) {
         guard #available(macOS 26, *), let chat = startable(key, within: Self.leaveFreshness) else { return }
         Task.immediate { @MainActor [weak self] in  // task-owner: one page picture, started before this turn hides the page
-            let image = await chat.pageImage()?.cgImage(forProposedRect: nil, context: nil, hints: nil)
+            let image = await Self.picture(of: chat)
             await self?.finish(image, of: chat, key: key)
         }
+    }
+
+    private static func picture(of chat: AgentPaneView) async -> CGImage? {
+        await chat.pageImage()?.cgImage(forProposedRect: nil, context: nil, hints: nil)
     }
 
     /// `key`'s painted, on-screen chat, not pictured within `freshness` nor being pictured; marks it in flight.

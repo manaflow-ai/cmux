@@ -37,9 +37,10 @@ public final class SidebarTabThumbnails {
     func refresh(_ tab: TabID, maxPixelSize: CGSize) async -> Bool {
         guard let provider, inFlight.insert(tab).inserted else { return false }
         defer { inFlight.remove(tab) }
-        guard let image = await provider(tab, maxPixelSize), images[tab] !== image else { return false }
-        store(image, for: tab)
-        return true
+        guard let image = await provider(tab, maxPixelSize) else { return false }
+        let isNew = images[tab] !== image
+        store(image, for: tab)  // also marks it the most recently asked
+        return isNew
     }
 
     private func store(_ image: CGImage, for tab: TabID) {

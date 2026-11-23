@@ -16,7 +16,7 @@ final class TabPreviewSource: TabPreviewProvider {
 
     init(cache: TabContentCache, pages: InternalPageTabStore, chats: @escaping @MainActor (String) -> AgentPaneView?) {
         (self.cache, self.pages) = (cache, pages)
-        self.chats = AgentPanePictures(view: chats, keep: cache.previews.insert)
+        self.chats = AgentPanePictures(view: chats, keep: { [previews = cache.previews] in previews.insert($1, for: $0) })
     }
 
     func previewImage(for tab: TabID, maxPixelSize: CGSize) async -> CGImage? {
