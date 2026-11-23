@@ -90,6 +90,9 @@ class ChiefBenchmarkRouteTests(unittest.TestCase):
         # Keep production exit propagation too; the unrelated app packaging needs
         # a real app and is deliberately outside this portable route test.
         status = script.index('if [[ "${test_status:-0}" -ne 0 ]]')
+        # The script's own DerivedData root line (a slot runner's root, else $work).
+        dd_root = script.index('dd_root="${CMUX_DERIVED_DATA_SLOT:-$work}"\n')
+        dd_root_line = script[dd_root:script.index("\n", dd_root) + 1]
         harness = root / "route.sh"
         harness.write_text(
             'set -euo pipefail\n'
@@ -97,6 +100,7 @@ class ChiefBenchmarkRouteTests(unittest.TestCase):
             'device_type="test-device"; runtime="test-runtime"; reduce_motion=0\n'
             'note() { printf "%s\\n" "$*" | tee -a "$summary"; }\n'
             # The script's own sim_create (stock here: no worker helper in the env).
+            + dd_root_line
             + script[script.index("# sim_create NAME"):script.index("# --- end sim_create")]
             + script[start:end] + "\n" + script[status:],
             encoding="utf-8",
@@ -113,6 +117,8 @@ class ChiefBenchmarkRouteTests(unittest.TestCase):
         }
         # Prove the route sets this itself, rather than inheriting a local opt-in.
         environment.pop("TEST_RUNNER_CMUX_CHIEF_LIVE_PERF", None)
+        # A slot runner's DerivedData root must not leak in: the route builds under $work here.
+        environment.pop("CMUX_DERIVED_DATA_SLOT", None)
         mode = "chief-live-perf-baseline" if baseline else "chief-live-perf"
         process = subprocess.run(
             ["bash", str(harness), mode, str(work), str(out)],

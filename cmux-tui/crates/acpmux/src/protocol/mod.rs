@@ -79,6 +79,9 @@ pub struct MessageEvent {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct MessageSender {
+    /// The sender's given name (`session_handle.rs`), shown first: "Mango · HOST/NAME".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub host: Option<String>,
     pub name: String,
@@ -443,12 +446,16 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/chats_window_changed", Notification),
         // Moving a chat to another daemon (`transfer_out.rs`).
         untyped("_acpmux/transfer_abort", Request),
+        untyped("_acpmux/transfer_base", Request),
         untyped("_acpmux/transfer_begin", Request),
         untyped("_acpmux/transfer_commit", Request),
         untyped("_acpmux/transfer_finish", Request),
         untyped("_acpmux/transfer_forget", Request),
+        untyped("_acpmux/transfer_prepare", Request),
         untyped("_acpmux/transfer_read", Request),
         untyped("_acpmux/transfer_receive", Request),
+        untyped("_acpmux/transfer_stage", Request),
+        untyped("_acpmux/transfer_stage_finish", Request),
         untyped("_acpmux/transfer_write", Request),
         // Handoff.
         keyed::<params::HandoffPrepareParams>(method::MUX_HANDOFF_PREPARE, Request),
