@@ -626,6 +626,7 @@ struct ShellView: View {
         .ignoresSafeArea()
         #if DEBUG
         .modifier(BillingDemoSheet(billing: billing))
+        .overlay(alignment: .topLeading) { LinkDropMarker() }
         #endif
         .cmuxMobileToast($shell.toast)
         .modifier(LiveCallHost(shell: shell))
@@ -729,6 +730,7 @@ struct ShellView: View {
             if options.sidebarOpen { shell.sidebar.open() }
             #if DEBUG
             if let demo = options.demo { await DemoDriver(shell: shell).run(demo) }
+            await LinkDropRig.shared.runIfConfigured(shell: shell)
             await ListStressRig.runIfConfigured(shell: shell)
             await DebugLaunch.run(selectTab: { shell.tab = $0 })
             #endif

@@ -765,7 +765,12 @@ final class ShellModel {
 
     /// When the focused Mac's link dropped: the banner's chip counts its 10 s from here, so a
     /// state the coordinator already held for the bound (Reconnecting) shows at once.
-    var bannerLinkDownSince: Date? { live?.focusedMacID.flatMap { store.macLinkDownSince[$0] } }
+    var bannerLinkDownSince: Date? {
+        #if DEBUG
+        if let macID = LinkDropRig.shared.macID { return store.macLinkDownSince[macID] }
+        #endif
+        return live?.focusedMacID.flatMap { store.macLinkDownSince[$0] }
+    }
 
     /// The banner over Workspaces: no network first, then the live link (SPEC 7.4).
     var banner: ConnectionBannerState? {
@@ -780,6 +785,9 @@ final class ShellModel {
         case "signed-out"?: return .signedOut
         default: break
         }
+        // The link-drop rig's scripted link (no LiveCoordinator in mock mode): its banner, held as
+        // the coordinator holds it.
+        if LinkDropRig.shared.macID != nil { return LinkDropRig.shared.banner }
         #endif
         if store.isOffline { return .offline }
         // Pairing (verify/phone-approvals.md): the Mac asks the user the first time.
