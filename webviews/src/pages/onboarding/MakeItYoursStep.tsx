@@ -13,14 +13,20 @@
 // at once and the host writes it, so the app behind the window changes while the person watches.
 // Continue keeps the picks; Skip (and Escape) puts back what was set when the window opened.
 // Return presses Continue, Escape skips (the page's own key handler).
+//
+// The `preview` look (the one that ships) also draws a small cmux window built from the answers: the
+// painting behind it, a chat or a terminal in it, its rows as tight as the density, the accent on its
+// sidebar and the theme's colors in its terminal. The onboarding window covers the app it changes, so
+// this is where a pick is seen; it stays in view while the choices scroll. It is drawn from the state
+// alone and is hidden from assistive tech: the radios carry every answer.
 import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { cx } from "../../ui/cx";
-import type { MakeItYoursMaterial, MakeItYoursState, MakeItYoursTheme, WorkStyle } from "./ops";
+import type { MakeItYoursBackground, MakeItYoursMaterial, MakeItYoursState, MakeItYoursTheme, WorkStyle } from "./ops";
 import { HostIcon, useOnboarding } from "./parts";
 
-/** The two looks of the screen (the gallery's variant switch): `cards` ships. */
-export type MakeItYoursLook = "cards" | "rows";
-export const DEFAULT_MAKE_IT_YOURS_LOOK: MakeItYoursLook = "cards";
+/** The looks of the screen (the gallery's variant switch): `preview` ships. */
+export type MakeItYoursLook = "preview" | "segmented" | "form" | "cards" | "rows";
+export const DEFAULT_MAKE_IT_YOURS_LOOK: MakeItYoursLook = "preview";
 
 const WORK_STYLES: readonly WorkStyle[] = ["gui", "terminal"];
 const WORK_KEYS: Record<WorkStyle, { title: string; detail: string }> = {
@@ -66,8 +72,12 @@ const NONE = "";
 /** The Opacity slider's step, as Settings' row. */
 const OPACITY_STEP = 0.05;
 
+/** Looks whose background tiles carry no name: the chosen work's full name shows once, under the row or
+ * the preview, instead of a dozen names cut to a word each. */
+const CAPTIONED: ReadonlySet<MakeItYoursLook> = new Set(["preview", "segmented", "form"]);
+
 const percent = (value: number) => `${Math.round(value * 100)}%`;
-const points = (value: number) => `${Math.round(value * 2) / 2} pt`;
+const points = (value: number) => `${Math.round(value)} pt`;
 
 /** A slider row, as Settings' rows: a drag previews in the slider and is sent once on release (the host
  * takes one write per click or key); an arrow key sends its step at once. A value sent shows until the
@@ -222,14 +232,21 @@ export function MakeItYoursStep({
 }) {
   const { strings, store } = useOnboarding();
   if (choices == null) return null;
-  const backgrounds = [{ id: NONE, name: "", preview: null }, ...choices.backgrounds];
+  const backgrounds: MakeItYoursBackground[] = [{ id: NONE, name: "", preview: null }, ...choices.backgrounds];
   const backgroundLabel = (id: string, name: string) =>
     id === NONE
       ? strings.t("onboarding.makeItYours.background.none")
       : id === "daily"
         ? strings.t("onboarding.makeItYours.background.shuffle")
         : name;
+  const chosenId = choices.background ?? NONE;
+  const chosen = backgrounds.find((background) => background.id === chosenId) ?? backgrounds[0];
+  const chosenLabel = backgroundLabel(chosen.id, chosen.name);
+  const captioned = CAPTIONED.has(look);
+  // The preview names the work under itself; the other captioned looks name it under the tiles.
+  const tileCaption = captioned && look !== "preview";
   const themes: MakeItYoursTheme[] = [{ id: NONE, name: "", light: [], dark: [] }, ...choices.themes];
+  const chosenTheme = themes.find((theme) => theme.id === (choices.theme ?? NONE)) ?? themes[0];
   const swatches = choices.accentSwatches;
   const artHues = ART_HUES.flatMap((hue) => (swatches[hue] ? [swatches[hue]] : []));
   const accentDot = (accent: string): CSSProperties | undefined =>
@@ -238,200 +255,322 @@ export function MakeItYoursStep({
       : accent === "art" && artHues.length > 1
         ? { background: `conic-gradient(${[...artHues, artHues[0]].join(", ")})` }
         : undefined;
+
+  const work = (
+    <Group look={look} className="onb-make-work" label={strings.t("onboarding.makeItYours.work.label")}>
+      <div className="onb-make-options">
+        {WORK_STYLES.map((style) => (
+          <label key={style} className="onb-make-option" data-checked={choices.workStyle === style || undefined}>
+            <input
+              type="radio"
+              name="workStyle"
+              value={style}
+              aria-label={strings.t(WORK_KEYS[style].title)}
+              checked={choices.workStyle === style}
+              onChange={() => store.call("cmux.onboarding.makeItYours.workStyle", { value: style })}
+            />
+            {look === "preview" && <span className="onb-make-option-mark" aria-hidden="true" />}
+            <span className="onb-make-option-text">
+              <span className="onb-make-option-title">
+                {strings.t(WORK_KEYS[style].title)}
+                {style === "gui" && (
+                  <span className="onb-make-badge">{strings.t("onboarding.makeItYours.recommended")}</span>
+                )}
+              </span>
+              <span className="onb-make-option-detail">{strings.t(WORK_KEYS[style].detail)}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+    </Group>
+  );
+  const density = (
+    <Group look={look} className="onb-make-density" label={strings.t("onboarding.makeItYours.density.label")}>
+      <div className="onb-make-segments">
+        {choices.densities.map((item) => (
+          <label key={item.id} className="onb-make-segment" data-checked={choices.density === item.id || undefined}>
+            <input
+              type="radio"
+              name="density"
+              value={item.id}
+              aria-label={item.name}
+              checked={choices.density === item.id}
+              onChange={() => store.call("cmux.onboarding.makeItYours.density", { value: item.id })}
+            />
+            <span>{item.name}</span>
+          </label>
+        ))}
+      </div>
+      {choices.textSize !== null && (
+        <div className="onb-make-adjust">
+          <SliderRow
+            id="textSize"
+            label={strings.t("onboarding.makeItYours.textSize")}
+            value={choices.textSize}
+            min={choices.textSizeMin}
+            max={choices.textSizeMax}
+            step={1}
+            format={points}
+            onSend={(value) => store.call("cmux.onboarding.makeItYours.textSize", { value })}
+          >
+            {choices.textSizeSet && (
+              <button
+                type="button"
+                className="onb-make-reset"
+                onClick={() => store.call("cmux.onboarding.makeItYours.textSize", { value: null })}
+              >
+                {strings.t("onboarding.makeItYours.textSize.default")}
+              </button>
+            )}
+          </SliderRow>
+        </div>
+      )}
+    </Group>
+  );
+  const theme = (
+    <Group look={look} className="onb-make-theme" label={strings.t("onboarding.makeItYours.theme")}>
+      <div className="onb-make-tiles">
+        {themes.map((item) => {
+          const label = item.id === NONE ? strings.t("onboarding.makeItYours.theme.default") : item.name;
+          const checked = chosenTheme.id === item.id;
+          return (
+            <label
+              key={item.id || "default"}
+              className="onb-make-tile"
+              data-checked={checked || undefined}
+              // tooltip-allow: a swatch tile; only the cards look names it beside the swatches.
+              title={look === "cards" ? undefined : label}
+            >
+              <input
+                type="radio"
+                name="theme"
+                value={item.id}
+                aria-label={label}
+                checked={checked}
+                onChange={() =>
+                  store.call("cmux.onboarding.makeItYours.theme", { id: item.id === NONE ? null : item.id })
+                }
+              />
+              <span className={cx("onb-make-tile-image", "onb-make-theme-swatch", item.id === NONE && "is-none")}>
+                {item.id !== NONE && (
+                  <>
+                    <ThemeSide strip={item.light} />
+                    <ThemeSide strip={item.dark} />
+                  </>
+                )}
+              </span>
+              {look === "cards" && <span className="onb-make-tile-name">{label}</span>}
+            </label>
+          );
+        })}
+      </div>
+      <div className="onb-make-adjust">
+        <ChipRow
+          name="accent"
+          label={strings.t("onboarding.makeItYours.accent")}
+          items={choices.accents.map((accent) => ({
+            id: accent,
+            label: ACCENT_KEYS[accent] ? strings.t(ACCENT_KEYS[accent]) : accent,
+            dot: accentDot(accent) ?? {},
+          }))}
+          checked={choices.accent}
+          onPick={(value) => store.call("cmux.onboarding.makeItYours.accent", { value })}
+        />
+        <ChipRow
+          name="windowStyle"
+          label={strings.t("onboarding.makeItYours.windowStyle")}
+          items={choices.windowStyles.map((style) => ({
+            id: style,
+            label: WINDOW_STYLE_KEYS[style] ? strings.t(WINDOW_STYLE_KEYS[style]) : style,
+          }))}
+          checked={choices.windowStyle}
+          onPick={(value) => store.call("cmux.onboarding.makeItYours.windowStyle", { value })}
+        />
+      </div>
+    </Group>
+  );
+  const background = (
+    <Group look={look} className="onb-make-background" label={strings.t("onboarding.makeItYours.background.label")}>
+      <div className="onb-make-tiles">
+        {backgrounds.map((item) => {
+          const label = backgroundLabel(item.id, item.name);
+          const checked = chosenId === item.id;
+          return (
+            <label
+              key={item.id || "none"}
+              className="onb-make-tile"
+              data-checked={checked || undefined}
+              // tooltip-allow: a picture tile; only the cards look names it beside the picture.
+              title={look === "cards" ? undefined : label}
+            >
+              <input
+                type="radio"
+                name="background"
+                value={item.id}
+                aria-label={label}
+                checked={checked}
+                onChange={() =>
+                  store.call("cmux.onboarding.makeItYours.background", { id: item.id === NONE ? null : item.id })
+                }
+              />
+              <HostIcon image={item.preview} className={cx("onb-make-tile-image", item.id === NONE && "is-none")} />
+              {look === "cards" && <span className="onb-make-tile-name">{label}</span>}
+            </label>
+          );
+        })}
+      </div>
+      {tileCaption && (
+        <p className="onb-make-caption" aria-hidden="true">
+          {chosenLabel}
+        </p>
+      )}
+      <div className="onb-make-adjust">
+        {choices.opacity !== null && (
+          <SliderRow
+            id="opacity"
+            label={strings.t("onboarding.makeItYours.opacity")}
+            value={choices.opacity}
+            min={0}
+            max={1}
+            step={OPACITY_STEP}
+            format={percent}
+            onSend={(value) => store.call("cmux.onboarding.makeItYours.opacity", { value })}
+          />
+        )}
+        <ChipRow
+          name="material"
+          label={strings.t("onboarding.makeItYours.material")}
+          items={choices.materials.map((material) => ({ id: material, label: strings.t(MATERIAL_KEYS[material]) }))}
+          checked={choices.material}
+          onPick={(value) =>
+            store.call("cmux.onboarding.makeItYours.material", { value: value as MakeItYoursMaterial })
+          }
+        />
+      </div>
+    </Group>
+  );
+
+  if (look === "preview") {
+    return (
+      <div className="onb-make" data-look={look}>
+        <figure className="onb-make-stage" aria-hidden="true">
+          <MakeItYoursPreview
+            choices={choices}
+            image={chosen.preview}
+            accent={swatches[choices.accent ?? ""] ?? null}
+            terminal={chosenTheme.dark}
+          />
+          <figcaption className="onb-make-caption">{chosenLabel}</figcaption>
+        </figure>
+        <div className="onb-make-choices">
+          {work}
+          {density}
+          {theme}
+          {background}
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="onb-make" data-look={look}>
-      <fieldset className="onb-make-group onb-make-work">
-        <legend className="onb-make-label">{strings.t("onboarding.makeItYours.work.label")}</legend>
-        <div className="onb-make-options">
-          {WORK_STYLES.map((style) => (
-            <label key={style} className="onb-make-option" data-checked={choices.workStyle === style || undefined}>
-              <input
-                type="radio"
-                name="workStyle"
-                value={style}
-                aria-label={strings.t(WORK_KEYS[style].title)}
-                checked={choices.workStyle === style}
-                onChange={() => store.call("cmux.onboarding.makeItYours.workStyle", { value: style })}
-              />
-              <span className="onb-make-option-text">
-                <span className="onb-make-option-title">
-                  {strings.t(WORK_KEYS[style].title)}
-                  {style === "gui" && (
-                    <span className="onb-make-badge">{strings.t("onboarding.makeItYours.recommended")}</span>
-                  )}
-                </span>
-                <span className="onb-make-option-detail">{strings.t(WORK_KEYS[style].detail)}</span>
-              </span>
-            </label>
+      {work}
+      {density}
+      {theme}
+      {background}
+    </div>
+  );
+}
+
+/** One choice: a fieldset with its question. The form look sets the question beside the control. */
+function Group({
+  look,
+  className,
+  label,
+  children,
+}: {
+  look: MakeItYoursLook;
+  className: string;
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <fieldset className={cx("onb-make-group", className)}>
+      <legend className="onb-make-label">{label}</legend>
+      {look === "form" ? <div className="onb-make-control">{children}</div> : children}
+    </fieldset>
+  );
+}
+
+/** A small cmux window drawn from the answers: the painting behind glass panes, a sidebar, and a
+ * chat beside a browser (Agents First) or one terminal (Terminal First). Density sets the rows'
+ * spacing through `data-density`; the accent marks the sidebar's selected row; the chosen theme's
+ * dark side colors the terminal (`terminal` is its swatch strip: background first, text last).
+ * Nothing here measures or animates on its own. */
+function MakeItYoursPreview({
+  choices,
+  image,
+  accent,
+  terminal,
+}: {
+  choices: MakeItYoursState;
+  image: MakeItYoursBackground["preview"];
+  accent: string | null;
+  terminal: string[];
+}) {
+  const gui = choices.workStyle === "gui";
+  const look: Record<string, string> = {};
+  if (accent) look["--onb-make-accent"] = accent;
+  if (terminal.length > 1) {
+    look["--onb-make-term"] = terminal[0];
+    look["--onb-make-term-ink"] = terminal[terminal.length - 1];
+  }
+  return (
+    <div
+      className="onb-make-window"
+      data-density={choices.density}
+      data-work={choices.workStyle}
+      data-art={image != null || undefined}
+      style={look as CSSProperties}
+    >
+      <HostIcon image={image} className={cx("onb-make-window-art", image == null && "is-none")} />
+      <div className="onb-make-window-bar">
+        <span />
+        <span />
+        <span />
+      </div>
+      <div className="onb-make-window-body">
+        <div className="onb-make-pane onb-make-pane-side">
+          {[0, 1, 2, 3, 4].map((row) => (
+            <span key={row} className="onb-make-line" data-on={row === 1 || undefined} />
           ))}
         </div>
-      </fieldset>
-      <fieldset className="onb-make-group onb-make-density">
-        <legend className="onb-make-label">{strings.t("onboarding.makeItYours.density.label")}</legend>
-        <div className="onb-make-segments">
-          {choices.densities.map((density) => (
-            <label
-              key={density.id}
-              className="onb-make-segment"
-              data-checked={choices.density === density.id || undefined}
-            >
-              <input
-                type="radio"
-                name="density"
-                value={density.id}
-                aria-label={density.name}
-                checked={choices.density === density.id}
-                onChange={() => store.call("cmux.onboarding.makeItYours.density", { value: density.id })}
+        {gui ? (
+          <>
+            <div className="onb-make-pane onb-make-pane-chat">
+              <span className="onb-make-bubble is-mine" />
+              <span className="onb-make-line" />
+              <span className="onb-make-line is-short" />
+              <span className="onb-make-bubble is-mine" />
+              <span className="onb-make-line" />
+              <span className="onb-make-composer" />
+            </div>
+            <div className="onb-make-pane onb-make-pane-web">
+              <span className="onb-make-block" />
+              <span className="onb-make-line" />
+              <span className="onb-make-line is-short" />
+            </div>
+          </>
+        ) : (
+          <div className="onb-make-pane onb-make-pane-term">
+            {[0, 1, 2, 3, 4, 5].map((row) => (
+              <span
+                key={row}
+                className={cx("onb-make-line", row % 3 === 0 && "is-prompt", row % 3 === 2 && "is-short")}
               />
-              <span>{density.name}</span>
-            </label>
-          ))}
-        </div>
-        {choices.textSize !== null && (
-          <div className="onb-make-adjust">
-            <SliderRow
-              id="textSize"
-              label={strings.t("onboarding.makeItYours.textSize")}
-              value={choices.textSize}
-              min={choices.textSizeMin}
-              max={choices.textSizeMax}
-              step={1}
-              format={points}
-              onSend={(value) => store.call("cmux.onboarding.makeItYours.textSize", { value })}
-            >
-              {choices.textSizeSet && (
-                <button
-                  type="button"
-                  className="onb-make-reset"
-                  onClick={() => store.call("cmux.onboarding.makeItYours.textSize", { value: null })}
-                >
-                  {strings.t("onboarding.makeItYours.textSize.default")}
-                </button>
-              )}
-            </SliderRow>
+            ))}
           </div>
         )}
-      </fieldset>
-      <fieldset className="onb-make-group onb-make-theme">
-        <legend className="onb-make-label">{strings.t("onboarding.makeItYours.theme")}</legend>
-        <div className="onb-make-tiles">
-          {themes.map((theme) => {
-            const label = theme.id === NONE ? strings.t("onboarding.makeItYours.theme.default") : theme.name;
-            const checked = (choices.theme ?? NONE) === theme.id;
-            return (
-              <label
-                key={theme.id || "default"}
-                className="onb-make-tile"
-                data-checked={checked || undefined}
-                // tooltip-allow: a swatch tile, with its name beside it only in the cards look.
-                title={label}
-              >
-                <input
-                  type="radio"
-                  name="theme"
-                  value={theme.id}
-                  aria-label={label}
-                  checked={checked}
-                  onChange={() =>
-                    store.call("cmux.onboarding.makeItYours.theme", { id: theme.id === NONE ? null : theme.id })
-                  }
-                />
-                <span className={cx("onb-make-tile-image", "onb-make-theme-swatch", theme.id === NONE && "is-none")}>
-                  {theme.id !== NONE && (
-                    <>
-                      <ThemeSide strip={theme.light} />
-                      <ThemeSide strip={theme.dark} />
-                    </>
-                  )}
-                </span>
-                {look === "cards" && <span className="onb-make-tile-name">{label}</span>}
-              </label>
-            );
-          })}
-        </div>
-        <div className="onb-make-adjust">
-          <ChipRow
-            name="accent"
-            label={strings.t("onboarding.makeItYours.accent")}
-            items={choices.accents.map((accent) => ({
-              id: accent,
-              label: ACCENT_KEYS[accent] ? strings.t(ACCENT_KEYS[accent]) : accent,
-              dot: accentDot(accent) ?? {},
-            }))}
-            checked={choices.accent}
-            onPick={(value) => store.call("cmux.onboarding.makeItYours.accent", { value })}
-          />
-          <ChipRow
-            name="windowStyle"
-            label={strings.t("onboarding.makeItYours.windowStyle")}
-            items={choices.windowStyles.map((style) => ({
-              id: style,
-              label: WINDOW_STYLE_KEYS[style] ? strings.t(WINDOW_STYLE_KEYS[style]) : style,
-            }))}
-            checked={choices.windowStyle}
-            onPick={(value) => store.call("cmux.onboarding.makeItYours.windowStyle", { value })}
-          />
-        </div>
-      </fieldset>
-      <fieldset className="onb-make-group onb-make-background">
-        <legend className="onb-make-label">{strings.t("onboarding.makeItYours.background.label")}</legend>
-        <div className="onb-make-tiles">
-          {backgrounds.map((background) => {
-            const label = backgroundLabel(background.id, background.name);
-            const checked = (choices.background ?? NONE) === background.id;
-            return (
-              <label
-                key={background.id || "none"}
-                className="onb-make-tile"
-                data-checked={checked || undefined}
-                // tooltip-allow: a picture tile, with its name beside it only in the cards look.
-                title={label}
-              >
-                <input
-                  type="radio"
-                  name="background"
-                  value={background.id}
-                  aria-label={label}
-                  checked={checked}
-                  onChange={() =>
-                    store.call("cmux.onboarding.makeItYours.background", {
-                      id: background.id === NONE ? null : background.id,
-                    })
-                  }
-                />
-                <HostIcon
-                  image={background.preview}
-                  className={cx("onb-make-tile-image", background.id === NONE && "is-none")}
-                />
-                {look === "cards" && <span className="onb-make-tile-name">{label}</span>}
-              </label>
-            );
-          })}
-        </div>
-        <div className="onb-make-adjust">
-          {choices.opacity !== null && (
-            <SliderRow
-              id="opacity"
-              label={strings.t("onboarding.makeItYours.opacity")}
-              value={choices.opacity}
-              min={0}
-              max={1}
-              step={OPACITY_STEP}
-              format={percent}
-              onSend={(value) => store.call("cmux.onboarding.makeItYours.opacity", { value })}
-            />
-          )}
-          <ChipRow
-            name="material"
-            label={strings.t("onboarding.makeItYours.material")}
-            items={choices.materials.map((material) => ({ id: material, label: strings.t(MATERIAL_KEYS[material]) }))}
-            checked={choices.material}
-            onPick={(value) =>
-              store.call("cmux.onboarding.makeItYours.material", { value: value as MakeItYoursMaterial })
-            }
-          />
-        </div>
-      </fieldset>
+      </div>
     </div>
   );
 }

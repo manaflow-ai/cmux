@@ -441,8 +441,16 @@ export const GitHubMachineTokenRequest = Schema.Struct({
   label: Schema.optionalKey(Label),
   ttlSec: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(60), Schema.isLessThanOrEqualTo(3600))),
 })
-/** `install` defaults to the caller's own (a session: its session tokens); another install needs a team admin. */
-export const GitHubTokenRevokeRequest = Schema.Struct({ team: Schema.optionalKey(TeamId), install: Schema.optionalKey(InstallId) })
+/** A machine joined with `acpmux machine join` (cmux-platform's join registry). */
+export const JoinedMachineId = Schema.String.check(isPattern(/^machine_[A-Za-z0-9_-]{1,120}$/)).annotate({
+  identifier: "JoinedMachineId",
+  description: "A machine joined to a team with acpmux machine join."
+})
+/**
+ * `install` defaults to the caller's own (a session: its session tokens); another install needs a team admin. `machine`
+ * (a team admin only, never with `install`): every token issued to that joined machine.
+ */
+export const GitHubTokenRevokeRequest = Schema.Struct({ team: Schema.optionalKey(TeamId), install: Schema.optionalKey(InstallId), machine: Schema.optionalKey(JoinedMachineId) })
 
 /** One mint as the team's audit records it (never the token); principal_kind is session or the install kind. */
 export const GitHubTokenMintedParams = Schema.Struct({

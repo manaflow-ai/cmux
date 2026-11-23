@@ -75,7 +75,8 @@ final class PaletteFooterView: NSView {
         pageLabel.isHidden = !titles.isEmpty
         closeLabel.stringValue = closeTitle ?? ""
         closeButton.isHidden = closeTitle == nil
-        pageIcon.image = PaletteText.symbol(pageSymbol, size: Metrics.smallIconSize)
+        pageIcon.image = pageSymbol.isEmpty ? nil : PaletteText.symbol(pageSymbol, size: Metrics.smallIconSize)
+        pageIcon.isHidden = pageSymbol.isEmpty
         pageLabel.stringValue = pageTitle
         primaryLabel.stringValue = primaryTitle ?? ""
         primaryButton.isHidden = primaryTitle == nil
@@ -113,7 +114,7 @@ final class PaletteFooterView: NSView {
             right -= Metrics.space5
             right = layoutButton(closeButton, label: closeLabel, keys: closeKeys, right: right)
         }
-        let labelX = pageIcon.frame.maxX + Metrics.space3
+        let labelX = pageIcon.isHidden ? padding : pageIcon.frame.maxX + Metrics.space3
         let height = PaletteText.height(pageLabel)
         pageLabel.frame = pixelAligned(NSRect(x: labelX, y: PaletteText.capCenteredY(pageLabel, height: height, midY: midY),
                                               width: max(0, right - Metrics.space4 - labelX), height: height))

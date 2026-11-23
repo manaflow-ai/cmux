@@ -50,7 +50,6 @@ describe("make cmux yours", () => {
       "onboarding.makeItYours.work.terminal",
       "onboarding.makeItYours.recommended",
       "onboarding.makeItYours.background.none",
-      "onboarding.makeItYours.background.shuffle",
     ])
       expect(words).toContain(strings.t(key));
     // Every density Settings has, by Settings' names (cmux#49636).
@@ -85,6 +84,8 @@ describe("make cmux yours", () => {
     for (const name of ["Catppuccin", "Nord", "Dracula", "14 pt"]) expect(words).toContain(name);
     // No reset while Text Size is the density's.
     expect(html).not.toContain("onb-make-reset");
+    // The tiles are pictures: each is named by its radio (and the chosen one under the window).
+    expect(html).toContain(`aria-label="${strings.t("onboarding.makeItYours.background.shuffle")}"`);
     expect(words).toContain("Continue");
     expect(words).not.toContain("lassic");
     // One checked radio per group: GUI-first, Default, the config's theme, Neutral, Flat, no background; no material set.
@@ -119,6 +120,25 @@ describe("make cmux yours", () => {
     for (const html of [cards, rows]) expect(html.match(/type="radio"/g)?.length).toBe(2 + 5 + 4 + 9 + 10 + 12 + 4);
     expect(cards).toContain("onb-make-tile-name");
     expect(rows).not.toContain("onb-make-tile-name");
+  });
+
+  test("every look draws every choice; the default draws the window from the answers", () => {
+    for (const look of ["preview", "segmented", "form", "cards", "rows"] as const)
+      expect(render(makeItYoursState("picked"), look).match(/type="radio"/g)?.length).toBe(2 + 5 + 4 + 9 + 10 + 12 + 4);
+    const preview = render(makeItYoursState("picked"));
+    expect(preview).toContain('data-look="preview"');
+    expect(preview).toContain('data-density="compact"');
+    expect(preview).toContain('data-work="gui"');
+    expect(preview).toContain("onb-make-pane-chat");
+    // The picked accent marks the little window's sidebar, and the picked theme's dark side its terminal.
+    expect(preview).toMatch(/--onb-make-accent:\s*#61AFEF/i);
+    expect(preview).toContain("--onb-make-term:");
+    expect(render(makeItYoursState("fresh"))).not.toContain("--onb-make-term:");
+    // The chosen work is named once, whole, under the window.
+    expect(text(preview)).toContain("View of Dresden by Moonlight");
+    const terminal = render(makeItYoursState("terminal"));
+    expect(terminal).toContain("onb-make-pane-term");
+    expect(terminal).not.toContain("onb-make-pane-chat");
   });
 
   test("while the previews load only None is offered", () => {
