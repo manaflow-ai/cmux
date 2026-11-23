@@ -53,11 +53,20 @@ struct Frame {
     accent: vec4<f32>,    // theme accent, linear, a = 1
     params: array<vec4<f32>, 2>, // the manifest's params in order, up to 8 floats
     activity: vec4<f32>,  // x agent activity in the window (0..1, eased), y seconds since the newest agent event, z agent events so far (mod 1024), w 0
+    trail: array<vec4<f32>, 16>, // the pointer's recent path, newest first: xy rendered pixels, z age in seconds, w valid (0 or 1)
 }
 var<uniform> frame: Frame;   // the host's binding; never declared by the program
 ```
 
-Every field is a `vec4<f32>`, so the layout is the same in Metal, WGSL and GLSL std140: 160 bytes (ten `vec4<f32>`).
+Every field is a `vec4<f32>` or an array of them, so the layout is the same in Metal, WGSL and GLSL std140:
+416 bytes (26 `vec4<f32>`, 104 floats). The header exports `CMUX_WALLPAPER_FRAME_FLOATS` and
+`CMUX_WALLPAPER_TRAIL_POINTS`; a host sizes its uniform buffer from them, never from a literal.
+
+The trail (`TrailState`, `cmux_wallpaper_trail_*`) is a ring of 16 pointer samples. On each move, when the
+ring has fewer than 2 points or the move comes 50 ms or more after the newest committed point, a new head
+shifts in; otherwise the head moves to the pointer. So the head follows the pointer, committed points are
+about 50 ms apart, and the ring covers about 0.8 s. A point older than 1 s, or not set, is all zeros. A
+still has no trail (zeros); a program that wants one in its cover draws its own.
 
 An agent event is an agent in the window writing output or changing state. A burst counts once: an
 event within 0.4 s of the last counted one only raises the level (`ActivityState`, `cmux_wallpaper_activity_*`).
@@ -102,6 +111,8 @@ decided place to translate them that keeps the compiler out of the app and daemo
   scale for a quarter of the pixels.
 - `interactive`: whether pointer motion wakes it (below).
 - `agents` (optional, false): whether agent events wake it; the program reads `Frame.activity`.
+- `idle_after` (optional, 1 to 20 seconds, default 20): how long nothing happens before it holds. A
+  wallpaper with no motion of its own (Dot Field: 2) holds soon after the pointer stops.
 - `params`: up to 8 floats, shown nowhere yet; a theme file or `cmux.json` may set them.
 - `still`: the time and pointer (fractions of the size) a still uses when the caller gives none.
 - `variants`: up to a few named looks (`name`, `accent` `#RRGGBB`, `params` by name, `themes`), each
@@ -123,7 +134,7 @@ change the answer and on each frame; it answers `hold` or `run` at an interval.
   occluded or nearly all covered (`BackdropCoverage`), minimized, hidden with the app, on a sleeping
   screen or in an inactive session; in Low Power Mode; at serious thermal state; with Reduce Motion or
   animations off.
-- Idle: when nothing has happened for 20 seconds (no pointer motion over the window, no key press in
+- Idle: when nothing has happened for 20 seconds, or the manifest's shorter `idle_after` (no pointer motion over the window, no key press in
   it, no change of size or theme, and for a wallpaper with `agents` no agent event), it holds on the
   frame it is on. Pointer motion over the window, an agent event (with `agents`), a
   key press or a theme change wakes it, and it eases back in from the held frame (time continues from
@@ -164,6 +175,9 @@ Our own takes on the references, each one program:
 7. Block Matrix: a fine, even matrix of faint dots lit by a glow centered on the pointer (with a short
    trail), a few slow drifting lights and agent output (`agents`); the light arrives in rectangular
    blocks that ease between levels.
+8. Dot Field: a quiet hex field of fine dots; along the pointer's path (`Frame.trail`) the dots swell,
+   turn to the accent and part a little, then fade. No motion of its own, so it holds 2 s after the
+   pointer stops (`idle_after`).
 
 Each is mostly the theme's paper and ink with one accent.
 

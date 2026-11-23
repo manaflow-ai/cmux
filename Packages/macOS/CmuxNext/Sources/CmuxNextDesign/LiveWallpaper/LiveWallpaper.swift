@@ -17,6 +17,8 @@ public nonisolated struct LiveWallpaper: Sendable, Equatable, Identifiable {
     public let scale: Float
     /// Whether pointer motion wakes it.
     public let interactive: Bool
+    /// Seconds with no pointer move, key or theme change before it holds (the manifest's `idle_after`).
+    public let idleAfter: Double
     /// The manifest's params' defaults in order, at most 8.
     public let params: [Float]
     /// A still's time (seconds) and pointer (fractions of the size).
@@ -31,9 +33,9 @@ public nonisolated struct LiveWallpaper: Sendable, Equatable, Identifiable {
         lhs.id == rhs.id && lhs.sourceDigest == rhs.sourceDigest
     }
 
-    /// The ABI the app was written against (`cmux_wallpaper_abi_version`): 3 has the first-party
+    /// The ABI the app was written against (`cmux_wallpaper_abi_version`): 4 has the first-party
     /// Metal programs translated at build time and no WGSL compiler in the app.
-    static let abiVersion: UInt32 = 3
+    static let abiVersion: UInt32 = 4
 
     /// The ABI of the linked library (`cmux_wallpaper_abi_version`).
     static var linkedABIVersion: UInt32 { cmux_wallpaper_abi_version() }
@@ -71,6 +73,7 @@ public nonisolated struct LiveWallpaper: Sendable, Equatable, Identifiable {
         fps = (object["fps"] as? NSNumber)?.uint32Value ?? 30
         scale = (object["scale"] as? NSNumber)?.floatValue ?? 1
         interactive = (object["interactive"] as? Bool) ?? true
+        idleAfter = (object["idle_after"] as? NSNumber)?.doubleValue ?? 20
         params = ((object["params"] as? [[String: Any]]) ?? []).prefix(8).map { ($0["default"] as? NSNumber)?.floatValue ?? 0 }
         stillTime = (still?["time"] as? NSNumber)?.floatValue ?? 0
         stillPointer = (pointer.first ?? 0.5, pointer.dropFirst().first ?? 0.5)

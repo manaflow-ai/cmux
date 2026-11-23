@@ -58,9 +58,11 @@ nonisolated struct LiveWallpaperFrame: Sendable {
     var colors: LiveWallpaperColors
     var params: [Float] = []
 
-    /// The Frame uniform: ``floats`` floats.
+    /// The Frame uniform: ``floats`` floats. `trail` (the pointer's, in backing pixels) fills
+    /// `Frame.trail` at `now`, scaled by `scale` to rendered pixels; nil leaves it empty (a still
+    /// draws its own).
     // perf-hot: 0.05ms live-wallpaper-frame (every drawn live wallpaper frame packs its uniform)
-    func packed() -> [Float] {
+    func packed(trail: CmuxWallpaperTrail? = nil, at now: Double = 0, scale: Float = 1) -> [Float] {
         var input = CmuxWallpaperFrameInput()
         input.time = time
         input.delta = delta
@@ -83,6 +85,12 @@ nonisolated struct LiveWallpaperFrame: Sendable {
         input.still = still
         input.button_down = buttonDown
         input.dark = colors.dark
+        if var trail {
+            withUnsafeMutableBytes(of: &input.trail) { raw in
+                guard let rows = raw.baseAddress?.assumingMemoryBound(to: Float.self) else { return }
+                _ = cmux_wallpaper_trail_rows(&trail, now, scale, rows)
+            }
+        }
         var out = [Float](repeating: 0, count: Self.floats)
         out.withUnsafeMutableBufferPointer { buffer in
             withUnsafePointer(to: &input) { _ = cmux_wallpaper_frame_pack($0, buffer.baseAddress) }

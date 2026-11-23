@@ -9,6 +9,12 @@ void main() {
   gl_Position = vec4(xy * 2.0 - 1.0, 0.0, 1.0);
 }`;
 
+// cmux-wallpaper's Frame (src/frame.rs): 104 floats, 416 bytes; its last 64 are the trail.
+const FRAME_FLOATS = 104;
+const TRAIL_POINTS = 16;
+const TRAIL_STEP_S = 0.05;
+const TRAIL_LIFE_S = 1.0;
+
 export const THEMES = {
   dark: { paper: "#111214", ink: "#ECEBE6", dark: 1 },
   light: { paper: "#F1EFE9", ink: "#1B1B1D", dark: 0 },
@@ -49,9 +55,11 @@ export class Wallpaper {
     gl.uniformBlockBinding(program, 0, 0);
     this.ubo = gl.createBuffer();
     gl.bindBuffer(gl.UNIFORM_BUFFER, this.ubo);
-    gl.bufferData(gl.UNIFORM_BUFFER, 160, gl.DYNAMIC_DRAW);
+    gl.bufferData(gl.UNIFORM_BUFFER, FRAME_FLOATS * 4, gl.DYNAMIC_DRAW);
     gl.bindBufferBase(gl.UNIFORM_BUFFER, 0, this.ubo);
-    this.data = new Float32Array(40);
+    this.data = new Float32Array(FRAME_FLOATS);
+    // The pointer's recent path, newest first: cmux-wallpaper's TrailState (src/trail.rs).
+    this.trail = [];
     this.pointer = { x: 0, y: 0, vx: 0, vy: 0, inside: 0, target: 0, moved: -1e9, down: 0 };
     this.activity = { level: 0, count: 0, last: -1e9, advanced: 0, has: false };
     this.frame = 0;
@@ -76,10 +84,33 @@ export class Wallpaper {
       }
       Object.assign(this.pointer, { x, y, target: 1, moved: now });
       this.lastMove = now;
+      this.trailMoved(x, y, now);
     });
     c.addEventListener("pointerleave", () => (this.pointer.target = 0));
     c.addEventListener("pointerdown", () => (this.pointer.down = 1));
     c.addEventListener("pointerup", () => (this.pointer.down = 0));
+  }
+
+  // A pointer move: TrailState::moved, the same rule. With fewer than 2 points, or a step or
+  // more after the newest committed point, a new head shifts in; otherwise the head moves.
+  trailMoved(x, y, t) {
+    const ring = this.trail;
+    if (ring.length < 2 || t - ring[1].t >= TRAIL_STEP_S) {
+      ring.unshift({ x, y, t });
+      ring.length = Math.min(ring.length, TRAIL_POINTS);
+    } else {
+      ring[0] = { x, y, t };
+    }
+  }
+
+  // Frame.trail at `now`: TrailState::rows. The canvas is in rendered pixels already (scale 1).
+  trailRows(now) {
+    const rows = new Float32Array(TRAIL_POINTS * 4);
+    this.trail.forEach((p, i) => {
+      const age = Math.max(now - p.t, 0);
+      if (age <= TRAIL_LIFE_S) rows.set([p.x, p.y, age, 1], i * 4);
+    });
+    return rows;
   }
 
   // An agent event at `t` seconds: cmux-wallpaper's ActivityState (src/frame.rs), the same numbers.
@@ -151,6 +182,8 @@ export class Wallpaper {
     }
     const sinceAgent = a.has ? Math.min(Math.max(time - a.last, 0), 1e4) : 1e4;
     data.set([a.level, sinceAgent, a.count, 0], 36);
+    // A still has no trail (the program draws its own); a live frame has the pointer's.
+    if (!options.still) data.set(this.trailRows(performance.now() / 1000), 40);
     gl.viewport(0, 0, canvas.width, canvas.height);
     gl.useProgram(this.program);
     gl.bindBuffer(gl.UNIFORM_BUFFER, this.ubo);
