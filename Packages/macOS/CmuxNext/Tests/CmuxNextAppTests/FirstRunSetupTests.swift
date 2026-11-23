@@ -228,6 +228,69 @@ import Testing
         #expect(!provider.allDone)
     }
 
+    /// First run's one screen (goal first-run-one-screen, decided 2026-11-23): Install on the Chief card, then Chief
+    /// replies with no second ask. With the daemon's in-place sign-in, Install's click asks for the sign-in too: the
+    /// card starts it once with no click of its own, opens no terminal login, and a finished sign-in ends the card
+    /// with no I'm Signed In (a Keychain login reads unknown, and the finish is the proof).
+    @Test func installSignsInInPlaceAndTheChiefCardEndsWithNoSecondAsk() async throws {
+        let setup = FirstRunSetup(defaults: try defaults(), skipsOnboarding: true)
+        let source = InPlaceSignInSource()
+        let provider = SetupCardPageProvider(setup: setup, agents: source, environment: SetupCardEnvironment(
+            account: { (true, nil) }, signInAccount: {}, cliState: { "installed" }, installCLI: { _ in }, openAgents: {}), forChief: true)
+        defer { provider.stop() }
+        await until { provider.agents.loaded }
+        #expect(setup.needsChiefAgent)
+
+        _ = try await provider.call("cmux.setup.run", params: ["action": ["kind": "installAgent", "id": "claude"]], context: click(1))
+        await until { provider.agents.signInAfterInstall == "claude" }
+        #expect(source.signIns.isEmpty, "no terminal login")
+        #expect(provider.state["signIn"]?["after"] == "claude")
+        await until { !provider.agents.loading }
+        #expect(setup.needsChiefAgent, "a fresh Claude Code reads unknown: the card waits for its sign-in")
+
+        // The card's own start, with no click: the Install click asked for it, once.
+        let start: JSONValue = ["action": "signInStart", "provider": "claude", "family": "claude"]
+        let started = try await provider.call("cmux.setup.accounts.run", params: start, context: PageCallContext(page: PageDescriptor.setupCard.id))
+        #expect(started["signIn"]?["loginId"] == "L1")
+        #expect(provider.state["signIn"]?["after"] == nil)
+        await #expect(throws: PageError.self, "a second start needs its own click") {
+            _ = try await provider.call("cmux.setup.accounts.run", params: start, context: PageCallContext(page: PageDescriptor.setupCard.id))
+        }
+
+        _ = try await provider.call("cmux.setup.accounts.run", params: ["action": "signInFinish", "provider": "claude", "loginId": "L1"],
+                                    context: PageCallContext(page: PageDescriptor.setupCard.id))
+        await until { !setup.needsChiefAgent }
+        #expect(!setup.needsChiefAgent, "signed in: the card leaves and Chief replies")
+        #expect(provider.state["agents"]?.arrayValue?.first?["state"] == "signedIn")
+        #expect(source.runs == ["signInStart", "signInFinish"])
+    }
+
+    /// A Cancel on the in-place sign-in leaves the card offering Sign In, not waiting on a sign-in that ended; an
+    /// older daemon (a start answered `terminal`) is the terminal login it ran, which the person confirms as before.
+    @Test func aCancelledOrTerminalInPlaceSignInFallsBackToTheRow() async throws {
+        let setup = FirstRunSetup(defaults: try defaults(), skipsOnboarding: true)
+        let source = InPlaceSignInSource()
+        let provider = SetupCardPageProvider(setup: setup, agents: source, environment: SetupCardEnvironment(
+            account: { (true, nil) }, signInAccount: {}, cliState: { "installed" }, installCLI: { _ in }, openAgents: {}), forChief: true)
+        defer { provider.stop() }
+        await until { provider.agents.loaded }
+        _ = try await provider.call("cmux.setup.run", params: ["action": ["kind": "installAgent", "id": "claude"]], context: click(1))
+        await until { provider.agents.signInAfterInstall == "claude" }
+        let context = PageCallContext(page: PageDescriptor.setupCard.id)
+        _ = try await provider.call("cmux.setup.accounts.run", params: ["action": "signInStart", "family": "claude"], context: context)
+        _ = try await provider.call("cmux.setup.accounts.run", params: ["action": "signInCancel", "family": "claude", "loginId": "L1"],
+                                    context: context)
+        await until { !provider.agents.loading }
+        #expect(provider.agents.inPlaceSignIns.isEmpty)
+        #expect(!setup.needsChiefAgent, "a Keychain login reads unknown, which is no evidence once nothing runs")
+
+        source.terminal = true
+        _ = try await provider.call("cmux.setup.accounts.run", params: ["action": "signInStart", "family": "claude"], context: click(2))
+        #expect(provider.agents.loginsOpened.contains("claude"))
+        await until { !provider.agents.loading }
+        #expect(provider.state["agents"]?.arrayValue?.first?["state"] == "unverified")
+    }
+
     private func click(_ event: TimeInterval) -> PageCallContext {
         PageCallContext(page: PageDescriptor.setupCard.id, userGesture: true, gestureEvent: event)
     }
@@ -391,4 +454,33 @@ import Testing
         return nil
     }
     func agentIcon(_ agent: OnboardingAgent, side: CGFloat) -> NSImage? { nil }
+}
+
+/// Claude Code missing; Install ends at once, then it reads unknown (a Keychain login). Has the daemon's in-place
+/// sign-in: a start answers login L1 (or, `terminal`, the older daemon's terminal login), a finish signs it in.
+@MainActor private final class InPlaceSignInSource: AgentSignInSource {
+    var agents = [OnboardingAgent(id: "claude", name: "Claude Code", brand: "claude", auth: .unknown, installed: false)]
+    var terminal = false
+    private(set) var signIns: [String] = []
+    private(set) var runs: [String] = []
+
+    func agentSignIns(recheck: Bool) async -> [OnboardingAgent] { agents }
+    func signInAgent(_ id: String) async -> Bool { signIns.append(id); return true }
+    func installAgent(_ id: String) async -> String? {
+        agents = [OnboardingAgent(id: id, name: "Claude Code", brand: "claude", auth: .unknown)]
+        return nil
+    }
+    func agentIcon(_ agent: OnboardingAgent, side: CGFloat) -> NSImage? { nil }
+    var onboardingSignIn: OnboardingSignIn? {
+        OnboardingSignIn(state: { (accounts: [], readiness: ["providers": []]) }, refresh: {}, run: { [weak self] action, _ in
+            guard let self else { return nil }
+            runs.append(action)
+            switch action {
+            case "signInStart": return terminal ? ["terminal": true] : ["signIn": ["loginId": "L1", "account": "claude"]]
+            case "signInFinish": return ["finished": ["signedIn": true, "account": "claude"]]
+            case "signInCancel": return [:]
+            default: return nil
+            }
+        })
+    }
 }

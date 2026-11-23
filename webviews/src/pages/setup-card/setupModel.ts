@@ -30,6 +30,14 @@ export interface SetupState {
   /** The card's Chief form (first-run findings rows 1 and 4): shown in Chief's chat because the agent Chief
    * answers through (Claude Code) is missing or signed out. Only the agents row, under a title that says why. */
   forChief?: boolean;
+  /** The in-place sign-in (acpmux `account/sign_in`, the one onboarding and Settings run): absent on a host
+   * without it, and Sign In stays the agent's terminal login. `after`: the agent whose sign-in its Install
+   * asked for; the card starts it once, with no click of its own (Install's click asked for it). */
+  signIn?: {
+    accounts?: readonly { id: string }[] | null;
+    readiness?: { providers?: readonly { family: string; account?: string | null }[] } | null;
+    after?: string;
+  } | null;
 }
 
 /** The card's title: what Chief needs in its Chief form, else Set Up cmux. */

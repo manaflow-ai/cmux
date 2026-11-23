@@ -1,5 +1,6 @@
 // The Set Up cmux card's protocol (cmux-page://cmux.setup-card/, host: CmuxNextApp HomeSetupCard).
 // The host sends the rows' state as values (setupModel.ts `SetupState`); the card owns its words.
+import type { AccountRunParams, AccountRunReply } from "../shared/signIn/accountSignIn";
 import type { SetupAction, SetupState } from "./setupModel";
 
 export const SETUP_OPS = {
@@ -15,6 +16,9 @@ export const SETUP_OPS = {
   size: "cmux.setup.size",
   /** `{}`: the page gained focus (back from a sign-in): the host checks the sign-ins again. */
   focused: "cmux.setup.focused",
+  /** `AccountRunParams` → `AccountRunReply`: the in-place sign-in's gestures (shared/signIn), on the person's
+   * click, or the one start an Install's click asked for (`SetupState.signIn.after`). */
+  accountsRun: "cmux.setup.accounts.run",
 } as const;
 
 export interface SetupOps {
@@ -23,4 +27,5 @@ export interface SetupOps {
   [SETUP_OPS.hide]: { params: Record<string, never>; result: Record<string, never> };
   [SETUP_OPS.size]: { params: { height: number }; result: Record<string, never> };
   [SETUP_OPS.focused]: { params: Record<string, never>; result: Record<string, never> };
+  [SETUP_OPS.accountsRun]: { params: AccountRunParams; result: AccountRunReply };
 }
