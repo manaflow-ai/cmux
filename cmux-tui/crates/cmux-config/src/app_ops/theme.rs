@@ -172,6 +172,7 @@ fn read(request: &Value) -> Result<Value, OpError> {
     let parsed = text.map(|text| (text, crate::jsonc::parse(text)));
     let problem = match (&parsed, error) {
         (Some((text, Err(failure))), _) => Some(jsonc::problem(failure, text)),
+        (Some((_, Ok(value))), _) if !value.is_object() => Some("root is not an object".to_owned()),
         (None, Some(error)) => Some(error.to_owned()),
         _ => None,
     };
