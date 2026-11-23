@@ -111,7 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func finishLaunching(_ launch: LaunchSnapshotRead) async throws { let launchSnapshot = launch.snapshot
+    private func finishLaunching(_ launch: LaunchSnapshotRead) async throws { let launchSnapshot = launch.snapshot; try await LaunchTestDelay.atLaunch { DebugTimings.markLaunch($0) } // launch-tti.sh control=MS: a known wait before any window
         let preparedDaemon = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
             terminalEnvironmentProvider: environment.terminalEnvironmentProvider(prefersGhosttyTerm: { [weak self] in self?.services?.settings?.snapshot.terminalTerm == .xtermGhostty }),
             resolvesShellIntegration: environment.resolvesShellIntegration, echoesPlacementShift: true)
@@ -134,6 +134,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Every window, shell or auxiliary, opens by one placement rule.
         WindowPlacement.noActivate = environment.noActivate
         WindowPlacement.testScreen = environment.testWindow?.screen
+        // A tagged dev build opens on the built-in display (#51115); a screenshot launch's test screen wins.
+        LaunchDisplay.current = environment.testWindow == nil ? environment.launchDisplay : nil
         // An agent launch must never come back by itself: without this, loginwindow reopens it at the
         // next login (without the agent's environment, so it activates and takes the tag's socket).
         if environment.noActivate { NSApp.disableRelaunchOnLogin() }
