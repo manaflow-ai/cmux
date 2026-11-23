@@ -19,6 +19,13 @@
     "browserSignIn.error.generic": {"comment":"Agent pane: browser sign-in, shown by a tab at /app/ on the daemon's web listener before the pane connects","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"لم يكتمل تسجيل الدخول. حاول مجددًا."}},"bs":{"stringUnit":{"state":"needs_review","value":"Prijava nije završena. Pokušajte ponovo."}},"da":{"stringUnit":{"state":"needs_review","value":"Login blev ikke fuldført. Prøv igen."}},"de":{"stringUnit":{"state":"needs_review","value":"Die Anmeldung wurde nicht abgeschlossen. Versuche es erneut."}},"en":{"stringUnit":{"state":"translated","value":"Sign-in didn't finish. Try again."}},"es":{"stringUnit":{"state":"needs_review","value":"No se completó el inicio de sesión. Vuelve a intentarlo."}},"fr":{"stringUnit":{"state":"needs_review","value":"La connexion n'a pas abouti. Réessayez."}},"it":{"stringUnit":{"state":"needs_review","value":"L'accesso non è stato completato. Riprova."}},"ja":{"stringUnit":{"state":"needs_review","value":"サインインが完了しませんでした。再試行してください。"}},"km":{"stringUnit":{"state":"needs_review","value":"ការចូលមិនបានបញ្ចប់។ ព្យាយាមម្តងទៀត។"}},"ko":{"stringUnit":{"state":"needs_review","value":"로그인이 완료되지 않았습니다. 다시 시도하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Innloggingen ble ikke fullført. Prøv igjen."}},"pl":{"stringUnit":{"state":"needs_review","value":"Logowanie nie zostało ukończone. Spróbuj ponownie."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"O login não foi concluído. Tente de novo."}},"ru":{"stringUnit":{"state":"needs_review","value":"Вход не завершён. Повторите попытку."}},"th":{"stringUnit":{"state":"needs_review","value":"การลงชื่อเข้าใช้ไม่สำเร็จ ลองอีกครั้ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Oturum açma tamamlanmadı. Tekrar deneyin."}},"uk":{"stringUnit":{"state":"needs_review","value":"Вхід не завершено. Спробуйте ще раз."}},"vi":{"stringUnit":{"state":"needs_review","value":"Đăng nhập chưa hoàn tất. Hãy thử lại."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"登录未完成，请重试。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"登入未完成，請重試。"}}}},
     "browserSignIn.error.insecure": {"comment":"Agent pane: browser sign-in, shown by a tab at /app/ on the daemon's web listener before the pane connects","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"افتح هذه الصفحة عبر HTTPS أو على الجهاز نفسه (localhost) لتسجيل الدخول."}},"bs":{"stringUnit":{"state":"needs_review","value":"Otvorite ovu stranicu preko HTTPS-a ili na samom računaru (localhost) da biste se prijavili."}},"da":{"stringUnit":{"state":"needs_review","value":"Åbn siden via HTTPS eller på selve maskinen (localhost) for at logge ind."}},"de":{"stringUnit":{"state":"needs_review","value":"Öffne diese Seite über HTTPS oder auf dem Rechner selbst (localhost), um dich anzumelden."}},"en":{"stringUnit":{"state":"translated","value":"Open this page over HTTPS, or on the machine itself (localhost), to sign in."}},"es":{"stringUnit":{"state":"needs_review","value":"Abre esta página por HTTPS o en el propio equipo (localhost) para iniciar sesión."}},"fr":{"stringUnit":{"state":"needs_review","value":"Ouvrez cette page en HTTPS, ou sur la machine elle-même (localhost), pour vous connecter."}},"it":{"stringUnit":{"state":"needs_review","value":"Apri questa pagina via HTTPS, o sul computer stesso (localhost), per accedere."}},"ja":{"stringUnit":{"state":"needs_review","value":"サインインするには、このページを HTTPS で、またはそのマシン上 (localhost) で開いてください。"}},"km":{"stringUnit":{"state":"needs_review","value":"បើកទំព័រនេះតាម HTTPS ឬនៅលើម៉ាស៊ីនផ្ទាល់ (localhost) ដើម្បីចូល។"}},"ko":{"stringUnit":{"state":"needs_review","value":"로그인하려면 이 페이지를 HTTPS로 열거나 해당 컴퓨터(localhost)에서 여세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Åpne siden over HTTPS, eller på selve maskinen (localhost), for å logge inn."}},"pl":{"stringUnit":{"state":"needs_review","value":"Aby się zalogować, otwórz tę stronę przez HTTPS lub na samym komputerze (localhost)."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Abra esta página por HTTPS ou na própria máquina (localhost) para entrar."}},"ru":{"stringUnit":{"state":"needs_review","value":"Чтобы войти, откройте страницу по HTTPS или на самом компьютере (localhost)."}},"th":{"stringUnit":{"state":"needs_review","value":"เปิดหน้านี้ผ่าน HTTPS หรือบนเครื่องนั้นเอง (localhost) เพื่อลงชื่อเข้าใช้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Oturum açmak için bu sayfayı HTTPS üzerinden veya makinenin kendisinde (localhost) açın."}},"uk":{"stringUnit":{"state":"needs_review","value":"Щоб увійти, відкрийте сторінку через HTTPS або на самому комп'ютері (localhost)."}},"vi":{"stringUnit":{"state":"needs_review","value":"Mở trang này qua HTTPS hoặc trên chính máy đó (localhost) để đăng nhập."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"请通过 HTTPS 或在该机器本地 (localhost) 打开此页面以登录。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"請透過 HTTPS 或在該機器本機 (localhost) 開啟此頁面以登入。"}}}},
     "browserSignIn.error.noLink": {"comment":"Agent pane: browser sign-in, shown by a tab at /app/ on the daemon's web listener before the pane connects","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"افتح رابط المتصفح من cmux على جهازك لربط هذا التبويب."}},"bs":{"stringUnit":{"state":"needs_review","value":"Otvorite link za preglednik iz cmux-a na svom računaru da povežete ovu karticu."}},"da":{"stringUnit":{"state":"needs_review","value":"Åbn browserlinket fra cmux på din maskine for at forbinde denne fane."}},"de":{"stringUnit":{"state":"needs_review","value":"Öffne den Browser-Link aus cmux auf deinem Rechner, um diesen Tab zu verbinden."}},"en":{"stringUnit":{"state":"translated","value":"Open the browser link from cmux on your machine to connect this tab."}},"es":{"stringUnit":{"state":"needs_review","value":"Abre el enlace para navegador de cmux en tu equipo para conectar esta pestaña."}},"fr":{"stringUnit":{"state":"needs_review","value":"Ouvrez le lien navigateur fourni par cmux sur votre machine pour connecter cet onglet."}},"it":{"stringUnit":{"state":"needs_review","value":"Apri il link per browser di cmux sul tuo computer per collegare questa scheda."}},"ja":{"stringUnit":{"state":"needs_review","value":"このタブを接続するには、マシン上の cmux からブラウザー用リンクを開いてください。"}},"km":{"stringUnit":{"state":"needs_review","value":"បើកតំណកម្មវិធីរុករកពី cmux លើម៉ាស៊ីនរបស់អ្នក ដើម្បីភ្ជាប់ផ្ទាំងនេះ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 탭을 연결하려면 컴퓨터의 cmux에서 브라우저 링크를 여세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Åpne nettleserlenken fra cmux på maskinen din for å koble til denne fanen."}},"pl":{"stringUnit":{"state":"needs_review","value":"Otwórz link dla przeglądarki z cmux na swoim komputerze, aby połączyć tę kartę."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Abra o link para navegador do cmux na sua máquina para conectar esta aba."}},"ru":{"stringUnit":{"state":"needs_review","value":"Откройте ссылку для браузера из cmux на вашем компьютере, чтобы подключить эту вкладку."}},"th":{"stringUnit":{"state":"needs_review","value":"เปิดลิงก์เบราว์เซอร์จาก cmux บนเครื่องของคุณเพื่อเชื่อมต่อแท็บนี้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu sekmeyi bağlamak için makinenizdeki cmux'tan tarayıcı bağlantısını açın."}},"uk":{"stringUnit":{"state":"needs_review","value":"Відкрийте посилання для браузера з cmux на вашому комп'ютері, щоб підключити цю вкладку."}},"vi":{"stringUnit":{"state":"needs_review","value":"Mở liên kết trình duyệt từ cmux trên máy của bạn để kết nối thẻ này."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"请在你的机器上从 cmux 打开浏览器链接以连接此标签页。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"請在你的機器上從 cmux 開啟瀏覽器連結以連線此分頁。"}}}},
+    "hat.step.reading": {"comment":"Agent pane: composer hat, the one word for the kind of call a running subagent is on (never the call itself)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"يقرأ"}},"bs":{"stringUnit":{"state":"translated","value":"Čita"}},"da":{"stringUnit":{"state":"translated","value":"Læser"}},"de":{"stringUnit":{"state":"translated","value":"Liest"}},"en":{"stringUnit":{"state":"translated","value":"Reading"}},"es":{"stringUnit":{"state":"translated","value":"Leyendo"}},"fr":{"stringUnit":{"state":"translated","value":"Lecture"}},"it":{"stringUnit":{"state":"translated","value":"Lettura"}},"ja":{"stringUnit":{"state":"translated","value":"読み取り中"}},"km":{"stringUnit":{"state":"translated","value":"កំពុងអាន"}},"ko":{"stringUnit":{"state":"translated","value":"읽는 중"}},"nb":{"stringUnit":{"state":"translated","value":"Leser"}},"pl":{"stringUnit":{"state":"translated","value":"Czyta"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Lendo"}},"ru":{"stringUnit":{"state":"translated","value":"Читает"}},"th":{"stringUnit":{"state":"translated","value":"กำลังอ่าน"}},"tr":{"stringUnit":{"state":"translated","value":"Okuyor"}},"uk":{"stringUnit":{"state":"translated","value":"Читає"}},"vi":{"stringUnit":{"state":"translated","value":"Đang đọc"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"正在读取"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"正在讀取"}}}},
+    "hat.step.searching": {"comment":"Agent pane: composer hat, the one word for the kind of call a running subagent is on (never the call itself)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"يبحث"}},"bs":{"stringUnit":{"state":"translated","value":"Pretražuje"}},"da":{"stringUnit":{"state":"translated","value":"Søger"}},"de":{"stringUnit":{"state":"translated","value":"Sucht"}},"en":{"stringUnit":{"state":"translated","value":"Searching"}},"es":{"stringUnit":{"state":"translated","value":"Buscando"}},"fr":{"stringUnit":{"state":"translated","value":"Recherche"}},"it":{"stringUnit":{"state":"translated","value":"Ricerca"}},"ja":{"stringUnit":{"state":"translated","value":"検索中"}},"km":{"stringUnit":{"state":"translated","value":"កំពុងស្វែងរក"}},"ko":{"stringUnit":{"state":"translated","value":"검색 중"}},"nb":{"stringUnit":{"state":"translated","value":"Søker"}},"pl":{"stringUnit":{"state":"translated","value":"Szuka"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Pesquisando"}},"ru":{"stringUnit":{"state":"translated","value":"Ищет"}},"th":{"stringUnit":{"state":"translated","value":"กำลังค้นหา"}},"tr":{"stringUnit":{"state":"translated","value":"Arıyor"}},"uk":{"stringUnit":{"state":"translated","value":"Шукає"}},"vi":{"stringUnit":{"state":"translated","value":"Đang tìm"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"正在搜索"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"正在搜尋"}}}},
+    "hat.step.editing": {"comment":"Agent pane: composer hat, the one word for the kind of call a running subagent is on (never the call itself)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"يعدّل"}},"bs":{"stringUnit":{"state":"translated","value":"Uređuje"}},"da":{"stringUnit":{"state":"translated","value":"Redigerer"}},"de":{"stringUnit":{"state":"translated","value":"Bearbeitet"}},"en":{"stringUnit":{"state":"translated","value":"Editing"}},"es":{"stringUnit":{"state":"translated","value":"Editando"}},"fr":{"stringUnit":{"state":"translated","value":"Modification"}},"it":{"stringUnit":{"state":"translated","value":"Modifica"}},"ja":{"stringUnit":{"state":"translated","value":"編集中"}},"km":{"stringUnit":{"state":"translated","value":"កំពុងកែ"}},"ko":{"stringUnit":{"state":"translated","value":"편집 중"}},"nb":{"stringUnit":{"state":"translated","value":"Redigerer"}},"pl":{"stringUnit":{"state":"translated","value":"Edytuje"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Editando"}},"ru":{"stringUnit":{"state":"translated","value":"Редактирует"}},"th":{"stringUnit":{"state":"translated","value":"กำลังแก้ไข"}},"tr":{"stringUnit":{"state":"translated","value":"Düzenliyor"}},"uk":{"stringUnit":{"state":"translated","value":"Редагує"}},"vi":{"stringUnit":{"state":"translated","value":"Đang sửa"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"正在编辑"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"正在編輯"}}}},
+    "hat.step.running": {"comment":"Agent pane: composer hat, the one word for the kind of call a running subagent is on (never the call itself)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"يشغّل"}},"bs":{"stringUnit":{"state":"translated","value":"Pokreće"}},"da":{"stringUnit":{"state":"translated","value":"Kører"}},"de":{"stringUnit":{"state":"translated","value":"Führt aus"}},"en":{"stringUnit":{"state":"translated","value":"Running"}},"es":{"stringUnit":{"state":"translated","value":"Ejecutando"}},"fr":{"stringUnit":{"state":"translated","value":"Exécution"}},"it":{"stringUnit":{"state":"translated","value":"Esecuzione"}},"ja":{"stringUnit":{"state":"translated","value":"実行中"}},"km":{"stringUnit":{"state":"translated","value":"កំពុងដំណើរការ"}},"ko":{"stringUnit":{"state":"translated","value":"실행 중"}},"nb":{"stringUnit":{"state":"translated","value":"Kjører"}},"pl":{"stringUnit":{"state":"translated","value":"Uruchamia"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Executando"}},"ru":{"stringUnit":{"state":"translated","value":"Выполняет"}},"th":{"stringUnit":{"state":"translated","value":"กำลังรัน"}},"tr":{"stringUnit":{"state":"translated","value":"Çalıştırıyor"}},"uk":{"stringUnit":{"state":"translated","value":"Виконує"}},"vi":{"stringUnit":{"state":"translated","value":"Đang chạy"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"正在运行"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"正在執行"}}}},
+    "hat.step.fetching": {"comment":"Agent pane: composer hat, the one word for the kind of call a running subagent is on (never the call itself)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"يجلب"}},"bs":{"stringUnit":{"state":"translated","value":"Preuzima"}},"da":{"stringUnit":{"state":"translated","value":"Henter"}},"de":{"stringUnit":{"state":"translated","value":"Lädt"}},"en":{"stringUnit":{"state":"translated","value":"Fetching"}},"es":{"stringUnit":{"state":"translated","value":"Obteniendo"}},"fr":{"stringUnit":{"state":"translated","value":"Récupération"}},"it":{"stringUnit":{"state":"translated","value":"Recupero"}},"ja":{"stringUnit":{"state":"translated","value":"取得中"}},"km":{"stringUnit":{"state":"translated","value":"កំពុងទាញយក"}},"ko":{"stringUnit":{"state":"translated","value":"가져오는 중"}},"nb":{"stringUnit":{"state":"translated","value":"Henter"}},"pl":{"stringUnit":{"state":"translated","value":"Pobiera"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Buscando"}},"ru":{"stringUnit":{"state":"translated","value":"Загружает"}},"th":{"stringUnit":{"state":"translated","value":"กำลังดึงข้อมูล"}},"tr":{"stringUnit":{"state":"translated","value":"Getiriyor"}},"uk":{"stringUnit":{"state":"translated","value":"Завантажує"}},"vi":{"stringUnit":{"state":"translated","value":"Đang tải"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"正在获取"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"正在擷取"}}}},
+    "hat.step.delegating": {"comment":"Agent pane: composer hat, the one word for the kind of call a running subagent is on (never the call itself)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"يفوّض"}},"bs":{"stringUnit":{"state":"translated","value":"Delegira"}},"da":{"stringUnit":{"state":"translated","value":"Uddelegerer"}},"de":{"stringUnit":{"state":"translated","value":"Delegiert"}},"en":{"stringUnit":{"state":"translated","value":"Delegating"}},"es":{"stringUnit":{"state":"translated","value":"Delegando"}},"fr":{"stringUnit":{"state":"translated","value":"Délégation"}},"it":{"stringUnit":{"state":"translated","value":"Delega"}},"ja":{"stringUnit":{"state":"translated","value":"委任中"}},"km":{"stringUnit":{"state":"translated","value":"កំពុងប្រគល់"}},"ko":{"stringUnit":{"state":"translated","value":"위임 중"}},"nb":{"stringUnit":{"state":"translated","value":"Delegerer"}},"pl":{"stringUnit":{"state":"translated","value":"Deleguje"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Delegando"}},"ru":{"stringUnit":{"state":"translated","value":"Делегирует"}},"th":{"stringUnit":{"state":"translated","value":"กำลังมอบหมาย"}},"tr":{"stringUnit":{"state":"translated","value":"Devrediyor"}},"uk":{"stringUnit":{"state":"translated","value":"Делегує"}},"vi":{"stringUnit":{"state":"translated","value":"Đang giao việc"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"正在委派"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"正在委派"}}}},
+    "hat.step.working": {"comment":"Agent pane: composer hat, the one word for the kind of call a running subagent is on (never the call itself)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"يعمل"}},"bs":{"stringUnit":{"state":"translated","value":"Radi"}},"da":{"stringUnit":{"state":"translated","value":"Arbejder"}},"de":{"stringUnit":{"state":"translated","value":"Arbeitet"}},"en":{"stringUnit":{"state":"translated","value":"Working"}},"es":{"stringUnit":{"state":"translated","value":"Trabajando"}},"fr":{"stringUnit":{"state":"translated","value":"Travail"}},"it":{"stringUnit":{"state":"translated","value":"Al lavoro"}},"ja":{"stringUnit":{"state":"translated","value":"作業中"}},"km":{"stringUnit":{"state":"translated","value":"កំពុងធ្វើការ"}},"ko":{"stringUnit":{"state":"translated","value":"작업 중"}},"nb":{"stringUnit":{"state":"translated","value":"Arbeider"}},"pl":{"stringUnit":{"state":"translated","value":"Pracuje"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Trabalhando"}},"ru":{"stringUnit":{"state":"translated","value":"Работает"}},"th":{"stringUnit":{"state":"translated","value":"กำลังทำงาน"}},"tr":{"stringUnit":{"state":"translated","value":"Çalışıyor"}},"uk":{"stringUnit":{"state":"translated","value":"Працює"}},"vi":{"stringUnit":{"state":"translated","value":"Đang làm"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"正在工作"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"正在工作"}}}},
     "identity.fka": {"comment":"Agent pane: a quiet line after an agent's name giving the newest name it had before a rename (\"formerly known as\"); {name} is that old name","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"سابقًا {name}"}},"bs":{"stringUnit":{"state":"needs_review","value":"ranije {name}"}},"da":{"stringUnit":{"state":"needs_review","value":"tidl. {name}"}},"de":{"stringUnit":{"state":"needs_review","value":"früher {name}"}},"en":{"stringUnit":{"state":"translated","value":"fka {name}"}},"es":{"stringUnit":{"state":"needs_review","value":"antes {name}"}},"fr":{"stringUnit":{"state":"needs_review","value":"anc. {name}"}},"it":{"stringUnit":{"state":"needs_review","value":"già {name}"}},"ja":{"stringUnit":{"state":"needs_review","value":"旧 {name}"}},"km":{"stringUnit":{"state":"needs_review","value":"ពីមុន {name}"}},"ko":{"stringUnit":{"state":"needs_review","value":"구 {name}"}},"nb":{"stringUnit":{"state":"needs_review","value":"tidl. {name}"}},"pl":{"stringUnit":{"state":"needs_review","value":"dawniej {name}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"antes {name}"}},"ru":{"stringUnit":{"state":"needs_review","value":"ранее {name}"}},"th":{"stringUnit":{"state":"needs_review","value":"เดิม {name}"}},"tr":{"stringUnit":{"state":"needs_review","value":"eski adı {name}"}},"uk":{"stringUnit":{"state":"needs_review","value":"раніше {name}"}},"vi":{"stringUnit":{"state":"needs_review","value":"trước là {name}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"曾用名 {name}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"曾用名 {name}"}}}},
     "identity.formerly": {"comment":"Agent pane: tooltip on an agent's name listing every name it had before its renames, newest first; {names} is a comma-separated list","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"سابقًا: {names}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ranije: {names}"}},"da":{"stringUnit":{"state":"needs_review","value":"Tidligere: {names}"}},"de":{"stringUnit":{"state":"needs_review","value":"Früher: {names}"}},"en":{"stringUnit":{"state":"translated","value":"Formerly {names}"}},"es":{"stringUnit":{"state":"needs_review","value":"Antes: {names}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Anciennement : {names}"}},"it":{"stringUnit":{"state":"needs_review","value":"In precedenza: {names}"}},"ja":{"stringUnit":{"state":"needs_review","value":"旧名: {names}"}},"km":{"stringUnit":{"state":"needs_review","value":"ឈ្មោះពីមុន: {names}"}},"ko":{"stringUnit":{"state":"needs_review","value":"이전 이름: {names}"}},"nb":{"stringUnit":{"state":"needs_review","value":"Tidligere: {names}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Dawniej: {names}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Antes: {names}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Ранее: {names}"}},"th":{"stringUnit":{"state":"needs_review","value":"ชื่อเดิม: {names}"}},"tr":{"stringUnit":{"state":"needs_review","value":"Eski adları: {names}"}},"uk":{"stringUnit":{"state":"needs_review","value":"Раніше: {names}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Trước đây: {names}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"曾用名：{names}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"曾用名：{names}"}}}},
     "transcript.loading": {"comment":"Agent pane: accessible label of the spinner the transcript shows while a chat's messages are still loading (VirtualTranscript.tsx)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"جارٍ تحميل الدردشة…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Učitavanje razgovora…"}},"da":{"stringUnit":{"state":"needs_review","value":"Indlæser chat…"}},"de":{"stringUnit":{"state":"needs_review","value":"Chat wird geladen…"}},"en":{"stringUnit":{"state":"translated","value":"Loading chat…"}},"es":{"stringUnit":{"state":"needs_review","value":"Cargando el chat…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Chargement de la discussion…"}},"it":{"stringUnit":{"state":"needs_review","value":"Caricamento della chat…"}},"ja":{"stringUnit":{"state":"needs_review","value":"チャットを読み込み中…"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងផ្ទុកការជជែក…"}},"ko":{"stringUnit":{"state":"needs_review","value":"채팅 불러오는 중…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Laster inn chat…"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wczytywanie czatu…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Carregando o chat…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Загрузка чата…"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังโหลดแชต…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Sohbet yükleniyor…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Завантаження чату…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang tải cuộc trò chuyện…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在加载对话…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在載入對話…"}}}},
@@ -324041,266 +324048,134 @@
         }
       }
     },
-    "subagents.messageSend": {
-      "comment": "Agent pane: the Send button of a subagent's own composer; {name} is the subagent",
+    "subagents.messageTextOnly": {
+      "comment": "Agent pane: the note when a file is pasted, dropped or chosen in a subagent's composer, whose message to the subagent is text only",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send to {name}"
+            "value": "A message to a subagent can only be text."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أرسل إلى {name}"
+            "value": "يمكن أن تكون الرسالة إلى وكيل فرعي نصًا فقط."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pošalji za {name}"
+            "value": "Poruka podagentu može biti samo tekst."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send til {name}"
+            "value": "En besked til en underagent kan kun være tekst."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "An {name} senden"
+            "value": "Eine Nachricht an einen Subagenten kann nur Text sein."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enviar a {name}"
+            "value": "Un mensaje a un subagente solo puede ser texto."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Envoyer à {name}"
+            "value": "Un message à un sous-agent ne peut être que du texte."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Invia a {name}"
+            "value": "Un messaggio a un subagente può essere solo testo."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "{name} に送信"
+            "value": "サブエージェントへのメッセージはテキストのみです。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ផ្ញើទៅ {name}"
+            "value": "សារទៅកាន់ភ្នាក់ងាររងអាចជាអត្ថបទតែប៉ុណ្ណោះ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "{name}에게 보내기"
+            "value": "하위 에이전트에게 보내는 메시지는 텍스트만 가능합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send til {name}"
+            "value": "En melding til en underagent kan bare være tekst."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wyślij do {name}"
+            "value": "Wiadomość do podagenta może zawierać tylko tekst."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enviar para {name}"
+            "value": "Uma mensagem para um subagente só pode ser texto."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Отправить {name}"
+            "value": "Сообщение субагенту может быть только текстом."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ส่งถึง {name}"
+            "value": "ข้อความถึงเอเจนต์ย่อยต้องเป็นข้อความเท่านั้น"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "{name} adlı alt ajana gönder"
+            "value": "Bir alt ajana gönderilen mesaj yalnızca metin olabilir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Надіслати {name}"
+            "value": "Повідомлення субагенту може бути лише текстом."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gửi cho {name}"
+            "value": "Tin nhắn gửi đến tác tử con chỉ có thể là văn bản."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "发送给 {name}"
+            "value": "发给子代理的消息只能是文本。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "傳送給 {name}"
-          }
-        }
-      }
-    },
-    "subagents.messageVia": {
-      "comment": "Agent pane: under a subagent's own composer, the chat that takes the message and passes it on to the subagent; {name} is the chat",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sent through {name}"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يُرسَل عبر {name}"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Šalje se preko {name}"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sendes via {name}"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Geht über {name}"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Se envía a través de {name}"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Envoyé via {name}"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Inviato tramite {name}"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{name} 経由で送信"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ផ្ញើតាម {name}"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{name}을(를) 통해 전송"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sendes via {name}"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wysyłane przez {name}"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Enviado por meio de {name}"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Отправляется через {name}"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ส่งผ่าน {name}"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{name} üzerinden gönderilir"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Надсилається через {name}"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gửi qua {name}"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "经由 {name} 发送"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "經由 {name} 傳送"
+            "value": "傳給子代理的訊息只能是文字。"
           }
         }
       }
@@ -337501,6 +337376,270 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "你傳送的內容會送到此工作階段正在執行的地方"
+          }
+        }
+      }
+    },
+    "watch.terminalPickers": {
+      "comment": "Agent pane: shown in the composer row in place of the model and mode pickers for a chat a cmux terminal runs (Toggle Terminal and Chat): that terminal's agent keeps its own model and mode",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "النموذج والوضع يُضبطان في الطرفية التي تشغّل هذه المحادثة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Model i način postavljaju se u terminalu u kojem radi ovaj chat"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Model og tilstand vælges i terminalen, der kører denne chat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modell und Modus legst du im Terminal fest, in dem dieser Chat läuft"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model and mode are set in the terminal running this chat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El modelo y el modo se eligen en la terminal que ejecuta este chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le modèle et le mode se règlent dans le terminal qui exécute ce chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modello e modalità si impostano nel terminale che esegue questa chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "モデルとモードは、このチャットを実行しているターミナルで設定します"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ូដែល និងរបៀប ត្រូវកំណត់នៅក្នុងទែមីណាល់ដែលកំពុងដំណើរការការជជែកនេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모델과 모드는 이 채팅을 실행하는 터미널에서 설정합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modell og modus velges i terminalen som kjører denne chatten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Model i tryb ustawia się w terminalu, w którym działa ten czat"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modelo e modo são definidos no terminal que executa este chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Модель и режим задаются в терминале, где работает этот чат"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตั้งค่าโมเดลและโหมดได้ในเทอร์มินัลที่รันแชตนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Model ve mod, bu sohbeti çalıştıran terminalde ayarlanır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Модель і режим задаються в терміналі, де працює цей чат"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mô hình và chế độ được đặt trong terminal đang chạy cuộc trò chuyện này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "模型和模式在运行此聊天的终端中设置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "模型與模式在執行此聊天的終端機中設定"
+          }
+        }
+      }
+    },
+    "watch.terminalPickersShort": {
+      "comment": "Agent pane: a short label in the composer row, with a terminal glyph, in place of the model and mode pickers for a chat a cmux terminal runs (Toggle Terminal and Chat); its tooltip is watch.terminalPickers",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُضبط في الطرفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Postavlja se u terminalu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indstilles i terminalen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Terminal festgelegt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set in terminal"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se ajusta en la terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réglé dans le terminal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impostato nel terminale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルで設定"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំណត់​នៅ​ក្នុង​ទែមីណាល់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널에서 설정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angis i terminalen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ustawiane w terminalu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Definido no terminal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Задаётся в терминале"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตั้งค่าในเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalde ayarlanır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Задається в терміналі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đặt trong terminal"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在终端中设置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在終端機中設定"
           }
         }
       }
@@ -370188,6 +370327,7 @@
         }
       }
     },
+    "composer.slashMcp":{"comment":"Composer slash menu: description of cmux's /mcp command, which opens Session Info on its Connectors (the chat's MCP servers) at once, even while a turn runs.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Show the chat's MCP servers in Session Info."}},"ar":{"stringUnit":{"state":"needs_review","value":"عرض خوادم MCP للدردشة في معلومات الجلسة."}},"bs":{"stringUnit":{"state":"needs_review","value":"Prikaži MCP servere razgovora u informacijama o sesiji."}},"da":{"stringUnit":{"state":"needs_review","value":"Vis chattens MCP-servere i sessionsoplysninger."}},"de":{"stringUnit":{"state":"needs_review","value":"Die MCP-Server des Chats in den Sitzungsinfos anzeigen."}},"es":{"stringUnit":{"state":"needs_review","value":"Mostrar los servidores MCP del chat en la información de la sesión."}},"fr":{"stringUnit":{"state":"needs_review","value":"Afficher les serveurs MCP de la discussion dans les infos de session."}},"it":{"stringUnit":{"state":"needs_review","value":"Mostra i server MCP della chat nelle informazioni sulla sessione."}},"ja":{"stringUnit":{"state":"needs_review","value":"セッション情報にチャットの MCP サーバーを表示します。"}},"km":{"stringUnit":{"state":"needs_review","value":"បង្ហាញម៉ាស៊ីនមេ MCP របស់ការជជែកនៅក្នុងព័ត៌មានវគ្គ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"세션 정보에 채팅의 MCP 서버를 표시합니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Vis chattens MCP-servere i øktinformasjon."}},"pl":{"stringUnit":{"state":"needs_review","value":"Pokaż serwery MCP czatu w informacjach o sesji."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Mostrar os servidores MCP do chat nas informações da sessão."}},"ru":{"stringUnit":{"state":"needs_review","value":"Показать MCP-серверы чата в сведениях о сеансе."}},"th":{"stringUnit":{"state":"needs_review","value":"แสดงเซิร์ฟเวอร์ MCP ของแชทในข้อมูลเซสชัน"}},"tr":{"stringUnit":{"state":"needs_review","value":"Sohbetin MCP sunucularını Oturum Bilgisi'nde göster."}},"uk":{"stringUnit":{"state":"needs_review","value":"Показати MCP-сервери чату в інформації про сеанс."}},"vi":{"stringUnit":{"state":"needs_review","value":"Hiển thị các máy chủ MCP của cuộc trò chuyện trong Thông tin phiên."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"在会话信息中显示此聊天的 MCP 服务器。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"在工作階段資訊中顯示此聊天的 MCP 伺服器。"}}}},
     "composer.slashStatus": {
       "comment": "Composer slash menu: description of cmux's /status command, which opens the Session status card.",
       "extractionState": "manual",
@@ -414816,133 +414956,133 @@
       }
     },
     "composer.steerQueueTooltip": {
-      "comment": "Agent pane: tooltip of the Send button while a turn runs, for an agent that takes a prompt mid-turn; Return steers the turn with the prompt (the agent reads it when its current step ends), Command-Return queues it behind the turn. Keep the ↵ and ⌘↵ key symbols.",
+      "comment": "Agent pane: tooltip of the Send button while a turn runs, for an agent that takes a prompt mid-turn; Return steers the turn with the prompt (the agent reads it when its current step ends), Command-Return queues it behind the turn. Keep the ↩ and ⌘↩ key symbols.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ توجيه · ⌘↵ طابور"
+            "value": "↩ توجيه · ⌘↩ طابور"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ usmjeri · ⌘↵ u red"
+            "value": "↩ usmjeri · ⌘↩ u red"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ styr · ⌘↵ sæt i kø"
+            "value": "↩ styr · ⌘↩ sæt i kø"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ lenken · ⌘↵ einreihen"
+            "value": "↩ lenken · ⌘↩ einreihen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "↵ steer · ⌘↵ queue"
+            "value": "↩ steer · ⌘↩ queue"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ dirigir · ⌘↵ poner en cola"
+            "value": "↩ dirigir · ⌘↩ poner en cola"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ orienter · ⌘↵ mettre en file"
+            "value": "↩ orienter · ⌘↩ mettre en file"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ guida · ⌘↵ metti in coda"
+            "value": "↩ guida · ⌘↩ metti in coda"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ ステア · ⌘↵ キュー"
+            "value": "↩ ステア · ⌘↩ キュー"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ ដឹកនាំ · ⌘↵ ដាក់ក្នុងជួរ"
+            "value": "↩ ដឹកនាំ · ⌘↩ ដាក់ក្នុងជួរ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ 조정 · ⌘↵ 대기열"
+            "value": "↩ 조정 · ⌘↩ 대기열"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ styr · ⌘↵ legg i kø"
+            "value": "↩ styr · ⌘↩ legg i kø"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ kieruj · ⌘↵ do kolejki"
+            "value": "↩ kieruj · ⌘↩ do kolejki"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ direcionar · ⌘↵ enfileirar"
+            "value": "↩ direcionar · ⌘↩ enfileirar"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ направить · ⌘↵ в очередь"
+            "value": "↩ направить · ⌘↩ в очередь"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ ชี้นำ · ⌘↵ เข้าคิว"
+            "value": "↩ ชี้นำ · ⌘↩ เข้าคิว"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ yönlendir · ⌘↵ sıraya ekle"
+            "value": "↩ yönlendir · ⌘↩ sıraya ekle"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ скерувати · ⌘↵ у чергу"
+            "value": "↩ скерувати · ⌘↩ у чергу"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ điều hướng · ⌘↵ xếp hàng"
+            "value": "↩ điều hướng · ⌘↩ xếp hàng"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ 引导 · ⌘↵ 排队"
+            "value": "↩ 引导 · ⌘↩ 排队"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ 引導 · ⌘↵ 排隊"
+            "value": "↩ 引導 · ⌘↩ 排隊"
           }
         }
       }

@@ -58,6 +58,8 @@ mod lanes;
 mod log_retention;
 #[path = "hub_integration/mcp_connect.rs"]
 mod mcp_connect;
+#[path = "hub_integration/outbox_folder_missing.rs"]
+mod outbox_folder_missing;
 #[cfg(unix)]
 #[path = "hub_integration/paused_fs.rs"]
 mod paused_fs;
