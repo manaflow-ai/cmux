@@ -1,7 +1,6 @@
 import AppKit
 import CmuxNextApps
 import CmuxNextCloudUI
-import CmuxNextDesign
 import CmuxNextSidebar
 
 /// One window's app sections for its sidebar: the platform's
@@ -32,13 +31,10 @@ final class SidebarAppSections: SidebarAppSectionProvider {
     }
 
     /// Unmounts every app section, widget and workspace list of this window on the supervisor.
-    func releaseAll() {
-        teamView = nil
-        provider.releaseAll()
-    }
+    func releaseAll() { teamView = nil; provider.releaseAll() }
 
     /// This window's own workspace list (`cmux.sidebar/1`, opt-in; the built-in list otherwise).
-    var workspaceList: (any SidebarListReplacement)? { provider.workspaceList }
+    var workspaceList: WorkspaceList? { provider.workspaceList }
 
     var onContentChange: (() -> Void)? {
         get { provider.onContentChange }
