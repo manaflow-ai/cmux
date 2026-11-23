@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '2e0877c88adc3bd75bf9e49964f9345f01e89bccf21a8b32cbba5f203a9bd76f'
+IR_SHA256 = '3e71a7376b792f9f519eef3582eef785ab28df1e74af3a9e9600596fd9cde9e9'
 
 
 @dataclass(frozen=True)
@@ -1785,7 +1785,12 @@ COMMANDS = {
         ('local-admin',),
         None,
         {
+            'ids': CommandFieldMetadata(None, None),
+            'limit': CommandFieldMetadata(None, None),
+            'offset': CommandFieldMetadata(None, None),
             'owners': CommandFieldMetadata(None, None),
+            'scope': CommandFieldMetadata(None, None),
+            'since': CommandFieldMetadata(None, None),
         },
     ),
     'identify': CommandMetadata(
