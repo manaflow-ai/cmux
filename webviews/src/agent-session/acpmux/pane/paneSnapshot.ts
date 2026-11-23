@@ -1726,11 +1726,11 @@ export function paneSnapshotEffect({
             change.op === "update"
               ? change.text
               : change.op === "send_now"
-                ? // Send Now also releases the steers still waiting to be read: their words count too.
+                ? // Send Now also releases the steers still waiting to be read: each is its own message.
                   [
                     trustRouteSnapshot.current?.queue.find((entry) => entry.id === String(promptId))?.prompt ?? "",
                     ...client.waitingSteerTexts(),
-                  ].join("\n\n")
+                  ].find((words) => computerUseGate(words, computerUseState(), chatPlace(client)) !== "free")
                 : undefined;
           const place = chatPlace(client);
           if (queued && computerUseGate(queued, computerUseState(), place) !== "free") {

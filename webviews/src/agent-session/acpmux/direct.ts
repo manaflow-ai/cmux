@@ -11214,7 +11214,9 @@ export class AcpmuxDirectClient {
     // Each attached video's speech, as the host heard it, goes beside it (composer/videoTranscript.ts).
     // A prompt that names `@computer-use` or `@browser-use` tells the agent which cmux tool it means
     // (toolMentions.ts), every time it names one.
-    const tools = toolMentionContext(toolMentionsIn(text));
+    // Only on this Mac's own connection: acpmux refuses client context from a web client, and writes the
+    // same fixed note itself on every route (tool_mentions.rs).
+    const tools = this.localOrigin ? toolMentionContext(toolMentionsIn(text)) : undefined;
     const context = promptContext(workspace || tools ? `${workspace ?? ""}${tools ?? ""}` : undefined, carried);
     /// The sender (the composer) lets go of the prompt.
     const release = () => {

@@ -499,7 +499,13 @@ impl Hub {
         // restarted before this line came no longer knows the delivery (`bridge.rs`
         // `delivered_text`), so its full text comes here: the transcript drops acpmux's own note
         // and keeps every other word (`tool_mentions::without_own_note`).
-        let text = crate::tool_mentions::without_own_note(text);
+        // A matched delivery (`bridged`) already gives the person's visible text: nothing to strip,
+        // so a copy of the note they typed themselves stays.
+        let text = if bridged.is_some() {
+            std::borrow::Cow::Borrowed(text)
+        } else {
+            crate::tool_mentions::without_own_note(text)
+        };
         let text = text.as_ref();
         let turn_id = format!("watched-{}", uuid::Uuid::now_v7());
         let client = if bridged.is_some() { "bridge" } else { "watch" };

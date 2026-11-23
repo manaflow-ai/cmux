@@ -579,7 +579,9 @@ export function drawPaneComposer({
   // `/side --on cloud …` goes to a Cloud chat whatever this chat is: held as a Cloud send, with the
   // Cloud notice, never this Mac's setup (commandPlace.ts reads the `--on` the command handler reads).
   const sendPlace = (text: string): ComputerUsePlace => {
-    const side = /^\/side(?:\s+([\s\S]*))?$/i.exec(text.trim());
+    // Read without the attachments placed in the text (U+FFFC tokens), as the command's dispatch reads it.
+    const words = text.replace(/\uFFFC[^\uFFFC]*\uFFFC/g, " ").trim();
+    const side = /^\/side(?:\s+([\s\S]*))?$/i.exec(words);
     const placed = side ? commandPlace(side[1]) : undefined;
     return placed && "place" in placed && placed.place === "cloud" ? "cloud" : computerUsePlace;
   };

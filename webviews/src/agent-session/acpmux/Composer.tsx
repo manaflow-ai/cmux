@@ -1074,6 +1074,12 @@ function ComposerFrame({
   const unsentDraft = useRef<UnsentDraftThrottle | undefined>(undefined);
   /// A send that resumes after a wait (`resumeSend`): its Computer Use hold only says why (`holdsSend` `late`).
   const sendResuming = useRef(false);
+  /// Whether `draft` sends words to an agent: cmux's own commands other than `/side` and `/btw` (`/cd
+  /// @folder`, `/model`) send no prompt, so the Computer Use hold never reads them (Return and Cmd-Return).
+  const sendsPrompt = (draft: string) => {
+    const own = composerCommand(withoutInlineTokens(draft, attachmentId).trim(), snapshot.summary?.harness);
+    return own?.kind !== "cmux" || own.command.action === "side" || own.command.action === "btw";
+  };
   useImperativeHandle(
     handle,
     () => ({
@@ -1736,12 +1742,7 @@ function ComposerFrame({
     // field drops its node: inlineAttachments.tsx) is no place: it goes as the field will hold it.
     const draftText = withoutDeadTokens(unwrapped());
     // Held before anything binds the gesture (a hold for files, a side chat): the draft stays.
-    // Only words that go to an agent: cmux's own commands other than `/side` and `/btw` (`/cd @folder`,
-    // `/model`) send no prompt, so they are never held.
-    const ownCommand = composerCommand(withoutInlineTokens(draftText, attachmentId).trim(), snapshot.summary?.harness);
-    const sendsPrompt =
-      ownCommand?.kind !== "cmux" || ownCommand.command.action === "side" || ownCommand.command.action === "btw";
-    if (sendsPrompt && holdsSend?.(draftText, sendResuming.current || submitResumed())) return false;
+    if (sendsPrompt(draftText) && holdsSend?.(draftText, sendResuming.current || submitResumed())) return false;
     // The attachments placed in the text go at their places (attachments.ts placeInline); a chip still
     // being read is not one of them yet.
     // A Codex skill typed or picked as `/name` goes as `/$name` (slashCommands.ts withSkillDollars).
@@ -2782,7 +2783,8 @@ function ComposerFrame({
       const owned =
         composerCommand(typedWords().trim(), snapshot.summary?.harness, attachments.length)?.kind === "cmux";
       // Held for Computer Use on this key press, before a wait for files reserves its gesture (CMUX-682).
-      if (holdsSend?.(withoutDeadTokens(unwrapped()))) return;
+      const quickDraft = withoutDeadTokens(unwrapped());
+      if (sendsPrompt(quickDraft) && holdsSend?.(quickDraft)) return;
       if (!owned && holdForAttachments((gesture) => resumeSend(() => sendAndOpen(gesture)))) return;
       sendAndOpen();
       return;

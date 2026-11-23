@@ -45,6 +45,10 @@ import CmuxNextCompat
         lastPress = nil
     }
 
+    /// A key repeat reached the page (the person's held key, or another process's posted repeat): it is
+    /// no press of its own, so it ends the Set Up press, and only that (``consumeFreshGesture()``).
+    func repeatedKey() { lastPress = nil }
+
     /// The person's last Return or Space press or click in the pane, when no other key, click or posted input came after it, for
     /// an action that needs one from just now (``consumeFreshGesture()``).
     private var lastPress: TimeInterval?

@@ -185,7 +185,9 @@ extension AgentPaneView {
         guard let window, eventWindow === window else { return }
         switch event.type {
         case .keyDown:
-            guard !event.isARepeat, (window.firstResponder as? NSView)?.isDescendant(of: webView) == true, showsForInput else { return }
+            // A repeat (held or posted) ends the Set Up press: Send on a repeat never opens setup.
+            if event.isARepeat { return model.transport.gestures.repeatedKey() }
+            guard (window.firstResponder as? NSView)?.isDescendant(of: webView) == true, showsForInput else { return }
         default:
             guard webView.bounds.contains(webView.convert(event.locationInWindow, from: nil)), showsForInput,
                   ownsClick(at: event.locationInWindow, in: window) else { return }
@@ -209,8 +211,8 @@ extension AgentPaneView {
             // handoff finishes. The event is still the person's physical key (checked below),
             // and the child is still this pane's page, so do not turn that brief focus transition
             // into a rejected send.
-            guard !event.isARepeat,
-                  chromiumPageContains(CGPoint(x: eventWindow.frame.midX, y: eventWindow.frame.midY), eventWindow: eventWindow) else { return }
+            if event.isARepeat { return model.transport.gestures.repeatedKey() }
+            guard chromiumPageContains(CGPoint(x: eventWindow.frame.midX, y: eventWindow.frame.midY), eventWindow: eventWindow) else { return }
         default:
             guard chromiumPageContains(eventWindow.convertPoint(toScreen: event.locationInWindow), eventWindow: eventWindow) else { return }
         }
@@ -255,6 +257,8 @@ extension AgentPaneView {
     /// A key that sends or presses a focused button: Return, keypad Enter, or Space (key code 49), which activates the
     /// focused Send button from the keyboard. The press Set Up takes (``AgentPaneUserGestures/record(click:press:)``).
     static func isPressKey(_ event: NSEvent) -> Bool {
-        isReturnKey(event) || event.keyCode == 49
+        // Shift- or Option-Return writes a new line, never a send; a modified Space types, never presses.
+        let modifiers = event.modifierFlags.intersection([.shift, .option, .control, .command])
+        return (isReturnKey(event) && modifiers.isDisjoint(with: [.shift, .option])) || (event.keyCode == 49 && modifiers.isEmpty)
     }
 }
