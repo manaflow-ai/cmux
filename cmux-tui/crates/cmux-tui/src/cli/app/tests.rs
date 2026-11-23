@@ -1697,6 +1697,18 @@ fn settings_validate_reports_what_the_owner_would() {
     let ok = validate("// my rice\n{ \"sidebar\": { \"side\": \"right\", }, \"actions\": {} }\n")
         .unwrap();
     assert_eq!(ok["valid"], true);
+    assert_eq!(ok.get("deprecated"), None);
+
+    // A key the file names the old way: valid (it still applies), with the new name.
+    let old = validate("{ \"sidebar\": { \"showCounts\": false } }").unwrap();
+    assert_eq!(old["valid"], true);
+    assert_eq!(old["deprecated"][0]["from"], "sidebar.showCounts");
+    assert_eq!(old["deprecated"][0]["to"], "sidebar.workspaceRow.tabCount");
+    let message = old["deprecated"][0]["message"].as_str().unwrap();
+    assert!(
+        message.starts_with("sidebar.showCounts is now sidebar.workspaceRow.tabCount"),
+        "{message}"
+    );
 
     let error = validate(
         "{ \"sidebar\": { \"side\": \"top\" }, \"appearance\": { \"glassTransparency\": 9 } }",
