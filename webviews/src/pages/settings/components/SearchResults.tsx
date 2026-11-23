@@ -21,7 +21,7 @@ const ChiefPetCard = lazy(() => import("./ChiefPetCard").then(({ ChiefPetCard })
 /**
  * Matching rows from every category, editable in place, grouped by category under a crumb, its
  * page then the category ("AI › Agents"; a page's own category is just its name), so a result says
- * where it lives among the six pages (findings G6, the search-first layout's results). Every
+ * where it lives among the seven pages (findings G6, the search-first layout's results). Every
  * row stays mounted while the filter is on: a row that stops matching collapses (height and
  * opacity) and one that starts matching opens, so the list never jumps between keystrokes.
  */

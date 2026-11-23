@@ -1,5 +1,5 @@
 // The Settings page reads in sections (user 2026-10-30: "refactoring the settings page to look a lot
-// better with sections"): the sidebar is six pages, the layout the Swift
+// better with sections"): the sidebar is seven pages, the layout the Swift
 // `SettingsPageLayout.sidebarSections` exports, and no card is a wall of rows.
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { act } from "react";
@@ -48,7 +48,7 @@ test("no card holds more than 16 rows", () => {
   expect(long).toEqual([]);
 });
 
-test("the sidebar draws six page links, and the shown page's categories under its link", async () => {
+test("the sidebar draws seven page links, and the shown page's categories under its link", async () => {
   page = await renderPage({ path: "/settings/agents" });
   const container = page.container;
   // Each page's link is its first category's, under the page's title.
@@ -59,6 +59,7 @@ test("the sidebar draws six page links, and the shown page's categories under it
     ["ai", "chat", "AI"],
     ["devices", "accounts", "Accounts and Devices"],
     ["keyboard", "keyboard", "Keyboard"],
+    ["terminalBrowser", "terminal", "Terminal and Browser"],
     ["advanced", "advanced", "Advanced"],
   ]);
   // Every category is in the sidebar once; a closed page's other categories are inert.

@@ -41,12 +41,13 @@ struct SettingsPageSectionsTests {
     }
 
     /// One settings area (David Beyer, 2026-11-20: Settings felt overwhelming; Leo 2026-11-22: six
-    /// pages): the sidebar's top level is six pages and no section is drawn closed. How cmux looks is
+    /// pages; design court dp-d5c2e44ba3, 2026-11-23: Terminal, Browser and Code Editor keep a seventh): the
+    /// sidebar's top level is seven pages and no section is drawn closed. How cmux looks is
     /// one page, Appearance: there is no Personalization page.
-    @Test func theTopLevelIsSixPages() throws {
+    @Test func theTopLevelIsSevenPages() throws {
         let page = SettingsSchemaExport().page { text, key in ["text": text, "key": key as Any] }
         let sections = try #require(page["sidebar_sections"] as? [[String: Any]])
-        #expect(sections.count == 6, "the top level shows \(sections.count) pages")
+        #expect(sections.count == 7, "the top level shows \(sections.count) pages")
         #expect(sections.allSatisfy { $0["collapsed"] as? Bool != true }, "no section is drawn closed")
         let ids = Self.categories.map(\.spec.id)
         #expect(!ids.contains("personalization"))

@@ -107,7 +107,7 @@ const SectionLink = createLink(function SectionAnchor({
  * agent CLI that is outdated or signed out (update). Each entry is a router link: hover or keyboard
  * focus preloads its section (the router's `defaultPreload: "intent"`), a click navigates.
  * `current` marks the shown category (null while searching); the link's own active match is exact,
- * so it never marks a section the page is not showing. The top level is six pages (one settings area,
+ * so it never marks a section the page is not showing. The top level is seven pages (one settings area,
  * David Beyer 2026-11-20: Settings felt overwhelming), each opening its categories while shown. */
 export function SectionList({ current, onSelect }: { current: string | null; onSelect: (section: string) => void }) {
   const state = useSettingsState();
@@ -216,7 +216,7 @@ export function SectionList({ current, onSelect }: { current: string | null; onS
 }
 
 /**
- * One of the six pages: its link (its first category, under the section's title), then its other
+ * One of the seven pages: its link (its first category, under the section's title), then its other
  * categories, indented, open while one of the page's categories is shown. Closed, they are inert: no
  * Tab stop; a click on the page link opens its first category, which opens them.
  */

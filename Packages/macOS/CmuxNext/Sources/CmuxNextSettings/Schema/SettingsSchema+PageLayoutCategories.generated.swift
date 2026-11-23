@@ -9,7 +9,8 @@ extension SettingsPageLayout {
         SidebarSection(id: "ai", title: SettingsText.keyed("settings.sidebarSection.ai", "AI"), categories: [chatCategory, agentsCategory, chiefCategory, modelsCategory, computerUseCategory, mcpServersCategory]),
         SidebarSection(id: "devices", title: SettingsText.keyed("settings.sidebarSection.devices", "Accounts and Devices"), categories: [accountsCategory, mobileCategory, devicesCategory, cloudCategory, keysCategory, importCategory, privacyCategory]),
         SidebarSection(id: "keyboard", title: SettingsText.keyed("settings.section.keyboard", "Keyboard"), categories: [keyboardCategory]),
-        SidebarSection(id: "advanced", title: SettingsText.keyed("settings.section.advanced", "Advanced"), categories: [advancedCategory, terminalCategory, editorCategory, browserCategory, experimentalCategory, developmentCategory]),
+        SidebarSection(id: "terminalBrowser", title: SettingsText.keyed("settings.sidebarSection.terminalBrowser", "Terminal and Browser"), categories: [terminalCategory, browserCategory, editorCategory]),
+        SidebarSection(id: "advanced", title: SettingsText.keyed("settings.section.advanced", "Advanced"), categories: [advancedCategory, experimentalCategory, developmentCategory]),
     ]
 
     private static func section(_ section: SettingsSection) -> SettingText {
@@ -284,15 +285,6 @@ extension SettingsPageLayout {
         actions: [.keyboard], aliases: [.keyboard]
     )
 
-    private static let advancedCategory = CategorySpec(
-        id: "advanced", title: section(.advanced), symbol: "curlybraces",
-        groups: [
-            // Inspect Element and developer tools for cmux's own pages.
-            GroupSpec(group: "settings.group.developerTools"),
-        ],
-        lead: [.advancedInfo], trail: [.advancedActions], actions: [.advanced], aliases: [.advanced]
-    )
-
     private static let terminalCategory = CategorySpec(
         id: "terminal", title: section(.terminal), symbol: "terminal",
         groups: [
@@ -304,6 +296,26 @@ extension SettingsPageLayout {
             GroupSpec(keys: ["newTerminal.opensWorkspace", "app.warnBeforeClosingTab"], title: SettingsText.keyed("settings.pageGroup.terminalBehavior", "Behavior")),
         ],
         lead: [.terminalInfo], trail: [.ghosttyDiagnostics], actions: [.terminal], aliases: [.terminal]
+    )
+
+    private static let browserCategory = CategorySpec(
+        id: "browser", title: section(.browser), symbol: "globe",
+        groups: [
+            GroupSpec(group: "settings.group.engine"),
+            GroupSpec(group: "settings.group.addressBar"),
+            GroupSpec(group: "settings.group.toolbar"),
+            GroupSpec(group: "settings.group.media"),
+            GroupSpec(group: "settings.group.bookmarks"),
+            GroupSpec(group: "settings.group.agentInput"),
+            GroupSpec(group: "settings.group.extensions"),
+            GroupSpec(group: "settings.group.links"),
+            GroupSpec(group: "settings.group.openingLinks"),
+            GroupSpec(group: "settings.group.passwords"),
+            GroupSpec(group: "settings.group.import"),
+            GroupSpec(group: "settings.group.memory"),
+            GroupSpec(group: "settings.group.remote"),
+        ],
+        trail: [.browserProfiles], actions: [.browser], aliases: [.browser]
     )
 
     /// The Monaco code editor: VS Code's settings by name. The Markdown Viewer group (its text size too) lives in General beside Diff Viewer; a row has one home.
@@ -325,24 +337,13 @@ extension SettingsPageLayout {
         actions: [.editor], aliases: [.editor]
     )
 
-    private static let browserCategory = CategorySpec(
-        id: "browser", title: section(.browser), symbol: "globe",
+    private static let advancedCategory = CategorySpec(
+        id: "advanced", title: section(.advanced), symbol: "curlybraces",
         groups: [
-            GroupSpec(group: "settings.group.engine"),
-            GroupSpec(group: "settings.group.addressBar"),
-            GroupSpec(group: "settings.group.toolbar"),
-            GroupSpec(group: "settings.group.media"),
-            GroupSpec(group: "settings.group.bookmarks"),
-            GroupSpec(group: "settings.group.agentInput"),
-            GroupSpec(group: "settings.group.extensions"),
-            GroupSpec(group: "settings.group.links"),
-            GroupSpec(group: "settings.group.openingLinks"),
-            GroupSpec(group: "settings.group.passwords"),
-            GroupSpec(group: "settings.group.import"),
-            GroupSpec(group: "settings.group.memory"),
-            GroupSpec(group: "settings.group.remote"),
+            // Inspect Element and developer tools for cmux's own pages.
+            GroupSpec(group: "settings.group.developerTools"),
         ],
-        trail: [.browserProfiles], actions: [.browser], aliases: [.browser]
+        lead: [.advancedInfo], trail: [.advancedActions], actions: [.advanced], aliases: [.advanced]
     )
 
     private static let experimentalCategory = CategorySpec(

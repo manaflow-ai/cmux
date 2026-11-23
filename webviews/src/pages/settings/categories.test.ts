@@ -25,7 +25,7 @@ test("every page row has exactly one home", () => {
   expect(homes.size).toBe(schema.rows.length);
 });
 
-// In sidebar-section order: six pages (one settings area, findings G6; David Beyer 2026-11-20:
+// In sidebar-section order: seven pages (one settings area, findings G6; David Beyer 2026-11-20:
 // Settings felt overwhelming; Leo 2026-11-22: "ay, fuck it we ball"), each opening on its first.
 test("the categories are the approved ones, in order", () => {
   expect(categories.map((category) => category.id)).toEqual([
@@ -62,11 +62,13 @@ test("the categories are the approved ones, in order", () => {
     "import",
     "privacy",
     "keyboard",
-    // Advanced: the app's internals, then the terminal, editor and browser engines.
-    "advanced",
+    // Terminal and Browser: the terminal, browser and code editor keep a top-level page (design court
+    // dp-d5c2e44ba3, 2026-11-23), not a place under Advanced.
     "terminal",
-    "editor",
     "browser",
+    "editor",
+    // Advanced: the app's internals.
+    "advanced",
     "experimental",
     "development",
   ]);
