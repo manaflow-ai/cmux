@@ -55,7 +55,15 @@ struct TryPullRequestPage: View {
             case .loading:
                 Section { CmuxSpinner(label: Text("Loading pull requests…")) }
             case .failed(let message):
-                Section { Text(verbatim: message).foregroundStyle(theme.colors.label2) }
+                Section {
+                    Text(verbatim: message).foregroundStyle(theme.colors.label2)
+                    Button("Try Again") { Task { await model.reload() } }
+                }
+            case .unreachable:
+                Section {
+                    Text("Not connected to this Mac.").foregroundStyle(theme.colors.label2)
+                    Button("Try Again") { Task { await model.reload() } }
+                }
             case .loaded(let list):
                 Section {
                     if let error = list.error {

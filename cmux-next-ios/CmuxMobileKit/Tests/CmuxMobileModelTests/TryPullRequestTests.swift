@@ -17,6 +17,12 @@ import Testing
         #expect(TryPullRequestList.decode(Data("[]".utf8)) == nil)
     }
 
+    @Test func withNoLinkTheListIsUnreachable() async {
+        let model = TryPullRequestModel(macID: "mac", service: nil)
+        await model.reload()
+        #expect(model.load == .unreachable)
+    }
+
     @Test func installFramesRead() {
         #expect(TryInstallEvent.decode(Data(#"{"line":"try: installed"}"#.utf8)) == .line("try: installed"))
         #expect(TryInstallEvent.decode(Data(#"{"done":true,"pr":3,"exit":0}"#.utf8)) == .done(exit: 0))
