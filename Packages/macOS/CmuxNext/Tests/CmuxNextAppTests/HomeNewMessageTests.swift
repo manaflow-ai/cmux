@@ -170,6 +170,43 @@ struct HomeNewMessageTests {
         #expect(merged.map(\.id) == [Self.ada.id, Self.grace.id, Self.alan.id, Self.chief.id])
     }
 
+    /// #48467, the person: "this is weird and pretty bad ui here". New Message listed six Chiefs, five of them named
+    /// "Chief" with the same "CH": each took its conversation participant's display name (the default "Chief"), not
+    /// the Chief's own name. Each row now shows the name the Home tile and the chat header show.
+    @Test func eachChiefIsListedByItsOwnName() {
+        let a = Participant(id: ParticipantID("chief-a"), kind: .agent, displayName: "Chief", agentClass: .chief)
+        let b = Participant(id: ParticipantID("chief-b"), kind: .agent, displayName: "Chief", agentClass: .chief)
+        let rows = [Self.row("conv-a", participants: [a]), Self.row("conv-b", participants: [b])]
+        let names = [ConversationID("conv-a"): "Main", ConversationID("conv-b"): "joker"]
+        #expect(HomeContact.agents(in: rows, me: Self.me, names: names).map(\.name) == ["Main", "joker"])
+        // A Chief with no record name keeps its participant's.
+        #expect(HomeContact.agents(in: rows, me: Self.me, names: [ConversationID("conv-b"): "joker"]).map(\.name) == ["Chief", "joker"])
+    }
+
+    /// The list before anything is typed has the main Chief and the Chiefs with a message in the last 14 days, as
+    /// Messages lists recent conversations; an idle or never-used Chief is left out (the person's list had three old
+    /// "Chief" rows: "Active 3 days ago", "3 days ago · 2", "2 weeks ago"). The team stays.
+    @Test func theIdleListHasTheMainChiefAndRecentOnes() {
+        let now = Date(timeIntervalSince1970: 10_000_000)
+        func chief(_ id: String, seq: Int, daysAgo: Double) -> (HomeContact, InboxRow) {
+            let p = Participant(id: ParticipantID(id), kind: .agent, displayName: "Chief", agentClass: .chief)
+            var row = Self.row("conv-\(id)", participants: [p])
+            row.summary.lastSeq = Seq(seq)
+            row.timestamp = now.addingTimeInterval(-daysAgo * 86_400)
+            return (HomeContact(id: p.id, name: id, source: .agent), row)
+        }
+        let main = chief("main", seq: 0, daysAgo: 30)      // the main Chief, even unused
+        let recent = chief("recent", seq: 4, daysAgo: 2)
+        let stale = chief("stale", seq: 9, daysAgo: 15)
+        let unused = chief("unused", seq: 0, daysAgo: 1)
+        let rows = [main.1, recent.1, stale.1, unused.1]
+        let roster = HomeChiefRoster(main: main.1.id)
+        let contacts = [main.0, recent.0, stale.0, unused.0, Self.ada]
+        #expect(roster.recentChiefs(contacts, rows: rows, now: now).map(\.id) == [main.0.id, recent.0.id, Self.ada.id])
+        // No main Chief known: only the recent one.
+        #expect(HomeChiefRoster().recentChiefs(contacts, rows: rows, now: now).map(\.id) == [recent.0.id, Self.ada.id])
+    }
+
     // MARK: The To: field
 
     @Test func theFieldTokenizesOnReturnCommaAndTab() throws {

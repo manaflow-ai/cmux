@@ -27,13 +27,15 @@ extension HomeService {
         cloudSource.remember(team.map { Participant(id: $0.id, kind: .human, displayName: $0.name) })
         let rows = HomeArchivedChiefs(directory.archivedChiefs, me: me).visible(homeStore.rows)
         return HomeContact.merged(team: team, connections: HomeContact.connections(in: rows, me: me),
-                                  agents: HomeContact.agents(in: rows, me: me))
+                                  agents: HomeContact.agents(in: rows, me: me, names: chiefNames))  // each Chief by its own name (#48467)
     }
 
-    /// New Message's list before anything is typed: its Chiefs (main first), then the team
-    /// (`HomeNewMessageDraft.idleSuggestions`); how each row draws is HomeChiefRoster+NewMessage.
+    /// New Message's list before anything is typed: its Chiefs (main first, then the ones with a recent message:
+    /// `HomeChiefRoster.recentChiefs`), then the team (`HomeNewMessageDraft.idleSuggestions`); how each row draws is
+    /// HomeChiefRoster+NewMessage.
     func newMessageChiefs(_ draft: HomeNewMessageDraft) -> [HomeContact] {
-        draft.idleSuggestions(contacts: chiefRoster.mainFirst(contacts(), rows: homeStore.rows))
+        let rows = homeStore.rows
+        return draft.idleSuggestions(contacts: chiefRoster.recentChiefs(chiefRoster.mainFirst(contacts(), rows: rows), rows: rows))
     }
     func recipientLook(_ recipient: HomeRecipient) -> HomeRecipientLook {
         chiefRoster.look(recipient, rows: homeStore.rows, avatars: chiefFaces,

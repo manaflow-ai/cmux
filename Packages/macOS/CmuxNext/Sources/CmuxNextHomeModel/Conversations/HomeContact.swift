@@ -45,13 +45,17 @@ public struct HomeContact: Hashable, Sendable, Identifiable {
 
     /// The user's Chiefs and agents with a one-to-one conversation, each
     /// once, newest conversation first (New Message suggests them by name).
-    public static func agents(in rows: [InboxRow], me: ParticipantID) -> [HomeContact] {
+    ///
+    /// - Parameter names: Each Chief's own name by its conversation (`HomeService.chiefNames`: its record's, or a
+    ///   rename being saved). It wins over the conversation participant's display name, which stays the default
+    ///   "Chief" for most Chiefs: New Message listed five rows all named "Chief" (#48467).
+    public static func agents(in rows: [InboxRow], me: ParticipantID, names: [ConversationID: String] = [:]) -> [HomeContact] {
         var seen: Set<ParticipantID> = []
         var result: [HomeContact] = []
         for row in rows where row.kind == .chief {
             for peer in row.summary.participants where peer.id != me && peer.kind == .agent && !peer.visibleName.isEmpty {
                 guard seen.insert(peer.id).inserted else { continue }
-                result.append(HomeContact(id: peer.id, name: peer.visibleName, source: .agent))
+                result.append(HomeContact(id: peer.id, name: names[row.id] ?? peer.visibleName, source: .agent))
             }
         }
         return result
