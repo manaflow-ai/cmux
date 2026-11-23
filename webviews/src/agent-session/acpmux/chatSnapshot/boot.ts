@@ -11,12 +11,44 @@ import {
   SNAPSHOT_GLOBAL,
   SNAPSHOT_LIVE_GLOBAL,
   SNAPSHOT_MISS_GLOBAL,
+  SNAPSHOT_REPORTED_GLOBAL,
   isChatSnapshot,
   misfit,
   type SnapshotLive,
 } from "./shared";
 
 const globals = self as unknown as Record<string, unknown>;
+
+/// A call id no page client counts up to (pageClient.ts starts at 1), for the one call this script makes.
+const BOOT_CALL_ID = 2 ** 30;
+
+/// Tells the host the copy is on screen (`pane.painted`, as live.ts `reportChatSnapshot` does when the bundle
+/// starts), from this small script: the host shows the page as the copy drew, not after the bundle (megabytes
+/// of script) was fetched, parsed and evaluated. Only before the bundle started (it reports itself after), and
+/// not in a parked pooled document, whose calls wait for its claim (pageClient.ts PARKED_NAME). The same two
+/// hosts as native.ts: the shared page host's `cmuxPage` envelope, else the legacy `agentSession` handler.
+function reportShown(): void {
+  try {
+    if (globals[SNAPSHOT_REPORTED_GLOBAL] === true || globals.__cmuxPageParked === true) return;
+    const handlers = (
+      globals.webkit as { messageHandlers?: Record<string, { postMessage?: (body: unknown) => unknown } | undefined> }
+    )?.messageHandlers;
+    const params = { drewKeptTail: true };
+    const page = handlers?.cmuxPage;
+    const legacy = handlers?.agentSession;
+    let sent: unknown;
+    if (typeof page?.postMessage === "function")
+      sent = page.postMessage({ t: "call", id: BOOT_CALL_ID, op: "cmux.agent.pane.painted", params });
+    else if (typeof legacy?.postMessage === "function")
+      sent = legacy.postMessage({ id: crypto.randomUUID?.() ?? String(BOOT_CALL_ID), method: "pane.painted", params });
+    else return;
+    globals[SNAPSHOT_REPORTED_GLOBAL] = true;
+    (sent as Promise<unknown> | undefined)?.catch?.(() => undefined);
+  } catch {
+    // The bundle reports it when it starts.
+  }
+}
+
 let booted = false;
 function boot(): void {
   if (booted) return;
@@ -32,7 +64,11 @@ function boot(): void {
       !paintSnapshot(document, value, {
         // The live side as it is when the copy's sheet loaded: the bundle may have started since.
         wanted: () => !(globals[SNAPSHOT_LIVE_GLOBAL] as SnapshotLive | undefined)?.drawn,
-        shown: () => (globals[SNAPSHOT_LIVE_GLOBAL] as SnapshotLive | undefined)?.painted?.(),
+        shown: () => {
+          const painted = (globals[SNAPSHOT_LIVE_GLOBAL] as SnapshotLive | undefined)?.painted;
+          if (painted) painted();
+          else reportShown();
+        },
       })
     )
       globals[SNAPSHOT_MISS_GLOBAL] = misfit(value, document) ?? "engine";

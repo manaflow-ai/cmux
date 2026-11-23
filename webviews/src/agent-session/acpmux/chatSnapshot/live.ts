@@ -7,6 +7,7 @@ import {
   SNAPSHOT_HOST_TAG,
   SNAPSHOT_LIVE_GLOBAL,
   SNAPSHOT_MISS_GLOBAL,
+  SNAPSHOT_REPORTED_GLOBAL,
   SNAPSHOT_SHOWN_GLOBAL,
   type SnapshotLive,
 } from "./shared";
@@ -163,7 +164,9 @@ export function reportChatSnapshot(
 ): void {
   if (typeof window === "undefined") return;
   const shows = () => {
-    void report("pane.painted", { drewKeptTail: true }).catch(() => undefined);
+    // Already told when the copy drew, by the boot script, before this bundle was fetched (boot.ts).
+    if ((window as unknown as Record<string, unknown>)[SNAPSHOT_REPORTED_GLOBAL] !== true)
+      void report("pane.painted", { drewKeptTail: true }).catch(() => undefined);
     // The copy is the page's first paint: what moves from here is the launch's settle (launchSettle.ts).
     watchLaunchSettle(report, SNAPSHOT_HOST_TAG);
     // A click or key while the copy shows ends the copy and does nothing else: the live page under
