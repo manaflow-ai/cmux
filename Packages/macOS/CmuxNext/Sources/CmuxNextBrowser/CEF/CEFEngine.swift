@@ -282,7 +282,7 @@ public final class CEFEngine: BrowserEngine {
     public var pumpStats: CEFPumpStats? { CEFRuntime.shared.pump?.stats }
 
     /// What the fork's page tracker read from host views (for `debug.cef`).
-    public var trackerStats: CEFTrackerStats { CEFHostView.trackerStats.with(hostedPages: hostedPageFields) }
+    @MainActor public var trackerStats: CEFTrackerStats { CEFHostView.trackerStats.with(hostedPages: hostedPageFields) }
 
     /// Chromium asked for a window (a link, `window.open`,
     /// `chrome.windows.create`) and no Chromium window of its profile exists:
@@ -375,7 +375,7 @@ public final class CEFEngine: BrowserEngine {
     private func makeReadyTab(_ configuration: BrowserTabConfiguration) -> CEFTab {
         let runtime = CEFRuntime.shared
         runtime.adopt(stores: stores, signInCallbacks: signInCallbacks)
-        let pane = configuration.pane ?? BrowserPaneID(rawValue: "tab-" + configuration.id.rawValue)
+        let pane = configuration.pane ?? BrowserPaneID(rawValue: CEFPaneHost.ownTabPrefix + configuration.id.rawValue)
         let key = CEFPaneKey(pane: pane, profile: configuration.profile, machineKey: configuration.machineStore?.machineKey,
                              offTheRecord: stores.offTheRecord.isOffTheRecord(configuration.profile))
         let host = runtime.host(for: key, lifecycleTrace: lifecycleTrace, contextMenus: contextMenus)

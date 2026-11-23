@@ -81,7 +81,6 @@ SCOPED: dict[str, str] = {
     "billing.yml": "docs/billing/** by name, the billing spec beside its package",
     "cloudflare-relay.yml": "cmux-tui/relays/cloudflare-do/**",
     "cmux-next-crash-class.yml": "Packages/macOS/CmuxNext/Sources/**",
-    "cmux-next-remote-daemon.yml": "daemon/remote/**",
     "cmux-next.yml": "the plan docs a Swift target names (put back by name; test_unrouted_plan_docs_skip_cmux_next) "
                      "and the README its checks tier reads",
     "cmux-tui-sdks.yml": "cmux-tui/**",
@@ -94,7 +93,6 @@ SCOPED: dict[str, str] = {
     "coderouter-ci.yml": "coderouter/**",
     "device-hub.yml": "workers/device-hub/**",
     "fleet-artifact-cdn.yml": "workers/fleet-artifacts/**",
-    "fleet-rd-host-macos.yml": "cmux-tui/crates/cmux-rd-host/**",
     "fleet-test-compile.yml": "Packages/Shared/**",
     "gallery-advisory.yml": "webviews/** and scripts/gallery-matrix/**",
     "ios-reliability-matrix.yml": "cmux-next-ios/rust/** and the vendored smoltcp",
@@ -127,7 +125,9 @@ BASES = ("feat-cmux-next", "main")
 DEFAULT_TYPES = {"opened", "synchronize", "reopened"}
 
 
+@functools.lru_cache(maxsize=None)
 def load(name: str):
+    # Parsed once: the allowed-workflows test asks for every workflow once per base and sample (282 x 2 x 12 parses, 113 s).
     return filters.load_yaml(WORKFLOWS / name)
 
 

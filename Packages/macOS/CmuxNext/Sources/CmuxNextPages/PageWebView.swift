@@ -664,7 +664,21 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     /// When the current document painted its first frame (``PagePaintProbe``), in
     /// `ProcessInfo.systemUptime` seconds; nil until it has.
-    public internal(set) var paintedUptime: TimeInterval?
+    public internal(set) var paintedUptime: TimeInterval? {
+        didSet {
+            guard (oldValue == nil) != (paintedUptime == nil) else { return }
+            // A new document draws again wherever it is; a page out of sight hides once it drew (AwayDrawing).
+            if paintedUptime == nil { awayDrawing.drawnSize = nil }
+            setChromiumVisibility(true)
+        }
+    }
+    /// What lets the page draw while it lies out of sight (`PageWebView+AwayDrawing`).
+    let awayDrawing = PageAwayDrawing()
+    /// Its owner holds it outside the window until it drew where it will show (a moved chat,
+    /// `AgentPaneView.holdsPageAway`): out of sight, it keeps drawing until then.
+    public var drawsWhileAway = false {
+        didSet { if drawsWhileAway != oldValue { setChromiumVisibility(true) } }
+    }
     /// It shows what must never leave the screen (a revealed password): page probes (`debug.page` query,
     /// snapshot, call and list) never reach it, as screen capture never does, and no Web Inspector attaches
     /// to it (one reads the DOM and calls the page's bridge).
@@ -683,9 +697,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
             logger.error("page \(self.descriptor.id, privacy: .public) message from an untrusted frame refused: main=\(message.isMainFrame, privacy: .public) url=\(message.frameURL?.absoluteString ?? "-", privacy: .public)")
             return nil
         }
-        // The message conversion stays here: `handle` must start in the order the page posted, and
-        // `message.body` is a non-Sendable WebKit object graph (page messages are small calls).
-        guard let body = JSONValue(foundation: message.body) else { return nil }
+        // A Chromium envelope arrives converted off the main actor. A WebKit one is converted here: `handle` must
+        // start in the order the page posted, and `message.body` is a non-Sendable WebKit object graph.
+        guard let body = message.json ?? JSONValue(foundation: message.body) else { return nil }
         overlayStartSpoke()
         let started = ProcessInfo.processInfo.systemUptime
         let reply = await router.handle(body)

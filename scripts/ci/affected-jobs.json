@@ -39,7 +39,9 @@
           "inputs": [
             "scripts/cmux-next/run-v2-gates.sh", "scripts/cmux-next/v2-gates.d/",
             "scripts/ci/cargo_test_verdict.py", "scripts/ci/git_tree.py", "scripts/ci/test_reds.py",
-            "tests/test_cargo_test_verdict.py", ".github/actions/cache-restore/", ".github/actions/cache-save/"
+            "tests/test_cargo_test_verdict.py", ".github/actions/cache-restore/", ".github/actions/cache-save/",
+            "scripts/ci/cargo-lib-tests-at-once.sh", "scripts/ci/tests/cargo-lib-tests-at-once.test.sh",
+            "scripts/ci/acpmux-tests-pr-deferred.txt"
           ]
         },
         "acpmux-sim": {
@@ -108,6 +110,9 @@
           "inputs": [
             "ghostty-next", "workers/cmux-vm/cli/",
             "scripts/cmux-next/cmux-tui-tree-inputs.txt", "scripts/ci/cmux_tui_tree_key.py",
+            "webviews/", "schemas/", "web/data/model-catalog/", "scripts/cmux-next/build-agent-pane-web.sh",
+            "scripts/cmux-next/private-bun.sh", "scripts/check-webviews-bun-version.sh",
+            "scripts/webviews_bun_version.py",
             "scripts/cmux-next/build-layout-reducer-ffi.sh", "scripts/ci/acpmux-build-features.sh",
             "scripts/ci/tailnet-go.sh", "scripts/cmux-next/build-acpmux.sh", "scripts/ci/cargo-groups.sh",
             "scripts/ci/cmux-tui-darwin-builder", "scripts/ci/macos-cross.sh", "scripts/ci/macos_stubs.py",
@@ -116,7 +121,7 @@
             "scripts/ci/stage-agent-detector.sh", "scripts/ci/cmux-tui-mac-cargo-builds.sh",
             "scripts/select-ci-xcode.sh",
             "plans/cmux-next/daemon-capabilities.json", "scripts/cmux-next/pin-cmux-tui.sh",
-            "scripts/cmux-next/check-daemon-capabilities.sh", "scripts/cmux-next/cmux-tui.pin",
+            "scripts/cmux-next/check-daemon-capabilities.sh", "scripts/cmux-next/generated-autofixable.sh", "scripts/cmux-next/autofix-areas.sh", "scripts/cmux-next/cmux-tui.pin",
             "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/FirstLaunchTests.swift",
             "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/MarkdownPageFindTests.swift",
             "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/FileSourceSwitchTests.swift",
@@ -178,13 +183,11 @@
         "packages": "1 run on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 30 job-minutes",
         "consumers": "1 run on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 24 job-minutes",
         "rust-msrv": "1 run on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 14 job-minutes",
-        "code-mode": "15 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 26 job-minutes"
+        "code-mode": "15 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 26 job-minutes",
+        "conformance": "154 runs on 36 merged pull requests (11-21 14:29-17:00Z, live feed), 148 of them with contract skipped; 5 of 282 merged commits touched its inputs; 0.05% of heads it alone caught (CI 10x, cmux#48480); 2,303 job-minutes"
       },
       ".github/workflows/swift-linux-packages.yml": {
         "swift-linux-packages": "10 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 178 job-minutes"
-      },
-      ".github/workflows/cmux-next-ios-kit.yml": {
-        "kit-tests": "4 runs on 52 merged pull requests, 3 with a red, 1 of them the pull request's own (#43289): Tier B, fixed forward on the push; 140 job-minutes"
       },
       ".github/workflows/cmux-next-react-doctor.yml": {
         "react-doctor": "48 runs on 52 merged pull requests, 1 with a red, 1 of them the pull request's own (#46860): Tier B, fixed forward on the push; 90 job-minutes; the miss is #46860: an eslint complexity red in web/ it changed"
@@ -204,6 +207,17 @@
       },
       ".github/workflows/cmux-next.yml": {
         "checks": "34 runs on 52 merged pull requests, 30 with a red, 0 of them the pull request's own; 692 job-minutes"
+      }
+    },
+    "follows": {
+      "//": [
+        "A step gate that runs a repair exactly when a pull_request_skip job runs: GATE (an env name) follows WORKFLOW JOB.",
+        "affected_jobs.py check: the job is in pull_request_skip, and every GATE line of the workflow is its skip clause,",
+        "PR_SKIP_IF, verbatim. 11-21 10:00-17:00Z: 108 of 160 PR autofix repair runs of 6+ min (1036 of 1515",
+        "runner-min) were on a push the clippy check did not run on."
+      ],
+      ".github/workflows/cmux-next-pr-autofix.yml": {
+        "AUTOFIX_GATE_CLIPPY": ".github/workflows/cmux-tui-spec.yml clippy"
       }
     }
   }

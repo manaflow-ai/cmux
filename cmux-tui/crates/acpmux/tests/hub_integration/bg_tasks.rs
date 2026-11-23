@@ -505,12 +505,18 @@ async fn a_task_with_notify_tells_its_chat_once_when_it_ends() {
     let quiet = json!({"sessionId": id, "command": "echo quiet; exit 0", "notify": false});
     let quiet = r.c.request(method::MUX_BG_START, quiet).await.unwrap();
     let quiet = quiet["id"].as_str().unwrap().to_owned();
-    let loud = json!({"sessionId": id, "command": "seq 1 30; exit 3",
+    // The task holds its end until the test has read the start's answer: the answer reads the
+    // task's state when it is built, and a bare `seq 1 30` had often ended by then on a loaded
+    // runner, so the answer said "failed".
+    let go = acpmux::config::home().join("loud-may-end");
+    let command = format!("seq 1 30; until [ -e '{}' ]; do sleep 0.01; done; exit 3", go.display());
+    let loud = json!({"sessionId": id, "command": command,
         "description": "count to thirty", "notify": true});
     let task = r.c.request(method::MUX_BG_START, loud).await.unwrap();
     assert_eq!((task["status"].as_str(), task["notify"].as_bool()), (Some("running"), Some(true)));
     assert_eq!(task["summary"], "Background command running: count to thirty", "{task}");
     let loud = task["id"].as_str().unwrap().to_owned();
+    std::fs::write(&go, "").unwrap();
     r.until("the quiet task never ended", || state(&r, &id, &quiet) == "exited").await;
     r.until("the task's end never reached its chat", || ends(&r.hub, &id).len() == 1).await;
     let dir = acpmux::config::home().join("bg").join(&id);
@@ -558,6 +564,50 @@ async fn a_task_its_own_agent_stops_tells_the_chat_nothing_more() {
     assert!(ends[0].contains("Background command stopped: person's stop"), "{ends:?}");
     let dir = acpmux::config::home().join("bg").join(&id);
     assert!(acpmux::bg_run::notified_path(&dir, &own).exists(), "a restart would owe it");
+}
+
+/// A task end its own agent read while its turn ran wakes the chat to nothing: the read showed
+/// how it ended, so the notice waiting behind the turn leaves the queue and no restart owes it
+/// (hq#15820: notices "I'd already acted on"). An end the agent read only part of, or did not
+/// read, still comes once the turn ends.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_task_end_its_agent_read_mid_turn_brings_no_notice_after_it() {
+    let mut r = rig(PermissionPolicy::ApproveAll).await;
+    r.hub.set_bg_runner(crate::daemon_env::bg_runner(), acpmux::bg_run::SEGMENT);
+    let id = new_session(&mut r.c, "read-mid-turn").await;
+    let mut agent = acpmux_caller(&r.hub, &id).await;
+    r.c.send(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "until-cancel"}]}),
+    )
+    .await;
+    r.c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "running").await;
+    let start = |what: &str| json!({"sessionId": id, "command": "seq 1 5", "description": what, "notify": true});
+    let read = agent.request(method::MUX_BG_START, start("read whole")).await.unwrap();
+    let read = read["id"].as_str().unwrap().to_owned();
+    let part = agent.request(method::MUX_BG_START, start("read in part")).await.unwrap();
+    let part = part["id"].as_str().unwrap().to_owned();
+    let session = r.hub.resolve(&id).unwrap();
+    let queued = |task: &str| {
+        let want = format!("bg-done-{task}");
+        session.queue().iter().any(|q| q.prompt_id == want)
+    };
+    r.until("the ends never queued behind the turn", || queued(&read) && queued(&part)).await;
+    let whole = agent.request(method::MUX_BG_OUTPUT, json!({"sessionId": id, "id": read})).await;
+    assert_eq!(whole.unwrap()["state"], "exited");
+    let first = json!({"sessionId": id, "id": part, "fromByte": 0, "maxBytes": 2});
+    assert_eq!(agent.request(method::MUX_BG_OUTPUT, first).await.unwrap()["text"], "1\n");
+    assert!(!queued(&read), "the end its agent read still waits to wake the chat");
+    assert!(queued(&part), "a part read took the end's notice");
+    r.hub.cancel(&session).await.unwrap();
+    r.until("the part-read end never reached the chat", || ends(&r.hub, &id).len() == 1).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let ends = ends(&r.hub, &id);
+    assert_eq!(ends.len(), 1, "{ends:?}");
+    assert!(ends[0].contains("read in part"), "{ends:?}");
+    let dir = acpmux::config::home().join("bg").join(&id);
+    assert!(acpmux::bg_run::notified_path(&dir, &read).exists(), "a restart would owe it");
 }
 
 /// Waits up to 20 s for `done`.

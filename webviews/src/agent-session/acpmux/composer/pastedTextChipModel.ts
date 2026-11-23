@@ -3,6 +3,7 @@
 import { createContext } from "react";
 import { pasteLines } from "../conversation/promptCollapse";
 import type { Translate } from "../i18n";
+import { intl } from "../../../ui/intl";
 
 /// How the chip opens its text, and how it looks closed (gallery agent-pane.composer-paste-chip):
 /// - `sheet` (ships): a compact row (a page glyph, the paste's first words, its label) that opens
@@ -28,10 +29,10 @@ export const PASTE_CHIP_PREVIEW_CHARS = 480;
 export function pastedSizeParts(t: Translate, language: string, text: string): string[] {
   const lines = pasteLines(text);
   const chars = t("composer.pastedChars", {
-    count: new Intl.NumberFormat(language, { notation: "compact", maximumFractionDigits: 1 }).format(text.length),
+    count: intl.NumberFormat(language, { notation: "compact", maximumFractionDigits: 1 }).format(text.length),
   });
   if (lines < 2) return [chars];
-  return [t("transcript.pastedLines", { n: lines, count: new Intl.NumberFormat(language).format(lines) }), chars];
+  return [t("transcript.pastedLines", { n: lines, count: intl.NumberFormat(language).format(lines) }), chars];
 }
 
 /// The parts of a label joined as one line reads them ("42 lines · 1.8K characters").

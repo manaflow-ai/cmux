@@ -84,6 +84,9 @@
   place-items: center;
   flex: 0 0 var(--acpmux-cols-rail-width);
   width: var(--acpmux-cols-rail-width);
+  /* The avatar's height (.acpmux-cols-profile) even when the corner is empty, so the search row and the
+     columns under it keep their place as tabs with and without an account switch. */
+  min-block-size: 32px;
   /* The rail's fill runs up through the whole row: no padding above or below the corner. It meets the
      popup's top corner, so it takes the popup's round there. */
   background: var(--acpmux-cols-side-fill);
@@ -102,7 +105,7 @@
   background: transparent;
   cursor: default;
 }
-.acpmux-cols-profile:not([data-blank]):hover,
+.acpmux-cols-profile:hover,
 .acpmux-cols-profile[aria-expanded="true"] { background: var(--ds-surface-hover); }
 .acpmux-cols-profile:focus-visible {
   outline: var(--cmux-focus-ring-width, 2px) solid var(--cmux-focus-ring-color, var(--agent-accent));
@@ -115,7 +118,7 @@
   color: var(--agent-accent-text, white);
   font-weight: 600;
   line-height: 1;
-  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, black 15%, transparent);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, black 15%, transparent);
 }
 .acpmux-cols-avatar[data-empty] {
   color: var(--agent-muted);
@@ -133,7 +136,7 @@
   background: var(--surface-popup, var(--cmux-surface-solid, #1e1e1e));
   box-shadow:
     0 0 0 1.5px var(--surface-popup, var(--cmux-surface-solid, #1e1e1e)),
-    inset 0 0 0 0.5px color-mix(in srgb, var(--agent-text) 18%, transparent);
+    inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--agent-text) 18%, transparent);
 }
 
 /* The account card: under the avatar, over the columns. */
@@ -294,9 +297,7 @@
   flex-direction: column;
   align-items: center;
   gap: var(--ds-space-1);
-  scrollbar-width: none;
 }
-.acpmux-cols-rail::-webkit-scrollbar { display: none; }
 .acpmux-cols-tab {
   display: grid;
   place-items: center;

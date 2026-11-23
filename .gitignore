@@ -118,6 +118,8 @@ Packages/macOS/CmuxNext/mac-screen-devices-gallery/
 Packages/macOS/CmuxNext/mac-screen-devices-gallery.tar
 Packages/macOS/CmuxNext/nested-groups-gallery/
 Packages/macOS/CmuxNext/nested-groups-gallery.tar
+Packages/macOS/CmuxNext/point-at-element-gallery/
+Packages/macOS/CmuxNext/point-at-element-gallery.tar
 Packages/macOS/CmuxNext/group-line-gallery/
 Packages/macOS/CmuxNext/group-line-gallery.tar
 Packages/macOS/CmuxNext/left-bar-gallery/
@@ -145,3 +147,6 @@ Packages/macOS/CmuxNext/usage-warning-gallery.tar
 # The extension SDK's customize types: every build of cmux-extension-sdk writes them from
 # cmux_customize::schema (build.rs); `cmux customize schema --typescript` prints the same text.
 /cmux-tui/crates/cmux-extension-sdk/typescript/src/generated/
+
+# Written at test time by TwoToneTests (cmux-config two_tone::fixture); never committed.
+/schemas/settings/two-tone-fixture.json
