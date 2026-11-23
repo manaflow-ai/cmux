@@ -27,7 +27,8 @@
       "browser.customSearchEngine.search": "domain:search_template",
       "browser.customSearchEngine.suggest": "domain:search_template",
       "tabs.newTabApp": "domain:app_id",
-      "agentPane.display.transcriptTokens": "domain:transcript_tokens"
+      "agentPane.display.transcriptTokens": "domain:transcript_tokens",
+      "machines.hosts": "domain:hosts"
     },
     "kinds": {
       "theme": "domain:theme",
