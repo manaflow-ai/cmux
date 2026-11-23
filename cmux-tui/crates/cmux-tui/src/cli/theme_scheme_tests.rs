@@ -58,3 +58,41 @@ fn a_png_decodes_to_rgb() {
     }
     assert_eq!(decode_png(&bytes).unwrap(), (2, 1, 3, vec![1, 2, 3, 4, 5, 6]));
 }
+
+#[test]
+fn new_parses_two_colors() {
+    assert!(matches!(
+        parse(&args(&["new", "--canvas", "#101418", "--accent", "7aa2f7", "--name", "t"])).unwrap(),
+        Request::New { appearance: None, format: SchemeFormat::Ghostty, .. }
+    ));
+    assert!(parse(&args(&["new", "--canvas", "#101418"])).is_err(), "needs --accent");
+    assert!(parse(&args(&["new", "--accent", "#fff"])).is_err(), "needs --canvas");
+    assert!(parse(&args(&["new", "--canvas", "nope", "--accent", "#fff"])).is_err());
+}
+
+#[test]
+fn new_writes_a_readable_theme_file() {
+    let dir = std::env::temp_dir().join(format!("cmux-theme-new-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    for (canvas, appearance) in [("#101418", "dark"), ("#fafafa", "light")] {
+        let out = dir.join(format!("{appearance}.conf"));
+        let request = parse(&args(&[
+            "new",
+            "--canvas",
+            canvas,
+            "--accent",
+            "#7aa2f7",
+            "--output",
+            out.to_str().unwrap(),
+        ]))
+        .unwrap();
+        let global = GlobalArgs::default();
+        assert_eq!(run(&global, request), 0);
+        let text = std::fs::read_to_string(&out).unwrap();
+        let scheme = Scheme::parse(&text, "t", Some(SchemeFormat::Ghostty)).unwrap();
+        assert_eq!(scheme.palette.len(), 16);
+        assert!(scheme.foreground.contrast(scheme.background) >= 4.5, "{text}");
+        assert!(scheme.accent.is_some() && scheme.selection_background.is_some(), "{text}");
+    }
+    std::fs::remove_dir_all(&dir).ok();
+}

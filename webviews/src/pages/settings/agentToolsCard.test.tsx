@@ -1,5 +1,5 @@
-// Agents > Agents on This Mac, under the agents.cmuxMcp choice row (the onboarding step's question): it
-// lists each coding agent and whether it gets cmux's tools when cmux starts it, Turn On answers yes, the
+// Agents > Agents on This Mac, under the agents.cmuxMcp choice row (on by default): it lists each coding
+// agent and whether it gets cmux's tools when cmux starts it, Turn On (only while off) sets it on, the
 // manual lines for agents started elsewhere copy on a click, and only what a click asked for is sent.
 import { act } from "react";
 import { afterAll, expect, test } from "bun:test";
@@ -24,17 +24,29 @@ test("the choice row and the card show on Agents; showing reads and changes noth
   const element = card(page.container);
   expect(element.textContent).toContain("Agents on This Mac");
   expect(element.textContent).toContain("Agents you start in cmux get cmux’s tools.");
-  expect(states(element)).toEqual(["claude:ready", "codex:ready"]);
-  expect(element.textContent).toContain("Off in cmux");
+  expect(states(element)).toEqual(["claude:terminals", "codex:terminals"]);
+  expect(element.textContent).toContain("Gets cmux’s tools in cmux");
+  expect(button(element, "turnOn")).toBeNull();
   expect(page.provider.agentToolsRuns).toEqual([]);
   expect(ops(page.provider, "cmux.settings.agentTools.run")).toEqual([{ action: "refresh" }]);
   page.unmount();
 });
 
-test("Turn On answers yes; the agents then get cmux's tools in cmux and the button goes", async () => {
-  const page = await renderPage({ path: "/settings/agents" });
+test("turned off: the agents say so; Turn On sets it on, then they get cmux's tools and the button goes", async () => {
+  const page = await renderPage({
+    path: "/settings/agents",
+    setup: (provider) => {
+      provider.agentTools = {
+        ...provider.agentTools,
+        choice: "off",
+        rows: provider.agentTools.rows.map((row) => ({ ...row, state: "ready" as const })),
+      };
+    },
+  });
   await settle();
   const element = card(page.container);
+  expect(states(element)).toEqual(["claude:ready", "codex:ready"]);
+  expect(element.textContent).toContain("Off in cmux");
   await act(async () => button(element, "turnOn")!.click());
   await settle();
   expect(page.provider.agentToolsRuns).toEqual([{ action: "turnOn" }]);
