@@ -25,7 +25,9 @@
 # helper app) is re-signed too, keeping its entitlements.
 #
 # Not run here: the keychain unlock (no keychain), any CMUX_SIGN_MODE but
-# all, and CMUX_NEXT_CEF_ON_DEMAND (both are refused), and the checks that
+# all, CMUX_NEXT_CEF_ON_DEMAND and CMUX_NEXT_LANGUAGE_PACKS (all refused:
+# this signer splits nothing, so it would ship an app with no pin and no
+# packs while the workflow waited for them), and the checks that
 # need a Mac or run bundle code: codesign --verify --deep --strict, the diff
 # sidecar and bundled browser host checks, and codesign -d on the result. The
 # workflow's Mac verify job runs those on this output. The entitlement checks
@@ -50,15 +52,19 @@ source "$(dirname "${BASH_SOURCE[0]}")/signer-env.sh"
 [[ -d "$APP_PATH/Contents" ]] || { echo "error: app bundle not found at $APP_PATH" >&2; exit 1; }
 [[ -f "$2" && -f "$HELPER_ENTITLEMENTS" ]] || { echo "error: entitlements file missing" >&2; exit 1; }
 MODE="${CMUX_SIGN_MODE:-all}"
-[[ "$MODE" == all ]] && [[ -z "${CMUX_NEXT_CEF_ON_DEMAND:-}" ]] ||
-  { echo "error: CMUX_SIGN_MODE=$MODE and CMUX_NEXT_CEF_ON_DEMAND are not supported here" >&2; exit 2; }
-# The Screen Sharing helper ("<app> Screen Sharing.app"), when the app carries
+[[ "$MODE" == all ]] && [[ -z "${CMUX_NEXT_CEF_ON_DEMAND:-}${CMUX_NEXT_LANGUAGE_PACKS:-}" ]] ||
+  { echo "error: CMUX_SIGN_MODE=$MODE, CMUX_NEXT_CEF_ON_DEMAND and CMUX_NEXT_LANGUAGE_PACKS are not supported here" >&2; exit 2; }
+# The Screen Sharing helper ("<app> Helper.app", executable cmux-screen-sharing; an app built
+# before the rename has "<app> Screen Sharing.app", which the stamp renames), when the app carries
 # one: stamped for the app's final bundle id and name first (the nightly-next
 # identity went into Info.plist after the build), as sign-cmux-bundle.sh step 2.
 screen_share=""
 find_screen_share() {
   local found
   screen_share=""
+  for found in "$APP_PATH/Contents/Library/"*" Helper.app"; do
+    if [[ -e "$found/Contents/MacOS/cmux-screen-sharing" ]]; then screen_share="$found"; return 0; fi
+  done
   for found in "$APP_PATH/Contents/Library/"*" Screen Sharing.app"; do
     if [[ -d "$found/Contents" ]]; then screen_share="$found"; return 0; fi
   done

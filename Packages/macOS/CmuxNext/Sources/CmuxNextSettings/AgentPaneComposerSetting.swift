@@ -1,5 +1,5 @@
-// The paths, defaults and the AgentPaneComposerRing, AgentPaneAttachmentView, AgentPaneNewChatPlace and
-// AgentPaneDictationSource enums are generated from schemas/settings/source/agent-pane-composer.json
+// The paths, defaults and the AgentPaneComposerRing, AgentPaneAttachmentView, AgentPaneNewChatPlace,
+// AgentPaneDictationSource, AgentPaneComposerLook, AgentPaneEmptyChatComposerPosition and AgentPaneFollowUpMode enums are generated from schemas/settings/source/agent-pane-composer.json
 // (Schema/SettingsSchema+AgentPaneComposer*.generated.swift).
 
 import CmuxNextDesign
@@ -41,6 +41,15 @@ import CmuxNextDesign
 /// machine, the page's `cloud.startChat`). The page decides (runLocationDefault.ts); this only
 /// carries the value. Leo, 2026-10-31: "whenever i start a chat it should be able to send me to
 /// cloud autommatically".
+/// `composerLook`: the composer's look in every chat, `auto` (the app's own; the default) or
+/// `studio` (opt-in: the model, effort and access chips in the box, a paperclip and a round Send).
+/// The New Tab page always draws its own (composerLook.ts).
+/// `emptyChatComposerPosition`: where a chat with no messages yet sits its composer, `bottom`
+/// (docked, the default) or `center` (the middle of the pane, the hero over it; styles.css).
+/// `followUpMode`: what Return and Send do with a message sent while an agent that steers is
+/// mid-turn, `steer` (into the running turn, ⌘Return queues; the default, as before) or `queue`
+/// (waits until the turn ends, ⌘Return steers). The page decides (followUpMode.ts); this only
+/// carries the value.
 ///
 /// `reasoningSlider` is not a cmux.json key: the Debug Settings toggle `agent.reasoningSlider`
 /// (CmuxNextAgentPane AgentPaneTunables, DEV and NIGHTLY, off by default) sets it, and it rides the
@@ -57,7 +66,14 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
     public var attachmentView = Self.attachmentViewDefault
     public var scrollToBottomOnSend = Self.scrollToBottomOnSendDefault
     public var showMachineLoadWarnings = Self.showMachineLoadWarningsDefault
+    public var sessionWorktrees = Self.sessionWorktreesDefault
     public var newChatsIn = Self.newChatsInDefault
+    public var composerLook = Self.composerLookDefault
+    public var emptyChatComposerPosition = Self.emptyChatComposerPositionDefault
+    public var followUpMode = Self.followUpModeDefault
+    /// `agentPane.savedPrompts`, checked here only: acpmux reads it from cmux.json at each list
+    /// (crates/acpmux/src/prompts.rs) and serves it to the page, so it is not in `pageValue`.
+    public var savedPrompts = Self.savedPromptsDefault
     /// The Debug Settings opt-in (`agent.reasoningSlider`); never parsed from cmux.json.
     public var reasoningSlider = false
     /// The Debug Settings visual choice (`agent.reasoningSliderStyle`); never parsed from cmux.json.
@@ -67,7 +83,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
 
     public static let fallback = AgentPaneComposerSetting()
 
-    /// The page's value (the `composer` host event): `{showContextUsage, composerRing, showDictation, dictationSource, dictationShortcut, spellChecking, attachmentView, scrollToBottomOnSend, showMachineLoadWarnings, newChatsIn, reasoningSlider, reasoningSliderStyle}`.
+    /// The page's value (the `composer` host event): `{showContextUsage, composerRing, showDictation, dictationSource, dictationShortcut, spellChecking, attachmentView, scrollToBottomOnSend, showMachineLoadWarnings, newChatsIn, composerLook, emptyChatComposerPosition, followUpMode, reasoningSlider, reasoningSliderStyle}`.
     public var pageValue: JSONValue {
         [
             "showContextUsage": .bool(showContextUsage),
@@ -79,7 +95,11 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
             "attachmentView": .string(attachmentView.rawValue),
             "scrollToBottomOnSend": .bool(scrollToBottomOnSend),
             "showMachineLoadWarnings": .bool(showMachineLoadWarnings),
+            "sessionWorktrees": .string(sessionWorktrees.rawValue),
             "newChatsIn": .string(newChatsIn.rawValue),
+            "composerLook": .string(composerLook.rawValue),
+            "emptyChatComposerPosition": .string(emptyChatComposerPosition.rawValue),
+            "followUpMode": .string(followUpMode.rawValue),
             "reasoningSlider": .bool(reasoningSlider),
             "reasoningSliderStyle": .string(reasoningSliderStyle)
         ]
@@ -127,12 +147,52 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
                 setting.dictationShortcut = shortcut
                 continue
             }
+            if descriptor.path == sessionWorktreesPath {
+                guard descriptor.accepts(value), let place = value.stringValue.flatMap(AgentPaneSessionWorktrees.init(rawValue:)) else {
+                    diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
+                    continue
+                }
+                setting.sessionWorktrees = place
+                continue
+            }
+            if descriptor.path == savedPromptsPath {
+                guard descriptor.accepts(value) else {
+                    diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
+                    continue
+                }
+                setting.savedPrompts = value
+                continue
+            }
             if descriptor.path == newChatsInPath {
                 guard descriptor.accepts(value), let place = value.stringValue.flatMap(AgentPaneNewChatPlace.init(rawValue:)) else {
                     diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
                     continue
                 }
                 setting.newChatsIn = place
+                continue
+            }
+            if descriptor.path == composerLookPath {
+                guard descriptor.accepts(value), let look = value.stringValue.flatMap(AgentPaneComposerLook.init(rawValue:)) else {
+                    diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
+                    continue
+                }
+                setting.composerLook = look
+                continue
+            }
+            if descriptor.path == emptyChatComposerPositionPath {
+                guard descriptor.accepts(value), let position = value.stringValue.flatMap(AgentPaneEmptyChatComposerPosition.init(rawValue:)) else {
+                    diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
+                    continue
+                }
+                setting.emptyChatComposerPosition = position
+                continue
+            }
+            if descriptor.path == followUpModePath {
+                guard descriptor.accepts(value), let mode = value.stringValue.flatMap(AgentPaneFollowUpMode.init(rawValue:)) else {
+                    diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
+                    continue
+                }
+                setting.followUpMode = mode
                 continue
             }
             guard descriptor.accepts(value), let flag = value.boolValue else {

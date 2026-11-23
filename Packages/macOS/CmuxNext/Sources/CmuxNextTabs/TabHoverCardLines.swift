@@ -38,6 +38,7 @@ struct TabHoverCardLines: Equatable {
     /// The tab's title; a blank page's address is no title (Leo 2026-10-19: "about:blank").
     static func title(_ item: TabItem) -> String {
         if item.title.isEmpty || (item.hover.kind == .browser && isBlank(item.title)) { return Strings.untitled }
+        if let former = item.hover.formerName, !former.isEmpty, former != item.title { return Strings.formerlyKnownAs(item.title, former: former) }
         return item.title
     }
 
@@ -104,17 +105,22 @@ struct TabHoverCardLines: Equatable {
 
     /// "Memory 106 MB" (with the CPU when notable); for a hibernated page "Hibernated", with
     /// what it was using when a measured sample from before is known; a dash until the first
-    /// sample; nil when the tab's numbers cannot be had (a remote chat, a page whose renderer
-    /// was not matched or is shared with another tab, a terminal its daemon did not report).
+    /// sample, and for a tab whose numbers cannot be had (a remote chat, a page still loading or
+    /// whose renderer was not matched or is shared with another tab, a terminal its daemon did not
+    /// report). nil only for a kind of tab that has no memory row (`TabHoverFacts.Kind.other`).
+    ///
+    /// Whether the row shows depends on the tab, never on a sample (user 2026-11-20, a recording of a
+    /// sweep across loading pages: "Memory –" showed for about 80 ms on each tab, then the first sample
+    /// measured nothing and the row went, so the card changed height on nearly every tab).
     static func memory(_ item: TabItem, report: ResourceReport?) -> String? {
         let tab = report?.tabs.first { $0.id == item.id.rawValue }
         if item.isDormant {
             guard let tab, measured(tab), tab.usage.memoryBytes > 0 else { return Strings.hoverHibernated }
             return Strings.hoverHibernatedWasUsing(ResourceFormat.memory(tab.usage.memoryBytes))
         }
-        guard let tab else { return item.hover.kind == .other ? nil : Strings.hoverMemory("–") }
-        // Nothing measured: no row, never "Zero KB" or the app-side terminal estimate alone.
-        guard measured(tab) else { return nil }
+        guard item.hover.kind != .other else { return nil }
+        // Nothing measured: the dash stays, never "Zero KB" or the app-side terminal estimate alone.
+        guard let tab, measured(tab) else { return Strings.hoverMemory("–") }
         let memory = ResourceFormat.memory(tab.usage.memoryBytes)
         if let cpu = tab.usage.cpu, cpu >= notableCPU { return Strings.hoverMemoryCPU(memory, ResourceFormat.cpu(cpu)) }
         return Strings.hoverMemory(memory)

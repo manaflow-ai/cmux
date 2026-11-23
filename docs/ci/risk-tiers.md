@@ -10,9 +10,9 @@ graded them, in about a minute, alongside the rest of CI.
 classifier is `scripts/ci/risk_tier.py`, and its tests are in `tests/test_risk_tier.py`.
 Since cmuxterm-hq#5745 (Leo, 2026-11-01: "keep only what catches real breakage") the check turns red
 for one thing: a takeback no `Takes back #N:` line owns (below). A high pull request with no verdict, or
-with a BLOCK, gets a warning in the job summary and the check stays green. What holds it is the review
-itself: every pull request lands only on an independent review at its exact head, and the lander
-refuses a BLOCK there.
+with a BLOCK, gets a warning in the job summary and the check stays green. The lander refuses a BLOCK
+at the exact head. Into `feat-cmux-next` no review otherwise gates a merge (Leo, 2026-11-12); a high pull
+request still posts its SHIP receipt before it merges (below).
 
 ## Tiers
 
@@ -178,7 +178,9 @@ gh-merge-green --revert manaflow-ai/cmux#<number>
 role) added them; the check reads who did. Agents never add either, and never need to: a SHIP
 receipt on the head is enough. The receipt is a line of the description, or the first line of a
 comment or review body, from a collaborator (for the description, its author must be one, the same
-rule as a commenter); it names the full head sha and isn't a self-review. A description line inside
+rule as a commenter); it names the full head sha. A self-review counts, and so does one from a subagent or
+from another agent on the author's own account (Leo, 2026-11-21: "the self-reviews should be
+completely acceptable"). A description line inside
 an HTML comment doesn't count, and description lines rank below every comment and review, so a later
 BLOCK comment beats a SHIP in the description. The newest verdict on the head
 decides, read as one timeline with approvals and change requests of the head commit: a later BLOCK
