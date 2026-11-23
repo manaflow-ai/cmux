@@ -113,9 +113,9 @@ mod cli {
             "git-mount" => git_mount(&args, &at),
             "git-unmount" => {
                 #[cfg(target_os = "linux")]
-                let (program, flags) = ("fusermount3", ["-u"].as_slice());
+                let (program, flags): (&str, &[&str]) = ("fusermount3", &["-u"]);
                 #[cfg(target_os = "macos")]
-                let (program, flags) = ("/sbin/umount", [].as_slice());
+                let (program, flags): (&str, &[&str]) = ("/sbin/umount", &[]);
                 let status = std::process::Command::new(program).args(flags).arg(&at).status()?;
                 anyhow::ensure!(status.success(), "{program} {} failed", at.display());
                 Ok(())
