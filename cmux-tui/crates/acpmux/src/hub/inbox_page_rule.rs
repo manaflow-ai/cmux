@@ -110,7 +110,7 @@ impl Hub {
     /// a restart between this and the caller's `.notified` mark adds it no second time (the log
     /// restores the first, `restore_inbox`; a restored item has no verdict and wakes as before
     /// the rule).
-    pub(super) fn inbox_hold_end(
+    pub(in crate::hub) fn inbox_hold_end(
         self: &Arc<Self>,
         session: &Arc<Session>,
         prompt_id: &str,

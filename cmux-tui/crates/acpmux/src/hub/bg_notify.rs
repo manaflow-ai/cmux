@@ -481,6 +481,8 @@ fn unlocked(file: &std::fs::File) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::hub::inbox::Item;
+    use crate::prompt_class::PromptClass;
 
     /// The body names the task and carries only its last lines; a cut first line goes.
     #[test]
@@ -679,6 +681,11 @@ mod tests {
             hub.bg_end_to_chat(&session, dir.path(), &record, None).await;
         }
         assert!(session.inbox().items.is_empty(), "a failure is no inbox item: it is a prompt");
+        for id in ["f1", "k1"] {
+            // Held, it would be marked sent at once; a prompt is marked only when a turn takes
+            // it, and this chat has no agent to take it.
+            assert!(!bg_run::notified_path(dir.path(), id).exists(), "{id} took the prompt path");
+        }
     }
 
     /// A chat not on the list gets its exit-0 end as before: a prompt, not an inbox item.
@@ -688,5 +695,9 @@ mod tests {
         let dir = cmux_unix_socket::short_test_dir("bg-fold-unlisted");
         hub.bg_end_to_chat(&session, dir.path(), &ended("u1", &session, 0), None).await;
         assert!(session.inbox().items.is_empty());
+        assert!(
+            !bg_run::notified_path(dir.path(), "u1").exists(),
+            "it took the prompt path, not held"
+        );
     }
 }
