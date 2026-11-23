@@ -155,7 +155,7 @@ public nonisolated struct BrowserToolbarFacts: Hashable, Sendable {
     public var downloads: BrowserToolbarDownloads
     /// Media in every tab.
     public var media: BrowserToolbarMedia
-    /// Whether the profile button shows and how it draws (`browser.profileButton`).
+    /// Whether the profile button shows.
     public var profile: BrowserProfileButtonPresence
 
     public init(engine: BrowserEngineKind, hostsDevTools: Bool, devToolsOpen: Bool = false, designMode: Bool = false,
@@ -175,30 +175,24 @@ public nonisolated struct BrowserToolbarFacts: Hashable, Sendable {
     }
 }
 
-/// Whether the toolbar's profile button shows, and in the profile's color or the toolbar's ink
-/// (`browser.profileButton`; cmuxterm-hq RFD 0050 D1 as the design court shipped it, 2026-11-23). The
-/// default is the subtle form: shown only while it says something, in ink, so the one saturated color
-/// in the chrome stays the agent driver's.
+/// Whether the toolbar's profile button shows (cmuxterm-hq RFD 0050 D1 as the design court shipped it,
+/// 2026-11-23, one design and no setting): only while it says something, always in the toolbar's ink,
+/// so the one saturated color in the chrome stays the agent driver's.
 public nonisolated struct BrowserProfileButtonPresence: Hashable, Sendable {
     /// The button takes its place (it still has to be pinned and not collapsed).
     public var shown: Bool
-    /// The avatar is a disc in the profile's color; false draws it in the toolbar's ink.
-    public var colored: Bool
 
-    public init(shown: Bool, colored: Bool) {
+    public init(shown: Bool) {
         self.shown = shown
-        self.colored = colored
     }
 
-    /// Shown, in color: what a toolbar with no setting behind it draws (tests, a toolbar not yet configured).
-    public static let always = BrowserProfileButtonPresence(shown: true, colored: true)
+    /// Shown: what a toolbar with no profile source behind it draws (tests, a toolbar not yet configured).
+    public static let always = BrowserProfileButtonPresence(shown: true)
 
-    /// The presence for one tab. `alwaysShown` and `colored` are the person's level (`always`, `color`);
-    /// at the default level the button shows only when it says something: the person has more than one
-    /// profile of their own, or the tab is incognito or in the Agents profile.
-    public static func resolve(alwaysShown: Bool, colored: Bool, personProfiles: Int, incognito: Bool,
-                               agentsProfile: Bool) -> BrowserProfileButtonPresence {
-        BrowserProfileButtonPresence(shown: alwaysShown || personProfiles > 1 || incognito || agentsProfile, colored: colored)
+    /// The presence for one tab: the button shows only when it says something, the person has more
+    /// than one profile of their own, or the tab is incognito or in the Agents profile.
+    public static func resolve(personProfiles: Int, incognito: Bool, agentsProfile: Bool) -> BrowserProfileButtonPresence {
+        BrowserProfileButtonPresence(shown: personProfiles > 1 || incognito || agentsProfile)
     }
 }
 

@@ -26,8 +26,8 @@ public final class BrowserToolbarButtonsView: NSStackView {
     private func applyProfileBadge() {
         guard let button = buttons[.profile] else { return }
         guard var profileBadge else { return button.glyphReplacement = nil }
-        // The toolbar's ink unless the person chose the color level (`browser.profileButton`).
-        if !facts.profile.colored { profileBadge.color = nil }
+        // Always the toolbar's ink: hue is the agent driver's (RFD 0050 D1).
+        profileBadge.color = nil
         let side = ProfileBadgeView.side(forGlyph: OmnibarStyle.toolbarIconSize, limit: OmnibarStyle.buttonSize - 4)
         let avatar = profileAvatar ?? ProfileBadgeView(side: side)
         avatar.setSide(side)
@@ -41,8 +41,8 @@ public final class BrowserToolbarButtonsView: NSStackView {
     public var downloads: (() -> BrowserToolbarDownloads)? { didSet { rebind() } }
     /// Every tab's media, read the same way.
     public var media: (() -> BrowserToolbarMedia)? { didSet { rebind() } }
-    /// Whether the profile button shows and in which ink (`browser.profileButton`, the profile count, the
-    /// tab's profile), read the same way; nil shows it in color.
+    /// Whether the profile button shows (the profile count, the tab's profile), read the same way;
+    /// nil shows it.
     public var profilePresence: (() -> BrowserProfileButtonPresence)? { didSet { rebind() } }
     /// The pinned buttons' ids (`browser.toolbarButtons`), read the same way,
     /// so a pin from any window or from cmux.json reaches every toolbar.
@@ -284,9 +284,7 @@ public final class BrowserToolbarButtonsView: NSStackView {
         let shown = { [pinned] (facts: BrowserToolbarFacts) in BrowserToolbarButton.allCases.filter { $0.isShown(at: 0, facts, pinned: pinned) } }
         let relayout = shown(facts) != shown(self.facts)
         let zoomed = facts.zoom != self.facts.zoom
-        let recolored = facts.profile.colored != self.facts.profile.colored
         self.facts = facts
-        if recolored { applyProfileBadge() }
         if zoomed { openGlassMenu?.refreshControls() }
         if relayout { relayoutChrome() }
         for button in BrowserToolbarButton.allCases {

@@ -40,11 +40,10 @@ extension BrowserProfileService {
                                    name: record?.name ?? displayName(id))
     }
 
-    /// Tab `key`'s profile button (`browser.profileButton`; the Agents profile is not one of the person's).
+    /// Tab `key`'s profile button (the Agents profile is not one of the person's).
     func toolbarPresence(forTab key: String) -> BrowserProfileButtonPresence {
-        let style = services.settings.map(BrowserProfileButtonSetting.current) ?? BrowserProfileButtonSetting.fallback
-        return .resolve(alwaysShown: style != .quiet, colored: style == .color, personProfiles: ordered.count { $0.id != AgentBrowserProfile.id },
-                        incognito: services.cache.browserTabs.isIncognitoTab(key), agentsProfile: services.cache.tabModel(key)?.browserProfileID == AgentBrowserProfile.id)
+        .resolve(personProfiles: ordered.count { $0.id != AgentBrowserProfile.id },
+                 incognito: services.cache.browserTabs.isIncognitoTab(key), agentsProfile: services.cache.tabModel(key)?.browserProfileID == AgentBrowserProfile.id)
     }
 
     /// Re-renders every browser toolbar after a profile or a default changed. Tab strips follow by

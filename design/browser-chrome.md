@@ -50,11 +50,10 @@ Left to right in the toolbar row:
 4. **Trailing buttons**, only the pinned ones with something to show, in catalog order: Media,
    Zoom, Bookmarks, Downloads, Design Mode, Theme, DevTools, Profile, then More (always). Profile
    is pinned by default and draws the tab's profile as its avatar (its letter or icon); a press
-   opens the profile menu. The profile is never inside the address bar. By default
-   (`browser.profileButton: "quiet"`) it shows only while it says something (a second profile of
-   the person's own, an incognito tab, the Agents profile) and draws in the toolbar's ink, since
-   the chrome's one saturated color is the agent driver's ring; `always` shows it in every pane in
-   ink, `color` on the profile's color (design-propose dp-863111dbbf, passed-subtle 4-1).
+   opens the profile menu. The profile is never inside the address bar. It shows only while it
+   says something (a second profile of the person's own, an incognito tab, the Agents profile)
+   and draws in the toolbar's ink, since the chrome's one saturated color is the agent driver's
+   ring. One design, no setting (design-propose dp-863111dbbf, passed-subtle 4-1).
 5. **Progress line**, 2 pt, at the row's bottom edge, the focus ring gray at 80%.
 
 The suggestion card hangs from the bar. Page Info is a popup anchored at the chip.
