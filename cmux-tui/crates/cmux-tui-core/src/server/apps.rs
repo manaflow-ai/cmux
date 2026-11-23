@@ -149,6 +149,17 @@ enum Command {
     /// to its usual open.
     #[serde(rename = "apps-open-link")]
     OpenLink { url: String },
+    /// A picked message action (`cmux.chat.action/1`, apps/chat_actions.rs):
+    /// the row's catalog op runs with `{action, message}` on the `apps-run` path.
+    #[serde(rename = "apps-chat-action")]
+    ChatAction {
+        app: String,
+        action: String,
+        message: crate::apps::ChatMessage,
+        /// The click's token (origin user only).
+        #[serde(default)]
+        gesture: Option<String>,
+    },
     /// Open terminal connector links and their local sockets (for this
     /// daemon's clients; apps never get a socket path).
     #[serde(rename = "apps-terminal-links")]
@@ -621,6 +632,26 @@ pub(super) fn try_handle(
                 &app,
                 &page,
                 &message,
+                Box::new(move |result| {
+                    reply(&writer, id, result);
+                }),
+            );
+            return Some(true);
+        }
+        Command::ChatAction { app, action, message, gesture } => {
+            let writer = writer.clone();
+            supervisor.chat_action(
+                crate::apps::ChatActionRequest {
+                    app,
+                    action,
+                    message,
+                    origin,
+                    gesture,
+                    caller: Some(crate::apps::Caller {
+                        client,
+                        request: id.clone().unwrap_or(Value::Null),
+                    }),
+                },
                 Box::new(move |result| {
                     reply(&writer, id, result);
                 }),

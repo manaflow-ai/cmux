@@ -398,13 +398,11 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         on = resolve_labels(mac, variables={"CI_CLOUD_OVERFLOW_SAVED": [OVERFLOW_RECORD]})
         self.assertIn("blacksmith-6vcpu-macos-26", on - resolve_labels(mac, variables=SWITCH_OFF))
 
-    def test_the_canary_takes_the_owned_side_label_then_the_linux_label(self) -> None:
+    def test_the_canary_takes_cmux_mac_behind_the_overflow_switch(self) -> None:
         import yaml
         jobs = yaml.safe_load((WORKFLOWS / "nightly-next-canary.yml").read_text(encoding="utf-8"))["jobs"]
-        self.assertIn("vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_PR_POOL_OWNED == '1' && "
-                      "github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || vars.CI_BLACKSMITH_MACOS != 'on' && "
-                      "vars.CI_SIDE_LANE_RUNNER || vars.CI_BLACKSMITH_MACOS == 'on' && vars.MACOS_RUNNER_26 || "
-                      "fromJSON(vars.RUNNER_POOLS).macos_26) }}", runs_on_text(jobs["canary"], "canary"))
+        # The one own-branch Mac label (docs/design/ci-v2.md): Blacksmith only through vars.CI_OVERFLOW_MAC.
+        self.assertTrue(runs_on_text(jobs["canary"], "canary").endswith("|| vars.CI_OVERFLOW_MAC || 'cmux-mac' }}"))
         for name in ("pick", "verdict"):
             with self.subTest(job=name):
                 self.assertRegex(runs_on_text(jobs[name], name), r"'cmux-linux' }}$")
