@@ -172,3 +172,50 @@ async fn an_adopted_agent_that_hibernates_wakes_on_its_launch_credential() {
     let woken = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
     assert_ne!(woken, first, "the message was not answered by a new agent");
 }
+
+/// cmux#52399: the same order, with an agent whose own env no longer names its credential (it
+/// started itself again through a wrapper that cleaned the env, so `/proc/PID/environ`, the env of
+/// its last exec, lacks the marker). The new daemon took the credential only from that env, held
+/// none, and the agent it woke after the adopted one hibernated ran with no login: "Not logged in".
+/// The agent's host, which launched it and outlives the daemon, says the credential instead.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_adopted_agent_whose_env_lost_the_marker_still_wakes_on_its_launch_credential() {
+    let mut daemon = claude_family_daemon(
+        "cred-reexec",
+        json!({"FAKE_REEXEC_WITHOUT": "ACPMUX_LAUNCH_CREDENTIAL"}),
+    );
+    let mut rpc = daemon.rpc().await;
+    let created = rpc
+        .call(
+            "session/new",
+            json!({"cwd": daemon.home, "mcpServers": [],
+                   "_meta": {"acpmux": {"credentials": {"env": {NAME: TOKEN}}}}}),
+        )
+        .await;
+    let session = created["sessionId"].as_str().unwrap().to_owned();
+    drop(rpc);
+    assert_eq!(agent_token(&daemon, &session, 1).await, TOKEN, "the first start has it");
+    let first = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    let environ = std::fs::read(format!("/proc/{first}/environ")).unwrap();
+    assert!(
+        !environ.split(|b| *b == 0).any(|v| v.starts_with(b"ACPMUX_LAUNCH_CREDENTIAL=")),
+        "the stand-in agent's env still names its credential, so this test proves nothing"
+    );
+
+    daemon.sigkill();
+    daemon.env.push(("ACPMUX_IDLE_CHILD_SECS".into(), "1".into()));
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    assert!(
+        gone_within(first, Duration::from_secs(30)),
+        "the adopted agent did not hibernate while the chat sat idle"
+    );
+
+    assert_eq!(
+        agent_token(&daemon, &session, 2).await,
+        TOKEN,
+        "the agent woken after the adopted one hibernated runs on the launch credential"
+    );
+    let woken = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    assert_ne!(woken, first, "the message was not answered by a new agent");
+}

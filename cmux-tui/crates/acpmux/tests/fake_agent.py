@@ -103,6 +103,11 @@ agent reads (a response has "method": null), so a test counts what reached the a
 A rate-limit storm (tests/hub_integration/auto_resume_429_storm.rs):
 FAKE_RATE_LIMIT_FILE=<path>: while <path> exists, every prompt fails with the account's 429, naming
 no reset, as a model endpoint that refuses every request on a spent account limit.
+
+An agent that starts itself again (tests/durable_agents/credential_restart.rs):
+FAKE_REEXEC_WITHOUT=<A,B>: before it reads a line, the process execs itself again without the
+variables A and B, so /proc/PID/environ, which shows the env of its last exec, has neither. It
+works the same afterward, as a harness launched through a wrapper that cleans its env does.
 """
 import base64
 import hashlib
@@ -111,6 +116,11 @@ import sys
 import os
 import threading
 import time
+
+if os.environ.get("FAKE_REEXEC_WITHOUT"):
+    _drop = set(os.environ["FAKE_REEXEC_WITHOUT"].split(",")) | {"FAKE_REEXEC_WITHOUT"}
+    os.execve(sys.executable, [sys.executable] + sys.argv,
+              {k: v for k, v in os.environ.items() if k not in _drop})
 
 lock = threading.Lock()
 cancelled = set()
