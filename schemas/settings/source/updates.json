@@ -118,7 +118,7 @@
             "text": "Off: cmux asks before downloading. It always asks before restarting."
           },
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "keywords": [
             "update",
             "download",
@@ -456,7 +456,7 @@
             "text": "A small tip now and then points at a feature an update added."
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "tips",
             "whats new",

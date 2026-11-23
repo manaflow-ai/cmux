@@ -192,7 +192,8 @@ export function popupItems(
  * The surface's height with every list in it at its designed size: a list that scrolls (the
  * surface itself or one inside it) counts its hidden rows too, up to its `--popup-scroll-cap` when
  * it sets one (a list that scrolls by design at that size, as the folder menu's and the slash
- * menu's). A small window that squeezes a list below its cap does not make the surface fit.
+ * menu's). The cap is a registered length (popupSurface.css), so a cap written in rows computes to
+ * px here. A small window that squeezes a list below its cap does not make the surface fit.
  */
 export function naturalHeight(popup: HTMLElement): number {
   let hidden = 0;

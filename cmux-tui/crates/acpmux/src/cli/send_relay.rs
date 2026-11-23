@@ -24,7 +24,8 @@
 //! `"lsArgv": ["relay", "sessions"]` is how such a host sees the other machines' sessions: `acpmux
 //! ls` (and the MCP `ls` tool) runs it, reads `{"sessions": [...]}` from its stdout, and lists every
 //! row whose `peer` names another machine beside this host's own, so `HOST/NAME` is found before
-//! it is sent to. A relay that fails or is slow costs a warning, never the local list.
+//! it is sent to. A relay that fails or is slow costs a warning, never the local list: `ls`
+//! waits for it a short budget and otherwise serves its last good listing (`ls_far.rs`).
 //! Leo, 2026-11-05, on sends between lane machines: "Just do what's expected. Just do the magic."
 
 use crate::cli::errors::{AppError, Code};
@@ -85,7 +86,7 @@ pub(crate) fn relay_program(
 }
 
 /// [`relay_program`] with this process's PATH, the login PATH and `$HOME`.
-fn find_relay_program(program: &str) -> Result<std::path::PathBuf> {
+pub(crate) fn find_relay_program(program: &str) -> Result<std::path::PathBuf> {
     let paths: Vec<std::ffi::OsString> =
         std::env::var_os("PATH").into_iter().chain(crate::login_env::path()).collect();
     relay_program(program, &paths, dirs::home_dir().as_deref())
@@ -218,29 +219,6 @@ pub(crate) fn relayed_row(e: &anyhow::Error) -> Option<&Value> {
 
 /// At most this many rows from one relay listing.
 pub(crate) const LS_MAX_ROWS: usize = 5000;
-
-/// The other machines' sessions the configured relay lists (`relay_ls`, off the async runtime),
-/// or none: no relay, no `lsArgv`, or a listing that failed, which is said on stderr unless
-/// `quiet`.
-pub(crate) async fn relay_rows(quiet: bool) -> Vec<Value> {
-    let Some(relay) = configured().filter(|r| r.ls_argv.is_some()) else { return Vec::new() };
-    match tokio::task::spawn_blocking(move || relay_ls(&relay, None)).await {
-        Ok(Ok(Some(rows))) => rows,
-        Ok(Ok(None)) => Vec::new(),
-        Ok(Err(e)) => {
-            if !quiet {
-                eprintln!("acpmux: other machines' sessions are not listed: {e}");
-            }
-            Vec::new()
-        }
-        Err(e) => {
-            if !quiet {
-                eprintln!("acpmux: other machines' sessions are not listed: {e}");
-            }
-            Vec::new()
-        }
-    }
-}
 
 /// `rows` (this daemon's list) with `far` (the relay's) added, none twice: a peer row this
 /// daemon lists already, by its machine and session id. How many were added.

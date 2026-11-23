@@ -4,6 +4,7 @@ import CmuxNextAppCore
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextLayout
 import Observation
 

@@ -14,6 +14,10 @@
       "docs": "A pane was split, closed, resized or focused.",
       "reads": "pane.list"
     },
+    "system_calendar.changed": {
+      "docs": "An event in a calendar on this Mac was added, changed or removed, or calendar access changed (EventKit's EKEventStoreChanged, sent by the cmux Mac app). Read system_calendar.events again.",
+      "reads": "system_calendar.events"
+    },
     "tab.changed": {
       "docs": "A tab was opened, closed, moved or selected.",
       "reads": "tab.list"

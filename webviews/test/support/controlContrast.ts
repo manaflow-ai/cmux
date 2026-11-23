@@ -27,6 +27,10 @@
 // (about 4,400 more stages, an hour of one browser: an audit run, not every pull request's).
 //
 // Captures are at 2x, as the app draws on a Retina screen: thin strokes keep full-ink pixels.
+//
+// Stages load from test/support/galleryStageServer.ts: the run's built gallery when there is one, else a
+// Vite dev server. On the dev server each stage loads about 650 unbundled modules from one Vite thread,
+// and the 4 vCPU (at times 2) runners these shards moved to on 2026-11-18 made that the bound.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
@@ -35,6 +39,7 @@ import { readShippedThemes } from "../../dev-server/galleryHost";
 import { loadEntrySources } from "../../scripts/gallery/entries";
 import { hideInk, markControls, readControls, type Control, type Reading } from "./controlContrastScan";
 import { warmGalleryFrame } from "./galleryFrame";
+import { galleryStageServer, type GalleryStageServer } from "./galleryStageServer";
 import { requireBrowserLane } from "./requireBrowserLane";
 import { launchStageBrowser, type StageBrowser } from "./stageBrowser";
 
@@ -185,30 +190,28 @@ export async function controlContrast({ file, part, parts, viteConfig }: Control
       return;
     }
 
-    const { createServer } = await import("vite");
-    let vite: Awaited<ReturnType<typeof createServer>> | undefined;
+    // The stages' server: the run's gallery build when it made one, else the dev server (test/support/galleryStageServer.ts).
+    let stageServer: GalleryStageServer | undefined;
     let shared: StageBrowser<Browser, Page> | undefined;
     beforeAll(async () => {
-      vite = await createServer({
-        configFile: path.join(webviews, viteConfig),
-        server: { port: 0, host: "127.0.0.1", strictPort: false },
-        logLevel: "error",
-      });
-      await vite.listen();
       shared = await launchStageBrowser<Browser, Page>({
         launch: () => chromium.launch({ headless: true }),
         open: (browser) =>
           browser.newPage({ viewport: { width: 760, height: 900 }, deviceScaleFactor: 2, reducedMotion: "reduce" }),
       });
       const first = stages[0]!;
-      await warmGalleryFrame(vite, first.entry, {
-        browser: shared.browser,
-        params: { variant: first.variant, frame: "component", ...first.scheme.query },
+      stageServer = await galleryStageServer({
+        configFile: path.join(webviews, viteConfig),
+        warm: (vite) =>
+          warmGalleryFrame(vite, first.entry, {
+            browser: shared!.browser,
+            params: { variant: first.variant, frame: "component", ...first.scheme.query },
+          }),
       });
     });
     afterAll(async () => {
       await shared?.close();
-      await vite?.close();
+      await stageServer?.close();
     });
 
     type Scanned = { stage: string; controls: number; failures: Failure[] } | { stage: string; error: string };
@@ -234,7 +237,6 @@ export async function controlContrast({ file, part, parts, viteConfig }: Control
 
     const scan = async (page: Page, cdp: CDPSession, stage: Stage): Promise<Scanned> => {
       const name = stageName(stage);
-      const port = (vite!.httpServer!.address() as { port: number }).port;
       const query = new URLSearchParams({
         entry: stage.entry,
         variant: stage.variant,
@@ -245,7 +247,7 @@ export async function controlContrast({ file, part, parts, viteConfig }: Control
       });
       try {
         await page.setViewportSize({ width: 760, height: Math.min(1100, Math.max(320, stage.height)) });
-        await page.goto(`http://127.0.0.1:${port}/gallery/frame.html?${query}`);
+        await page.goto(`${stageServer!.origin}${stageServer!.framePath}?${query}`);
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 20_000 });
         if ((await page.evaluate(() => document.documentElement.dataset.galleryReady)) !== "1")
           return { stage: name, error: "the stage did not render" };
@@ -405,7 +407,8 @@ export async function controlContrast({ file, part, parts, viteConfig }: Control
       // CONTROL_CONTRAST_PRINT_BASELINE=1 prints the worst reading per class, for a run whose
       // files stay on a fleet worker; the lines after the prefix are baseline lines.
       if (process.env.CONTROL_CONTRAST_PRINT_BASELINE === "1")
-        for (const [key, floor] of [...worst].sort()) console.log(`control-contrast baseline: ${key} ${floor}`);
+        for (const [key, floor] of [...worst].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+          console.log(`control-contrast baseline: ${key} ${floor}`);
       const read = results.filter((result) => !("error" in result));
       console.log(
         `control-contrast: read ${read.length} of ${stages.length} stages, ${controls} controls, ${all.length} failing readings, ${fresh.length} new`,

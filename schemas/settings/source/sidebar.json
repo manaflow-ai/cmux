@@ -390,6 +390,35 @@
           }
         },
         {
+          "key": "sidebar.nav",
+          "note": "The nav block a look puts at the top of the sidebar: plain icon and label rows that run cmux actions. Rust validates it (cmux-layout-reducer sidebar_nav.rs); empty draws no block.",
+          "title": {
+            "key": "settings.sidebar.nav",
+            "text": "Sidebar Nav Rows"
+          },
+          "help": {
+            "key": "settings.sidebar.nav.help",
+            "text": "Rows at the top of the sidebar that run cmux actions, by action id, optionally \"id | Title | symbol\". Empty shows none."
+          },
+          "kind": "string_list",
+          "default": [],
+          "keywords": [
+            "sidebar",
+            "nav",
+            "navigation",
+            "actions",
+            "new chat",
+            "search",
+            "pull requests",
+            "look"
+          ],
+          "page_hidden": "action ids; cmux.json, setups and theme files only",
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
           "key": "sidebar.showSpaces",
           "title": {
             "key": "settings.sidebar.showSpaces",
@@ -448,7 +477,7 @@
             "text": "A search button after the profile button. Off: search from the palette."
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "sidebar",
             "search",
@@ -688,6 +717,62 @@
             "type": "SidebarSectionsSetting",
             "prefixed": true
           }
+        },
+        {
+          "key": "sidebar.look",
+          "name": "sidebarLook",
+          "title": {
+            "key": "settings.sidebar.look",
+            "text": "Sidebar Look"
+          },
+          "help": {
+            "key": "settings.sidebar.look.help",
+            "text": "Rows, headers and status marks like another app's sidebar. Your own sidebar settings still win."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "cmux",
+              "title": {
+                "key": "settings.choice.sidebarLookCmux",
+                "text": "cmux"
+              }
+            },
+            {
+              "value": "claude",
+              "title": {
+                "key": "settings.choice.sidebarLookClaude",
+                "text": "Claude"
+              }
+            },
+            {
+              "value": "codex",
+              "title": {
+                "key": "settings.choice.sidebarLookCodex",
+                "text": "Codex"
+              }
+            },
+            {
+              "value": "studio",
+              "title": {
+                "key": "settings.choice.sidebarLookStudio",
+                "text": "Studio"
+              }
+            }
+          ],
+          "default": "cmux",
+          "keywords": [
+            "sidebar",
+            "look",
+            "preset",
+            "style",
+            "claude",
+            "codex",
+            "studio",
+            "like",
+            "app"
+          ],
+          "swift_owner": "SidebarLookPreset"
         },
         {
           "key": "sidebar.style",
@@ -950,6 +1035,37 @@
           }
         },
         {
+          "key": "sidebar.showAutomaticSessions",
+          "note": "Sessions no person started and no chat's subagent (the daemon recorded created_by kind script at the create: a script, an automation, a launcher) fold behind an Automatic (N) row at the end of their list (SidebarLayout+DoneFold); the rule is Rust's (cmux-layout-reducer automatic). Off by default: they fold; on draws them in place.",
+          "title": {
+            "key": "settings.sidebar.showAutomaticSessions",
+            "text": "Show Automatic Sessions"
+          },
+          "help": {
+            "key": "settings.sidebar.showAutomaticSessions.help",
+            "text": "Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "sidebar",
+            "automatic",
+            "auto",
+            "script",
+            "automation",
+            "background",
+            "hidden",
+            "hide",
+            "fold",
+            "sessions",
+            "tidy"
+          ],
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
           "key": "sidebar.showColors",
           "title": {
             "key": "settings.sidebar.showColors",
@@ -1129,10 +1245,17 @@
           },
           "help": {
             "key": "settings.sidebar.groupHeader.background.help",
-            "text": "How a group's background draws. Sections shows plain headings instead."
+            "text": "How a group draws. Folders shows plain folders; Sections shows plain headings."
           },
           "kind": "choice",
           "choices": [
+            {
+              "value": "folder",
+              "title": {
+                "key": "settings.choice.groupBackgroundFolder",
+                "text": "Folders"
+              }
+            },
             {
               "value": "auto",
               "title": {
@@ -1160,9 +1283,30 @@
                 "key": "settings.choice.groupBackgroundSections",
                 "text": "Sections"
               }
+            },
+            {
+              "value": "chip",
+              "title": {
+                "key": "settings.choice.groupBackgroundChip",
+                "text": "Chips"
+              }
+            },
+            {
+              "value": "tree",
+              "title": {
+                "key": "settings.choice.groupBackgroundTree",
+                "text": "Tree"
+              }
+            },
+            {
+              "value": "card",
+              "title": {
+                "key": "settings.choice.groupBackgroundCard",
+                "text": "Cards"
+              }
             }
           ],
-          "default": "auto",
+          "default": "folder",
           "keywords": [
             "sidebar",
             "group",
@@ -1178,7 +1322,14 @@
             "sections",
             "section",
             "heading",
-            "plain"
+            "plain",
+            "chip",
+            "chromium",
+            "rail",
+            "tree",
+            "guide",
+            "card",
+            "cards"
           ],
           "swift_enum": {
             "name": "SidebarGroupBackgroundStyle",
@@ -1422,7 +1573,7 @@
             "text": "A daily tip about a feature you haven't used"
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "sidebar",
             "tips",

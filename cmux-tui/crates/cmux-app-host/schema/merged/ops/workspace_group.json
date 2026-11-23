@@ -1,0 +1,30 @@
+{
+  "family": "workspace_group",
+  "ops": {
+    "workspace_group.create": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "8349830be27381d4"
+    },
+    "workspace_group.delete": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "2d7a1871c6fe3769"
+    },
+    "workspace_group.list": {
+      "source": "local",
+      "class": "read",
+      "digest": "28dc369488982920"
+    },
+    "workspace_group.move": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "ebc394019a477a6d"
+    },
+    "workspace_group.update": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "bec939303bc0b58d"
+    }
+  }
+}
