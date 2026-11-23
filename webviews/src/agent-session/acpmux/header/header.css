@@ -489,17 +489,39 @@
 .acpmux-glass-title-detail{color:var(--agent-muted);font-size:var(--text-caption);font-weight:normal;letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-live-tree-results{list-style:none;margin:0;padding:var(--ds-space-1) calc(var(--ds-space-1) + var(--grid-half-step));font-size:var(--text-detail)}
 .acpmux-live-tree-results li{display:flex;justify-content:space-between;gap:12px}
-/* The chat's rolling summary and next action beside its name (ChatSummaryLine.tsx): muted metadata, never wider
-   than the room left, the next action a step brighter than the summary. */
+/* The chat's rolling summary and next action (ChatSummaryLine.tsx). Never a line cut off mid-word (Leo, 2026-11-23):
+   beside the name it shows whole in the room the name leaves, or folds to one square chip; either opens the whole
+   text in a card. The slot is flex 1 1 0, so its width (the room) never depends on which of the two shows; the
+   measure lays the whole line out off-screen at its natural width. In the tab row the slot is one more square tool. */
+.acpmux-chat-summary-slot {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1 1 0;
+  min-width: 0;
+  height: var(--acpmux-header-control-height, 26px);
+}
+.acpmux-chat-summary-slot[data-chat-summary="chip"] {
+  min-width: var(--acpmux-header-tool-size, var(--grid-pill, 24px));
+}
+.acpmux-chat-summary-slot--tool {
+  flex: none;
+  height: auto;
+}
 .acpmux-chat-summary {
   display: flex;
   align-items: baseline;
   gap: var(--ds-space-1);
-  flex: 0 1 auto;
+  flex: none;
   min-width: 0;
-  max-width: min(52vw, 560px);
+  max-width: 100%;
+  margin: 0;
   padding: 0 var(--ds-space-1);
+  border: 0;
+  border-radius: var(--ds-radius-md, 6px);
+  background: none;
   color: var(--agent-muted);
+  font: inherit;
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
   line-height: var(--acpmux-header-control-height, 26px);
@@ -508,14 +530,22 @@
   cursor: default;
   user-select: none;
 }
-.acpmux-chat-summary--inline {
-  max-width: min(34vw, 300px);
+.acpmux-chat-summary:hover,
+.acpmux-chat-summary[data-popup-open] {
+  background: var(--acpmux-header-tool-hover, var(--ds-surface-inset));
 }
-.acpmux-chat-summary__text {
-  flex: 0 1 auto;
-  min-width: 3ch;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.acpmux-chat-summary:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 1px;
+}
+.acpmux-chat-summary--measure {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  max-width: none;
+  overflow: visible;
+  visibility: hidden;
+  pointer-events: none;
 }
 .acpmux-chat-summary__arrow {
   flex: none;
@@ -526,10 +556,37 @@
   transform: scaleX(-1);
 }
 .acpmux-chat-summary__next {
-  flex: 0 2 auto;
-  min-width: 3ch;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  color: var(--agent-text);
+}
+.acpmux-chat-summary-chip {
+  color: var(--agent-muted);
+}
+.acpmux-chat-summary-chip:hover,
+.acpmux-chat-summary-chip[data-popup-open] {
+  color: var(--agent-text);
+  background: var(--acpmux-header-tool-hover, var(--ds-surface-inset));
+}
+.acpmux-chat-summary-card {
+  max-width: min(360px, calc(100vw - 24px));
+}
+.acpmux-chat-summary-card__body {
+  display: grid;
+  gap: var(--ds-space-1);
+  padding: var(--ds-space-2) var(--ds-space-3);
+}
+.acpmux-chat-summary-card__text,
+.acpmux-chat-summary-card__next {
+  margin: 0;
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  line-height: 1.45;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.acpmux-chat-summary-card__text {
+  color: var(--agent-muted);
+}
+.acpmux-chat-summary-card__next {
   color: var(--agent-text);
 }
 /* Contextual header icons (headerRelevance.ts, Debug `agentChat.headerIcons.contextual`). Peek: the icons not relevant now hold their place at the row's leading end, so nothing at rest moves, and fade in while the pointer or focus is in the tools. The fades run on the page's motion tokens (the web Motion gate sets them to 0 when motion is off), and Reduce Motion drops them. */

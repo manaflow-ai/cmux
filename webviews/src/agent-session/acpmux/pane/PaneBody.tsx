@@ -1213,7 +1213,7 @@ export function drawPaneBody({
                     {inTabRow && (
                       <ChatHeaderInlineStatus status={header.status} detail={header.detail}>
                         {!showNewTab && snapshot.sessionId ? (
-                          <ChatSummaryLine summary={snapshot.summary?.rollingSummary} inline />
+                          <ChatSummaryLine summary={snapshot.summary?.rollingSummary} chip />
                         ) : undefined}
                       </ChatHeaderInlineStatus>
                     )}
