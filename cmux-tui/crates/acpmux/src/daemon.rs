@@ -1065,6 +1065,8 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
                         hub.finish_clone_boot(&home());
                         // Once every log is read: a pass reads only chats whose log is loaded.
                         let _worker = hub.retention_worker();
+                        // A chat's sealed segments go cold as they seal (`cold_segments.rs`).
+                        let _cold_segments = hub.cold_segments_worker();
                         // Archives inactive chats when set (`hub/inactive_archive.rs`).
                         hub.inactive_archive_worker();
                     });

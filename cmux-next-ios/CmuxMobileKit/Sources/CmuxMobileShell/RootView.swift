@@ -422,6 +422,9 @@ public struct RootView: View {
             setupComplete = false
         } else {
             AccountSignOut().signedOut(userID: accountUserID, session: ending)
+            // Its tab cards' pictures show its chats and pages: they leave the disk too.
+            if let accountUserID { TabCardSnapshots.shared.signedOut(accountID: accountUserID) }
+            MacTabCards.shared.signedOut()
             accountUserID = nil
         }
         store.resetForSignOut()
@@ -881,6 +884,18 @@ private struct LiveCallHost: ViewModifier {
                 AgentChatLauncher.shared.handler = { [shell] prompt in shell.startAgentChat(prompt: prompt) }
                 ChiefMessenger.shared.compose = { [weak shell] subject in shell?.messagingChief = subject }
                 ChiefMessenger.shared.composeText = { [weak shell] text in shell?.messagingChiefText = ChiefTextDraft(text: text) }
+            }
+            .task(id: shell.live.map(ObjectIdentifier.init)) {
+                // The call's Mac link never parks, in front or not: the Chief
+                // call runs on the focused Mac's link, voice mode on its chat's.
+                guard let live = shell.live else { return }
+                for await mac in Observations({ [call, voice] in
+                    if let session = call.session, !session.hasEnded { return live.focusedMacID }
+                    return voice.macID
+                }) {
+                    live.setCallMac(mac)
+                }
+                live.setCallMac(nil)
             }
             .onDisappear {
                 ChiefCallLauncher.shared.handler = nil
