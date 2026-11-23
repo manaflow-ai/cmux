@@ -372,9 +372,25 @@ pub(super) fn drive(driver: &mut dyn Drive) -> State {
 
 /// The app's Move to Cloud of `session` onto `machine`, as `cmux move` runs it (agent_move_cloud.rs):
 /// it finds the chat's tab, runs the move and waits until the app shows the chat there. No
-/// `--interrupt`: the driver moves only between turns.
+/// `--interrupt`: the driver moves only at a boundary (between turns, or between tool calls).
 pub(super) fn move_words(session: &str, machine: &str) -> Vec<String> {
     ["move", session, "--to", &format!("vm:{machine}"), "--json"].map(str::to_owned).to_vec()
+}
+
+/// The one move the driver runs: the chat onto `machine`, at the boundary the driver chose (the
+/// turn's end, or between tool calls; the app's move cuts there and continues the turn on the
+/// machine). Ok when the chat runs there, else why and whether to try again. The one place a
+/// silent carry or a lazy history read changes how the chat moves (cmux#52209: a 62 MB move is
+/// about 3 s on loopback, and a mid-turn move writes one continuation prompt today).
+fn move_once(global: &GlobalArgs, session: &str, machine: &str) -> Result<(), (String, bool)> {
+    let mut runner = cloud_start_chat::SelfRunner::new(global);
+    match step_result(&runner.cmux(&move_words(session, machine))) {
+        Ok(_) => Ok(()),
+        Err(error) => {
+            let again = error.get("retryable").and_then(Value::as_bool) == Some(true);
+            Err((reason_of(&error), again))
+        }
+    }
 }
 
 /// The pause of a machine whose chat stayed here.
@@ -628,14 +644,7 @@ impl Drive for Live {
         let Some(machine) = self.machine.clone() else {
             return Err(("no machine".to_owned(), false));
         };
-        let mut runner = cloud_start_chat::SelfRunner::new(&self.global);
-        match step_result(&runner.cmux(&move_words(&self.session, &machine))) {
-            Ok(_) => Ok(()),
-            Err(error) => {
-                let again = error.get("retryable").and_then(Value::as_bool) == Some(true);
-                Err((reason_of(&error), again))
-            }
-        }
+        move_once(&self.global, &self.session, &machine)
     }
 
     fn pause_machine(&mut self) {

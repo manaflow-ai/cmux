@@ -8,7 +8,7 @@ use super::super::super::cloud_start_chat::Machine;
 use super::super::{Parsed, cloud_words, here_words, parse};
 use super::{
     Drive, account, cached_plan, drive, drive_words, here_of, move_words, pause_words, plan_of,
-    takes,
+    takes, tool_event,
 };
 
 fn words(list: &[&str]) -> Vec<String> {
