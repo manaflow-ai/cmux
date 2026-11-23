@@ -7,7 +7,7 @@ import { acpmuxPerf, frameStats, isBlank, median, round2, typingSummary } from "
 import { openPicker, pickerLabels } from "./pickerOpeners";
 import { takeNativePosts } from "./native";
 import type { StreamOptions } from "./streamDebug";
-import type { LoadRunOptions, LoadTickOptions } from "./loadDebug";
+import type { LoadRunOptions, LoadTickOptions, LoadToolsOptions } from "./loadDebug";
 import { shownPresence } from "./multiplayer/livePresenceModel";
 import { acpWire, type AcpWireLog } from "./wire";
 import { tickWatch } from "./tickWatch";
@@ -41,8 +41,10 @@ export type AcpmuxDebug = {
   /// answered an ask, who else is here and typing; multiplayer/sharedFixture.ts) when it is "shared",
   /// or with step `count` (0-5, else 0) of the subagent tray's life (subagentsFixture.ts) when it is
   /// "subagents", or with three steers waiting under a running turn (waitingSteersFixture.ts) when it is
-  /// "waiting-steers", or with two finished subagents whose report cards a capture opens
-  /// (subagentReportFixture.ts) when it is "subagent-report".
+  /// "waiting-steers", or with the worked turn under a running goal, the Goal banner over the composer
+  /// (goalFixture.ts), when it is "goal", or with two finished subagents whose report cards a capture opens
+  /// (subagentReportFixture.ts) when it is "subagent-report", or with a reply holding the user's ```mermaid
+  /// chart (mermaidFixture.ts) when it is "mermaid".
   seedRows(count?: number, fixture?: string, agents?: number): Promise<Record<string, unknown>>;
   startFling(seconds?: number, options?: FlingOptions): Promise<Record<string, unknown>>;
   flingStats(): Record<string, unknown>;
@@ -98,6 +100,8 @@ export type AcpmuxDebug = {
   typingLoad(options?: TypingLoadOptions): Promise<Record<string, unknown>>;
   /** Scrolls it while a tool call runs and another chat changes, and counts row renders (loadDebug.ts). */
   loadTick(options?: LoadTickOptions): Promise<Record<string, unknown>>;
+  /** Adds short tool calls (each its call, then its result) to its running turn (loadDebug.ts). */
+  loadTools(options?: LoadToolsOptions): Promise<Record<string, unknown>>;
   /** Committed renders per component since the last call (perf.ts `renders`: `row:<id>`, `content:<id>`,
    * `mount:<id>`), then counts from zero; the first call turns measurement on (transcript bench PROBE=1). */
   renders(): Record<string, number>;
@@ -183,10 +187,12 @@ export function createAcpmuxDebug(
       const {
         syntheticRows,
         workedTurnRows,
+        workedTurnPageRows,
         incomingRows,
         linkRows,
         LINKED_GITHUB_PULL_REQUEST,
         selectionRows,
+        mermaidRows,
         organizationRows,
         toolSummaryRows,
         SUBAGENT_TRAY_STEPS,
@@ -198,6 +204,7 @@ export function createAcpmuxDebug(
         subagentReportRows,
         subagentReportLog,
         CAPPED_ID,
+        goalSnapshot,
       } = await import("./debugFixtures");
       const trayStep = (count: number) =>
         Number.isInteger(count) && count > 0 && count < SUBAGENT_TRAY_STEPS ? count : 0;
@@ -209,28 +216,42 @@ export function createAcpmuxDebug(
       const rows =
         fixture === "subagents"
           ? subagentTrayRows(trayStep(count), trayOrigin(count), agents ?? 2)
-          : fixture === "worked-turn"
+          : fixture === "worked-turn" || fixture === "goal"
             ? workedTurnRows(Date.now() - 60_000)
-            : fixture === "incoming"
-              ? incomingRows(Date.now() - 120_000)
-              : fixture === "link" || fixture === "github-link"
-                ? linkRows(Date.now() - 30_000, fixture === "link" ? undefined : LINKED_GITHUB_PULL_REQUEST)
-                : fixture === "selection"
-                  ? selectionRows(Date.now() - 60_000)
-                  : fixture === "organization"
-                    ? organizationRows(Date.now() - 120_000)
-                    : fixture === "tool-summary"
-                      ? toolSummaryRows(Date.now() - 60_000)
-                      : fixture === "shared"
-                        ? sharedRows(Date.now() - 1_020_000)
-                        : fixture === "waiting-steers"
-                          ? waitingSteersRows(Date.now() - 90_000)
-                          : fixture === "subagent-report"
-                            ? subagentReportRows(Date.now() - 5_000_000)
-                            : syntheticRows(Math.max(3, Math.floor(count)), fixture === "short" ? "short" : "mixed");
+            : fixture === "worked-turn-page"
+              ? workedTurnPageRows(Date.now() - 60_000)
+              : fixture === "incoming"
+                ? incomingRows(Date.now() - 120_000)
+                : fixture === "link" || fixture === "github-link"
+                  ? linkRows(Date.now() - 30_000, fixture === "link" ? undefined : LINKED_GITHUB_PULL_REQUEST)
+                  : fixture === "selection"
+                    ? selectionRows(Date.now() - 60_000)
+                    : fixture === "mermaid"
+                      ? mermaidRows(Date.now() - 60_000)
+                      : fixture === "organization"
+                        ? organizationRows(Date.now() - 120_000)
+                        : fixture === "tool-summary"
+                          ? toolSummaryRows(Date.now() - 60_000)
+                          : fixture === "shared"
+                            ? sharedRows(Date.now() - 1_020_000)
+                            : fixture === "waiting-steers"
+                              ? waitingSteersRows(Date.now() - 90_000)
+                              : fixture === "subagent-report"
+                                ? subagentReportRows(Date.now() - 5_000_000)
+                                : syntheticRows(
+                                    Math.max(3, Math.floor(count)),
+                                    fixture === "short" ? "short" : "mixed",
+                                  );
       const start = performance.now();
       const committed = acpmuxPerf.nextCommit();
-      host.replaceRows(rows, fixture === "waiting-steers" ? WAITING_STEERS_SNAPSHOT : undefined);
+      host.replaceRows(
+        rows,
+        fixture === "waiting-steers"
+          ? WAITING_STEERS_SNAPSHOT
+          : fixture === "goal"
+            ? goalSnapshot(Date.now())
+            : undefined,
+      );
       if (fixture === "subagent-report") {
         // The capped card's Show more reads its subagent's own records: on the showcase's mock
         // daemon only (`live` is unset on a real one), seeded into the chat the rows replaced.
@@ -330,6 +351,7 @@ export function createAcpmuxDebug(
         ...acpmuxPerf.stats(options.raw === true),
         agent: acpmuxPerf.agentLatency(),
         start_state_shown: acpmuxPerf.startStateShown() ?? null,
+        start_state_trail: acpmuxPerf.startStateTrail(),
         launch: acpmuxPerf.launchTimeline(),
       };
     },
@@ -537,6 +559,10 @@ export function createAcpmuxDebug(
     async loadTick(options = {}) {
       const { loadTick } = await import("./loadDebug");
       return loadTick({ sessionId: () => host.sessionId?.(), rowIds: () => host.rowIds?.() ?? [] }, options);
+    },
+    async loadTools(options = {}) {
+      const { loadTools } = await import("./loadDebug");
+      return loadTools({ sessionId: () => host.sessionId?.(), rowCount: host.rowCount }, options);
     },
     renders() {
       acpmuxPerf.enable();

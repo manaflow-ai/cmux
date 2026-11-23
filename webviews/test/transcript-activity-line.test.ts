@@ -5,7 +5,7 @@
 // doing now, in the "Working for" status's place. A turn without a list draws as before.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import type { AcpmuxPlanEntry, AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { ACTIVITY_LINE, turnView, WORKING } from "../src/agent-session/acpmux/conversation/turns";
+import { ACTIVITY_LINE, turnView } from "../src/agent-session/acpmux/conversation/turns";
 
 // This file covers the `runs` arm of liveTurnWork.experiment.ts: a running turn keeps each finished
 // run in sight as its folded summary line. The `line` arm (one live line, as chatgpt.com draws a running
@@ -50,7 +50,7 @@ test("the toggle on moves the list under the work, with the activity line in the
 test("the activity line replaces WorkingFor when the session status list is enabled", () => {
   const rows = live([row("u", "user"), steps, tool("edit-a", "in_progress")], true);
   expect(rows.some((drawn) => drawn.kind === ACTIVITY_LINE)).toBe(true);
-  expect(rows.some((drawn) => drawn.kind === WORKING)).toBe(false);
+  expect(rows.some((drawn) => drawn.turnPhase === "running")).toBe(false);
 });
 
 test("the activity line names the running call, else the todo in progress, timed from the prompt", () => {

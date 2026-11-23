@@ -1,11 +1,13 @@
-import { memo, useMemo, useState } from "react";
-import { shownCategories } from "../categories";
-import { shallowEqual, useSettingsSelector, useStore } from "../context";
+import { memo, useMemo, useState, lazy, Suspense } from "react";
+import { shownCategories, sidebarSections } from "../categories";
+import { shallowEqual, useSettingsSelector, useStore, useSettingsRouter } from "../context";
 import type { SettingsState } from "../store";
-import { filterRows } from "../search";
+import { Icon } from "../icons";
+import { sectionHref } from "../router";
+import { filterRows, filterPages } from "../search";
 import { rowsByKey } from "../schema";
 import { t, text } from "../strings";
-import { CHIEF_PET_ROWS, ChiefPetCard } from "./ChiefPetCard";
+import { CHIEF_PET_ROWS } from "../cardRows";
 import { AskCmuxRow } from "./AskCmuxRow";
 import { GroupList } from "./GroupList";
 
@@ -14,6 +16,9 @@ const searchInputs = (state: SettingsState) => ({
   revision: state.revision,
   devBuild: state.host?.dev_build === true,
 });
+
+// The Chief Pet card (and its characters' art) loads when a search first shows its rows, not with the page.
+const ChiefPetCard = lazy(() => import("./ChiefPetCard").then(({ ChiefPetCard }) => ({ default: ChiefPetCard })));
 
 /**
  * Matching rows from every category, editable in place, grouped by category. Every
@@ -45,7 +50,11 @@ export const SearchResults = memo(function SearchResults({ query }: { query: str
     [devBuild, query, rows, revision],
   );
   const shown = useMemo(() => new Set(matches.flatMap((match) => match.rows.map((row) => row.key))), [matches]);
-  const empty = shown.size === 0;
+  // Pages the words name (their title, or the words of cards that draw no schema rows, such as
+  // Devices' Screen sharing and Control): a link to each, above the rows.
+  const pages = useMemo(() => filterPages({ query, devBuild }), [devBuild, query]);
+  const router = useSettingsRouter();
+  const empty = shown.size === 0 && pages.length === 0;
   // Only rows that matched at some point in this search mount their editors (a row that stops
   // matching keeps its content to collapse smoothly); the rest stay empty, collapsed slots, so
   // opening search costs the matches, not every setting.
@@ -59,6 +68,28 @@ export const SearchResults = memo(function SearchResults({ query }: { query: str
           {empty && query.trim() ? <AskCmuxRow words={query} onAsk={() => void store.askCmux(query)} /> : null}
         </div>
       </div>
+      {pages.length > 0 && (
+        <div className="search-pages" data-search-pages="">
+          {pages.map((page) => {
+            const section = sidebarSections.find((run) => run.categories.includes(page.id))?.title;
+            return (
+              <button
+                type="button"
+                className="ask-cmux search-page"
+                key={page.id}
+                data-page-hit={page.id}
+                onClick={() => router.history.push(sectionHref(page.id))}
+              >
+                <Icon name="arrow.turn.down.right" />
+                <span className="ask-cmux-text">
+                  <span className="ask-cmux-title">{text(page.title)}</span>
+                  {section ? <span className="ask-cmux-words">{text(section)}</span> : null}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
       {categories.map((category) => {
         const open = category.groups.some((group) => group.rows.some((row) => shown.has(row.key)));
         const pet = category.id === "chief";
@@ -86,7 +117,11 @@ export const SearchResults = memo(function SearchResults({ query }: { query: str
           >
             <div className="collapse-body">
               <h2 className="result-section-title">{text(category.title)}</h2>
-              {petRows && petRows.size > 0 && <ChiefPetCard query={query} visibleRows={petRows} />}
+              {petRows && petRows.size > 0 && (
+                <Suspense fallback={null}>
+                  <ChiefPetCard query={query} visibleRows={petRows} />
+                </Suspense>
+              )}
               <GroupList groups={groups} query={query} shown={shown} mounted={mounted} />
             </div>
           </section>

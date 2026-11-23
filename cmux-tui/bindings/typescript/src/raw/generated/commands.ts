@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2fc186d7961113412cfc6906e8855fc2532403bc1bc55e2b1448d569f9fe5226. */
+/* cmux-tui mux protocol 12, IR 6ec7f7cebc370abc68d280422ff3451e8146dfb33a1b83b3c8d54a7960383b8b. */
 
 
 import type * as T from "./types.js";
@@ -70,6 +70,8 @@ export interface AttachSurfaceRequest extends CmuxRequestBase {
   "output_coalesce_ms"?: (number) | null;
   "replay_history_rows"?: (number) | null;
   "replay_history_start"?: (bigint) | null;
+  "resume_generation"?: (string) | null;
+  "resume_offset"?: (bigint) | null;
   "rows"?: (number) | null;
   "snapshot"?: (string) | null;
   "snapshot_images"?: boolean;
@@ -955,6 +957,28 @@ export type ConversationRunsResult = {
 };
 
 /** Protocol v12; authority: local-admin. */
+export interface ConversationScheduledListRequest extends CmuxRequestBase {
+  cmd: "conversation-scheduled-list";
+  "conversation"?: (string) | null;
+}
+export type ConversationScheduledListResult = {
+  "scheduled": Array<T.JsonValue>;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface ConversationScheduledOpRequest extends CmuxRequestBase {
+  cmd: "conversation-scheduled-op";
+  "op": (T.JsonValue) | null;
+}
+export type ConversationScheduledOpResult = {
+  "change"?: T.JsonValue;
+  "removed"?: T.JsonValue;
+  "replayed"?: boolean;
+  "rev"?: bigint;
+  "scheduled"?: (T.JsonValue) | null;
+};
+
+/** Protocol v12; authority: local-admin. */
 export interface ConversationSearchRequest extends CmuxRequestBase {
   cmd: "conversation-search";
   "limit": number;
@@ -1398,12 +1422,24 @@ export type HistorySearchResult = {
 /** Protocol v12; authority: local-admin. */
 export interface HomeInboxRequest extends CmuxRequestBase {
   cmd: "home-inbox";
+  "ids"?: (Array<string>) | null;
+  "limit"?: (bigint) | null;
+  "offset"?: (bigint) | null;
   "owners"?: (Array<string>) | null;
+  "scope"?: (string) | null;
+  "since"?: (bigint) | null;
 }
 export type HomeInboxResult = {
   "cloud": string;
+  "full"?: boolean;
   "me": string;
+  "offset"?: bigint;
+  "order"?: string;
+  "removed"?: Array<string>;
+  "revision"?: bigint;
   "rows": Array<T.HomeInboxRow>;
+  "total"?: bigint;
+  "window"?: boolean;
 };
 
 /** Protocol v5; authority: control. */
@@ -1542,6 +1578,7 @@ export type ListWorkspaceGroupsResult = T.JsonValue;
 /** Protocol v5; authority: control. */
 export interface ListWorkspacesRequest extends CmuxRequestBase {
   cmd: "list-workspaces";
+  "after"?: (bigint) | null;
   "known"?: (T.ListWorkspacesKnown) | null;
   "limit"?: (bigint) | null;
 }
@@ -2048,6 +2085,12 @@ export interface PingRequest extends CmuxRequestBase {
   cmd: "ping";
 }
 
+/** Protocol v12; authority: local-admin. */
+export interface ProcessCensusRequest extends CmuxRequestBase {
+  cmd: "process-census";
+}
+export type ProcessCensusResult = T.JsonValue;
+
 /** Protocol v6; authority: control. */
 export interface ProcessInfoRequest extends CmuxRequestBase {
   cmd: "process-info";
@@ -2411,6 +2454,7 @@ export interface SendRequest extends CmuxRequestBase {
   "expect_agent"?: (T.SendExpectAgent) | null;
   "expect_foreground"?: (string) | null;
   "flow"?: (bigint) | null;
+  "key"?: (string) | null;
   "paste"?: boolean;
   "submit"?: boolean;
   "surface"?: (T.Id) | null;
@@ -2748,6 +2792,7 @@ export interface ShutdownDaemonRequest extends CmuxRequestBase {
   "end_terminals"?: boolean;
   "force"?: boolean;
   "generation": string;
+  "if_idle"?: boolean;
   "keep_layout"?: boolean;
   "pid": number;
   "restart"?: (boolean) | null;
@@ -3204,6 +3249,8 @@ export type CmuxRequest =
   | ConversationRunRequest
   | ConversationRunAppendRequest
   | ConversationRunsRequest
+  | ConversationScheduledListRequest
+  | ConversationScheduledOpRequest
   | ConversationSearchRequest
   | ConversationSnapshotRequest
   | ConversationThreadRequest
@@ -3310,6 +3357,7 @@ export type CmuxRequest =
   | PasteImageRequest
   | PinWorkspaceRequest
   | PingRequest
+  | ProcessCensusRequest
   | ProcessInfoRequest
   | PutBlobRequest
   | PutFrontendProjectionRequest
@@ -4122,6 +4170,22 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "conversation-runs-v1";
+    stream: null;
+  };
+  "conversation-scheduled-list": {
+    request: ConversationScheduledListRequest;
+    result: ConversationScheduledListResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "conversation-scheduled-v1";
+    stream: null;
+  };
+  "conversation-scheduled-op": {
+    request: ConversationScheduledOpRequest;
+    result: ConversationScheduledOpResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "conversation-scheduled-v1";
     stream: null;
   };
   "conversation-search": {
@@ -4970,6 +5034,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 6;
     capability: null;
+    stream: null;
+  };
+  "process-census": {
+    request: ProcessCensusRequest;
+    result: ProcessCensusResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "process-census-v1";
     stream: null;
   };
   "process-info": {

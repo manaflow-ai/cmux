@@ -44,7 +44,10 @@ FAKE_GH = r"""#!/usr/bin/env python3
 import json, os, sys
 state = json.load(open(os.environ["FAKE_STATE"]))
 args = sys.argv[1:]
-if os.environ.get("GH_TOKEN") in state.get("rate_limited", []):
+path = next((a for a in args[1:] if a.startswith("repos/")), "")
+limited_paths = state.get("rate_limited_paths", [])
+if (os.environ.get("GH_TOKEN") in state.get("rate_limited", []) or
+        any(fragment in path for fragment in limited_paths)):
     message = "gh: API rate limit exceeded for the repo installation (HTTP 403)"
     if state.get("rate_limit_header"):
         message += f"\nx-ratelimit-reset: {state['rate_limit_header']}"
@@ -52,8 +55,8 @@ if os.environ.get("GH_TOKEN") in state.get("rate_limited", []):
 open(os.environ["FAKE_LOG"], "a").write(json.dumps(args) + "\n")
 open(os.environ["FAKE_LOG"] + ".tokens", "a").write(os.environ.get("GH_TOKEN", "") + "\n")
 if args[:2] == ["run", "rerun"]:
-    sys.exit(0 if args[2] not in state.get("rerun_fails", []) else 1)
-path = next(a for a in args[1:] if a.startswith("repos/"))
+    target = args[3] if args[2] == "--job" else args[2]
+    sys.exit(0 if target not in state.get("rerun_fails", []) else 1)
 if "-X" in args:
     if state.get("delete_fails"):
         print(state["delete_fails"], file=sys.stderr); sys.exit(1)
@@ -73,8 +76,11 @@ if "/jobs?" in path:
     if state.get("jobs_error"):
         print("HTTP 403", file=sys.stderr); sys.exit(1)
     assert "--paginate" not in args and "per_page=100" in path, args
-    # Every job fits on the first page of 100; a later page is empty.
-    jobs = [job for page in state["jobs_pages"] for job in page]
+    # Every job fits on the first page of 100; a later page is empty. run_jobs: a deferred run's own jobs.
+    run_jobs = state.get("run_jobs", {}).get(path.split("/runs/")[1].split("/")[0])
+    if run_jobs is None and "jobs_pages" not in state:
+        print("HTTP 404", file=sys.stderr); sys.exit(1)
+    jobs = run_jobs if run_jobs is not None else [job for page in state["jobs_pages"] for job in page]
     print(json.dumps({"total_count": len(jobs), "jobs": jobs if path.endswith("page=1") else []}))
     sys.exit(0)
 if "/artifacts?" in path:
@@ -222,7 +228,34 @@ class CommandTests(unittest.TestCase):
         run_lists = [c for c in calls if c[0] == "api" and "/actions/workflows/cmux-tui-artifacts.yml/runs?" in " ".join(c)]
         self.assertEqual(len(run_lists), 1, "all deferred run records come from one bounded list")
         # The published hand-off does not read the owner's jobs: it re-runs whether or not the owner failed.
-        self.assertFalse(any("/jobs?" in c[-1] for c in calls if c[0] == "api"))
+        self.assertFalse(any("/runs/99/jobs?" in c[-1] for c in calls if c[0] == "api"))
+
+    # 2026-11-21: 827 manifest re-runs on 11-20 re-ran whole runs (about 7 jobs each, 5,286 runner-min) to
+    # write one manifest. A deferred run whose adopt job ran re-runs that job alone; one whose adopt job
+    # never ran (skipped) is re-run whole.
+    def test_published_reruns_only_the_adopt_job_when_it_ran(self):
+        adopt = handoff.ADOPT_JOB_NAME
+        state = {"artifacts": [marker(31, 12), marker(32, 13), marker(33, 14)],
+                 "runs": {"12": {"status": "completed", "run_attempt": 1},
+                          "13": {"status": "completed", "run_attempt": 1},
+                          "14": {"status": "completed", "run_attempt": 1}},
+                 "run_jobs": {"12": [job(501, "cmux-tui tree preflight", "success"), job(502, adopt, "success")],
+                              "13": [job(601, adopt, "skipped")],
+                              "14": [job(701, adopt, "failure")]}}
+        result, calls = self.run_handoff(state, extra=("--published",))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        reruns = sorted(c[2:-2] for c in calls if c[:2] == ["run", "rerun"])
+        self.assertEqual(reruns, [["--job", "502"], ["--job", "701"], ["13"]])
+        self.assertIn("job 502", result.stdout)
+        self.assertIn("the whole run", result.stdout)
+
+    def test_published_job_rerun_failure_fails_the_step(self):
+        state = {"artifacts": [marker(31, 12)], "runs": {"12": {"status": "completed", "run_attempt": 1}},
+                 "run_jobs": {"12": [job(502, handoff.ADOPT_JOB_NAME, "success")]}, "rerun_fails": ["502"]}
+        result, calls = self.run_handoff(state, extra=("--published",))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(["run", "rerun", "--job", "502", "--repo", "o/r"], calls)
+        self.assertFalse(any(c[:3] == ["run", "rerun", "12"] for c in calls))
 
     def test_published_page_miss_reads_candidate_by_id_without_repository_paging(self):
         other_ids = list(range(1000, 1100))
@@ -307,6 +340,17 @@ class CommandTests(unittest.TestCase):
         self.assertIn("run 99; no attempt before ", result.stdout)
         self.assertIn("the repo installation's API limit", result.stdout)
         self.assertNotIn("installation ID", result.stdout)
+        self.assertFalse(any(c[:2] == ["run", "rerun"] for c in calls))
+
+    def test_published_candidate_metadata_rate_limit_names_the_deferred_run(self):
+        state = {"rate_limited_paths": ["/actions/workflows/cmux-tui-artifacts.yml/runs?"],
+                 "artifacts": [marker(31, 12)],
+                 "runs": {"12": {"status": "completed", "run_attempt": 1}}}
+        result, calls = self.run_handoff(state, extra=("--published",))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("[quota-only]", result.stdout)
+        self.assertIn("published tree; run 12; no attempt before ", result.stdout)
+        self.assertNotIn("published tree; run 99;", result.stdout)
         self.assertFalse(any(c[:2] == ["run", "rerun"] for c in calls))
 
     def test_rate_limit_reset_header_wins_over_full_hour_fallback(self):
