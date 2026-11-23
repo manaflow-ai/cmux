@@ -790,6 +790,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                     LaunchMarks.shared.mark("terminal_key_sent")
                 }
                 #if DEBUG
+                if model.connectionState.isAttached, !inputRefused { ResumeMarks.shared?.note("terminal_key_sent") }
+                #endif
+                #if DEBUG
                 if InputLatencyTrace.isEnabled, model.connectionState.isAttached, !inputRefused {
                     let now = CACurrentMediaTime()
                     if echoMeter.step != .idle, now - echoStart > 2 { echoMeter = TerminalFirstEcho() }
@@ -1280,6 +1283,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         sizingLog.notice("resize \(size.columns, privacy: .public)x\(size.rows, privacy: .public) cause=\(why, privacy: .public)\(self.model.isTUI ? "-tui" : "", privacy: .public) attached=\(self.model.connectionState.isAttached, privacy: .public) (TUI \(self.model.isTUI, privacy: .public))")
         model.session.resize(columns: size.columns, rows: size.rows)
         model.ptyResizesSent += 1
+        #if DEBUG
+        TerminalModel.debugResizesSentTotal += 1
+        #endif
         if size != sentGrid {
             sentGridBefore = sentGrid
             sentGrid = size
@@ -2923,6 +2929,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         #endif
         if model.connectionState.isAttached { LaunchMarks.shared.mark("terminal_ready") }
+        #if DEBUG
+        ResumeMarks.shared?.note(model.connectionState.isAttached ? "terminal_frame" : "terminal_detached")
+        #endif
         #if DEBUG
         if let probe = TerminalBenchProbe.shared {
             probe.presented()

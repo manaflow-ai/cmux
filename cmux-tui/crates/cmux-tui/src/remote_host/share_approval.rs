@@ -58,10 +58,11 @@ pub(crate) trait Deliver {
     fn deliver(&self, approval: &ShareApproval) -> Result<Value, Value>;
 }
 
-/// The delivery until the approval has a carrier to the target: the target's
-/// admission reads its owner's `signedInMachines` consent
-/// (`acpmux::share_approval::SignedInMachinesConsent`), but nothing brings the
-/// approval there yet, so it says so instead of trying.
+/// The delivery from this CLI: the device hub carries an approval only from a
+/// person's own signed-in session (`POST /v1/devices/:id/share-approval`, which
+/// the target admits in acpmux `share_host/approval.rs`), and this CLI has none
+/// (its daemon's machine session is refused there, on purpose), so the cmux app
+/// that signed it has to send it. Until the app does, it says so instead of trying.
 pub(crate) struct AwaitingSameAccountControl;
 
 impl Deliver for AwaitingSameAccountControl {
@@ -69,8 +70,8 @@ impl Deliver for AwaitingSameAccountControl {
         Err(json!({
             "code": "share.needs_same_account_control",
             "message": format!(
-                "you allowed sharing {} here, and it is recorded, but this cmux cannot send the approval to {} yet. {} admits it only while control for your other signed-in Macs is on there. For now, run `cmux remote-host share on` on {} itself.",
-                approval.display_target(), approval.display_target(), approval.display_target(), approval.display_target()
+                "you allowed sharing {} here, and it is recorded, but this cmux cannot send the approval to {} yet: the cmux app that signed it has to send it through the device hub. For now, run `cmux remote-host share on` on {} itself.",
+                approval.display_target(), approval.display_target(), approval.display_target()
             ),
             "details": {"confirmed": true, "delivered": false, "device": approval.target},
         }))

@@ -27,6 +27,20 @@ const ALLOWED = new Map<string, string>([
     "pages/home-channels/chiefWork.css .lg-stage:has(> .hc-chief-work-scope) > :not(.hc-chief-work-scope)",
     "Home page, stage children",
   ],
+  // Base's rules from after this check was written (not this check's PR); follow-up: key each subject
+  // on a class its owner sets, as the composer's dock now does (App.tsx `markDockEdge`, `dockFoot`).
+  [
+    "ui/popupSurface.css .ui-popup[data-menu-states] .ui-menu-item:is([data-disabled], :disabled):has(.ui-menu-reason) > :not(.ui-menu-text)",
+    "a disabled menu item's own children",
+  ],
+  [
+    'agent-session/acpmux/conversation/conversation.css :root[data-transcript-timestamps="always"] .cv-user:not(:hover, :focus-within, :has([data-popup-open])) .cv-user__actions:not(.cv-user__actions--versions) .cv-message-footer-row > :not(.cv-user__time)',
+    "a prompt's footer row children",
+  ],
+  [
+    'agent-session/acpmux/conversation/conversation.css :root[data-transcript-timestamps="always"] .acpmux-assistant:not(:hover, :focus-visible, :has([data-popup-open])) .cv-reply-actions:not(:focus-within) .cv-message-footer-row > :not(.cv-turn-time)',
+    "a reply's footer row children",
+  ],
 ]);
 
 function cssFiles(dir: string): string[] {
@@ -110,7 +124,7 @@ function findings(file: string, selector: string): string[] {
     out.push(`a :has() rule whose subject (${subject}) names no class, id or attribute`);
   if (combinators.some((combinator) => combinator === "+" || combinator === "~") && anyElement(subject))
     out.push(`a sibling rule whose subject (${subject}) is any element`);
-  return out.filter(() => !ALLOWED.has(`${file} ${selector}`));
+  return out.filter(() => !ALLOWED.has(`${file} ${selector.replace(/\s+/g, " ")}`));
 }
 
 test("no selector restyles a whole subtree on a :has(), sibling or inline-style change", () => {
