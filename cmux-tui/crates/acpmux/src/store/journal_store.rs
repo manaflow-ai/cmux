@@ -1004,6 +1004,21 @@ impl Store for JournalStore {
     fn scan_heads(&self, id: &str, visit: &mut dyn FnMut(&RecordHead<'_>) -> bool) -> Result<()> {
         self.inner.fenced(id, || Store::scan_heads(&self.inner.local, id, visit))
     }
+    fn scan_heads_from(
+        &self,
+        id: &str,
+        from: u64,
+        hint: Option<LinePos>,
+        visit: &mut dyn FnMut(&RecordHead<'_>, Option<LinePos>) -> bool,
+    ) -> Result<()> {
+        self.inner.fenced(id, || Store::scan_heads_from(&self.inner.local, id, from, hint, visit))
+    }
+    fn adoption_checkpoint(&self, id: &str) -> Option<Vec<u8>> {
+        Store::adoption_checkpoint(&self.inner.local, id)
+    }
+    fn save_adoption_checkpoint(&self, id: &str, bytes: &[u8]) -> Result<()> {
+        Store::save_adoption_checkpoint(&self.inner.local, id, bytes)
+    }
     /// A checkpoint: every log written so far is synced and the journal before it retired.
     fn flush(&self) -> Result<()> {
         self.inner.checkpoint()
