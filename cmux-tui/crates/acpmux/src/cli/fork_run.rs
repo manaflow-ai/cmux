@@ -26,6 +26,8 @@ const TEAM_ENV: &str = "CMUX_CLOUD_TEAM";
 pub(crate) type Env = dyn Fn(&str) -> Option<String> + Sync;
 /// How often `status --wait` reads the run again.
 const POLL: Duration = Duration::from_secs(2);
+/// The least time `status --wait` gives one read, so a read at the deadline can answer.
+const READ_FLOOR: Duration = Duration::from_secs(5);
 
 #[derive(Subcommand)]
 pub enum ForkRunCmd {
@@ -148,10 +150,12 @@ pub(crate) async fn execute(cmd: ForkRunCmd, env: &Env) -> Result<Value> {
                     .into());
                 }
                 // Sleep and read within what is left of --wait: the last read is at the deadline,
-                // and a read past it is cut off there (its answer is the run's last state seen).
+                // and a read gets what is left or READ_FLOOR, whichever is longer (a read past it
+                // is cut off, and the run's last state seen is the answer).
                 tokio::time::sleep(POLL.min(left)).await;
                 let left = deadline.saturating_duration_since(tokio::time::Instant::now());
-                match tokio::time::timeout(left, call(&a.cloud, args.clone(), env)).await {
+                let budget = left.max(READ_FLOOR);
+                match tokio::time::timeout(budget, call(&a.cloud, args.clone(), env)).await {
                     Ok(read) => answer = read?,
                     Err(_) => continue,
                 }
