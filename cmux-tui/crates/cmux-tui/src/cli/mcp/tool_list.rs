@@ -8,7 +8,7 @@ use super::{
     automation_tools, browser_tools, chat_tools, cloud_connect_tools, cloud_repo_tools,
     cloud_tools, customize_library_tool, customize_tools, device_tools, keybinding_tools,
     keys_tools, live_code_tools, open_tool, remote_tools, render_tool, settings_tools,
-    terminal_talk_tools, v2_tools, video_tools, workflow_tools,
+    slides_tool, terminal_talk_tools, v2_tools, video_tools, workflow_tools,
 };
 
 pub(super) fn first_party() -> Vec<Value> {
@@ -31,6 +31,7 @@ pub(super) fn first_party() -> Vec<Value> {
     tools.extend(terminal_talk_tools::descriptors());
     tools.push(render_tool::descriptor());
     tools.push(open_tool::descriptor());
+    tools.push(slides_tool::descriptor());
     tools.extend(keys_tools::descriptors());
     tools.extend(video_tools::descriptors());
     tools.extend(remote_tools::TOOLS.iter().map(remote_tools::RemoteTool::descriptor_json));

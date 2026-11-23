@@ -300,6 +300,7 @@
         "appearance.fontSmoothing",
         "appearance.interfaceScale",
         "appearance.borders",
+        "appearance.liquidGlass",
         "appearance.previousGlass",
         "appearance.sidebarSurface",
         "appearance.chromeStyle",
