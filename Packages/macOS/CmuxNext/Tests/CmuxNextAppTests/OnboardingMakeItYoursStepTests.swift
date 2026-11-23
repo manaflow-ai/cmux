@@ -417,12 +417,12 @@ import Testing
         let asked = try #require(UserDefaults(testSuiteName: "cmux-make-yours-\(UUID().uuidString)"))
         let firstRun = OnboardingWindowPresenter(makeModel: { OnboardingModel(services: MockOnboardingServices(), step: $0, choices: Source()) },
                                                  activeLook: nil, present: { shown.append($0.model.step); $0.close() })
-        _ = await firstRun.showLaunchSteps(.firstRun, isFirstRun: true, devBuild: true, agentTools: nil, defaults: asked)
+        _ = await firstRun.showLaunchSteps(.firstRun, isFirstRun: true, devBuild: true, defaults: asked)
         #expect(shown == [.makeItYours, .makeItYours], "--onboarding asks for the first run, in a dev build too")
         let plain = OnboardingWindowPresenter(makeModel: { OnboardingModel(services: MockOnboardingServices(), step: $0, choices: Source()) },
                                               activeLook: nil, present: { shown.append($0.model.step); $0.close() })
         let devDefault = try #require(UserDefaults(testSuiteName: "cmux-make-yours-\(UUID().uuidString)"))
-        _ = await plain.showLaunchSteps(.agentToolsOnly, isFirstRun: true, devBuild: true, agentTools: nil, defaults: devDefault)
+        _ = await plain.showLaunchSteps(.standard, isFirstRun: true, devBuild: true, defaults: devDefault)
         #expect(shown == [.makeItYours, .makeItYours], "a dev build's default launch leaves it out")
     }
 }

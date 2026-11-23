@@ -2,7 +2,7 @@
 // `?mock`: the page on fixture states, answering gestures the way the host would, closely enough to
 // click through each step in a plain browser.
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
-import { agentToolsState, agentsState, computerUseState, importState, makeItYoursState } from "./fixtures";
+import { agentsState, computerUseState, importState, makeItYoursState } from "./fixtures";
 import {
   OPS,
   type ImportDataKind,
@@ -11,22 +11,31 @@ import {
   type OnboardingState,
   type WorkStyle,
 } from "./ops";
+import type { AccountRowWire, AccountRunParams } from "../shared/signIn/accountSignIn";
+import { MockAccountSignIn } from "../shared/signIn/mockSignIn";
 
 export class MockOnboardingProvider implements PageClient {
   private state: OnboardingState;
   private readonly listeners = new Set<(state: OnboardingState) => void>();
 
-  constructor(step: string = "agents") {
+  /** The in-place sign-in (`cmux.onboarding.accounts.run`), the same mock Settings runs; tests and
+   * the gallery set its `hold` and `refusal`. */
+  readonly signIn = new MockAccountSignIn({
+    rows: () => this.state.signInAccounts ?? [],
+    set: (next) => this.change(withAccounts(this.state, next)),
+  });
+
+  /** `initial`: the gallery's and tests' state instead of the step's fixture. */
+  constructor(step: string = "agents", initial?: OnboardingState) {
     this.state =
-      step === "importData"
+      initial ??
+      (step === "importData"
         ? importState("idle")
         : step === "computerUse"
           ? computerUseState("fresh")
-          : step === "agentTools"
-            ? agentToolsState("found")
-            : step === "makeItYours"
-              ? makeItYoursState("fresh")
-              : agentsState("mixed");
+          : step === "makeItYours"
+            ? makeItYoursState("fresh")
+            : agentsState("mixed"));
   }
 
   private change(next: OnboardingState): void {
@@ -49,7 +58,6 @@ export class MockOnboardingProvider implements PageClient {
       case OPS.focused:
         return {} as R;
       case OPS.next:
-        if (state.step === "agentTools" && !state.agentTools?.answered) this.change(agentToolsState("added"));
         if (state.step === "importData" && state.importer?.phase === "idle") this.change(importState("ready"));
         else if (state.step === "importData" && state.importer?.phase === "ready") this.change(importState("finished"));
         else if (state.step === "importData" && state.importer?.phase === "explainingAccess")
@@ -58,6 +66,8 @@ export class MockOnboardingProvider implements PageClient {
       case OPS.back:
         if (state.step === "importData") this.change(importState("ready"));
         return {} as R;
+      case OPS.accountsRun:
+        return (await this.signIn.run(params as AccountRunParams)) as R;
       case OPS.signIn:
         if (state.agents) this.change({ ...state, agents: { ...state.agents, signingIn: input.id ?? null } });
         return {} as R;
@@ -110,7 +120,6 @@ export class MockOnboardingProvider implements PageClient {
         return {} as R;
       }
       case OPS.skip:
-        if (state.step === "agentTools" && !state.agentTools?.answered) this.change(agentToolsState("declined"));
         return {} as R;
       case OPS.workStyle:
       case OPS.density:
@@ -161,4 +170,20 @@ export class MockOnboardingProvider implements PageClient {
   handle(_op: string, _handler: PageHandler): () => void {
     return () => {};
   }
+}
+
+/** What the daemon decides once the accounts change: a provider with a signed-in account is ready
+ * (its default account's name), one without needs a sign-in; one not installed stays so. */
+function withAccounts(state: OnboardingState, accounts: AccountRowWire[]): OnboardingState {
+  const readiness = state.signInReadiness;
+  if (!readiness) return { ...state, signInAccounts: accounts };
+  const providers = readiness.providers.map((provider) => {
+    if (provider.state === "notInstalled") return provider;
+    const signedIn = accounts.filter((row) => row.family === provider.family && row.signedIn);
+    const shown = signedIn.find((row) => row.default) ?? signedIn[0];
+    return shown
+      ? { family: provider.family, state: "ready" as const, account: shown.id, label: shown.name }
+      : { family: provider.family, state: "signInRequired" as const };
+  });
+  return { ...state, signInAccounts: accounts, signInReadiness: { providers } };
 }

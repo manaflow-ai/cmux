@@ -3,7 +3,6 @@
 // browsers and profiles are made up; icons are small drawn SVGs standing in for the host's PNGs.
 import type {
   AgentRow,
-  AgentToolsRow,
   ComputerUseState,
   HostImage,
   ImportCounts,
@@ -16,6 +15,8 @@ import type {
   OnboardingFooter,
   OnboardingState,
 } from "./ops";
+import { agentFamily } from "../shared/signIn/ProviderReadiness";
+import type { ReadinessFixtureCase } from "../shared/signIn/galleryFixtures";
 
 function svg(body: string): string {
   return `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">${body}</svg>`)}`;
@@ -134,6 +135,27 @@ export function agentsState(kind: AgentsFixture = "mixed"): OnboardingState {
     },
     importer: null,
     computerUse: null,
+  };
+}
+
+/** The agents step as a host with the in-place sign-in sends it: the daemon's `signInReadiness`
+ * and `signInAccounts` (shared/signIn/galleryFixtures.ts READINESS), and the agents it installs. */
+export function withReadiness(state: OnboardingState, fixture: ReadinessFixtureCase): OnboardingState {
+  const installing = fixture.installing ?? [];
+  const agents = state.agents && {
+    ...state.agents,
+    rows: state.agents.rows.map((row) => {
+      const family = agentFamily(row.id);
+      return family && installing.includes(family)
+        ? { ...row, install: { state: "installing" as const, step: "download" } }
+        : row;
+    }),
+  };
+  return {
+    ...state,
+    agents,
+    signInAccounts: fixture.accounts.map((account) => ({ ...account })),
+    signInReadiness: { providers: fixture.providers.map((provider) => ({ ...provider })) },
   };
 }
 
@@ -408,47 +430,6 @@ export function computerUseState(kind: ComputerUseFixture = "fresh"): Onboarding
               : null,
       showsRestart: kind === "helperFailed",
       comebacks: kind === "oneGranted" ? 1 : 0,
-    },
-  };
-}
-
-// MARK: cmux Tools
-
-export type AgentToolsFixture = "checking" | "none" | "found" | "adding" | "added" | "declined" | "failed";
-
-const TOOLS_AGENTS: AgentToolsRow[] = [
-  { id: "claude", name: "Claude Code", state: "ready" },
-  { id: "codex", name: "Codex", state: "ready" },
-];
-
-/** The cmux Tools step: before an answer (checking, none found, Claude Code and Codex found), while
- * Turn On runs, and each answer (on, declined, the answer could not be saved). */
-export function agentToolsState(kind: AgentToolsFixture = "found"): OnboardingState {
-  const answered = kind === "adding" || kind === "added" || kind === "declined" || kind === "failed";
-  const rows: AgentToolsRow[] =
-    kind === "checking" || kind === "none"
-      ? []
-      : kind === "added"
-        ? TOOLS_AGENTS.map((row) => ({ ...row, state: "terminals" as const }))
-        : TOOLS_AGENTS;
-  const done = kind === "added" || kind === "declined" || kind === "failed";
-  return {
-    step: "agentTools",
-    footer: footer({
-      primary: done ? "done" : "addTools",
-      primaryEnabled: kind !== "adding",
-      skip: answered ? "none" : "notNow",
-    }),
-    agents: null,
-    importer: null,
-    computerUse: null,
-    agentTools: {
-      rows,
-      loaded: kind !== "checking",
-      choice: kind === "declined" ? "off" : answered ? "on" : "ask",
-      applying: kind === "adding",
-      failed: kind === "failed",
-      answered,
     },
   };
 }
