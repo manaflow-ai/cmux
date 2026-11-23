@@ -319,7 +319,7 @@ impl Surface {
         let writer = master.take_writer()?;
         let launch = LocalLaunch {
             master,
-            reader,
+            reader: Box::new(reader),
             writer,
             killer,
             wait: Box::new(move || TerminalEnd::ProcessEnded(child.wait_for_exit())),
