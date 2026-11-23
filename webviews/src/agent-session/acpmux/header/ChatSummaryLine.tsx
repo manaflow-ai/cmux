@@ -8,9 +8,10 @@ export type ChatSummary = { text: string; next?: string | null };
  * ("Tests pass → Open the PR"). The daemon writes it after each turn a person started, from the
  * agent's own wrap-up when it made one, else from one small-model call (David Beyer, 2026-11-20:
  * rolling summaries of every chat with a next action for each). Cut to the room it has; the whole
- * text is its tooltip. `inline`: the tab-row header, where it leads the tools instead.
+ * text is its tooltip. It sits in the header's own row only: the tab row's tools slot measures what it holds
+ * for the native strip (header/tabRow.ts), and a line in it widens the tools until the pane drops them to a second row.
  */
-export function ChatSummaryLine({ summary, inline }: { summary?: ChatSummary | null; inline?: boolean }) {
+export function ChatSummaryLine({ summary }: { summary?: ChatSummary | null }) {
   const t = useT();
   const text = summary?.text?.trim();
   if (!text) return null;
@@ -18,7 +19,7 @@ export function ChatSummaryLine({ summary, inline }: { summary?: ChatSummary | n
   const full = next ? `${text}\n${t("header.summaryNext", { next })}` : text;
   return (
     <span
-      className={inline ? "acpmux-chat-summary acpmux-chat-summary--inline" : "acpmux-chat-summary"}
+      className="acpmux-chat-summary"
       /* tooltip-allow: the summary's whole text, cut to one line here */ title={full}
       aria-label={full}
       data-chat-summary=""

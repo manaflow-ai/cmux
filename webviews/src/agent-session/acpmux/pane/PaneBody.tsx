@@ -1200,7 +1200,7 @@ export function drawPaneBody({
                       </span>
                     )}
                   </ChatHeaderStatus>
-                  <div className="acpmux-handoff-header-tools" ref={tabRowTools}>
+                  <div className="acpmux-handoff-header-tools" ref={tabRowTools} data-tab-row-slot="tools">
                     {liveTreeEnabled && snapshot.sessionId && (
                       <LiveTreePill key={snapshot.sessionId} cwd={snapshot.summary?.cwd} readStatus={readLiveTree} />
                     )}
@@ -1222,13 +1222,7 @@ export function drawPaneBody({
                       />
                     )}
                     {/* No title in the tab row: the pane's tab already names the chat (Leo, 2026-11-01). */}
-                    {inTabRow && (
-                      <ChatHeaderInlineStatus status={header.status} detail={header.detail}>
-                        {!showNewTab && snapshot.sessionId ? (
-                          <ChatSummaryLine summary={snapshot.summary?.rollingSummary} inline />
-                        ) : undefined}
-                      </ChatHeaderInlineStatus>
-                    )}
+                    {inTabRow && <ChatHeaderInlineStatus status={header.status} detail={header.detail} />}
                     <ChatHeaderTools
                       chat={snapshot.sessionId}
                       nativeRowTools={{
