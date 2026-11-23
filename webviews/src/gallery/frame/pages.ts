@@ -253,6 +253,7 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
           appearance: context.appearance,
           labels,
           commentsSend: state.commentsSend,
+          commentsThreads: state.commentsThreads,
           reviewBrief: state.reviewBrief != null,
         },
         ops: [
