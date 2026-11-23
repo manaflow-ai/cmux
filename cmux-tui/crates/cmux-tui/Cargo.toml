@@ -198,12 +198,15 @@ cmux-app-host = { workspace = true, features = ["engine"] }
 # `cmux carrier dial --service desktop`: the desktop's datagram link (carrier/rd_link.rs).
 cmux-rd-link = { path = "../cmux-rd-link", features = ["net"] }
 cmux-cloud-api.workspace = true
+# `cmux cloud journey` (cli/cloud_journey.rs): the agent test account's password sign-in.
+cmux-stack-auth.workspace = true
 # `cmux automation` (cli/automation.rs, unix only): the store and the launchd runner use
 # unix files and processes, so the crate does not build for Windows.
 cmux-automations.workspace = true
 cmux-holder.workspace = true
 # `cmux carrier supervise`: the serve socket's lease between supervisors (carrier/supervise.rs).
 cmux-file-lock.workspace = true
+cmux-install-check.workspace = true
 # Projected folders (link/sync_cli/project.rs): the manifest and the stream the machine reads through.
 cmux-projection.workspace = true
 # `cmux vnc`: the RFB client and the zlib compression of its Kitty graphics frames.
