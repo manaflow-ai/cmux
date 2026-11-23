@@ -60,13 +60,13 @@
   z-index: var(--layer-raised, 1);
 }
 /* The box keeps its own four corners and whole rim over the tray (not the default's joined top). */
-:root .acpmux-composer[data-composer-look="codex"]:has(> .acpmux-composer-strip) > .acpmux-composer-box {
+:root .acpmux-composer[data-composer-look="codex"][data-strip] > .acpmux-composer-box {
   /* glass-opaque-allow: a keyword the lens reads, not a color; the box joins nothing */
   --glass-join: initial;
   border-top-left-radius: var(--acpmux-composer-radius);
   border-top-right-radius: var(--acpmux-composer-radius);
 }
-:root .acpmux-composer[data-composer-look="codex"]:has(> .acpmux-composer-strip) > .acpmux-composer-box::before {
+:root .acpmux-composer[data-composer-look="codex"][data-strip] > .acpmux-composer-box::before {
   content: none;
 }
 /* ChatGPT's two-row composer: the prompt has its own full-width line, with + at the lower left
