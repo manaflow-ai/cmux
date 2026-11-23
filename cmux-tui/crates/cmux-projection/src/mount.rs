@@ -72,9 +72,19 @@ type Job = Box<dyn FnOnce() + Send>;
 /// A mounted projection; dropping it unmounts.
 pub struct Mounted {
     session: Option<BackgroundSession>,
+    notifier: Option<Notifier>,
 }
 
 impl Mounted {
+    /// Tells the kernel to drop what it cached of `name` in folder `parent` (a number the overlay
+    /// gave), so the next lookup asks the overlay again: after [`Overlay::swap_to_link`].
+    pub fn forget_entry(&self, parent: u64, name: &str) -> std::io::Result<()> {
+        match &self.notifier {
+            Some(notifier) => notifier.inval_entry(parent, OsStr::new(name)),
+            None => Ok(()),
+        }
+    }
+
     /// Unmounts and waits for the session to end.
     pub fn unmount(mut self) {
         if let Some(session) = self.session.take() {
@@ -120,7 +130,7 @@ pub fn mount_with(overlay: Arc<Overlay>, at: &Path, options: Options) -> anyhow:
     let session = fuser::spawn_mount2(fs, at, &mount_options(&options))?;
     // Set before this returns, so before anything the caller starts opens through the mount.
     let _ = notifier.set(session.notifier());
-    Ok(Mounted { session: Some(session) })
+    Ok(Mounted { notifier: Some(session.notifier()), session: Some(session) })
 }
 
 /// Mounts `overlay` at `at` and serves it on this thread until it is unmounted from outside
