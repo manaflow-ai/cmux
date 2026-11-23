@@ -1,4 +1,5 @@
 import AppKit
+public import Foundation
 public import CmuxNextDesign
 
 /// Restart to Update (cx-ncc.45 S1): what the old windows do when Sparkle
@@ -14,6 +15,10 @@ public import CmuxNextDesign
 /// frame took 300 ms or less: "the hide then animation then going to the
 /// updated to nightly is just bad."
 ///
+/// When the old process ends, the relaunch's afterimage (``RelaunchAfterimage``,
+/// pictures of these same windows) stays up until the new process drew them,
+/// so the screen never shows neither.
+///
 /// The windows stay alive (the quit still saves their launch images and
 /// frames), and an install that fails gives them their clicks back
 /// (``restore()``); a click whose install never reaches the installer
@@ -28,9 +33,29 @@ public final class UpdateWindowHandoff {
 
     private var frozen: [Frozen] = []
     private let unsaved: QuitUnsavedRegistry
+    /// The windows' pictures, up over the frozen windows across the relaunch: when the old process ends, they
+    /// stay until the new process drew its windows, so no frame shows neither.
+    private let afterimage: RelaunchAfterimage?
 
-    public init(unsaved: QuitUnsavedRegistry) {
+    public init(unsaved: QuitUnsavedRegistry, stateDirectory: URL? = nil) {
         self.unsaved = unsaved
+        afterimage = stateDirectory.map { RelaunchAfterimage(stateDirectory: $0) }
+    }
+
+    /// Installs the updater's hooks: the windows freeze as Sparkle commits to the relaunch, not at the click; a failed
+    /// install unfreezes them. The quit waits for the pictures (``UpdaterService/afterimage``).
+    public func attach(to updater: UpdaterService) {
+        // The updater keeps this handoff (it holds nothing of the updater's).
+        updater.freezesForRelaunch = { _ = self.freeze() }
+        updater.installAbandoned = { self.restore() }
+        updater.afterimage = afterimage
+    }
+
+    /// A relaunch is decided (every path: ``UpdaterService/willRelaunch``): the windows are pictured for the afterimage,
+    /// unless the quit will ask about unsaved documents (that sheet stays in view).
+    public func relaunchDecided() {
+        guard unsaved.unsaved().isEmpty else { return }
+        afterimage?.begin(activates: NSApp.isActive)
     }
 
     /// Freezes every visible window where it is; false when it did not (unsaved documents).
@@ -47,6 +72,7 @@ public final class UpdateWindowHandoff {
 
     /// Gives the frozen windows their clicks back.
     public func restore() {
+        afterimage?.cancel()
         for entry in frozen { entry.window?.ignoresMouseEvents = entry.ignoresMouse }
         frozen = []
     }

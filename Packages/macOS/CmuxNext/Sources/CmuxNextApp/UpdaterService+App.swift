@@ -28,12 +28,11 @@ extension UpdaterService {
         // Before the settings apply (`apply(_:)`): Update When Idle installs nothing without its gate (UpdateIdleGate).
         let idle = UpdateIdleGate(activity: activity, daemon: services.machines.local) { [weak services] in services?.agentTabs.unsentDrafts.count }
         useIdleGate { idle.hold(idleMinutes: $0, lastInput: $1)?.rawValue }
-        // The windows freeze where they are (no hide, no fade) when Sparkle commits to the
-        // relaunch, not at the click (`UpdateWindowHandoff`); a failed install unfreezes them.
-        let handoff = UpdateWindowHandoff(unsaved: services.quitUnsaved)
-        willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)) }
-        freezesForRelaunch = { _ = handoff.freeze() }
-        installAbandoned = { handoff.restore() }
+        // The windows freeze where they are (no hide, no fade) when Sparkle commits to the relaunch, not at the
+        // click; pictures of them stay up until the new process drew them; a failed install unfreezes them (`UpdateWindowHandoff`).
+        let handoff = UpdateWindowHandoff(unsaved: services.quitUnsaved, stateDirectory: services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
+        willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)); handoff.relaunchDecided() }
+        handoff.attach(to: self)
         isSheetPresented = { sheet.isPresented }
         sheet.onDismiss = { [weak self] in self?.updateSheetClosed() }
         // The check's progress and result show on the sidebar's notice card; with the
