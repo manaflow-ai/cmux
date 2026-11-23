@@ -830,9 +830,11 @@ body .nt-popover.nt-popover-focused.nt-popover-focused {
    card draws; at rest it is the same two rings, transparent, so hover only fades their color in and
    out. Focus keeps its hairline step (no glow on focus, 2026-11-07); the band is the hover's alone.
    Increase Contrast keeps the shared focus ring and no band. The default-off composer V2 draws its
-   own edge light and is left as it is. */
+   own edge light and is left as it is. The New Tab's suggestions are the box's glass
+   (.nt-composer-surface) and draw the same transparent rings, so the two resolve one surface. */
 .acpmux-composer-box,
-.nt-box {
+.nt-box,
+.nt-composer-surface {
   --acpmux-composer-halo:
     0 0 0 var(--cmux-hairline-ring, 1px) transparent,
     0 0 0 3px transparent;
