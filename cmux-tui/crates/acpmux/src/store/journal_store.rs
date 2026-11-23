@@ -73,6 +73,9 @@ mod fenced;
 mod log_lsns;
 mod meta;
 mod new_folders;
+mod space;
+#[cfg(test)]
+pub(crate) use space::{RESERVE as DISK_RESERVE, set_test_free};
 pub(super) mod repair;
 #[cfg(all(test, unix))]
 mod seal_tests;
@@ -367,6 +370,8 @@ struct Inner {
     /// Held while a chat's folder is removed or its `session.json` written from the overlay
     /// (`journal_store/meta.rs`).
     folders: Mutex<()>,
+    /// The full disk's state: while full, every change is refused at once ([`space`]).
+    space: Arc<space::Space>,
 }
 
 /// Owned by the journal's durable listener, which the writer drops when it ends: a writer that
@@ -518,6 +523,11 @@ impl JournalStore {
                 moved
             });
         });
+        let space = space::Space::open(home, Arc::clone(&ending));
+        let full = Arc::clone(&space);
+        journal.on_out_of_space(move || {
+            full.enter("the event journal's writer got no space");
+        });
         let inner = Arc::new(Inner {
             local,
             journal,
@@ -546,6 +556,7 @@ impl JournalStore {
             syncs: checkpoint::SyncsUnderWay::default(),
             folders: Mutex::new(()),
             idle: AtomicBool::new(false),
+            space,
         });
         // The lines of chats whose repair failed at an earlier open, journaled again first.
         inner.take_repairs(&mut replay);
@@ -747,6 +758,8 @@ impl Store for JournalStore {
         let inner = &self.inner;
         let _chat = inner.chat(id).lock_or_recover();
         let _appending = inner.appending.read().unwrap_or_else(std::sync::PoisonError::into_inner);
+        // A full disk: refused before anything is written ([`space`]).
+        inner.space.refuse()?;
         // The record's room in the journal's queue, held until its append: refused here, before
         // the log write, never after it unless the writer stops in between.
         let room = inner.journal.reserve(payload.len()).map_err(JournalStore::journal_error)?;
@@ -1025,6 +1038,11 @@ impl Store for JournalStore {
             stalled: Arc::new(move |waited: Duration| {
                 let Some(inner) = inner.upgrade() else { return false };
                 let stats = inner.journal.stats();
+                // A full disk: no restart (it would find the disk as full); the reply waits
+                // for the writer's retry, which the freed reserve lets write ([`space`]).
+                if stats.out_of_space || inner.space.is_full() {
+                    return false;
+                }
                 match stats.failing {
                     Some(failing) => {
                         inner.ask_to_stop(format!(
@@ -1185,6 +1203,7 @@ impl Store for JournalStore {
             let _chat = inner.chat(id).lock_or_recover();
             let mut order = inner.order.lock_or_recover();
             drop(inner.local.writable()?);
+            inner.space.refuse()?;
             let lsn = inner
                 .journal
                 .append(KIND_FORGET, Class::Ack, id.as_bytes())
