@@ -28,10 +28,18 @@
 //! - Any agent can reach the socket, so an ask names its chat but cannot
 //!   prove which agent made it; the card shows the chat it waits in.
 //!
+//! - The card also offers "keep as key NAME" (docs/design/safe-keys.md): an answer with `keepAs`
+//!   saves the value into the key store (`cmux keys put NAME --from-person`, the value on stdin;
+//!   [`KeyStore`]) before the agent gets its ref, so later runs enter it by name
+//!   (`cmux keys use NAME -- CMD`) without asking again. A store that refuses leaves the card
+//!   open and the ref unissued; the reply names the key (`keptAs`), never the value. Only a
+//!   secret card keeps: a sudo password never does.
+//!
 //! The masking covers the value as given. A command that prints it encoded
 //! (base64, reversed) shows it to the agent: the ref limits where and how
 //! often the value is used, not what a command it runs may do with it.
 
+use super::key_store::{CliKeyStore, KeepAsk, KeyStore};
 use super::{Hub, Session, SessionStatus};
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
@@ -50,7 +58,7 @@ const MAX_VALUE_BYTES: usize = 64 * 1024;
 const MAX_REASON_CHARS: usize = 500;
 const RUN_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_OUTPUT_BYTES: usize = 64 * 1024;
-const MASK: &str = "••••••";
+pub(super) const MASK: &str = "••••••";
 
 #[derive(Default)]
 pub(crate) struct Secrets {
@@ -59,6 +67,8 @@ pub(crate) struct Secrets {
     /// Held across [`Hub::close_stale_card`]'s read and append, so two late answers write one
     /// decision.
     closing: StdMutex<()>,
+    /// Where "keep as key" saves a value; None is the key store's CLI ([`CliKeyStore`]).
+    key_store: StdMutex<Option<std::sync::Arc<dyn KeyStore>>>,
 }
 
 struct Pending {
@@ -68,7 +78,18 @@ struct Pending {
     nonce: Option<String>,
     /// [`CardKind::one_line`].
     one_line: Option<usize>,
-    reply: oneshot::Sender<Option<Zeroizing<String>>>,
+    /// A secret card's reason, the purpose a kept key gets; None for a card that never keeps
+    /// (a sudo password).
+    keep_purpose: Option<String>,
+    /// The key the person kept the value as ([`Hub::keep_card_value`]).
+    kept: Option<String>,
+    reply: oneshot::Sender<Option<Answer>>,
+}
+
+/// The person's value, and the key they kept it as.
+struct Answer {
+    value: Zeroizing<String>,
+    kept: Option<String>,
 }
 
 struct Held {
@@ -216,7 +237,7 @@ impl Hub {
         let reason: String = reason.chars().take(MAX_REASON_CHARS).collect();
         let project = project_of(session)?;
         let card = json!({"name": name, "reason": reason});
-        let (outcome, value) = self.ask_person(session, CARD_SECRET, card, ASK_TTL).await;
+        let (outcome, value, kept) = self.ask_person(session, CARD_SECRET, card, ASK_TTL).await;
         let Some(value) = value else {
             return Ok(json!({"declined": true, "name": name, "outcome": outcome}));
         };
@@ -229,21 +250,26 @@ impl Hub {
             held.remove(&oldest);
         }
         held.insert(secret_ref.clone(), Held { project, value, at: Instant::now() });
-        Ok(json!({"secretRef": secret_ref, "name": name}))
+        let mut granted = json!({"secretRef": secret_ref, "name": name});
+        if let Some(key) = kept {
+            cmux_json::JsonSet::set(&mut granted, "keptAs", json!(key));
+        }
+        Ok(granted)
     }
 
     /// Shows the chat a private card of `kind` (`{kind}_request` with `secretId` and `card`'s
     /// fields) and waits at most `ttl` for the person's answer through `secret_submit`, then
     /// records `{kind}_decision` with the outcome: `provided` with the value, `declined`, or
-    /// `cancelled` (a newer card, the turn's end, the wait running out). One open card per chat,
-    /// whatever its kind. The value is never in a record.
+    /// `cancelled` (a newer card, the turn's end, the wait running out), and `keptAs` when the
+    /// person kept the value as a key. One open card per chat, whatever its kind. The value is
+    /// never in a record.
     pub(super) async fn ask_person(
         &self,
         session: &Session,
         kind: CardKind,
         card: Value,
         ttl: Duration,
-    ) -> (&'static str, Option<Zeroizing<String>>) {
+    ) -> (&'static str, Option<Zeroizing<String>>, Option<String>) {
         let secret_id = super::person::new_nonce();
         let nonce = kind.signed.then(super::person::new_nonce);
         let (tx, rx) = oneshot::channel();
@@ -251,10 +277,14 @@ impl Hub {
             let mut pending = self.secrets.pending.lock().unwrap_or_else(|e| e.into_inner());
             // Dropping the old card's reply answers its asker `cancelled`.
             pending.retain(|_, p| p.session != session.id);
+            let keep_purpose = (kind.request == CARD_SECRET.request)
+                .then(|| card.get("reason").and_then(Value::as_str).unwrap_or_default().to_owned());
             let card = Pending {
                 session: session.id.clone(),
                 nonce: nonce.clone(),
                 one_line: kind.one_line,
+                keep_purpose,
+                kept: None,
                 reply: tx,
             };
             pending.insert(secret_id.clone(), card);
@@ -263,7 +293,7 @@ impl Hub {
         // after the cancel is cancelled here.
         if session.closing.load(Ordering::SeqCst) || session.status() == SessionStatus::Closed {
             self.secrets.pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&secret_id);
-            return ("cancelled", None);
+            return ("cancelled", None, None);
         }
         let mut record = card.clone();
         cmux_json::JsonSet::set(&mut record, "secretId", json!(secret_id));
@@ -282,9 +312,16 @@ impl Hub {
             Some(None) => kind.declined,
             None => "cancelled",
         };
+        let (value, kept) = match answer.flatten() {
+            Some(Answer { value, kept }) => (Some(value), kept),
+            None => (None, None),
+        };
         let mut decision = card;
         cmux_json::JsonSet::set(&mut decision, "secretId", json!(secret_id));
         cmux_json::JsonSet::set(&mut decision, "outcome", json!(outcome));
+        if let Some(key) = &kept {
+            cmux_json::JsonSet::set(&mut decision, "keptAs", json!(key));
+        }
         self.append(session, "mux", kind.decision, decision);
         if session.status() == SessionStatus::Waiting
             && session.permissions.lock().unwrap_or_else(|e| e.into_inner()).pending.is_empty()
@@ -292,7 +329,7 @@ impl Hub {
         {
             self.set_status(session, super::permissions::status_after_ask(session, prev));
         }
-        (outcome, answer.flatten())
+        (outcome, value, kept)
     }
 
     /// An answer to a card this daemon no longer holds (it restarted while the card was open) whose
@@ -423,10 +460,75 @@ impl Hub {
             self.close_stale_card(session, secret_id);
             return Err(RpcError::invalid_params("no secret request with that id in this chat"));
         };
+        let kept = pending.kept;
         pending
             .reply
-            .send(value)
+            .send(value.map(|value| Answer { value, kept }))
             .map_err(|_| RpcError::invalid_params("the agent stopped waiting for this secret"))
+    }
+
+    /// The person chose "keep as key `key`" on open secret card `secret_id`: stores `value` in
+    /// the key store ([`KeyStore`]) before the card is answered, so a store that refuses leaves
+    /// the card open (the person can try again, or provide without keeping). A sudo card never
+    /// keeps.
+    pub async fn keep_card_value(
+        &self,
+        session: &Session,
+        secret_id: &str,
+        key: &str,
+        value: &Zeroizing<String>,
+    ) -> Result<(), RpcError> {
+        let purpose = self.check_keep(session, secret_id, key)?;
+        let store = self
+            .secrets
+            .key_store
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+            .unwrap_or_else(|| std::sync::Arc::new(CliKeyStore));
+        let ask = KeepAsk {
+            name: key.to_owned(),
+            value: value.clone(),
+            purpose,
+            asked_by: session.id.clone(),
+        };
+        tokio::task::spawn_blocking(move || store.keep(&ask))
+            .await
+            .map_err(|e| RpcError::internal(format!("keeping the key: {e}")))?
+            .map_err(|e| RpcError::invalid_params(format!("the key was not kept: {e}")))?;
+        let mut map = self.secrets.pending.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(p) = map.get_mut(secret_id).filter(|p| p.session == session.id) {
+            p.kept = Some(key.to_owned());
+        }
+        Ok(())
+    }
+
+    /// Whether open card `secret_id` may keep its value as key `key`, and the purpose the key
+    /// gets: checked before an answer spends anything.
+    pub fn check_keep(
+        &self,
+        session: &Session,
+        secret_id: &str,
+        key: &str,
+    ) -> Result<String, RpcError> {
+        if !valid_name(key) {
+            return Err(RpcError::invalid_params(
+                "keepAs must be a key name (A-Z, 0-9, _, at most 64)",
+            ));
+        }
+        let map = self.secrets.pending.lock().unwrap_or_else(|e| e.into_inner());
+        match map.get(secret_id) {
+            Some(p) if p.session == session.id => p.keep_purpose.clone().ok_or_else(|| {
+                RpcError::invalid_params("this card's value is never kept as a key")
+            }),
+            _ => Err(RpcError::invalid_params("no secret request with that id in this chat")),
+        }
+    }
+
+    /// Where "keep as key" saves (tests pass one that keeps values in memory); None is the key
+    /// store's CLI.
+    pub fn set_key_store(&self, store: Option<std::sync::Arc<dyn KeyStore>>) {
+        *self.secrets.key_store.lock().unwrap_or_else(|e| e.into_inner()) = store;
     }
 
     /// Spends `secret_ref` once: runs `argv` in the chat's folder with the

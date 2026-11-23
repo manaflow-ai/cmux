@@ -1686,8 +1686,12 @@ export function paneSnapshotEffect({
         "chat.queue.decline": ({ promptId }) => client.answerHeld(String(promptId), false),
         "chat.agentPair.resume": ({ peer }) => client.resumeAgentPair(String(peer)),
         "chat.queue.edit": ({ promptId, ...edit }) => client.editQueued(String(promptId), edit as QueueEdit),
-        "chat.secret": ({ secretId, value }) =>
-          client.secret(String(secretId), typeof value === "string" ? value : undefined),
+        "chat.secret": ({ secretId, value, keepAs }) =>
+          client.secret(
+            String(secretId),
+            typeof value === "string" ? value : undefined,
+            typeof keepAs === "string" ? keepAs : undefined,
+          ),
         "chat.permission": ({ permissionId, optionId, answers, annotations, sessionId }) =>
           client.permission(
             String(permissionId),
