@@ -366,6 +366,24 @@ Inbox (laptop and machine, `acpmux/src/auto_session/runtime/inbox.rs`):
   message's id (a repeat is the same prompt, not a second one). A daemon that restarts after the ack
   redelivers what its log still owes (`Hub::auto_inbox_owed`).
 
+Daemon surface (`acpmux/src/auto_session/surface.rs`, `server/auto_gate.rs`):
+
+- `set` is answered from the store's answer. Auto on waits for the first registration's answer; with none in
+  about 9 s (under one renewal period; the pane waits 15 s) it answers the row as it is, Auto on and not in the
+  Cloud yet, and the daemon goes on registering. A refusal is the request's error. A refusal that would be the
+  same next time (an HTTP answer other than 408, 425, 429 or 5xx) also turns Auto off for the chat again and
+  sends one close, so the row never says Auto is on for a chat the store will not take. `keepInCloud` changes
+  nothing on the row until the store answered.
+- Who may call: none of the three methods is served to a remote connection or a peer. `set`, and `leftover`
+  with `apply` or `discard`, need the person (the app's pane, a connection that proved it is the person, or the
+  local socket with no agent behind it: the line `_acpmux/set_turn_cap` draws). `wake` is refused from an
+  agent's connection. `leftover` with `show` only reads.
+- Apply merges the kept patch three ways on scratch indexes (`export/apply.rs`): the person's index is never
+  written, a change already in the folder counts as applied, and a conflict writes nothing, keeps the patch
+  and answers `auto.leftover_conflict`.
+- What runs git in a chat's folder (cutting the leftover patch, an import, Apply, Discard) takes that chat's
+  turn (`turns.rs`), one at a time.
+
 In-memory store (`cmux-auto-session` feature `test-support`, `fake/`):
 
 - `fake/rules.rs` is `lease.ts` function for function. Not mirrored: machine start lifetimes and backoff, team
