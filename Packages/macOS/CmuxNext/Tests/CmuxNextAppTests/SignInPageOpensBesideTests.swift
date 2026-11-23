@@ -1,4 +1,5 @@
 import AppKit
+@testable import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextAgentPane
 @testable import CmuxNextApp
@@ -96,6 +97,30 @@ struct SignInPageOpensBesideTests {
             try await PinnedPageTests.until({ codePane.stripModel.selectedID?.rawValue == other.id })
             try #require(back)()
             #expect(codePane.stripModel.selectedID?.rawValue == other.id, "the sign-in's end took the person off the tab they picked: \(Self.describe(content))")
+        }
+    }
+
+    /// From the onboarding tool window (the Agents step) over Home or another top page: the page would open in a
+    /// workspace the top page covers, so the top page is left, as a terminal sign-in leaves it, and shows again
+    /// once the tool window closes (``OnboardingService``).
+    @Test func fromTheToolWindowTheSignInPageLeavesATopPageWhichComesBackOnClose() async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            let window = try #require(services.windows.active)
+            #expect(TopPages.show(.page(.history), services: services) != nil)
+            #expect(window.shownTopPage == .page(.history))
+            services.onboarding.show(step: .agents)
+            let tool = try #require(services.onboarding.controller)
+            let open = try #require(services.onboarding.signInHarnesses.openSignInPage)
+            let store = services.daemon.store
+            let before = Set(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id))
+            let back = try #require(await open(page))
+            #expect(window.shownTopPage == nil, "the sign-in page opened under a top page")
+            try await PinnedPageTests.until({ store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).contains { !before.contains($0.id) } },
+                                            report: { "the sign-in page opened no tab" })
+            back()
+            tool.close()
+            try await PinnedPageTests.until({ window.shownTopPage == .page(.history) },
+                                            report: { "closing the tool window did not show the top page again: \(String(describing: window.shownTopPage))" })
         }
     }
 
