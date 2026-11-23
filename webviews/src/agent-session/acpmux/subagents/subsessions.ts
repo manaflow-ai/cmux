@@ -12,6 +12,7 @@ import type { RetryState } from "./retryState";
 import { cloudHost, listed, type AcpmuxSessionEntry, type SessionWaiting } from "../sessionList";
 import { replacedSince, sessionIndex } from "../sessionIndex";
 import { resolveSenderIdentity, type SenderIdentity, type SenderReference } from "../senderIdentity";
+import type { HarnessIconSpec } from "../../shared/harnessIcons";
 
 /// What a sub-session is doing: its turn runs, it waits on the person (a permission or a question),
 /// its turn failed or its agent went away, or it is done until it is sent more.
@@ -194,6 +195,9 @@ export function subsessionInfo(entry: AcpmuxSessionEntry): SubsessionInfo {
 function nameFields(entry: AcpmuxSessionEntry): string {
   return JSON.stringify([
     entry.name,
+    entry.displayName,
+    entry.formerNames,
+    iconKey(entry.icon),
     entry.shortName,
     entry.peer,
     entry.harness,
@@ -210,6 +214,25 @@ function nameFields(entry: AcpmuxSessionEntry): string {
     cloudHost(entry) ?? "",
     listed(entry),
   ]);
+}
+
+/// What tells a chat's icon from another (an image's own bytes stand in by length and tail, so a
+/// favicon's base64 is not copied into every key).
+function iconKey(icon: AcpmuxSessionEntry["icon"]): string | undefined {
+  if (!icon) return undefined;
+  switch (icon.kind) {
+    case "image":
+      return `image:${icon.mime}:${icon.data.length}:${icon.data.slice(-24)}`;
+    case "brand":
+      return `brand:${icon.brand}`;
+    case "symbol":
+      return `symbol:${icon.name}:${icon.text}:${icon.hue}`;
+    case "emoji":
+    case "monogram":
+      return `${icon.kind}:${icon.text}`;
+    case "glyph":
+      return `glyph:${icon.name}`;
+  }
 }
 
 /// A sub-session's row in the summary card: `depth` 0 for one this chat started, 1 for one that
@@ -287,12 +310,20 @@ export class SubsessionStore {
   private last: readonly AcpmuxSessionEntry[] | undefined;
   private readonly nameListeners = new Set<() => void>();
 
-  senderEntries = (): ReadonlyMap<string, AcpmuxSessionEntry> => this.senders;
+  senderEntries = (): ReadonlyMap<string, AcpmuxSessionEntry> => {
+    this.rebuild();
+    return this.senders;
+  };
 
   /// Replaces the views with those of the sub-sessions among `sessions`; one whose content did not
   /// change keeps its object. The pane sends the list with every snapshot, reusing the entry of a
   /// session that did not change, so an entry seen last time is not read again.
   set(sessions: readonly AcpmuxSessionEntry[]): void {
+    if (this.released) {
+      this.dirty ||= sessions !== this.pending;
+      this.pending = sessions;
+      return;
+    }
     const last = this.last;
     this.last = sessions;
     if (this.patch(sessions, replacedSince(last, sessions))) return;
@@ -339,6 +370,8 @@ export class SubsessionStore {
       };
       for (const entry of sessions) {
         addName(entry.name, entry);
+        // The name it was given ("Mango", acpmux `displayName`) signs its messages too.
+        addName(entry.displayName, entry);
         addName(entry.shortName, entry);
         // A peer chat may be listed as `<peer>/<name>` but sign a message with the
         // bare name. The bare alias is safe only when unique across listed chats.
@@ -346,6 +379,10 @@ export class SubsessionStore {
         const bare = entry.peer && name?.startsWith(`${entry.peer}/`) ? name.slice(entry.peer.length + 1) : undefined;
         addName(bare, entry);
       }
+      // A former name (acpmux `formerNames`, "fka") still names its chat where no chat has it now.
+      const current = new Set(candidates.keys());
+      for (const entry of sessions)
+        for (const former of entry.formerNames ?? []) if (!current.has(former.trim())) addName(former, entry);
       for (const [name, matches] of candidates) {
         const active = matches.live.size ? matches.live : matches.archived;
         if (active.size === 1) named.set(name, active.values().next().value!);
@@ -390,17 +427,35 @@ export class SubsessionStore {
         [...ids].sort(),
         [...sessions]
           .sort((a, b) => (a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0))
-          .map(({ sessionId, name, shortName, peer, harness, host, hostKind, startedBy, spawnedBy }) => [
-            sessionId,
-            name,
-            shortName,
-            peer,
-            harness,
-            host,
-            hostKind,
-            startedBy,
-            spawnedBy,
-          ]),
+          .map(
+            ({
+              sessionId,
+              name,
+              displayName,
+              formerNames,
+              icon,
+              shortName,
+              peer,
+              harness,
+              host,
+              hostKind,
+              startedBy,
+              spawnedBy,
+            }) => [
+              sessionId,
+              name,
+              displayName,
+              formerNames,
+              iconKey(icon),
+              shortName,
+              peer,
+              harness,
+              host,
+              hostKind,
+              startedBy,
+              spawnedBy,
+            ],
+          ),
       ]);
       const renamed = namedKey !== this.namedKey;
       this.named = named;
@@ -412,7 +467,7 @@ export class SubsessionStore {
       if (renamed) this.runs = runs;
       if (renamed) this.machines = machines;
       this.namedKey = namedKey;
-      if (renamed) for (const listener of this.nameListeners) listener();
+      if (renamed) this.notify(this.nameListeners);
     }
     for (const entry of sessions) {
       if (!entry.startedBy) continue;
@@ -437,7 +492,7 @@ export class SubsessionStore {
     this.infos = infos;
     this.keys = keys;
     this.entries = entries;
-    if (changed) for (const listener of this.listeners) listener();
+    if (changed) this.notify(this.listeners);
   }
 
   /// The same sessions as last time, some of them changed, none in what the name index reads
@@ -472,50 +527,123 @@ export class SubsessionStore {
       this.keys.set(id, key);
       notify = true;
     }
-    if (notify) for (const listener of this.listeners) listener();
+    if (notify) this.notify(this.listeners);
     return true;
   }
 
+  /// The page is hidden: every index made from the list goes, the list stays (the pane's snapshot
+  /// holds it). A hidden chat keeps its data and nothing derived from it, so 100 open chats do not
+  /// each hold a name index over every listed chat (hq#21290). Lists set while released wait for
+  /// ``restore``; a read while released makes the indexes again first, telling no one.
+  release(): void {
+    if (this.released) return;
+    this.pending = this.last;
+    this.released = true;
+    this.infos = new Map();
+    this.keys = new Map();
+    this.entries = new Map();
+    this.senders = new Map();
+    this.named = new Map();
+    this.harnesses = new Map();
+    this.runs = new Map();
+    this.hosts = new Map();
+    this.places = new Map();
+    this.machines = new Map();
+    this.ids = new Set();
+    this.namedKey = "";
+    this.nameFrom = new Map();
+    this.nameSigs = new Map();
+    this.nameCount = -1;
+    this.last = undefined;
+  }
+
+  /// The page shows again: the indexes are made from the latest list, and readers are told when a
+  /// list came while it was hidden.
+  restore(): void {
+    if (!this.released) return;
+    const dirty = this.dirty;
+    this.rebuild();
+    if (dirty) {
+      this.notify(this.nameListeners);
+      this.notify(this.listeners);
+    }
+  }
+
+  private released = false;
+  /// A list set while released (``dirty``), or the last one before it.
+  private pending: readonly AcpmuxSessionEntry[] | undefined;
+  private dirty = false;
+  private quiet = false;
+
+  private rebuild(): void {
+    if (!this.released) return;
+    this.released = false;
+    this.dirty = false;
+    const pending = this.pending;
+    this.pending = undefined;
+    if (!pending) return;
+    this.quiet = true;
+    try {
+      this.set(pending);
+    } finally {
+      this.quiet = false;
+    }
+  }
+
+  private notify(listeners: ReadonlySet<() => void>): void {
+    if (this.quiet) return;
+    for (const listener of listeners) listener();
+  }
+
   get(sessionId: string): SubsessionInfo | undefined {
+    this.rebuild();
     return this.infos.get(sessionId);
   }
 
   /// The listed chat named `name`, if one is.
   find(name: string): string | undefined {
+    this.rebuild();
     return this.named.get(name.trim());
   }
 
   /// Whether the list has chat `sessionId` (any listed chat, not only a sub-session).
   has(sessionId: string): boolean {
+    this.rebuild();
     return this.ids.has(sessionId);
   }
 
   harness(sessionId: string): string | undefined {
+    this.rebuild();
     return this.harnesses.get(sessionId);
   }
 
   sender(sessionId: string): AcpmuxSessionEntry | undefined {
+    this.rebuild();
     return this.senders.get(sessionId);
   }
 
   /// The model and effort listed chat `sessionId` runs on, when the list names them.
   run(sessionId: string): SenderRun | undefined {
+    this.rebuild();
     return this.runs.get(sessionId);
   }
 
   /// The other machine listed chat `sessionId` runs on; undefined for this Mac's.
   host(sessionId: string): string | undefined {
+    this.rebuild();
     return this.hosts.get(sessionId);
   }
 
   /// The listed chats on machine `host`, by name; none for this Mac's (no host). The same array
   /// until the list changes, so a reader can hand it to `useSyncExternalStore`.
   chatsOn(host: string): readonly MachineChat[] {
+    this.rebuild();
     return this.machines.get(host) ?? NO_CHATS;
   }
 
   /// Where listed chat `sessionId` works: its folder, and the other machine it runs on.
   place(sessionId: string): SenderPlace | undefined {
+    this.rebuild();
     return this.places.get(sessionId);
   }
 
@@ -596,7 +724,15 @@ export function useSenderPlace(sessionId: string | undefined): SenderPlace | und
 export function useSenderChat(
   name: string,
   sessionId: string | undefined,
-): { sessionId?: string; harness?: string; host?: string; run?: SenderRun } {
+): {
+  sessionId?: string;
+  harness?: string;
+  host?: string;
+  run?: SenderRun;
+  /// The name it was given (acpmux `displayName`) and the icon it set: a sender line shows them first.
+  displayName?: string;
+  icon?: HarnessIconSpec;
+} {
   const store = useContext(SubsessionContext)?.store ?? EMPTY;
   // `name` may be the chat's id itself (a sender acpmux proved, incomingMessage.ts `lookup`).
   const readId = () => sessionId ?? (store.has(name.trim()) ? name.trim() : store.find(name));
@@ -607,7 +743,18 @@ export function useSenderChat(
   const host = useSyncExternalStore(store.subscribeNames, readHost, readHost);
   const readRun = () => (id ? store.run(id) : undefined);
   const run = useSyncExternalStore(store.subscribeNames, readRun, readRun);
-  return { ...(id && { sessionId: id }), ...(harness && { harness }), ...(host && { host }), ...(run && { run }) };
+  const readEntry = () => (id ? store.sender(id) : undefined);
+  const entry = useSyncExternalStore(store.subscribeNames, readEntry, readEntry);
+  const displayName = entry?.displayName;
+  const icon = entry?.icon;
+  return {
+    ...(id && { sessionId: id }),
+    ...(harness && { harness }),
+    ...(host && { host }),
+    ...(run && { run }),
+    ...(displayName && { displayName }),
+    ...(icon && { icon }),
+  };
 }
 
 /// The listed chats on machine `host`, live while the component shows.
@@ -627,11 +774,16 @@ export function useSenderIdentity(sender: SenderReference, viewerSessionId?: str
   return useMemo(
     () =>
       resolveSenderIdentity(
-        { name: sender.name, sessionId: sender.sessionId, relation: sender.relation },
+        {
+          name: sender.name,
+          sessionId: sender.sessionId,
+          relation: sender.relation,
+          ...(sender.displayName && { displayName: sender.displayName }),
+        },
         entry,
         viewerSessionId,
       ),
-    [sender.name, sender.sessionId, sender.relation, entry, viewerSessionId],
+    [sender.name, sender.sessionId, sender.relation, sender.displayName, entry, viewerSessionId],
   );
 }
 
