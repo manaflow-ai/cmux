@@ -829,7 +829,7 @@ class EveryTier(unittest.TestCase):
         # (#49046) and on dispatches; a feat-cmux-next push skips it (push CI is the app build).
         condition = next(line for line in swift_test.splitlines() if line.startswith("    if: "))
         self.assertNotIn("github.event.pull_request.head.repo.full_name == github.repository", condition)
-        self.assertIn("github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next'"
+        self.assertIn("github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next')"
                       " || contains(github.event.pull_request.labels.*.name, 'full-ci')", condition)
         self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", condition)
         self.assertIn("    continue-on-error: false\n", swift_test)
@@ -1239,14 +1239,12 @@ class WorkflowRoute(unittest.TestCase):
         # resolves the declared pool, so a workflow edit conservatively keeps the Mac tier.
         self.assertEqual(self.route_with_base(base)["macos"], "true")
 
-    def test_a_portable_placement_runner_reads_as_linux_and_no_other_output_does(self):
-        """checks takes a free mini through portable placement; it runs no Mac tier there, so an edit to it
-        runs none. Any other job output may still name a Mac."""
+    def test_cmux_linux_reads_as_linux_and_no_job_output_does(self):
+        """checks takes cmux-linux; it runs no Mac tier there, so an edit to it runs none. A job output may name a Mac."""
         import cmux_next_route as route_module
-        portable = ("vars.CI_X && needs.portable-placement.outputs.mini_runner || "
-                    "needs.portable-placement.outputs.linux_runner || 'blacksmith-16vcpu-ubuntu-2404'")
-        self.assertTrue(route_module.linux_values(portable))
-        self.assertFalse(route_module.linux_values(portable.replace("portable-placement", "macos-placement")))
+        own = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux'"
+        self.assertTrue(route_module.linux_values(own))
+        self.assertFalse(route_module.linux_values(own.replace("'cmux-linux'", "needs.macos-placement.outputs.runner")))
 
     def test_a_swift_change_beside_it_routes_as_without_it(self):
         swift = f"{PACKAGE}/Sources/CmuxNextApp/WorkspaceSpawn.swift"

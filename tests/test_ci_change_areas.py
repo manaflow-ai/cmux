@@ -59,6 +59,7 @@ GUARD_ALWAYS_JOBS = ("workflow-guard-submodule-forward-only",)
 WEB_JOBS = (
     "web-subarea-scope",
     "web-typecheck",
+    "webviews-typecheck",
     "web-production-build",
     "web-tests",
     "web-instant-navigation",
@@ -136,14 +137,15 @@ def test_portable_guard_runner_and_tests_are_linux_control_plane_only() -> None:
     ), (paths, actual)
 
 
-def test_portable_placement_input_keeps_the_guard_tests_linux_only() -> None:
-    # cmux-next-guards.yml may pass a free mini as guard_tests_runner; the guard
-    # tests that job names stay off the macOS and Release lanes.
+def test_the_one_linux_label_keeps_the_guard_tests_linux_only() -> None:
+    # Own-branch Linux jobs take the one label cmux-linux; the guard tests that job names stay off
+    # the macOS and Release lanes. A needs or inputs expression still fails open.
     runs_on = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
-               "inputs.guard_tests_runner != '' && inputs.guard_tests_runner || "
-               "vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}")
+               "github.event.pull_request.head.repo.full_name != github.repository && "
+               "'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}")
     assert module.is_plainly_linux_runner(runs_on)
-    assert not module.is_plainly_linux_runner(runs_on.replace("guard_tests_runner", "other_runner"))
+    assert module.is_plainly_linux_runner("cmux-linux") is False
+    assert not module.is_plainly_linux_runner(runs_on.replace("'cmux-linux'", "inputs.guard_tests_runner"))
     actual = module.classify_files(["tests/test_ci_nightly_push_throttle.py"])
     assert actual.macos is False and actual.release_build is False, actual
 
@@ -158,7 +160,7 @@ def test_portable_guard_runner_does_not_hide_a_native_change() -> None:
     assert actual.macos is True, (paths, actual)
 
 
-def test_portable_router_linux_placement_keeps_guard_references_linux_only() -> None:
+def test_the_router_keeps_guard_references_linux_only() -> None:
     workflow = (ROOT / module.CI_WORKFLOW_PATH).read_text(encoding="utf-8")
     _, jobs = module.split_workflow_jobs(workflow)
     router = jobs["changes"]
@@ -2123,6 +2125,7 @@ def run_web_status(
             "instant": "true",
             "production_build": "true",
             "react_apps": "true",
+            "agent_pane": "true",
             "typecheck": "true",
             "unit_tests": "true",
         } if scope_required else {
@@ -2131,6 +2134,7 @@ def run_web_status(
             "instant": "false",
             "production_build": "false",
             "react_apps": "false",
+            "agent_pane": "false",
             "typecheck": "false",
             "unit_tests": "false",
         }
@@ -3199,7 +3203,7 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
 
 
 # ci.yml's legacy lanes skip PRs into feat-cmux-next, which cmux-next.yml covers.
-FEAT_CMUX_NEXT_PR_SKIP = "(github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next')"
+FEAT_CMUX_NEXT_PR_SKIP = "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next'))"
 
 
 def test_feat_next_route_keeps_one_compile_for_webview_resources() -> None:
@@ -3325,7 +3329,11 @@ def test_react_doctor_runs_as_an_independent_required_lane() -> None:
     assert "bun run react-doctor:ci" in block
     assert "hashFiles('webviews/bun.lock')" in block
     # 16 vCPU from the capability map: on 4 vCPU it hit its 10 min timeout.
-    assert "runs-on: ${{ fromJSON(needs.runners.outputs.map).linux_16 }}" in block
+    # A fork head takes CI_FORK_LINUX_RUNNER, since fork code never reaches
+    # the owned label the map names for manaflow-ai.
+    runs_on = next(line.strip() for line in block.splitlines() if line.strip().startswith("runs-on:"))
+    assert runs_on.endswith("|| fromJSON(needs.runners.outputs.map).linux_16 }}"), runs_on
+    assert "head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04')" in runs_on, runs_on
 
 
 def test_every_setup_bun_step_declares_a_version() -> None:
@@ -3407,7 +3415,7 @@ def test_ci_instant_navigation_owns_typecheck_once() -> None:
     assert '          CMUX_INSTANT_SKIP_TYPECHECK: "1"' in instant
     assert "        run: bun run test:instant" in instant
 
-    validation_typecheck = web_validation.index("      - run: bun run typecheck")
+    validation_typecheck = web_validation.index("        run: bun run typecheck")
     validation_instant = web_validation.index("      - run: bun run test:instant")
     assert validation_typecheck < validation_instant
     assert web_validation[validation_typecheck:validation_instant].count("bun run typecheck") == 1
@@ -5016,6 +5024,41 @@ def test_web_subarea_router_keeps_expensive_lanes_narrow() -> None:
         ) == expected, (paths, actual)
 
 
+def test_agent_pane_real_daemon_lane_is_narrower_than_react_apps() -> None:
+    for path in (
+        "webviews/test/agent-pane-picks-hold.test.ts",
+        "webviews/test/agent-pane-new-chat-settles.test.ts",
+        "webviews/test/support/realAcpmux.ts",
+        "webviews/test/support/warmDevServer.ts",
+        "webviews/test/support/fixture.test.ts",
+        "webviews/test/preload.ts",
+        "webviews/vite.config.acpmux-pane.mjs",
+        "webviews/src/ui/NoticeDeck.tsx",
+        "webviews/src/agent-session/acpmux/Composer.tsx",
+        "cmux-tui/crates/acpmux/src/lib.rs",
+        "cmux-tui/crates/acpmux-book/src/lib.rs",
+        "cmux-tui/Cargo.lock",
+    ):
+        areas = web_subareas.classify_paths([path], ROOT)
+        assert areas.react_apps is (path.startswith("webviews/"))
+        assert areas.agent_pane is True, path
+
+    for path in ("webviews/test/diff.test.ts", "webviews/test/agent-activity.test.tsx"):
+        areas = web_subareas.classify_paths([path], ROOT)
+        assert areas.react_apps is True, path
+        assert areas.agent_pane is False, path
+
+
+def test_agent_pane_scope_keeps_shared_inputs_and_mixed_changes() -> None:
+    for path in web_subareas.ALL_SUBAREA_INPUTS:
+        assert web_subareas.classify_paths([path], ROOT).agent_pane, path
+    for paths in (
+        ["webviews/test/diff.test.ts", "webviews/test/support/warmDevServer.ts"],
+        ["webviews/test/diff.test.ts", "webviews/src/ui/NoticeDeck.tsx"],
+        ["webviews/src/ui/NoticeDeck.tsx", "webviews/test/diff.test.ts"],
+    ):
+        assert web_subareas.classify_paths(paths, ROOT).agent_pane, paths
+
 
 def test_docs_reference_inputs_run_web_unit_tests() -> None:
     # web/tests/next-docs.test.ts reads these outside web/; a change to them that
@@ -5028,6 +5071,7 @@ def test_web_status_allows_unselected_subarea_jobs_to_skip() -> None:
     result = run_web_status(
         results={
             "web-typecheck": "skipped",
+            "webviews-typecheck": "skipped",
             "web-production-build": "skipped",
             "web-tests": "skipped",
             "web-instant-navigation": "skipped",
@@ -5042,6 +5086,7 @@ def test_web_status_allows_unselected_subarea_jobs_to_skip() -> None:
             "instant": "false",
             "production_build": "false",
             "react_apps": "false",
+            "agent_pane": "false",
             "typecheck": "false",
             "unit_tests": "false",
         },
@@ -5054,6 +5099,22 @@ def test_web_status_rejects_selected_skip_failure_or_cancellation() -> None:
         for outcome in ("skipped", "failure", "cancelled"):
             result = run_web_status(results={web_job: outcome})
             assert result.returncode != 0, (web_job, outcome)
+
+
+def test_web_status_checks_react_when_real_daemon_tests_are_unselected() -> None:
+    # An unrelated standalone test still needs React validation even though it
+    # does not need another acpmux build. The summary must distinguish the two.
+    subareas = {name: "true" for name in (
+        "db", "diff_sidecar", "instant", "production_build", "react_apps",
+        "typecheck", "unit_tests",
+    )}
+    subareas["agent_pane"] = "false"
+    for react_result, expected in (("success", 0), ("skipped", 3), ("failure", 1)):
+        result = run_web_status(
+            results={"agent-pane-real-acpmux": "skipped", "react-apps-check": react_result},
+            subareas=subareas,
+        )
+        assert result.returncode == expected, (react_result, result.stdout, result.stderr)
 
 
 def test_web_status_rejects_a_scope_that_succeeded_with_no_subareas() -> None:

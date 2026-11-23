@@ -56,6 +56,9 @@ mod space;
 mod try_cmd;
 mod version;
 pub(super) mod wait;
+mod web_pieces;
+pub(crate) use try_cmd::spawn_daemon_updates;
+pub(super) use web_pieces::USAGE as WEB_PIECES_USAGE;
 
 /// Scopes that belong to the app, whatever follows.
 pub(super) const APP_SCOPES: &[&str] = &[
@@ -91,6 +94,9 @@ pub(super) const REMOTE_VIEWS_METHOD: &str = "remote_view.state";
 /// The app method `cmux app mac-screens` reads; the app registers it in every
 /// build (MacScreenPages.releaseMethods, whose test reads this line).
 pub(super) const MAC_SCREENS_METHOD: &str = "mac_screen.state";
+/// The app method `cmux app clicks` reads; the app registers it in every build
+/// (ClickTrace.controlMethod, whose test reads this line).
+pub(super) const CLICKS_METHOD: &str = "input.clicks";
 pub(super) const WAITING_RUN_TIMEOUT: Duration = Duration::from_secs(45);
 /// The app methods `cmux app machines` and `cmux app join-line` send; the app
 /// registers both in every build (AppControl+Remote.swift). A list read or a
@@ -219,6 +225,9 @@ pub(super) enum AppCommand {
     Published(cmux_apps::cli::Parsed),
     /// `cmux app launch-times`: the app's recorded launches, read from its file (app/launch_times.rs).
     LaunchTimes(launch_times::Command),
+    /// `cmux app web-pieces check|status`: what each web piece of a web update serves, from the
+    /// signed switch file (app/web_pieces.rs).
+    WebPieces(web_pieces::Command),
 }
 
 /// Whether `args` (after the global options) is the classic `cmux identify`,
@@ -319,6 +328,9 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         ("keybinding", _) => keybinding::parse(rest)?,
         ("app", Some("call")) => call::parse(rest)?,
         ("app", Some("try")) => AppCommand::Try(try_cmd::parse(rest.get(1..).unwrap_or_default())?),
+        ("app", Some(verb @ ("versions" | "use"))) => {
+            AppCommand::Nightly(nightly::parse_app(verb, rest.get(1..).unwrap_or_default())?)
+        }
         ("app", Some("share")) => {
             AppCommand::Share(try_cmd::parse_share(rest.get(1..).unwrap_or_default())?)
         }
@@ -330,6 +342,7 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         ("app", Some("capabilities")) => call("system.capabilities", json!({})),
         ("app", Some("renderers")) => renderers::parse(rest)?,
         ("app", Some("launch-times")) => launch_times::parse(rest)?,
+        ("app", Some("web-pieces")) => web_pieces::parse(rest)?,
         ("app", Some("chat")) if rest.get(1).is_some_and(|verb| verb == "perf") => {
             chat_perf::parse(rest)?
         }
@@ -356,6 +369,17 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
                 params.insert("tab".into(), json!(tab));
             }
             call(MAC_SCREENS_METHOD, Value::Object(params))
+        }
+        // Where the person's last presses went (`input.clicks`, every build): per press
+        // the window it reached, whether the overlay or a divider catcher took or
+        // forwarded it, each page focus grant it led to, and the key window after.
+        ("app", Some("clicks")) => {
+            let options = Options::parse(rest.get(1..).unwrap_or_default(), &["limit"], &[])?;
+            let mut params = Map::new();
+            if let Some(limit) = options.value("limit") {
+                params.insert("limit".into(), json!(parse_limit(limit, "app clicks")?));
+            }
+            call(CLICKS_METHOD, Value::Object(params))
         }
         // The Machines section's machines (`machine.list`, every build): this Mac,
         // Cloud, SSH, server and hub-joined machines with their link state. It reads
@@ -602,7 +626,7 @@ pub(super) fn action_origin() -> &'static str {
 
 /// An action argument's name from its flag: the catalog names arguments in
 /// camelCase (`--keep-sessions` is `keepSessions`).
-pub(super) fn argument_name(flag: &str) -> String {
+pub(in crate::cli) fn argument_name(flag: &str) -> String {
     let mut name = String::with_capacity(flag.len());
     let mut upper = false;
     for character in flag.chars() {
@@ -897,6 +921,7 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
         AppCommand::Share(command) => return Ran::Done(try_cmd::run_share(global, command)),
         AppCommand::Published(parsed) => return Ran::Done(published::run(global, parsed)),
         AppCommand::LaunchTimes(command) => return Ran::Done(launch_times::run(global, command)),
+        AppCommand::WebPieces(command) => return Ran::Done(web_pieces::run(global, command)),
         _ => {}
     }
     let mut stream = match connect_command(global) {
@@ -1047,6 +1072,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::Share(command) => return Ran::Done(try_cmd::run_share(global, &command)),
         AppCommand::Published(parsed) => return Ran::Done(published::run(global, &parsed)),
         AppCommand::LaunchTimes(command) => return Ran::Done(launch_times::run(global, &command)),
+        AppCommand::WebPieces(command) => return Ran::Done(web_pieces::run(global, &command)),
         AppCommand::Open { requests, stop_on_failure } => {
             let mut status = 0;
             for request in requests {
