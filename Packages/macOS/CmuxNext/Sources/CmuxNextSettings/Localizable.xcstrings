@@ -229915,6 +229915,530 @@
         }
       }
     },
+    "settings.chats.coldSegments": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ضغط الدردشات الطويلة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sažmi duge razgovore"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komprimer lange chats"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lange Chats komprimieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compress Long Chats"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprimir chats largos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compresser les longues discussions"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprimi le chat lunghe"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "長いチャットを圧縮"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាប់ការជជែកវែងៗ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "긴 채팅 압축"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komprimer lange chatter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kompresuj długie czaty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprimir chats longos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сжимать длинные чаты"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บีบอัดแชทที่ยาว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uzun sohbetleri sıkıştır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стискати довгі чати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nén các cuộc trò chuyện dài"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "压缩长聊天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "壓縮長聊天"
+          }
+        }
+      }
+    },
+    "settings.chats.coldSegments.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يضغط الأجزاء الأقدم من الدردشات الطويلة. شغّل cmux chats warm للتراجع."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sažima starije dijelove dugih razgovora. Pokrenite cmux chats warm da poništite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komprimerer de ældre dele af lange chats. Kør cmux chats warm for at fortryde."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komprimiert die älteren Teile langer Chats. Zum Rückgängigmachen cmux chats warm ausführen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compresses the older parts of long chats. Run cmux chats warm to undo."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprime las partes más antiguas de los chats largos. Ejecuta cmux chats warm para deshacerlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compresse les parties les plus anciennes des longues discussions. Exécutez cmux chats warm pour annuler."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprime le parti più vecchie delle chat lunghe. Esegui cmux chats warm per annullare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "長いチャットの古い部分を圧縮します。元に戻すには cmux chats warm を実行します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាប់ផ្នែកចាស់ៗនៃការជជែកវែងៗ។ ដំណើរការ cmux chats warm ដើម្បីត្រឡប់វិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "긴 채팅의 오래된 부분을 압축합니다. 되돌리려면 cmux chats warm을 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komprimerer de eldre delene av lange chatter. Kjør cmux chats warm for å angre."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kompresuje starsze części długich czatów. Uruchom cmux chats warm, aby cofnąć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprime as partes mais antigas de chats longos. Execute cmux chats warm para desfazer."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сжимает старые части длинных чатов. Чтобы отменить, выполните cmux chats warm."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บีบอัดส่วนที่เก่ากว่าของแชทที่ยาว เรียกใช้ cmux chats warm เพื่อเลิกทำ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uzun sohbetlerin eski bölümlerini sıkıştırır. Geri almak için cmux chats warm komutunu çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стискає старіші частини довгих чатів. Щоб скасувати, виконайте cmux chats warm."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nén các phần cũ của những cuộc trò chuyện dài. Chạy cmux chats warm để hoàn tác."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "压缩长聊天中较早的部分。运行 cmux chats warm 可撤销。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "壓縮長聊天中較早的部分。執行 cmux chats warm 可復原。"
+          }
+        }
+      }
+    },
+    "settings.chats.coldSegmentsLevel": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مستوى ضغط الدردشات الطويلة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nivo sažimanja dugih razgovora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komprimeringsniveau for lange chats"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komprimierungsstufe für lange Chats"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Long Chat Compression Level"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nivel de compresión de chats largos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niveau de compression des longues discussions"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Livello di compressione delle chat lunghe"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "長いチャットの圧縮レベル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្រិតបង្ហាប់ការជជែកវែងៗ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "긴 채팅 압축 수준"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komprimeringsnivå for lange chatter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poziom kompresji długich czatów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nível de compressão de chats longos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уровень сжатия длинных чатов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระดับการบีบอัดแชทที่ยาว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uzun sohbet sıkıştırma düzeyi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Рівень стиснення довгих чатів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mức nén cuộc trò chuyện dài"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "长聊天压缩级别"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "長聊天壓縮等級"
+          }
+        }
+      }
+    },
+    "settings.chats.coldSegmentsLevel.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تستخدم المستويات الأعلى مساحة أقل من القرص وتستغرق وقتًا أطول في الضغط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viši nivoi zauzimaju manje prostora na disku i duže se sažimaju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Højere niveauer bruger mindre diskplads og tager længere tid at komprimere."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Höhere Stufen belegen weniger Speicherplatz und komprimieren langsamer."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Higher levels use less disk and take longer to compress."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los niveles más altos ocupan menos disco y tardan más en comprimir."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les niveaux plus élevés occupent moins de disque et compressent plus lentement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I livelli più alti occupano meno disco e richiedono più tempo per comprimere."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レベルが高いほどディスク使用量は減り、圧縮に時間がかかります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្រិតខ្ពស់ប្រើថាសតិចជាង ហើយចំណាយពេលបង្ហាប់យូរជាង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "수준이 높을수록 디스크를 덜 쓰고 압축에 더 오래 걸립니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Høyere nivåer bruker mindre diskplass og tar lengre tid å komprimere."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyższe poziomy zajmują mniej miejsca na dysku i dłużej kompresują."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Níveis mais altos usam menos disco e levam mais tempo para comprimir."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Более высокие уровни занимают меньше места на диске, но сжимают дольше."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระดับที่สูงขึ้นใช้พื้นที่ดิสก์น้อยลงและใช้เวลาบีบอัดนานขึ้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Daha yüksek düzeyler daha az disk kullanır ve sıkıştırması daha uzun sürer."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вищі рівні займають менше місця на диску, але стискають довше."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mức cao hơn dùng ít dung lượng đĩa hơn và nén lâu hơn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "级别越高，占用的磁盘空间越少，压缩耗时越长。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等級越高，占用的磁碟空間越少，壓縮耗時越長。"
+          }
+        }
+      }
+    },
     "settings.chats.coldArchive": {
       "extractionState": "manual",
       "localizations": {
@@ -239604,6 +240128,60 @@
             "value": "問題"
           }
         }
+      }
+    },
+    "settings.notifications.delivery.blocked": {
+      "comment": "Settings > Notifications > Delivery: row title for how cmux notifies when an agent's status turns Blocked",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Agent Blocked"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "الوكيل محظور"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Agent blokiran"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Agent blokeret"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Agent blockiert"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Agente bloqueado"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Agent bloqué"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Agente bloccato"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "エージェントがブロック中"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ភ្នាក់ងារត្រូវបានរារាំង"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "에이전트 차단됨"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Agent blokkert"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Agent zablokowany"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Agente bloqueado"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Агент заблокирован"}},
+        "th": {"stringUnit": {"state": "translated", "value": "เอเจนต์ถูกบล็อก"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Ajan engellendi"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Агент заблоковано"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Tác tử bị chặn"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "智能体被阻塞"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "代理程式被阻擋"}}
+      }
+    },
+    "settings.notifications.delivery.blocked.help": {
+      "comment": "Settings > Notifications > Delivery: help under the Agent Blocked row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "When an agent's status turns Blocked without its own approval or question alert, as screen detection and plugins report it."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "عندما تصبح حالة الوكيل محظورة دون تنبيه موافقة أو سؤال خاص به، كما يبلغ عنها اكتشاف الشاشة والإضافات."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Kada status agenta postane Blokiran bez vlastitog upozorenja o odobrenju ili pitanju, kako to javljaju detekcija ekrana i dodaci."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Når en agents status bliver Blokeret uden sin egen godkendelses- eller spørgsmålsadvarsel, som skærmgenkendelse og plugins rapporterer det."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Wenn der Status eines Agenten ohne eigene Freigabe- oder Fragemeldung zu „Blockiert“ wechselt, wie Bildschirmerkennung und Plugins es melden."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Cuando el estado de un agente pasa a Bloqueado sin su propia alerta de aprobación o pregunta, según lo informan la detección de pantalla y los plugins."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Quand le statut d’un agent passe à Bloqué sans sa propre alerte d’approbation ou de question, tel que le signalent la détection d’écran et les plugins."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Quando lo stato di un agente diventa Bloccato senza un proprio avviso di approvazione o domanda, come lo segnalano il rilevamento dello schermo e i plugin."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "承認や質問の通知を伴わずにエージェントの状態がブロック中になったとき（画面検出やプラグインが報告するもの）。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "នៅពេលស្ថានភាពភ្នាក់ងារប្តូរទៅជាត្រូវបានរារាំង ដោយគ្មានការជូនដំណឹងអនុម័ត ឬសំណួររបស់វាផ្ទាល់ ដូចដែលការរកឃើញអេក្រង់ និងកម្មវិធីជំនួយរាយការណ៍។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "승인이나 질문 알림 없이 에이전트 상태가 차단됨으로 바뀔 때(화면 감지와 플러그인이 보고하는 경우)."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Når en agents status blir Blokkert uten egen godkjennings- eller spørsmålsvarsel, slik skjermgjenkjenning og programtillegg rapporterer det."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Gdy stan agenta zmienia się na Zablokowany bez własnego alertu o zatwierdzeniu lub pytaniu, tak jak zgłaszają to wykrywanie ekranu i wtyczki."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Quando o status de um agente muda para Bloqueado sem o próprio alerta de aprovação ou pergunta, como a detecção de tela e os plugins informam."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Когда статус агента становится «Заблокирован» без собственного уведомления об одобрении или вопросе, как сообщают распознавание экрана и плагины."}},
+        "th": {"stringUnit": {"state": "translated", "value": "เมื่อสถานะของเอเจนต์เปลี่ยนเป็นถูกบล็อกโดยไม่มีการแจ้งเตือนการอนุมัติหรือคำถามของตัวเอง ตามที่การตรวจจับหน้าจอและปลั๊กอินรายงาน"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Bir ajanın durumu kendi onay veya soru uyarısı olmadan Engellendi olduğunda; ekran algılama ve eklentilerin bildirdiği şekilde."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Коли статус агента стає «Заблоковано» без власного сповіщення про схвалення чи запитання, як повідомляють розпізнавання екрана й плагіни."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Khi trạng thái của tác tử chuyển sang Bị chặn mà không có cảnh báo phê duyệt hoặc câu hỏi riêng, như phát hiện màn hình và plugin báo cáo."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "当智能体状态变为被阻塞且没有自身的批准或提问提醒时（由屏幕检测和插件报告）。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "當代理程式狀態變為被阻擋且沒有其自身的核准或提問提醒時（由螢幕偵測與外掛程式回報）。"}}
       }
     },
     "settings.notifications.delivery.taskComplete": {
