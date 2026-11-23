@@ -96,8 +96,13 @@ interface RelayRow {
 }
 
 export const PENDING_TTL_MS = 5 * 60 * 1000;
-/** How long a device may stay disconnected before its sessions end (reason peer_offline). */
-export const OFFLINE_GRACE_MS = 30_000;
+/**
+ * How long a device may stay disconnected before its sessions end (reason peer_offline), counted from when it was
+ * last heard. A screen share comes back by itself after a 60 s network drop (goal screen-share-fast): a drop can
+ * start up to one ping (30 s) after the last frame, so the grace covers that ping, the drop and the reconnect. The
+ * rd host keeps its side of the session for 90 s of viewer silence (cmux-rd-host stream.rs REATTACH_GRACE_NS).
+ */
+export const OFFLINE_GRACE_MS = 120_000;
 /**
  * A socket close reported by the Session DO is provisional for this long: an
  * authoritative end (/end, revoke, removal, sharing off, sign-out) that arrives
@@ -296,6 +301,20 @@ export function screenShareReport(body: Record<string, unknown>): Record<string,
 
 function publicSession(s: SessionRow) {
   return { id: s.id, state: s.state, scope: s.scope, viewerId: s.viewer_id, hostId: s.host_id, createdAt: s.created_at, endReason: s.end_reason };
+}
+
+/**
+ * The audit detail of a sharing change an owner's agent made under the account's standing
+ * permission: "agent <session> on <device>". Metadata only; null for a person's change.
+ */
+function agentDetail(v: unknown): string | null {
+  if (v === undefined || v === null) return null;
+  if (typeof v !== "object" || Array.isArray(v)) throw badRequest("agent must be an object");
+  const { session, device } = v as { session?: unknown; device?: unknown };
+  const clean = (x: unknown, field: string) => (x === undefined || x === null || x === "" ? null : str(x, field).replace(/[\u0000-\u001f]/g, " "));
+  const who = clean(session, "agent.session") ?? "unnamed session";
+  const where = clean(device, "agent.device");
+  return where ? `agent ${who} on ${where}` : `agent ${who}`;
 }
 
 function str(v: unknown, field: string, max = 200): string {
@@ -656,6 +675,10 @@ export class UserDO extends DurableObject<Env> {
       if (n === 2 && m === "DELETE") return this.deleteRelay(b!);
     }
     if (a === "audit" && n === 1 && m === "GET") return this.listAudit(url.searchParams);
+    if (a === "settings" && n === 1) {
+      if (m === "GET") return json({ settings: this.accountSettings() });
+      if (m === "PUT") return this.putSettings(me, this.parse(raw));
+    }
     throw notFound();
   }
 
@@ -880,12 +903,13 @@ export class UserDO extends DurableObject<Env> {
       throw new ApiError(403, "not_host", "only the device itself can change its Mac Screen sharing");
     }
     if (typeof body.shared !== "boolean") throw badRequest("shared must be a boolean");
+    const agent = agentDetail(body.agent);
     // Set on purpose: from now on a join default never changes it (joinDefault).
     if (me.mac_screen_chosen !== 1) this.sql.exec("UPDATE devices SET mac_screen_chosen = 1 WHERE id = ?", id);
     const was = me.mac_screen_shared === 1;
     if (was !== body.shared) {
       this.sql.exec("UPDATE devices SET mac_screen_shared = ? WHERE id = ?", body.shared ? 1 : 0, id);
-      this.audit(body.shared ? "shared" : "unshared", { hostId: id });
+      this.audit(body.shared ? "shared" : "unshared", { hostId: id, detail: agent });
       if (!body.shared) {
         // Nothing left to serve: the device no longer renews a host session until the app anchors it again.
         this.sql.exec("DELETE FROM anchors WHERE device_id = ?", id);
@@ -895,6 +919,36 @@ export class UserDO extends DurableObject<Env> {
       this.broadcast({ type: "devices.changed" });
     }
     return json({ device: publicDevice(this.device(id)!, this.online(id)) });
+  }
+
+  // ---- account settings (one per user; every device of the account reads them) ----
+
+  /**
+   * "My agents can turn screen sharing and control on my machines": off unless a person turned it
+   * on from a full app session (a host session reads it, never writes it). With it on, the owner's
+   * agents on the owner's devices turn sharing on or off with no dialog (docs/cmux-remote.md).
+   */
+  private accountSettings() {
+    const rows = this.sql.exec("SELECT k, v FROM meta WHERE k IN ('agents_may_share', 'agents_may_share_at', 'agents_may_share_by')").toArray();
+    const value = new Map(rows.map((r) => [r.k as string, r.v as string]));
+    return {
+      agentsMayShare: value.get("agents_may_share") === "1",
+      updatedAt: value.has("agents_may_share_at") ? Number(value.get("agents_may_share_at")) : null,
+      updatedBy: value.get("agents_may_share_by") ?? null,
+    };
+  }
+
+  private putSettings(me: DeviceRow, body: Record<string, unknown>): Response {
+    if (typeof body.agentsMayShare !== "boolean") throw badRequest("agentsMayShare must be a boolean");
+    if (this.accountSettings().agentsMayShare !== body.agentsMayShare) {
+      const put = "INSERT INTO meta(k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v";
+      this.sql.exec(put, "agents_may_share", body.agentsMayShare ? "1" : "0");
+      this.sql.exec(put, "agents_may_share_at", String(Date.now()));
+      this.sql.exec(put, "agents_may_share_by", me.id);
+      this.audit(body.agentsMayShare ? "agents_allowed" : "agents_disallowed", { deviceId: me.id });
+      this.broadcast({ type: "settings.changed" });
+    }
+    return json({ settings: this.accountSettings() });
   }
 
   /**
@@ -1237,7 +1291,10 @@ export class UserDO extends DurableObject<Env> {
     const host = this.liveDevice(s.host_id);
     if (host.mac_screen_shared !== 1) throw new ApiError(403, "not_shared", "the host does not share its screen");
     if (!this.online(host.id)) throw new ApiError(409, "host_offline", "the host is not connected");
-    if (rank(this.permission(host.id, me.id)) < rank(s.scope)) throw new ApiError(403, "permission_none", "the host no longer allows this device");
+    // Lowering a permission ends the sessions it no longer allows (storePermission), so an open
+    // session below its stored permission was approved once (Ask, or View asking for Full): only
+    // None refuses its reattach.
+    if (this.permission(host.id, me.id) === "none") throw new ApiError(403, "permission_none", "the host no longer allows this device");
     const entitled = (await this.sessionEntitlement(s, c)) === "paid";
     const tickets = await this.issueTickets(s, c, entitled ? await mintTurn(this.env) : [], REATTACH_TTL_S, true);
     if (!tickets) throw new ApiError(409, "session_not_active", "session is not active");
@@ -1406,8 +1463,8 @@ export class UserDO extends DurableObject<Env> {
       binds.push(Number(before));
     }
     if (device) {
-      // Device events belong to every device's History: each shows the account's devices coming and going.
-      where.push("(viewer_id = ? OR host_id = ? OR event IN ('device_added', 'device_removed'))");
+      // Device events and the account's agent permission belong to every device's History: each shows the account's devices coming and going.
+      where.push("(viewer_id = ? OR host_id = ? OR event IN ('device_added', 'device_removed', 'agents_allowed', 'agents_disallowed'))");
       binds.push(device, device);
     }
     const rows = this.sql
@@ -1478,7 +1535,7 @@ export class UserDO extends DurableObject<Env> {
   private hostAllowed(m: string, parts: string[], me: DeviceRow, raw: Uint8Array): boolean {
     const [a, b, d] = parts;
     const n = parts.length;
-    if (m === "GET") return (a === "me" && n === 1) || (a === "user" && b === "ws" && n === 2) || (a === "devices" && n === 1) || (a === "permissions" && n === 1) || (a === "relays" && n === 1) || (a === "audit" && n === 1) || (a === "sessions" && n === 1);
+    if (m === "GET") return (a === "me" && n === 1) || (a === "user" && b === "ws" && n === 2) || (a === "devices" && n === 1) || (a === "permissions" && n === 1) || (a === "relays" && n === 1) || (a === "audit" && n === 1) || (a === "sessions" && n === 1) || (a === "settings" && n === 1);
     if (a === "sessions" && n === 1 && m === "POST") {
       // Only a push of this machine's own screen; a session as viewer needs the signed-in app.
       let body: { hostId?: unknown; viewerId?: unknown };
