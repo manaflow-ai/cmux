@@ -1,0 +1,74 @@
+{
+  "$schema": "../../cmux-tui/crates/cmux-app-host/schema/v2/cmux-app.schema.json",
+  "manifestVersion": 2,
+  "id": "cmux/projects",
+  "name": {
+    "en": "Projects"
+  },
+  "version": "1.0.0",
+  "description": "Your recent projects as a widget for New Tab and the sidebar, each with a tile of its own, and the name of the machine they are on with its own color. Pinned projects come first. Tap one to open a new workspace in it.",
+  "publisher": {
+    "name": "cmux",
+    "url": "https://cmux.com"
+  },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "GPL-3.0-or-later",
+  "icon": "assets/icon.svg",
+  "screenshots": [
+    "screenshots/small-medium-large.png",
+    "screenshots/list.png"
+  ],
+  "categories": [
+    "productivity"
+  ],
+  "keywords": [
+    "projects",
+    "folders",
+    "recent",
+    "machine",
+    "widget"
+  ],
+  "engines": {
+    "cmux": "^2.0"
+  },
+  "runtime": {
+    "main": "dist/main.js"
+  },
+  "implements": {
+    "cmux.widget/1": {
+      "export": "renderProjects",
+      "title": {
+        "en": "Projects"
+      },
+      "symbol": "folder",
+      "options": {
+        "sizes": [
+          "small",
+          "medium",
+          "large"
+        ],
+        "defaultSize": "medium",
+        "refresh": {
+          "everySeconds": 60
+        },
+        "places": [
+          "newtab",
+          "sidebar"
+        ]
+      }
+    }
+  },
+  "scopes": {
+    "project:read": "See your recent projects, to show them.",
+    "machine:read": "See this machine's name, to show which machine the projects are on.",
+    "workspace:write": "Open a new workspace in a project when you tap it."
+  },
+  "activation": [
+    "onInterface:cmux.widget/1"
+  ],
+  "files": [
+    "dist/",
+    "assets/",
+    "screenshots/"
+  ]
+}

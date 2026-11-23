@@ -138,8 +138,7 @@
    "coalesce": "calls a reusable workflow: no step here can record its pass"
   },
   "cmux-next-hot-verify.yml": {
-   "plan": "its outputs feed later jobs; a skipped run leaves them empty; needed by hand-off: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.action, github.event.pull_request.base.ref, github.event.pull_request.draft), not only the tree; checks out ${{ github.event.pull_request.base.ref }}, not the run's commit",
-   "hand-off": "writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.action, github.event.pull_request.head.sha, github.event.pull_request.number), not only the tree",
+   "plan": "writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.action, github.event.pull_request.base.ref, github.event.pull_request.head.sha), not only the tree; checks out ${{ github.event.pull_request.base.ref }}, not the run's commit",
    "target": "its outputs feed later jobs; a skipped run leaves them empty; needed by again, publish, request, rust, web: a skip would skip them or read as no verdict",
    "web": "writes to GitHub (a write permission): a side effect, not a verdict on the tree",
    "rust": "its outputs feed later jobs; a skipped run leaves them empty; needed by request: a skip would skip them or read as no verdict; checks out ${{ needs.target.outputs.head }}, not the run's commit",
