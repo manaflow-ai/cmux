@@ -73,13 +73,13 @@
 }
 
 .stats-payoff-value {
-  margin-top: 2px;
-  font-size: var(--text-title);
-  line-height: var(--text-title--line-height);
+  margin-top: 4px;
+  /* The page's one hero number: well above the tiles' heading-size values. */
+  font-size: calc(var(--text-heading) * 1.6);
+  line-height: 1.15;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  letter-spacing: var(--text-title--letter-spacing);
-  color: var(--cmux-accent, var(--page-text));
+  letter-spacing: var(--text-heading--letter-spacing);
 }
 
 .stats-payoff-detail {
