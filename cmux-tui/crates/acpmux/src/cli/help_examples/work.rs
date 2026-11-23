@@ -387,6 +387,47 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         &[("From the agent session that read it, mark a rule read", "acpmux forum ack post-3f9a")],
     ),
     (
+        "trigger",
+        &[
+            (
+                "Wake the Cloud chat fixer when CI fails in acme/app",
+                "acpmux trigger create --repo acme/app --on ci_failure --machine m1 --workspace w1 --session fixer --cwd /repo --harness codex \"CI failed; find why and fix it\"",
+            ),
+            ("The triggers registered from here, read back from Cloud", "acpmux trigger ls"),
+        ],
+    ),
+    (
+        "trigger create",
+        &[
+            (
+                "On a PR comment or a CI failure, wake the Cloud chat fixer",
+                "acpmux trigger create --repo acme/app --on pr_comment --on ci_failure --machine m1 --workspace w1 --session fixer --cwd /repo --harness claude \"Read the new comment or failure and act on it\"",
+            ),
+            (
+                "A new chat per delivery, at most 10 a day",
+                "acpmux trigger create --repo acme/app --on pr_opened --start-session --max-runs-per-day 10 --machine m1 --workspace w1 --session review --cwd /repo --harness codex \"Review this PR\"",
+            ),
+            (
+                "A generic signed webhook instead of GitHub",
+                "acpmux trigger create --webhook --repo acme/app --on deploy.failed --machine m1 --workspace w1 --session ops --cwd /repo --harness codex \"The deploy failed; look\"",
+            ),
+        ],
+    ),
+    (
+        "trigger ls",
+        &[
+            ("The triggers registered from here, on or off", "acpmux trigger ls"),
+            ("Read one trigger by id", "acpmux trigger ls 3f1c2a9e-8b7d-4c6e-9a5b-1d2e3f4a5b6c"),
+        ],
+    ),
+    (
+        "trigger rm",
+        &[(
+            "Turn a trigger off and read it back disabled",
+            "acpmux trigger rm 3f1c2a9e-8b7d-4c6e-9a5b-1d2e3f4a5b6c",
+        )],
+    ),
+    (
         "watch",
         &[
             (
