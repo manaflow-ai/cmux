@@ -10,6 +10,9 @@ export type DocumentPumpOptions<Batch, Change, Host, Part> = {
   route(change: Change, hosts: ReadonlySet<Host>, parts: Map<Host, Part>): void;
   commit(host: Host, part: Part): void;
   take(post: DocumentPumpPost | undefined, batch: Batch): void;
+  /// A batch's number, for a host that sends a batch again when its `taken` never came: a repeat of
+  /// the batch last taken is taken again, and one already waiting is dropped; neither is applied twice.
+  key?(batch: Batch): unknown;
 };
 
 /** The document-owned queue and frame-paced drain shared by page list consumers. */
@@ -18,9 +21,13 @@ export function createDocumentPump<Batch, Change, Host, Part>(options: DocumentP
   let takenPost: DocumentPumpPost | undefined;
   let documentLanes: Lanes | undefined;
   const pending: Batch[] = [];
-  let current: { batch: Batch; changes: readonly unknown[]; next: number; parts: Map<Host, Part> } | undefined;
+  let current:
+    | { batch: Batch; key: unknown; changes: readonly unknown[]; next: number; parts: Map<Host, Part> }
+    | undefined;
   let draining = false;
   let failed: { error: unknown } | undefined;
+  /// The key of the batch last applied (`options.key`).
+  let lastTaken: unknown;
 
   type Global = Record<string, { receive(event: Batch): void } | undefined>;
   const receiveDocument = (event: Batch): void => receive(event);
@@ -50,9 +57,17 @@ export function createDocumentPump<Batch, Change, Host, Part>(options: DocumentP
     current = undefined;
     draining = false;
     failed = undefined;
+    lastTaken = undefined;
   }
 
   function receive(event: Batch, lanes: Lanes = documentLanes ?? pageLanes()): void {
+    const key = options.key?.(event);
+    if (key !== undefined) {
+      // Applied already: only its `taken` was lost.
+      if (key === lastTaken) return options.take(takenPost, event);
+      // Waiting already (a hidden page has no frame): the first copy is applied and taken.
+      if (current?.key === key || pending.some((batch) => options.key?.(batch) === key)) return;
+    }
     pending.push(event);
     if (draining) return;
     draining = true;
@@ -65,9 +80,9 @@ export function createDocumentPump<Batch, Change, Host, Part>(options: DocumentP
         const batch = pending.shift();
         if (!batch) break;
         const changes = (batch as { changes?: readonly unknown[] }).changes ?? [];
-        current = { batch, changes, next: 0, parts: new Map() };
+        current = { batch, key: options.key?.(batch), changes, next: 0, parts: new Map() };
       }
-      const { batch, changes, parts } = current;
+      const { batch, key, changes, parts } = current;
       while (current.next < changes.length) {
         if (applied > 0 && (slice.shouldYield() || lanes.inputPending()))
           return lanes.yield().then(() => drain(lanes, slice, 0));
@@ -81,6 +96,7 @@ export function createDocumentPump<Batch, Change, Host, Part>(options: DocumentP
         }
       }
       current = undefined;
+      lastTaken = key;
       for (const [host, part] of parts)
         try {
           options.commit(host, part);

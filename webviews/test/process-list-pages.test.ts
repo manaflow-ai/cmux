@@ -215,7 +215,15 @@ test("a daemon or host that refuses recent is read whole, page by page, as befor
   const daemon = fakeDaemon(2_500, { paged: true, refusesRecent: true });
   const reply = await (await client(daemon)).listProcesses(CHAT, 100);
   expect(reply.processes).toHaveLength(2_500);
+  expect((reply.processes as { id: string; state: string }[]).filter((p) => p.state === "running")).toEqual(
+    daemon.all.filter((p) => p.state === "running"),
+  );
   expect(daemon.asked.map((params) => params.recent ?? params.limit)).toEqual([100, 1_000, 1_000, 1_000]);
+});
+
+test("a failed page after recent overflow rejects the incomplete running set", async () => {
+  const daemon = fakeDaemon(2_500, { paged: true, refusesRecent: true, failsPage: 3 });
+  await expect((await client(daemon)).listProcesses(CHAT, 100)).rejects.toThrow();
 });
 
 // An older acpmux ignores `recent` and answers its unpaged list (the newest that fit one reply), which

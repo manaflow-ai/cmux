@@ -279,6 +279,55 @@ export function recentState(
   };
 }
 
+/// What a chat's page holds of `processes` while no list of the whole history shows: every running
+/// one and the newest `recent` ended, in their order (acpmux hub/processes.rs `recent_snapshot`).
+/// The same array while it holds no more, so an update to a short list copies nothing extra.
+export function recentProcesses(
+  processes: readonly SessionInfoProcess[],
+  recent: number = PROCESS_LIST_RECENT,
+): readonly SessionInfoProcess[] {
+  let ended = 0;
+  for (const process of processes) if (process.state !== "running") ended += 1;
+  if (ended <= recent) return processes;
+  let drop = ended - recent;
+  return processes.filter((process) => process.state === "running" || drop-- <= 0);
+}
+
+/// The whole list `state` cut to what a window holds, read again from nothing (a list of the whole
+/// history closed while the chat is idle, so no recent read follows): every running process, those
+/// in `keep` (what this view saw run), those the calls `calls` started, those that ended in the last
+/// `endedWithin` ms before `now`, and the `PROCESS_LIST_RECENT` that ended last (by end, then start
+/// order), with `omitted` counting the rest and `endedBefore` the end that splits them, as a recent
+/// reply would. The same state when it holds no whole list.
+function windowState(
+  state: RegistryState,
+  keep: ReadonlySet<string>,
+  calls: readonly string[],
+  endedWithin: number,
+  now: number,
+): RegistryState {
+  if (!state.listed || state.partial) return state;
+  const called = new Set(calls);
+  const held = (process: SessionInfoProcess) =>
+    process.state === "running" ||
+    keep.has(process.id) ||
+    (process.toolCallId !== undefined && called.has(process.toolCallId)) ||
+    (process.endedAt ?? 0) >= now - endedWithin;
+  const ended = state.processes.flatMap((process, at) => (held(process) ? [] : [{ process, at }]));
+  ended.sort((a, b) => (a.process.endedAt ?? 0) - (b.process.endedAt ?? 0) || a.at - b.at);
+  const dropped = ended.slice(0, Math.max(0, ended.length - PROCESS_LIST_RECENT));
+  if (dropped.length === 0) return { ...state, partial: true, omitted: 0 };
+  const gone = new Set(dropped.map(({ process }) => process.id));
+  const endedBefore = (ended[dropped.length]?.process.endedAt ?? 0) || undefined;
+  return {
+    ...state,
+    processes: state.processes.filter((process) => !gone.has(process.id)),
+    partial: true,
+    omitted: dropped.length,
+    ...(endedBefore === undefined ? {} : { endedBefore }),
+  };
+}
+
 /// Sources whose acpmux reads no window (`recent`): read ahead of need never again on this page.
 const WINDOWLESS = new WeakSet<ProcessSource>();
 
@@ -317,6 +366,7 @@ export function useProcessRegistry(
   const calls = useRef<readonly string[]>([]);
   const windowCalls = window?.calls;
   const endedWithin = window?.endedWithin;
+  const endedWithinRef = useRef<number | undefined>(undefined);
   const asked = useRef<{ sessionId?: string; calls: Set<string> }>({ calls: new Set() });
   // The processes this view saw run, for the chat: the tray may still show one as just ended, so
   // a window read after the whole list keeps it (`recentState` `held`).
@@ -327,6 +377,7 @@ export function useProcessRegistry(
   // Declared before the effects that read them, so it runs first on every commit.
   useEffect(() => {
     calls.current = windowCalls ?? [];
+    endedWithinRef.current = endedWithin;
     if (asked.current.sessionId !== sessionId || !windowed) asked.current = { sessionId, calls: new Set() };
     if (seenRunning.current.sessionId !== sessionId) seenRunning.current = { sessionId, ids: new Set() };
     // Read once per new list, not per render; a remembered list is not one this view saw.
@@ -334,13 +385,24 @@ export function useProcessRegistry(
       seenRunning.current.read = state.processes;
       for (const process of state.processes) if (process.state === "running") seenRunning.current.ids.add(process.id);
     }
-  }, [windowCalls, sessionId, windowed, state]);
+  }, [windowCalls, endedWithin, sessionId, windowed, state]);
   // The chat's list as read, kept for the next open (`REMEMBERED`).
   useEffect(() => {
     if (source && sessionId && state.sessionId === sessionId && state.listed && !state.cached)
       rememberRegistry(source, sessionId, state);
   }, [source, sessionId, state]);
   useEffect(() => {
+    // Closing the history releases its older rows even when an idle chat needs no subscription;
+    // every process the window's calls started is held, so those calls need no read.
+    if (windowed && sessionId) {
+      setState((known) => {
+        if (known.sessionId !== sessionId) return known;
+        const within = endedWithinRef.current ?? 0;
+        const cut = windowState(known, seenRunning.current.ids, calls.current, within, Date.now());
+        if (cut !== known) for (const call of calls.current) asked.current.calls.add(call);
+        return cut;
+      });
+    }
     if (!source || !sessionId || !on) return;
     let current = true;
     // This subscription's updates: newer than the list's records.
@@ -385,7 +447,12 @@ export function useProcessRegistry(
       const read = async () => {
         let reply: { processes?: unknown; recent?: unknown; omitted?: unknown; endedBefore?: unknown } | undefined;
         try {
-          reply = (await source.listProcesses(sessionId, PROCESS_LIST_RECENT, endedWithin, aheadOnly)) as typeof reply;
+          reply = (await source.listProcesses(
+            sessionId,
+            PROCESS_LIST_RECENT,
+            endedWithinRef.current,
+            aheadOnly,
+          )) as typeof reply;
         } catch {
           return settle();
         }
@@ -439,7 +506,8 @@ export function useProcessRegistry(
       settle();
       stop();
     };
-    // `calls` and `endedWithin` are read when the list is: a new call is read below.
+    // `calls` and `endedWithin` are refs, read when the list is: a new call is read below. `aheadOnly`
+    // is read as the effect starts: a change of it alone needs no new read.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source, sessionId, on, windowed, windowless]);
   // Calls the transcript shows that were not read yet (older rows read, a subagent's view opened):

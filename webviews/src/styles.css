@@ -7,6 +7,8 @@
 /* The one Tailwind theme (schemas/design-scale, type-scale and motion-scale, through
    webviews/scripts/pages/gen-design-scale.mjs): p-3, rounded-md, text-body, bg-hover, shadow-elevation-2. */
 @import "./ui/theme.generated.css";
+/* The chrome follows the app density (diffSurface marks the root data-page-density). */
+@import "./pages/shared/pageDensity.css";
 
 :root {
   color-scheme: light dark;
@@ -38,6 +40,12 @@
   --cmux-diff-addition-fg: var(--cmux-diff-addition-fg-light);
   --cmux-diff-deletion-fg: var(--cmux-diff-deletion-fg-light);
   --cmux-diff-modified-fg: var(--cmux-diff-modified-fg-light);
+  /* The same colors as text (counts, file names): applyDiffViewerAppearance measures them on what text
+     sits on, the window's tint over the desktop when the window is see-through (appearance.ts
+     `changeText`); until it runs, the colors themselves. */
+  --cmux-diff-addition-text: var(--cmux-diff-addition-text-light, var(--cmux-diff-addition-fg));
+  --cmux-diff-deletion-text: var(--cmux-diff-deletion-text-light, var(--cmux-diff-deletion-fg));
+  --cmux-diff-modified-text: var(--cmux-diff-modified-text-light, var(--cmux-diff-modified-fg));
   --cmux-diff-count-added: color-mix(in srgb, var(--cmux-diff-addition-fg) 66%, var(--cmux-diff-solid-bg));
   --cmux-diff-count-deleted: color-mix(in srgb, var(--cmux-diff-deletion-fg) 66%, var(--cmux-diff-solid-bg));
   /* A modified file's name and square in the files list, softened as the counts are. */
@@ -86,7 +94,18 @@
     --cmux-diff-addition-fg: var(--cmux-diff-addition-fg-dark);
     --cmux-diff-deletion-fg: var(--cmux-diff-deletion-fg-dark);
     --cmux-diff-modified-fg: var(--cmux-diff-modified-fg-dark);
+    --cmux-diff-addition-text: var(--cmux-diff-addition-text-dark, var(--cmux-diff-addition-fg));
+    --cmux-diff-deletion-text: var(--cmux-diff-deletion-text-dark, var(--cmux-diff-deletion-fg));
+    --cmux-diff-modified-text: var(--cmux-diff-modified-text-dark, var(--cmux-diff-modified-fg));
   }
+}
+/* Over a see-through window the counts take their text colors as they are: softening them toward the
+   solid backdrop (the opaque theme color, which the window does not show there) made them unreadable on
+   the tint over a picture (1.1 to 1.7:1, fleet capture of a1eec60d). */
+:root[data-cmux-see-through] {
+  --cmux-diff-count-added: var(--cmux-diff-addition-text);
+  --cmux-diff-count-deleted: var(--cmux-diff-deletion-text);
+  --cmux-diff-count-modified: var(--cmux-diff-modified-text);
 }
 * {
   box-sizing: border-box;
@@ -513,20 +532,10 @@ body {
   white-space: nowrap;
   font-weight: 500;
 }
+/* The shared `Spinner` (its sheet turns it, and Reduce Motion holds it still, cx-sya4n). */
 .base-picker-spinner {
-  width: 12px;
-  height: 12px;
   flex: 0 0 auto;
-  border-radius: 50%;
-  border: 1.6px solid color-mix(in lab, var(--cmux-diff-fg) 26%, transparent);
-  border-top-color: var(--cmux-diff-fg);
-  animation: cmux-spin var(--cmux-spinner-period, 2000ms) linear infinite;
-}
-/* Reduce Motion stops it (cx-sya4n); the diff viewer has no Static setting of its own. */
-@media (prefers-reduced-motion: reduce) {
-  .base-picker-spinner {
-    animation: none;
-  }
+  color: var(--cmux-diff-fg);
 }
 .base-picker-popover {
   /* Portaled to `document.body` and viewport-anchored so it escapes BOTH
@@ -751,8 +760,10 @@ body {
   align-items: center;
   gap: 2px;
   justify-self: end;
-  padding: 2px;
-  border-radius: 7px;
+  /* Concentric with its segment buttons, 2 px in. */
+  --concentric-padding: 2px;
+  padding: var(--concentric-padding);
+  border-radius: calc(var(--ds-radius-control) + var(--concentric-padding));
   background: transparent;
 }
 .segment-button {
@@ -924,7 +935,10 @@ body[data-status-only="true"] #files-motion-curtain {
   margin: var(--ds-space-1) var(--ds-space-2) var(--ds-space-2);
   padding: 0 4px 0 10px;
   border: 1px solid var(--cmux-diff-rim);
-  border-radius: 9px;
+  /* Concentric with its clear button: the 20 px button centered in the 28 px box sits 4 px from the edge
+     (the 1 px border and 3 px of room). */
+  --concentric-padding: 4px;
+  border-radius: calc(var(--ds-radius-control) + var(--concentric-padding));
   background: color-mix(in srgb, var(--cmux-diff-fg) 4%, var(--cmux-diff-files-bg));
   color: var(--cmux-diff-text-dim);
 }
@@ -1061,7 +1075,8 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 9px;
+  /* The scale's smallest step: 9 px was under the 11 px floor (audit 2026-11-19). */
+  font-size: var(--text-caption);
   line-height: 1;
   color: var(--cmux-diff-text-muted);
 }
@@ -1076,16 +1091,23 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
   color: var(--cmux-diff-text-muted);
 }
 .stat-add {
-  color: light-dark(var(--cmux-diff-addition-fg-light), var(--cmux-diff-addition-fg-dark));
+  color: light-dark(
+    var(--cmux-diff-addition-text-light, var(--cmux-diff-addition-fg-light)),
+    var(--cmux-diff-addition-text-dark, var(--cmux-diff-addition-fg-dark))
+  );
 }
 .stat-del {
-  color: light-dark(var(--cmux-diff-deletion-fg-light), var(--cmux-diff-deletion-fg-dark));
+  color: light-dark(
+    var(--cmux-diff-deletion-text-light, var(--cmux-diff-deletion-fg-light)),
+    var(--cmux-diff-deletion-text-dark, var(--cmux-diff-deletion-fg-dark))
+  );
 }
 #viewer {
   --diffs-font-family: var(--cmux-diff-code-font-family);
   --diffs-header-font-family: var(--cmux-diff-ui-font-family);
-  --diffs-font-size: var(--cmux-diff-font-size);
-  --diffs-line-height: var(--cmux-diff-line-height);
+  /* The code's size and line: the zoom's (diff-viewer/fontZoom.ts, Cmd-= / Cmd-- / Cmd-0), else the appearance's. */
+  --diffs-font-size: var(--cmux-diff-code-size, var(--cmux-diff-font-size));
+  --diffs-line-height: var(--cmux-diff-code-line-height, var(--cmux-diff-line-height));
   --diffs-bg-selection-override: light-dark(var(--cmux-diff-selection-bg-light), var(--cmux-diff-selection-bg-dark));
   grid-area: viewer;
   width: 100%;
@@ -1168,8 +1190,9 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
 #viewer diffs-container {
   --diffs-font-family: var(--cmux-diff-code-font-family);
   --diffs-header-font-family: var(--cmux-diff-ui-font-family);
-  --diffs-font-size: var(--cmux-diff-font-size);
-  --diffs-line-height: var(--cmux-diff-line-height);
+  /* The code's size and line: the zoom's (diff-viewer/fontZoom.ts, Cmd-= / Cmd-- / Cmd-0), else the appearance's. */
+  --diffs-font-size: var(--cmux-diff-code-size, var(--cmux-diff-font-size));
+  --diffs-line-height: var(--cmux-diff-code-line-height, var(--cmux-diff-line-height));
   --diffs-bg-selection-override: light-dark(var(--cmux-diff-selection-bg-light), var(--cmux-diff-selection-bg-dark));
   width: 100%;
   min-height: 30px;
@@ -1225,10 +1248,10 @@ body[data-status-only="true"] #loading-layer {
   max-width: calc(100% - 24px);
   padding: 8px 12px;
   border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
-  border-radius: 7px;
+  border-radius: var(--ui-popup-radius, var(--ds-radius-lg));
   background: var(--cmux-diff-bg);
   font-family: var(--cmux-diff-ui-font-family);
-  font-size: 13px;
+  font-size: var(--text-body);
   line-height: var(--cmux-diff-ui-line-height);
   color: color-mix(in lab, var(--cmux-diff-fg) 70%, var(--cmux-diff-bg));
 }
@@ -1249,7 +1272,8 @@ body[data-status-only="true"] #status {
   background: transparent;
   text-align: center;
   text-wrap: balance;
-  font-size: 14px;
+  /* The field step (14 px at 100%), so the message grows with Text Size as the chrome around it. */
+  font-size: var(--text-field);
   line-height: 1.55;
   color: color-mix(in lab, var(--cmux-diff-fg) 58%, var(--cmux-diff-bg));
 }
@@ -1265,49 +1289,13 @@ body[data-status-only="true"] #status-text {
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
-/* Icon badge: only for the friendly empty state, not errors or while loading. */
-#status-icon {
-  display: none;
-}
-body[data-status-only="true"] #status:not([data-error="true"]):not([data-pending="true"]) #status-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 56px;
-  height: 56px;
-  border-radius: 16px;
-  background: color-mix(in lab, var(--cmux-diff-fg) 5%, transparent);
-  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
-}
-body[data-status-only="true"] #status:not([data-error="true"]):not([data-pending="true"]) #status-icon::before {
-  content: "";
-  display: block;
-  width: 26px;
-  height: 26px;
-  background-color: currentcolor;
-  opacity: 0.8;
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'/%3E%3Cpath d='M14 2v6h6'/%3E%3Cpath d='M9 13h6'/%3E%3Cpath d='M9 17h4'/%3E%3C/svg%3E") center / contain no-repeat;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'/%3E%3Cpath d='M14 2v6h6'/%3E%3Cpath d='M9 13h6'/%3E%3Cpath d='M9 17h4'/%3E%3C/svg%3E") center / contain no-repeat;
-}
-#status[data-pending="true"]::before,
-body[data-loading="true"] #status::before {
-  content: "";
-  width: 14px;
-  height: 14px;
+/* The status line's spinner while the diff loads: the shared `Spinner` (diff-viewer/Loading.tsx). */
+#status .status-spinner {
   flex: 0 0 auto;
-  border: 2px solid color-mix(in lab, var(--cmux-diff-fg) 20%, transparent);
-  border-top-color: color-mix(in lab, var(--cmux-diff-fg) 70%, var(--cmux-diff-bg));
-  border-radius: 50%;
-  animation: cmux-spin var(--cmux-spinner-period, 2000ms) linear infinite;
+  color: color-mix(in lab, var(--cmux-diff-fg) 70%, var(--cmux-diff-bg));
 }
 #status[data-error="true"] {
   color: var(--cmux-diff-deletion-fg);
-}
-@media (prefers-reduced-motion: reduce) {
-  #status[data-pending="true"]::before,
-  body[data-loading="true"] #status::before {
-    animation: none;
-  }
 }
 
 /* Diff review comments */
@@ -1419,7 +1407,9 @@ body[data-loading="true"] #status::before {
   gap: 8px;
   max-width: 680px;
   border: 1px solid var(--cmux-diff-border);
-  border-radius: 10px;
+  /* Concentric with its Cancel and Comment buttons, which end 10 px from the bottom edge. */
+  --concentric-padding: 10px;
+  border-radius: calc(var(--ds-radius-control) + var(--concentric-padding));
   /* A step toward the text color: lighter on a dark theme, a faint gray on a light one. */
   background: light-dark(
     color-mix(in lab, var(--cmux-diff-bg) 97%, var(--cmux-diff-fg)),
@@ -1428,7 +1418,7 @@ body[data-loading="true"] #status::before {
   box-shadow: var(--elevation-1);
   color: var(--cmux-diff-fg);
   font-family: var(--cmux-diff-ui-font-family);
-  font-size: 13px;
+  font-size: var(--text-body);
   line-height: 1.45;
 }
 .comment-composer:is(:focus-visible, :has(:focus-visible)) {
@@ -1606,7 +1596,7 @@ body[data-loading="true"] #status::before {
 .file-review-stage {
   padding: 1px 8px;
   border: 1px solid var(--cmux-diff-border);
-  border-radius: 5px;
+  border-radius: var(--ds-radius-control);
   background: transparent;
   color: var(--cmux-diff-fg);
   font: inherit;
@@ -1626,7 +1616,7 @@ body[data-loading="true"] #status::before {
   height: 24px;
   padding: 0;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--ds-radius-control);
   background: transparent;
   color: var(--cmux-diff-text-dim);
   cursor: default;
@@ -1680,9 +1670,11 @@ body[data-loading="true"] #status::before {
   left: 50%;
   z-index: var(--layer-overlay);
   gap: 4px;
-  padding: 4px;
+  /* Concentric with Stage all and Revert all, 4 px in. */
+  --concentric-padding: 4px;
+  padding: var(--concentric-padding);
   max-width: calc(100% - 24px);
-  border-radius: 9px;
+  border-radius: calc(var(--ds-radius-control) + var(--concentric-padding));
   transform: translateX(-50%);
   font-size: var(--cmux-diff-ui-font-size);
 }
@@ -1694,7 +1686,7 @@ body[data-loading="true"] #status::before {
   height: 24px;
   padding: 0 8px;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--ds-radius-control);
   background: transparent;
   color: inherit;
   font: inherit;
@@ -1841,7 +1833,8 @@ body[data-loading="true"] #status::before {
   justify-content: center;
   width: 22px;
   height: 22px;
-  border-radius: 5px;
+  /* Every button's corner (the toolbar pill's buttons, the host's Metrics.buttonCornerRadius). */
+  border-radius: var(--ds-radius-control);
 }
 .file-review-viewed:hover .file-review-eye {
   background: var(--cmux-diff-hover-bg);
@@ -1869,6 +1862,31 @@ body[data-loading="true"] #status::before {
 svg[data-icon-fill] {
   fill: currentcolor;
   stroke: none;
+}
+/* A file's bar shows its path and its counts; its buttons show while the pointer is on the bar or
+   the keyboard is in it (a1315's cuts, 2026-11-20). A viewed file keeps its eye (it says the file is
+   done) and an open menu keeps its button. Opacity, not display, so nothing moves and Tab still
+   reaches each button. */
+.file-header
+  :is(
+    .file-review-viewed[aria-pressed="false"],
+    .file-header-menu-button:not([aria-expanded="true"]),
+    .file-review-stage,
+    .file-review-revert
+  ) {
+  opacity: 0;
+  transition: opacity var(--cmux-motion-micro) var(--cmux-ease-out);
+}
+.file-header:is(:hover, :focus-within)
+  :is(.file-review-viewed, .file-header-menu-button, .file-review-stage, .file-review-revert),
+.file-header:is(:has([data-popup-open]), :focus-within)
+  :is(.file-review-viewed, .file-header-menu-button, .file-review-stage, .file-review-revert) {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .file-header :is(.file-review-viewed, .file-header-menu-button, .file-review-stage, .file-review-revert) {
+    transition: none;
+  }
 }
 /* The page is as wide as its pane. In a narrow pane the file name keeps
    priority: the deferral badge and the "Viewed" word hide, and both stay
@@ -1914,7 +1932,9 @@ svg[data-icon-fill] {
   gap: var(--ds-space-1);
   height: var(--grid-row);
   padding: var(--grid-half-step) var(--ds-space-2) var(--grid-half-step) var(--grid-half-step);
-  border-radius: var(--ds-radius-md);
+  /* Concentric with its menu button, which sits one half step in. */
+  --concentric-padding: var(--grid-half-step);
+  border-radius: calc(var(--ds-radius-control) + var(--concentric-padding));
   background: var(--cmux-diff-pill-bg);
   box-shadow: var(--cmux-diff-pill-rim);
   font-variant-numeric: tabular-nums;
@@ -1950,10 +1970,16 @@ svg[data-icon-fill] {
   gap: var(--ds-space-1);
 }
 .source-pill-additions {
-  color: light-dark(var(--cmux-diff-addition-fg-light), var(--cmux-diff-addition-fg-dark));
+  color: light-dark(
+    var(--cmux-diff-addition-text-light, var(--cmux-diff-addition-fg-light)),
+    var(--cmux-diff-addition-text-dark, var(--cmux-diff-addition-fg-dark))
+  );
 }
 .source-pill-deletions {
-  color: light-dark(var(--cmux-diff-deletion-fg-light), var(--cmux-diff-deletion-fg-dark));
+  color: light-dark(
+    var(--cmux-diff-deletion-text-light, var(--cmux-diff-deletion-fg-light)),
+    var(--cmux-diff-deletion-text-dark, var(--cmux-diff-deletion-fg-dark))
+  );
 }
 /* The base picker joins the toolbar as a chip too: "head -> base v". */
 #toolbar .base-picker-button {
@@ -2016,7 +2042,7 @@ svg[data-icon-fill] {
   /* ui-glass owns the popup rim; retain the one-pixel box edge for stable
      geometry without drawing a second border over the glass surface. */
   border: 1px solid transparent;
-  border-radius: var(--ds-radius-lg);
+  border-radius: var(--ui-popup-radius, var(--ds-radius-lg));
   background: var(--glass-tint, color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg)));
   -webkit-backdrop-filter: var(--surface-blur, none);
   backdrop-filter: var(--surface-blur, none);
@@ -2031,7 +2057,7 @@ svg[data-icon-fill] {
 }
 .toolbar-menu-item {
   min-height: var(--grid-row);
-  border-radius: var(--ds-radius-menu);
+  border-radius: var(--ui-row-radius); /* concentric: the popup corner less its padding (popupSurface.css) */
   cursor: default;
   color: color-mix(in lab, var(--cmux-diff-fg) 90%, var(--cmux-diff-bg));
 }
@@ -2119,7 +2145,7 @@ svg[data-icon-fill] {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: 0 6px 6px;
+  padding: 0 var(--ds-space-1) var(--ds-space-1);
 }
 .jump-palette-row {
   display: flex;
@@ -2127,7 +2153,7 @@ svg[data-icon-fill] {
   gap: var(--ds-space-2);
   min-height: var(--grid-row);
   padding: var(--grid-half-step) var(--ds-space-2);
-  border-radius: var(--ds-radius-menu);
+  border-radius: var(--ui-row-radius); /* concentric: the popup corner less its padding (popupSurface.css) */
   cursor: default;
   white-space: nowrap;
 }
@@ -2187,10 +2213,13 @@ svg[data-icon-fill] {
   display: flex;
   align-items: center;
   gap: 4px;
-  /* A clear 1 px border keeps the 34 px height; the rim is drawn inside (box-shadow). */
+  /* A clear 1 px border keeps the 34 px height; the rim is drawn inside (box-shadow). Concentric with its
+     buttons (user 2026-11-19, the "..." button's hover in the pill): their corner plus the 2 px padding and
+     the 1 px border. */
+  --concentric-padding: 3px;
   padding: 2px;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: calc(var(--ds-radius-control) + var(--concentric-padding));
   background: var(--cmux-diff-pill-bg);
   background-clip: padding-box;
   box-shadow: var(--cmux-diff-pill-rim);
@@ -2267,7 +2296,7 @@ svg[data-icon-fill] {
 
 /* The base picker popover uses the toolbar menu surface. */
 .base-picker-popover {
-  border-radius: var(--ds-radius-lg);
+  border-radius: var(--ui-popup-radius, var(--ds-radius-lg));
   background: var(--glass-tint, color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg)));
 }
 .base-picker-search {
@@ -2281,8 +2310,9 @@ svg[data-icon-fill] {
 .base-picker-input:focus-visible {
   outline: none;
 }
+/* Concentric with the popover: its corner less the list's padding (popupSurface.css --ui-row-radius). */
 .base-picker-row {
-  border-radius: 6px;
+  border-radius: var(--ui-row-radius);
 }
 /* File header row (FileHeader in App.tsx), slotted into Pierre's opaque sticky
    header: language icon, dim directory + bright file name, collapse caret,
@@ -2299,7 +2329,8 @@ svg[data-icon-fill] {
   display: contents;
 }
 /* One opaque 38 px row per file with a hairline under it (screenshot
-   5.20.56): 14 px text, a 15 px icon at 17 px, the counts and controls at
+   5.20.56): the field step's text (14 px at 100%; it follows Text Size, not
+   the code's Cmd-= zoom), a 15 px icon at 17 px, the counts and controls at
    the right edge. */
 .file-header {
   flex: 1 1 auto;
@@ -2309,8 +2340,8 @@ svg[data-icon-fill] {
   gap: 6px;
   padding: 0 12px 0 17px;
   font-family: var(--cmux-diff-ui-font-family);
-  font-size: 14px;
-  line-height: 20px;
+  font-size: var(--text-field);
+  line-height: calc(20px * var(--page-density-text, var(--cmux-interface-scale, 1)));
   /* Regular weight, as the code below it (diffWeight.ts). */
   font-weight: 400;
   color: var(--cmux-diff-fg);
@@ -2389,7 +2420,8 @@ button.file-header-open:focus-visible {
   align-items: center;
   justify-content: center;
   margin-left: -2px;
-  border-radius: 5px;
+  /* Every button's corner, as the Viewed eye beside it. */
+  border-radius: var(--ds-radius-control);
   color: var(--cmux-diff-text-muted);
 }
 /* The whole bar is the toggle; the caret shows its hover and state. The file
@@ -2433,8 +2465,8 @@ button.file-header-open:focus-visible {
   font-size: calc(var(--cmux-diff-ui-font-size) * 0.85);
   white-space: nowrap;
 }
-/* "+N -N" then a five-block bar of the added share (FileHeader.tsx DiffStatBar), in tabular figures
-   so the counts of stacked headers line up. */
+/* "+N -N", only the counts that are not zero, in tabular figures so the counts of stacked headers
+   line up. */
 .file-header-stats {
   flex: 0 0 auto;
   display: inline-flex;
@@ -2442,23 +2474,6 @@ button.file-header-open:focus-visible {
   gap: 5px;
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
-}
-.file-header-bar {
-  display: inline-flex;
-  gap: 1.5px;
-  margin-left: 2px;
-}
-.file-header-bar > span {
-  width: 6px;
-  height: 6px;
-  border-radius: 1.5px;
-  background: var(--cmux-diff-muted-bg);
-}
-.file-header-bar > span[data-kind="added"] {
-  background: var(--cmux-diff-count-added);
-}
-.file-header-bar > span[data-kind="deleted"] {
-  background: var(--cmux-diff-count-deleted);
 }
 .file-header-additions {
   color: var(--cmux-diff-count-added);
@@ -2924,27 +2939,38 @@ button.review-brief-spot:hover {
   visibility: hidden;
 }
 .plain-english {
-  --plain-english-row: calc(2lh + 16px);
+  --plain-english-row: round(up, calc(2lh + 16px), 1px);
   position: absolute;
   inset: 0;
   z-index: var(--layer-raised);
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 12px 16px 32px;
+  /* The top and bottom space is the virtualizer's (PlainEnglishView.tsx `PADDING_START`, `PADDING_END`). */
+  padding: 0 16px;
   background: var(--cmux-diff-bg);
   color: var(--cmux-diff-fg);
   font-family: var(--cmux-diff-ui-font-family);
   font-size: var(--cmux-diff-ui-font-size);
   line-height: 1.45;
 }
-.plain-english-file {
-  margin: 0 0 16px;
-  /* A long diff draws only the files near the window. */
-  content-visibility: auto;
-  contain-intrinsic-size: auto 160px;
+/* Windowed: only the paths and rows near the viewport are mounted. Each file's mounted run is its
+   section, placed at its first item's offset; its items sit in flow beneath. Every item's height is
+   whole pixels and has no outer margin, so the measured heights add up to the laid-out ones. */
+.plain-english-space {
+  position: relative;
+  width: 100%;
 }
+.plain-english-file {
+  position: absolute;
+  top: 0;
+  inset-inline-start: 0;
+  width: 100%;
+}
+/* The space between files sits above each path but the first. */
 .plain-english-path {
-  margin: 0 4px 4px;
+  margin: 0 4px;
+  padding: 16px 0 4px;
+  line-height: round(up, 1.45em, 1px);
   overflow: hidden;
   color: var(--cmux-diff-text-muted);
   font-family: var(--cmux-diff-code-font-family);
@@ -2956,16 +2982,28 @@ button.review-brief-spot:hover {
   text-align: left;
   unicode-bidi: plaintext;
 }
+.plain-english-path[data-first] {
+  padding-top: 0;
+}
 .plain-english-hunks {
   margin: 0;
   padding: 0;
   list-style: none;
+}
+/* A file's box is drawn by its rows: a row may be mounted without its neighbours. */
+.plain-english-hunk {
   border: 1px solid var(--cmux-diff-border);
-  border-radius: 12px;
+  border-bottom: 0;
   overflow: hidden;
 }
-.plain-english-hunk + .plain-english-hunk {
-  border-top: 1px solid var(--cmux-diff-border);
+.plain-english-hunk[data-first] {
+  border-start-start-radius: 12px;
+  border-start-end-radius: 12px;
+}
+.plain-english-hunk[data-last] {
+  border-bottom: 1px solid var(--cmux-diff-border);
+  border-end-start-radius: 12px;
+  border-end-end-radius: 12px;
 }
 .plain-english-row {
   display: grid;

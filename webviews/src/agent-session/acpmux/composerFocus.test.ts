@@ -101,7 +101,7 @@ describe("composer click-away focus", () => {
   test("a chip in the composer's strip or quiet row keeps its editor focus", () => {
     const { editor } = fixture();
     const document = editor.ownerDocument;
-    for (const row of ["acpmux-composer-strip", "acpmux-composer-foot", "acpmux-composer-under"]) {
+    for (const row of ["acpmux-composer-strip", "acpmux-composer-foot"]) {
       const chip = document.createElement("button");
       const host = document.createElement("div");
       host.className = row;

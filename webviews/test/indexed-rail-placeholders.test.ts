@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { indexedPromptPlaceholders } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { PromptHeads } from "../src/agent-session/acpmux/promptHeads";
 import { minimapTurns } from "../src/agent-session/acpmux/threadMinimap/model";
 
 const prompt = (seq: number): AcpmuxRow => ({
@@ -16,7 +17,7 @@ describe("indexed rail target windows", () => {
   test("fills a sparse target page without moving its indexed prompt slots", () => {
     const indexed = Array.from({ length: 100 }, (_, index) => prompt(index + 1));
     const held = new Set([1, 100]);
-    const placeholders = indexedPromptPlaceholders(indexed, held, 1, 100);
+    const placeholders = indexedPromptPlaceholders(PromptHeads.fromRows(indexed), held, 1, 100);
     expect(placeholders.map((row) => row.seq)).toEqual(Array.from({ length: 98 }, (_, index) => index + 2));
 
     const rows = [indexed[0]!, ...placeholders, indexed.at(-1)!];

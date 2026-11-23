@@ -84,7 +84,7 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
                     return Ok(hub.list_older_processes(&session, recent, before));
                 }
                 if let Some(recent) = recent {
-                    return Ok(hub.list_recent_processes(&session, recent, within));
+                    return hub.list_recent_processes(&session, recent, within);
                 }
                 if let Some(calls) = calls {
                     return Ok(hub.list_call_processes(&session, &calls));

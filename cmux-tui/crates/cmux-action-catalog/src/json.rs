@@ -290,9 +290,25 @@ fn catalog_with(locale: usize, row: impl Fn(&Action) -> Value) -> Value {
         .iter()
         .map(|(dup, canonical)| ((*dup).to_owned(), json!(canonical)))
         .collect();
+    // The Customize… element map (crate::customize_elements): what the right-click row and the
+    // Inspector name for each big part of the window.
+    let customize_elements: Vec<Value> = crate::customize_elements::ELEMENTS
+        .iter()
+        .map(|e| {
+            json!({
+                "id": e.id,
+                "title": text(&e.title, locale),
+                "surface": e.surface,
+                "menus": e.menus,
+                "settings": e.settings,
+                "tokens": e.tokens,
+            })
+        })
+        .collect();
     json!({
         "version": 1,
         "locale": strings::LOCALES.get(locale).copied().unwrap_or("en"),
+        "customize_elements": customize_elements,
         "actions": crate::actions().map(row).collect::<Vec<_>>(),
         "legacy_aliases": legacy,
         "categories": categories,

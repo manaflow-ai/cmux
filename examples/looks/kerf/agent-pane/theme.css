@@ -1,0 +1,41 @@
+/* Kerf's chat: the agent panel of a fast editor. Your prompt sits in a hairline box (a one-pixel
+   border, 4 px corners, barely lifted), cards and subagent rows are one-pixel outlines on an
+   almost invisible fill, secondary text is the panel's muted gray, and links take the accent.
+   Only cmux.agentPane.style/1 tokens (schemas/agent-pane/style-tokens.json), on :root: paint, so
+   nothing in the transcript moves when this applies or reloads. Every color is made from the
+   theme's own (--agent-text, --agent-accent, --agent-page-bg), so it reads over Kerf and Kerf Light
+   and over any theme of your own. */
+:root {
+  --cv-user-bubble-tint: color-mix(in srgb, var(--agent-text) 4%, transparent);
+  --cv-user-bubble-edge: color-mix(in srgb, var(--agent-text) 20%, transparent);
+  --cv-user-bubble-radius: 4px;
+  --cv-card-fill: color-mix(in srgb, var(--agent-text) 3%, transparent);
+  --cv-card-ring: color-mix(in srgb, var(--agent-text) 16%, transparent);
+  --cv-text-muted: color-mix(in srgb, var(--agent-text) 76%, transparent);
+  --cv-text-dim: color-mix(in srgb, var(--agent-text) 66%, transparent);
+  --cv-link: color-mix(in srgb, var(--agent-accent) 64%, var(--agent-text));
+  --agent-link: color-mix(in srgb, var(--agent-accent) 64%, var(--agent-text));
+
+  /* Pending cmux#46846 (--menu-*): an editor's context menus and pickers. Inert until it lands.
+     A flat panel a step above the page with a one-pixel border and 6 px corners, 4 px of padding,
+     24 px rows, a quiet gray hover with 4 px corners (never the accent), shortcuts and section
+     labels in the muted gray at regular weight, separators running edge to edge, and submenus
+     that meet their row. */
+  --menu-radius: 6px;
+  --menu-padding: 4px;
+  --menu-fill: color-mix(in srgb, var(--agent-page-bg) 94%, var(--agent-text));
+  --menu-border: color-mix(in srgb, var(--agent-text) 20%, transparent);
+  --menu-row-height: 24px;
+  --menu-hover-fill: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  --menu-hover-radius: 4px;
+  --menu-separator: color-mix(in srgb, var(--agent-text) 16%, transparent);
+  --menu-separator-inset: 0px;
+  --menu-label-color: color-mix(in srgb, var(--agent-text) 74%, transparent);
+  --menu-label-weight: 400;
+  --menu-label-size: var(--text-caption);
+  --menu-shortcut-color: color-mix(in srgb, var(--agent-text) 74%, transparent);
+  --menu-subtitle-color: color-mix(in srgb, var(--agent-text) 74%, transparent);
+  --menu-disabled-opacity: 0.45;
+  --menu-submenu-offset: 0px;
+  --menu-submenu-align-offset: -4px;
+}

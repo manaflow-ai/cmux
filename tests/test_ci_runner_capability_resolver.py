@@ -211,15 +211,24 @@ class RealMapTests(unittest.TestCase):
     def setUp(self) -> None:
         self.document = resolver.load_map(REAL_MAP)
 
-    def test_the_repository_owner_routes_to_blacksmith(self) -> None:
+    def test_the_repository_owner_routes_to_the_owned_fleet(self) -> None:
+        # Leo, 2026-11-14: owned fleet first, not Blacksmith. The x86_64 Linux keys take the one owned
+        # Linux label, cmux-linux; arm64 and macOS keep Blacksmith, which nothing owned answers as a fixed label yet.
         fleet, _, labels = resolver.resolve(map_path=REAL_MAP, owner="manaflow-ai")
 
-        self.assertEqual(fleet, "blacksmith")
-        self.assertEqual(labels["linux"], "blacksmith-4vcpu-ubuntu-2404")
+        self.assertEqual(fleet, "owned")
+        for capability in ("linux", "linux_16", "linux_32"):
+            self.assertEqual(labels[capability], "cmux-linux")
         self.assertEqual(labels["macos_15"], "blacksmith-6vcpu-macos-15")
         self.assertEqual(labels["macos_26"], "blacksmith-6vcpu-macos-26")
         self.assertEqual(labels["macos_26_ios"], "blacksmith-6vcpu-macos-26")
         self.assertEqual(labels["macos_26_large"], "blacksmith-12vcpu-macos-26")
+
+    def test_blacksmith_stays_an_explicit_opt_in(self) -> None:
+        fleet, _, labels = resolver.resolve(map_path=REAL_MAP, owner="manaflow-ai", forced_fleet="blacksmith")
+
+        self.assertEqual(fleet, "blacksmith")
+        self.assertEqual(labels["linux"], "blacksmith-4vcpu-ubuntu-2404")
 
     def test_a_fork_never_lands_on_organization_only_capacity(self) -> None:
         _, _, labels = resolver.resolve(map_path=REAL_MAP, owner="some-personal-account")
@@ -339,7 +348,7 @@ class TheResolverStartsAnywhere(unittest.TestCase):
             with self.subTest(job=name):
                 self.assertEqual(
                     workflow_jobs.runs_on_cells(job),
-                    ['${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || contains(fromJSON(\'["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}'],
+                    ['${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || contains(fromJSON(\'["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}'],
                 )
 
 

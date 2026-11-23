@@ -30,10 +30,20 @@ import Testing
         #expect(WorkspaceFreeingPlanner().plan([Self.idle("t1")], policy: off, now: Self.now) == .init())
     }
 
-    @Test func theDefaultIsOffAndOneDay() {
+    @Test func theDefaultFreesOnlyAfterOneDay() {
         let settings = WorkspaceHibernationSettings()
-        #expect(settings.freeingEnabled == false)
+        #expect(settings.freeingEnabled)
         #expect(settings.freeingIdleMinutes == 1440)
+        let terminals = [Self.idle("old", hoursAgo: 24), Self.idle("recent", hoursAgo: 23)]
+        #expect(WorkspaceFreeingPlanner().plan(terminals, policy: .init(settings), now: Self.now).due == ["old"])
+    }
+
+    @Test func anExplicitOptOutKeepsOldShellsRunning() throws {
+        let json = #"{"workspaces":{"freeing":{"enabled":false}}}"#
+        let snapshot = CmuxConfigSnapshot.parse(try JSONValue.parse(Data(json.utf8)), validDensities: [], validMetrics: [])
+        let policy = WorkspaceFreeingPlanner.Policy(snapshot.workspaceHibernation)
+        #expect(!policy.enabled)
+        #expect(WorkspaceFreeingPlanner().plan([Self.idle("old", hoursAgo: 90)], policy: policy, now: Self.now).due.isEmpty)
     }
 
     @Test(arguments: ["running", "noPrompt", "program", "attached", "remote", "kept", "awake", "ended"])

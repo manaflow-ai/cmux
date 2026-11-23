@@ -119,16 +119,21 @@ import Testing
     /// It measures the store, not the process: malloc's bytes in use for the whole process
     /// counted whatever other tests allocated meanwhile (the hybrid proofs: 80 MB against a 76 MB
     /// bound), which the 16 MB `neighbor` below stands for. The inserts drive `FeedStore`, which
-    /// is main-actor code; they give the main actor back every 50 events, so the 5 to 9 s they
-    /// take in a debug build never hold the other main-actor tests.
+    /// is main-actor code; they give the main actor back after every event, so the 3 to 9 s each
+    /// run takes in a debug build holds the other main-actor tests for one insert (1 to 3 ms) at
+    /// a time. Its store has its own memory pressure, so another test's (or the system's) memory
+    /// warning cannot trim it mid-run. Not every 50: a 50-event
+    /// chunk is 50 to 150 ms on the iOS simulator, ahead of every main-actor hop of the tests
+    /// running beside it (ReconnectChainTimingTests counted 9 to 11 round trips of 80 ms where
+    /// it allows 3: run 44237359613, and feat-cmux-next run 44236368758 after #45716).
     @Test func memoryWithSpill() async {
         func run(spilling: Bool) async -> (live: Int, onDisk: Int) {
-            let store = FeedStore(items: [])
+            let store = FeedStore(items: [], memoryPressure: MemoryPressure(observesSystem: false))
             let spill = Self.spill()
             if spilling { store.useSpill(spill) }
             for index in 0..<3000 {
                 store.insert(Self.item(index, bytes: 8192), atTop: true)
-                if index % 50 == 49 { await Task.yield() }
+                await Task.yield()
             }
             // What another test (the hybrid proofs, say) holds meanwhile is not the Feed's.
             let neighbor = spilling ? Self.neighborAllocation() : []

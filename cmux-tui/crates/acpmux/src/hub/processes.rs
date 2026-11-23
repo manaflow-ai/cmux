@@ -67,6 +67,10 @@ pub(super) struct Process {
     session_id: String,
     /// The subagent whose tool call started it, if one did.
     subagent_session_id: Option<String>,
+    /// The workflow agent whose Bash call started it, by Claude's agent id
+    /// (`workflowAgentId`): its workflow is `subagent_session_id`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    workflow_agent_id: Option<String>,
     tool_call_id: String,
     task_id: String,
     harness: String,
@@ -148,6 +152,10 @@ mod process_active_tests;
 #[path = "processes_page_tests.rs"]
 mod process_page_tests;
 
+#[cfg(test)]
+#[path = "processes_workflow_tests.rs"]
+mod process_workflow_tests;
+
 #[path = "process_preview.rs"]
 mod preview;
 
@@ -216,6 +224,7 @@ impl ProcessTable {
                     id,
                     session_id: session.id.clone(),
                     subagent_session_id: subagent.map(str::to_owned),
+                    workflow_agent_id: text("workflowAgentId").map(str::to_owned),
                     tool_call_id: tool.to_owned(),
                     task_id: text("taskId").unwrap_or("").to_owned(),
                     harness: crate::web_modes::family_of(&meta),
@@ -249,6 +258,29 @@ impl ProcessTable {
             }
             _ => false,
         };
+        // A workflow agent's shell may be found to be its only after it was
+        // announced (`claude_stdio/background_shells.rs` `shell_owner`): the first
+        // update that names its workflow or agent fills them in.
+        let mut owned = false;
+        if found.is_some() {
+            let subagent = params.pointer("/_meta/acpmux/subagent").and_then(Value::as_str);
+            if p.subagent_session_id.is_none()
+                && let Some(subagent) = subagent
+            {
+                p.subagent_session_id = Some(subagent.to_owned());
+                owned = true;
+            }
+            if p.workflow_agent_id.is_none()
+                && let Some(agent) = text("workflowAgentId")
+            {
+                p.workflow_agent_id = Some(agent.to_owned());
+                owned = true;
+            }
+            if owned {
+                p.logged = false;
+            }
+        }
+        let named = named || owned;
         if state == ProcessState::Running {
             return (found.is_none() || named).then_some(i);
         }
@@ -519,7 +551,9 @@ fn reply_row(
 /// ended first, all rows of one end together, so the split stays one end: every ended row kept
 /// ended at or after `endedBefore`, every one left out before it. A process still running is kept
 /// before any ended one (a long-lived server is the oldest row of all). `omitted`: OLDER plus what
-/// the budget left out; `endedBefore` is sent while an ended one is left out.
+/// the budget left out; `endedBefore` is sent while an ended one is left out. When the running rows
+/// alone cannot fit (or one cannot even as a stub), the recent read is refused (`too_large`), so the
+/// client falls back to bounded history pages rather than miss a running process.
 fn recent_values(
     processes: Vec<Process>,
     older: usize,
@@ -527,7 +561,7 @@ fn recent_values(
     recent: usize,
     budget: usize,
     length: impl Fn(&str) -> u64,
-) -> Value {
+) -> Result<Value, RpcError> {
     let total = processes.len();
     // (running, end, row, bytes)
     let mut rows: Vec<(bool, u64, Value, usize)> = Vec::with_capacity(total);
@@ -535,6 +569,9 @@ fn recent_values(
         let running = process.state == ProcessState::Running;
         let end = process_end(&process);
         let Some((row, bytes)) = reply_row(process, budget, &length) else { continue };
+        if running && bytes.saturating_add(97) > budget {
+            return Err(RpcError::too_large(bytes.saturating_add(97)));
+        }
         rows.push((running, end, row, bytes));
     }
     let mut keep = vec![true; rows.len()];
@@ -566,15 +603,9 @@ fn recent_values(
             cutoff = cutoff.max(end.saturating_add(1));
             cut_ended = true;
         }
-        // Running rows past the budget on their own: the oldest go first.
-        for (row, flag) in rows.iter().zip(keep.iter_mut()) {
-            if used <= budget {
-                break;
-            }
-            if row.0 {
-                *flag = false;
-                used = used.saturating_sub(row.3.saturating_add(1));
-            }
+        // Running rows past the budget on their own: refused, never cut.
+        if used > budget {
+            return Err(RpcError::too_large(used));
         }
     }
     let kept: Vec<Value> = rows
@@ -592,7 +623,7 @@ fn recent_values(
     if cut_ended {
         reply.insert("endedBefore".to_owned(), json!(cutoff));
     }
-    Value::Object(reply)
+    Ok(Value::Object(reply))
 }
 
 /// [`Hub::list_call_processes`]'s reply: the processes of the first calls of FOUND (one list per
@@ -889,9 +920,9 @@ impl Hub {
         // The kinds folded here only, from the log's copies of them (`store/kind_index.rs`): the
         // idle sweep and a chat's first process read come here, and a long chat's log is a
         // million records. Read back, newest first, then folded in order: a segment with no
-        // copy yet is read past by each line's head, never parsed whole, and no copy is made
-        // here (`scan_kinds` makes one by parsing every line, which an adoption of many hosted
-        // chats paid for each: `hosts_tests.rs` `adoption_reads_parse_only_the_records_they_fold`).
+        // copy yet gets one made by its lines' heads, never parsed whole (`scan_kinds` makes one
+        // by parsing every line, which an adoption of many hosted chats paid for each:
+        // `hosts_tests.rs` `adoption_reads_parse_only_the_records_they_fold`).
         let mut folded = Vec::new();
         let _ = self.store.scan_back_indexed(
             &session.id,
@@ -1069,7 +1100,7 @@ impl Hub {
         session: &Session,
         recent: usize,
         ended_within: Option<u64>,
-    ) -> Value {
+    ) -> Result<Value, RpcError> {
         let since = ended_within.map(|within| now_ms().saturating_sub(within));
         // The cached window splits at the `recent` newest ends; one that ended within `endedWithin`
         // past that split widens it, a read the cache does not hold (a burst of over `recent` ends
