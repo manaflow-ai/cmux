@@ -21,6 +21,7 @@ cmux-mobile-link = { path = "crates/cmux-mobile-link" }
 # The build space value and its fail-closed rule, shared with the Mac's other Rust cloud clients.
 cmux-build-space = { path = "../../cmux-tui/crates/cmux-build-space" }
 cmux-wg = { path = "../../cmux-tui/crates/cmux-wg" }
+cmux-fault = { path = "../../cmux-tui/crates/cmux-fault" }
 cmux-transport = { path = "../../cmux-tui/crates/cmux-transport" }
 # cmux.rd/1 + cmux.rb/1 (streamed browser tabs, verify/browser-stream.md).
 cmux-rd-proto = { path = "../../cmux-tui/crates/cmux-rd-proto", features = ["serde"] }
@@ -40,6 +41,8 @@ cmux-follow-cam = { path = "../../cmux-tui/crates/cmux-follow-cam" }
 cmux-window-rules = { path = "../../cmux-tui/crates/cmux-window-rules" }
 # A message's Markdown as one line of words, shared with the daemon's Home rows (the Chief's push body).
 cmux-message-preview = { path = "../../cmux-tui/crates/cmux-message-preview" }
+# Share a Mac from the phone: cmux.share-approval.v1, the approval the target Mac's acpmux admits.
+cmux-share-approval = { path = "../../cmux-tui/crates/cmux-share-approval" }
 anyhow = "1"
 base64 = "0.22"
 bytes = "1"

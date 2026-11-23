@@ -93,6 +93,20 @@ public final class ScreenSharingService {
     /// The last stop()'s sign-out and socket close (tests wait for it).
     @ObservationIgnored private(set) var stopping: Task<Void, Never>?
 
+    /// Share <Mac> (cmuxterm-hq#18912): what carries this phone's signed approval to the Mac, so the
+    /// Mac turns sharing on with nobody at it. Cut 2 of #18912 fills it; until then it is nil and
+    /// the tap says sharing from the iPhone isn't available yet, having signed nothing.
+    @ObservationIgnored public var shareCarrier: ShareCarrier?
+    /// Signs an approval's canonical bytes with this phone's hub key (tests count the calls).
+    @ObservationIgnored var signApproval: @Sendable (DeviceIdentity, String) throws -> String = { try $0.sign(canonical: $1) }
+    /// How long a shared Mac has to show up as sharing in the list before the tap says it didn't.
+    @ObservationIgnored var shareDeadline: Duration = .seconds(30)
+    /// The Mac a Share tap is asking (its row spins; nil: none).
+    public internal(set) var sharing: PendingSelection?
+    @ObservationIgnored var shareTask: Task<Void, Never>?
+    /// Why the last Share tap did not get the Mac sharing, as an alert (nil: none).
+    public internal(set) var shareProblem: ScreenSharingShareProblem?
+
     /// Where the hub is and who this phone is to it.
     public struct Configuration: Sendable {
         public var baseURL: URL
@@ -230,6 +244,8 @@ public final class ScreenSharingService {
         viewer = nil
         alert = nil
         pendingSelection = nil
+        endShare()
+        shareProblem = nil
         // The account's Macs are not the next account's to show.
         preferences.forgetMacs()
         if let hub {
@@ -327,6 +343,7 @@ public final class ScreenSharingService {
         }
         let listed = macs
         preferences.rememberMacs(listed, for: configuration.accountID)
+        shareListed(listed)
         guard let pending = pendingSelection else { return }
         pendingSelection = nil
         if let mac = listed.first(where: { $0.id.lowercased() == pending.hostID.lowercased() }) {

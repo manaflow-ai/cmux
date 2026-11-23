@@ -427,13 +427,14 @@ import Testing
 
     // MARK: Fixtures
 
-    func makeService() -> (ScreenSharingService, Ends) {
+    func makeService(accountID: String? = nil) -> (ScreenSharingService, Ends) {
         let identity = DeviceIdentity(deviceID: UUID(), keys: TestKeys())
         let client = DeviceHubClient(baseURL: URL(string: "https://hub.invalid")!, identity: identity,
                                      tokens: DeviceHubAccountToken { "token" })
         let hub = DeviceHub(client: client, secrets: MemoryRelaySecretStore(), deviceName: "iPhone", platform: .ios)
         let configuration = ScreenSharingService.Configuration(baseURL: URL(string: "https://hub.invalid")!, bundleIdentifier: "test",
-                                                               deviceName: "iPhone", tokens: DeviceHubAccountToken { "token" })
+                                                               deviceName: "iPhone", tokens: DeviceHubAccountToken { "token" },
+                                                               accountID: accountID)
         let service = ScreenSharingService(hub: hub, configuration: configuration,
                                            preferences: ScreenSharingPreferences(store: UserDefaults(suiteName: UUID().uuidString)!))
         let ends = Ends()
