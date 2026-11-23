@@ -1351,6 +1351,7 @@ struct AnswerActionRow: View {
     var polish: ChatPolishMenuButtons?
     let retry: () -> Void
     @State private var copied = false
+    @Environment(\.drawsStillPicture) private var still
 
     var body: some View {
         HStack(spacing: 0) {
@@ -1365,24 +1366,34 @@ struct AnswerActionRow: View {
             .sensoryFeedback(.impact(weight: .light, intensity: 0.7), trigger: copied) { _, new in
                 new && CmuxMobileTheme.standard.haptics.isEnabled
             }
-            ShareLink(item: turn.answerMarkdown) {
+            // A still picture (a tab card) draws Share and More as their glyphs: their system
+            // controls are UIKit-backed, which a picture draws as the cannot-draw mark.
+            if still {
                 IconActionLabel("square.and.arrow.up")
+            } else {
+                ShareLink(item: turn.answerMarkdown) {
+                    IconActionLabel("square.and.arrow.up")
+                }
+                .accessibilityLabel("Share")
             }
-            .accessibilityLabel("Share")
             if isLast {
                 IconAction("arrow.clockwise", label: "Retry", action: retry)
             }
-            Menu {
-                Section(AgentTurn.menuTimestamp(turn.endedAt ?? turn.promptAt)) {
-                    Button("Copy as Markdown", systemImage: "text.document") { UIPasteboard.general.string = turn.answerMarkdown }
-                    Button("Retry", systemImage: "arrow.clockwise", action: retry)
-                    retryWith?.menu
-                    polish
-                }
-            } label: {
+            if still {
                 IconActionLabel("ellipsis")
+            } else {
+                Menu {
+                    Section(AgentTurn.menuTimestamp(turn.endedAt ?? turn.promptAt)) {
+                        Button("Copy as Markdown", systemImage: "text.document") { UIPasteboard.general.string = turn.answerMarkdown }
+                        Button("Retry", systemImage: "arrow.clockwise", action: retry)
+                        retryWith?.menu
+                        polish
+                    }
+                } label: {
+                    IconActionLabel("ellipsis")
+                }
+                .accessibilityLabel("More")
             }
-            .accessibilityLabel("More")
             Spacer()
             if let duration = ToolWording().shown(turn.duration) {
                 Text(ToolWording().duration(duration)).font(.footnote.monospacedDigit()).foregroundStyle(.tertiary)

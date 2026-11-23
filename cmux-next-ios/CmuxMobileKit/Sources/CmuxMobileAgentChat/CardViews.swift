@@ -210,6 +210,7 @@ public struct QuestionCard: View {
     @State private var state: AgentQuestionCardState
     @State private var forward = true
     @FocusState private var otherFocused: Bool
+    @Environment(\.drawsStillPicture) private var still
     @State private var submitted = 0
     #if DEBUG
     private let director = DemoDirector.shared
@@ -355,7 +356,16 @@ public struct QuestionCard: View {
     private func otherRow(_ item: AgentQuestion.Item) -> some View {
         let editing = state.editingOther || !(state.otherDrafts[item.id] ?? "").isEmpty
         return Group {
-            if editing {
+            if editing, still {
+                // A still picture draws a text field as the system's cannot-draw mark: the draft as text.
+                Text(state.otherDrafts[item.id].flatMap { $0.isEmpty ? nil : $0 } ?? "Other…")
+                    .foregroundStyle((state.otherDrafts[item.id] ?? "").isEmpty ? .secondary : .primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .frame(minHeight: 48)
+                    .background(Color.cmuxMobileFillSelected, in: .rect(cornerRadius: 14, style: .continuous))
+            } else if editing {
                 TextField("Other…", text: Binding(
                     get: { state.otherDrafts[item.id] ?? "" },
                     set: { send(.otherText($0)) }
@@ -510,7 +520,12 @@ struct FailureCard: View {
                     .buttonStyle(CmuxMobileCapsuleButtonStyle(.primary, size: .large))
                     .disabled(!canRetry)
                     .accessibilityIdentifier("agentChat.failure.lead")
-                if let retryWith {
+                if let retryWith, still {
+                    // A menu is UIKit-backed: a still picture shows its label as a button.
+                    Button {} label: { Label(RetryModelChoice.title, systemImage: "arrow.triangle.2.circlepath") }
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(CmuxMobileCapsuleButtonStyle(.secondary, size: .large))
+                } else if let retryWith {
                     retryWith.menu
                         .labelStyle(.iconOnly)
                         .buttonStyle(CmuxMobileCapsuleButtonStyle(.secondary, size: .large))

@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileDesign
 import CmuxMobileMarkdown
+import CmuxSpinner
 import SwiftUI
 import UIKit
 
@@ -251,6 +252,8 @@ extension View {
     /// Marks this view as drawn once into a still picture (`ImageRenderer`): every row that
     /// would use a UIKit-backed view draws in SwiftUI instead (`drawsStillPicture`), so the
     /// picture never holds the system's yellow "cannot draw" mark.
-    public func drawnAsStillPicture() -> some View { environment(\.drawsStillPicture, true) }
+    public func drawnAsStillPicture() -> some View {
+        environment(\.drawsStillPicture, true).environment(\.cmuxSpinnerDrawsStill, true)
+    }
 }
 #endif

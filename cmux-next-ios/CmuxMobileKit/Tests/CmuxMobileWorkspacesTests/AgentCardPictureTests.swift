@@ -243,23 +243,56 @@ import CmuxTabsKit
     /// Pixels of `image` in the yellow of the mark `ImageRenderer` draws in place of a view it
     /// cannot draw (a UIKit-backed one): a yellow square with a red prohibition sign.
     static func markYellowPixels(_ image: UIImage) throws -> Int {
-        let cg = try #require(image.cgImage)
-        let width = cg.width, height = cg.height
-        var bytes = [UInt8](repeating: 0, count: width * height * 4)
-        let drawn = bytes.withUnsafeMutableBytes { buffer -> Bool in
-            guard let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
-                                          bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
-                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
-            context.draw(cg, in: CGRect(x: 0, y: 0, width: width, height: height))
-            return true
+        try #require(image.cgImage)
+        return CannotDrawMark.pixels(image).yellow
+    }
+
+    private struct UIKitLabel: UIViewRepresentable {
+        func makeUIView(context: Context) -> UILabel { let label = UILabel(); label.text = "UIKit"; return label }
+        func updateUIView(_ view: UILabel, context: Context) {}
+    }
+
+    /// The detector the rasterizer refuses pictures by sees the real mark (a UIKit view drawn by
+    /// `ImageRenderer`), and not plain SwiftUI, nor a red photo on its own.
+    @Test func theCannotDrawMarkDetectorSeesTheRealMarkOnly() throws {
+        func picture(_ view: some View) throws -> UIImage {
+            let renderer = ImageRenderer(content: view.frame(width: 200, height: 120).background(Color.black))
+            renderer.scale = 2
+            return try #require(renderer.uiImage)
         }
-        try #require(drawn)
-        var count = 0
-        for pixel in 0 ..< width * height {
-            let r = bytes[pixel * 4], g = bytes[pixel * 4 + 1], b = bytes[pixel * 4 + 2]
-            if r > 200, g > 180, b < 90 { count += 1 }
+        #expect(CannotDrawMark.isIn(try picture(UIKitLabel())), "a UIKit view in a picture is the mark")
+        #expect(!CannotDrawMark.isIn(try picture(Text("SwiftUI").foregroundStyle(.white))))
+        #expect(!CannotDrawMark.isIn(try picture(Color.red)))
+        #expect(!CannotDrawMark.isIn(try picture(Color.yellow)))
+    }
+
+    /// Leo, 2026-11-23: "GO AUDIT THAT ... AND PREVENT THAT FROM HAPPENING". Every row a card shows that
+    /// used a UIKit-backed view: a running tool call's spinner, a finished answer's Share and More,
+    /// a thought, a failed turn. None draws the mark in a card's picture.
+    @Test(arguments: ["running-tool", "thought", "answer", "failed", "running-group"])
+    func aCardPictureOfEveryRowKindHoldsNoSystemCannotDrawMark(kind: String) async throws {
+        var turn = AgentTurn(id: "kind-\(kind)", prompt: "Do it", promptAt: Date(timeIntervalSince1970: 0))
+        switch kind {
+        case "running-tool":
+            turn.items = [.tool(ACPToolCall(id: "t1", title: "ls -la", kind: .execute, status: .inProgress))]
+            turn.status = .running
+        case "running-group":
+            turn.items = [.tool(ACPToolCall(id: "t1", title: "Read a.swift", kind: .read, status: .completed)),
+                          .tool(ACPToolCall(id: "t2", title: "Read b.swift", kind: .read, status: .inProgress))]
+            turn.status = .running
+        case "thought":
+            turn.items = [.thought(id: "th", text: "Weighing it."), .message(id: "m", markdown: "Done.")]
+            turn.status = .completed
+        case "answer":
+            turn.items = [.message(id: "m", markdown: "Here is the answer, with `code` and **bold**.")]
+            turn.status = .completed
+        default:
+            turn.items = [.message(id: "m", markdown: "Partway.")]
+            turn.status = .failed
         }
-        return count
+        let image = try await Self.picture(of: turn)
+        let (yellow, red) = CannotDrawMark.pixels(image)
+        #expect(!CannotDrawMark.isIn(image), "\(kind): the card's picture holds the cannot-draw mark (\(yellow) yellow, \(red) red pixels)")
     }
 
     /// A 4:3 blue JPEG the size of a phone photo's upload (no crop in its bubble).
