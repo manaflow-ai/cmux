@@ -36,7 +36,13 @@ TRACKED_LINTS increases print a warning annotation and pass.
 whose baseline went down since its own check: cmux_next_fast_gates.py). A
 count over the baseline then fails only when it is also over the base run's
 count: a base already over its row is the base's red, and the change is red
-only for hits it adds. A base run that did not finish excuses nothing.
+only for hits it adds. A base run that did not finish excuses nothing in the
+crates the change touches (--changed-crates): they are judged against the
+baseline alone. Every other crate is left unjudged with a warning, since
+without a base run nothing says whose its count is (cmux-ci job
+2bd3cc13c2652540f6c55b00: the base's cmux-tui-core did not compile, and a PR
+touching cmux-customize, cmux-tui and cmux-tui-core went red on acpmux and
+cmux-agent-customize). The warning quotes the base run's compile errors.
 
 --cargo-log is the same run's cargo stderr. When a run did not finish because
 cargo refused to update a stale Cargo.lock under --locked, the ratchet names the
@@ -155,6 +161,42 @@ def package_name(package_id):
     if match:
         return "bindings-" + match.group(1)
     return None
+
+
+# rustc's and cargo's closing lines after errors: they say how many, not what.
+ERROR_SUMMARY = re.compile(r"^(?:aborting due to |could not compile |\d+ previous errors?)")
+
+
+def compile_errors(path, limit=3):
+    """The first LIMIT compile errors (not lints) in the clippy JSON at PATH, one line each:
+    `file:line: message` (the reason a run did not finish)."""
+    found = []
+    try:
+        handle = open(path, encoding="utf-8", errors="replace")
+    except OSError:
+        return found
+    with handle:
+        for line in handle:
+            if not line.startswith("{") or '"compiler-message"' not in line:
+                continue
+            try:
+                message = json.loads(line).get("message") or {}
+            except (json.JSONDecodeError, AttributeError):
+                continue
+            code = (message.get("code") or {}).get("code") or ""
+            text = message.get("message") or ""
+            if not (message.get("level") or "").startswith("error") or code.startswith("clippy::"):
+                continue
+            if ERROR_SUMMARY.match(text):
+                continue
+            span = next((s for s in message.get("spans") or [] if s.get("is_primary")), None)
+            where = f"{span.get('file_name')}:{span.get('line_start')}: " if span else ""
+            entry = f"{where}{f'error[{code}]' if code else 'error'}: {text}".replace("\n", " ")
+            if entry not in found:
+                found.append(entry[:300])
+            if len(found) >= limit:
+                break
+    return found
 
 
 def read_clippy(path):
@@ -333,6 +375,8 @@ def main():
     parser.add_argument("--init-baseline", action="store_true", help="write the baseline from scratch (first run only)")
     parser.add_argument("--report", choices=["md", "json"])
     parser.add_argument("--base-clippy-json", help="the same run on the base: a count it already reaches is the base's red")
+    parser.add_argument("--changed-crates", default=None, metavar="A,B",
+                        help="the crates the change touches: when the base run did not finish, only these are judged")
     parser.add_argument("--cargo-log",
                         help="the same run's cargo stderr: a stale Cargo.lock there is named as the cause")
     args = parser.parse_args()
@@ -358,11 +402,21 @@ def main():
     baseline = load_baseline()
     base_counts = None
     base_hits = None
+    # With a base run that did not finish: the crates still judged (None: every crate).
+    judged = None
     if args.base_clippy_json:
         base_checked, base_counts, _, base_finished, base_hits = read_clippy(args.base_clippy_json)
         if not base_checked or base_finished is not True:
-            print("::warning title=rust panic ratchet::the base clippy run did not finish successfully; "
-                  "every count over the baseline is charged to this change", file=sys.stderr)
+            errors = compile_errors(args.base_clippy_json)
+            cause = (" (" + "; ".join(errors) + ")") if errors else ""
+            if args.changed_crates is not None:
+                judged = {name for name in args.changed_crates.split(",") if name}
+                scope = (f"only the crates this change touches ({', '.join(sorted(judged))}) are judged, against "
+                         "the baseline alone" if judged else "no crate this change touches is checked")
+            else:
+                scope = "every count over the baseline is charged to this change"
+            print(f"::warning title=rust panic ratchet::the base clippy run did not finish successfully{cause}; "
+                  f"{scope}", file=sys.stderr)
             base_counts = None
             base_hits = None
     if args.init_baseline:
@@ -373,6 +427,7 @@ def main():
     failures = []
     warnings = []
     base_reds = []
+    unjudged = []
     lowered = {}
     for crate in sorted(checked):
         now = counts.get(crate, collections.Counter())
@@ -382,6 +437,9 @@ def main():
             allowed = 0 if base is None else base.get(lint, 0)
             if got > allowed:
                 where = "new crate (must be 0)" if base is None else f"baseline {allowed}"
+                if judged is not None and crate not in judged:
+                    unjudged.append(f"{crate}: clippy::{lint} {got} > {where}")
+                    continue
                 on_base = None if base_counts is None else base_counts.get(crate, {}).get(lint, 0)
                 if lint in DENY_LINTS and on_base is not None and got <= on_base:
                     base_reds.append(f"{crate}: clippy::{lint} {got} > {where}, and the base has {on_base}: "
@@ -425,6 +483,10 @@ def main():
         print(f"::warning title=rust panic ratchet (tracked lint)::{line}", file=sys.stderr)
     for line in base_reds:
         print(f"::warning title=rust panic ratchet (base red)::{line}", file=sys.stderr)
+    if unjudged:
+        print("::warning title=rust panic ratchet (not judged)::the base run did not finish and this change does not "
+              "touch these crates, so their counts over the baseline are not charged to it: " + "; ".join(unjudged),
+              file=sys.stderr)
     if failures:
         print("rust-panic-ratchet: RED", file=sys.stderr)
         for line in failures:

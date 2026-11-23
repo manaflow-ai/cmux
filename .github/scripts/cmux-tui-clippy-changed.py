@@ -150,6 +150,15 @@ def workspace_of(repo: Path) -> tuple[dict[str, str], dict[str, set[str]], set[s
     return names, dependents, libs
 
 
+def ratchet_crate(directory: str) -> str:
+    """The panic ratchet's name for a member directory (rust_panic_ratchet.crate_of): cmux-tui/crates/<name> is
+    <name>, cmux-tui/bindings/<x> is bindings-<x>; a package's own name can differ from its directory's."""
+    parts = directory.split("/")
+    if len(parts) >= 3 and parts[0] == ROOT and parts[1] == "bindings":
+        return "bindings-" + parts[2]
+    return parts[2] if len(parts) >= 3 and parts[0] == ROOT and parts[1] == "crates" else parts[-1]
+
+
 def with_dependents(changed: set[str], dependents: dict[str, set[str]]) -> set[str]:
     """`changed` and every member that depends on one of them, directly or through others."""
     seen, queue = set(changed), deque(changed)
@@ -209,7 +218,8 @@ def main(argv: list[str] | None = None) -> int:
         packages = [arg for name in selected for arg in ("-p", name)]
         if args.panic_ratchet:
             return panic_ratchet(repo, packages, any(name in libs for name in selected), ", ".join(selected),
-                                 args.panic_ratchet, compare)
+                                 args.panic_ratchet, compare,
+                                 sorted(ratchet_crate(path) for path in touched if path in workspace))
         command = ["cargo", "clippy", "--locked", "--keep-going", *packages, *LINT_ARGS]
         scope = ", ".join(selected)
     print(f"cmux-tui-clippy-changed: linting {scope}", flush=True)
@@ -426,14 +436,18 @@ def name_base_reds(repo: Path, base: str, red_files: list[str]) -> None:
         print("cmux-tui-clippy-changed: every clippy error is in a file this change does not touch: likely a base red")
 
 
-def panic_ratchet(repo: Path, packages: list[str], has_lib: bool, scope: str, out: Path, compare: str = "") -> int:
+def panic_ratchet(repo: Path, packages: list[str], has_lib: bool, scope: str, out: Path, compare: str = "",
+                  changed: list[str] | None = None) -> int:
     """Lint the production targets of `packages` with the ratchet's flags into `out`, then let
     the ratchet judge them. Cargo refuses `--lib` when no selected package has a library.
     With `compare` (a base commit) a HEAD the baseline already passes is green as it stands:
     the base run only excuses counts over the baseline, so it cannot change that verdict. Only
     a red HEAD lints the base too, into `<out>.base`, and the ratchet then charges HEAD only for
     counts the base does not reach. On a green PR that skips one lint of the changed packages
-    (80 s of the job's 6 min on #37445, run 42334950081)."""
+    (80 s of the job's 6 min on #37445, run 42334950081). `changed` (the ratchet's names for the members
+    owning a changed file, dependents aside) goes to the ratchet as --changed-crates: when the base run does not finish,
+    only those are judged, so a base that does not compile cannot charge the change for crates it never
+    touched. A whole-workspace run (a workspace-wide input changed) passes none and stays strict."""
     ratchet = repo / RATCHET
     flags = subprocess.run([sys.executable, str(ratchet), "--flags"], check=True,
                            stdout=subprocess.PIPE, text=True).stdout.split()
@@ -476,6 +490,8 @@ def panic_ratchet(repo: Path, packages: list[str], has_lib: bool, scope: str, ou
         finally:
             fmt_changed.git(repo, "checkout", "--quiet", "--detach", head)
         judge += ["--base-clippy-json", str(base_out)]
+        if changed is not None:
+            judge += ["--changed-crates", ",".join(changed)]
     rc = subprocess.run(judge).returncode
     if rc and lock:
         print(stale_lock_error("cmux-tui panic ratchet", lock))
