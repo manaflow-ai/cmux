@@ -239,7 +239,7 @@ import CmuxNextCompat
     /// The silent recovery (``recoverPersonProof``) gave up on this pane's person proof: allows
     /// from it stay refused, and each refusal says so in its approval. False again once a
     /// connection proves the person, or runs no proof (https://github.com/manaflow-ai/cmux/issues/48636).
-    private(set) var personProofGaveUp = false
+    var personProofGaveUp = false
     /// The current connection's daemon is another cmux install's (``AcpmuxServerPeer/Match/foreign``):
     /// it never takes this app's person key, so no proof is sent there and none is recovered.
     var daemonIsForeign = false
