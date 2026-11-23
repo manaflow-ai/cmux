@@ -541,10 +541,15 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
       prompt && prompt.height > 0
         ? document.elementFromPoint(prompt.left + Math.min(24, prompt.width / 2), prompt.top + prompt.height / 2)
         : null;
+    // While the copy shows, a key reaches the live editor under it only through the copy's hole over the composer
+    // (liveComposer.ts sets the host's clip-path); otherwise live.ts swallows it and ends the copy. A field outside
+    // #root (skeleton.ts, drawn over the copy's prompt) takes keys while the copy shows.
+    const underCopy = !!host && !!hit && !!document.getElementById("root")?.contains(hit) && !host.style.clipPath;
     const editable =
-      (hit instanceof HTMLElement && hit.isContentEditable) ||
-      hit instanceof HTMLTextAreaElement ||
-      hit instanceof HTMLInputElement;
+      !underCopy &&
+      ((hit instanceof HTMLElement && hit.isContentEditable) ||
+        hit instanceof HTMLTextAreaElement ||
+        hit instanceof HTMLInputElement);
     if (!recording.latestAt && rows.some((row) => row.text.includes(latest))) recording.latestAt = performance.now();
     if (!recording.liveLatestAt && !host && !rootHidden && rows.some((row) => row.text.includes(latest)))
       recording.liveLatestAt = performance.now();
