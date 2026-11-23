@@ -137,21 +137,28 @@ import UIKit
         return store
     }
 
-    /// An iPhone-sized window around the transcript host, laid out.
-    static func open(_ store: AgentChatStore) -> (SubagentTranscriptHost, UIWindow) {
+    /// About one display frame: the main actor is let go (the off-main layouts land on it, in a
+    /// main-actor task; spinning the run loop inside this test's main-actor job never runs them),
+    /// then the window is laid out.
+    static func frame(_ window: UIWindow) async {
+        try? await Task.sleep(for: .milliseconds(16))
+        window.layoutIfNeeded()
+    }
+
+    /// An iPhone-sized window around the transcript host, laid out, with its off-main layouts
+    /// landed: the first ones come, then none for 10 frames (at most 20 s).
+    static func open(_ store: AgentChatStore) async -> (SubagentTranscriptHost, UIWindow) {
         let host = SubagentTranscriptHost(store: store, subagentID: "s")
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
         window.rootViewController = host
         window.isHidden = false
-        ChatTranscriptSourceTests.settle(window)
-        // Until the off-main layouts have landed: the first ones come, then none for a few passes
-        // (they run at utility priority, so they can take seconds on a loaded simulator).
+        for _ in 0..<6 { await frame(window) }
         let deadline = Date().addingTimeInterval(20)
-        while host.list.layoutsMadeOffMain == 0, Date() < deadline { ChatTranscriptSourceTests.settle(window) }
+        while host.list.layoutsMadeOffMain == 0, Date() < deadline { await frame(window) }
         var made = -1
         var still = 0
-        while still < 6, Date() < deadline {
-            ChatTranscriptSourceTests.settle(window)
+        while still < 10, Date() < deadline {
+            await frame(window)
             if host.list.layoutsMadeOffMain == made { still += 1 } else { still = 0 }
             made = host.list.layoutsMadeOffMain
         }
@@ -161,9 +168,9 @@ import UIKit
     /// Opening weighs each row once (compared, estimated, given its layout item), and a row
     /// whose native layout lands off the main thread once more: not every row for the list made
     /// without a width, again when the width comes, and again for each landing of its turn.
-    @Test func openingALongTranscriptWeighsEachRowOnce() {
+    @Test func openingALongTranscriptWeighsEachRowOnce() async {
         let store = Self.finishedLongStore()
-        let (host, _) = Self.open(store)
+        let (host, _) = await Self.open(store)
         let rows = host.list.layout.items.count
         let landed = host.list.layoutsMadeOffMain
         #expect(rows > 1000)
@@ -176,9 +183,9 @@ import UIKit
     /// A finished transcript opens at its top: the rows laid out on the main thread are the
     /// ones on screen there, not its newest rows at the far end (those are laid out off the
     /// main thread, as the rest are).
-    @Test func openingAFinishedTranscriptLaysOutOnlyItsTopOnTheMainThread() {
+    @Test func openingAFinishedTranscriptLaysOutOnlyItsTopOnTheMainThread() async {
         let store = Self.finishedLongStore()
-        let (host, _) = Self.open(store)
+        let (host, _) = await Self.open(store)
         let view = host.list.collectionView
         #expect(abs(view.contentOffset.y + view.adjustedContentInset.top) <= 0.5, "opens at the top")
         let visible = view.indexPathsForVisibleItems.count
