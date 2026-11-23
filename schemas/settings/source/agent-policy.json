@@ -279,7 +279,8 @@
         "appearance.backgroundDynamic",
         "appearance.backgroundLocation",
         "appearance.backgroundMemory",
-        "appearance.backgroundPlacement"
+        "appearance.backgroundPlacement",
+        "appearance.backgroundRecents"
       ]
     },
     {

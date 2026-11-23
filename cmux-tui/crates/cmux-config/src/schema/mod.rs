@@ -20,6 +20,9 @@ use serde_json::value::RawValue;
 
 pub use accepts::{Accepted, accepts, effective_value, is_hex_color};
 pub use backdrop::normalize_backdrop;
+pub use backdrop::{
+    RECENTS_CAP, is_selection as is_background, previous_background, recents_of, record_recent,
+};
 pub use build_defaults::{BUILD_DEFAULTS_ENV, build_defaults_from};
 pub use chat_roots::chat_root_is_valid;
 pub use retired::{Replaced, replaced_by_row, replaced_keys, retired_keys, retired_reason};
@@ -153,6 +156,10 @@ pub enum DomainKind {
     /// `appearance.backgroundPlacement`: picture ids to placement texts
     /// (`crate::backdrop_placement`; Swift `BackdropPlacement`).
     BackdropPlacement,
+    /// `appearance.backgroundRecents`: the backgrounds shown before, newest
+    /// first, each an `appearance.background` value, at most
+    /// `backdrop::RECENTS_CAP` (Swift `BackdropSelectionSetting.acceptsRecents`).
+    BackdropRecents,
     /// `agents.chats.roots`: absolute folders outside the protected ones
     /// (Swift `ChatRootValidator`).
     ChatRoots,
@@ -434,6 +441,7 @@ fn row(raw: Value, text: RowText) -> Result<Row, String> {
         "domain:backdrop_location" => Validation::Domain(DomainKind::BackdropLocation),
         "domain:backdrop_memory" => Validation::Domain(DomainKind::BackdropMemory),
         "domain:backdrop_placement" => Validation::Domain(DomainKind::BackdropPlacement),
+        "domain:backdrop_recents" => Validation::Domain(DomainKind::BackdropRecents),
         "domain:chat_roots" => Validation::Domain(DomainKind::ChatRoots),
         "domain:search_template" => Validation::Domain(DomainKind::SearchTemplate),
         "domain:custom_densities" => Validation::Domain(DomainKind::CustomDensities),
