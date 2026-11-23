@@ -265,7 +265,9 @@ test("two image.png screenshots echoed before the pane hashed them land at their
 test("an echo with no row images still takes the bytes the pane primed by id", async () => {
   const a = shot("q", 1200, 800, 7);
   await images.primeSentImages([a.attachment]);
-  const echo = [{ id: a.id, mimeType: "image/png", name: "image.png" }];
+  const echo: { id: string; mimeType: string; name: string; src?: string; width?: number; height?: number }[] = [
+    { id: a.id, mimeType: "image/png", name: "image.png" },
+  ];
   for (const none of [undefined, []]) {
     const [image] = images.withSentShapes(echo, none);
     expect(image?.src).toBe(a.src);
