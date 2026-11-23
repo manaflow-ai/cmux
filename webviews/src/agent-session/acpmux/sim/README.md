@@ -15,14 +15,15 @@ The simulator plays a chat through the pane's own code on virtual time, with no 
 It runs under plain `bun` (no DOM), so it scales: a 1,800-turn run is 43k steps, 10k+ rows and 40 hours of
 virtual time.
 
-| File                                | What                                                                                                                                                                                                                                                   |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `script.ts`                         | The scenario language: `sim(name, about).prompt(..).think(..).tool(..).say(..).turnEnd()`, plus `incoming` (another agent's notice or message), `background`, `subagent`, `compaction`, `reader` (scrolling), `wait`, and `record` for any raw record. |
-| `scenarios.ts`                      | The named scenarios (`SCENARIOS`) and `longRun(turns)`.                                                                                                                                                                                                |
-| `run.ts`                            | `runSimulation(scenario, options)`: the run, the probes and the rules. `summarize(result)`.                                                                                                                                                            |
-| `sanitize.ts`                       | Makes a recorded chat safe to commit (below).                                                                                                                                                                                                          |
-| `../../../../scripts/chat-sim.ts`   | The command line.                                                                                                                                                                                                                                      |
-| `../../../../test/chat-sim.test.ts` | The tests: every scenario, a sanitized replay, the sanitizer, a long run.                                                                                                                                                                              |
+| File                                | What                                                                                                                                                                                                                                                                                                                                    |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `script.ts`                         | The scenario language: `sim(name, about).prompt(..).think(..).tool(..).say(..).turnEnd()`, plus `incoming` (another agent's notice or message), `message` and `steer` (mid-turn), `background`, `subagent`, `compaction`, `plan`, `permission`, `retry`, `stop`, `fail`, `reader` (scrolling), `wait`, and `record` for any raw record. |
+| `scenarios.ts`                      | The named scenarios (`SCENARIOS`) and `longRun(turns)`.                                                                                                                                                                                                                                                                                 |
+| `map.ts`                            | The map: every case, what is expected of it, and its check (below).                                                                                                                                                                                                                                                                     |
+| `run.ts`                            | `runSimulation(scenario, options)`: the run, the probes and the rules. `summarize(result)`.                                                                                                                                                                                                                                             |
+| `sanitize.ts`                       | Makes a recorded chat safe to commit (below).                                                                                                                                                                                                                                                                                           |
+| `../../../../scripts/chat-sim.ts`   | The command line.                                                                                                                                                                                                                                                                                                                       |
+| `../../../../test/chat-sim.test.ts` | The tests: every scenario, a sanitized replay, the sanitizer, a long run.                                                                                                                                                                                                                                                               |
 
 ## Run it
 
@@ -64,9 +65,15 @@ It needs Chrome (Linux, a Freestyle VM or CI; never on a Mac). A step costs two 
 ```sh
 bun scripts/chat-sim.ts --replay ~/.acpmux/sessions/<id>                    # a session's records, as recorded
 bun scripts/chat-sim.ts --replay ~/.acpmux/sessions/<id> --from 2000 --to 9000
+bun scripts/chat-sim.ts --replay ~/.acpmux/sessions/<id> --last 3000
 bun scripts/chat-sim.ts --replay ~/.acpmux/sessions/<id> --sanitize test/fixtures/chat-sim/NAME.ndjson
 bun scripts/chat-sim.ts --replay test/fixtures/chat-sim/replay-lane-session.ndjson
 ```
+
+`--from` and `--to` include both sequence numbers. `--last N` selects the last N sequence
+numbers in the log and can be combined with either bound. For a split acpmux log, the simulator
+probes segment headers and parses the segments that cover the range. A tail replay can start
+directly in the last segment.
 
 `--sanitize FILE` writes a fixture safe to commit, and runs it. It keeps the chat's shape (which records,
 in order, how far apart in time, how long each text is, where its lines and Markdown marks fall) and drops
@@ -105,6 +112,14 @@ the live pane read it, each in its own process: whole; its last 400 records, as 
 reads one page; and from halfway, as a reconnect. It prints each read's violations by rule, the first
 `--show` (5) with the time on his clock they happened. A capture takes well under a second, then
 `--replay FIXTURE --trace FILE` is the loop to develop against.
+
+### Replay every reported chat
+
+`bun scripts/chat-sim.ts --reported` replays every committed `.ndjson` fixture. Each capture's
+`.json` sidecar records how many distinct rows broke each rule in its whole replay. The command
+prints the change for each rule (e.g. `a-head-gap 9 -> 0`) and exits 1 if any count increased.
+After inspecting the changes, run `--reported --update` to write the new counts. That also records
+an initial baseline for older fixtures with none and preserves their capture metadata.
 
 ### Capture from another host
 
@@ -157,6 +172,31 @@ The first sweep (2026-11-22) found these classes:
   - "Working for" drawn over the message that opened its turn had no rule of its own.
   - Codex messages folded under "Worked for" while the final answer streamed. That fold is by design, and its
     verdict is now `final-answer`.
+
+## The map
+
+Leo, 2026-11-22: "there are probably more bullshit scenarios. we need to map them all out and note what
+expected behaviours are for all."
+
+`map.ts` is that map: one entry per way a chat's display has gone wrong, or plausibly can. Each says what
+happens (`when`), what went wrong (`wrong`), what the reader should see (`expected`), names the scenario that
+plays it, and checks the expected behaviour on that scenario's run. `EVERYWHERE` holds what every chat keeps
+whatever it plays: one live line and it is last, no two rows with one id, one footer a turn, a prompt never
+taken away, rows of a running turn only append, a chat at rest ends on its footer.
+
+```sh
+bun scripts/chat-sim.ts --map              # each case: holds, open, not played, or BROKEN (exit 1)
+bun test test/chat-sim-map.test.ts         # the same, plus every scenario read from halfway and at 320 wide
+```
+
+An entry with `open` is a known hole. With a scenario and a check, it is an oddity the pane still has: its
+test is marked failing, so the fix turns it red until `open` is taken away. With no scenario, nothing plays it
+yet. The test also holds the two lists together: a scenario with no entry, or an entry naming a scenario that
+is gone, fails.
+
+To add a case: write the scenario (below), add its entry with a `check` that returns one line per way the
+expected behaviour does not hold, and run `--map`. A check reads the run's steps (`run.traces`, each with its
+drawn rows), so it can say "at every step between these two records" as easily as "at the end".
 
 ## Write a scenario
 
