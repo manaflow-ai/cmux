@@ -8,7 +8,16 @@ import { useId, useState } from "react";
 import { useT } from "../i18n";
 import { Tooltip } from "../../../ui/Tooltip";
 import { cx } from "../../../ui/cx";
-import type { HybridLook, HybridView } from "./hybridModel";
+import {
+  START_HELP,
+  START_NAMES,
+  startOf,
+  startSettled,
+  type HybridLook,
+  type HybridStartLook,
+  type HybridStartState,
+  type HybridView,
+} from "./hybridModel";
 import "./cloudToggle.css";
 
 /// `chip`: the cloud and "Keep Running" (the strip above the composer, Session Info).
@@ -22,12 +31,18 @@ export function CloudToggle({
   look = "rainbow",
   form = "chip",
   className,
+  start: state,
+  startLook = "fill",
   onChange,
 }: {
   view: HybridView;
   look?: HybridLook;
   form?: CloudToggleForm;
   className?: string;
+  /// Parallel start: the chat's start state as the daemon answers it, and how to draw its steps
+  /// until the chat is in Cloud. Absent when the feature is off.
+  start?: HybridStartState;
+  startLook?: HybridStartLook;
   /// The person's click: true asks for a slot, false gives it back.
   onChange(on: boolean): void;
 }) {
@@ -37,11 +52,17 @@ export function CloudToggle({
   const [fresh, setFresh] = useState(false);
   const on = view.lit || view.waiting === true;
   const slots = t("hybrid.slots", { used: view.used, total: view.total });
-  const detail = view.waiting
-    ? `${t("hybrid.waiting")} ${slots}`
-    : `${t(view.lit ? "hybrid.keepRunning.help" : "hybrid.auto.help")} ${slots}`;
+  const { step: start, reason } = startOf(state);
+  const lit = view.lit && startSettled(start);
+  const detail = start
+    ? [t(START_HELP[start]), start === "failed" ? reason : undefined].filter(Boolean).join(" ")
+    : view.waiting
+      ? `${t("hybrid.waiting")} ${slots}`
+      : `${t(view.lit ? "hybrid.keepRunning.help" : "hybrid.auto.help")} ${slots}`;
+  const paintStyle = { "--acpmux-hybrid-paint": `url(#${CSS.escape(paint)})` } as React.CSSProperties;
+  const words = start !== undefined && (startLook === "words" || start === "failed");
   return (
-    <Tooltip label={t("hybrid.keepRunning")} detail={detail} side="top">
+    <Tooltip label={start ? t(START_NAMES[start]) : t("hybrid.keepRunning")} detail={detail} side="top">
       <button
         type="button"
         role="switch"
@@ -51,7 +72,10 @@ export function CloudToggle({
         data-testid="hybrid-cloud-toggle"
         data-look={look}
         data-form={form}
-        data-lit={view.lit ? "" : undefined}
+        data-lit={lit ? "" : undefined}
+        data-start={start}
+        data-start-look={start ? startLook : undefined}
+        style={paintStyle}
         data-waiting={view.waiting ? "" : undefined}
         data-fresh={fresh ? "" : undefined}
         onClick={() => {
@@ -78,14 +102,16 @@ export function CloudToggle({
                 <stop offset="1" className="acpmux-hybrid-stop" data-stop="5" />
               </linearGradient>
             </defs>
-            <path
-              className="acpmux-hybrid-cloud__shape"
-              d={CLOUD}
-              style={{ "--acpmux-hybrid-paint": `url(#${CSS.escape(paint)})` } as React.CSSProperties}
-            />
+            <path className="acpmux-hybrid-cloud__shape" d={CLOUD} />
+            {start && start !== "failed" && <path className="acpmux-hybrid-start__fill" d={CLOUD} />}
+            {start === "failed" && <circle className="acpmux-hybrid-start__mark" cx={13} cy={4} r={2.25} />}
           </svg>
         </span>
-        {form === "chip" && <span className="acpmux-hybrid-label">{t("hybrid.keepRunning")}</span>}
+        {(form === "chip" || words) && (
+          <span className="acpmux-hybrid-label">
+            {words && start ? t(START_NAMES[start]) : t("hybrid.keepRunning")}
+          </span>
+        )}
       </button>
     </Tooltip>
   );

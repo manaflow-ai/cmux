@@ -10,7 +10,15 @@ import { componentEntry } from "../../../gallery/format";
 import { ComposerFoot } from "../ComposerFoot";
 import { CloudToggle } from "./CloudToggle";
 import { CloudTriToggle } from "./CloudTriToggle";
-import { clicked, type HybridLook, type HybridPin, type HybridView } from "./hybridModel";
+import {
+  clicked,
+  type HybridLook,
+  type HybridPin,
+  type HybridStart,
+  type HybridStartLook,
+  type HybridStartState,
+  type HybridView,
+} from "./hybridModel";
 
 type Props = {
   /// A chat (composer at the pane's bottom) or the New Tab page (composer under the hero).
@@ -24,6 +32,9 @@ type Props = {
   /// The three-state control instead of the on/off cloud: its form and the mode it opens on.
   tri?: "segments" | "cycle";
   pin?: HybridPin;
+  /// Parallel start: the step the button draws while the cloud computer boots, and how.
+  start?: HybridStart;
+  startLook?: HybridStartLook;
 };
 
 const VIEWS: Record<Props["state"], HybridView> = {
@@ -32,9 +43,18 @@ const VIEWS: Record<Props["state"], HybridView> = {
   waiting: { lit: false, waiting: true, pin: "auto", at: "local", used: 3, total: 3 },
 };
 
-function Stage({ page, spot, look, state, form, tri, pin = "auto" }: Props) {
+const FAILED_REASON = "No cloud computer was free in this region.";
+
+function Stage({ page, spot, look, state, form, tri, pin = "auto", start, startLook }: Props) {
   const [view, setView] = useState(VIEWS[state]);
   const [mode, setMode] = useState(pin);
+  // The daemon's answer for this step: the chat is here until it is live.
+  const begun: HybridStartState | undefined = start && {
+    home: start === "live" ? "cloud" : "here",
+    cloud: start,
+    since: 0,
+    reason: start === "failed" ? FAILED_REASON : undefined,
+  };
   const toggle = tri ? (
     <CloudTriToggle
       pin={mode}
@@ -42,6 +62,8 @@ function Stage({ page, spot, look, state, form, tri, pin = "auto" }: Props) {
       form={tri}
       named={spot === "above" || tri === "cycle"}
       lit={view.lit}
+      start={begun}
+      startLook={startLook}
       onChange={setMode}
       onLitChange={(lit) => setView((now) => ({ ...now, lit }))}
     />
@@ -50,6 +72,8 @@ function Stage({ page, spot, look, state, form, tri, pin = "auto" }: Props) {
       view={view}
       look={look}
       form={form ?? (spot === "above" ? "chip" : "icon")}
+      start={begun}
+      startLook={startLook}
       onChange={() => setView(clicked)}
     />
   );
@@ -148,6 +172,56 @@ for (const page of ["chat", "newtab"] as const) {
   }
 }
 
+// Parallel start (Leo, 11:17Z: "we don't have to wait for cloud machines to be up and running
+// before we start a model ... start them all in parallel"). A chat with Cloud chosen runs on this
+// Mac at once while its cloud computer boots, then moves. The button alone says so: three looks
+// for the in-between steps, and one for a cloud computer that did not start.
+const START_LOOK_NOTES: Record<HybridStartLook, string> = {
+  fill: "Fill: the cloud fills left to right as the start goes on.",
+  breathe: "Breathe: the outline takes the color and breathes; it fills softly as the chat moves.",
+  words: "Words: the glyph stays quiet and the name steps Starting Here, Cloud Ready, Moving, In Cloud.",
+};
+const START_STEP_NOTES: Record<HybridStart, string> = {
+  booting: "Booting: the chat already runs on this Mac; its cloud computer is starting.",
+  ready: "Ready: the cloud computer is up; the chat moves at its next pause.",
+  moving: "Moving: the chat is going to Cloud.",
+  live: "Live: the chat is in Cloud, and the button is lit as usual.",
+  failed:
+    "Failed: the cloud computer did not start. A dull cloud with a small mark; the reason is in the tooltip, and the chat keeps running here.",
+};
+const starts: Record<string, { note: string; props: Props }> = {};
+for (const where of ["chat-above", "newtab-above", "chat-below"] as const) {
+  const [page, spot] = where.split("-") as [Props["page"], Props["spot"]];
+  const base: Props = { page, spot, look: "rainbow", state: "off", tri: "segments", pin: "cloud" };
+  for (const startLook of ["fill", "breathe", "words"] as const) {
+    for (const start of ["booting", "ready", "moving", "live"] as const) {
+      // Under the box one step per look is enough to judge the quiet row.
+      if (spot === "below" && start !== "booting") continue;
+      starts[`${where}-start-${startLook}-${start}`] = {
+        note: `${SPOT_NOTES[where]} Only in Cloud, starting. ${START_LOOK_NOTES[startLook]} ${START_STEP_NOTES[start]}`,
+        props: { ...base, start, startLook },
+      };
+    }
+  }
+  starts[`${where}-start-failed`] = {
+    note: `${SPOT_NOTES[where]} ${START_STEP_NOTES.failed}`,
+    props: { ...base, start: "failed" },
+  };
+  if (spot === "below") continue;
+  starts[`${where}-start-hybrid-booting`] = {
+    note: `${SPOT_NOTES[where]} Hybrid with its light on, starting: only the cloud half of the split glyph fills. ${START_STEP_NOTES.booting}`,
+    props: { ...base, pin: "auto", state: "on", start: "booting", startLook: "fill" },
+  };
+  starts[`${where}-start-sky-moving`] = {
+    note: `${SPOT_NOTES[where]} The fill in the Sky look, one accent color. ${START_STEP_NOTES.moving}`,
+    props: { ...base, look: "sky", start: "moving", startLook: "fill" },
+  };
+  starts[`${where}-start-cloud-only-booting`] = {
+    note: `${SPOT_NOTES[where]} The on/off cloud, starting. ${START_LOOK_NOTES.fill} ${START_STEP_NOTES.booting}`,
+    props: { page, spot, look: "rainbow", state: "on", start: "booting", startLook: "fill" },
+  };
+}
+
 export default componentEntry<Props>({
   id: "agent-pane.hybrid-cloud-toggle",
   title: "Hybrid chats: the cloud button",
@@ -162,5 +236,5 @@ export default componentEntry<Props>({
     "agent-session/acpmux/hybrid/hybridModel.ts",
   ],
   load: async () => Stage,
-  variants: { ...lead, ...variants },
+  variants: { ...lead, ...starts, ...variants },
 });

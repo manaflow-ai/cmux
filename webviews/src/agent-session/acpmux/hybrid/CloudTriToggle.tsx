@@ -6,7 +6,17 @@
 import { useId, useState } from "react";
 import { useT } from "../i18n";
 import { Tooltip } from "../../../ui/Tooltip";
-import type { HybridLook, HybridPin } from "./hybridModel";
+import {
+  START_HELP,
+  START_NAMES,
+  startOf,
+  startSettled,
+  type HybridLook,
+  type HybridPin,
+  type HybridStart,
+  type HybridStartLook,
+  type HybridStartState,
+} from "./hybridModel";
 import "./cloudToggle.css";
 
 const ORDER = ["auto", "cloud", "local"] as const;
@@ -17,7 +27,8 @@ const CLOUD = "M4.6 12.5h7a2.6 2.6 0 0 0 .4-5.17A3.6 3.6 0 0 0 5.1 6.2 3.15 3.15
 const LAPTOP = "M3.5 4.5h9a1 1 0 0 1 1 1v5.5h-11V5.5a1 1 0 0 1 1-1ZM1.5 12.5h13";
 
 /// One mode's glyph. Hybrid: the cloud's left half and the computer's right half, split by a slash.
-function Glyph({ mode, paint }: { mode: HybridPin; paint: string }) {
+function Glyph({ mode, paint, start }: { mode: HybridPin; paint: string; start?: HybridStart }) {
+  const fill = start && start !== "failed";
   const clip = useId();
   return (
     <svg
@@ -47,14 +58,25 @@ function Glyph({ mode, paint }: { mode: HybridPin; paint: string }) {
       {mode === "auto" ? (
         <>
           <path className="acpmux-hybrid-tri__cloud" d={CLOUD} clipPath={`url(#${CSS.escape(`${clip}a`)})`} />
+          {fill && (
+            <g clipPath={`url(#${CSS.escape(`${clip}a`)})`}>
+              <path className="acpmux-hybrid-start__fill" d={CLOUD} />
+            </g>
+          )}
           <g transform="translate(6 0)">
             <path className="acpmux-hybrid-tri__laptop" d={LAPTOP} clipPath={`url(#${CSS.escape(`${clip}b`)})`} />
           </g>
         </>
       ) : mode === "cloud" ? (
-        <path className="acpmux-hybrid-tri__cloud" d={CLOUD} />
+        <>
+          <path className="acpmux-hybrid-tri__cloud" d={CLOUD} />
+          {fill && <path className="acpmux-hybrid-start__fill" d={CLOUD} />}
+        </>
       ) : (
         <path className="acpmux-hybrid-tri__laptop" d={LAPTOP} />
+      )}
+      {start === "failed" && mode !== "local" && (
+        <circle className="acpmux-hybrid-start__mark" cx={mode === "auto" ? 10 : 13} cy={4} r={2.25} />
       )}
     </svg>
   );
@@ -66,6 +88,8 @@ export function CloudTriToggle({
   form = "segments",
   named = true,
   lit = false,
+  start: state,
+  startLook = "fill",
   onChange,
   onLitChange,
 }: {
@@ -77,6 +101,11 @@ export function CloudTriToggle({
   /// Hybrid only: the chat is high priority (Keep Running), so the split glyph's cloud half is lit.
   /// Only in Cloud is always lit; Only on This Mac never is.
   lit?: boolean;
+  /// Parallel start: the chat's start state as the daemon answers it, and how the chosen glyph
+  /// draws its steps until the chat is in Cloud. It applies to the two modes that have a cloud
+  /// (Only in Cloud, and Hybrid with its light on). Absent when the feature is off.
+  start?: HybridStartState;
+  startLook?: HybridStartLook;
   onChange(pin: HybridPin): void;
   /// Choosing Hybrid again while it is chosen turns its light on or off.
   onLitChange?(lit: boolean): void;
@@ -84,7 +113,18 @@ export function CloudTriToggle({
   const t = useT();
   const paint = useId();
   const [fresh, setFresh] = useState(false);
-  const glows = (mode: HybridPin) => mode === "cloud" || (mode === "auto" && lit);
+  const wants = (mode: HybridPin) => mode === "cloud" || (mode === "auto" && lit);
+  // The step is the chosen mode's, and only while that mode has a cloud to start.
+  const begun = startOf(state);
+  const step = wants(pin) ? begun.step : undefined;
+  const reason = begun.reason;
+  const glows = (mode: HybridPin) => wants(mode) && (mode !== pin || startSettled(step));
+  const words = step !== undefined && (startLook === "words" || step === "failed");
+  const name = words && step ? t(START_NAMES[step]) : pin === "auto" && lit ? t("hybrid.keepRunning") : t(NAMES[pin]);
+  const help = (mode: HybridPin) =>
+    mode === pin && step
+      ? [t(START_HELP[step]), step === "failed" ? reason : undefined].filter(Boolean).join(" ")
+      : t(HELP[mode]);
   const pick = (next: HybridPin) => {
     if (next === pin) {
       if (pin !== "auto" || !onLitChange) return;
@@ -99,7 +139,7 @@ export function CloudTriToggle({
   if (form === "cycle") {
     const next = ORDER[(ORDER.indexOf(pin) + 1) % ORDER.length]!;
     return (
-      <Tooltip label={t(NAMES[pin])} detail={t(HELP[pin])} side="top">
+      <Tooltip label={step ? t(START_NAMES[step]) : t(NAMES[pin])} detail={help(pin)} side="top">
         <button
           type="button"
           className="acpmux-hybrid-toggle acpmux-hybrid-tri"
@@ -108,14 +148,16 @@ export function CloudTriToggle({
           data-form="cycle"
           data-mode={pin}
           data-lit={glows(pin) ? "" : undefined}
+          data-start={step}
+          data-start-look={step ? startLook : undefined}
           data-fresh={fresh ? "" : undefined}
           aria-label={`${t("hybrid.pin")}: ${t(NAMES[pin])}`}
           style={style}
           onClick={() => pick(next)}
           onAnimationEnd={() => setFresh(false)}
         >
-          <Glyph mode={pin} paint={paint} />
-          {named && <span className="acpmux-hybrid-label">{t(NAMES[pin])}</span>}
+          <Glyph mode={pin} paint={paint} start={step} />
+          {(named || words) && <span className="acpmux-hybrid-label">{words ? name : t(NAMES[pin])}</span>}
         </button>
       </Tooltip>
     );
@@ -131,7 +173,7 @@ export function CloudTriToggle({
       style={style}
     >
       {ORDER.map((mode, index) => (
-        <Tooltip key={mode} label={t(NAMES[mode])} detail={t(HELP[mode])} side="top">
+        <Tooltip key={mode} label={t(NAMES[mode])} detail={help(mode)} side="top">
           <button
             type="button"
             role="radio"
@@ -143,6 +185,8 @@ export function CloudTriToggle({
             data-mode={mode}
             data-on={mode === pin ? "" : undefined}
             data-lit={mode === pin && glows(mode) ? "" : undefined}
+            data-start={mode === pin ? step : undefined}
+            data-start-look={mode === pin && step ? startLook : undefined}
             data-fresh={fresh && mode === pin ? "" : undefined}
             onClick={() => pick(mode)}
             onKeyDown={(event) => {
@@ -153,15 +197,11 @@ export function CloudTriToggle({
             }}
             onAnimationEnd={() => setFresh(false)}
           >
-            <Glyph mode={mode} paint={`${paint}${mode === pin ? "" : mode}`} />
+            <Glyph mode={mode} paint={`${paint}${mode === pin ? "" : mode}`} start={mode === pin ? step : undefined} />
           </button>
         </Tooltip>
       ))}
-      {named && (
-        <span className="acpmux-hybrid-label acpmux-hybrid-tri__name">
-          {pin === "auto" && lit ? t("hybrid.keepRunning") : t(NAMES[pin])}
-        </span>
-      )}
+      {(named || words) && <span className="acpmux-hybrid-label acpmux-hybrid-tri__name">{name}</span>}
     </span>
   );
 }

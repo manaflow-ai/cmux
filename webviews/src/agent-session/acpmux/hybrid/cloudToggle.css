@@ -272,3 +272,99 @@
 @media (prefers-reduced-motion: reduce) {
   .acpmux-hybrid-tri__glyph { animation: none; }
 }
+
+/* Parallel start (data-start): a chat with Cloud chosen runs on this Mac at once while its cloud
+   computer boots, and the button says so in the glyph alone: no dialog, no banner. Until the chat is
+   in Cloud the button is not lit; one of three looks (data-start-look) draws the steps. The loops
+   are slow and stop under reduced motion, where each step still reads from its resting frame. */
+.acpmux-hybrid-toggle[data-start] .acpmux-hybrid-start__fill {
+  fill: none;
+  stroke: none;
+  opacity: 1;
+  pointer-events: none;
+}
+.acpmux-hybrid-toggle[data-start]:not([data-start="failed"]) :is(.acpmux-hybrid-cloud__shape, .acpmux-hybrid-tri__cloud) {
+  opacity: 1;
+}
+.acpmux-hybrid-toggle[data-look="rainbow"] { --acpmux-hybrid-start-ink: var(--acpmux-hybrid-paint); }
+.acpmux-hybrid-toggle[data-look="sky"] { --acpmux-hybrid-start-ink: var(--agent-accent, var(--acpmux-hybrid-4)); }
+.acpmux-hybrid-toggle[data-look="aurora"] { --acpmux-hybrid-start-ink: currentColor; }
+
+/* Fill: the cloud fills left to right, a third while it boots, more when it is ready, the rest as
+   the chat moves. */
+.acpmux-hybrid-toggle[data-start-look="fill"] .acpmux-hybrid-start__fill {
+  fill: var(--acpmux-hybrid-start-ink);
+  clip-path: inset(0 var(--acpmux-hybrid-start-rest, 100%) 0 0);
+  transition: clip-path var(--cmux-motion-large) var(--cmux-ease-out);
+}
+/* Sky and Aurora fill in the outline's own ink, so the part filled so far is softer than the
+   outline until the chat is in Cloud; otherwise a nearly full cloud reads as lit. */
+.acpmux-hybrid-toggle[data-start-look="fill"]:not([data-look="rainbow"], [data-start="live"]) .acpmux-hybrid-start__fill {
+  opacity: 0.5;
+}
+.acpmux-hybrid-toggle[data-start="booting"] { --acpmux-hybrid-start-rest: 66%; --acpmux-hybrid-start-low: 86%; }
+.acpmux-hybrid-toggle[data-start="ready"] { --acpmux-hybrid-start-rest: 40%; }
+.acpmux-hybrid-toggle[data-start="moving"] { --acpmux-hybrid-start-rest: 14%; --acpmux-hybrid-start-low: 30%; }
+.acpmux-hybrid-toggle[data-start="live"] { --acpmux-hybrid-start-rest: 0%; }
+/* The Hybrid glyph shows only the cloud's left half, so its steps are measured on that half. */
+.acpmux-hybrid-toggle[data-start="booting"] .acpmux-hybrid-tri__glyph[data-mode="auto"] { --acpmux-hybrid-start-rest: 74%; --acpmux-hybrid-start-low: 90%; }
+.acpmux-hybrid-toggle[data-start="ready"] .acpmux-hybrid-tri__glyph[data-mode="auto"] { --acpmux-hybrid-start-rest: 64%; }
+.acpmux-hybrid-toggle[data-start="moving"] .acpmux-hybrid-tri__glyph[data-mode="auto"] { --acpmux-hybrid-start-rest: 50%; --acpmux-hybrid-start-low: 60%; }
+.acpmux-hybrid-toggle[data-start-look="fill"]:is([data-start="booting"], [data-start="moving"]) .acpmux-hybrid-start__fill {
+  animation: acpmux-hybrid-start-fill calc(var(--cmux-motion-large) * 4) var(--cmux-ease-out) infinite alternate;
+}
+@keyframes acpmux-hybrid-start-fill {
+  from { clip-path: inset(0 var(--acpmux-hybrid-start-low) 0 0); }
+  to { clip-path: inset(0 var(--acpmux-hybrid-start-rest) 0 0); }
+}
+
+/* Breathe: the outline takes the look's color and breathes while the cloud computer boots, holds
+   steady when it is ready, and fills softly as the chat moves. */
+.acpmux-hybrid-toggle[data-start-look="breathe"]:not([data-start="failed"]) :is(.acpmux-hybrid-cloud__shape, .acpmux-hybrid-tri__cloud) {
+  stroke: var(--acpmux-hybrid-start-ink);
+}
+.acpmux-hybrid-toggle[data-start-look="breathe"][data-start="booting"] :is(.acpmux-hybrid-cloud__shape, .acpmux-hybrid-tri__cloud) {
+  opacity: 0.7;
+  stroke-dasharray: 3 2;
+  animation: acpmux-hybrid-start-breathe calc(var(--cmux-motion-large) * 4) var(--cmux-ease-out) infinite alternate;
+}
+.acpmux-hybrid-toggle[data-start-look="breathe"]:is([data-start="moving"], [data-start="live"]) .acpmux-hybrid-start__fill {
+  fill: var(--acpmux-hybrid-start-ink);
+}
+.acpmux-hybrid-toggle[data-start-look="breathe"][data-start="moving"] .acpmux-hybrid-start__fill {
+  opacity: 0.45;
+  animation: acpmux-hybrid-start-breathe calc(var(--cmux-motion-large) * 2) var(--cmux-ease-out) infinite alternate;
+}
+@keyframes acpmux-hybrid-start-breathe {
+  from { opacity: 0.3; }
+  to { opacity: 0.9; }
+}
+
+/* Words: the glyph stays in the text's ink and the name beside it steps through the start. */
+.acpmux-hybrid-toggle[data-start-look="words"][data-start="booting"] :is(.acpmux-hybrid-cloud__shape, .acpmux-hybrid-tri__cloud) {
+  stroke-dasharray: 2 2;
+}
+
+/* Failed: the cloud computer did not start. The cloud is dull, a small mark sits on its shoulder,
+   and the reason is in the tooltip; the chat keeps running here. */
+.acpmux-hybrid-toggle[data-start="failed"] :is(.acpmux-hybrid-cloud__shape, .acpmux-hybrid-tri__glyph .acpmux-hybrid-tri__cloud) {
+  opacity: 0.45;
+}
+.acpmux-hybrid-toggle[data-start="failed"] .acpmux-hybrid-tri__glyph .acpmux-hybrid-start__mark,
+.acpmux-hybrid-toggle[data-start="failed"] .acpmux-hybrid-start__mark {
+  fill: var(--agent-warning, currentColor);
+  stroke: none;
+  opacity: 1;
+}
+
+:root[data-cmux-motion="reduced"] .acpmux-hybrid-toggle[data-start] :is(.acpmux-hybrid-start__fill, .acpmux-hybrid-cloud__shape, .acpmux-hybrid-tri__cloud),
+:root[data-cmux-motion="off"] .acpmux-hybrid-toggle[data-start] :is(.acpmux-hybrid-start__fill, .acpmux-hybrid-cloud__shape, .acpmux-hybrid-tri__cloud) {
+  animation: none;
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-hybrid-toggle[data-start] :is(.acpmux-hybrid-start__fill, .acpmux-hybrid-cloud__shape, .acpmux-hybrid-tri__cloud) {
+    animation: none;
+    transition: none;
+  }
+}
