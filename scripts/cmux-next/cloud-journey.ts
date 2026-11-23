@@ -5377,8 +5377,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     // --idle-pause SECONDS: the pause a person never asks for. The machine's idle policy is set short, nothing is sent,
     // and the platform must pause it on its own from the VM's activity reports (team policy cloud.idlePause); then
     // the person's next message, with no start asked, must wake it and get a reply.
-    const idlePauseS = Number(argValue("--idle-pause", argv) ?? 0);
-    if (idlePauseS > 0 && !only.has("pause")) {
+    // --idle-pause default: no idle policy is set, so the deployment's own default (staging CLOUD_IDLE_PAUSE_SECONDS)
+    // must pause it; the step reports the seconds from the last turn's end (this step starts right after it) to paused.
+    const idleArg = argValue("--idle-pause", argv);
+    const idleDefault = idleArg === "default";
+    const idlePauseS = idleDefault ? 0 : Number(idleArg ?? 0);
+    if ((idleDefault || idlePauseS > 0) && !only.has("pause")) {
       const idleSet = Date.now();
       // The short idle pause needs the team policy cloud.idlePause, false by default (cmux-platform protocol/policy.ts):
       // a new person's team never pauses an idle machine before the 24 h backstop. A --fresh-account run's team is its
@@ -5394,11 +5398,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         throw new Error("team policy cloud.idlePause is off for this team (a team made before new teams started with it on): turn it on for this team or run --fresh-account");
       }).catch(() => false);
       if (teamIdle) await J.step("paused after idle", async () => {
-        await api.op("cloud.machine.idle_policy.set", { machine: created.id, idle_seconds: idlePauseS }, `${tag}-idle`);
+        if (!idleDefault) await api.op("cloud.machine.idle_policy.set", { machine: created.id, idle_seconds: idlePauseS }, `${tag}-idle`);
         // The deadline covers the post-chat hold (staging CLOUD_POST_CHAT_WARM_SECONDS=600 keeps a machine up after a
         // chat turn whatever its idle policy) plus the alarm's re-check, so a pause the platform owes is never missed.
         const m = await waitMachine(api, created.id, (x) => x.status === "paused", (Math.max(idlePauseS, POST_CHAT_HOLD_S) + 300) * 1000);
-        return { value: m, detail: `paused ${Math.round((Date.now() - idleSet) / 1000)} s after a ${idlePauseS} s idle policy was set` };
+        const took = Math.round((Date.now() - idleSet) / 1000);
+        return { value: m, detail: idleDefault ? `paused ${took} s after the turn ended, at the deployment's default idle pause` : `paused ${took} s after a ${idlePauseS} s idle policy was set` };
       });
       if (teamIdle) await J.step("resume by a message", async () => {
         const t0 = Date.now();
@@ -5411,7 +5416,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         const m = await api.read("cloud.machine.get", { machine: created.id });
         return { value: null, detail: `exec answered ${Math.round((Date.now() - t0) / 1000)} s after it was sent; status ${m?.status}` };
       });
-    } else J.skip("paused after idle", idlePauseS > 0 ? "--skip pause" : "--idle-pause SECONDS is not set");
+    } else J.skip("paused after idle", idleDefault || idlePauseS > 0 ? "--skip pause" : "--idle-pause SECONDS|default is not set");
     if (!only.has("pause")) {
       await J.step("pause", async () => {
         await api.op("cloud.machine.pause", { machine: created.id }, `${tag}-pause`);
