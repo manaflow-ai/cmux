@@ -16,7 +16,8 @@
 //!   {"exclude_windows":[123,456]}: the app's window ids (CGWindowID) the capture leaves out,
 //!   the whole list each time, sent before the capture starts and on every change (macOS)
 //! stdout: {"key":"<this side's session key>"} first (the app signs it for the
-//!   viewer), then {"candidate":".."}, {"candidates_done":true},
+//!   viewer), then {"candidate":".."}, {"candidates_done":true} (sent once this side's host
+//!   candidates are known, the app answers then; reflexive and relayed candidates may follow it),
 //!   {"connected":true}, {"path":{"kind":"direct_wan","rtt_ms":3.2}},
 //!   and last {"ended":"<reason>"}.
 //!
@@ -27,7 +28,7 @@
 use crate::args::Opts;
 use crate::capture_backend::CaptureBackend;
 use crate::carrier::{Carrier, Incoming, LinkCarrier, MediaQueueStats};
-use crate::stream::{MediaSession, SessionCfg};
+use crate::stream::{MediaSession, OpenedDesktop, SessionCfg};
 use crate::wire::Control;
 use crate::Res;
 use cmux_rd_core::policy::{ConsentRule, HostPolicy, Mode, Principal, PrincipalClass};
@@ -428,6 +429,92 @@ pub fn run(opts: &Opts) -> Res<()> {
     Ok(())
 }
 
+/// When `candidates_done` goes to the app, which answers then: at the first host candidate
+/// (one is known at once, so a session never waits for STUN or TURN), or when gathering ends
+/// for a side with none (relay only). Once.
+#[derive(Default)]
+struct AnswerGate {
+    ready: bool,
+    said: bool,
+}
+
+impl AnswerGate {
+    fn candidate(&mut self, kind: cmux_rd_link::net::CandidateKind) {
+        self.ready |= kind == cmux_rd_link::net::CandidateKind::Host;
+    }
+
+    fn gathered(&mut self) {
+        self.ready = true;
+    }
+
+    /// True once, when the answer can go.
+    fn due(&mut self) -> bool {
+        self.ready && !std::mem::replace(&mut self.said, true)
+    }
+}
+
+/// The session's settings known before the viewer's hello: the frame rate, profile and bitrate
+/// cap from the setup line and the options. The start bitrate is the off-LAN one until the path
+/// is known (the capture opens at it during the handshake; the session sets the path's before
+/// the first frame), and two frames in flight until the round trip is.
+fn session_cfg(
+    opts: &Opts,
+    setup: &Setup,
+    display: &str,
+    capture: CaptureBackend,
+    show_cursor: bool,
+) -> Res<SessionCfg> {
+    let display = display.to_owned();
+    // The viewer's rate wins; else the display's refresh rate (60 when it cannot be read).
+    let max_fps = setup.max_fps.unwrap_or_else(|| crate::desktop::default_max_fps(&display));
+    // Ultra (the viewer's choice or `--encode-profile ultra`): frames at that rate up to 120,
+    // a higher ceiling, and the encoder's ultra settings. Standard (the default) is unchanged.
+    let encode_profile = session_profile(opts, setup)?;
+    let max_fps = encode_profile.stream_fps(max_fps);
+    let explicit_max_kbps = opts.get("max-kbps").map(|_| opts.num_or("max-kbps", 0)).transpose()?;
+    // The host's ceiling (profile and `--max-kbps`), then the viewer's Customize cap within it:
+    // one cap, the congestion controller's `max_bps`.
+    let host_max_kbps = cmux_rd_core::profile::max_kbps(encode_profile, explicit_max_kbps, 50_000);
+    let max_kbps = crate::serve_wish::max_kbps(setup.max_kbps, host_max_kbps);
+    let start_kbps = crate::serve_wish::start_kbps(
+        opts.num_or("start-kbps", default_start_kbps(None, None, None, max_kbps))?,
+        max_kbps,
+    );
+    Ok(SessionCfg {
+        display,
+        display_pick: setup.display.clone(),
+        max_fps,
+        encode_profile,
+        start_kbps,
+        max_kbps,
+        preset: String::new(),
+        profile: opts.str_or("profile", "high"),
+        codec: opts.str_or("codec", crate::host::DEFAULT_CODEC),
+        content: "screen".into(),
+        openh264_lib: None,
+        threads: crate::encoder::default_threads(),
+        stats_every_ms: 1000,
+        settle_us: crate::host::DEFAULT_SETTLE_US,
+        upstream_record: None,
+        upstream_record_max_bytes: 0,
+        max_width: setup.max_width,
+        show_cursor,
+        // On by default: the frame that shows an input's effect goes out at once instead of
+        // waiting out the frame-rate interval. `--input-frame-now 0` turns it off.
+        input_frame_now: opts.flag_or("input-frame-now", true),
+        // Off by default: `--rtt-tail-probe 1` probes a lost newest frame after a round
+        // trip instead of 250 ms (design D6), for measuring before it ships.
+        rtt_tail_probe: opts.flag_or("rtt-tail-probe", false),
+        // Off by default: `--resolution-ladder 1` makes the picture smaller, not blurrier,
+        // below the bits-per-pixel floor (design D5), with `--max-qp N` as its QP ceiling.
+        resolution_ladder: opts.flag_or("resolution-ladder", false),
+        max_qp: crate::host::ladder_max_qp(opts)?,
+        // Set from the path's round trip once the viewer starts.
+        frames_in_flight: 2,
+        capture,
+    })
+}
+
 /// Waits for the link and the viewer's hello and start, then streams.
 fn serve_session(
     opts: &Opts,
@@ -440,6 +527,22 @@ fn serve_session(
     let started = Instant::now();
     let mut hello = None;
     let mut start = None;
+    // The answer goes as soon as this side's host candidates are known: the reflexive and
+    // relayed ones trickle after it (the app relays them as candidates), so the viewer no longer
+    // waits for a STUN round trip and the TURN allocations (3 s at most, `RELAY_GATHER_US`)
+    // before it can even start its handshake. Relay only has no host candidate: it waits for
+    // the relay's, as before.
+    let mut answer = AnswerGate::default();
+    // The session's settings that do not wait for the viewer: they come from the setup line and
+    // the options. The path's (start bitrate, frames in flight) are set once the viewer starts.
+    let show_cursor = crate::serve_wish::show_cursor(setup.cursor);
+    let mut cfg = session_cfg(opts, setup, display, capture, show_cursor)?;
+    // The capture and encoder open once the answer has gone, while it crosses the hub and the
+    // link shakes hands, not after the viewer's start: ScreenCaptureKit's start and its first
+    // frame (or X11's, or the portal's) no longer sit between the link and the first frame. An
+    // open error waits for the viewer's start, where it ended the session before. It opens for
+    // the cursor this host offers; a viewer that negotiates the other choice gets it reopened.
+    let mut desktop: Option<Res<OpenedDesktop>> = None;
     // The current path's class and medium (wire names), from the last path change.
     let mut path_kind: Option<&'static str> = None;
     let mut path_medium: Option<&'static str> = None;
@@ -454,13 +557,15 @@ fn serve_session(
         crate::fdwait::wait_readable(&carrier.fds(), Some(left.as_nanos() as u64))?;
         carrier.pump_app().map_err(|e| e.to_string())?;
         for event in carrier.link.net.events() {
+            if let Some(line) = event.phase_line() {
+                println!("{line}");
+            }
             match event {
                 NetEvent::Candidate(c) => {
-                    say(AppLine { candidate: Some(c.to_wire()), ..AppLine::default() })
+                    say(AppLine { candidate: Some(c.to_wire()), ..AppLine::default() });
+                    answer.candidate(c.kind);
                 }
-                NetEvent::CandidatesDone => {
-                    say(AppLine { candidates_done: true, ..AppLine::default() })
-                }
+                NetEvent::CandidatesDone => answer.gathered(),
                 NetEvent::Endpoint(EndpointEvent::Link(Event::Established)) => {
                     say(AppLine { connected: true, ..AppLine::default() })
                 }
@@ -487,7 +592,16 @@ fn serve_session(
                 _ => {}
             }
         }
+        // After the whole batch: the reflexive candidate that came with the host ones still
+        // goes in the answer itself.
+        if answer.due() {
+            say(AppLine { candidates_done: true, ..AppLine::default() });
+        }
         carrier.report_paths();
+        if answer.said && desktop.is_none() {
+            let cursor = show_cursor && crate::desktop::reports_cursor();
+            desktop = Some(OpenedDesktop::open(&cfg, cursor));
+        }
     }
     let (Some(Control::Hello { service, caps, .. }), Some(Control::Start { key, mode })) =
         (hello, start)
@@ -504,7 +618,6 @@ fn serve_session(
     let sink = crate::upstream::session_sink(None, 0);
     let mut host_caps = crate::upstream::offered_caps(&*sink);
     // The cursor as metadata where this desktop reports it: the viewer draws one cursor.
-    let show_cursor = crate::serve_wish::show_cursor(setup.cursor);
     if show_cursor && crate::desktop::reports_cursor() {
         host_caps.push(cmux_rd_core::service::caps::CURSOR);
     }
@@ -512,6 +625,10 @@ fn serve_session(
     host_caps.push(cmux_rd_core::service::caps::FEC_BLOCKS);
     if crate::desktop::scales_pictures() {
         host_caps.push(cmux_rd_core::service::caps::VIDEO_SCALED);
+    }
+    // An OpenH264 viewer asks for Constrained Baseline (cmux#50591).
+    if crate::stream::offers_h264_baseline(&opts.str_or("codec", crate::host::DEFAULT_CODEC)) {
+        host_caps.push(cmux_rd_core::service::caps::H264_BASELINE);
     }
     // The session clock (C8; the engine answers every ping) and the stage ledger (D8).
     host_caps.extend([cmux_rd_core::service::caps::CLOCK, cmux_rd_core::service::caps::LEDGER]);
@@ -552,64 +669,25 @@ fn serve_session(
             return Ok(format!("refused: {reason:?}"));
         }
     };
-    let display = display.to_owned();
-    // The viewer's rate wins; else the display's refresh rate (60 when it cannot be read).
-    let max_fps = setup.max_fps.unwrap_or_else(|| crate::desktop::default_max_fps(&display));
-    // Ultra (the viewer's choice or `--encode-profile ultra`): frames at that rate up to 120,
-    // a higher ceiling, and the encoder's ultra settings. Standard (the default) is unchanged.
-    let encode_profile = session_profile(opts, setup)?;
-    let max_fps = encode_profile.stream_fps(max_fps);
-    let explicit_max_kbps = opts.get("max-kbps").map(|_| opts.num_or("max-kbps", 0)).transpose()?;
-    // The host's ceiling (profile and `--max-kbps`), then the viewer's Customize cap within it:
-    // one cap, the congestion controller's `max_bps`.
-    let host_max_kbps = cmux_rd_core::profile::max_kbps(encode_profile, explicit_max_kbps, 50_000);
-    let max_kbps = crate::serve_wish::max_kbps(setup.max_kbps, host_max_kbps);
-    let start_kbps = crate::serve_wish::start_kbps(
+    cfg.start_kbps = crate::serve_wish::start_kbps(
         opts.num_or(
             "start-kbps",
-            default_start_kbps(path_kind, path_medium, carrier.link.rtt_us, max_kbps),
+            default_start_kbps(path_kind, path_medium, carrier.link.rtt_us, cfg.max_kbps),
         )?,
-        max_kbps,
+        cfg.max_kbps,
     );
-    let cfg = SessionCfg {
-        display,
-        display_pick: setup.display.clone(),
-        max_fps,
-        encode_profile,
-        start_kbps,
-        max_kbps,
-        preset: String::new(),
-        profile: opts.str_or("profile", "high"),
-        codec: opts.str_or("codec", crate::host::DEFAULT_CODEC),
-        content: "screen".into(),
-        openh264_lib: None,
-        threads: crate::encoder::default_threads(),
-        stats_every_ms: 1000,
-        settle_us: crate::host::DEFAULT_SETTLE_US,
-        upstream_record: None,
-        upstream_record_max_bytes: 0,
-        max_width: setup.max_width,
-        show_cursor,
-        // On by default: the frame that shows an input's effect goes out at once instead of
-        // waiting out the frame-rate interval. `--input-frame-now 0` turns it off.
-        input_frame_now: opts.flag_or("input-frame-now", true),
-        // Off by default: `--rtt-tail-probe 1` probes a lost newest frame after a round
-        // trip instead of 250 ms (design D6), for measuring before it ships.
-        rtt_tail_probe: opts.flag_or("rtt-tail-probe", false),
-        // Off by default: `--resolution-ladder 1` makes the picture smaller, not blurrier,
-        // below the bits-per-pixel floor (design D5), with `--max-qp N` as its QP ceiling.
-        resolution_ladder: opts.flag_or("resolution-ladder", false),
-        max_qp: crate::host::ladder_max_qp(opts)?,
-        // Enough frames in flight to cover the path's round trip, at least two: the next
-        // frame encodes while the last one waits for its acknowledgement.
-        frames_in_flight: carrier
-            .link
-            .rtt_us
-            .map_or(2, |rtt| cmux_rd_engine::frames_in_flight_for(rtt, max_fps))
-            .max(2),
-        capture,
+    // Enough frames in flight to cover the path's round trip, at least two: the next
+    // frame encodes while the last one waits for its acknowledgement.
+    cfg.frames_in_flight = carrier
+        .link
+        .rtt_us
+        .map_or(2, |rtt| cmux_rd_engine::frames_in_flight_for(rtt, cfg.max_fps))
+        .max(2);
+    let desktop = match desktop {
+        Some(opened) => opened?,
+        None => OpenedDesktop::open(&cfg, crate::stream::wants_cursor(&negotiated.caps))?,
     };
-    let mut media = MediaSession::open(&cfg, MAX_DATAGRAM, &negotiated.caps, sink)?;
+    let mut media = MediaSession::on_desktop(desktop, &cfg, MAX_DATAGRAM, &negotiated.caps, sink)?;
     let (width, height) = media.size();
     carrier.send_control(&Control::Welcome {
         encoder: media.encoder_name(),
@@ -631,6 +709,26 @@ fn serve_session(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_answer_goes_at_the_first_host_candidate_not_after_stun_and_turn() {
+        use cmux_rd_link::net::CandidateKind;
+        let mut gate = AnswerGate::default();
+        assert!(!gate.due(), "nothing known yet");
+        gate.candidate(CandidateKind::Host);
+        assert!(gate.due(), "a host candidate is enough to answer");
+        // Reflexive, relayed and the end of gathering come later and trickle: no second answer.
+        gate.candidate(CandidateKind::ServerReflexive);
+        gate.candidate(CandidateKind::Relay);
+        gate.gathered();
+        assert!(!gate.due());
+        // Relay only: no host candidate, so the answer waits for gathering to end.
+        let mut relay_only = AnswerGate::default();
+        relay_only.candidate(CandidateKind::Relay);
+        assert!(!relay_only.due());
+        relay_only.gathered();
+        assert!(relay_only.due());
+    }
 
     #[test]
     fn serve_preserves_frame_boundaries_before_the_link_connects() {

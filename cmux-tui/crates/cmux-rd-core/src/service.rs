@@ -51,8 +51,12 @@ pub mod caps {
     /// Clipboard text both ways (`clipboard` control messages, cmux-rd-proto `clipboard`):
     /// the host applies the viewer's text and sends its own only in a control session.
     pub const CLIPBOARD_TEXT: &str = "clipboard.text";
+    /// The viewer decodes H.264 Constrained Baseline only (OpenH264: the Linux and Windows
+    /// viewers, the bench): an H.264 host encodes that profile for this session instead of
+    /// High. A viewer that does not offer it (VideoToolbox) gets the host's profile.
+    pub const H264_BASELINE: &str = "h264.baseline";
     /// Every named cap.
-    pub const ALL: [&str; 12] = [
+    pub const ALL: [&str; 13] = [
         INPUT_SERVICE,
         TILE,
         UP_MEDIA,
@@ -65,6 +69,7 @@ pub mod caps {
         VIDEO_SCALED,
         LEDGER,
         CLIPBOARD_TEXT,
+        H264_BASELINE,
     ];
 }
 

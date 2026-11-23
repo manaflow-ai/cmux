@@ -17,6 +17,7 @@ const START_BPS: u64 = 2_000_000;
 fn session(profile: EncodeProfile) -> MediaSession {
     let cfg = SessionCfg {
         display: String::new(),
+        display_pick: None,
         max_fps: 60,
         encode_profile: profile,
         start_kbps: (START_BPS / 1000) as u32,
@@ -34,6 +35,8 @@ fn session(profile: EncodeProfile) -> MediaSession {
         frames_in_flight: 3,
         input_frame_now: false,
         rtt_tail_probe: false,
+        resolution_ladder: false,
+        max_qp: cmux_rd_core::resolution::DEFAULT_MAX_QP,
         max_width: None,
         show_cursor: true,
         capture: crate::capture_backend::CaptureBackend::default(),
