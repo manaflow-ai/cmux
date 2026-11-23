@@ -329,11 +329,35 @@ pub fn folds_names(entry: &crate::catalog::CatalogHarness) -> bool {
 
 /// `name` as the catalog harness `entry` spells it: its canonical id when one id or alias folds
 /// to it, the name unchanged when none does or `entry` is not Claude Code's or Codex's, and
-/// [`Ambiguous`] when it folds to more than one.
+/// [`Ambiguous`] when it folds to more than one. This host's hot patch
+/// ([`crate::model_hot_patch`], `$ACPMUX_HOME/model-aliases.json`) is read first and wins.
 pub fn canonical_model(
     entry: &crate::catalog::CatalogHarness,
     name: &str,
 ) -> Result<Canonical, Ambiguous> {
+    canonical_patched(entry, name, crate::model_hot_patch::lookup)
+}
+
+/// [`canonical_model`] with the hot patch `patch` (harness keys, name -> id).
+pub(crate) fn canonical_patched<'e>(
+    entry: &'e crate::catalog::CatalogHarness,
+    name: &str,
+    patch: impl FnOnce(Vec<&'e str>, &str) -> Option<String>,
+) -> Result<Canonical, Ambiguous> {
+    let given = name.trim();
+    let (base, suffix) = split_suffix(given);
+    let keys = std::iter::once(entry.id.as_str())
+        .chain(entry.families.iter().map(String::as_str))
+        .collect();
+    if !base.is_empty()
+        && let Some(to) = patch(keys, base)
+    {
+        return Ok(Canonical {
+            model: format!("{to}{suffix}"),
+            given: given.to_owned(),
+            known: true,
+        });
+    }
     if !folds_names(entry) {
         return Ok(Canonical::unchanged(name.trim()));
     }
