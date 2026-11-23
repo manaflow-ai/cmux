@@ -1,0 +1,107 @@
+{
+  "version": 1,
+  "build": "4517663421601",
+  "notes": "notes/4517663421601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 48298,
+      "title": "acpmux: each hub event wakes only the connections that want it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51758,
+      "title": "cloud: typing prewarm rule in Rust, pause after a failed resume",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51873,
+      "title": "acpmux: happy-eyeballs dial, IPv6 first, for outbound hosts by name",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51683,
+      "title": "acpmux: joined Cloud and lane machines serve workspaces over the carrier with zero setup",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49849,
+      "title": "acpmux: heartbeats send each chat's title, titleSource, nameGiven, model, agentSessionId and hostBuild",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51126,
+      "title": "iOS: a tap during a resume redial waits for the link; the screen keeps its values, marked stale",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49744,
+      "title": "cmux CLI: use the one answering NIGHTLY socket when no app is named; live status reads its setting over --app-socket",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52063,
+      "title": "ci: the remaining tooling-tests reds on base (swift coverage, iOS sim, Chief benchmark, tailnet fixture, measure lints)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51117,
+      "title": "fix(base_red_excuse): peers are the red run's own pull-request event",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51434,
+      "title": "iOS Feed: long-press a row to peek at its chat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 46778,
+      "title": "Transcript looks: tool row type tokens (size, weight, face of title, command and output)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51997,
+      "title": "api: sync a confirmed team from Stack so new teammates can be messaged (#48467)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51656,
+      "title": "Start page: the phone level ends at a working agent, the CLI level covers a refused start",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51709,
+      "title": "Agent chat: an \"N new messages\" line where the new part starts, and a return opens there",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51992,
+      "title": "test(chief-github): accept a second renewal of the 1 s device code on a slow runner",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51549,
+      "title": "Nature look: your wallpaper leads, on the clearest glass (opt-in add-on)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
