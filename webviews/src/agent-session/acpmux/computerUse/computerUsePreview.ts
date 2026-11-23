@@ -227,6 +227,17 @@ export function setComputerUsePreview(value: unknown): void {
     next?.hidden === current?.hidden
   )
     return;
+  // The host had this card hidden, as asked here, and now shows it with nothing pending here: another
+  // surface brought it back, so the close made on this page is over.
+  if (
+    next &&
+    closed === next.session &&
+    current?.session === next.session &&
+    current.hidden === true &&
+    next.hidden !== true &&
+    !moves.has(next.session)
+  )
+    closed = undefined;
   current = next;
   // The host speaks for the place once its push says what the person asked for.
   const move = next ? moves.get(next.session) : undefined;

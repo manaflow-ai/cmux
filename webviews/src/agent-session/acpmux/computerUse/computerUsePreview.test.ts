@@ -188,6 +188,20 @@ describe("computerUsePreview", () => {
     setComputerUsePreview(null);
   });
 
+  test("a card hidden here comes back when the host shows it from another surface", () => {
+    const place = { x: 1, y: 0, size: "small" };
+    setComputerUsePreview({ session: "cua_9", app: "Notes", done: false, frame, place });
+    closeComputerUsePreview("cua_9");
+    // The host echoes the hide: the page's move is done, the card stays behind its chip.
+    setComputerUsePreview({ session: "cua_9", app: "Notes", done: false, frame, place, hidden: true });
+    expect(currentComputerUsePreview()?.hidden).toBe(true);
+    // Another surface shows it: the host's push says shown, and this page draws it.
+    setComputerUsePreview({ session: "cua_9", app: "Notes", done: false, frame, place });
+    expect(currentComputerUsePreview()?.session).toBe("cua_9");
+    expect(currentComputerUsePreview()?.hidden).toBeUndefined();
+    setComputerUsePreview(null);
+  });
+
   test("reads the host's place and hidden flag, clamped, with small as the size it does not know", () => {
     expect(
       readComputerUsePreview({
