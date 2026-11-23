@@ -66,6 +66,16 @@ def first_row():
     return None
 
 
+def card_showing(showing=True):
+    """`debug.hover_cards` says a card shows (or, with showing=False, none shows and the coordinator is idle)."""
+    c = rpc("debug.hover_cards", timeout=5) or {}
+    if "error" in c:
+        return None
+    if showing:
+        return c.get("card_showing") == "true" or c.get("visible") in (True, "true")
+    return c.get("card_showing") != "true" and c.get("phase", "idle") == "idle"
+
+
 APP = opts.app.rstrip("/")
 with open(os.path.join(APP, "Contents/Info.plist"), "rb") as f:
     BINARY = os.path.join(APP, "Contents/MacOS", plistlib.load(f)["CFBundleExecutable"])
@@ -100,9 +110,19 @@ try:
     print("row", title, point, flush=True)
     off = (700, 500)
     rpc("debug.mouse", {"action": "move", "x": off[0], "y": off[1]})
-    time.sleep(0.5)
+    if not wait(lambda: card_showing(False), 10):
+        print("note: a card still showed 10 s after the pointer moved off", flush=True)
     rpc("debug.mouse", {"action": "move", "x": point[0], "y": point[1]})
-    time.sleep(2.0)  # past the dwell: the card shows
+    # Past the dwell: the card shows, and its open animation ends (the report stops changing).
+    if not wait(card_showing, 15):
+        print("note: the row's card did not show in 15 s", flush=True)
+    last = None
+    for _ in range(25):  # bounded: up to 5 s for two equal reads in a row
+        now = json.dumps(rpc("debug.hover_cards", timeout=5) or {}, sort_keys=True)
+        if now == last:
+            break
+        last = now
+        time.sleep(0.2)
     print("card", json.dumps(rpc("debug.hover_cards") or {})[:400], flush=True)
 
     presses = [(0.4, "Show details"), (1.6, "Hide details"), (2.8, "Show details"), (3.25, "Hide details")]
@@ -116,6 +136,8 @@ try:
 
     thread = threading.Thread(target=run_strip)
     thread.start()
+    # sleep-ok: aligns the press timeline with the recorder's fixed 120 ms lead; the strip call blocks until the
+    # recording ends, so nothing says when it began.
     time.sleep(0.2)  # the recorder's lead (120 ms)
     start = time.monotonic()
     sent = []
