@@ -46,6 +46,12 @@ extension SSHLinkHostsSetting {
     public nonisolated static let fallback: [String] = []
 }
 
+extension HostsSetting {
+    /// `machines.hosts`: A list of {label, endpoints | endpoint, icon?, id?}; labels are unique ignoring case. Edited in cmux-next.json, so it stays off the Settings page.
+    public nonisolated static let configPath = ["machines", "hosts"]
+    public nonisolated static let fallback: [String] = []
+}
+
 extension CloudNewWorkspaceSetting {
     /// `cloud.newWorkspacesInCloud`.
     public nonisolated static let inCloudPath = ["cloud", "newWorkspacesInCloud"]
@@ -302,6 +308,25 @@ extension MachineSettingsSchema {
 }
 
 extension MachineSettingsSchema {
+    /// Hosts declared by hand (CMUX-673): a label and the ssh endpoints tried in order, with an optional icon and id. cmux-config hosts.rs owns the rule; `cmux hosts list|check` reads them.
+    static var hosts: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.sshLinks", "SSH Links")
+        return [
+            SettingDescriptor(
+                HostsSetting.configPath,
+                section: .machines,
+                group: group,
+                title: SettingsText.keyed("settings.machines.hosts", "Hosts"),
+                help: SettingsText.keyed("settings.machines.hosts.help", "Computers you reach over ssh, each a label and the addresses tried in order. cmux hosts check says which ones answer."),
+                kind: .text,
+                default: .array(HostsSetting.fallback.map { .string($0) }),
+                keywords: ["hosts", "machines", "computers", "ssh", "remote", "endpoints"]
+            ).hiddenFromSettingsPage("a list of host objects, edited in cmux-next.json"),
+        ]
+    }
+}
+
+extension MachineSettingsSchema {
     static var cloud: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.cloudWorkspaces", "Cloud Workspaces")
         return [
@@ -347,34 +372,6 @@ extension MachineSettingsSchema {
                 kind: .toggle,
                 default: .bool(CloudNewWorkspaceSetting.turnCheckpointsDefault),
                 keywords: ["cloud", "checkpoint", "snapshot", "undo", "rewind", "restore", "turn", "back", "machine"]
-            ),
-        ]
-    }
-}
-
-extension MachineSettingsSchema {
-    static var storage: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.storage", "Storage")
-        return [
-            SettingDescriptor(
-                MachineSettingsSchema.autoCleanupPath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.worktrees.autoCleanup", "Clean Up Agent Worktrees"),
-                help: SettingsText.keyed("settings.worktrees.autoCleanup.help", "Archive and remove worktrees agents finished with, and trim the build output of idle ones. Unpushed work is kept in git and comes back when the chat reopens."),
-                kind: .toggle,
-                default: .bool(MachineSettingsSchema.autoCleanupDefault),
-                keywords: ["disk", "storage", "cleanup", "worktree", "cache", "DerivedData", "free space"]
-            ),
-            SettingDescriptor(
-                MachineSettingsSchema.cleanBuildCachesPath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.worktrees.cleanBuildCaches", "Clean Up Build Caches"),
-                help: SettingsText.keyed("settings.worktrees.cleanBuildCaches.help", "Also remove this Mac's build caches nobody used lately, such as Xcode DerivedData. Package caches go only when the disk is nearly full."),
-                kind: .toggle,
-                default: .bool(MachineSettingsSchema.cleanBuildCachesDefault),
-                keywords: ["disk", "storage", "cleanup", "worktree", "cache", "DerivedData", "free space"]
             ),
         ]
     }

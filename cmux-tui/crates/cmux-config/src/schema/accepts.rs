@@ -98,6 +98,10 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
         Accepted::Shape(
             "an object of transcript look tokens, each in its range (docs/cmux-next/transcript-customization.md)",
         )
+    } else if row.validation == super::Validation::Domain(DomainKind::Hosts) {
+        Accepted::Shape(
+            "an array of hosts, each with a unique label and endpoints (ssh addresses tried in order)",
+        )
     } else if row.validation == super::Validation::Domain(DomainKind::AppId) {
         Accepted::Shape("an app id, publisher/name in lowercase letters, digits and -")
     } else {
@@ -189,6 +193,9 @@ fn row_accepts(row: &Row, value: &Value, domains: &Domains) -> bool {
         }
         super::Validation::Domain(DomainKind::TranscriptTokens) => {
             return crate::transcript_look::accepts_tokens(value);
+        }
+        super::Validation::Domain(DomainKind::Hosts) => {
+            return crate::hosts::accepts(value);
         }
         _ => {}
     }
@@ -447,6 +454,7 @@ fn domain_name(kind: DomainKind) -> &'static str {
         DomainKind::CommandLabels => "command_labels",
         DomainKind::AppId => "app_id",
         DomainKind::TranscriptTokens => "transcript_tokens",
+        DomainKind::Hosts => "hosts",
     }
 }
 

@@ -204,6 +204,25 @@ extension SettingsSchemaSamples {
                 .array([.number(1)]),
             ]
         ),
+        "domain:hosts": SampleSet(
+            accept: [
+                .array([]),
+                .array([.object(["label": .string("studio"), "endpoints": .array([.string("studio.local"), .string("ssh://leo@100.64.0.7:2222")]), "icon": .string("desktopcomputer")])]),
+                .array([.object(["label": .string("a"), "endpoint": .string("leo@a")]), .object(["label": .string("b"), "endpoint": .string("b"), "id": .string("b1")])]),
+            ],
+            refuse: [
+                .string("studio"), .array([.object(["endpoints": .array([.string("a")])])]),
+                .array([.object(["label": .string(" "), "endpoints": .array([.string("a")])])]),
+                .array([.object(["label": .string("a"), "endpoints": .array([])])]),
+                .array([.object(["label": .string("a"), "endpoint": .string("a"), "endpoints": .array([.string("a")])])]),
+                .array([.object(["label": .string("a"), "endpoints": .array([.string("http://a")])])]),
+                .array([.object(["label": .string("a"), "endpoints": .array([.string("-oProxyCommand=x")])])]),
+                .array([.object(["label": .string("a"), "endpoints": .array([.string("a b")])])]),
+                .array([.object(["label": .string("a"), "endpoints": .array([.string("a")]), "icon": .number(1)])]),
+                .array([.object(["label": .string("a"), "endpoint": .string("a")]), .object(["label": .string("A"), "endpoint": .string("b")])]),
+                .array([.number(1)]),
+            ]
+        ),
         "domain:backdrop_selection": SampleSet(
             accept: [
                 .string("none"), .string("daily"), .string("desktop"), .string("david-death-of-marat"),

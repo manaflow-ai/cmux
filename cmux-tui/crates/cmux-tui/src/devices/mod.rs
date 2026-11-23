@@ -11,7 +11,7 @@ use cmux_json::JsonSet as _;
 mod credential_env_tests;
 mod model;
 mod network;
-mod reach;
+pub(crate) mod reach;
 #[cfg(test)]
 mod reach_tests;
 mod removal;
