@@ -1,5 +1,5 @@
 // The paths, defaults and the AgentPaneComposerRing, AgentPaneAttachmentView, AgentPaneNewChatPlace,
-// AgentPaneDictationSource, AgentPaneComposerLook and AgentPaneEmptyChatComposerPosition enums are generated from schemas/settings/source/agent-pane-composer.json
+// AgentPaneDictationSource, AgentPaneComposerLook, AgentPaneEmptyChatComposerPosition and AgentPaneFollowUpMode enums are generated from schemas/settings/source/agent-pane-composer.json
 // (Schema/SettingsSchema+AgentPaneComposer*.generated.swift).
 
 import CmuxNextDesign
@@ -46,6 +46,10 @@ import CmuxNextDesign
 /// The New Tab page always draws its own (composerLook.ts).
 /// `emptyChatComposerPosition`: where a chat with no messages yet sits its composer, `bottom`
 /// (docked, the default) or `center` (the middle of the pane, the hero over it; styles.css).
+/// `followUpMode`: what Return and Send do with a message sent while an agent that steers is
+/// mid-turn, `steer` (into the running turn, ⌘Return queues; the default, as before) or `queue`
+/// (waits until the turn ends, ⌘Return steers). The page decides (followUpMode.ts); this only
+/// carries the value.
 ///
 /// `reasoningSlider` is not a cmux.json key: the Debug Settings toggle `agent.reasoningSlider`
 /// (CmuxNextAgentPane AgentPaneTunables, DEV and NIGHTLY, off by default) sets it, and it rides the
@@ -66,6 +70,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
     public var newChatsIn = Self.newChatsInDefault
     public var composerLook = Self.composerLookDefault
     public var emptyChatComposerPosition = Self.emptyChatComposerPositionDefault
+    public var followUpMode = Self.followUpModeDefault
     /// The Debug Settings opt-in (`agent.reasoningSlider`); never parsed from cmux.json.
     public var reasoningSlider = false
     /// The Debug Settings visual choice (`agent.reasoningSliderStyle`); never parsed from cmux.json.
@@ -75,7 +80,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
 
     public static let fallback = AgentPaneComposerSetting()
 
-    /// The page's value (the `composer` host event): `{showContextUsage, composerRing, showDictation, dictationSource, dictationShortcut, spellChecking, attachmentView, scrollToBottomOnSend, showMachineLoadWarnings, newChatsIn, composerLook, emptyChatComposerPosition, reasoningSlider, reasoningSliderStyle}`.
+    /// The page's value (the `composer` host event): `{showContextUsage, composerRing, showDictation, dictationSource, dictationShortcut, spellChecking, attachmentView, scrollToBottomOnSend, showMachineLoadWarnings, newChatsIn, composerLook, emptyChatComposerPosition, followUpMode, reasoningSlider, reasoningSliderStyle}`.
     public var pageValue: JSONValue {
         [
             "showContextUsage": .bool(showContextUsage),
@@ -91,6 +96,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
             "newChatsIn": .string(newChatsIn.rawValue),
             "composerLook": .string(composerLook.rawValue),
             "emptyChatComposerPosition": .string(emptyChatComposerPosition.rawValue),
+            "followUpMode": .string(followUpMode.rawValue),
             "reasoningSlider": .bool(reasoningSlider),
             "reasoningSliderStyle": .string(reasoningSliderStyle)
         ]
@@ -168,6 +174,14 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
                     continue
                 }
                 setting.emptyChatComposerPosition = position
+                continue
+            }
+            if descriptor.path == followUpModePath {
+                guard descriptor.accepts(value), let mode = value.stringValue.flatMap(AgentPaneFollowUpMode.init(rawValue:)) else {
+                    diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
+                    continue
+                }
+                setting.followUpMode = mode
                 continue
             }
             guard descriptor.accepts(value), let flag = value.boolValue else {

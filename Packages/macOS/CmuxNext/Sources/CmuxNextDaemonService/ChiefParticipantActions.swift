@@ -8,7 +8,8 @@ public import UniformTypeIdentifiers
 /// `chief.profile.adopt` on the app's own connection to this Mac's Chief owner, which alone may run
 /// them (the palette rows of `cmux avatar set` and `cmux chief adopt`).
 @MainActor
-public enum ChiefParticipantActions {
+public struct ChiefParticipantActions {
+    public init() {}
     /// The picture types the owner takes.
     public static let pictureTypes: [UTType] = [.png, .jpeg, .gif, .webP]
     /// The owner's limit on a picture's size.

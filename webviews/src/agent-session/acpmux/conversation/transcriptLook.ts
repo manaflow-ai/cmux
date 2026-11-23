@@ -33,7 +33,9 @@ export interface ResolvedTranscriptLook {
 }
 
 export const TRANSCRIPT_TOKENS = data.tokens as readonly TranscriptTokenSpec[];
-export const TRANSCRIPT_LOOKS = data.looks as readonly TranscriptLookSpec[];
+// Through unknown: the JSON's inferred union of looks (each leaving most tokens out) stops overlapping
+// the spec type once enough tokens are optional; validTokenValue checks every value at runtime.
+export const TRANSCRIPT_LOOKS = data.looks as unknown as readonly TranscriptLookSpec[];
 export const DEFAULT_TRANSCRIPT_LOOK = "cmux";
 export const DEFAULT_RESOLVED_TRANSCRIPT_LOOK: ResolvedTranscriptLook = { look: DEFAULT_TRANSCRIPT_LOOK, tokens: {} };
 
@@ -192,6 +194,31 @@ export function transcriptLookVariables(look: ResolvedTranscriptLook): Record<st
     // At the Interface Size, as the --grid-cards-radius they stand in for.
     "--cv-card-radius": card === undefined ? null : `calc(${card}px * var(--cmux-interface-scale, 1))`,
     "--cv-code-radius": code === undefined ? null : `calc(${code}px * var(--cmux-interface-scale, 1))`,
+    ...toolTypeVariables(look),
+  };
+}
+
+const set = (look: ResolvedTranscriptLook, name: string) => (look.tokens[name] === undefined ? null : "");
+
+const face = (value: string | undefined) =>
+  value === undefined ? null : value === "mono" ? "var(--cv-mono)" : "var(--cv-font)";
+
+/// The tool rows' type (`toolRow.*`, `toolOutput.*`). The stylesheet reads each variable bare
+/// (conversation.css "Tool row type"): unset, the declaration falls back to what the row inherits,
+/// so the cmux look draws today's rows. A row's words sit on its fixed 20 pt line at any size the
+/// token allows (at most the text size), so none moves a row; the output's size moves only an
+/// opened call's body, which the row estimator never estimates (it measures it once drawn).
+export function toolTypeVariables(look: ResolvedTranscriptLook): Record<string, string | null> {
+  const rowSize = num(look, "toolRow.textSize");
+  const weight = num(look, "toolRow.weight");
+  const outputSize = num(look, "toolOutput.textSize");
+  return {
+    "--cv-tool-text-scale": rowSize === undefined ? null : String(rowSize),
+    "--cv-tool-weight": weight === undefined ? null : String(weight),
+    "--cv-tool-font": face(choice(look, "toolRow.font")),
+    "--cv-tool-command-font": face(choice(look, "toolRow.commandFont")),
+    "--cv-tool-output-scale": outputSize === undefined ? null : String(outputSize),
+    "--cv-tool-output-font": face(choice(look, "toolOutput.font")),
   };
 }
 
@@ -203,5 +230,12 @@ export function transcriptLookAttributes(look: ResolvedTranscriptLook): Record<s
     "data-transcript-timestamps": choice(look, "timestamps") ?? null,
     "data-transcript-tool-cards": choice(look, "toolCards") ?? null,
     "data-transcript-card-border": choice(look, "toolCard.border") ?? null,
+    // Tool row type (toolTypeVariables): each rule draws only while its token is set.
+    "data-transcript-tool-size": set(look, "toolRow.textSize"),
+    "data-transcript-tool-weight": set(look, "toolRow.weight"),
+    "data-transcript-tool-font": set(look, "toolRow.font"),
+    "data-transcript-tool-command-font": set(look, "toolRow.commandFont"),
+    "data-transcript-tool-output-size": set(look, "toolOutput.textSize"),
+    "data-transcript-tool-output-font": set(look, "toolOutput.font"),
   };
 }
