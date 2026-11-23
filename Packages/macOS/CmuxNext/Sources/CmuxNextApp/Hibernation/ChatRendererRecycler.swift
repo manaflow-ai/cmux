@@ -72,12 +72,12 @@ final class ChatRendererRecycler {
             guard let browser = Self.browserID(of: view) else { continue }
             let storage = key.relaunchStorageKey(duplicateIDs: duplicates)
             let newTab = view.model.newTab != nil || tabs.newTabPages[key] != nil
-            let reserved = tabs.tabStores[key]?.reservedWorkspace?.tabKey == key.key && view.isUntouchedNewTab
+            let reserved = tabs.tabStores[key] === services.daemon.store && tabs.tabStores[key]?.reservedWorkspace?.tabKey == key.key && view.isUntouchedNewTab
             byBrowser[browser] = CEFChatRendererRecycle.tabPage(
                 key: storage, newTab: newTab, reservedUntouched: reserved,
                 exemption: newTab ? nil : agentPages.recycleExemption(storage), shown: AgentPaneHibernationCapture(view: view).isOnScreen)
         }
-        for view in services.newTabSpares.spares + tabs.retirer.keptPages.map(\.view) {
+        for view in services.newTabSpares.spares + tabs.retirer.keptPages.map({ $0.view }) {
             if let browser = Self.browserID(of: view) { byBrowser[browser] = .spare }
         }
         return pages.map { page in
@@ -97,6 +97,8 @@ final class ChatRendererRecycler {
             guard let capture = await agentPages.captureForRecycle(key, frame: show.contains(key)) else { kept = "\(key) went"; break }
             captured.append((key, capture.page, capture.wake, capture.frame, capture.size))
             if let reason = capture.kept { kept = "\(key) kept: \(reason)"; break }
+            // A shown chat with no frame would leave its pane empty until the rebuild.
+            if show.contains(key), capture.frame == nil { kept = "\(key) has no frame"; break }
         }
         // The captures awaited: everything is read again.
         if kept == nil, !personIdle { kept = "the person came back" }
@@ -105,6 +107,7 @@ final class ChatRendererRecycler {
         guard kept == nil, let services else {
             for capture in captured { agentPages.dropReleasedFrame(capture.key) }
             agentPages.replan() // the captures thawed them
+            state.aborted(at: .now)
             return logger.info("chat renderer \(renderer) at \(before >> 20) MB not recycled: \(kept ?? "", privacy: .public)")
         }
 
@@ -124,6 +127,7 @@ final class ChatRendererRecycler {
         var released = 0
         for capture in captured where agentPages.letGoForRecycle(capture.key, page: capture.page, wake: capture.wake) { released += 1 }
         for shown in panes where shown.pane.currentTabKey == nil {
+            shown.pane.leftEmptyByMove = false // a first visit during the wait would build the page in the old renderer
             guard let frame = shown.frame else { continue }
             shown.pane.view.showLaunchImage(NSImage(cgImage: frame, size: shown.size))
             shown.pane.view.launchImageMayClear = { false } // the rebuild's own frame replaces it
@@ -132,8 +136,7 @@ final class ChatRendererRecycler {
         // 3. The old renderer exits once its last page closed (the retirer closes them after its delay).
         let exited = await ChromiumHelperProcess.waitForExit(pid, limit: AgentPageRetirer.delay + CEFChatRendererRecycle.exitLimit)
         for shown in panes where shown.pane.currentTabKey == nil {
-            if shown.pane.stripModel.selectedID?.rawValue == shown.tab {
-                shown.pane.leftEmptyByMove = false
+            if shown.pane.stripModel.selectedID?.rawValue == shown.tab, !shuttingDown {
                 services.presentation.showNow(shown.pane)
             } else {
                 shown.pane.view.clearLaunchImage()
