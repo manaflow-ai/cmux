@@ -44,6 +44,23 @@ test("switching the running status line does not end its turn", () => {
   expect(endsTurn(status, [row("u", "user"), row("worked-u", "worked"), row("answer")])).toBe(true);
 });
 
+test("a turn whose reply took its line's place still ends where its work regroups", () => {
+  // The reply streamed in the line's place, and the turn's result came in the next update: a page
+  // that drew each update on its own (a spare New Tab page that took the chat) folded nothing, and
+  // the reply jumped up by the work that left (hidden-reshow.bench.ts MODE=reopen-spare).
+  const replied = [row("u", "user"), row("working-u", "working"), row("work", "activity"), row("answer")];
+  const ended = [row("u", "user"), row("worked-u", "worked"), row("answer"), row("footer", "turnSummary")];
+  expect(endsTurn(replied, ended)).toBe(true);
+  // An ended turn drawn again (a reconnect's replay) keeps its Worked for: nothing ends.
+  expect(endsTurn(ended, [...ended, row("b")])).toBe(false);
+  // Its Worked for with no running header before it is history, not this turn's end.
+  expect(endsTurn([row("u", "user"), row("answer")], ended)).toBe(false);
+  // The transcript cut and drawn again under new ids still ends no turn.
+  expect(
+    endsTurn(replied, [row("u2", "user"), row("worked-u2", "worked"), row("answer"), row("footer", "turnSummary")]),
+  ).toBe(false);
+});
+
 test("a user line another agent or the inbox drew is not the turn's prompt", () => {
   // An incoming message's line (model.ts `isLineRow`) after the prompt regroups under a new id as the
   // turn ends: the prompt above it stays, so the turn ended.

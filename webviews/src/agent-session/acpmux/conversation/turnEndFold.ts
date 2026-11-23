@@ -60,29 +60,40 @@ export function hasLiveLine(rows: readonly AcpmuxRow[]): boolean {
 /// replays the chat under new ids) takes the line away with the prompt: no turn ended there, and
 /// nothing folds (a fold there left copies of the rows that went, the edited prompt's among them,
 /// over the new transcript).
+/// A turn whose line went before it ended (its reply streamed in the line's place, then the turn's
+/// result came in a later update) ends where its work regroups: the running header over it
+/// (`WORKING`) becomes its Worked for. A page that draws each update on its own (a spare New Tab page
+/// that took the chat, its renderer less busy than the others) drew that update with no fold at
+/// all: the work went from above the reply and its footer came under it in one frame, the reply up
+/// by 80 to 190 px (hidden-reshow.bench.ts MODE=reopen-spare under duress).
 export function endsTurn(before: readonly AcpmuxRow[] | undefined, after: readonly AcpmuxRow[]): boolean {
-  if (before === undefined || before === after || !hasLiveLine(before)) return false;
-  if (hasLiveLine(after)) {
-    let worked: string | undefined;
-    for (let index = after.length - 1; index >= 0 && index >= after.length - LINE_TAIL; index -= 1) {
-      if (after[index]!.kind === "user" && !isLineRow(after[index]!)) break;
-      if (after[index]!.kind === WORKED) {
-        worked = after[index]!.id;
-        break;
-      }
-    }
-    if (worked === undefined) return false;
-    for (let index = before.length - 1; index >= 0 && index >= before.length - LINE_TAIL; index -= 1)
-      if (before[index]!.id === worked) return false;
-    const working = `${WORKING}-${worked.slice(WORKED.length + 1)}`;
-    if (!before.some((row) => row.kind === WORKING && row.id === working)) return false;
-  }
+  if (before === undefined || before === after) return false;
+  const lineBefore = hasLiveLine(before);
+  if ((!lineBefore || hasLiveLine(after)) && !regroupsWork(before, after)) return false;
   let prompt: string | undefined;
   for (let index = before.length - 1; index >= 0 && prompt === undefined; index -= 1)
     // The prompt, not a line another agent's message or the inbox drew (model.ts `isLineRow`): such a
     // line regroups under a new id as the turn ends, and its id going is no cut transcript.
     if (before[index]!.kind === "user" && !isLineRow(before[index]!)) prompt = before[index]!.id;
   return prompt === undefined || after.some((row) => row.id === prompt);
+}
+
+/// Whether the newest turn's running header in `before` became its Worked for in `after`, near the
+/// end of each. O(LINE_TAIL), then one pass over `before` for the header.
+function regroupsWork(before: readonly AcpmuxRow[], after: readonly AcpmuxRow[]): boolean {
+  let worked: string | undefined;
+  for (let index = after.length - 1; index >= 0 && index >= after.length - LINE_TAIL; index -= 1) {
+    if (after[index]!.kind === "user" && !isLineRow(after[index]!)) break;
+    if (after[index]!.kind === WORKED) {
+      worked = after[index]!.id;
+      break;
+    }
+  }
+  if (worked === undefined) return false;
+  for (let index = before.length - 1; index >= 0 && index >= before.length - LINE_TAIL; index -= 1)
+    if (before[index]!.id === worked) return false;
+  const working = `${WORKING}-${worked.slice(WORKED.length + 1)}`;
+  return before.some((row) => row.kind === WORKING && row.id === working);
 }
 
 /// A row drawn at the swap: where its top was in the view, and its copy when the swap takes it away.
@@ -151,7 +162,13 @@ export function captureTurnEnd(
   const nodes = [...mounted(thread)];
   if (
     !held &&
-    !nodes.some((node) => node.dataset.rowId === LIVE_LINE || node.classList.contains(`acpmux-${ACTIVITY_LINE}`))
+    // The running header too: a turn whose line went before it ended folds from it (`endsTurn`).
+    !nodes.some(
+      (node) =>
+        node.dataset.rowId === LIVE_LINE ||
+        node.classList.contains(`acpmux-${ACTIVITY_LINE}`) ||
+        node.classList.contains(`acpmux-${WORKING}`),
+    )
   )
     return undefined;
   // The ids the swap keeps, from the first mounted row on: rows before the window never matter.
