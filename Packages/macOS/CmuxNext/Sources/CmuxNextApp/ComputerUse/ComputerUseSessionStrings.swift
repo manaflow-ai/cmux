@@ -45,11 +45,11 @@ enum ComputerUseSessionStrings {
     }
 
     static var noApp: String {
-        String(localized: "handlers.computerUse.noApp", defaultValue: "Name the app (app_id).", table: "MiscHandlers", bundle: .module)
+        String(localized: "handlers.computerUse.noApp", defaultValue: "Name the app (app_id).", table: "MiscHandlers", bundle: .module.inAppLanguage)
     }
     static var noDecision: String {
         String(localized: "handlers.computerUse.noDecision", defaultValue: "The decision must be always or never.",
-               table: "MiscHandlers", bundle: .module)
+               table: "MiscHandlers", bundle: .module.inAppLanguage)
     }
 
     /// Why no helper answers, from the phase `computer_use.status` reports.

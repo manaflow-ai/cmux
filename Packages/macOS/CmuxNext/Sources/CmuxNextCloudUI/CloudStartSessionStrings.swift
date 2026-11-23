@@ -57,7 +57,7 @@ public struct CloudStartSessionStrings {
     /// Cloud first use refused the run (``CloudSetup/decide(harness:model:)`` answered setup, as the composer's
     /// Set up Cloud card): no connection on this Mac or the team serves `agent`'s family, so no machine was taken.
     public static func setupRequired(agent: String, command: String) -> String {
-        String(format: String(localized: "cloud.startSession.setupRequired", defaultValue: "No Cloud connection serves %1$@ yet. Add one in Settings > Cloud (ChatGPT, Claude or an API key), then run `%2$@` again.", table: "CloudSessions", bundle: .module), agent, command)
+        String(format: String(localized: "cloud.startSession.setupRequired", defaultValue: "No Cloud connection serves %1$@ yet. Add one in Settings > Cloud (ChatGPT, Claude or an API key), then run `%2$@` again.", table: "CloudSessions", bundle: .localizedModule), agent, command)
     }
 
     public static func noSuchMachine(id: String, agent: String) -> String {
@@ -103,7 +103,7 @@ public struct CloudStartSessionStrings {
         guard let size = locked.needed else { return nil }
         let (name, cpu, memory) = (size.rawValue, String(size.cpu), String(size.memoryMb / 1024))
         guard let plan = locked.upgrade else {
-            return String(format: String(localized: "cloud.startSession.sizeLockedNoUpgrade", defaultValue: "this folder needs a %1$@ machine (%2$@ vCPU, %3$@ GB memory), larger than your plan includes", table: "CloudSessions", bundle: .module), name, cpu, memory)
+            return String(format: String(localized: "cloud.startSession.sizeLockedNoUpgrade", defaultValue: "this folder needs a %1$@ machine (%2$@ vCPU, %3$@ GB memory), larger than your plan includes", table: "CloudSessions", bundle: .localizedModule), name, cpu, memory)
         }
         // The words after "cmux": product names, never translated.
         let words = switch plan {
@@ -113,7 +113,7 @@ public struct CloudStartSessionStrings {
         case "next_max": "NEXT Max"
         default: "Pro"
         }
-        return String(format: String(localized: "cloud.startSession.sizeLocked", defaultValue: "this folder needs a %1$@ machine (%2$@ vCPU, %3$@ GB memory), which your plan doesn't include. Upgrade to cmux %4$@ to use one", table: "CloudSessions", bundle: .module), name, cpu, memory, words)
+        return String(format: String(localized: "cloud.startSession.sizeLocked", defaultValue: "this folder needs a %1$@ machine (%2$@ vCPU, %3$@ GB memory), which your plan doesn't include. Upgrade to cmux %4$@ to use one", table: "CloudSessions", bundle: .localizedModule), name, cpu, memory, words)
     }
 
     /// The machine to create (`--name`) could not be created; `reason` says why. `quoted` is the

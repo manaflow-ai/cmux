@@ -193,7 +193,7 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
         let line = sessionLine(session)
         let symbol = session.stopped ? "stop.circle" : session.acting ? "cursorarrow.motionlines" : "cursorarrow"
         let title = session.stopped
-            ? String(localized: "menu.menuBar.computerUse.stoppedLine", defaultValue: "\(line) (Stopped)", table: "ProfileActions", bundle: .module)
+            ? String(localized: "menu.menuBar.computerUse.stoppedLine", defaultValue: "\(line) (Stopped)", table: "ProfileActions", bundle: .localizedModule)
             : line
         let stopOrResume: Item = session.stopped
             ? .command(.computerUseResume(session.id), title: text("menu.menuBar.computerUse.resume", "Resume"), symbol: "play.circle")
@@ -211,7 +211,7 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
     static func sessionLine(_ session: MenuBarMenuState.ComputerUse.Session) -> String {
         switch (session.agent, session.appName) {
         case let (agent?, app?):
-            String(localized: "menu.menuBar.computerUse.agentInApp", defaultValue: "\(agent) in \(app)", table: "ProfileActions", bundle: .module)
+            String(localized: "menu.menuBar.computerUse.agentInApp", defaultValue: "\(agent) in \(app)", table: "ProfileActions", bundle: .localizedModule)
         case let (agent?, nil): agent
         case let (nil, app?): app
         case (nil, nil): text("menu.menuBar.computerUse.anAgent", "An agent")

@@ -126,7 +126,7 @@ public struct CloudMoveStrings {
     /// The app server's refusal of a request sent too often (upstream `cloud.rate_limited`).
     public nonisolated static let rateLimitedCode = "cmux.cloud.rate_limited"
     public nonisolated static var rateLimited: String {
-        String(localized: "cloud.error.rateLimited", defaultValue: "Cloud is getting too many requests from this account right now. Wait a minute, then try again.", table: "Cloud", bundle: .module)
+        String(localized: "cloud.error.rateLimited", defaultValue: "Cloud is getting too many requests from this account right now. Wait a minute, then try again.", table: "Cloud", bundle: .localizedModule)
     }
 }
 
