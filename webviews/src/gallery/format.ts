@@ -47,7 +47,10 @@ import type {
   TailnetState,
   ModelsState,
   LibraryListing,
+  HubState,
+  DoctorReport,
 } from "../pages/settings/ops";
+import type { DoctorTreatment } from "../pages/settings/customizeDoctor";
 import type { MockData } from "../pages/passwords/mockProvider";
 
 /** Initial gestures use the real controls, so local forms remain interactive. */
@@ -72,8 +75,14 @@ export type SettingsPageVariant = VariantBase & {
   library?: LibraryListing;
   /** The CLI refuses every library change with this text (a preview is open). */
   libraryRefusal?: string;
+  /** Personalization > Customization Problems: `cmux customize doctor`'s report; default none. */
+  doctor?: DoctorReport;
+  /** Where the doctor's one-line notice draws; default the shipped one (customizeDoctor.ts). */
+  doctorTreatment?: DoctorTreatment;
   /** Settings > Keys fixture state (requests and keys); default the mock's. */
   keys?: KeysState;
+  /** Settings > Integrations fixture state; default the mock's (a waiting Stripe refund). */
+  hub?: HubState;
   /** Settings > Server > This Mac on Your Tailnet fixture state (null: no tailnet); default signed out. */
   tailnet?: TailnetState | null;
   /** Settings > Models fixture state (null: a host without the part); default the mock's Mac logins. */
@@ -214,6 +223,9 @@ type VariantBase = {
   /** A whole look the variant is drawn under (golden/look.ts): its theme file for the env's scheme
    * over the env's theme, and, in the agent pane, its settings, stylesheet and composer look. */
   look?: import("./golden/look").GoldenLook;
+  /** A font study pairing (fontStudy/candidates.ts) the variant is drawn in, applied before the page
+   * mounts as the `fontStudy` URL key is (which wins over it); the mock app draws its chrome in it too. */
+  fontStudy?: string;
 };
 
 /** The whole agent pane (AcpmuxApp) on the pane bridge, as the app hosts it. */

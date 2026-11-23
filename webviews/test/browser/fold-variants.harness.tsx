@@ -410,13 +410,14 @@ async function run(
       }
       flushSync(() => show({ rows, working: state.working, sends, look, ...options }));
       if (sampling) window.__transcriptMotion!.rows?.(rows.map((row) => row.id));
-      if (step.type === "reader" && stray) {
+      if (step.type === "reader" && stray && !("open" in step.reader)) {
         if (sampling) window.__transcriptMotion!.mark(`input:${step.label}`);
         await wheelScroll(step.reader);
       } else if (step.type === "reader") {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
         const reader = step.reader;
-        if (scroller)
+        // An `open` reader action (opening a "Worked for") does not scroll.
+        if (scroller && !("open" in reader))
           scroller.scrollTop =
             "scrollBy" in reader
               ? scroller.scrollTop + reader.scrollBy
