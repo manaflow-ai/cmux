@@ -14,8 +14,8 @@ import XCTest
 ///
 /// Every past rejection is a test here or a rule in
 /// `cmux-next-ios/scripts/app_review_gate.py` (`cmux-next-ios/AppStoreReview/rejection-history.json`
-/// maps each one). Screenshots of each step are kept in the result bundle for
-/// the agent reviewer pass (`cmux-next-ios/scripts/app_review_agent_pass.py`).
+/// maps each one). Screenshots of each step are kept in the result bundle and
+/// exported to the gate's artifact for a person to review.
 ///
 /// The dead-control walk is the detector for "the button did nothing"
 /// (2.1(a), 2026-11-07): on each screen it taps every enabled, hittable
@@ -169,7 +169,9 @@ final class AppReviewGateUITests: XCTestCase {
     /// shows.
     @MainActor
     func testChiefOpensAndAMessageSendsWithAReply() throws {
-        var app = launch(arguments: ["-cmux-mobile-tab", "home"])
+        // The reviewer has not agreed to Chief's AI sharing yet (5.1.2(i)): the first send asks.
+        let unasked = ["-cmuxMobile.chief.aiSharingConsent", "NO"]
+        var app = launch(arguments: ["-cmux-mobile-tab", "home"] + unasked)
         defer { app.terminate() }
         let chief = element("home.chief", in: app)
         let macChief = element("home.chief.mac", in: app)
@@ -181,7 +183,7 @@ final class AppReviewGateUITests: XCTestCase {
             // the conversation itself from its own launch.
             gateNote("chief-from-home-unjudged", "Home listed no Chief row, so Chief was opened with -cmux-mobile-demo chief-open")
             app.terminate()
-            app = launch(arguments: ["-cmux-mobile-demo", "chief-open"])
+            app = launch(arguments: ["-cmux-mobile-demo", "chief-open"] + unasked)
         }
         XCTAssertTrue(field.waitForExistence(timeout: 20), "Chief must open with a message box; on screen: \(onScreen(app))")
         capture("chief-01-open", app)
@@ -200,6 +202,21 @@ final class AppReviewGateUITests: XCTestCase {
         XCTAssertTrue(send.waitForExistence(timeout: 5), "Chief must have a Send button")
         XCTAssertTrue(send.isEnabled, "Send must be enabled with a draft")
         send.tap()
+        // 5.1.2(i): before anything goes to an AI provider, Chief names the providers and
+        // asks; Agree and Send sends the draft.
+        let consent = app.alerts.firstMatch
+        XCTAssertTrue(consent.waitForExistence(timeout: 5),
+                      "the first send to Chief must ask to share with the AI providers (5.1.2(i)); on screen: \(onScreen(app))")
+        if consent.exists {
+            let text = consent.staticTexts.allElementsBoundByIndex.map(\.label).joined(separator: " ")
+            XCTAssertTrue(text.contains("Anthropic") && text.contains("OpenAI"),
+                          "the AI sharing question must name the providers (5.1.2(i)); it says: \(text)")
+            capture("chief-01b-ai-consent", app)
+            let agree = consent.buttons["Agree and Send"]
+            XCTAssertTrue(agree.exists, "the AI sharing question must offer Agree and Send; buttons: \(consent.buttons.allElementsBoundByIndex.map(\.label))")
+            XCTAssertTrue(consent.buttons["Not Now"].exists, "the AI sharing question must offer Not Now")
+            if agree.exists { agree.tap() }
+        }
         capture("chief-02-sent", app)
         let mine = messages.matching(NSPredicate(format: "label CONTAINS %@", draft)).firstMatch
         XCTAssertTrue(mine.waitForExistence(timeout: 10),
@@ -426,10 +443,14 @@ final class AppReviewGateUITests: XCTestCase {
         }
         capture("walk-\(screen)-start", app)
         var dead: [String] = []
+        var covered: [String] = []
         var disabledWithoutReason: [String] = []
         for (offset, control) in controls.prefix(limit).enumerated() {
             if offset > 0 {
                 app.terminate()
+                // A link the last control opened left Safari in front (beside
+                // cmux on iPad); closed, so this control's link shows anew.
+                XCUIApplication(bundleIdentifier: "com.apple.mobilesafari").terminate()
                 app = reach()
             }
             let target = resolve(control, in: app)
@@ -446,8 +467,15 @@ final class AppReviewGateUITests: XCTestCase {
             // checked picker row) changes nothing on purpose; its siblings are
             // what the walk judges.
             if target.isSelected { continue }
+            // A row scrolled under the navigation bar or the tab bar reports
+            // hittable, yet a tap at its center lands on the bar; a person
+            // scrolls it into view first. Listed, never judged dead.
+            if let bar = coveringBar(of: target, in: app) {
+                covered.append("\(control.key) (under the \(bar))")
+                continue
+            }
             let before = signature(app)
-            target.tap()
+            tap(target, as: control.type)
             let changed = waitForChange(from: before, in: app, timeout: 3)
             if !changed {
                 dead.append("\(screen): \(control.key)")
@@ -458,6 +486,9 @@ final class AppReviewGateUITests: XCTestCase {
             gateNote("walk-\(screen)-truncated", "\(screen) has \(controls.count) controls; the walk tapped the first \(limit)")
         }
         app.terminate()
+        if !covered.isEmpty {
+            gateNote("walk-\(screen)-covered", "not tapped, under a bar on this screen: \(covered.joined(separator: ", "))")
+        }
         if !disabledWithoutReason.isEmpty {
             // A disabled control with no stated reason reads as broken to a
             // reviewer. Reported, not failed: some are legitimately idle.
@@ -505,7 +536,10 @@ final class AppReviewGateUITests: XCTestCase {
     }
 
     /// What a person would see change: the element tree minus frames and
-    /// addresses, the app's state (a link opens Safari), and springboard alerts.
+    /// addresses, the app's state (a link opens Safari), Safari's own state,
+    /// and springboard alerts. On iPad (windowed apps) a link opens Safari
+    /// beside cmux, which stays `runningForeground` with the same tree, so
+    /// the hand-off shows only in Safari's state.
     @MainActor
     private func signature(_ app: XCUIApplication) -> String {
         guard app.state == .runningForeground else { return "state:\(app.state.rawValue)" }
@@ -513,7 +547,52 @@ final class AppReviewGateUITests: XCTestCase {
         tree = tree.replacingOccurrences(of: #"0x[0-9a-fA-F]+"#, with: "", options: .regularExpression)
         tree = tree.replacingOccurrences(of: #"\{\{[^}]*\}, \{[^}]*\}\}"#, with: "", options: .regularExpression)
         let alerts = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.count
-        return "\(tree)|alerts:\(alerts)"
+        // Only Safari in front counts: a Safari left running by an earlier
+        // link may move from background to suspended during a dead tap.
+        let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari").state == .runningForeground
+        return "\(tree)|alerts:\(alerts)|safari-front:\(safari)"
+    }
+
+    /// Taps a control where a person would. A SwiftUI `Toggle` row is a
+    /// switch element the width of the row, with the real switch inside it
+    /// at the trailing edge; its center is the label, which does nothing on
+    /// iOS, so the walk taps the switch itself (as ScreenSharingSheetUITests
+    /// does).
+    @MainActor
+    private func tap(_ target: XCUIElement, as type: XCUIElement.ElementType) {
+        guard type == .switch else {
+            target.tap()
+            return
+        }
+        let knob = target.switches.firstMatch
+        if knob.exists, knob.isHittable {
+            knob.tap()
+        } else {
+            target.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        }
+    }
+
+    /// The bar a scrolled row sits under, if any: a control that is not one
+    /// of the bar's own whose center is behind the navigation bar (or the
+    /// status bar above it) or behind the tab bar.
+    @MainActor
+    private func coveringBar(of target: XCUIElement, in app: XCUIApplication) -> String? {
+        let frame = target.frame
+        let center = CGPoint(x: frame.midX, y: frame.midY)
+        let own = NSPredicate(format: "identifier == %@ AND label == %@", target.identifier, target.label)
+        func covers(_ bar: XCUIElement, _ behind: (CGRect) -> Bool) -> Bool {
+            guard bar.exists else { return false }
+            let edge = bar.frame
+            guard !edge.isEmpty, center.x >= edge.minX, center.x <= edge.maxX, behind(edge) else { return false }
+            return !bar.descendants(matching: target.elementType).matching(own).firstMatch.exists
+        }
+        if app.navigationBars.allElementsBoundByIndex.contains(where: { covers($0) { center.y < $0.maxY } }) {
+            return "navigation bar"
+        }
+        if app.tabBars.allElementsBoundByIndex.contains(where: { covers($0) { center.y > $0.minY } }) {
+            return "tab bar"
+        }
+        return nil
     }
 
     @MainActor

@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { cmuxDevServer, DEV_SERVER_PORT } from "./dev-server/plugins";
 import { viteCacheDir } from "./dev-server/viteCacheDir.mjs";
 import { bundleMetafile } from "./scripts/bundle-metafile.mjs";
+import { packedShikiData, UNPACK_MODULE } from "./scripts/packed-shiki-data.mjs";
 
 const outDir = process.env.CMUX_WEBVIEWS_OUT_DIR ?? "../Resources/markdown-viewer/webviews-app";
 // The code editor's copy of Pierre's extension map (pages/editor/pierre-filetypes.d.ts). The query
@@ -26,13 +27,14 @@ export default defineConfig({
   ...cmuxCheckConfig({
     effectCleanupPlugin: fileURLToPath(new URL("./scripts/lint/effect-cleanup.mjs", import.meta.url)),
     perfPlugin: fileURLToPath(new URL("./scripts/lint/perf-footguns.mjs", import.meta.url)),
+    a11yPlugin: fileURLToPath(new URL("./scripts/lint/aria-props.mjs", import.meta.url)),
     fmtIgnorePatterns: [
       "src/diff/generated/**",
       // A markdown test document: its exact syntax (*** rules, odd spacing) is what it tests.
       "src/gallery/fixtures/markdown-showcase.md",
-      // scripts/pane-protocol-codegen.ts --check owns these bytes.
+      // Build output of scripts/pane-protocol-codegen.ts.
       "src/protocol/generated/**",
-      // scripts/acpmux-protocol-codegen.ts --check owns these bytes.
+      // Build output of scripts/acpmux-protocol-codegen.ts.
       "src/agent-session/acpmux/protocol/generated/**",
       // Byte-identical copy of the Rust lane's emitted IR.
       "src/protocol/ir/**",
@@ -68,7 +70,10 @@ export default defineConfig({
     ...cmuxDevServer(),
     // React Compiler: Babel by default, Oxc with CMUX_REACT_COMPILER=oxc (reactCompiler.mjs).
     ...reactWithCompiler(),
-    tailwindcss(),
+    // CMUX_GALLERY_STAGE_CSS=dev: the gallery scans' build keeps the dev server's CSS (vite.config.gallery.ts).
+    tailwindcss(process.env.CMUX_GALLERY_STAGE_CSS === "dev" ? { optimize: false } : undefined),
+    // Shiki's grammars and themes stored deflated, inflated on import (CMUX-570, app size).
+    packedShikiData(),
     {
       // Vite writes root-absolute script URLs into `diff-page.html` and `markdown-page.html`; make
       // them relative to the page so the entry and its chunks resolve under any base
@@ -267,6 +272,11 @@ function lazyChunkName(id: string): string | null {
   const shikiTheme = id.match(/\/@shikijs\/themes\/dist\/([^/]+)\.mjs$/);
   if (shikiTheme) {
     return `shiki-theme-${shikiTheme[1]}`;
+  }
+  // What the packed grammars and themes inflate with (packed-shiki-data.mjs): one lazy chunk,
+  // loaded with the first of them, never on a page's first load.
+  if (id === UNPACK_MODULE || id.includes("/node_modules/fflate/")) {
+    return "shiki-unpack";
   }
   if (id.includes("/shiki/dist/wasm.mjs") || id.includes("/@shikijs/engine-oniguruma/dist/wasm-inlined.mjs")) {
     return "shiki-wasm";

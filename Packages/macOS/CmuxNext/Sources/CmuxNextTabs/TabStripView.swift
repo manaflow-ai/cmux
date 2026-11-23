@@ -40,7 +40,7 @@ public final class TabStripView: NSView {
 
     /// Empty strip space in the window's top row acts as a titlebar (`actsAsTitlebar`).
     public var dragsWindowFromEmptySpace = true
-    /// The + button's tooltip ("New Tab (hold for more)"); nil: none.
+    /// The + button's tooltip ("New Tab"); nil: none.
     public var newTabToolTip: String? {
         get { newTabButton.themedToolTip }
         set { newTabButton.themedToolTip = newValue }
@@ -54,7 +54,6 @@ public final class TabStripView: NSView {
     public var opensNewTabMenuOnPress = false {
         didSet {
             newTabButton.showsChevron = opensNewTabMenuOnPress
-            newTabButton.themedToolTip = opensNewTabMenuOnPress ? Strings.axNewTab : Strings.newTabHoldHint
             applyTokens(animated: false)
         }
     }
@@ -76,7 +75,7 @@ public final class TabStripView: NSView {
     /// The + button's offset after the last tab's slot: the last pill to the button is `Metrics.tabStripEndGap`, the
     /// strip's leading gap, at every density; the slot's trailing inset and the button's own leading inset (a
     /// `tabBackgroundInset` each) count toward it, so this can be negative where a density spaces its tabs wider.
-    var newTabLeadingGap: CGFloat { Metrics.tabStripEndGap - 2 * metrics.tabBackgroundInset }
+    var newTabLeadingGap: CGFloat { metrics.endGap(scale: window?.backingScaleFactor ?? 2) - 2 * metrics.tabBackgroundInset }
     var newTabControlsWidth: CGFloat {
         guard showsTypeChooser else { return metrics.newTabButtonWidth }
         // Circles: the ⌄ takes the +'s square, so both circles are one diameter. Split: classic's narrower segment.
@@ -162,8 +161,8 @@ public final class TabStripView: NSView {
     let windowVisibility = WindowVisibilityObserver()
     /// In a window and not hidden (`syncShown`).
     private(set) var isShownInWindow = false
-    /// The model changed while the strip was out of sight: it syncs once, at rest, when it shows.
-    var modelChangedWhileHidden = false
+    /// When the strip does not follow its model at once (out of sight, a pane that leaves), and the sync it owes then.
+    let syncHold = TabStripSyncHold()
     /// An appearance or scale change came while hidden; applied when shown.
     private var appearanceIsStale = false
     /// Group chips, bands, drag, and optimistic membership.
@@ -491,8 +490,7 @@ public final class TabStripView: NSView {
             return
         }
         // What changed while out of sight lands at once in its final place: nobody saw it move.
-        if modelChangedWhileHidden {
-            modelChangedWhileHidden = false
+        if syncHold.takeOwedSync() {
             layOutPaneIfOneTabChanged()
             sync(fromModel: true, animating: false)
         }
@@ -595,8 +593,9 @@ public final class TabStripView: NSView {
         super.layout()
         glassView?.frame = bounds
         if glassView == nil { contentView.frame = bounds }
-        let padding = metrics.stripHorizontalPadding
-        // One gap before the first tab at every density and corner style (`Metrics.tabStripEndGap`).
+        // One gap before the first tab and after the last, the pill's top gap on this screen's pixel grid
+        // (`Metrics.tabStripEndGap`, `TabStripMetrics.endGap(scale:)`).
+        let padding = metrics.endGap(scale: window?.backingScaleFactor ?? 2)
         let leading = padding
         windowControlsInset = computeWindowControlsInset()
         appliedTabTop = computeTabTop()

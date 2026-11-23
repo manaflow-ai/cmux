@@ -36,7 +36,11 @@ test("an update ends the turn only when it takes the line away", () => {
 });
 
 test("switching the running status line does not end its turn", () => {
-  const running = [row("u", "user"), row("working-u", "working"), row(LIVE_THINKING, "thinking")];
+  const running = [
+    row("u", "user"),
+    { ...row("worked-u", "worked"), turnPhase: "running" as const },
+    row(LIVE_THINKING, "thinking"),
+  ];
   const status = [row("u", "user"), row("activityLine-u", "activityLine")];
   expect(hasLiveLine(status)).toBe(true);
   expect(endsTurn(running, status)).toBe(false);
@@ -133,7 +137,8 @@ test("folded work stays between the header and final answer while they move", as
     thread.append(node);
     return node;
   };
-  draw("working-u", "working", 0, 34);
+  // The turn's header, running: one row with the ended one, its chevron's slot held unseen.
+  draw("worked-u", "worked", 0, 34).innerHTML = '<svg class="cv-worked__chevron is-reserved"></svg>';
   draw("work", "activity", 34, 60);
   draw("answer", "assistant", 94, 50);
   draw(LIVE_THINKING, "thinking", 144, 22);
@@ -207,10 +212,10 @@ test("the fold's curve search picks the least lean that fits, and the straight l
   const { turnEndFoldTiming } = await import("./turnEndFold");
   const { MOTION_SETTLE, MOTION_SETTLE_MS } = await import("../../../motion/scale.generated");
   const timing = (px: number) => turnEndFoldTiming(px, MOTION_SETTLE_MS, MOTION_SETTLE);
-  expect(timing(100)).toEqual({ ms: 180, easing: "cubic-bezier(0.236, 0.708, 0.46, 0.854)" });
-  expect(timing(274)).toEqual({ ms: 180, easing: "cubic-bezier(0.328, 0.354, 0.655, 0.677)" });
-  expect(timing(800)).toEqual({ ms: 180, easing: "cubic-bezier(0.333, 0.333, 0.667, 0.667)" });
-  expect(timing(2000)).toEqual({ ms: 180, easing: "cubic-bezier(0.333, 0.333, 0.667, 0.667)" });
+  expect(timing(100)).toEqual({ ms: MOTION_SETTLE_MS, easing: "cubic-bezier(0.236, 0.708, 0.46, 0.854)" });
+  expect(timing(274)).toEqual({ ms: MOTION_SETTLE_MS, easing: "cubic-bezier(0.328, 0.354, 0.655, 0.677)" });
+  expect(timing(800)).toEqual({ ms: MOTION_SETTLE_MS, easing: "cubic-bezier(0.333, 0.333, 0.667, 0.667)" });
+  expect(timing(2000)).toEqual({ ms: MOTION_SETTLE_MS, easing: "cubic-bezier(0.333, 0.333, 0.667, 0.667)" });
 });
 
 test("the fold's curve search for a 2000 px move stays under half a millisecond", async () => {

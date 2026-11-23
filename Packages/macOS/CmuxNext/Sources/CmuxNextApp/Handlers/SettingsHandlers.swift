@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAppCore
+import CmuxNextAppTry
 import CmuxNextCompat
 import CmuxNextErrorJournal
 import CmuxNextSettings
@@ -53,7 +54,8 @@ enum SettingsHandlers {
         WebPageTab.registerGitHub(context.services)
         UpdateHandlers.bind(into: registry, updater: context.services.updater,
                             openWhatsNew: { [weak services = context.services] in services.map { WhatsNewPage.open($0) } ?? false },
-                            stateDirectories: { [weak services = context.services] in services?.environment.daemonStateDirectories ?? [nil] })
+                            stateDirectories: { [weak services = context.services] in services?.environment.daemonStateDirectories ?? [nil] },
+                            openLink: { [weak services = context.services] url in services.map { SidebarCardFeed.openUpdateLink(url, services: $0) } })
         // Install an Earlier Nightly…: Settings > Updates at its Channels card, whose Switch installs any
         // recent build (`cmux nightly install` is the CLI form); a new focus each open scrolls back to it.
         registry.bind("updates.installEarlierBuild", unavailable: { [weak services = context.services] in
@@ -69,6 +71,7 @@ enum SettingsHandlers {
         SessionMoveFromBuild.bind(into: registry, context: context)
         CLIInstallHandlers.bind(into: registry, context: context)
         LiveWebHandlers.bind(into: registry, context: context)
+        AppTryActions.bind(into: registry, bundled: context.services.bundledCLI, window: { context.activeWindow?.window })
         KeymapHandlers.bind(into: registry, context: context)
 
         registry.bind("palette.restartSocketListener", run: { [weak services = context.services] _ in

@@ -60,6 +60,8 @@ import Testing
 
     final class Service: URLProtocol, @unchecked Sendable {
         nonisolated(unsafe) static var answer: (status: Int, body: String) = (200, "{}")
+        /// Answers for one "METHOD path" before ``answer``.
+        nonisolated(unsafe) static var routes: [String: (status: Int, body: String)] = [:]
         nonisolated(unsafe) static var seen: [(method: String, path: String, body: [String: Any])] = []
         static let lock = NSLock()
 
@@ -71,7 +73,7 @@ import Testing
             let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
             let answer = Self.lock.withLock {
                 Self.seen.append((request.httpMethod ?? "", request.url?.path ?? "", object))
-                return Self.answer
+                return Self.routes["\(request.httpMethod ?? "") \(request.url?.path ?? "")"] ?? Self.answer
             }
             let response = HTTPURLResponse(url: request.url!, statusCode: answer.status, httpVersion: nil, // crash-allow: test stub
                                            headerFields: ["Content-Type": "application/json"])!
@@ -98,6 +100,7 @@ import Testing
         static func reset(_ status: Int, _ body: String) {
             lock.withLock {
                 answer = (status, body)
+                routes = [:]
                 seen = []
             }
         }
@@ -159,6 +162,48 @@ import Testing
         await sources.turnOn(chief)
         #expect(sources.turnOnRefusal == nil)
         #expect(sources.offCard == .turningOn) // until the follow-up read says the brain is on
+    }
+
+    // MARK: New Chief
+
+    /// User report 2026-11-13: New Chief took seconds with nothing on Home, then a bare "Chief Is
+    /// Off". The new Chief's refused turn-on is the card's (unavailable here), not a silent off,
+    /// and the pending row (``ChiefSources/creatingChief``) shows from the tap until the end.
+    @Test func newChiefShowsAtOnceAndARefusedTurnOnSaysWhy() async {
+        Service.reset(200, "{}")
+        let made = "agent_01HXXXXXXXXXXXXXXXXXXXXXXX"
+        Service.lock.withLock {
+            Service.routes["POST /v1/ops"] = (200, #"{"ok":true,"value":{"id":"\#(made)","rev":1,"display_name":"nee","main_conversation":"conv_dm_2"}}"#)
+            Service.routes["PUT /v1/chiefs/\(made)/brain"] = (403, #"{"error":{"code":"chief_claude_unavailable","message":"Claude is not enabled for this owner"}}"#)
+        }
+        let (sources, _) = sourcesWithTheBrainOff()
+        sources.showDemoCloudChief(named: "Atlas", brains: true)
+        let creating = Task { await sources.createChief(named: " nee ") }
+        // The row is up from the tap: it is set before the create's first request goes.
+        var turns = 0
+        while !sources.isChanging, turns < 1000 { await Task.yield(); turns += 1 }
+        #expect(sources.creatingChief == "nee")
+        await creating.value
+        let sent = Service.lock.withLock { Service.seen.map { "\($0.method) \($0.path)" } }
+        #expect(sent == ["POST /v1/ops", "PUT /v1/chiefs/\(made)/brain"])
+        #expect(sources.turnOnRefusal == ChiefOffCard.Refusal(chief: made, kind: .unavailable))
+        #expect(sources.changeError == nil)
+        // No account here, so no read follows: the row goes with the create.
+        #expect(sources.creatingChief == nil)
+        #expect(!sources.isChanging)
+        // A sign-out never leaves the row behind.
+        sources.stop()
+        #expect(sources.creatingChief == nil)
+    }
+
+    @Test func aFailedCreateSaysWhyAndDropsThePendingRow() async {
+        Service.reset(500, #"{"error":{"code":"http_500","message":"The service is busy."}}"#)
+        let (sources, _) = sourcesWithTheBrainOff()
+        sources.showDemoCloudChief(named: "Atlas", brains: true)
+        await sources.createChief(named: "nee")
+        #expect(sources.changeError != nil)
+        #expect(sources.creatingChief == nil)
+        #expect(sources.turnOnRefusal == nil)
     }
 
     @Test func signingOutForgetsTheRefusal() async {

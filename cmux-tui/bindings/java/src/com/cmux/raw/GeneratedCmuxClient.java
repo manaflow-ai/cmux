@@ -343,6 +343,21 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final Object computerUseApprovals(ComputerUseApprovalsRequest request) throws CmuxException {
+        Object result = execute(Commands.COMPUTER_USE_APPROVALS, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object computerUseConfig(ComputerUseConfigRequest request) throws CmuxException {
+        Object result = execute(Commands.COMPUTER_USE_CONFIG, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object computerUseEndpoint() throws CmuxException {
+        Object result = execute(Commands.COMPUTER_USE_ENDPOINT, Map.of());
+        return Wire.immutableJson(result);
+    }
+
     public final ConversationAgentTokenResult conversationAgentToken(ConversationAgentTokenRequest request) throws CmuxException {
         Object result = execute(Commands.CONVERSATION_AGENT_TOKEN, request.toWire());
         return ConversationAgentTokenResult.fromWire(result);
@@ -431,6 +446,16 @@ public abstract class GeneratedCmuxClient {
     public final ConversationRunsResult conversationRuns(ConversationRunsRequest request) throws CmuxException {
         Object result = execute(Commands.CONVERSATION_RUNS, request.toWire());
         return ConversationRunsResult.fromWire(result);
+    }
+
+    public final ConversationScheduledListResult conversationScheduledList(ConversationScheduledListRequest request) throws CmuxException {
+        Object result = execute(Commands.CONVERSATION_SCHEDULED_LIST, request.toWire());
+        return ConversationScheduledListResult.fromWire(result);
+    }
+
+    public final ConversationScheduledOpResult conversationScheduledOp(ConversationScheduledOpRequest request) throws CmuxException {
+        Object result = execute(Commands.CONVERSATION_SCHEDULED_OP, request.toWire());
+        return ConversationScheduledOpResult.fromWire(result);
     }
 
     public final ConversationSearchResult conversationSearch(ConversationSearchRequest request) throws CmuxException {
@@ -988,6 +1013,11 @@ public abstract class GeneratedCmuxClient {
 
     public final Object putSession(PutSessionRequest request) throws CmuxException {
         Object result = execute(Commands.PUT_SESSION, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object quickTerminal(QuickTerminalRequest request) throws CmuxException {
+        Object result = execute(Commands.QUICK_TERMINAL, request.toWire());
         return Wire.immutableJson(result);
     }
 

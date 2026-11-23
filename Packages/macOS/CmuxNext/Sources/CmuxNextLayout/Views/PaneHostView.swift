@@ -17,7 +17,9 @@ import QuartzCore
 /// child window (Chromium pages); the root keeps them on this view's
 /// displayed frame.
 final class PaneHostView: NSView, RestingPlacement {
-    private(set) var pane: PaneID
+    /// The identifier names the pane (`cmux.layout.pane.<id>`) for Point at Element and UI tests; it is
+    /// not an accessibility element, so VoiceOver's tree is unchanged.
+    private(set) var pane: PaneID { didSet { setAccessibilityIdentifier("cmux.layout.pane.\(pane.rawValue)") } }
     let content: NSView
     let chrome = PaneOverlayView()
     let clipView = PaneClipView()
@@ -32,6 +34,10 @@ final class PaneHostView: NSView, RestingPlacement {
     /// an agent chat does not, and the dividers beside it draw their line instead (`ScreenContentView.showsIdleLine`).
     var framesContent: Bool { reporter?.paneFramesContent ?? true }
     private var lastWindowFrame: CGRect?
+    /// Window-frame moves held from the content during a live resize of the window (``noteWindowFrame(topRowFloor:)``).
+    private(set) var windowFrameDeferred = false
+    /// The last report to the content was for a frame below the top row's floor.
+    private var lastReportBelowTopRow = false
 
     /// Whether content keeps its size while the host is on a split, close or zoom spring: the provider's rule (an agent
     /// chat holds: page pixels, S5/S6), live resize otherwise. Injected so tests pin it.
@@ -42,6 +48,7 @@ final class PaneHostView: NSView, RestingPlacement {
         self.content = content
         self.holdsContentInMotion = holdsContentInMotion
         super.init(frame: .zero)
+        setAccessibilityIdentifier("cmux.layout.pane.\(pane.rawValue)")
         wantsLayer = true
         layer?.masksToBounds = true
         clipView.frame = bounds
@@ -97,7 +104,7 @@ final class PaneHostView: NSView, RestingPlacement {
                     if !holdsUntilAfterLanding {
                         holdsUntilAfterLanding = true
                         heldContentSize = content.frame.size
-                        heldPin = nil
+                        heldPin = holdsContentForMove ? (trailing: false, bottom: false) : nil // MOVE HOLD: it keeps its corner
                         heldArea = (content as? PaneMotionHolding)?.paneMotionHoldArea
                         announcedRest = nil
                         // The area hears the hold in the key's turn, before the press's rest size goes to the content
@@ -158,14 +165,14 @@ final class PaneHostView: NSView, RestingPlacement {
     }
 
     /// Let-go content lays out its whole subtree now (a terminal measures from its host: D1), at a real size in a window.
-    private func layOutLetGoContent() {
+    func layOutLetGoContent() {
         layoutClip()
         if window != nil, bounds.width >= 1, bounds.height >= 1 { layoutSubtreeIfNeeded() }
     }
 
     /// A keyboard resize's hold (``ScreenContentView/holdsContentForKeyResize``): the content keeps its start size,
     /// clipped where the pane is smaller and beside the pane background where it is larger, until after the landing.
-    private var holdsUntilAfterLanding = false
+    private(set) var holdsUntilAfterLanding = false
     /// The edges a key-resize hold rides, chosen while the pane moves and kept until the release: at rest (the landing
     /// frame) the rest offset no longer says which edge moved, and a new pick would jump the content by the press step.
     private var heldPin: (trailing: Bool, bottom: Bool)?
@@ -237,6 +244,11 @@ final class PaneHostView: NSView, RestingPlacement {
         // Another screen (or none) places it now: its clip and overlay are computed afresh.
         stripClipInput = nil
         overlaySyncKey = nil
+        // No card of the screen that it left is under it now, and none paints its ground: a card of this screen
+        // puts its mark on the clip again in its next pass.
+        clipView.hasSolidGroundUnder = false
+        clipView.onContentGroundChange = nil
+        clipView.ownsContentGround = false
     }
 
     /// What the host's strip clip was last computed from (`ScreenContentView.clipToStrip`).
@@ -337,7 +349,7 @@ final class PaneHostView: NSView, RestingPlacement {
         // launch frame. AppKit does not reliably run the child's autoresizing
         // pass when the clip view is resized manually, so keep the content
         // frame in lockstep with the clip bounds here.
-        let content = contentFrame(in: clipView.bounds)
+        let content = moveContentFrame ?? contentFrame(in: clipView.bounds)
         if self.content.frame != content { self.content.frame = content }
         syncHeldArea()
         applyChromeShape()
@@ -414,7 +426,8 @@ final class PaneHostView: NSView, RestingPlacement {
             (superview as? ScreenContentView)?.paneFramingDidChange()
         }
         chrome.setShape(padding: padding, cornerRadius: style.paneCornerRadius,
-                        bands: PaneOverlayView.Bands(header: header, footer: footer, leading: leading), wholeCard: wholeCard)
+                        bands: PaneOverlayView.Bands(header: header, footer: footer, leading: leading), wholeCard: wholeCard,
+                        clip: radius == 0 ? clipCorners(of: rounded) : PaneOverlayView.ClipCorners())
         applyLateGround()
         // Content held at its rest size does not fill a pane still larger than that rest (the pane a split halves): the
         // pane shows that content's own ground where the content does not reach, in this same frame (SPLIT OPEN CHAT).
@@ -489,12 +502,38 @@ final class PaneHostView: NSView, RestingPlacement {
     /// The vertical edge held content rides, from the last ``announceRest()`` (nil: the near-edge rule).
     private var heldAnchor: PaneMotionAnchor?
 
-    /// Tells the content when the pane's frame in the window changed.
-    func noteWindowFrame() {
-        guard let reporter, window != nil else { return }
+    /// Tells the content when the pane's frame in the window changed, and gives the ring the corners it meets there
+    /// (a pane that moves without changing size, ``clipCorners(of:)``).
+    ///
+    /// `topRowFloor` (window coordinates; only during a person's live resize of the window, `LayoutRootView.syncOverlay`):
+    /// a pane whose frame was below it at its last report and still is tells its content nothing until the resize's end
+    /// (``flushDeferredWindowFrame()``). Below the top row the traffic lights' inset is 0, the tabs' and buttons' tops are
+    /// their own, and the hover and corner reports wait: what the content does with the move cannot change what shows,
+    /// and a resize from the window's bottom edge moves every pane in every tick (#50672, 155 of 278 overlay-sync samples).
+    func noteWindowFrame(topRowFloor: CGFloat? = nil) {
         let frame = convert(bounds, to: nil)
-        guard frame != lastWindowFrame else { return }
+        guard frame != lastWindowFrame || (windowFrameDeferred && topRowFloor == nil) else { return }
+        if chrome.areaIsSquare { chrome.setClipCorners(clipCorners(of: roundedRect)) }
+        guard let reporter, window != nil else { return }
         lastWindowFrame = frame
+        if let topRowFloor, restOffset == .zero, lastReportBelowTopRow, frame.maxY <= topRowFloor {
+            windowFrameDeferred = true
+            return
+        }
+        windowFrameDeferred = false
+        // Outside a resize nothing says where the top row is: the next resize's first tick reports.
+        lastReportBelowTopRow = topRowFloor.map { frame.maxY <= $0 } ?? false
+        reporter.paneFrameInWindowDidChange()
+    }
+
+    /// The window's live resize ended: a pane that held its window-frame moves (``noteWindowFrame(topRowFloor:)``) tells
+    /// its content once, at the final frame.
+    func flushDeferredWindowFrame() {
+        guard windowFrameDeferred else { return }
+        windowFrameDeferred = false
+        lastReportBelowTopRow = false
+        guard let reporter, window != nil else { return }
+        lastWindowFrame = convert(bounds, to: nil)
         reporter.paneFrameInWindowDidChange()
     }
 

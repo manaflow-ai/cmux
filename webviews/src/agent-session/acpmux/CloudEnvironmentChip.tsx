@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useLocationShortcut } from "./composerControls";
 import type { CloudEnvironment } from "../../pages/cloud/environmentModel";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "../../ui/Menu";
 import { ChevronIcon } from "./ComposerPickers";
@@ -9,6 +10,7 @@ import { postNative } from "./native";
 import { openCloudEnvironment } from "./cloudEnvironment";
 import {
   AUTO_ENVIRONMENT,
+  autoEditEnvironment,
   autoEnvironment,
   cloudStartEnvironment,
   recentEnvironments,
@@ -73,12 +75,15 @@ export function useCloudEnvironmentControl(
           pick(environment.id);
         },
       }),
-    onEdit: (id) =>
+    onEdit: (id) => {
+      // Auto's (no id) is the Default it runs in: the team's in a team's context, else the personal one.
+      const target = id ?? autoEditEnvironment(environments);
       openCloudEnvironment({
-        ...(id ? { environmentId: id } : {}),
+        ...(target ? { environmentId: target } : {}),
         section: id ? "overview" : "script",
         ...(repo ? { repo } : {}),
-      }),
+      });
+    },
     onNewMachine: (environment) => {
       void postNative("action.run", { id: "newCloudMachine", ...(environment ? { environment } : {}) }).catch(
         () => undefined,
@@ -159,6 +164,7 @@ export function CloudEnvironmentChip({
   const { control: box, anchor, open: popoverOpen, setOpen } = useLocationPopover();
   const open = popoverOpen && active;
   useLocationOpener(active ? "Environment" : undefined, () => setOpen(true));
+  const shortcut = useLocationShortcut(active ? "Environment" : undefined);
   const auto = t("composer.envAuto");
   const value = cloudEnvironmentValue(control, auto);
   // The visible name ("Environment: Auto") and, for the tooltip and accessible name, one that never
@@ -243,6 +249,7 @@ export function CloudEnvironmentChip({
       data-kind="cloud-environment"
       data-testid="cloud-environment-chip"
       title={`${name}: ${value}`}
+      data-tooltip-shortcut={shortcut}
     >
       <Menu
         open={open}

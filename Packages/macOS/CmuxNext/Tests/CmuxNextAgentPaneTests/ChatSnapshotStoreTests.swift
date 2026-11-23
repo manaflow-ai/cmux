@@ -239,6 +239,39 @@ struct ChatSnapshotStoreTests {
         }
     }
 
+    /// The prompt the chat's composer showed is served to its next document beside the copy, and with
+    /// no copy (one too large to keep) too: that composer holds it from its first frame (Leo,
+    /// 2026-11-22: "composer dips down then goes back up"). An empty or longer-than-kept prompt is
+    /// not served, and a write that forgets the copy forgets it.
+    @Test func theComposersPromptIsServedWithOrWithoutACopy() async throws {
+        try await Self.withDisk { disk in
+            let snapshots = AgentPaneTailCache.shared.snapshots
+            func put(_ fields: [String: JSONValue]) async throws {
+                _ = try await snapshots.reply("chat.snapshot.put", params: .object(fields.merging(["sessionId": .string("s-9")]) { a, _ in a }),
+                                              op: "cmux.agent.chat.snapshot.put", allowed: true,
+                                              pageGeneration: AgentPaneTailCache.shared.generation)
+                await disk.settled()
+            }
+            let resources = AgentPageResources(session: { "s-9" }, allowed: { true })
+            let tail = ";self.__cmuxRestoredDraft=\"half a \\\"thought\\\"\\n\\nmore\";self.dispatchEvent(new Event('cmux-restored-chat'));self.__cmuxChatSnapshotBoot?.();"
+            try await put(["v": .number(1), "html": .string("<main>a</main>"), "draft": .string("half a \"thought\"\n\nmore")])
+            #expect(await Self.served(resources)?.hasSuffix(";self.__cmuxRestoredChat=\"s-9\"" + tail) == true)
+            try await put(["miss": .string("too large"), "draft": .string("half a \"thought\"\n\nmore")])
+            #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;self.__cmuxChatSnapshotWhy=\"none: too large\";self.__cmuxChatSnapshotTheme=\"\";self.__cmuxRestoredChat=\"s-9\"" + tail)
+            #expect(try await Self.get("s-9") == .null)
+            try await put(["miss": .string("too large"), "draft": .string(String(repeating: "x", count: AgentPaneChatSnapshots.draftMaxUnits + 1))])
+            #expect(await Self.served(resources)?.contains("__cmuxRestoredDraft") == false)
+            try await put(["miss": .string("too large"), "draft": .string("")])
+            #expect(await Self.served(resources)?.contains("__cmuxRestoredDraft") == false)
+            try await put(["v": .number(1), "html": .string("<main>a</main>"), "draft": .string("kept")])
+            try await put([:])
+            #expect(await Self.served(resources)?.contains("__cmuxRestoredDraft") == false)
+            // An incognito page is served no prompt.
+            let incognito = AgentPageResources(session: { "s-9" }, allowed: { false })
+            #expect(await Self.served(incognito)?.contains("__cmuxRestoredDraft") == false)
+        }
+    }
+
     /// Sign-out clears the copies with the tails, and a page from before it writes nothing after.
     @Test func signOutClearsThem() async throws {
         try await Self.withDisk { disk in

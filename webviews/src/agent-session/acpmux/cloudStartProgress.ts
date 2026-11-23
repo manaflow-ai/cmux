@@ -1,5 +1,6 @@
 import { CLOUD_SETUP_REQUIRED, readCloudSetupNeed, type CloudSetupNeed } from "./cloudSetup";
 import type { CloudStartAnswer } from "./cloudRun";
+import type { CloudStartPick } from "./newtab/draftFolder";
 import { cloudPlanTeamRefusal, type CloudPlanTeamRefusal } from "./cloudPlanTeams";
 import {
   cloudPlansNamed,
@@ -35,8 +36,14 @@ export type CloudStartProgress = {
   /// The person's message.
   task: string;
   state: "starting" | "failed";
+  /// The agent and model the start runs (`harness` id, `model` id): the composer's model chip names them while the
+  /// start shows, so it never reads the picker's default (Opus) for a start that went as GPT-6.1 Sol (cmux#45774).
+  pick?: CloudStartPick;
   /// The folder's name (its last path part).
   folder?: string;
+  /// The folder the start copies, whole (trailing slashes dropped): the composer's folder chip names it while the
+  /// start shows, so it never reads No folder for a start that went with one (cmux#46023).
+  cwd?: string;
   step?: CloudStartStep;
   /// The machine's name, and its size as the host words it ("4 CPU, 16 GB").
   machine?: string;
@@ -253,17 +260,20 @@ export function cloudStartBegun(
   home?: boolean,
   signingIn?: boolean,
   cloudSetup?: CloudSetupNeed,
+  pick?: CloudStartPick,
 ): CloudStartProgress {
-  const folder = cwd?.replace(/\/+$/, "").split("/").pop();
+  const whole = cwd?.replace(/\/+$/, "");
+  const folder = whole?.split("/").pop();
   return {
     key,
     task,
     state: "starting",
-    ...(folder ? { folder } : {}),
+    ...(folder ? { folder, cwd: whole } : {}),
     ...(agent ? { agent } : {}),
     ...(home ? { home: true } : {}),
     ...(signingIn ? { signingIn: true } : {}),
     ...(cloudSetup ? { cloudSetup } : {}),
+    ...(pick ? { pick } : {}),
   };
 }
 
