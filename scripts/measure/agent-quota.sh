@@ -3,7 +3,7 @@
 # pull request's CI, with and without cmux's quota guidance.
 #
 #   scripts/measure/agent-quota.sh [arms=without,skill,shipped] [agents=1,6] [trials=3]
-#                                  [ci_seconds=300] [model=claude-opus-5-5] acpmux=PATH
+#                                  [ci_seconds=300] [model=claude-opus-5-5] acpmux=PATH [keep=1]
 #
 # Each trial starts AGENTS headless Claude Code agents at once (`claude -p --bare`: no hooks, no
 # CLAUDE.md, no rules of the machine it runs on) in their own folders on one machine, each asked
