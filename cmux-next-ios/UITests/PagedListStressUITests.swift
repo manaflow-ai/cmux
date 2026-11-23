@@ -85,6 +85,10 @@ final class PagedListStressUITests: XCTestCase {
         XCTAssertGreaterThan(reading.changes, 0, "\(name): the load changed nothing")
         XCTAssertLessThanOrEqual(reading.frameShift, 0.5,
                                  "\(name): a row being read moved \(reading.frameShift) pt in a frame the scroll does not explain (\(reading.shiftedFrames) frames)")
+        // The rows around the eye line, judged by a rule that shares nothing with the row the anchor
+        // keeps still: each counts when nothing between it and the read row changed.
+        XCTAssertLessThanOrEqual(reading.neighbourShift, 0.5,
+                                 "\(name): a row next to the one read moved \(reading.neighbourShift) pt in a frame the scroll does not explain (\(reading.neighbourShifted) frames)")
         XCTAssertLessThanOrEqual(reading.maxShift, 0.5, "\(name): a landing page moved the reader \(reading.maxShift) pt")
         if judgeHitches {
             XCTAssertLessThanOrEqual(reading.hitchMsPerS, 10, "\(name): scrolling hitched \(reading.hitchMsPerS) ms a second")

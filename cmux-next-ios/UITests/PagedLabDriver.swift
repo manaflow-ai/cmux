@@ -146,6 +146,9 @@ struct PagedLabReading {
     var maxShift: Double { number("maxShift") }
     /// The worst per-frame move of the row being read that the scroll does not explain (pt).
     var frameShift: Double { number("frameShift") }
+    /// The rows around the eye line (the neighbour measure), the largest drawn move beyond the scroll.
+    var neighbourShift: Double { number("neighbourShift") }
+    var neighbourShifted: Int { Int(number("neighbourShifted")) }
     var samples: Int { Int(number("samples")) }
     var shiftedFrames: Int { Int(number("shiftedFrames")) }
     var frames: Int { Int(number("frames")) }

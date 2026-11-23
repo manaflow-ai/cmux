@@ -57,5 +57,45 @@ enum PagedListFollow {
         guard let followed else { return nil }
         return (followed.row.id, followed.row.y, current[followed.rank].y)
     }
+
+    /// A row as drawn, with its height (the neighbour measure).
+    struct Drawn<ID: Hashable> {
+        var id: ID
+        var y: CGFloat
+        var height: CGFloat
+    }
+
+    /// The neighbour measure: how far the rows around the eye line moved on screen beyond what the
+    /// scroll explains, independent of the row either measure follows or the anchor keeps still.
+    /// The neighbours are up to `around` rows on each side of the row read last frame, in the
+    /// previous frame's screen order. A neighbour counts only when nothing between it and the read
+    /// row changed: the same rows in the same order in both frames, none resized, the neighbour
+    /// itself not resized (an arrival, a removal or a row that grew between them moves it by
+    /// design). Returns the largest such move (signed) and its row, or nil when none counts.
+    static func neighbourShift<ID: Hashable>(previous: [Drawn<ID>], current: [Drawn<ID>], reading: ID?, explained: CGFloat,
+                                             around: Int = 2) -> (id: ID, shift: CGFloat)? {
+        guard let reading, let r = previous.firstIndex(where: { $0.id == reading }) else { return nil }
+        var now: [ID: (index: Int, row: Drawn<ID>)] = [:]
+        for (i, row) in current.enumerated() where now[row.id] == nil { now[row.id] = (i, row) }
+        guard now[reading] != nil else { return nil }
+        func same(_ a: Drawn<ID>) -> Bool {
+            guard let b = now[a.id]?.row else { return false }
+            return abs(a.height - b.height) <= 0.5
+        }
+        var worst: (id: ID, shift: CGFloat)?
+        let low = max(0, r - around), high = min(previous.count - 1, r + around)
+        for k in low ... high where k != r {
+            let span = k < r ? Array(previous[k ... r]) : Array(previous[r ... k])
+            guard span.allSatisfy(same) else { continue }
+            // The same rows between them now, adjacent in the same order.
+            let indices = span.compactMap { now[$0.id]?.index }
+            guard indices.count == span.count, zip(indices, indices.dropFirst()).allSatisfy({ $1 == $0 + 1 }) else { continue }
+            let was = previous[k]
+            guard let current = now[was.id]?.row else { continue }
+            let shift = (current.y - was.y) + explained
+            if worst == nil || abs(shift) > abs(worst!.shift) { worst = (was.id, shift) }
+        }
+        return worst
+    }
 }
 #endif

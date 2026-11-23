@@ -126,6 +126,7 @@ public struct PagedListLabRoot: View {
             probe.passFrameShift = { [hud] shift, mid, detail in hud.passSampled(shift, midPlacement: mid, detail: detail) }
             probe.samplerCost = { [hud] ms in hud.samplerCost(ms) }
             probe.drawnShift = { [hud] shift, detail in hud.drawnSampled(shift, detail) }
+            probe.neighbourShift = { [hud] shift, detail in hud.neighbourSampled(shift, detail) }
             probe.shiftDetail = { [hud] shift, detail in hud.shifted(shift, detail) }
             probe.slid = { [hud] frames in hud.slid(frames) }
             probe.held = { [hud] rows in hud.hold(rows) }
@@ -456,6 +457,20 @@ final class PagedLabHUD {
     var drawnShifted = 0
     var drawnWorst = ""
 
+    /// The neighbour measure: the rows around the eye line (``PagedListProbe/neighbourShift``).
+    @ObservationIgnored var neighbourShift: CGFloat = 0
+    @ObservationIgnored var neighbourShifted = 0
+    @ObservationIgnored var neighbourWorst = ""
+
+    func neighbourSampled(_ shift: CGFloat, _ detail: String?) {
+        guard abs(shift) > 0.5 else { return }
+        neighbourShifted += 1
+        if abs(shift) > neighbourShift {
+            neighbourShift = abs(shift)
+            neighbourWorst = detail ?? ""
+        }
+    }
+
     func drawnSampled(_ shift: CGFloat, _ detail: String?) {
         guard abs(shift) > 0.5 else { return }
         drawnShifted += 1
@@ -511,7 +526,7 @@ final class PagedLabHUD {
         let ratio = seconds > 0 ? hitchMs / seconds : 0
         let samplerMean = samplerCosts.isEmpty ? 0 : samplerCosts.reduce(0, +) / Double(samplerCosts.count)
         let samplerP99 = samplerCosts.isEmpty ? 0 : samplerCosts.sorted()[min(samplerCosts.count - 1, samplerCosts.count * 99 / 100)]
-        return #"{"edge":"\#(edge)","newer":"\#(newer)","rows":\#(rows),"landings":\#(landings),"maxShift":\#(maxShift),"frameShift":\#(frameShift),"samples":\#(samples),"shiftedFrames":\#(shiftedFrames),"frames":\#(frames),"hitches":\#(hitches),"dropped":\#(dropped),"worstMs":\#(worstMs),"hitchMsPerS":\#(ratio),"changes":\#(changes),"flushes":\#(flushes),"inMemory":\#(inMemory),"total":\#(total),"onDisk":\#(onDisk),"diskBytes":\#(diskBytes),"slides":\#(slides),"slideFrames":\#(slideFrames),"held":\#(heldRows),"worstShift":"\#(worstShift)","passFrameShift":\#(passFrameShift),"passShifted":\#(passShifted),"passMidPlacement":\#(passMidPlacement),"passWorstShift":"\#(passWorstShift)","samplerMeanMs":\#(samplerMean),"samplerP99Ms":\#(samplerP99),"samplerFrames":\#(samplerCosts.count),"drawnShift":\#(drawnShift),"drawnShifted":\#(drawnShifted),"drawnWorst":"\#(drawnWorst)"}"#
+        return #"{"edge":"\#(edge)","newer":"\#(newer)","rows":\#(rows),"landings":\#(landings),"maxShift":\#(maxShift),"frameShift":\#(frameShift),"samples":\#(samples),"shiftedFrames":\#(shiftedFrames),"frames":\#(frames),"hitches":\#(hitches),"dropped":\#(dropped),"worstMs":\#(worstMs),"hitchMsPerS":\#(ratio),"changes":\#(changes),"flushes":\#(flushes),"inMemory":\#(inMemory),"total":\#(total),"onDisk":\#(onDisk),"diskBytes":\#(diskBytes),"slides":\#(slides),"slideFrames":\#(slideFrames),"held":\#(heldRows),"worstShift":"\#(worstShift)","passFrameShift":\#(passFrameShift),"passShifted":\#(passShifted),"passMidPlacement":\#(passMidPlacement),"passWorstShift":"\#(passWorstShift)","samplerMeanMs":\#(samplerMean),"samplerP99Ms":\#(samplerP99),"samplerFrames":\#(samplerCosts.count),"drawnShift":\#(drawnShift),"drawnShifted":\#(drawnShifted),"drawnWorst":"\#(drawnWorst)","neighbourShift":\#(neighbourShift),"neighbourShifted":\#(neighbourShifted),"neighbourWorst":"\#(neighbourWorst)"}"#
     }
 }
 

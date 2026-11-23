@@ -91,6 +91,10 @@ public final class PagedListProbe {
     /// screen in both frames. A move of the offset and the layout together (a windowed swap, a
     /// correction) draws nothing and reads 0; a move that draws counts, whatever the layout says.
     public var drawnShift: ((_ shift: CGFloat, _ detail: String?) -> Void)?
+    /// After every committed frame, while set (DEBUG): the largest drawn move beyond the scroll of
+    /// the rows around the eye line (``PagedListFollow/neighbourShift(previous:current:reading:explained:around:)``),
+    /// a check that does not share the rule by which the anchor or the measures pick their row.
+    public var neighbourShift: ((_ shift: CGFloat, _ detail: String?) -> Void)?
     /// A frame that shifted more than half a point, with what the list was doing (the lab keeps the
     /// worst one, so a failing stress case names its cause).
     public var shiftDetail: ((_ shift: CGFloat, _ detail: String) -> Void)?
@@ -388,6 +392,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     /// The drawn measure's last frame: each row on screen's drawn top in the window, in screen order,
     /// and the row being read.
     private var drawnRows: [(id: CellID, y: CGFloat)] = []
+    private var drawnHeights: [CellID: CGFloat] = [:]
     private var drawnReading: CellID?
     /// What the scroll explains since the last sample, and the corrections UIKit still owes.
     private var ledger = PagedListShiftLedger()
@@ -1111,22 +1116,36 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     private func sampleDrawn() {
         guard let report = probe?.drawnShift, loaded, !updating, let window = collectionView.window else {
             drawnRows = []
+            drawnHeights = [:]
             return
         }
         let windowLayer = window.layer.presentation() ?? window.layer
         var rows: [(id: CellID, y: CGFloat)] = []
+        var heights: [CellID: CGFloat] = [:]
         for indexPath in collectionView.indexPathsForVisibleItems.sorted() {
             guard let id = dataSource.itemIdentifier(for: indexPath), case .row = id,
                   let cell = collectionView.cellForItem(at: indexPath) else { continue }
             let layer = cell.layer.presentation() ?? cell.layer
             rows.append((id, layer.convert(CGPoint(x: 0, y: layer.bounds.minY), to: windowLayer).y))
+            heights[id] = layer.bounds.height
         }
         querying += 1
         let reading = referenceRow()?.id
         querying -= 1
         let explained = ledger.committedExplained
-        defer { drawnRows = rows; drawnReading = reading }
+        let previousHeights = drawnHeights
+        defer { drawnRows = rows; drawnReading = reading; drawnHeights = heights }
         guard !drawnRows.isEmpty else { return }
+        if let neighbours = probe?.neighbourShift,
+           let worst = PagedListFollow.neighbourShift(
+               previous: drawnRows.map { PagedListFollow.Drawn(id: $0.id, y: $0.y, height: previousHeights[$0.id] ?? 0) },
+               current: rows.map { PagedListFollow.Drawn(id: $0.id, y: $0.y, height: heights[$0.id] ?? 0) },
+               reading: drawnReading, explained: explained) {
+            neighbours(worst.shift, abs(worst.shift) > 0.5 && probe?.shiftDetail != nil
+                ? String(format: "neighbour row=%@ shift=%.1f explained=%.1f reading=%@", String(describing: worst.id), worst.shift,
+                         explained, String(describing: drawnReading))
+                : nil)
+        }
         // The same choice of row as the committed-frame measure (``PagedListFollow``).
         guard let followed = PagedListFollow.pick(previous: drawnRows.map { PagedListFollow.Row(id: $0.id, y: $0.y) },
                                                   current: rows.map { PagedListFollow.Row(id: $0.id, y: $0.y) },
