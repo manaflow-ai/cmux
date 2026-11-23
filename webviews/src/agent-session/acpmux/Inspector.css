@@ -182,11 +182,11 @@
   flex: none;
   max-width: 40%;
   overflow: hidden;
-  padding: 0 6px;
+  padding: 0 var(--ds-space-1);
   border-radius: 4px;
   background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 14%, transparent);
   color: var(--agent-text);
-  font: 11px var(--font-mono);
+  font: var(--text-caption) var(--font-mono);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
