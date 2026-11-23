@@ -19,7 +19,10 @@ extension AgentPaneModel {
             return AgentPaneReply.success(["sources": names.map { _ in NSNull() as Any }])
         }
         let claimed = record.claimed.flatMap { AttachmentSource.source(bundleId: $0, apps: apps) }
-        let urls = remoteChat ? [] : record.urls
+        // A chat on another machine gets the pasteboard's claim only, never what this Mac's files say;
+        // so does a page before its handshake, which over a remote route still reads `remoteChat == false`
+        // (as `chat.attach.dropped` is refused then).
+        let urls = remoteChat || !hasHandshake ? [] : record.urls
         let sources = await Task.detached(priority: .userInitiated) {
             Self.sources(for: names, urls: urls, claimed: claimed) { AttachmentSource.source(of: $0, apps: apps) }
         }.value

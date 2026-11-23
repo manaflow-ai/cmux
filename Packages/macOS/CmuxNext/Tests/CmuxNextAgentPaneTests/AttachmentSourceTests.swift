@@ -260,6 +260,25 @@ struct AttachmentSourceTests {
         #expect(sources?.count == 2)
     }
 
+    /// Before its handshake a page on a remote route still reads `remoteChat == false`: its ask gets
+    /// no file's own source (a download's site among them), only the pasteboard's claim; after the
+    /// handshake a chat on this Mac gets the file's.
+    @Test func beforeTheHandshakeTheAskReadsNoFile() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("source-\(UUID().uuidString).png")
+        try Data([0x89, 0x50]).write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        AttachmentSource.markOwn(file, bundleId: Self.own)
+        let model = AgentPaneModel(host: NoHost())
+        func ask() async -> [Any]? {
+            model.droppedPaths.stashSource([file], items: 1, claimed: nil, kind: .drop)
+            let answer = await model.attachSource(.drop, names: [file.lastPathComponent], apps: Self.apps)
+            return (answer["value"] as? [String: Any])?["sources"] as? [Any]
+        }
+        #expect(await ask()?.first is NSNull)
+        model.hasHandshake = true
+        #expect((await ask()?.first as? [String: String])?["name"] == "cmux")
+    }
+
     // MARK: Files
 
     private static func plist(_ value: Any) -> Data {
