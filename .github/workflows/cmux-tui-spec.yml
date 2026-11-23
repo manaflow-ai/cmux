@@ -105,6 +105,9 @@ on:
       # Windows check read these, so a change to them must start this workflow
       # (scripts/ci/affected_jobs.py check names the ones a paths list misses).
       - "schemas/settings/source/mcp-servers.json"
+      # The installers' signed release file check (linux-release-verify.test.sh) reads these.
+      - "web/public/tui/install-static.sh"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json"
   pull_request:
   workflow_dispatch:
     inputs:
@@ -267,7 +270,7 @@ jobs:
     # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
     if: ${{ (!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run == 'true')) && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    timeout-minutes: 5
+    timeout-minutes: 10 # the machine join test runs its suite under three shells (about 4 min on a lane VM)
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -281,6 +284,11 @@ jobs:
 
       - name: Test the machine join script
         run: sh cmux-tui/scripts/machine-join.test.sh
+
+      # The signed Linux release file path of install-static.sh and machine-join.sh
+      # (cmuxterm-hq docs/design/linux-signed-packages.md section 8).
+      - name: Test the installers' signed release file check
+        run: sh cmux-tui/scripts/linux-release-verify.test.sh
 
       - name: Check protocol and TUI action inventory
         run: python3 cmux-tui/scripts/check-spec-inventory.py
@@ -332,7 +340,7 @@ jobs:
         run: cargo run --locked -p cmux-api-compat --bin api-compat-check
 
   # spec/acpmux-protocol.json is generated from acpmux's protocol registry, and
-  # webviews' acpmux-protocol:check only compares the TS with that committed IR. Only
+  # webviews' build generates its TS types from that committed IR. Only
   # cmux-tui.yml (dispatch) ran `protocol_ir_is_current`, so #27050 added
   # _acpmux/mesh_control to the registry without the IR and left a base red until
   # #27556. This runs acpmux's protocol module tests (the IR among them) when a change

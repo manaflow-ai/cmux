@@ -519,7 +519,6 @@
 {"file":"agent-session/acpmux/subagents/DisclosureRow.css","kind":"radius","property":"border-radius","values":{"5px":1}}
 {"file":"agent-session/acpmux/subagents/DisclosureRow.css","kind":"spacing","property":"margin-inline-end","values":{"calc(var(--ds-space-1) + 1px)":1}}
 {"file":"agent-session/acpmux/subagents/subagents.css","kind":"height","property":"height","values":{"48px":2,"26px":1,"44px":2,"1px":1,"30px":1,"9px":1}}
-{"file":"agent-session/acpmux/subagents/subagents.css","kind":"radius","property":"border-radius","values":{"var(--acpmux-composer-radius, 11px)":1}}
 {"file":"agent-session/acpmux/subagents/subagents.css","kind":"spacing","property":"gap","values":{"2px":1}}
 {"file":"agent-session/acpmux/subagents/subagents.css","kind":"spacing","property":"margin-left","values":{"calc(14px + var(--acpmux-line-icon-gap, 8px) + var(--acpmux-tray-indent, 0px))":1,"-2px":1}}
 {"file":"agent-session/acpmux/subagents/subagents.css","kind":"spacing","property":"padding-top","values":{"2px":1}}
@@ -856,7 +855,7 @@
 {"file":"sidebar/AllChatsDesigns.css","kind":"spacing","property":"gap","values":{"6px":1}}
 {"file":"styles.css","kind":"duration","property":"transition","values":{"transform 120ms ease":1}}
 {"file":"styles.css","kind":"font-weight","property":"font-weight","values":{"500":10,"700":1}}
-{"file":"styles.css","kind":"height","property":"height","values":{"1px":3,"17px":1,"14px":1,"22px":2,"19px":1}}
+{"file":"styles.css","kind":"height","property":"height","values":{"1px":3,"17px":1,"22px":2,"19px":1}}
 {"file":"styles.css","kind":"height","property":"min-height","values":{"31px":1,"30px":3,"52px":1}}
 {"file":"styles.css","kind":"radius","property":"border-radius","values":{"5px":2,"7px":2,"3px":1}}
 {"file":"styles.css","kind":"spacing","property":"bottom","values":{"14px":1}}
