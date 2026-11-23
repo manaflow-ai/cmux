@@ -5261,6 +5261,26 @@ function TranscriptView({
     // between the view's top and the rows, so nothing scrolls (read from the scroller itself, whose
     // height also holds the thread's own padding).
     const next = Math.max(0, Math.floor(room - Math.max(0, node.scrollHeight - node.clientHeight)));
+    // DIAG (temporary, #43898): what extends the scroll height when the room is given up.
+    {
+      const d = ((window as unknown as { __diag?: string[] }).__diag ??= []);
+      const base = node.getBoundingClientRect().top - node.scrollTop;
+      let far = 0;
+      let who = "";
+      for (const el of node.querySelectorAll<HTMLElement>(
+        ".acpmux-spacer, .acpmux-spacer > *, .acpmux-thread > *, .acpmux-stand-ins > *",
+      )) {
+        const b = el.getBoundingClientRect().bottom - base;
+        if (b > far) {
+          far = b;
+          who = `${el.className.split(" ")[0] || el.tagName}#${el.dataset.rowId ?? ""}`;
+        }
+      }
+      if (d.length < 80)
+        d.push(
+          `GIVE room=${room} sh=${node.scrollHeight} ch=${node.clientHeight} st=${node.scrollTop} next=${next} total=${layout.totalHeight} far=${Math.round(far)} who=${who}`,
+        );
+    }
     if (next >= room - 0.5) return;
     setRoomGone({ sessionId, firstId: first.id, room: next });
   };
