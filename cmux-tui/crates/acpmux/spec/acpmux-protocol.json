@@ -2604,7 +2604,8 @@
         "_meta": {
           "$ref": "#/types/RequestMeta"
         },
-        "loginId": true
+        "loginId": true,
+        "sessionId": true
       },
       "type": "object"
     },
@@ -2615,7 +2616,8 @@
           "$ref": "#/types/RequestMeta"
         },
         "code": true,
-        "loginId": true
+        "loginId": true,
+        "sessionId": true
       },
       "type": "object"
     },
@@ -2627,7 +2629,8 @@
         },
         "account": true,
         "family": true,
-        "name": true
+        "name": true,
+        "sessionId": true
       },
       "type": "object"
     },
