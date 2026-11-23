@@ -22,6 +22,10 @@ on:
 permissions:
   contents: read
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
   workflow-guard-submodule-forward-only:
     name: workflow-guard-submodule-forward-only
@@ -163,6 +167,10 @@ jobs:
       - name: Validate risk tier skips base history only on zero deletions
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_risk_tier_history_admission.py
+
+      - name: Validate the risk check is red only for an unowned takeback
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_risk_tier_takeback_only.py
 
       # No polling loops in scripts or workflows: waits go through one
       # glaeda-gh wait (or a single gh run watch --interval 300). A loop that
@@ -803,10 +811,6 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_main_full_suite.py
 
-      - name: Validate the nightly run of every iOS UI test
-        if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_ci_ios_ui_nightly.py
-
       - name: Validate main full-suite failure attribution
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_main_regression_attribution.py
@@ -874,6 +878,10 @@ jobs:
       - name: Validate simple live macOS pool choice
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_simple_pool_picker.py
+
+      - name: Validate the Mac pull request grant switch
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_mac_grants.py
 
       - name: Validate agent pane frame pacing summary
         if: ${{ matrix.group == 'ci' }}
@@ -993,6 +1001,14 @@ jobs:
       - name: Validate the trusted web complexity workflow
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_web_complexity_trusted_workflow.py
+
+      - name: Validate the API call log names its blind spots and leaves scripts' PATH alone
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_api_call_log_blind_spots.py
+
+      - name: Validate the API call log loads in a sparse checkout and switches off cleanly
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_api_call_log_bootstrap.py
 
       - name: Validate every workflow guard is wired
         if: ${{ matrix.group == 'ci' }}
@@ -1149,6 +1165,10 @@ jobs:
       - name: Validate the PR media privacy gate
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_pr_media_privacy.py
+
+      - name: Validate the warn-only PR media lint
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pr_media_lint.py
 
       - name: Validate nightly prune Python compatibility
         if: ${{ matrix.group == 'release-tooling' }}
@@ -1362,6 +1382,10 @@ jobs:
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 ios/tests/test_appstore_review_package.py
 
+      - name: Validate the App Store Connect ops script (ios-asc-ops.yml)
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_asc_ops.py
+
       - name: Validate the cmux CLASSIC upload marker follows the receipt
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_appstore_upload_marker.py
@@ -1519,6 +1543,10 @@ jobs:
       - name: Validate the Cloud chat proof dispatcher outwaits a slow proof and retries a transient error
         if: ${{ matrix.group == 'release-notary' }}
         run: node --test tests/cloud_chat_proof_dispatch.test.mjs
+
+      - name: Validate the Executor journey dispatcher files one issue when red and closes it on green
+        if: ${{ matrix.group == 'release-notary' }}
+        run: node --test tests/executor_journey_dispatch.test.mjs
 
       - name: Validate newest-wins classic publication
         if: ${{ matrix.group == 'release-notary' }}

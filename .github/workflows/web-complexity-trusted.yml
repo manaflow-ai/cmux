@@ -49,8 +49,11 @@ jobs:
     # Linux pool registers every blacksmith-*-ubuntu-2404 label (cmuxterm-hq
     # linux-runner-pool), so CI_TRUSTED_RUNNER's Blacksmith choices can land
     # here on a reused VM: run 44801662760 did, on cmux-runner-pool-n4c-0027.
-    # GitHub-hosted ubuntu-24.04 is the one ephemeral label outside that pool.
-    runs-on: ubuntu-24.04 # github-hosted-required: reads untrusted pull request source; the persistent pool carries every Blacksmith Linux label
+    # cmux-gcp-pr-control-jit-x64 is a one-job JIT VM outside that pool (cmuxterm-hq
+    # runner_pool.py: named cmux-gha-runner-pc-*, it serves only that label, and a
+    # spent VM is parked and wiped before its next job). Not GitHub-hosted: on 2026-11-20 the hosted pool served none of our jobs
+    # for 15 hours. A fork running its own copy keeps hosted Ubuntu.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-pr-control-jit-x64' }} # ephemeral-required: reads untrusted pull request source; the persistent pool carries every Blacksmith Linux label
     timeout-minutes: 10
     env:
       # The policy comes from the base of a pull request or merge group, and
@@ -61,7 +64,7 @@ jobs:
       CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Checkout trusted policy revision
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           repository: ${{ github.repository }}
           ref: ${{ env.TRUSTED_SHA }}
@@ -74,11 +77,13 @@ jobs:
           persist-credentials: false
 
       - name: Require an ephemeral runner
-        # Blacksmith VMs report self-hosted; their runner names identify them.
-        if: runner.environment != 'github-hosted' && !startsWith(runner.name, 'blacksmith-')
+        # Blacksmith and our one-job PR-control JIT VMs report self-hosted; their
+        # runner names identify them. A persistent pool runner (cmux-runner-pool-*)
+        # still fails here.
+        if: runner.environment != 'github-hosted' && !startsWith(runner.name, 'blacksmith-') && !startsWith(runner.name, 'cmux-gha-runner-pc-')
         run: |
           set -euo pipefail
-          echo "::error::Web complexity requires a GitHub-hosted or Blacksmith runner"
+          echo "::error::Web complexity requires a GitHub-hosted, Blacksmith or one-job PR-control JIT runner"
           exit 1
 
       - name: Verify trusted checkout
@@ -112,13 +117,17 @@ jobs:
 
       - name: Checkout pull-request or merge-group source
         if: github.event_name != 'push' && steps.api_scope.outputs.scan != 'false'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           repository: ${{ env.CANDIDATE_REPOSITORY }}
           ref: ${{ env.CANDIDATE_SHA }}
           path: candidate
           fetch-depth: 1
           persist-credentials: false
+          # checkout v6.1.0+ refuses a fork head under pull_request_target. This step reads the
+          # fork's tree as data only (nothing checked out here runs), with a read-only token and no
+          # secrets, so it opts in.
+          allow-unsafe-pr-checkout: true
 
       - name: Select complexity work before installing Bun
         id: scope

@@ -107,19 +107,25 @@ HOSTED_LITERAL_RUNNER = re.compile(
 )
 # The one runner selector a trusted-token job may use. CI_TRUSTED_RUNNER can
 # only choose among ephemeral labels listed here, in the base-branch workflow:
-# GitHub-hosted, or a Blacksmith VM that runs one job and is destroyed. Any
+# GitHub-hosted, a Blacksmith VM that runs one job and is destroyed, or the
+# owned one-job GCP JIT label (cmux-gcp-secret-jit-x64: one VM per job, deleted
+# after it; Leo, 2026-11-19, on Blacksmith: "stop ... relying on it"). Any
 # other value, including a persistent mini's label, falls back to Blacksmith,
 # and a fork running its own CI gets GitHub-hosted. Either provider can then
 # carry the merge-gating checks while the other is down.
-TRUSTED_RUNNER_LABELS = ("ubuntu-24.04", "blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404")
+TRUSTED_JIT_LABEL = "cmux-gcp-secret-jit-x64"
+TRUSTED_RUNNER_LABELS = ("ubuntu-24.04", "blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404",
+                         "blacksmith-8vcpu-ubuntu-2404", TRUSTED_JIT_LABEL)
 TRUSTED_RUNNER_EXPRESSION = (
     "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('"
     + json.dumps(list(TRUSTED_RUNNER_LABELS), separators=(",", ":"))
     + "'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
 )
-# CLA's trusted base validator pins its older selector and runner-name guard.
+# CLA's trusted base validator pins its older selector and runner-name guard
+# (GitHub-hosted or Blacksmith only, so not the GCP JIT label either).
 # Keep that policy valid while other trusted jobs adopt the measured BS8 size.
-CLA_TRUSTED_RUNNER_EXPRESSION = TRUSTED_RUNNER_EXPRESSION.replace(',"blacksmith-8vcpu-ubuntu-2404"', '')
+SMALL_TRUSTED_RUNNER_EXPRESSION = TRUSTED_RUNNER_EXPRESSION.replace(',"blacksmith-8vcpu-ubuntu-2404"', '')
+CLA_TRUSTED_RUNNER_EXPRESSION = SMALL_TRUSTED_RUNNER_EXPRESSION.replace(',"' + TRUSTED_JIT_LABEL + '"', '')
 # The required merge gates' reserved one-job label (cmuxterm-hq gha_runners.py GATE_JIT_LABEL): served only by the
 # fleet reconciler's JIT VMs (no service account, deleted after the one job), created first in a tick under its own
 # cap with a warm floor, and named only by the jobs behind main's required checks (tests/test_ci_required_gate_label.py).
@@ -132,6 +138,8 @@ GATE_TRUSTED_RUNNER_EXPRESSION = TRUSTED_RUNNER_EXPRESSION.replace(
     "'ubuntu-24.04' || ", "'ubuntu-24.04' || " + GATE_FIRST_OPERAND, 1)
 GATE_CLA_TRUSTED_RUNNER_EXPRESSION = CLA_TRUSTED_RUNNER_EXPRESSION.replace(
     "'ubuntu-24.04' || ", "'ubuntu-24.04' || " + GATE_FIRST_OPERAND, 1)
+GATE_SMALL_TRUSTED_RUNNER_EXPRESSION = SMALL_TRUSTED_RUNNER_EXPRESSION.replace(
+    "'ubuntu-24.04' || ", "'ubuntu-24.04' || " + GATE_FIRST_OPERAND, 1)
 # The pull-request and issue bots (risk tier, welcome, labels, triage, media, freeze...) hold write tokens and may be
 # started by an outsider's event, so they lead with the PR control label (cmux-gcp-pr-control-jit-x64: one-job JIT
 # VMs, deleted after the job, no persistent runner registers it) after the fork branch, behind their own switch. The
@@ -142,9 +150,11 @@ REPAIR_FIRST_OPERAND = "vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit
 JIT_FIRST_TRUSTED_RUNNER_EXPRESSIONS = tuple(
     base.replace("'ubuntu-24.04' || ", "'ubuntu-24.04' || " + operand, 1)
     for operand in (PR_CONTROL_FIRST_OPERAND, REPAIR_FIRST_OPERAND)
-    for base in (TRUSTED_RUNNER_EXPRESSION, CLA_TRUSTED_RUNNER_EXPRESSION))
+    for base in (TRUSTED_RUNNER_EXPRESSION, CLA_TRUSTED_RUNNER_EXPRESSION, SMALL_TRUSTED_RUNNER_EXPRESSION))
 TRUSTED_RUNNER_EXPRESSIONS = (TRUSTED_RUNNER_EXPRESSION, CLA_TRUSTED_RUNNER_EXPRESSION,
+                              SMALL_TRUSTED_RUNNER_EXPRESSION,
                               GATE_TRUSTED_RUNNER_EXPRESSION, GATE_CLA_TRUSTED_RUNNER_EXPRESSION,
+                              GATE_SMALL_TRUSTED_RUNNER_EXPRESSION,
                               *JIT_FIRST_TRUSTED_RUNNER_EXPRESSIONS)
 # Fast checks admission accepts only the smallest measured Blacksmith size (a
 # picker's one re-run route, never 16 or 32 vCPU), else Blacksmith 2 vCPU, never
@@ -155,6 +165,11 @@ FAST_CHECKS_ADMISSION_EXPRESSION = (
 TRUSTED_RUNNER_LINE = re.compile(
     r"^\s*runs-on:\s*(?:" + "|".join(map(re.escape, TRUSTED_RUNNER_EXPRESSIONS)) + r")\s*(?:#.*)?$"
 )
+# An outsider-triggered job that reads untrusted source may also take the PR control one-job JIT VM, which no
+# persistent runner registers (web-complexity-trusted.yml); a fork running its own copy keeps hosted Ubuntu.
+PR_CONTROL_JIT_LINE = re.compile(
+    r"^\s*runs-on:\s*" + re.escape("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                                     "'cmux-gcp-pr-control-jit-x64' }}") + r"\s*(?:#.*)?$")
 # Merge-gating checks: a ruleset requires them, so they must not depend on one runner provider.
 TRUSTED_RUNNER_JOBS = (
     ("backend-migrations.yml", "plan"),
@@ -222,12 +237,15 @@ FLEET_FIRST_OPERAND = re.compile(
     r"|vars\.CI_PR_CONTROL_SKIP_FLEET != '1' && '" + re.escape(JIT_FIRST_OPERANDS["CI_PR_CONTROL_SKIP_FLEET"]) + r"') \|\| "
 )
 FORK_BRANCH_PREFIX = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+# The queue-management jobs' on switch for the reserved queue label (tests/test_ci_write_token_jit_label.py
+# QUEUE_WORKFLOWS): a variable compared with a literal, then that one literal, before their own first operand.
+QUEUE_FIRST_OPERAND = "vars.CI_QUEUE_RESERVED == '1' && 'cmux-gcp-queue-jit-x64' || "
 
 
 def without_fleet_first(runs_on: str) -> str:
     """RUNS_ON with the janitors' fleet-first operand removed, when it sits right after the fork branch."""
     if runs_on.startswith(FORK_BRANCH_PREFIX):
-        rest = runs_on[len(FORK_BRANCH_PREFIX):]
+        rest = runs_on[len(FORK_BRANCH_PREFIX):].removeprefix(QUEUE_FIRST_OPERAND)
         matched = FLEET_FIRST_OPERAND.match(rest)
         if matched:
             return FORK_BRANCH_PREFIX + rest[matched.end():]
@@ -238,6 +256,7 @@ def without_fleet_first(runs_on: str) -> str:
 # attempt 1, ahead of the PR queue (Leo, 2026-11-19: "why isn't nightly getting priority then? on the linux things").
 OWNED_EPHEMERAL_LABELS = frozenset({
     "cmux-gcp-nightly-jit-x64", "cmux-gcp-repair-jit-x64", "cmux-gcp-pr-control-jit-x64", "cmux-gcp-deploy-jit-x64",
+    "cmux-gcp-queue-jit-x64", "cmux-gcp-secret-jit-x64",
 })
 # Values the selector test tries for LINUX_RUNNER: owned and hosted labels, case and list forms.
 ADVERSARIAL_VARIABLE_VALUES = (
@@ -398,7 +417,7 @@ def runner_label_errors(runs_on: str) -> list[str]:
                 and HOSTED_LITERAL_LABEL.fullmatch(label) and _is_fork_branch(chain[0])):
             continue
         picked = _bounded_pick(conditions, result) if label is None else []
-        if picked and all(blacksmith.fullmatch(item) for item in picked):
+        if picked and all(blacksmith.fullmatch(item) or item in OWNED_EPHEMERAL_LABELS for item in picked):
             continue
         errors.append(f"{runs_on!r}: operand {index + 1} can yield something other than a Blacksmith label it names")
     if not errors and _string(chain[-1]) is None:
@@ -1052,7 +1071,8 @@ def outsider_runner_errors(name: str, text: str) -> list[str]:
         if OWNED_RUNNER_SELECTOR.search(line):
             errors.append(f"{name}:{number} reads a runner selector: {line.strip()}")
         elif (re.match(r"^\s*runs-on:", line) and not HOSTED_LITERAL_RUNNER.match(line)
-              and not TRUSTED_RUNNER_LINE.match(line)):
+              and not TRUSTED_RUNNER_LINE.match(line)
+              and not PR_CONTROL_JIT_LINE.match(line)):
             errors.append(f"{name}:{number} is not a GitHub-hosted label: {line.strip()}")
     return errors
 
@@ -1879,7 +1899,8 @@ class ForkRunnerRoutingTests(unittest.TestCase):
     def test_trusted_runner_selector_admits_only_ephemeral_labels(self) -> None:
         self.assertEqual(outsider_runner_errors("x.yml", f"jobs:\n  a:\n    runs-on: {TRUSTED_RUNNER_EXPRESSION}\n"), [])
         for label in TRUSTED_RUNNER_LABELS:
-            self.assertTrue(label == "ubuntu-24.04" or label.startswith("blacksmith-"), label)
+            self.assertTrue(label == "ubuntu-24.04" or label.startswith("blacksmith-")
+                            or label in OWNED_EPHEMERAL_LABELS, label)
         widened = TRUSTED_RUNNER_EXPRESSION.replace('"ubuntu-24.04",', '"ubuntu-24.04","glaeda-std-xcode-26.6",')
         renamed = TRUSTED_RUNNER_EXPRESSION.replace("vars.CI_TRUSTED_RUNNER", "vars.LINUX_RUNNER")
         unforked = TRUSTED_RUNNER_EXPRESSION.replace("github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || ", "")
