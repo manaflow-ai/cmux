@@ -1,4 +1,5 @@
 import type { BrowserWorkspaces } from "./browser/workspaces";
+import type { ApprovedPlan } from "./approvedPlan";
 import type { ChatTaskList } from "./chatTaskList";
 import { experimentArm } from "../../experiments/experiment";
 import type { PromptHeads } from "./promptHeads";
@@ -1366,6 +1367,9 @@ export type AcpmuxSnapshot = {
     /// The chat's task list across its turns (acpmux `taskList`, chatTaskList.ts): the harness's
     /// latest plan, else the one its agent or Chief keeps. Unset until one is written.
     taskList?: ChatTaskList;
+    /// The plan the person approved, kept while the agent builds it (acpmux `approvedPlan`,
+    /// approvedPlan.ts). Unset until a plan approval is answered with an allow.
+    approvedPlan?: ApprovedPlan;
     harness?: string;
     /// The harness family acpmux files the session under (`codex`, `opencode`, ...), when it says.
     family?: string;
