@@ -1414,7 +1414,13 @@ COMPILE_PASS_STATUS = "cmux-next/compile"
 # (exact commit, recipe 2, `--app --release`, a successful run of the default branch). A status by anyone else, a
 # person's token included, is not a compile verdict (2026-11-10: with the office Macs and the controller down, the
 # fallback poster was the only compile verdict a held PR could get, so the gate must tell it from a look-alike).
+# The build fleet's controller posts it too, as the manaflow-checks App (the statuses: write App the pool's required
+# checks already post from), on each pull request head whose compile it runs: the same verdict compile-status relayed,
+# without a runner held through the compile (cmuxterm-hq build-fleet/cmd/controller/compile_status_poster.go). Both
+# are trusted; the newest status either of them made decides.
 COMPILE_STATUS_POSTER = {"login": "cmux-bot[bot]", "id": 348531757, "type": "Bot"}
+COMPILE_STATUS_CONTROLLER_POSTER = {"login": "manaflow-checks[bot]", "id": 342447321, "type": "Bot"}
+COMPILE_STATUS_POSTERS = (COMPILE_STATUS_POSTER, COMPILE_STATUS_CONTROLLER_POSTER)
 # The Mac Release compile's steps that compile (or reuse a pass for the same inputs).
 COMPILE_STEPS = frozenset({"Release compile", "Reuse that pass"})
 
@@ -3584,9 +3590,10 @@ def log_decider(message: str) -> None:
 
 
 def trusted_poster(status: dict) -> bool:
-    """Whether STATUS was posted by the one account that posts cmux-next/compile (COMPILE_STATUS_POSTER)."""
+    """Whether STATUS was posted by an account that posts cmux-next/compile (COMPILE_STATUS_POSTERS)."""
     creator = status.get("creator")
-    return isinstance(creator, dict) and all(creator.get(key) == value for key, value in COMPILE_STATUS_POSTER.items())
+    return isinstance(creator, dict) and any(all(creator.get(key) == value for key, value in poster.items())
+                                             for poster in COMPILE_STATUS_POSTERS)
 
 
 # Pages of a commit's statuses list read for its poster's compile status. GitHub keeps at most 1000 statuses per
@@ -5577,6 +5584,8 @@ PACKAGE_JOBS = {
                   "cmux-tui/crates/cmux-rd-link/",
                   "cmux-tui/crates/cmux-rd-proto/", "cmux-tui/crates/cmux-remote-browser/",
                   "cmux-tui/crates/cmux-terminal-prediction/",
+                  # cmux-mobile-link-ffi depends on cmux-terminal-projection (#42219)
+                  "cmux-tui/crates/cmux-terminal-projection/",
                   "cmux-tui/crates/cmux-transport/", "cmux-tui/crates/cmux-wg/",
                   # cmux-mobile-link-ffi depends on cmux-window-rules (#43111)
                   "cmux-tui/crates/cmux-window-rules/", "schemas/remote-tab/",
