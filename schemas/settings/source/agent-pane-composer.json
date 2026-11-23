@@ -643,6 +643,54 @@
           "swift_enum": {
             "name": "AgentPaneEmptyChatComposerPosition"
           }
+        },
+        {
+          "key": "agentPane.followUpMode",
+          "note": "What Return (and Send) does with a message sent while the agent is mid-turn, for an agent that steers (Composer.tsx, followUpMode.ts): steer (as always) takes it into the running turn and Command-Return queues it; queue holds it until the turn ends and Command-Return steers. An agent that cannot steer queues either way; queueing off (a queued row's menu) steers on every key either way.",
+          "title": {
+            "key": "settings.agentPane.followUpMode",
+            "text": "Follow-Up Messages"
+          },
+          "help": {
+            "key": "settings.agentPane.followUpMode.help",
+            "text": "What Return does with a message sent while the agent is working. Command-Return does the other."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "steer",
+              "title": {
+                "key": "settings.choice.followUpModeSteer",
+                "text": "Steer"
+              },
+              "note": "Into the running turn: the agent reads it when its current step ends (as before)."
+            },
+            {
+              "value": "queue",
+              "title": {
+                "key": "settings.choice.followUpModeQueue",
+                "text": "Queue"
+              },
+              "note": "Waits until the turn ends, then runs as its own turn."
+            }
+          ],
+          "default": "steer",
+          "keywords": [
+            "follow-up",
+            "follow up",
+            "steer",
+            "queue",
+            "queued",
+            "mid-turn",
+            "return",
+            "enter",
+            "send",
+            "message",
+            "agent"
+          ],
+          "swift_enum": {
+            "name": "AgentPaneFollowUpMode"
+          }
         }
       ]
     }

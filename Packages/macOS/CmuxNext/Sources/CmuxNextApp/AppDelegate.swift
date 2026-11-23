@@ -291,7 +291,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return pane != nil
         }
         DebugTimings.markLaunch("dfl.home_history")
-        services.windows.restoreWhenLoaded()
+        services.windows.restoreWhenLoaded(); if services.windows.controllers.first?.window?.commitFirstFrameNow() == true { DebugTimings.markLaunch("first_window_flushed") } // CMUX-629: the frame now, not after the queued launch work
         firstFrame.whenOpen { [weak services] in services?.windows.recordSaver.launchRecord.schedule() }
         DebugTimings.markLaunch("dfl.windows")
         // After two quick unexpected ends in a row, Chromium starts only

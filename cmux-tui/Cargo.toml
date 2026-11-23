@@ -35,6 +35,7 @@ members = [
     "crates/cmux-cloud-environment",
     "crates/cmux-conversation",
     "crates/cmux-message-preview",
+    "crates/cmux-share-approval",
     "crates/cmux-chief",
     "bindings/rust",
     "bindings/rust-sidebar",
@@ -89,6 +90,7 @@ members = [
     "crates/cmux-web-pieces",
     "crates/cmux-scope",
     "crates/cmux-file-lock",
+    "crates/cmux-install-check",
     "crates/cmux-files-host",
     "crates/cmux-projection",
     "crates/cmux-deadline",
@@ -118,6 +120,7 @@ members = [
     "crates/cmux-server",
     "crates/cmux-host",
     "crates/cmux-motion",
+    "crates/cmux-wallpaper",
     "crates/cmux-config",
     "crates/cmux-customize",
     "crates/cmux-customize-recipes",
@@ -141,6 +144,7 @@ members = [
     "crates/cmux-daemon-conn-core",
     "crates/cmux-daemon-launch-core",
     "crates/cmux-health-core",
+    "crates/cmux-launch-image",
     "crates/cmux-supervise-core",
     "crates/cmux-cookie-sync",
     "crates/cmux-browser-import",
@@ -156,6 +160,7 @@ members = [
     "crates/cmux-tab-snapshots",
     "crates/cmux-palette-ranker",
     "crates/cmux-palette-eval",
+    "crates/cmux-backdrop-gen",
     "crates/cmux-action-catalog",
     "crates/cmux-host-budget",
     "crates/cmux-device-kind",
@@ -186,6 +191,7 @@ default-members = [
     "crates/cmux-cloud-cli",
     "crates/cmux-conversation",
     "crates/cmux-message-preview",
+    "crates/cmux-share-approval",
     "bindings/rust",
     "bindings/rust-sidebar",
     "bindings/rust-daemon-client",
@@ -232,6 +238,7 @@ default-members = [
     "crates/cmux-web-pieces",
     "crates/cmux-scope",
     "crates/cmux-file-lock",
+    "crates/cmux-install-check",
     "crates/cmux-deadline",
     "crates/cmux-remote-protocol",
     "crates/cmux-build-identity",
@@ -258,6 +265,7 @@ default-members = [
     "crates/cmux-server",
     "crates/cmux-host",
     "crates/cmux-motion",
+    "crates/cmux-wallpaper",
     "crates/cmux-config",
     "crates/cmux-customize",
     "crates/cmux-customize-recipes",
@@ -279,6 +287,7 @@ default-members = [
     "crates/cmux-stack-auth",
     "crates/cmux-daemon-launch-core",
     "crates/cmux-health-core",
+    "crates/cmux-launch-image",
     "crates/cmux-supervise-core",
     "crates/cmux-cookie-sync",
     "crates/cmux-browser-import",
@@ -357,6 +366,7 @@ cmux-tui-core = { path = "crates/cmux-tui-core" }
 cmux-git = { path = "crates/cmux-git" }
 cmux-supervise-core = { path = "crates/cmux-supervise-core" }
 cmux-file-lock = { path = "crates/cmux-file-lock" }
+cmux-install-check = { path = "crates/cmux-install-check" }
 cmux-signed-envelope = { path = "crates/cmux-signed-envelope" }
 cmux-web-pieces = { path = "crates/cmux-web-pieces" }
 cmux-projection = { path = "crates/cmux-projection" }
@@ -414,6 +424,7 @@ cmux-flow-trace = { path = "crates/cmux-flow-trace" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-conversation = { path = "crates/cmux-conversation" }
 cmux-message-preview = { path = "crates/cmux-message-preview" }
+cmux-share-approval = { path = "crates/cmux-share-approval" }
 cmux-history = { path = "crates/cmux-history" }
 cmux-tasks = { path = "crates/cmux-tasks" }
 cmux-tasks-core = { path = "crates/cmux-tasks-core" }
