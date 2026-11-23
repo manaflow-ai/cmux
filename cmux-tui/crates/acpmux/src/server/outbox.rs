@@ -178,6 +178,8 @@ pub(super) async fn handle(
         state: State::Queued,
         attempts: 0,
         never_sent: true,
+        resends: 0,
+        resent_at: 0,
         relay_post: None,
         open_on_peer: false,
         pin: None,
@@ -306,6 +308,8 @@ pub(super) async fn remember_forward(
         state: State::Held,
         attempts: 0,
         never_sent: false,
+        resends: 0,
+        resent_at: 0,
         relay_post: None,
         open_on_peer: false,
         pin: None,
@@ -515,9 +519,9 @@ async fn status(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Valu
     let id = str_param(params, "deliveryId")
         .ok_or_else(|| RpcError::invalid_params("deliveryId is required"))?;
     if id.starts_with(super::mesh_send::PREFIX)
-        && let Some(mesh) = hub.mesh.get()
+        && let Some(reply) = super::mesh_relay::read::mesh_status(hub, conn, id).await
     {
-        return super::mesh_send::status(hub, conn, &mesh, id).await;
+        return reply;
     }
     let status = outbox_status(hub, id, params).await?;
     match hub.outbox.get(id) {
@@ -608,6 +612,8 @@ fn spawn(hub: Arc<Hub>, id: String) {
 
 async fn deliver(hub: &Arc<Hub>, id: &str) {
     let mut delays = RETRY_DELAYS_SECS.iter();
+    // The wait after the schedule ran out, doubled each time (`retry_delay`).
+    let mut tail = 0u64;
     // How many moves of its chat this delivery followed (`Next::Moved`).
     let mut moves_followed = 0u32;
     // When it first found its chat mid-move (`Next::Moving`).
@@ -784,14 +790,22 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 return;
             }
             Err((error, next)) => {
+                // Whether a peer's link that is ready again may end this delivery's wait: only
+                // when this attempt never left the daemon (the peer was down) or the peer had not
+                // listed its sessions yet. One the link took and nobody answered waits its whole
+                // delay: a link that comes back every few minutes under load must not send it
+                // again on each one.
+                let mut wake_on_ready = link_unsent;
                 // No such session there: failed now, naming the closest names, unless its
                 // machine is down or has not listed its sessions since it came back (then the
                 // answer proves nothing; tried again).
                 let (error, next) = match next {
                     Next::NoSession if hub.peer_down_for(&delivery.target).is_some() => {
+                        wake_on_ready = true;
                         (error, Next::Unsent)
                     }
                     Next::NoSession if !hub.no_session_is_final(&delivery.target) => {
+                        wake_on_ready = true;
                         (error, Next::Retry)
                     }
                     Next::NoSession => {
@@ -852,8 +866,9 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                     }
                     next => (error, next),
                 };
+                wake_on_ready |= next == Next::Unsent;
                 let delay = matches!(next, Next::Retry | Next::Unsent)
-                    .then(|| retry_delay(&mut delays, &delivery, crate::store::now_ms()))
+                    .then(|| retry_delay(&mut delays, &mut tail, &delivery, crate::store::now_ms()))
                     .flatten();
                 // A pin is the generation an attempt may have reached. While none reached the
                 // peer (nothing went on its link, no relay holds it), none is kept: the next
@@ -896,7 +911,7 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 // intent older than a day after a restart does not spend its retries at once.
                 let sleep =
                     tokio::time::sleep(retry_sleep(&delivery, secs, crate::store::now_ms()));
-                if delivery.projection_only() {
+                if delivery.projection_only() || !wake_on_ready {
                     sleep.await;
                 } else {
                     tokio::select! {
@@ -934,6 +949,7 @@ pub(crate) fn redeliver_open(
         .into_iter()
         .filter(|d| d.pin.as_ref().is_some_and(|p| p.peer == peer))
         .collect();
+    let open = one_per_prompt(open);
     if open.is_empty() {
         return;
     }
@@ -951,6 +967,19 @@ pub(crate) fn redeliver_open(
         };
         redeliver_all(open, from, on_link, one).await;
     });
+}
+
+/// `open` with one delivery per prompt id and pinned session (the oldest): a resend runs under
+/// its own prompt id, and the machine answers every copy of that id with its first outcome, so a
+/// second copy on the same link is a send for nothing. One with no prompt id is kept as it is.
+fn one_per_prompt(mut open: Vec<Delivery>) -> Vec<Delivery> {
+    open.sort_by(|a, b| (a.created_at, &a.id).cmp(&(b.created_at, &b.id)));
+    let mut seen = std::collections::HashSet::new();
+    open.retain(|d| {
+        let session = d.pin.as_ref().map(|p| p.session.clone()).unwrap_or_default();
+        d.prompt_id().is_empty() || seen.insert((d.prompt_id().to_owned(), session))
+    });
+    open
 }
 
 fn cursor(hub: &Hub) -> std::sync::MutexGuard<'_, HashMap<String, (u64, String)>> {
@@ -1029,6 +1058,17 @@ async fn redeliver_one(
                 tracing::warn!(delivery = %d.id, "a proof no machine holds; delivered again");
                 hub.outbox.update(&d.id, od::unprove);
             }
+            // At most one resend per backoff step (`od::resend_due`), claimed on the record
+            // before it goes so two links' redeliveries of the same peer send it once. Read
+            // first: a delivery the backoff holds back costs no outbox write.
+            if !hub.outbox.get(&d.id).is_some_and(|live| od::resend_due(&live, now)) {
+                return;
+            }
+            let mut claimed = false;
+            hub.outbox.update(&d.id, |live| claimed = od::claim_resend(live, now));
+            if !claimed {
+                return;
+            }
             // To the pinned session, by its id, never by the name it was sent to (review of
             // #37284 at 4bce04df, F2).
             let request = od::again_request(d, &pin);
@@ -1082,18 +1122,27 @@ fn expired(delivery: &Delivery, now: u64) -> bool {
 }
 
 /// The wait before the next attempt of `delivery`: the next of [`RETRY_DELAYS_SECS`], then
-/// the last one again until [`RETRY_FOR_MS`] after the message was handed over. A projection
-/// intent keeps the bounded schedule alone. None: it fails.
+/// twice the wait before (`tail`, the last one used) until [`RETRY_FOR_MS`] after the message was
+/// handed over: a message whose target never answers costs about log2 of its day in attempts,
+/// not one every 15 minutes (`retry_sleep` cuts the last wait at the end of its day). A
+/// projection intent keeps the bounded schedule alone. None: it fails.
 fn retry_delay(
     delays: &mut std::slice::Iter<'_, u64>,
+    tail: &mut u64,
     delivery: &Delivery,
     now: u64,
 ) -> Option<u64> {
     if let Some(secs) = delays.next() {
+        *tail = *secs;
         return Some(*secs);
     }
     let within = now < delivery.created_at.saturating_add(RETRY_FOR_MS);
-    (within && !delivery.projection_only()).then(|| RETRY_DELAYS_SECS.last().copied()).flatten()
+    if !within || delivery.projection_only() {
+        return None;
+    }
+    let last = RETRY_DELAYS_SECS.last().copied().unwrap_or(1);
+    *tail = (*tail).max(last).saturating_mul(2);
+    Some(*tail)
 }
 
 /// One attempt through the mesh relay (`mesh_send.rs` `relay`): the hub's acceptance, or why
@@ -1434,6 +1483,8 @@ mod retry_delay_tests {
             state: State::Queued,
             attempts: 0,
             never_sent: true,
+            resends: 0,
+            resent_at: 0,
             relay_post: None,
             open_on_peer: false,
             pin: None,
@@ -1446,28 +1497,49 @@ mod retry_delay_tests {
     }
 
     /// A message to a machine that stays down keeps being tried after the schedule runs out,
-    /// for a day; a projection intent keeps the bounded schedule.
+    /// for a day, each wait twice the one before; a projection intent keeps the bounded
+    /// schedule.
     #[test]
     fn a_message_keeps_trying_for_a_day_after_the_schedule_runs_out() {
         let d = delivery(1_000, false);
-        let mut delays = RETRY_DELAYS_SECS.iter();
+        let (mut delays, mut tail) = (RETRY_DELAYS_SECS.iter(), 0);
         for want in RETRY_DELAYS_SECS {
-            assert_eq!(retry_delay(&mut delays, &d, 2_000), Some(*want));
+            assert_eq!(retry_delay(&mut delays, &mut tail, &d, 2_000), Some(*want));
         }
-        let last = RETRY_DELAYS_SECS.last().copied();
-        assert_eq!(retry_delay(&mut delays, &d, 2_000), last, "still within the day");
-        assert_eq!(retry_delay(&mut delays, &d, 1_000 + RETRY_FOR_MS - 1), last);
+        let last = RETRY_DELAYS_SECS.last().copied().unwrap();
+        assert_eq!(retry_delay(&mut delays, &mut tail, &d, 2_000), Some(2 * last), "doubled");
         assert_eq!(
-            retry_delay(&mut delays, &d, 1_000 + RETRY_FOR_MS),
+            retry_delay(&mut delays, &mut tail, &d, 1_000 + RETRY_FOR_MS - 1),
+            Some(4 * last)
+        );
+        assert_eq!(
+            retry_delay(&mut delays, &mut tail, &d, 1_000 + RETRY_FOR_MS),
             None,
             "a day later it fails"
         );
         let intent = delivery(1_000, true);
-        let mut delays = RETRY_DELAYS_SECS.iter();
+        let (mut delays, mut tail) = (RETRY_DELAYS_SECS.iter(), 0);
         for _ in RETRY_DELAYS_SECS {
-            assert!(retry_delay(&mut delays, &intent, 2_000).is_some());
+            assert!(retry_delay(&mut delays, &mut tail, &intent, 2_000).is_some());
         }
-        assert_eq!(retry_delay(&mut delays, &intent, 2_000), None);
+        assert_eq!(retry_delay(&mut delays, &mut tail, &intent, 2_000), None);
+    }
+
+    /// A message whose target never answers, tried for its whole day on the schedule (each wait
+    /// slept in full, `retry_sleep` cutting the last at the day's end), costs about log2 of its
+    /// day in attempts: 9 on the schedule and 7 doubled after it, not one every 15 minutes
+    /// (about 100) as before.
+    #[test]
+    fn a_never_answered_message_costs_a_logarithmic_number_of_attempts_in_its_day() {
+        let d = delivery(0, false);
+        let (mut delays, mut tail, mut now, mut attempts) = (RETRY_DELAYS_SECS.iter(), 0, 0, 0);
+        while !expired(&d, now) {
+            attempts += 1;
+            let Some(secs) = retry_delay(&mut delays, &mut tail, &d, now) else { break };
+            now += retry_sleep(&d, secs, now).as_millis() as u64;
+        }
+        assert!(attempts <= 17, "{attempts} attempts in a day");
+        assert!(attempts >= RETRY_DELAYS_SECS.len(), "the schedule still runs: {attempts}");
     }
 
     /// A message's wait stops at the end of its day; a projection intent's wait is never cut,
@@ -1508,6 +1580,79 @@ mod redeliver_tests {
                 d
             })
             .collect()
+    }
+
+    /// A delivery its peer took and no copy ever proved (the prompt id a loaded host sent 38
+    /// times, 2026-11-23) meets links that come back every 3 minutes for its whole 30 days open:
+    /// each link's redelivery reaches it (`redeliver_all`) and claims a resend as `redeliver_one`
+    /// does. It is sent at most `MAX_RESENDS` times in all, the first at once, and 8 times in its
+    /// first 3 hours, where every link sent it before (60).
+    #[tokio::test]
+    async fn a_never_proven_delivery_is_resent_a_logarithmic_number_of_times() {
+        use crate::hub::open_delivery::{self as od, MAX_RESENDS};
+        let live = RefCell::new(open(1).remove(0));
+        let (sends, links) = (Cell::new(0_u32), Cell::new(0_u32));
+        let (link_every, three_hours) = (3 * 60_000, 3 * 60 * 60_000);
+        let (mut now, mut in_three_hours) = (0, 0);
+        while now < crate::hub::outbox::OPEN_ON_PEER_FOR_MS {
+            let one = |_: Delivery| {
+                links.set(links.get() + 1);
+                if od::claim_resend(&mut live.borrow_mut(), now) {
+                    sends.set(sends.get() + 1);
+                }
+                async {}
+            };
+            let snapshot = live.borrow().clone();
+            redeliver_all(vec![snapshot], None, || true, one).await;
+            if now < three_hours {
+                in_three_hours = sends.get();
+            }
+            now += link_every;
+        }
+        assert_eq!(links.get(), 14_400, "a link every 3 minutes for 30 days");
+        assert_eq!(sends.get(), MAX_RESENDS, "sent again over its days open, and capped");
+        assert_eq!(in_three_hours, 8, "resends in its first 3 hours");
+        assert_eq!(live.borrow().resends, MAX_RESENDS);
+
+        // A delivery its proof or a refusal closed is never claimed.
+        let mut closed = open(1).remove(0);
+        closed.open_on_peer = false;
+        assert!(!od::claim_resend(&mut closed, 0));
+    }
+
+    /// Two open deliveries of one prompt id to one session go once on a link: the machine answers
+    /// every copy of that id with its first outcome. Another session's copy still goes.
+    #[test]
+    fn a_link_sends_one_delivery_per_prompt_id_and_session() {
+        let pin = |session: &str| crate::hub::outbox::Pin {
+            peer: "p".into(),
+            session: session.into(),
+            generation: 1,
+            link: (1, 1),
+        };
+        let mut all = open(3);
+        for d in &mut all {
+            d.request = serde_json::json!({"_meta": {"acpmux": {"promptId": "same"}}});
+        }
+        all[0].pin = Some(pin("a"));
+        all[1].pin = Some(pin("a"));
+        all[2].pin = Some(pin("b"));
+        let kept: Vec<String> = one_per_prompt(all).into_iter().map(|d| d.id).collect();
+        assert_eq!(kept, ["d0000", "d0002"]);
+    }
+
+    /// A resend a machine answers with no such session (the chat was closed there) fails the
+    /// delivery at once: it is settled and no later link sends it again.
+    #[test]
+    fn a_resend_to_a_closed_session_fails_once_and_is_not_sent_again() {
+        use crate::hub::open_delivery::{self as od, Again};
+        let e = RpcError::invalid_params("no session: x")
+            .with_data(serde_json::json!({"reason": "no_session"}));
+        assert_eq!(next(&e), Next::NoSession);
+        let mut d = open(1).remove(0);
+        assert!(od::after_again(&mut d, Again::Refused(e.message.clone())), "settled at once");
+        assert!(!d.open_on_peer, "no link's redelivery picks it up again");
+        assert_eq!(d.state, State::Failed);
     }
 
     /// Review of #37284 at 0c98c292, F3: more open deliveries than one batch, none of them

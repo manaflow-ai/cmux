@@ -30,6 +30,9 @@ Each one is in the Theme File list by name. Your own file with the same name win
 | `phosphor` | A green-screen terminal | `appearance.theme: "Green Phosphor CRT"`, `appearance.chromeStyle: "bare"`, `appearance.borders: "none"`, `appearance.statusIndicator.style: "braille"` |
 | `claude-desktop` | Warm paper and clay | `appearance.theme: "Claude Light"`, a clay `colors.accent`, a beige `appearance.surfaces.sidebar.color` |
 | `charcoal` | A quiet dark chat app | a charcoal `colors.background`, a near-black sidebar, `appearance.accent: "neutral"` |
+| `moss` | A forest floor: deep green blocks with no lines, a lichen accent | `appearance.chromeStyle: "blocks"`, `appearance.theme: "Everforest Dark Hard"`, a darker `appearance.surfaces.sidebar.color` |
+| `meadow` | Moss in daylight: sage and cream blocks, a fern-green accent | `appearance.chromeStyle: "blocks"`, `appearance.theme: "Everforest Light Med"`, a sage `appearance.surfaces.sidebar.color` |
+| `lily-pond` | See-through teal blocks over Monet's water lilies, a lily-pink accent | `appearance.chromeStyle: "blocks"`, `appearance.background: "monet-water-lilies"`, `appearance.backgroundBlur: "glass"`, `appearance.surfaces.*.opacity` |
 
 ## What a theme file can and can't change
 
@@ -88,6 +91,13 @@ on, or run the `cmux theme use NAME` it prints.
    `themes.json` (a snippet: `snippets.json`) in
    [manaflow-ai/cmux-extensions](https://github.com/manaflow-ai/cmux-extensions); a merge there is
    the review.
+
+## Theme packs
+
+A theme pack is a folder with a `cmux-pack.json` and an `assets/` folder for its own pictures and
+videos. It sets a whole look at once, undoes and redoes as one step, and can be edited live with
+`cmux pack use DIR --watch`. It compiles to a theme file, so everything on this page still applies.
+See [theme-packs.md](theme-packs.md); `examples/theme-packs/sakura` is a finished one.
 
 ## Ship fonts with a community theme
 
