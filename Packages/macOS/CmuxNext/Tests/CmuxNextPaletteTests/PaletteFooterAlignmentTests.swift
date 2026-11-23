@@ -47,29 +47,43 @@ struct PaletteFooterAlignmentTests {
     /// opens Settings) keeps its glyph on the baseline, under the cap's middle, not floated into it.
     @Test func punctuationKeycapsKeepTheirBaseline() throws {
         _ = NSApplication.shared
-        let keys = PaletteKeycapsView()
-        keys.keycaps = [",", ".", "↩"]
-        let size = keys.intrinsicContentSize
-        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        defer { window.closeAfterTest() }
-        let host = NSView(frame: NSRect(origin: .zero, size: size))
-        window.contentView = host
-        keys.frame = host.bounds
-        host.addSubview(keys)
-        let ink = try Ink(host)
-        let fillAlpha = ink.alpha(x: Metrics.space1 / 2, y: size.height / 2)
-        var left: CGFloat = 0
-        var glyphs: [(min: CGFloat, max: CGFloat, mid: CGFloat)] = []
-        for cap in keys.keycaps {
-            let width = max(PaletteLayout.keycapSize, ceil((cap as NSString).size(withAttributes: [.font: Typography.shortcut]).width) + Metrics.space2 * 2)
-            glyphs.append(try #require(ink.rows(in: NSRect(x: left, y: 0, width: width, height: size.height), above: fillAlpha), "\(cap) draws"))
-            left += width + Metrics.space1
+        // One view per key: two keys after one another in one view are a chord's two strokes.
+        let glyphs = try [",", ".", "↩"].map { cap in
+            let keys = PaletteKeycapsView()
+            keys.keycaps = [cap]
+            let size = keys.intrinsicContentSize
+            let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            defer { window.closeAfterTest() }
+            let host = NSView(frame: NSRect(origin: .zero, size: size))
+            window.contentView = host
+            keys.frame = host.bounds
+            host.addSubview(keys)
+            let ink = try Ink(host)
+            let fillAlpha = ink.alpha(x: Metrics.space1 / 2, y: size.height / 2)
+            // Inside the cap's hairline edge (and clear of its rounded corners), only the legend is above the fill.
+            let inside = host.bounds.insetBy(dx: PaletteLayout.keycapCornerRadius, dy: 1)
+            return (try #require(ink.rows(in: inside, above: fillAlpha), "\(cap) draws"), size.height / 2)
         }
-        let middle = size.height / 2
-        #expect(glyphs[0].mid < middle - 1, "\",\" sits low in its cap: \(glyphs[0]) in a cap centered at \(middle)")
-        #expect(glyphs[1].mid < middle - 1, "\".\" sits low in its cap: \(glyphs[1]) in a cap centered at \(middle)")
-        #expect(abs(glyphs[2].mid - middle) <= 0.75, "↩ centers in its cap: \(glyphs[2]) in a cap centered at \(middle)")
+        #expect(glyphs[0].0.mid < glyphs[0].1 - 1, "\",\" sits low in its cap: \(glyphs[0])")
+        #expect(glyphs[1].0.mid < glyphs[1].1 - 1, "\".\" sits low in its cap: \(glyphs[1])")
+        #expect(abs(glyphs[2].0.mid - glyphs[2].1) <= 0.75, "↩ (\"return\") centers in its cap: \(glyphs[2])")
+    }
+
+    /// Leo 2026-11-22: "not even properly depicting the keys". ↩ and ⇥ print as the keyboard's "return"
+    /// and "tab", and a chord (New Agent Chat's ⌘J then S) draws "then" between its strokes: wider than
+    /// three caps side by side.
+    @Test func keycapsNameTheKeysAndSplitAChord() {
+        _ = NSApplication.shared
+        let keys = PaletteKeycapsView()
+        #expect(keys.capWidth("↩") == keys.capWidth("return"))
+        #expect(keys.capWidth("↩") > PaletteLayout.keycapSize, "\"return\" is wider than a square cap")
+        keys.keycaps = ["⇧", "⌘", "P"]
+        let one = keys.intrinsicContentSize.width
+        #expect(one == ["⇧", "⌘", "P"].map(keys.capWidth).reduce(0, +) + Metrics.space1 * 2)
+        keys.keycaps = ["⌘", "J", "S"]
+        let caps = ["⌘", "J", "S"].map(keys.capWidth).reduce(0, +) + Metrics.space1 * 2
+        #expect(keys.intrinsicContentSize.width > caps + Metrics.space1, "the chord's \"then\" sits between J and S")
     }
 
     private static func check(_ model: PaletteModel, appearance: NSAppearance.Name, _ label: String, windows: inout [NSWindow]) throws {
@@ -108,7 +122,9 @@ struct PaletteFooterAlignmentTests {
             #expect(abs(cap.mid - midY) <= tolerance, "\(label): the \(keys.keycaps) cap centers at \(cap.mid), the footer's middle is \(midY)")
             // The fill's alpha beside the glyph (a cap is at least as wide as tall and its glyph is centered).
             let fillAlpha = ink.alpha(x: frame.minX + Metrics.space1, y: midY)
-            let glyph = try #require(ink.rows(in: frame, above: fillAlpha), "\(label): \(keys.keycaps) draws no glyph")
+            // Inside the cap's hairline edge (and clear of its rounded corners), only the legend is above the fill.
+            let glyph = try #require(ink.rows(in: frame.insetBy(dx: PaletteLayout.keycapCornerRadius, dy: 1), above: fillAlpha),
+                                     "\(label): \(keys.keycaps) draws no glyph")
             #expect(abs(glyph.mid - midY) <= tolerance,
                     "\(label): the \(keys.keycaps) glyph centers at \(glyph.mid), the footer's middle is \(midY)")
             measured.append(keys.keycaps.joined())
