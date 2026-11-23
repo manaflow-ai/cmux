@@ -46,6 +46,20 @@ public struct TerminalHostGridLayout: Equatable, Sendable {
         self.visibleRows = visibleRows
     }
 
+    /// The Mac's columns the mirror follows: none on the primary screen while
+    /// the Mac's grid is the phone's own claim (sent or still on its way).
+    /// A zoom key changes the phone's columns at once and its claim reaches
+    /// the Mac a settle and a round trip later; followed meanwhile, the
+    /// mirror took the old count at the new cell width (wider than the page,
+    /// panning sideways, or narrower at its leading edge) and Ghostty
+    /// rewrapped the rows twice more: to the old count, then to the new one
+    /// when the Mac answered. A full-screen app keeps the Mac's grid until it
+    /// redraws (the alternate screen does not rewrap).
+    public static func followedHostColumns(remoteColumns: Int?, gridIsPhonesOwn: Bool, alternateScreen: Bool) -> Int? {
+        if gridIsPhonesOwn, !alternateScreen { return nil }
+        return remoteColumns
+    }
+
     /// Columns the page fits at the phone's font size.
     public var phoneColumns: Int {
         cell.width > 0 ? max(1, Int(floor(viewportWidth / cell.width))) : 0
