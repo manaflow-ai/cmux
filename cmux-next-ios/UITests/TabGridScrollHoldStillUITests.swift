@@ -65,9 +65,13 @@ final class TabGridScrollHoldStillUITests: XCTestCase {
     /// changed size or place moves its corner.
     @MainActor
     private func cardCorners(_ app: XCUIApplication) -> [CGPoint] {
-        app.buttons.matching(NSPredicate(format: "label == 'Close'")).allElementsBoundByIndex
-            .filter { $0.exists && $0.isHittable }
+        // By frame, not by hittable: the bars at the top and bottom cover some
+        // cards' buttons, and a covered card still must not move.
+        let screen = app.windows.firstMatch.frame
+        return app.buttons.matching(NSPredicate(format: "label == 'Close'")).allElementsBoundByIndex
+            .filter(\.exists)
             .map { CGPoint(x: $0.frame.midX.rounded(), y: $0.frame.midY.rounded()) }
+            .filter { screen.contains($0) }
             .sorted { ($0.y, $0.x) < ($1.y, $1.x) }
     }
 
