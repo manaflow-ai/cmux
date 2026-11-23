@@ -15,6 +15,7 @@ import CmuxNextSettings
 ///   `has_frame` (a picture is up in this connection), `path` (Direct, Relayed, ...);
 /// - `started_by`: who started the view without a person's click (the agent session's title or the
 ///   calling app, else `agent`), null for a tab a person opened or one waiting at the Connect card;
+/// - `waits_to_show` (a scope is held until the tab is shown, so nothing was asked of the hub yet);
 /// - `connect_started_at` (ISO 8601, when this session's connect began) and `first_frame_ms`
 ///   (from it to the first decoded frame reaching the screen; null until then);
 /// - `fps`, `target_fps`, `rtt_ms` (latest), `frames_decoded`, `frames_dropped` (frames the other
@@ -124,6 +125,8 @@ extension MacScreenPages {
         row["hub_phase"] = hubPhase.map { .string(hubPhaseName($0)) } ?? .null
         row["scope"] = hubPhase.flatMap(Self.scope).map { .string($0.rawValue) } ?? .null
         row["error"] = errorText(pane.model).map(JSONValue.string) ?? .null
+        // Waiting for Connect to show: the hub holds a scope to resume.
+        row["waits_to_show"] = .bool(pane.model.hub?.resumeScope != nil)
         guard let session = pane.session else { return .object(row) }
         // A session that never connected sits in its initial `.ended`: no stream, not one that ended.
         let started = session.timings.startedAt != nil || session.phase != .ended

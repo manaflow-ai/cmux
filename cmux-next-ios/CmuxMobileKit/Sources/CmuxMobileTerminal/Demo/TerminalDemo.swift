@@ -168,6 +168,7 @@ final class TerminalDemoDriver {
         if selected.contains("kbtui") { await keyboardOverTUI() }
         if selected.contains("kbclaude") { await keyboardOverTUI(command: "claude") }
         if selected.contains("kbshell") { await keyboardOverShell() }
+        if selected.contains("tuihold") { await holdTUI() }
         if selected.contains("projection") { await projection() }
         if selected.contains("scrollbench") { await scrollBench() }
         if selected.contains("historyfling") { await historyFling() }
@@ -412,6 +413,15 @@ final class TerminalDemoDriver {
     /// keyboard is still moving), the same calls a tap on each makes; then the
     /// keyboard key twice 0.1 s apart. Each second action reverses the first
     /// from where the keyboard is, never after it settles.
+    /// `tuihold` (opt-in): vim, left running with the keyboard down for a UI
+    /// test to drive (KeyboardMotionBenchUITests). `demoNote` reads
+    /// `tui.ready` once it is up, `done.notui` when it never became full screen.
+    private func holdTUI() async {
+        model.controller?.surface.sendText("vim README.md", pressReturn: true)
+        await wait(2.5)
+        note(model.isTUI ? "tui.ready" : "done.notui")
+    }
+
     /// `kbtui` (opt-in): vim, then the keyboard key pressed to show and hide
     /// the keyboard five times. `demoNote` (the `debug.terminal-demo` label) ends
     /// at `done.rz<before>-<after>`: the PTY resizes sent before and after.

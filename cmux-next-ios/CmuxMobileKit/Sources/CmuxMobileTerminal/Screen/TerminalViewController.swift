@@ -1283,6 +1283,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         sizingLog.notice("resize \(size.columns, privacy: .public)x\(size.rows, privacy: .public) cause=\(why, privacy: .public)\(self.model.isTUI ? "-tui" : "", privacy: .public) attached=\(self.model.connectionState.isAttached, privacy: .public) (TUI \(self.model.isTUI, privacy: .public))")
         model.session.resize(columns: size.columns, rows: size.rows)
         model.ptyResizesSent += 1
+        #if DEBUG
+        TerminalModel.debugResizesSentTotal += 1
+        #endif
         if size != sentGrid {
             sentGridBefore = sentGrid
             sentGrid = size
