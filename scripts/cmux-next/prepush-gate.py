@@ -46,6 +46,11 @@ Layers (each one only on files the push changes under Packages/macOS/CmuxNext, c
                local run, never --base/--head, --commits or GitHub Actions (lead 2026-10-27, made under the 2026-10-23 no-new-CI rule, since lifted)
   rustfmt      changed cmux-tui/**/*.rs through the pinned rustfmt (cmux-tui/rustfmt.toml); local only, like
                swiftformat; a file the base already left unformatted does not block
+  test-hooks   changed cmux-tui/crates/acpmux/src/**/*.rs through cmux-source-scan's test-hooks check
+               (the one CI's `cargo test -p acpmux --lib` runs, as crates/acpmux/src/test_hooks_tree.rs);
+               local only, like swiftformat. It never compiles: it runs an already-built
+               cmux-tui/target/*/cmux-source-scan, and with none it warns and judges nothing, naming the one
+               command that builds it. CI's own run is the backstop
   swiftlint    swift-syntax rules only (scripts/cmux-next/lint/swiftlint.yml), no SourceKit
 Tool versions are pinned in scripts/cmux-next/lint-tools.lock and downloaded once (sha256 checked)
 to $CMUX_LINT_TOOLS_DIR (default ~/Library/Caches/cmux-lint-tools, ~/.cache/cmux-lint-tools on Linux).
@@ -1474,6 +1479,72 @@ def rustfmt(repo: Path, config: Path, tree: Path, rust: list[str]) -> str:
         if done.stdout != source:
             findings.append(f"{path}: not rustfmt-clean; run `cargo fmt` in cmux-tui/ (the pre-commit hook does this)")
     return "\n".join(findings)
+
+
+# The test-hooks layer: the crate the check judges, the crate that implements it, and where a built binary sits.
+ACPMUX_CRATE = "cmux-tui/crates/acpmux"
+ACPMUX_SRC = ACPMUX_CRATE + "/src/"
+SOURCE_SCAN_CRATE = "cmux-tui/crates/cmux-source-scan"
+TEST_HOOKS_BINARY = "cmux-source-scan"
+TEST_HOOKS_BUILD = "cargo build -p cmux-source-scan --bin cmux-source-scan"
+# Reading ~1,000 acpmux sources with syn takes about a second; the bound is for a hang, not for a build.
+TEST_HOOKS_SECONDS = 60
+
+
+def test_hooks_binary(repo: Path) -> Path | None:
+    """An already-built cmux-source-scan, release before debug, or None.
+
+    The layer never builds one. The gate runs inside the pre-push hook on whatever machine the author is on, some of
+    them personal or already loaded, and a check that starts a cargo build there would cost minutes of someone
+    else's machine for an advisory answer CI gives anyway. So: run it when it is there, say how to get it when it
+    is not."""
+    target = Path(os.environ["CARGO_TARGET_DIR"]) if os.environ.get("CARGO_TARGET_DIR") else repo / RUST_SCOPE / "target"
+    for profile in ("release", "debug"):
+        binary = absolute(target / profile / TEST_HOOKS_BINARY)
+        if binary.is_file():
+            return binary
+    return None
+
+
+def test_hooks(binary: Path | None, config: Path, tree: Path, files: list[str]) -> str:
+    """One finding per process-wide test hook the push adds to acpmux: `<path>:<line>: <static>: <why>`.
+
+    This is CI's own check, run earlier: `cmux-source-scan test-hooks`, the binary behind the
+    `the_crate_adds_no_process_wide_test_hook` test that `cargo test -p acpmux --lib` runs in the spec-inventory job.
+    Nothing else ran it before a push, so a new `src` file only met it after merge (#49911 landed `perf_watch.rs` red
+    that way). No rule is added here and the scanner is untouched: same binary, same findings, same exit codes
+    (0 none, 1 findings, 2 a path it could not read).
+
+    It judges TREE, which holds the whole crate at that side's revision, because the check resolves a static's type
+    across the crate's other files: judging only the changed files would call a type it cannot see `unresolved` and
+    refuse the static for it. gate() subtracts the base side's findings, so a hook the base already has does not
+    block the push.
+
+    Fail-open, like the rustfmt layer's missing-tool path: with no built binary, a run past TEST_HOOKS_SECONDS, or
+    any exit the check does not use, it warns and finds nothing. A binary built from older sources judges by its own
+    (older) rules, which is why CI's `cargo test -p acpmux --lib` stays the backstop and this layer never refuses on
+    its own account."""
+    tree = absolute(tree)
+    crate = tree / ACPMUX_CRATE
+    if not any(p.startswith(ACPMUX_SRC) for p in files) or not (crate / "src").is_dir():
+        return ""
+    if not absolute(config).is_file():
+        return ""  # a commit older than the cmux-source-scan crate
+    if binary is None:
+        log(f"prepush-gate: WARNING: no built {TEST_HOOKS_BINARY}; acpmux test hooks NOT checked here (CI's "
+            f"`cargo test -p acpmux --lib` runs them). To check them before a push: `{TEST_HOOKS_BUILD}` in "
+            "cmux-tui/ once.")
+        return ""
+    code, out = run([str(binary), "test-hooks", str(crate)], tree, timeout=TEST_HOOKS_SECONDS)
+    if code == 0:
+        return ""
+    if code == 1:
+        # The header line carries no location; each finding does (`rel:line: name: why`).
+        return "\n".join(line for line in out.splitlines() if LOCATION.search(line))
+    tail = " ".join(out.strip().splitlines()[-2:])[:300] or "no output"
+    log(f"prepush-gate: WARNING: {TEST_HOOKS_BINARY} test-hooks gave no verdict (exit {code}: {tail}); acpmux test "
+        "hooks NOT checked here -- CI's `cargo test -p acpmux --lib` still runs it")
+    return ""
 
 
 def swiftlint(binary: Path, config: Path, tree: Path, swift: list[str]) -> str:
@@ -3097,9 +3168,11 @@ AST_GREP_JOB = "ast-grep (scripts/cmux-next/lint/ast-grep-rules)"
 SWIFTFORMAT_JOB = "SwiftFormat --lint"
 RUSTFMT_JOB = "rustfmt (cmux-tui)"
 SWIFTLINT_JOB = "SwiftLint (syntax rules)"
+TEST_HOOKS_JOB = "Test hooks (cmux-source-scan test-hooks: acpmux adds no process-wide test hook)"
 # Every check gate() runs in its temp trees: a run whose CHECKS names none of them builds no tree.
 TREE_CHECKS = frozenset({name for name, _cmd, _prefixes in SCANNERS} | {DEPS_CHECK, AST_GREP_JOB, SWIFTFORMAT_JOB,
-                                                                        RUSTFMT_JOB, SWIFTLINT_JOB, CRASH_RATCHET_CHECK})
+                                                                        RUSTFMT_JOB, SWIFTLINT_JOB, TEST_HOOKS_JOB,
+                                                                        CRASH_RATCHET_CHECK})
 
 
 def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
@@ -3210,7 +3283,8 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         if missing:
             reserved.append((PICTURES_CHECK, missing))
     # The git-only checks above need no trees: a run of only those (CI's sidebar sweep) stops here.
-    if only is not None and not only & {"scanners", "ast-grep", "swiftformat", "swiftlint", "rustfmt", "crash-ratchet"}:
+    if only is not None and not only & {"scanners", "ast-grep", "swiftformat", "swiftlint", "rustfmt",
+                                        "test-hooks", "crash-ratchet"}:
         return reserved
     # So does a run whose CHECKS name no tree check: it builds no tree (on 2026-11-21 a merge push's upstream run built
     # its dependency and surface material trees, about 13,000 and 10,000 files a side, for checks it never read).
@@ -3298,6 +3372,17 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         if rust and (swiftformat_layer if only is None else "rustfmt" in only) and want(RUSTFMT_JOB):
             rust_root = rust_workspace_root(repo, head, absolute(Path(tmp)))
             jobs[RUSTFMT_JOB] = ("fn", rustfmt, rust_root, rust_root / RUST_SCOPE / "rustfmt.toml", rust)
+        # Local only, like rustfmt: CI already runs this check in the spec-inventory job's `cargo test -p acpmux
+        # --lib`; here it is the same check, before the push instead of after the merge.
+        acpmux_rust = [p for p in changed if p.startswith(ACPMUX_SRC) and p.endswith(".rs")]
+        if acpmux_rust and (swiftformat_layer if only is None else "test-hooks" in only) and want(TEST_HOOKS_JOB):
+            jobs[TEST_HOOKS_JOB] = ("fn", test_hooks, test_hooks_binary(repo), repo / SOURCE_SCAN_CRATE / "Cargo.toml",
+                                    acpmux_rust)
+            # Each side's whole acpmux src: the check resolves a static's type across the crate's files, and a
+            # finding both sides have cancels out. Not indexed, like the other whole-folder trees.
+            judged = sorted({p for rev in (base, head) for p in ls_tree(repo, rev, ACPMUX_SRC) if p.endswith(".rs")})
+            trees_for[TEST_HOOKS_JOB] = build_trees(repo, base, head, judged, absolute(Path(tmp)) / "test-hooks",
+                                                    trusted_scripts, index=False)
         if swift and (only is None or "swiftlint" in only) and want(SWIFTLINT_JOB):
             jobs[SWIFTLINT_JOB] = ("fn", swiftlint, ensure_tool(lock, "swiftlint"),
                                                 lint / "swiftlint.yml", swift)
@@ -3309,7 +3394,8 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
                 code, out = run(fill(job[1], tree), tree)
             else:
                 _, fn, binary, config, files = job
-                out = fn(absolute(binary), absolute(config), tree, files)
+                # A layer whose tool is not here passes None (test_hooks_binary): absolute(None) would raise.
+                out = fn(absolute(binary) if binary is not None else None, absolute(config), tree, files)
                 code = 1 if out else 0
             return code, out, time.monotonic() - t0
 
@@ -3980,7 +4066,7 @@ def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--own-range", help="sidebar sweep on a pull request: the PR's own commits (BASE..HEAD). A "
                                             "finding on a commit outside it (on the base) is a warning that names the "
                                             "commit and the owner file; one inside it is an error")
-    parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,swiftlint,reserved,ui-font,conflicts,"
+    parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,test-hooks,swiftlint,reserved,ui-font,conflicts,"
                                        "cargo-lock,sidebar,crash-allow,crash-ratchet,freeze,highlights,pictures,workflows,"
                                        "single-host-fallbacks,redefinitions,port-drift,new-crate-versions,"
                                        "settings-export-keys,main-twin,job-bounds")
