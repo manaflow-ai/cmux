@@ -287,7 +287,7 @@ class AffectedTests(unittest.TestCase):
         self.assertIn("tests/test_cmux_next_route.py", picked)
         # A tests/ helper module the same way: `import blacksmith_linux_sizes`.
         helper = {p["path"] for p in focused_tests.plan(ROOT, ["tests/blacksmith_linux_sizes.py"])["python"]}
-        importer = "tests/test_ci_tui_routes_avoid_nightly_label.py"
+        importer = "tests/test_cmux_tui_artifacts_linux_runner_set.py"
         self.assertNotIn("blacksmith_linux_sizes.py", (ROOT / importer).read_text())
         self.assertIn(importer, helper)
 
