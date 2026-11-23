@@ -1102,6 +1102,15 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang libclang-dev pkg-config bubblewrap
+          # Ubuntu 24.04 (the pool runners) lets only AppArmor-profiled programs make an
+          # unprivileged user namespace; bwrap needs one, so without this lift the probe
+          # returns UserNamespacesRestricted and, since ACPMUX_REQUIRE_BWRAP forbids a skip,
+          # the linux_sandbox::bwrap tests fail on every run, base included
+          # (as cmux-tui-spec.yml and cmux-tui-sdks.yml already do).
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          bwrap --unshare-all --ro-bind / / true
           echo "ACPMUX_REQUIRE_BWRAP=1" >> "$GITHUB_ENV"
 
       - name: Install zig
