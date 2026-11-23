@@ -255,29 +255,6 @@ export class SimBuilder {
     return this;
   }
 
-  /** A steer: the person's prompt sent into the running turn (no new turn); `read` lands it `readMs` later. */
-  steer(value: string, { after = 300, read = true, readMs = 1_500 } = {}): this {
-    this.steers += 1;
-    const promptId = `steer-${this.steers}`;
-    this.record(
-      "mux",
-      "user_message",
-      {
-        text: value,
-        promptId,
-        turnId: this.turnId,
-        client: "pane",
-        steer: true,
-        _meta: { origin: { actor: "person" } },
-      },
-      after,
-      `steer: ${value.slice(0, 40)}`,
-    );
-    if (read) this.record("mux", "steer_read", { promptId }, readMs, "steer_read");
-    return this;
-  }
-  private steers = 0;
-
   /** A plan (todo list) update. */
   plan(entries: { content: string; status?: string }[], after = 300): this {
     return this.record(
@@ -475,9 +452,9 @@ export class SimBuilder {
     return this;
   }
 
-  /** The person's steer mid-turn (`steer: true` on the running turn), and acpmux saying the agent read it `readMs` later. */
-  steer(value: string, { readMs = 600, after = 300 } = {}): this {
-    const promptId = `steer-${this.seq + 1}`;
+  /** The person's steer mid-turn (`steer: true` on the running turn), and acpmux saying the agent read it `readMs` later
+   *  (`read: false`: the agent has not read it yet). */
+  steer(value: string, { readMs = 600, after = 300, read = true, promptId = `steer-${this.seq + 1}` } = {}): this {
     this.record(
       "mux",
       "user_message",
@@ -492,6 +469,7 @@ export class SimBuilder {
       after,
       `steer: ${value.slice(0, 40)}`,
     );
+    if (!read) return this;
     return this.record("mux", "steer_read", { promptId, turnId: this.turnId }, readMs, "steer_read");
   }
 

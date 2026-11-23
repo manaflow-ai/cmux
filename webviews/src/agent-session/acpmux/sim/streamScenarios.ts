@@ -95,7 +95,7 @@ const EVENTS = ["steer", "incoming", "permission", "background-end", "compaction
 function placed(event: (typeof EVENTS)[number], b: SimBuilder): void {
   switch (event) {
     case "steer":
-      b.steer("Also check the second caller.");
+      b.steer("Also check the second caller.", { readMs: 1_500 });
       break;
     case "incoming":
       // Another agent's message arriving mid-turn is a steer-like prompt into the running turn.
@@ -390,7 +390,7 @@ export const STREAM_SCENARIOS: StreamScenario[] = [
     harness: "sim",
     make: turn("se-15", "a steer mid-reply", (b) => {
       msg(b, P1, "m1");
-      b.steer("Also check the second caller.");
+      b.steer("Also check the second caller.", { readMs: 1_500 });
       msg(b, P2, "m2");
       b.turnEnd();
     }),
@@ -404,7 +404,7 @@ export const STREAM_SCENARIOS: StreamScenario[] = [
     harness: "sim",
     make: turn("se-16", "a steer during a call", (b) => {
       b.tool("bun test", { open: true });
-      b.steer("Skip the slow ones.", { read: false });
+      b.steer("Skip the slow ones.", { read: false, promptId: "steer-1" });
       b.toolEnd("call-1", { ms: 2_000 });
       b.record("mux", "steer_read", { promptId: "steer-1" }, 100, "steer_read");
       msg(b, P2, "m1");
@@ -623,7 +623,10 @@ export const STREAM_SCENARIOS: StreamScenario[] = [
       b.prompt("Which of the taste calls should ship as default?");
       b.tool("gh pr list --search taste", { ms: 2_000 });
       b.say("Nothing has changed for you yet.", { messageId: "m1", segment: "turn-1.1.1" });
-      b.steer("the taste ones i agree with all actually but 50020 prob dont do as default", { after: 400 });
+      b.steer("the taste ones i agree with all actually but 50020 prob dont do as default", {
+        after: 400,
+        readMs: 1_500,
+      });
       b.tool("acpmux send beyer-themes 'Leo answered the taste calls: ship the recommended versions.'", { ms: 600 });
       b.say(
         "Will do. The palette, failure card, empty states and worked-turn summary each ship your recommended version.",
