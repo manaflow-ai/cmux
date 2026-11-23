@@ -1,7 +1,7 @@
 """pane-compile bench: pane-compile-ab.mjs's cold and warm outputs into rows.
 
 Fixture (fixtures/pane_compile/pane-compile.json): {"cold": ..., "warm": ...}, the harness's two outputs from
-gcp-codex-lane-12 (2026-11-23, headless Chrome 158, 3 runs per side): A is the pane as shipped (ES modules), B the
+a Linux VM (2026-11-23, headless Chrome 158, 3 runs per side): A is the pane as shipped (ES modules), B the
 same code bundled as one classic script. A's warm loads compile as much as its cold ones (the page's small classic
 scripts deserialize, the modules never do); B's warm loads compile almost nothing.
 """
@@ -26,7 +26,7 @@ FIX = Path(__file__).resolve().parent / "fixtures" / "pane_compile" / "pane-comp
 def ingest(path: Path) -> Context:
     bench = load_all()["pane-compile"]
     ctx = Context(bench=bench, build={"channel": "sha", "version": None, "sha": "e" * 40},
-                  host_role="anywhere", host={"name": "gcp-codex-lane-12", "role": "anywhere", "os": "Linux",
+                  host_role="anywhere", host={"name": "linux-vm", "role": "anywhere", "os": "Linux",
                                               "chip": "x86_64"})
     bench.ingest(ctx, path)
     return ctx

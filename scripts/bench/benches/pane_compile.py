@@ -40,7 +40,7 @@ class PaneCompile(Bench):
     name = "pane-compile"
     summary = "Agent pane JS compile before first paint, cold and warm code cache (headless Chrome, Linux)"
     units = "ms, count"
-    owner = "research:startup (gcp-codex-lane-5/startup-tti)"
+    owner = "research:startup"
     hosts = ("anywhere",)
     harness = HARNESS
     version = "1"
