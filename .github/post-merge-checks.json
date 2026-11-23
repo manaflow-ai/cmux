@@ -4,6 +4,11 @@
     "about": "CI v2 merge tiers (cmuxterm-hq docs/rfd/0013-ci-v2.md). With switch on, merge_hold and next-autoland do not wait for a queued or running check of a post_merge workflow on a pull request into feat-cmux-next; a finished red of one still holds the merge. Each one also runs after the merge (after_merge), where the base-red watch names the owner of a red, who reverts or fixes forward. switch off: every check holds the merge until it finishes, as before. Switched on 2026-11-21 under Leo's \"id rather we simply cut shit now and revisit later\"; revert that one line to switch off.",
     "switch": "on",
     "post_merge": {
+      "cmux-tui-spec.yml": {
+        "workflow": "cmux-tui spec inventory",
+        "after_merge": "push to feat-cmux-next, same paths; every job a pull request runs (changes, acpmux tests) also runs on the push",
+        "why": "the last check on 13 of 233 pull requests, done p90 59 min after the push with job queue p90 68 min and job runtime p90 11 min (cmuxterm-hq docs/rfd/0045-landing-tail.md, 290 merged PRs 2026-11-19 to 11-22)"
+      },
       "gallery-health.yml": {
         "workflow": "gallery health",
         "after_merge": "push to feat-cmux-next, same paths",
