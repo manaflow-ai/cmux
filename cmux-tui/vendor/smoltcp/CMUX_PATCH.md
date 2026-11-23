@@ -82,6 +82,20 @@ trip cut the window of a stream that needed it, and the stream ran seconds
 behind for the rest of the session; a tunnel that had repair on from the start
 never saw the loss at all. The controllers derive `Clone` for the saved copy.
 
+The patch also adds black-hole fallback (RFC 4821 section 7.7, Linux's
+`tcp_mtu_probing=1`), off by default: `Socket::set_black_hole_fallback(true)`.
+smoltcp sends with DF clear and does no path MTU discovery, so an underlay path
+smaller than the tunnel MTU that drops oversized packets silently carries the
+handshake, ACKs and keystrokes and loses every full segment: a bulk transfer
+stalls for good. With fallback on, after two retransmission timeouts in a row of
+a head segment larger than a 1280 byte IP packet's (an MSS of 1240 over IPv4,
+1220 over IPv6), with no ACK of new data between them, the connection sends
+segments that size from then on, starting with the resend at hand.
+`path_changed()` lifts the limit, since a new route may carry full segments.
+Nothing changes on the wire but the segment size, so any peer works. cmux-wg
+turns it on; its detector is `cmux-wg/tests/path_mtu.rs`, a 4 MiB transfer at
+tunnel MTU 1420 over a path that drops datagrams above 1400 bytes.
+
 The changes are in `src/socket/tcp/congestion/cubic.rs` and `src/socket/tcp.rs`,
 each marked `cmux patch`, with tests next to them. Reno's own start is unchanged;
 cmux does not enable it.
