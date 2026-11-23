@@ -476,7 +476,8 @@ def quality_summary(scores, why_none):
 
 
 def build_budget(cmux=None, apple=None, label=None, rev=None, link=None, rtt=None, source=None,
-                 cmux_input="key", host=None, viewer=None, host_args=None, viewer_args=None):
+                 cmux_input="key", host=None, viewer=None, host_args=None, viewer_args=None,
+                 encode_profile=None):
     """The budget record. CMUX: {"rows", "ledgers", "presented", "motion_rows", "scores",
     "quality_null"} or {"skipped": why}; APPLE: {"g2g"} or {"skipped": why}."""
     cmux = cmux or {"skipped": "not run (--stacks)"}
@@ -522,6 +523,8 @@ def build_budget(cmux=None, apple=None, label=None, rev=None, link=None, rtt=Non
         # What the cmux leg timed (key, click or scroll) and on which two Macs: a pair of one
         # Mac's names is loopback, whatever the link label says.
         "input": cmux_input, "host": host, "viewer": viewer,
+        # The profile the cmux leg asked for (--encode-profile; null: none sent, so the host ran standard).
+        "encode_profile": encode_profile,
         "host_args": list(host_args or []), "viewer_args": list(viewer_args or []),
         "presented_source": p_source, "app_ledger": app_ledger, "app_timings": app_timings,
         "mbps": {"cmux": c_mbps, "apple": null(why_apple or WHY_APPLE["mbps"])},
@@ -2542,7 +2545,8 @@ class Orchestrator:
                          rtt=clock.get("rtt_min_ms"), source=self.a.source,
                          cmux_input=getattr(self.a, "cmux_input", "key"), host=self.a.host,
                          viewer=self.a.viewer, host_args=self.host_args,
-                         viewer_args=self.viewer_args)
+                         viewer_args=self.viewer_args,
+                         encode_profile=getattr(self.a, "encode_profile", None))
         print()
         print("\n".join(format_budget(b)))
         self.log({"budget": b})
