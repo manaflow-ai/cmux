@@ -357,6 +357,15 @@
   background: var(--cv-card-ring);
   pointer-events: none;
 }
+/* Default-off public prompt paint. Match the shell's specificity and follow its defaults so
+   installed look tokens win, with the original paint when a look omits either token. */
+.cv-user__bubble.cv-user__bubble--codex {
+  --glass-tint: var(--cv-user-bubble-tint, color-mix(in srgb, var(--cv-fg) 10%, transparent));
+  border-radius: var(--cv-user-bubble-radius, calc(3 * var(--grid-base) * var(--cv-bubble-scale)));
+}
+.acpmux-shell .cv-user__bubble--codex {
+  --glass-tint: var(--cv-user-bubble-tint, color-mix(in srgb, var(--agent-text) 14%, transparent));
+}
 /* The prompt open for editing (UserBubble.tsx PromptEditor) wears the bubble's glass: the same
    tint, no edge and no rim. */
 .cv-user__edit {

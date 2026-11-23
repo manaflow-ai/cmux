@@ -57,6 +57,8 @@ import { tourBubbleText } from "../repoTour/tourModel";
 import { SentVideoTile } from "./SentVideoTile";
 import { sentVideoOf, sentVideosOf, type SentVideo } from "./sentVideos";
 import { recordedFiles, isImageOriginal, SENT_IMAGE_HEIGHT, sentImageWidth, sentImageSize } from "./userBubbleModel";
+import { experimentArm } from "../../../experiments/experiment";
+import { codexUserBubbleLook } from "./codexUserBubble.experiment";
 
 /// A waiting steer replaces the hover actions with queue controls until delivery is accepted.
 export function UserBubble({
@@ -87,6 +89,7 @@ export function UserBubble({
     [givenText, given, skills],
   );
   const t = useT();
+  const bubbleLook = experimentArm(codexUserBubbleLook);
   const { edit, branches, fork, forkSeq, forkAny, promptTurns } = useContext(TurnActionsContext);
   const branch = branches?.of.get(row.id);
   const [editing, setEditing] = useState(false);
@@ -237,7 +240,9 @@ export function UserBubble({
       <div className="cv-user__body">
         {branch && branches && <VersionSwitcher branch={branch} branches={branches} slot="head" />}
         {hasBubble ? (
-          <div className="ui-glass cv-user__bubble selectable">
+          <div
+            className={`ui-glass cv-user__bubble selectable${bubbleLook === "codex" ? " cv-user__bubble--codex" : ""}`}
+          >
             {hasInterleaved ? (
               <InlinePromptContent
                 rowId={row.id}
