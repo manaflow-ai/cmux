@@ -3206,7 +3206,7 @@ jobs:
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
-      # Lint-class reds report and are fixed forward (Leo 2026-11-20); typecheck and acpmux-protocol:check block.
+      # Lint-class reds report and are fixed forward (Leo 2026-11-20); typecheck blocks.
       - name: Webview checks on the build commit
         id: checks
         run: python3 scripts/ci/fast_gate_webviews_checks.py --repo . --advisory-out "$RUNNER_TEMP/webview-lint.json"
@@ -7340,6 +7340,121 @@ jobs:
         env:
           BUILD: ${{ needs.nightly-next-one.outputs.build }}
         run: set -o pipefail; python3 scripts/ci/nightly_next_delta_check.py check --feed-url "$NIGHTLY_NEXT_FEED_BASE/appcast-arm64.xml" --build "$BUILD" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # Leo's live code variant (docs/cmux-next/live-code.md), after this run wrote the feed; continue-on-error, so the
+  # nightly never waits on it or fails for it. NIGHTLY_NEXT_LIVE_CODE_VARIANT=off stops it. The build holds no secret.
+  build-live-code-variant:
+    needs: [decide, nightly-next-one]
+    if: "!cancelled() && github.ref == 'refs/heads/nightly-next' && needs.nightly-next-one.outputs.feed_written == 'true' && vars.NIGHTLY_NEXT_LIVE_CODE_VARIANT != 'off'"
+    continue-on-error: true
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 240 || 120 }}
+    permissions:
+      contents: read
+    # continue-on-error makes this job's result success even when it failed: sign gates on built, not the result.
+    outputs:
+      built: ${{ steps.live-code-built.outputs.built }}
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+    steps:
+      - *checkout-default
+      - *select-xcode
+      - *select-xcode-sdk
+      - name: Build the commit's live code overlay
+        env:
+          COMMIT: ${{ needs.nightly-next-one.outputs.build_sha }}
+          SWIFT_FLAGS: ${{ needs.decide.outputs.swift_import_flags }}
+          CMUX_SWAP_BINARY_ROOT: ${{ runner.temp }}/swap-binary-live-code
+        run: bash scripts/ci/nightly-steps/live-code-variant.sh build "$COMMIT" "$RUNNER_TEMP/live-code" "$SWIFT_FLAGS"
+      - name: Upload the live code overlay
+        id: upload-live-code
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with: &live-code-upload
+          name: live-code-${{ needs.nightly-next-one.outputs.build }}
+          path: ${{ runner.temp }}/live-code/*.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
+      - name: Upload the live code overlay (retry)
+        if: "!cancelled() && steps.upload-live-code.outcome == 'failure'"
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with: *live-code-upload
+      - name: Mark the live code overlay built
+        id: live-code-built
+        env:
+          COMMIT: ${{ needs.nightly-next-one.outputs.build_sha }}
+        run: bash scripts/ci/nightly-steps/live-code-variant.sh built "$COMMIT" "$RUNNER_TEMP/live-code"
+
+  # Signs the overlay into the published nightly's app (no bundle code runs while a secret is in reach) on the signer.
+  sign-live-code-variant:
+    needs: [decide, nightly-next-one, build-live-code-variant]
+    if: "!cancelled() && needs.build-live-code-variant.outputs.built == 'true'"
+    continue-on-error: true
+    environment: ${{ needs.decide.outputs.environment }}
+    # The signer label, a literal, as nightly-next-one takes it. Why: docs/ci/nightly-workflow-notes.md#note-33
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'glaeda-trusted-next-signing' }}
+    timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 270 || 160 }}
+    permissions:
+      contents: read
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      BUILD: ${{ needs.nightly-next-one.outputs.build }}
+      COMMIT: ${{ needs.nightly-next-one.outputs.build_sha }}
+    steps:
+      - *hold-the-whole-mac
+      - *checkout-default
+      - name: Claim the whole Mac for signing
+        run: ./scripts/ci/signing-runner-claim.sh
+      - *legacy-route-shared-5
+      - *select-xcode
+      - *select-xcode-sdk
+      - *set-up-node
+      - name: Install create-dmg
+        run: bash scripts/ci/nightly-steps/install-create-dmg.sh
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: live-code-${{ needs.nightly-next-one.outputs.build }}
+          path: live-code
+      - name: Graft the overlay into the published nightly's app
+        run: bash scripts/ci/nightly-steps/live-code-variant.sh prepare "${{ needs.decide.outputs.dmg_prefix }}" "$BUILD" live-code
+      - name: Import the Developer ID certificate
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: ./scripts/ci/signing-keychain.sh create
+      - name: Sign the variant as the nightly is signed
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: bash scripts/ci/nightly-steps/live-code-variant.sh sign "$VARIANT_APP" "$VARIANT_ENTITLEMENTS"
+      - name: Notarize the variant and its DMG
+        timeout-minutes: 75
+        env:
+          CMUX_NOTARY_WAIT_TIMEOUT: 60m
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          CMUX_STAPLE_APP_IN_DMG: "true"
+          CMUX_NOTARY_PENDING_ON_TIMEOUT: "false"
+          CMUX_CHANNEL: next
+          CMUX_DEFER_LAUNCH_SMOKES: "true"
+        run: ./scripts/ci/notarize-nightly-dmg.sh "$VARIANT_APP" "$LIVE_CODE_DMG_RELEASE" "$LIVE_CODE_DMG_IMMUTABLE"
+      - name: Delete the signing keychain
+        if: always()
+        run: ./scripts/ci/signing-keychain.sh delete
+      - name: Publish the variant and its module outputs
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        run: bash scripts/ci/nightly-steps/live-code-variant.sh publish "$BUILD" "$COMMIT" "$LIVE_CODE_DMG_IMMUTABLE" "live-code/live-code-modules-$COMMIT.tar.gz" "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" | tee -a "$GITHUB_STEP_SUMMARY"
 
   # Why: docs/ci/nightly-workflow-notes.md#note-22
   published-build:
