@@ -235,7 +235,7 @@ for n in $(seq 1 "$jobs"); do
   git -C "$mirror" worktree add -q --detach "$arms/w$n" "$rev" &
   pids+=($!)
 done
-for pid in "${pids[@]}"; do wait "$pid"; done
+for pid in ${pids[@]+"${pids[@]}"}; do wait "$pid"; done
 ms=$(( $(now_ms) - start ))
 watch=$(watch_stop "$watch_pid" duress-worktree)
 echo "PROJMAC $(json arm=duress-worktree jobs="$jobs" all_ready_ms="$ms" \

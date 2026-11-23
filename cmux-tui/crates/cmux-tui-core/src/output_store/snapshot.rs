@@ -934,6 +934,18 @@ pub(super) fn prune(mux: &Mux, store: &OutputStore, policy: PersistencePolicy) {
     );
 }
 
+/// Removes the saved shell states (`crate::shell_state`) of terminals no
+/// longer in the session: a closed tab's, and any a crash left behind.
+fn remove_unowned_shell_states(mux: &Mux, live: &HashSet<TerminalPublicId>) {
+    let Some(dir) = mux.shell_state_dir() else { return };
+    let removed = dir.remove_unowned(live);
+    if removed > 0 {
+        eprintln!(
+            "cmux-tui: removed {removed} shell-state file(s) of terminals that left the session"
+        );
+    }
+}
+
 /// Remove files the policy does not allow: everything in memory mode, and
 /// the files of terminals that are no longer in the session otherwise.
 /// Returns the parked terminals of the session, for the parked trim; `None`
@@ -961,6 +973,15 @@ pub(super) fn remove_unowned(
                  terminal.persistence.mode is memory"
             );
         }
+        // Shell state is not screen output: memory mode keeps a parked tab's.
+        if let Ok(live) = mux
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .live_terminal_public_ids()
+        {
+            remove_unowned_shell_states(mux, &live);
+        }
         return None;
     }
     let live = mux
@@ -969,6 +990,7 @@ pub(super) fn remove_unowned(
         .unwrap_or_else(PoisonError::into_inner)
         .live_terminal_public_ids()
         .ok()?;
+    remove_unowned_shell_states(mux, &live);
     for entry in entries.flatten() {
         let name = entry.file_name();
         let Some(name) = name.to_str() else { continue };
