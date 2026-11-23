@@ -24,7 +24,8 @@ public final class HarnessIconArtwork {
     public func lookup(for icons: HarnessIcons) -> HarnessIconLookup {
         if let last, last.icons == icons { return last.lookup }
         var lookup = HarnessIconLookup()
-        lookup.chats = chats
+        let chats = chats
+        lookup.drawChat = { chats.art($0) }
         for (harness, spec) in icons.specs {
             if let art = Self.art(spec) { lookup.art[harness] = (art, spec.isOwn) }
         }

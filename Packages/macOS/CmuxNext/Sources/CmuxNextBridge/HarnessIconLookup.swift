@@ -22,8 +22,9 @@ public struct HarnessIconLookup: Equatable, Sendable {
     }
 
     var art: [String: (art: Art, isOwn: Bool)] = [:]
-    /// The artwork's drawn chat icons (``chatArt(_:)``); nil in ``none``, where no chat icon draws.
-    var chats: ChatIconArt?
+    /// Draws a chat's own icon once (``HarnessIconArtwork``'s chat icons, ``chatArt(_:)``); in
+    /// ``none`` no chat icon draws.
+    var drawChat: @MainActor @Sendable (HarnessIconSpec?) -> Art? = { _ in nil }
 
     public static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.art.count == rhs.art.count && lhs.art.allSatisfy { key, value in rhs.art[key].map { $0.art == value.art && $0.isOwn == value.isOwn } ?? false }
@@ -31,7 +32,7 @@ public struct HarnessIconLookup: Equatable, Sendable {
 
     /// The drawn icon a chat gave itself (`acpmux icon @ 🥭`), drawn before its harness's.
     func chatArt(_ spec: HarnessIconSpec?) -> Art? {
-        chats?.art(spec)
+        drawChat(spec)
     }
 
     /// The icon to draw for `harness` in place of what its id suggests: the profile's own icon,
