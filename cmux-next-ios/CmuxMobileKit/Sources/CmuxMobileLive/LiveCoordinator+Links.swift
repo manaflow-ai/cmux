@@ -110,12 +110,19 @@ extension LiveCoordinator {
         session.workspaces.onNotification = { [weak session] post in session?.terminalFeed.notificationPosted(post) }
         let outputMac = session.macID
         session.workspaces.onTerminalOutput = { [weak self] tab in self?.onTerminalOutput?(tab, outputMac) }
+        let publishChats: @MainActor (MacSession) -> Void = { session in
+            let sessions = session.acpmux.sessions
+            session.workspaces.setPending(sessions.mapValues { $0.pendingPermissions > 0 }, waitingFor: session.feed.waitingFor,
+                                          chatTitles: sessions.compactMapValues(\.title),
+                                          chatActivity: sessions.mapValues { session.feed.activity(of: $0) })
+        }
         session.acpmux.onWatchEvent = { [weak session] event in
             guard let session else { return }
             session.feed.handle(event, sessions: session.acpmux.sessions)
-            session.workspaces.setPending(session.acpmux.sessions.mapValues { $0.pendingPermissions > 0 }, waitingFor: session.feed.waitingFor,
-                                          chatTitles: session.acpmux.sessions.compactMapValues(\.title))
+            publishChats(session)
         }
+        // A pull request's checks or merge changed: the workspace rows say so.
+        session.feed.onPullStatesChange = { [weak session] in session.map(publishChats) }
         session.creation.capabilities = { [weak self] mac in self?.store.macCapabilities[mac] }
         observe(session)
     }

@@ -2,6 +2,7 @@
 #if DEBUG
 import CmuxAgentQuestion
 import CmuxMobileAgentChat
+import CmuxMobileModel
 import Foundation
 
 extension FeedStore {
@@ -47,11 +48,28 @@ extension FeedStore {
             ],
             cwd: "~/Development/web"
         )
+        let pull = { (number: Int, title: String, state: PullRequestSummary.State, checks: PullRequestSummary.Checks?, mergeable: Bool?) in
+            PullRequestSummary(url: URL(string: "https://github.com/manaflow-ai/cmux/pull/\(number)")!, number: number, title: title,
+                               state: state, checks: checks, mergeable: mergeable)
+        }
+        let named = { (item: FeedItem, tab: String, pullRequest: PullRequestSummary?, build: String?) -> FeedItem in
+            var item = item
+            item.tabTitle = tab
+            item.pullRequest = pullRequest
+            item.devBuild = build
+            return item
+        }
+        // The Chief's memory compactor (#51332): the Feed never shows it.
+        var compactor = FeedItem(id: "f-compactor", kind: .response, workspaceID: "", tabID: "s-slot-1", agentName: "Claude", harness: "claude-sr2",
+                                 workspaceTitle: "slot-1", markdown: "Compacted 10648–10651: the person asked for the Feed redesign.",
+                                 quote: .init("<chat> 0+2048|user: codex --yolo fix the feed\n</chat>"), createdAt: now.addingTimeInterval(-20))
+        compactor.macID = nil
         return [
+            compactor,
             claude("f-question", .question(question), """
             The release branch is green: **412 tests pass** and the dogfood build is signed. Before I tag it I need three decisions.
             """, quote: .init("Cut a release once CI is green on feat-cmux-next-ios"), ago: 50, now: now),
-            codex("f-pricing", .response, """
+            named(codex("f-pricing", .response, """
             Fixed the pricing table overflow on small screens. The grid now wraps instead of forcing three columns:
 
             ```diff
@@ -66,7 +84,8 @@ extension FeedStore {
             | iPad mini | 3 columns | 2 columns |
 
             I also checked dark mode and the annual toggle; both render correctly. All **14** tests pass and Lighthouse stays at 98.
-            """, quote: .init("the pricing page breaks on iPhone SE"), ago: 240, now: now),
+            """, quote: .init("the pricing page breaks on iPhone SE"), ago: 240, now: now), "Pricing overflow",
+                  pull(812, "Pricing grid wraps on small screens", .merged, .passing, nil), nil),
             codex("f-permission", .permission(permission), """
             I'm ready to deploy the pricing fix to **staging**. This publishes the Worker and purges the cache for `/pricing`.
             """, quote: .init("ship it to staging when the tests pass"), ago: 420, now: now),
@@ -85,14 +104,15 @@ extension FeedStore {
 
             I added `BackoffTests` covering the cap and the jitter bounds.
             """, quote: .init("why does reconnect hammer the relay after sleep?"), ago: 900, now: now),
-            claude("f-finished", .finished, """
+            named(claude("f-finished", .finished, """
             **Finished:** extracted `LinkDialer` into `CmuxMobileTransport` and added WireGuard dialing behind `TransportKind`.
 
             - 3 files changed, +118 −24
             - Swift and Rust link tests pass
             - Settings → Connection now switches transport live
-            """, quote: .init("Make the transport layer switchable between WebRTC and WireGuard"), ago: 1600, now: now),
-            codex("f-failed", .failed, """
+            """, quote: .init("Make the transport layer switchable between WebRTC and WireGuard"), ago: 1600, now: now), "Switchable transport",
+                  pull(51210, "Transport: WireGuard dialing behind TransportKind", .open, .passing, true), "transport-wg"),
+            named(codex("f-failed", .failed, """
             The e2e job failed on `checkout.spec.ts`: the Stripe test card form never finished loading.
 
             ```text
@@ -100,7 +120,8 @@ extension FeedStore {
             ```
 
             This looks like the sandbox outage from this morning, not our change. Want me to retry?
-            """, quote: .init("run the e2e suite"), ago: 2400, now: now),
+            """, quote: .init("run the e2e suite"), ago: 2400, now: now), "e2e suite",
+                  pull(815, "Checkout: Stripe test card", .open, .failing, true), nil),
             claude("f-long", .response, """
             ## Feed rendering plan
 

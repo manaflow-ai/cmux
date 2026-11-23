@@ -213,7 +213,7 @@ public struct DaemonTree: Sendable {
                         for seen in [activity[surface], state?.updatedAt].compactMap(\.self) { observed = max(observed ?? seen, seen) }
                         guard var mapped = Self.tab(tab, id: id, agent: state, pending: agents.pending,
                                                     waitingFor: agents.waitingFor, chatTitles: agents.chatTitles,
-                                                    bindings: &agentTabs) else { continue }
+                                                    chatActivity: agents.chatActivity, bindings: &agentTabs) else { continue }
                         if let pinned = tab["pinned"] as? Bool { mapped.pinned = pinned }
                         mapped.hasCustomName = (tab["name"] as? String).map { !$0.isEmpty } ?? false
                         mapped.linkIDs = WorkspaceTab.LinkIDs(
@@ -425,6 +425,7 @@ public struct DaemonTree: Sendable {
     /// with an open permission or question. Both set the tab's `agentStatus`.
     static func tab(_ tab: [String: Any], id: String, agent: AgentState?, pending: [String: Bool] = [:],
                     waitingFor: [String: WorkspaceTab.WaitingFor] = [:], chatTitles: [String: String] = [:],
+                    chatActivity: [String: ChatActivity] = [:],
                     bindings: inout [String: AgentBinding]) -> WorkspaceTab? {
         var status: WorkspaceTab.AgentStatus? = switch agent?.state {
         case "blocked": .waiting
@@ -459,9 +460,11 @@ public struct DaemonTree: Sendable {
             }
             let harness = binding.harness ?? "agent"
             let chat = binding.session.flatMap { chatTitles[$0] }.flatMap(Self.titleLine)
-            return WorkspaceTab(id: id, kind: .agent, title: title.isEmpty ? chat ?? Self.agentName(harness) : title,
-                                subtitle: binding.session == nil ? "New chat" : nil, harness: harness, agentStatus: status,
-                                waitingFor: status == .waiting ? asks : nil)
+            var chatTab = WorkspaceTab(id: id, kind: .agent, title: title.isEmpty ? chat ?? Self.agentName(harness) : title,
+                                       subtitle: binding.session == nil ? "New chat" : nil, harness: harness, agentStatus: status,
+                                       waitingFor: status == .waiting ? asks : nil)
+            chatTab.activity = binding.session.flatMap { chatActivity[$0] }.flatMap { $0.isEmpty ? nil : $0 }
+            return chatTab
         default:
             return nil
         }
@@ -482,12 +485,9 @@ public struct DaemonTree: Sendable {
         return line.isEmpty ? nil : String(line.prefix(80))
     }
 
+    /// "Claude" for `claude` and its profiles (`claude-sr2`), "Codex", … (`HarnessName`).
     static func agentName(_ harness: String) -> String {
-        switch harness {
-        case "claude": "Claude"
-        case "codex": "Codex"
-        default: harness.prefix(1).uppercased() + harness.dropFirst()
-        }
+        harness == "terminal" ? "Terminal" : HarnessName.display(harness)
     }
 
     /// `~/` for paths under a home directory (`/Users/<name>/`).
@@ -514,6 +514,8 @@ public struct AgentStates: Sendable {
     /// acpmux session id → the chat's title (`SessionSummary.title`: its generated title, else
     /// its first prompt), which the Mac's tab and sidebar row read as.
     public var chatTitles: [String: String] = [:]
+    /// acpmux session id → what the chat did last (`AcpmuxSession.activity`): a workspace row's line.
+    public var chatActivity: [String: ChatActivity] = [:]
 
     public init() {}
 

@@ -270,11 +270,13 @@ public final class WorkspaceSync {
     /// what each open ask is when the phone has seen it (`waitingFor`), and each chat's
     /// title (`chatTitles`: an unnamed chat tab and its workspace read as it).
     public func setPending(_ pending: [String: Bool], waitingFor: [String: WorkspaceTab.WaitingFor] = [:],
-                           chatTitles: [String: String] = [:]) {
-        guard agents.pending != pending || agents.waitingFor != waitingFor || agents.chatTitles != chatTitles else { return }
+                           chatTitles: [String: String] = [:], chatActivity: [String: ChatActivity] = [:]) {
+        guard agents.pending != pending || agents.waitingFor != waitingFor || agents.chatTitles != chatTitles
+            || agents.chatActivity != chatActivity else { return }
         agents.pending = pending
         agents.waitingFor = waitingFor
         agents.chatTitles = chatTitles
+        agents.chatActivity = chatActivity
         pendingChanged = true
         drain()
     }

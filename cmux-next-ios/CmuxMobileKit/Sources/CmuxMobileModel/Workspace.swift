@@ -139,6 +139,9 @@ public struct WorkspaceTab: Identifiable, Hashable, Sendable, Codable {
     /// What a `.waiting` agent waits for, when the Mac's acpmux says (agent tabs).
     /// Nil for a terminal agent, whose report says only that it is blocked.
     public var waitingFor: WaitingFor?
+    /// What its agent chat did last (`ChatActivity`: its last reply's line, a failed turn, the pull
+    /// request it opened), from the Mac's acpmux summary. Nil for other tabs and older saved copies.
+    public var activity: ChatActivity?
     /// Pinned on the Mac (`set-tab-pinned`): pinned tabs sort first in their pane.
     /// Optional so older saved copies still decode; nil reads as not pinned.
     public var pinned: Bool?
@@ -277,15 +280,9 @@ public struct WorkspaceTab: Identifiable, Hashable, Sendable, Codable {
     /// Runs an agent (an agent tab, or a terminal with a known harness).
     public var isAgent: Bool { kind == .agent || harness != nil }
 
-    /// "Claude", "Codex", else the harness capitalized, else "Agent".
-    public var agentName: String {
-        switch harness {
-        case "claude": "Claude"
-        case "codex": "Codex"
-        case let other? where !other.isEmpty: other.prefix(1).uppercased() + other.dropFirst()
-        default: "Agent"
-        }
-    }
+    /// "Claude" (also for its profiles, `claude-sr2`), "Codex", else the harness's family
+    /// capitalized, else "Agent" (`HarnessName`).
+    public var agentName: String { HarnessName.display(harness) }
 
     /// What the agent works on, for a status line: the tab's title unless it
     /// is only the agent's name, then its subtitle. Nil when neither says more.

@@ -30,6 +30,31 @@ struct FeedRowKey: Hashable, Sendable {
     var state: FeedRowState
     var width: Int
     var textSize: String
+    /// Where the row sits in its workspace's run of rows (the thread line beside the avatar).
+    var thread: FeedThread = .single
+}
+
+/// A row's place in its workspace's run (`FeedStore.arranged` keeps a workspace's events
+/// together): Threads' line joins the avatars of one run.
+enum FeedThread: Hashable, Sendable {
+    case single, first, middle, last
+
+    /// The positions of `ids` given each row's thread key, in order.
+    static func positions(_ keys: [String]) -> [FeedThread] {
+        keys.indices.map { index in
+            let before = index > keys.startIndex && keys[index - 1] == keys[index]
+            let after = index + 1 < keys.endIndex && keys[index + 1] == keys[index]
+            switch (before, after) {
+            case (false, false): return .single
+            case (false, true): return .first
+            case (true, true): return .middle
+            case (true, false): return .last
+            }
+        }
+    }
+
+    var joinsAbove: Bool { self == .middle || self == .last }
+    var joinsBelow: Bool { self == .first || self == .middle }
 }
 
 /// One layout per row, kept until its key changes: a live change to one
