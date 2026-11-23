@@ -1237,7 +1237,10 @@ export class UserDO extends DurableObject<Env> {
     const host = this.liveDevice(s.host_id);
     if (host.mac_screen_shared !== 1) throw new ApiError(403, "not_shared", "the host does not share its screen");
     if (!this.online(host.id)) throw new ApiError(409, "host_offline", "the host is not connected");
-    if (rank(this.permission(host.id, me.id)) < rank(s.scope)) throw new ApiError(403, "permission_none", "the host no longer allows this device");
+    // Lowering a permission ends the sessions it no longer allows (storePermission), so an open
+    // session below its stored permission was approved once (Ask, or View asking for Full): only
+    // None refuses its reattach.
+    if (this.permission(host.id, me.id) === "none") throw new ApiError(403, "permission_none", "the host no longer allows this device");
     const entitled = (await this.sessionEntitlement(s, c)) === "paid";
     const tickets = await this.issueTickets(s, c, entitled ? await mintTurn(this.env) : [], REATTACH_TTL_S, true);
     if (!tickets) throw new ApiError(409, "session_not_active", "session is not active");
