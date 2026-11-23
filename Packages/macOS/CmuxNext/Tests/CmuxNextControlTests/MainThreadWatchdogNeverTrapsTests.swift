@@ -37,8 +37,9 @@ import Testing
         watchdog.alarm.wake()
         #expect(reported.wait(timeout: .now() + 20) == .success, "the hang was not reported")
         #expect(checkedAfterHang.wait(timeout: .now() + 20) == .success, "the watchdog did not finish its check")
-        #expect(watchdog.busyHangFaults.load(ordering: .relaxed) == 0, "an unknown CPU time was taken for a busy hang")
-        #expect(hangs.value.load(ordering: .relaxed) == 1)
+        let faults = watchdog.busyHangFaults.load(ordering: .relaxed), reports = hangs.value.load(ordering: .relaxed)
+        #expect(faults == 0, "an unknown CPU time was taken for a busy hang")
+        #expect(reports == 1)
         watchdog.heartbeat(.beforeWaiting)
         #expect(watchdog.log.records().map(\.duration) == [.seconds(11)])
     }
@@ -65,8 +66,9 @@ import Testing
         clock.advance(by: .seconds(3))
         watchdog.heartbeat(.beforeWaiting)
         #expect(seen.values.withLock { $0 } == [stallBeat &+ 1], "onStall ran before the stall's heartbeat moved on")
-        #expect(!seen.asleepDuringLog.load(ordering: .relaxed), "onStall ran after the loop was published asleep")
-        #expect(watchdog.mainAsleep.load(ordering: .acquiring), "the before-waiting heartbeat left the loop awake")
+        let asleepDuringLog = seen.asleepDuringLog.load(ordering: .relaxed), asleepAfter = watchdog.mainAsleep.load(ordering: .acquiring)
+        #expect(!asleepDuringLog, "onStall ran after the loop was published asleep")
+        #expect(asleepAfter, "the before-waiting heartbeat left the loop awake")
         // The ended hang's exact length is still there for its file.
         #expect(watchdog.closeEpisode(beat: stallBeat, lastElapsedNanos: 2_100_000_000) == 3_000_000_000)
     }
