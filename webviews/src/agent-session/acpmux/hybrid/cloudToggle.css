@@ -19,7 +19,7 @@
   align-items: center;
   flex: none;
   gap: 4px;
-  height: 22px;
+  height: 24px;
   margin: 0;
   padding: 0 4px;
   border: 0;
@@ -65,7 +65,8 @@
     stroke var(--cmux-motion-quick) var(--cmux-ease-out);
 }
 @media (hover: hover) and (pointer: fine) {
-  .acpmux-hybrid-toggle:hover .acpmux-hybrid-cloud__shape { opacity: 1; }
+  .acpmux-hybrid-toggle:hover .acpmux-hybrid-cloud__shape,
+  .acpmux-hybrid-toggle:has([data-popup-open]) .acpmux-hybrid-cloud__shape { opacity: 1; }
 }
 .acpmux-hybrid-stop[data-stop="1"] { stop-color: var(--acpmux-hybrid-1); }
 .acpmux-hybrid-stop[data-stop="2"] { stop-color: var(--acpmux-hybrid-2); }
@@ -120,9 +121,9 @@
 .acpmux-hybrid-arc {
   position: absolute;
   left: 50%;
-  bottom: 6px;
+  bottom: 8px;
   width: 24px;
-  height: 16px;
+  aspect-ratio: 3 / 2;
   margin-left: -12px;
   overflow: visible;
   pointer-events: none;
@@ -208,13 +209,13 @@
   display: inline-grid;
   place-items: center;
   width: 16px;
-  height: 16px;
+  aspect-ratio: 1;
 }
-.acpmux-hybrid-mark .acpmux-hybrid-toggle { height: 16px; padding: 0; pointer-events: none; }
+.acpmux-hybrid-mark .acpmux-hybrid-toggle { height: 100%; padding: 0; pointer-events: none; }
 .acpmux-hybrid-dot {
   flex: none;
   width: 6px;
-  height: 6px;
+  aspect-ratio: 1;
   border-radius: 999px;
   background: linear-gradient(135deg, var(--acpmux-hybrid-1), var(--acpmux-hybrid-4), var(--acpmux-hybrid-5));
 }
@@ -232,7 +233,7 @@
   align-items: center;
   flex: none;
   gap: 0;
-  height: 22px;
+  height: 24px;
   color: var(--agent-muted);
 }
 .acpmux-hybrid-tri__segment { padding: 0 4px; }
