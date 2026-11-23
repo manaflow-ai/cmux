@@ -5,11 +5,11 @@
 // same rows as the first-run window would, for comparison only. Each row's trailing control keeps
 // one slot, so a button, the spinner and the done mark swap in place and nothing moves. The model is
 // setupModel.ts; the host runs each action.
-import { Spinner } from "../../../../agent-session/acpmux/conversation/icons";
-import { Button } from "../../../../ui/Button";
-import { StatusGlyph } from "../../../../ui/StatusGlyph";
-import { TextSizePicker, type TextSizePickerLabels } from "../../../../ui/TextSizePicker";
-import type { Strings } from "../strings";
+import { Spinner } from "../../agent-session/acpmux/conversation/icons";
+import { Button } from "../../ui/Button";
+import { StatusGlyph } from "../../ui/StatusGlyph";
+import { TextSizePicker, type TextSizePickerLabels } from "../../ui/TextSizePicker";
+import type { Strings } from "./strings";
 import {
   nextStep,
   setupProgress,
@@ -19,7 +19,7 @@ import {
   type SetupState,
   type SetupStep,
 } from "./setupModel";
-import "../cards.css";
+import "./cards.css";
 
 export type SetupLook = "next" | "rows" | "checklist" | "window";
 export const DEFAULT_SETUP_LOOK: SetupLook = "rows";

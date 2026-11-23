@@ -1,12 +1,12 @@
-/* The Messages transcript (home-messages/transcript). The bubble metrics are MessagesLab's measured
+/* The Messages transcript (home-channels/transcript). The bubble metrics are MessagesLab's measured
    Messages values (Layout.swift, RowDrawing.swift), defined once here as tokens: a 17 pt corner, the
    tail, 12 pt side padding, a 36 pt avatar in a glass name pill header. Colours come from the look
    (iMessage's blue and grey, the theme's accent and surface, or an outline) and the chat's own
    colours over it (colors.ts sets --mt-sent, --mt-sent-text, --mt-received, --mt-received-text). */
 .mt-transcript {
   /* iMessage: MessagesLab's measured sent blue (catalyst Fixture.outgoing) and Messages' greys. */
-  --mt-imessage-blue: #0284fe;
-  --mt-imessage-grey: light-dark(#e9e9eb, #3b3b3d);
+  --mt-imessage-blue: #0284fe; /* colour-allow: Messages' measured sent blue, a fixed brand colour that is no theme role */
+  --mt-imessage-grey: light-dark(#e9e9eb, #3b3b3d); /* colour-allow: Messages' received greys, fixed, no theme role */
   --mt-bubble-radius: 17px;
   --mt-bubble-pad-block: 6px;
   --mt-bubble-pad-inline: 12px;
@@ -20,7 +20,7 @@
   --mt-typing-dot: 8px;
   --mt-tapback-lift: -22px;
   --mt-hairline-gap: 2px;
-  --mt-on-danger: #ffffff;
+  --mt-on-danger: #ffffff; /* colour-allow: white on system red, fixed with it */
   /* A loop, not a transition: the typing dots' cycle. */
   --mt-typing-period: 1200ms;
   --mt-side: 20px;
@@ -32,7 +32,7 @@
      transcript's failure colour (Palette.statusError). */
   --mt-danger: light-dark(#d70015, #ff453a); /* colour-allow: system red, a status colour that is no theme role (native Palette.statusError) */
   --mt-look-sent: var(--mt-imessage-blue);
-  --mt-look-sent-text: #ffffff;
+  --mt-look-sent-text: #ffffff; /* colour-allow: white on Messages' sent blue, fixed with it */
   --mt-look-received: var(--mt-imessage-grey);
   --mt-look-received-text: var(--page-text);
   --mt-look-received-line: transparent;

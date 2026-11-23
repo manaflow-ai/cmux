@@ -168,7 +168,7 @@ His reference is the account menu of a desktop chat app: one translucent surface
 | New Tab page | web-content | clear; its suggestions at 86% page glass | `W/agent-session/acpmux/newtab/*` |
 | Settings | web-content | clear; its menus page glass (no host glass in that page) | `W/pages/settings`, `W/pages/shared/pageBase.css` |
 | Markdown, diff, files | web-content | clear; headers and toolbar menus page glass | `W/pages/markdown`, `W/pages/diff`, `W/styles.css` |
-| Home messages and channels | web-content | page glass headers | `W/pages/home-messages`, `W/pages/home-channels` |
+| Home messages and channels | web-content | page glass headers | `W/pages/home-channels` |
 | Onboarding | web-content | page glass cards | `W/pages/onboarding/styles.css` |
 | In-page dialogs | web-floating | page glass | `W/ui/Dialog.tsx` |
 

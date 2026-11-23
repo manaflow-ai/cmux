@@ -2,8 +2,8 @@
 // "Set Up cmux" on Home (goal next-first-run-setup): the card in each look, on a stage shaped like
 // Home's chat column with the composer under it, in three states: a fresh Mac (nothing installed), a
 // Mac with classic cmux's session, and one row left.
-import { componentEntry } from "../../../../gallery/format";
-import { cardStrings } from "../strings";
+import { componentEntry } from "../../gallery/format";
+import { cardStrings } from "./strings";
 import { SetupCard, type SetupLook } from "./SetupCard";
 import type { SetupState } from "./setupModel";
 
@@ -121,9 +121,9 @@ export default componentEntry<Props>({
   area: "Home and Chief",
   height: 520,
   widths: { narrow: 390, normal: 640, wide: 900 },
-  covers: ["pages/home-messages/cards/setup/SetupCard.tsx"],
+  covers: ["pages/setup-card/SetupCard.tsx"],
   load: async () => Stage,
-  styles: () => import("../cards.gallery.css"),
+  styles: () => import("./cards.gallery.css"),
   variants: {
     ...variants("next", {
       fresh:

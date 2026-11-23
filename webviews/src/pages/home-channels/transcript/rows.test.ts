@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import type { PendingSend } from "../../home-channels/store";
-import type { HomeConversation, HomeMessage, HomeParticipant } from "../../home-channels/types";
+import type { PendingSend } from "../store";
+import type { HomeConversation, HomeMessage, HomeParticipant } from "../types";
 import { GROUP_GAP_MS, SEPARATOR_GAP_MS, transcriptRows, type TranscriptData, type TranscriptRow } from "./rows";
 
 const me: HomeParticipant = { id: "me", kind: "human", name: "Me", chief: false };

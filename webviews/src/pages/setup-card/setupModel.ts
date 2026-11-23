@@ -4,7 +4,7 @@
 // row's state (acpmux's harness health, the account, `CLIInstallReport`, the classic migration's
 // plan) and runs each action; this file decides nothing the host can answer. Not wired yet: the
 // gallery shows it (goal next-first-run-setup, cmuxterm-hq goals/next-first-run-setup.md).
-import type { Strings } from "../strings";
+import type { Strings } from "./strings";
 
 /** One agent CLI's row inside the agents step. */
 export interface SetupAgent {

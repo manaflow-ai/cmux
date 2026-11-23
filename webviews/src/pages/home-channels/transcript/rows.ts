@@ -14,10 +14,10 @@
 // - Others typing show one typing bubble at the end; a participant whose reply is streaming shows
 //   that reply as its bubble instead.
 // - Gaps are Messages' measured ones (points, drawn as CSS pixels).
-import { PENDING_PREFIX, pendingMessages, threadOf } from "../../home-channels/model";
-import type { HomeDraft } from "../../home-channels/drafts";
-import type { PendingSend } from "../../home-channels/store";
-import type { HomeConversation, HomeMessage, HomeParticipant, HomePart, HomeReaction } from "../../home-channels/types";
+import { PENDING_PREFIX, pendingMessages, threadOf } from "../model";
+import type { HomeDraft } from "../drafts";
+import type { PendingSend } from "../store";
+import type { HomeConversation, HomeMessage, HomeParticipant, HomePart, HomeReaction } from "../types";
 
 /** Messages under a minute apart from one sender in one thread are one group (`RowBuilder.groupGap`). */
 export const GROUP_GAP_MS = 60_000;
