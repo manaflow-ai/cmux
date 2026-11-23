@@ -3165,15 +3165,23 @@ export function loginPathAfterClaim(o: { receipt: boolean; launchCredential: boo
  * `_meta.acpmux.credentials: {env: {NAME: value}}`, as the guest cmux-tui's `agent-session-start` relays it from the
  * owner's app. acpmux takes a credential only from its own unix socket with no caller token, which a program run
  * through the machine's exec is. The value goes on stdin (the heredoc), never on a command line.
+ *
+ * `prompt`: the chat's first prompt, sent on the same socket right after `session/new` answers, as the app's page
+ * sends its first `session/prompt` on the link its start opened (RemoteAcpmuxWire.startChat keeps that client). The
+ * program returns once acpmux accepted it (`_acpmux/prompt_accepted`, as `acp send --no-wait` waits) and prints
+ * `@@prompted`; the turn runs on in the daemon. Without it the journey's send was a second exec and a fresh
+ * `cmux-tui acp send` process (2.4 to 3.2 s on the 11-23 stub legs), a path no person's first send takes.
  */
-export function launchCredentialStartProgram(session: string, agent: string, name: string, value: string): string {
+export function launchCredentialStartProgram(session: string, agent: string, name: string, value: string, prompt?: string): string {
   const slash = agent.indexOf("/");
   const meta: Record<string, unknown> = { name: session, harness: slash < 0 ? agent : agent.slice(0, slash), credentials: { env: { [name]: value } } };
   if (slash >= 0) meta.model = agent.slice(slash + 1);
   const params = JSON.stringify({ mcpServers: [], _meta: { acpmux: meta } });
+  const first = prompt === undefined ? "None" : JSON.stringify(prompt);
   return `python3 -I - <<'CMUX_JOURNEY_START'
-import json, os, socket, sys
+import json, os, socket, sys, uuid
 params = json.loads(${JSON.stringify(params)})
+first = ${first}
 params['cwd'] = os.environ.get('HOME') or '/home/cmux'
 home = params['cwd']
 paths = [p for p in (os.environ.get('ACPMUX_SOCKET'), home + '/.cmux/acpmux/acpmux.sock', home + '/.acpmux/acpmux.sock') if p]
@@ -3199,10 +3207,33 @@ for path in paths:
         f = s.makefile('r')
         call(f, s, 1, 'initialize', {'protocolVersion': 1, 'clientCapabilities': {}, 'clientInfo': {'name': 'cloud-journey', 'version': '1'}})
         r = call(f, s, 2, 'session/new', params)
-        print('@@session ' + str((r or {}).get('sessionId')))
-        sys.exit(0)
+        sid = (r or {}).get('sessionId')
+        print('@@session ' + str(sid), flush=True)
     except Exception as e:
         errors.append(path + ': ' + str(e))
+        continue
+    if first is None:
+        sys.exit(0)
+    # The session exists now: a failed prompt never starts a second session on another socket.
+    try:
+        pid = str(uuid.uuid4())
+        s.sendall((json.dumps({'jsonrpc': '2.0', 'id': 3, 'method': 'session/prompt', 'params': {'sessionId': sid, 'prompt': [{'type': 'text', 'text': first}], '_meta': {'acpmux': {'steer': False, 'promptId': pid, 'resend': False}}}}) + '\\n').encode())
+        while True:
+            line = f.readline()
+            if not line:
+                raise RuntimeError('session/prompt: the daemon closed the connection')
+            m = json.loads(line)
+            if m.get('method') == '_acpmux/prompt_accepted' and (m.get('params') or {}).get('promptId') == pid:
+                break
+            if m.get('id') == 3:
+                if m.get('error'):
+                    raise RuntimeError('session/prompt: ' + json.dumps(m['error'])[:400])
+                break
+        print('@@prompted', flush=True)
+        sys.exit(0)
+    except Exception as e:
+        print('@@noprompt ' + str(e))
+        sys.exit(2)
 print('@@nostart ' + ('; '.join(errors) or 'no acpmux socket at ' + ', '.join(paths)))
 sys.exit(1)
 CMUX_JOURNEY_START`;
@@ -4994,13 +5025,20 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       for (const step of ["send chat", "reply"]) J.skip(step, "--start-via app: the cell judges the app's start");
     } else {
       J.firstText.mark("session_start");
+      let promptedWithStart = false;
       await J.step(`start agent (${agent})`, async () => {
         if (launchCredential) {
-          const r = await exec(`${GUEST}${launchCredentialStartProgram(session, agent, "CLAUDE_CODE_OAUTH_TOKEN", login)}`, 120_000);
+          // The first prompt follows session/new on the same acpmux link, as the app's first send does.
+          const r = await exec(`${GUEST}${launchCredentialStartProgram(session, agent, "CLAUDE_CODE_OAUTH_TOKEN", login, prompt)}`, 120_000);
           const id = /@@session (\S+)/.exec(r.stdout)?.[1];
-          if (r.code !== 0 || !id) throw new Error(scrub(r.stdout.slice(-400) || r.stderr.slice(-400), [login]));
+          if (!id) throw new Error(scrub(r.stdout.slice(-400) || r.stderr.slice(-400), [login]));
           J.firstText.mark("session_ready");
-          return { value: null, detail: `session ${session}, on the person's model connection (its launch credential)` };
+          if (r.code !== 0 || !/@@prompted/.test(r.stdout)) throw new Error(`session ${session} started, but its first prompt was not taken: ${scrub(r.stdout.slice(-400) || r.stderr.slice(-400), [login])}`);
+          promptedWithStart = true;
+          // One exec carries both: send and sent fall at its return, after session_ready, as the trace's spans read them.
+          J.firstText.mark("send");
+          J.firstText.mark("sent");
+          return { value: null, detail: `session ${session}, on the person's model connection (its launch credential); its first prompt went with the start` };
         }
         const r = await exec(`${GUEST}"$c" acp ensure ${shq(session)} -m ${shq(agent)} --json 2>&1; echo "@@exit $?"`, 120_000);
         if (!/@@exit 0/.test(r.stdout)) throw new Error(r.stdout.slice(-400) || r.stderr.slice(-400));
@@ -5009,6 +5047,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
       firstTextObserver = observeFirstText(exec, session, chatBudget, J.firstText, (s) => J.record(s));
       await J.step("send chat", async () => {
+        if (promptedWithStart) return { value: null, detail: `${prompt.slice(0, 80)} (went with the agent's start, on its link)` };
         J.firstText.mark("send");
         await send(prompt);
         J.firstText.mark("sent");
