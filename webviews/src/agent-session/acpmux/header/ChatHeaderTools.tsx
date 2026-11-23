@@ -385,8 +385,14 @@ function ChatHeaderToolsView({
   });
   // A consolidated layout picked in Debug Settings (`agentChat.topRight.consolidate`) wins over the
   // contextual styles, which apply to the plain row; the three controls and the glass toolbar draw their own.
+  // The native row never draws a consolidated layout, so it keeps the contextual style picked.
   const layoutPicked =
-    topRightLayout !== "row" && glassLook === "off" && (controls ?? headerControls) !== "trio" && tabTools;
+    topRightLayout !== "row" &&
+    nativeRowTools?.enabled !== true &&
+    glassLook === "off" &&
+    (controls ?? headerControls) !== "trio" &&
+    tabTools &&
+    actions.length > 0;
   const headerIcons =
     glassLook === "off" && (controls ?? headerControls) !== "trio" && !layoutPicked ? iconsPicked : "standard";
   // The contextual styles draw only the icons relevant to the chat now (headerRelevance.ts).

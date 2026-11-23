@@ -61,10 +61,12 @@ export function TopRightLayouts({
   return <DockButton tools={tools} order={order} shortcuts={shortcuts} />;
 }
 
-/// Runs a pick and remembers it, so the morph face and the dock's Recent follow.
+/// Runs a pick and remembers one that opens a pane, so the morph face and the dock's Recent follow; a pick
+/// that closes its pressed pane is not an open.
 const runTool = (tool: HeaderQuickTool) => {
+  const opens = tool.pressed !== true;
   tool.run?.();
-  notePaneOpened(tool.id);
+  if (opens) notePaneOpened(tool.id);
 };
 
 /// The pane's motion token in ms (0 with animation off).
