@@ -155,7 +155,7 @@ fn appends_of_many_chats_go_on_side_by_side() {
     let scale = many.per_s / one.per_s.max(1.0);
     let of_apart = many.per_s / apart.per_s.max(1.0);
     eprintln!(
-        "STRESS ingest: 1 chat {:.0}/s read p95 {:.2} ms; {n} chats {:.0}/s read p95 {:.2} ms; \
+        "STRESS ingest: {cores} cores; 1 chat {:.0}/s read p95 {:.2} ms; {n} chats {:.0}/s read p95 {:.2} ms; \
          scale {scale:.2}x; {n} chats in stores of their own {:.0}/s, one store reaches \
          {of_apart:.2} of it",
         one.per_s, one.read_p95_ms, many.per_s, many.read_p95_ms, apart.per_s
