@@ -109,6 +109,17 @@ const TONAL: &[(&str, &str)] = &[
     ("agent-pane/theme.css", include_str!("../recipes/apps/tonal/agent-pane.css")),
 ];
 
+/// Layout and behaviour looks (c-07be086806, Leo: "im saying the big stuff"): each is a look
+/// folder in `examples/looks`, and the recipe is that look's `cmux-setup.json` with its
+/// `keybindings.json`, so the gallery's install test and these tests hold the same files.
+const LEADER: &[(&str, &str)] =
+    &[("keybindings.json", include_str!("../../../../examples/looks/leader/keybindings.json"))];
+
+const REVIEW_DESK: &[(&str, &str)] = &[(
+    "keybindings.json",
+    include_str!("../../../../examples/looks/review-desk/keybindings.json"),
+)];
+
 /// Hairline carries the gallery look's own files, so the recipe and the
 /// installable look stay one design.
 const HAIRLINE: &[(&str, &str)] = &[
@@ -286,6 +297,38 @@ pub const RECIPES: &[Recipe] = &[
             "../../../../examples/looks/claude-code/notification-levels/cmux-setup.json"
         ),
         includes: &[],
+    },
+    Recipe {
+        name: "review-desk",
+        title: "A review desk",
+        group: Group::Layout,
+        ask: "set up a review layout with the chat, the diff and a terminal side by side",
+        profile: include_str!("../../../../examples/looks/review-desk/cmux-setup.json"),
+        includes: REVIEW_DESK,
+    },
+    Recipe {
+        name: "bottom-deck",
+        title: "Every bar at the bottom",
+        group: Group::Layout,
+        ask: "move the tab bar, the address bars and the docks to the bottom",
+        profile: include_str!("../../../../examples/looks/bottom-deck/cmux-setup.json"),
+        includes: &[],
+    },
+    Recipe {
+        name: "workspace-tabs",
+        title: "Workspaces like browser tabs",
+        group: Group::Layout,
+        ask: "make my workspaces work like browser tabs",
+        profile: include_str!("../../../../examples/looks/workspace-tabs/cmux-setup.json"),
+        includes: &[],
+    },
+    Recipe {
+        name: "leader",
+        title: "A keyboard mode on Command-J",
+        group: Group::Keys,
+        ask: "give me leader keys to split, zoom, resize and move panes",
+        profile: include_str!("../../../../examples/looks/leader/cmux-setup.json"),
+        includes: LEADER,
     },
     Recipe {
         name: "ukiyo-e",

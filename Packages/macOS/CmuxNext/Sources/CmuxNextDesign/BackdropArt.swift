@@ -4,7 +4,9 @@ public import Foundation
 
 /// A public-domain artwork for the window backdrop (cx-t2x.7): well-known paintings and prints
 /// from Wikimedia Commons, each cleared as public domain in the US (the artist died 70+ years ago
-/// and the work was published before 1931). Sources and licenses: art/manifest.json.
+/// and the work was published before 1931), and the Frutiger Aero backdrops (`aero-*`), original works
+/// drawn from a seed by cmux-tui/crates/cmux-backdrop-gen and dedicated to the public domain.
+/// Sources and licenses: art/manifest.json.
 public nonisolated enum BackdropArt: String, CaseIterable, Sendable {
     case davidDeathOfMarat = "david-death-of-marat"
     case veldeSmallShipStorm = "velde-small-ship-storm"
@@ -145,6 +147,11 @@ public nonisolated enum BackdropArt: String, CaseIterable, Sendable {
     case vanGoghFishingBoats = "van-gogh-fishing-boats"
     case hokusaiUmezawa = "hokusai-umezawa"
     case whistlerFallingRocket = "whistler-falling-rocket"
+    case aeroSky = "aero-sky"
+    case aeroLagoon = "aero-lagoon"
+    case aeroAurora = "aero-aurora"
+    case aeroMeadow = "aero-meadow"
+    case aeroOrchid = "aero-orchid"
     case doreFallOfSatan = "dore-fall-of-satan"
     case doreWolvesSheep = "dore-wolves-sheep"
     case doreLeviathan = "dore-leviathan"
@@ -313,6 +320,11 @@ public nonisolated enum BackdropArt: String, CaseIterable, Sendable {
         case .vanGoghFishingBoats: String(localized: "backdrop.van-gogh-fishing-boats.title", defaultValue: "Fishing Boats at Saintes-Maries", bundle: .localizedModule)
         case .hokusaiUmezawa: String(localized: "backdrop.hokusai-umezawa.title", defaultValue: "Umezawa Manor in Sagami", bundle: .localizedModule)
         case .whistlerFallingRocket: String(localized: "backdrop.whistler-falling-rocket.title", defaultValue: "Nocturne in Black and Gold", bundle: .localizedModule)
+        case .aeroSky: String(localized: "backdrop.aero-sky.title", defaultValue: "Aero Sky", bundle: .localizedModule)
+        case .aeroLagoon: String(localized: "backdrop.aero-lagoon.title", defaultValue: "Aero Lagoon", bundle: .localizedModule)
+        case .aeroAurora: String(localized: "backdrop.aero-aurora.title", defaultValue: "Aero Aurora", bundle: .localizedModule)
+        case .aeroMeadow: String(localized: "backdrop.aero-meadow.title", defaultValue: "Aero Meadow", bundle: .localizedModule)
+        case .aeroOrchid: String(localized: "backdrop.aero-orchid.title", defaultValue: "Aero Orchid", bundle: .localizedModule)
         case .doreFallOfSatan: String(localized: "backdrop.dore-fall-of-satan.title", defaultValue: "The Fall of Satan", bundle: .localizedModule)
         case .doreWolvesSheep: String(localized: "backdrop.dore-wolves-sheep.title", defaultValue: "The Wolves and the Sheep", bundle: .localizedModule)
         case .doreLeviathan: String(localized: "backdrop.dore-leviathan.title", defaultValue: "The Destruction of Leviathan", bundle: .localizedModule)
