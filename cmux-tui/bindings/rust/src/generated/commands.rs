@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR c2455739e46286f19ed0a49bc612958d7dc7d70b671206ee52da3006d560694f.
+// cmux-tui mux protocol 12, IR 48a9924f50adb2f24246b423708d4d52b30d073665b9bc43fff9adb8d18ac320.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -86,6 +86,10 @@ pub struct AttachSurfaceRequest {
     pub replay_history_rows: Optional<u32>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub replay_history_start: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub resume_generation: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub resume_offset: Optional<u64>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -4533,6 +4537,12 @@ impl CmuxClient {
         }
         if !request.replay_history_start.is_missing() {
             self.require_capability_field("attach-surface", "attach-replay-history-window-v1")?;
+        }
+        if !request.resume_generation.is_missing() {
+            self.require_capability_field("attach-surface", "terminal-resume-v1")?;
+        }
+        if !request.resume_offset.is_missing() {
+            self.require_capability_field("attach-surface", "terminal-resume-v1")?;
         }
         if !request.rows.is_missing() {
             self.require_capability_field("attach-surface", "attach-initial-size")?;

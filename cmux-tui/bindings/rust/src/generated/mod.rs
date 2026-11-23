@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR c2455739e46286f19ed0a49bc612958d7dc7d70b671206ee52da3006d560694f.
+// cmux-tui mux protocol 12, IR 48a9924f50adb2f24246b423708d4d52b30d073665b9bc43fff9adb8d18ac320.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 mod commands;
