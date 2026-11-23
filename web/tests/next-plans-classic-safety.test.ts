@@ -28,7 +28,7 @@ import {
   resolveVmEntitlements,
 } from "../services/vms/entitlements";
 
-const NEXT_IDS = ["next_pro", "next_max"] as const;
+const NEXT_IDS = ["next_plus", "next_pro", "next_max"] as const;
 
 type MetadataUser = {
   id?: string;

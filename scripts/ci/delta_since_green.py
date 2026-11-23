@@ -114,15 +114,21 @@ class Git:
         with their contents, which is slower but routes the same. When both
         fail the delta does not apply, and the reason carries git's stderr.
         """
-        attempts = ((object_filter, *args), args)
-        for index, attempt in enumerate(attempts):
+        # git 2.56's "repack local links" step aborts (pack-objects BUG: should_include_obj ...) when a
+        # --filter=tree:0 fetch deepens a shallow checkout's own commit, and the crash leaves the remote a
+        # promisor, so a plain retry aborts the same way. --filter=blob:none (trees, no blobs) passes there.
+        filters = [object_filter] + (["--filter=blob:none"] if object_filter != "--filter=blob:none" else [])
+        attempts = [(name, (name, *args)) for name in filters] + [(None, args)]
+        for index, (used, attempt) in enumerate(attempts):
             try:
                 self.run("fetch", "--quiet", "--no-tags", "--no-write-fetch-head", *attempt)
                 return
             except subprocess.CalledProcessError as error:
                 stderr = " ".join((error.stderr or "").split())[-300:] or f"exit {error.returncode}"
                 if index + 1 < len(attempts):
-                    self.notes.append(f"fetch {' '.join(args[:1])} with {object_filter} failed ({stderr}); retried without it")
+                    following = attempts[index + 1][0]
+                    self.notes.append(f"fetch {' '.join(args[:1])} with {used} failed ({stderr}); retried without it"
+                                      + (f", with {following}" if following else ""))
                 else:
                     raise Skip(f"git fetch {' '.join(args[:1])} failed: {stderr}") from error
 
