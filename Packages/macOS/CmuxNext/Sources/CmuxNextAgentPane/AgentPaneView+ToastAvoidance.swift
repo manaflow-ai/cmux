@@ -13,8 +13,8 @@ extension AgentPaneView: CmuxToastAvoiding {
     /// held away (a move in progress).
     public var toastAvoidanceRect: NSRect {
         guard !holdsPageAway, let box = model.toastAvoidance else { return .zero }
-        return Self.sessionInfoOverlayRect(box, page: page?.frame ?? webView.frame,
-                                           zoom: max(0.25, CGFloat(uiPointerPageZoom)), flipped: isFlipped)
+        return Self.sessionInfoOverlayRect(box.rect, page: page?.frame ?? webView.frame,
+                                           zoom: pageBoxZoom(box.zoom), flipped: isFlipped)
     }
 
     /// The stack or the pane moved, or the pane was hidden or shown (a workspace switch hides an

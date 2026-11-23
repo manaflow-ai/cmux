@@ -21,6 +21,13 @@ impl Mux {
         gate.admit(draft, now)
     }
 
+    /// The Send Later sender's wake (server/conversation_scheduled.rs).
+    pub(crate) fn scheduled_sender_wake(
+        &self,
+    ) -> Arc<crate::conversation_store::scheduled::SenderWake> {
+        self.conversations.scheduled.clone()
+    }
+
     /// Run `operation` on the conversation store, opening
     /// `conversations.sqlite3` in the session state directory on first use
     /// (in memory for an in-memory session).

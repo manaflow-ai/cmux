@@ -715,6 +715,8 @@ struct HybridUnderlay {
     /// When a datagram last arrived relayed (through a TURN server).
     last_relayed_arrival: Option<Instant>,
     path: watch::Sender<LinkPath>,
+    /// The direct path's peer address, beside `path` ([`super::route_name`]).
+    peer: watch::Sender<Option<IpAddr>>,
     /// The peer address plain UDP on the current route goes to (none on
     /// this side's own TURN allocation): which local interface carries the
     /// session ([`route_destinations`]).
@@ -831,6 +833,7 @@ impl HybridUnderlay {
             last_on_route: None,
             last_relayed_arrival: None,
             path: spec.path,
+            peer: watch::channel(None).0,
             route_to: spec.route_to,
             control: spec.control,
             stun: Vec::new(),
@@ -1451,6 +1454,8 @@ impl HybridUnderlay {
             roam.mark(if path == LinkPath::Direct { "roam_direct" } else { "roam_turn" });
         }
         self.path.send_if_modified(|current| std::mem::replace(current, path) != path);
+        let peer = self.direct.filter(|_| path == LinkPath::Direct).map(|route| route.addr.ip());
+        self.peer.send_if_modified(|current| std::mem::replace(current, peer) != peer);
     }
 
     fn demote(&mut self, why: &str) {
@@ -1880,6 +1885,7 @@ impl Drop for Guard {
 struct Tunnel {
     session: Arc<Session>,
     path: watch::Receiver<LinkPath>,
+    peer: super::PeerAddr,
 }
 
 /// What a side knows when it starts its tunnel.
@@ -1981,6 +1987,7 @@ fn start_tunnel(
         peer_addresses: vec![IpAddr::V4(spec.peer_ip)],
         ultra: ultra_for_dial(options.ultra),
     };
+    let peer = underlay.peer.subscribe();
     let net = WgNet::start_with_underlay(config, underlay).map_err(transport_error)?;
     let session = Session::register(roam::SessionParts {
         session_id: spec.session_id.to_owned(),
@@ -1999,7 +2006,7 @@ fn start_tunnel(
         turn_dead,
         route_to,
     });
-    Ok(Tunnel { session, path: path_rx })
+    Ok(Tunnel { session, path: path_rx, peer })
 }
 
 /// The running tunnel, unless `bye` already dropped it.
@@ -2176,6 +2183,7 @@ impl Dialer for WireGuardDialer {
             Ok(Dialed {
                 stream: Box::new(stream),
                 path: tunnel.path,
+                peer: tunnel.peer,
                 guard: Box::new(guard),
                 lane,
                 media,
@@ -2328,6 +2336,7 @@ impl Dialer for WireGuardDialer {
             Ok(Dialed {
                 stream: Box::new(stream),
                 path: tunnel.path,
+                peer: tunnel.peer,
                 guard: Box::new(guard),
                 lane,
                 webrtc_media,
