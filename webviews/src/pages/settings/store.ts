@@ -9,9 +9,10 @@ import { MutationObserver, type QueryClient } from "@tanstack/react-query";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 import { userMessage } from "../shared/userMessage";
 import { ACCOUNT_ACTIONS } from "../shared/signIn/accountSignIn";
-import { AppearanceHistory, diff, type HistoryEntry, type TargetState } from "./appearanceHistory";
+import { AppearanceHistory, diff, type HistoryEntry, type TargetState, type WorkspaceState } from "./appearanceHistory";
 import { type AppearancePreset, presetTargets } from "./appearancePresets";
 import {
+  type AppearanceArea,
   appearanceKeys,
   captureAppearance,
   captureKeys,
@@ -39,15 +40,15 @@ import {
 import { rowsByKey } from "./schema";
 import { HARNESS_PLACEMENT_KEY, harnessPlacement, resolveHarnessPlacement } from "../../ui/harnessPlacement";
 import { isBackdropRefusal, linkRefusal } from "./backdropRefusal";
-import { t } from "./strings";
+import { t, text as localized } from "./strings";
 import { pageTransport, TransportError, type SettingsTransport } from "./transport";
 import { readRecipe, readSetupReply, type ResolvedWorktreeRecipe, type WorktreeRecipe } from "../../worktreeRecipe";
+import { readExtensionSettings, type ExtensionSettings } from "./extensionSettings";
 import {
   errorCode,
   newIdempotencyKey,
   wireError,
   type AccountsRun,
-  type AccountsRunReply,
   type AccountsState,
   type AgentsRun,
   type AgentsState,
@@ -55,8 +56,6 @@ import {
   type ChannelsState,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
-  type LibraryListing,
-  type LibraryRun,
   type SharesState,
   type TailnetState,
   type DevicesRun,
@@ -80,26 +79,31 @@ import {
   type WireError,
   type WorkspaceBackground,
   SETTINGS_SENTENCES,
-  type CustomizeTryOn,
-  type JoinConsentSurface,
   type KeysState,
-  type ModelsRun,
-  type ModelsState,
   type AgentToolsCardRun,
   type AgentToolsCardState,
   type McpServersRun,
+  type AgentConfigAnswer,
+  type AgentConfigRun,
   type McpServersState,
   type RowNoteData,
+  type CustomizeTryOn,
+  type JoinConsentSurface,
+  type LibraryListing,
+  type LibraryRun,
+  type ModelsRun,
+  type ModelsState,
   type AgentSkillsRun,
   type AgentSkillsState,
   type AgentMcpRun,
   type AgentMcpState,
   type AgentHooksRun,
   type AgentHooksState,
-  type AgentConfigAnswer,
-  type AgentConfigRun,
+  type AccountsRunReply,
   type AllotmentSet,
   type AllotmentView,
+  type DoctorReport,
+  type DoctorRun,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -574,24 +578,64 @@ export class SettingsStore {
     return reply.ok ? reply.value : null;
   }
 
-  /** Saves the workspace `id`'s own background; null follows appearance.background again. */
+  /** Saves the workspace `id`'s own background; null follows appearance.background again. One
+   * appearance undo step. */
   async setWorkspaceBackground(id: string, value: string | null): Promise<boolean> {
-    const reply = await this.request("cmux.settings.backdrop.workspace.set", {
-      workspace: id,
-      value,
+    return this.trackWorkspace(id, "value", value, async () => {
+      const reply = await this.request("cmux.settings.backdrop.workspace.set", {
+        workspace: id,
+        value,
+      });
+      if (!reply.ok) this.setError("appearance.background", rowError(reply.error));
+      return reply.ok;
     });
-    if (!reply.ok) this.setError("appearance.background", rowError(reply.error));
-    return reply.ok;
   }
 
-  /** Saves the workspace `id`'s own glass tint over art; null follows All Workspaces' opacity. */
+  /** Saves the workspace `id`'s own glass tint over art; null follows All Workspaces' opacity. One
+   * appearance undo step. */
   async setWorkspaceOpacity(id: string, opacity: number | null): Promise<boolean> {
-    const reply = await this.request("cmux.settings.backdrop.workspace.set", {
-      workspace: id,
-      opacity,
+    return this.trackWorkspace(id, "opacity", opacity, async () => {
+      const reply = await this.request("cmux.settings.backdrop.workspace.set", {
+        workspace: id,
+        opacity,
+      });
+      if (!reply.ok) this.setError("appearance.backgroundOpacity", rowError(reply.error));
+      return reply.ok;
     });
-    if (!reply.ok) this.setError("appearance.backgroundOpacity", rowError(reply.error));
-    return reply.ok;
+  }
+
+  /** Runs a workspace write (`work`, true when the host took it) as one appearance step: the
+   * workspace's value before it is read from the host, as the page holds no copy. */
+  private async trackWorkspace(
+    id: string,
+    field: WorkspaceState["field"],
+    value: WorkspaceState["value"],
+    work: () => Promise<boolean>,
+  ): Promise<boolean> {
+    if (this.tracking > 0) return work();
+    const was = await this.workspaceBackground(id);
+    const ok = await work();
+    if (!ok || !was) return ok;
+    const state = (next: WorkspaceState["value"]): WorkspaceState => ({
+      kind: "workspace",
+      workspace: id,
+      title: was.title,
+      field,
+      value: next,
+    });
+    const changes = diff([state(field === "value" ? was.value : (was.opacity ?? null))], [state(value)]);
+    if (changes.length > 0)
+      this.appearance.record({ label: changeLabel(this.getSnapshot(), changes[0]!.after), changes });
+    return ok;
+  }
+
+  private workspaceListeners = new Set<(workspace: string) => void>();
+
+  /** Tells `listener` the id of a workspace whose own background an undo or redo wrote, so a
+   * picker showing it reads it again. */
+  onWorkspaceBackground(listener: (workspace: string) => void): () => void {
+    this.workspaceListeners.add(listener);
+    return () => this.workspaceListeners.delete(listener);
   }
 
   /** Shows a tint over the workspace `id`'s art without saving it (the slider moving). */
@@ -934,6 +978,36 @@ export class SettingsStore {
     return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
   }
 
+  /** Settings > Extensions: every installed extension whose manifest declares settings, or the
+   * host's refusal (`unavailable` when this build's host cannot reach them). */
+  async extensionSettings(): Promise<{ apps: ExtensionSettings[]; error: string | null; unavailable: boolean }> {
+    const reply = await this.request("cmux.settings.extensions.list", {});
+    if (!reply.ok)
+      return { apps: [], error: userMessage(reply.error, SETTINGS_SENTENCES), unavailable: isUnsupported(reply.error) };
+    return { apps: readExtensionSettings(reply.value), error: null, unavailable: false };
+  }
+
+  /** Changes settings of one extension (`null` resets a key): the values it now runs with, or the
+   * daemon's refusal text. The running extension hears the change at once. */
+  async setExtensionSettings(
+    app: string,
+    values: Record<string, unknown>,
+  ): Promise<{ values: Record<string, unknown> | null; error: string | null }> {
+    const reply = await this.request("cmux.settings.extensions.set", {
+      app,
+      values,
+      idempotency_key: newIdempotencyKey(),
+    });
+    if (!reply.ok) {
+      // The daemon's reason names the key and the limit in English, for the log; the row shows ours.
+      const sentences = { ...SETTINGS_SENTENCES, "cmux.apps.settings.invalid": t("settingsPage.extensions.invalid") };
+      return { values: null, error: userMessage(reply.error, sentences) };
+    }
+    const answered = (reply.value as { values?: unknown } | null)?.values;
+    const next = answered && typeof answered === "object" ? (answered as Record<string, unknown>) : null;
+    return { values: next, error: null };
+  }
+
   /** One Cloud Environments gesture, then the fresh state; the host's failure text, else null. */
   async runEnvironments(
     run: CloudEnvironmentsRun,
@@ -987,6 +1061,28 @@ export class SettingsStore {
       ? null
       : (answer.message ?? (answer.code ? t("settingsPage.customizeLibrary.notChanged") : null));
     return { library: answer.library ?? null, refusal };
+  }
+
+  /** Personalization > Customization Problems: one `cmux customize doctor` verb (or `doctor-open`,
+   * which the host runs). Answers the report after it (null when the host has no CLI, did not answer
+   * one, or for `doctor-open`), the CLI's refusal in its own words (an unknown id, a fix it does not
+   * offer), else null, and a fix's one line. */
+  async customizeDoctor(
+    run: DoctorRun,
+  ): Promise<{ doctor: DoctorReport | null; refusal: string | null; said: string | null }> {
+    const reply = await this.request("cmux.settings.customize.library", run);
+    // A host that cannot run the doctor (an older build, no CLI) shows no card and no notice.
+    if (!reply.ok)
+      return {
+        doctor: null,
+        refusal: run.verb === "doctor" ? null : userMessage(reply.error, SETTINGS_SENTENCES),
+        said: null,
+      };
+    const answer = reply.value ?? {};
+    const refused = answer.code !== undefined || answer.message !== undefined;
+    const refusal = refused ? (answer.message ?? t("settingsPage.customizeDoctor.notChanged")) : null;
+    const said = answer.fixed?.said ?? (answer.recovered ? answer.recovered.said.join(" ") : null);
+    return { doctor: answer.doctor ?? null, refusal, said: said || null };
   }
 
   /** Settings > Keys: this Mac's keys and the requests waiting for the person; null when the host
@@ -1230,6 +1326,36 @@ export class SettingsStore {
     return this.applyAppearanceStep(t("settingsPage.history.resetDefaults"), defaults);
   }
 
+  /** The keys of `area` the person set (a managed key is not theirs to reset). */
+  private areaCustomizedKeys(area: AppearanceArea): string[] {
+    const rows = this.getSnapshot().rows;
+    return area.keys.filter((key) => {
+      const row = rows.get(key);
+      return row !== undefined && row.customized && !row.managed;
+    });
+  }
+
+  /** Whether Reset <area> would change anything. */
+  appearanceAreaCustomized(area: AppearanceArea): boolean {
+    return this.areaCustomizedKeys(area).length > 0;
+  }
+
+  /** Resets the keys of one card (`area`) to their defaults, leaving every other card as it is:
+   * one undoable step, "Reset Window Background". */
+  async resetAppearanceArea(area: AppearanceArea): Promise<boolean> {
+    const keys = this.areaCustomizedKeys(area);
+    if (keys.length === 0) return true;
+    return this.trackAppearance(
+      area.keys,
+      async () => {
+        let ok = true;
+        for (const key of keys) ok = (await this.reset(key)).ok && ok;
+        return ok;
+      },
+      { label: t("settingsPage.history.resetArea", localized(area.title)) },
+    );
+  }
+
   /** Applies a preset (the window's Opacity and Material, every surface back on the window's
    * opacity) as one undoable step, "Preset → Frosted". */
   async applyAppearancePreset(preset: AppearancePreset): Promise<boolean> {
@@ -1257,6 +1383,15 @@ export class SettingsStore {
         themes = true;
         const reply = await this.request("cmux.settings.theme.set", { level: state.level, spec: state.spec });
         ok &&= reply.ok;
+      } else if (state.kind === "workspace") {
+        const reply = await this.request("cmux.settings.backdrop.workspace.set", {
+          workspace: state.workspace,
+          ...(state.field === "value"
+            ? { value: state.value as string | null }
+            : { opacity: state.value as number | null }),
+        });
+        ok &&= reply.ok;
+        for (const listener of this.workspaceListeners) listener(state.workspace);
       } else {
         const result = state.customized
           ? await this.write({ kind: "set", key: state.key, value: state.value })
