@@ -1,7 +1,7 @@
 name: chat-open perf report
 
 # Report only: a pull request that touches the chat pane gets the chat open's attach_to_latest p50 and p95,
-# base against head, measured on one runner in one job (webviews/bench/chat-open-ab.sh interleaves the two sides
+# merge base against head, measured on one runner in one job (webviews/bench/chat-open-ab.sh interleaves the two sides
 # round by round), written to the job summary. It never fails the pull request: not on a regression, and not when
 # the bench itself crashes (the summary says so). A gate needs Leo's say-so.
 # Every number carries the runner class it came from, as the perf cron's rows do (cmuxterm-hq#18799): numbers
@@ -13,19 +13,31 @@ on:
       - "webviews/src/agent-session/**"
       - "webviews/bench/**"
       - ".github/workflows/chat-open-perf-report.yml"
+  # Every push to feat-cmux-next measures that push against the one before it, so the branch carries a series per
+  # runner class (the series.json artifact) that NOW's chat_attach rows read.
+  push:
+    branches:
+      - feat-cmux-next
+    paths:
+      - "webviews/src/agent-session/**"
+      - "webviews/bench/**"
+      - ".github/workflows/chat-open-perf-report.yml"
 
 permissions:
   contents: read
 
 concurrency:
-  group: chat-open-perf-report-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  group: chat-open-perf-report-${{ github.event.pull_request.number || github.ref }}
+  # A pull request measures only its newest head. A branch keeps the running push and the newest one waiting.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
-  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+  HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  # The base branch's tip (or the push's previous tip). The bench measures against its merge base with the head
+  # (the Fetch base step), so commits the base gained after the head branched never read as the head's change.
+  BASE_TIP: ${{ github.event.pull_request.base.sha || github.event.before }}
   # Rounds of the A/B (each round opens every side and fixture) and timed opens per side, fixture and round:
   # 10 x 2 gives 20 opens per side and fixture, so p95 is the 19th of 20.
   ROUNDS: "10"
@@ -35,7 +47,7 @@ jobs:
   report:
     name: chat-open p50/p95 (report only)
     # The Linux pool ci-web.yml uses; base and head run in this one job, so on one runner.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 75
     # A step that errors still leaves the job green; the summary step below says what broke.
     continue-on-error: true
@@ -43,7 +55,7 @@ jobs:
       - name: Checkout exact PR head
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ env.HEAD_SHA }}
           fetch-depth: 1
           persist-credentials: false
           submodules: false
@@ -52,9 +64,19 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 2
-          [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 2
+          [[ "$BASE_TIP" =~ ^[0-9a-f]{40}$ ]] || exit 2
+          test "$BASE_TIP" != 0000000000000000000000000000000000000000 || exit 2
           test "$(git rev-parse HEAD)" = "$HEAD_SHA"
-          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          # Deepen both sides until they meet: the merge base is the base the head's own change sits on.
+          base=""
+          for depth in 50 200 1000 5000; do
+            git fetch --no-tags --depth="$depth" origin "$BASE_TIP" "$HEAD_SHA"
+            if base="$(git merge-base "$BASE_TIP" "$HEAD_SHA")"; then break; fi
+            base=""
+          done
+          test -n "$base"
+          echo "base tip ${BASE_TIP:0:12}, head ${HEAD_SHA:0:12}, merge base ${base:0:12}"
+          echo "BASE_SHA=$base" >> "$GITHUB_ENV"
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -100,7 +122,7 @@ jobs:
       - name: Runner class
         id: class
         env:
-          RUNNER_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+          RUNNER_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
         run: |
           # The series key, as the perf cron's rows carry it (`chat_open.compact.attach_to_latest@<runner class>`,
           # cmuxterm-hq#18799): a trend is read only within one class, so a move to another machine starts a new series
@@ -136,7 +158,7 @@ jobs:
           tmp = os.environ["RUNNER_TEMP"]
           status = os.environ.get("BENCH_STATUS") or "did not run"
           klass = os.environ.get("RUNNER_CLASS") or "unknown"
-          base, head = os.environ["BASE_SHA"], os.environ["HEAD_SHA"]
+          base, head = os.environ.get("BASE_SHA") or os.environ["BASE_TIP"], os.environ["HEAD_SHA"]
           os.makedirs(f"{tmp}/chat-open", exist_ok=True)
           rows = {}
           try:
@@ -181,7 +203,8 @@ jobs:
                       series.append({"series": f"{row}.attach_to_latest.{k}@{klass}",
                                      "runner_class": klass, "fixture": fixture, "stat": k,
                                      "base": b[k], "head": a[k], "delta_ms": round(d, 1),
-                                     "base_sha": base, "head_sha": head})
+                                     "base_sha": base, "head_sha": head,
+                                     "event": os.environ.get("GITHUB_EVENT_NAME"), "ref": os.environ.get("GITHUB_REF")})
               out += ["", "A positive delta is head slower than base. A p95 move past 10 ms and 10% of base reads as a "
                       "regression or an improvement; anything inside that, as noise. Report only: nothing here fails "
                       "the pull request."]
