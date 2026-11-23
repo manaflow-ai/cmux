@@ -118,12 +118,17 @@ await requireBrowserLane("transcript-cohesion.test.ts", async () => {
                       probe.style.cssText = `position:absolute;visibility:hidden;width:0;min-height:0;max-height:none;padding:0;border:0;box-sizing:content-box;height:${height}`;
                       return probe.getBoundingClientRect().height;
                     };
+                    const box = read("var(--cv-live-step-height)");
+                    // `--cv-live-line-box` as the live line itself computes it (transcriptLiveVars puts
+                    // `var(--cv-tool-row-height)` on the scroller; the live line inherits it): 22 (#48701
+                    // af4bc681457, variant B). Read off the line, not through a probe in its row, whose height a
+                    // row rule holds at the slot's 32.
+                    const inherited = getComputedStyle(live).getPropertyValue("--cv-live-line-box").trim();
                     const value = {
-                      box: read("var(--cv-live-step-height)"),
-                      // `--cv-live-line-box` as the scroller computes it (transcriptLiveVars: `var(--cv-tool-row-height)`
-                      // there), inherited by the live line: 22 (#48701 af4bc681457, variant B).
-                      line: read("min(var(--cv-live-line-box, var(--cv-footer-row)), var(--cv-live-step-height))"),
-                      inherited: getComputedStyle(live).getPropertyValue("--cv-live-line-box").trim(),
+                      box,
+                      line: Math.min(Number.parseFloat(inherited), box),
+                      probe: read("min(var(--cv-live-line-box, var(--cv-footer-row)), var(--cv-live-step-height))"),
+                      inherited,
                     };
                     probe.remove();
                     return value;
