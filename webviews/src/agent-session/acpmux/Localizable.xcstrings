@@ -143172,6 +143172,138 @@
         }
       }
     },
+    "permission.holdToAllow": {
+      "comment": "Agent pane: the tooltip and accessible description of an allow button that answers only after it is pressed and held (hold to approve experiment)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اضغط مطولاً للسماح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Držite za dozvolu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hold nede for at tillade"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zum Erlauben gedrückt halten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold to allow"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mantén pulsado para permitir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maintenir pour autoriser"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tieni premuto per consentire"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "長押しで許可"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចុចឱ្យជាប់ដើម្បីអនុញ្ញាត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "길게 눌러 허용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hold inne for å tillate"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przytrzymaj, aby zezwolić"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mantenha pressionado para permitir"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Удерживайте, чтобы разрешить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กดค้างไว้เพื่ออนุญาต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İzin vermek için basılı tutun"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Утримуйте, щоб дозволити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhấn giữ để cho phép"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "按住以允许"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "按住以允許"
+          }
+        }
+      }
+    },
     "permission.answered": {
       "comment": "Agent pane",
       "extractionState": "manual",
@@ -205127,6 +205259,11 @@
         }
       }
     },
+    "header.topRight.panes": {"comment":"Agent pane chat header: the top-right layouts (Debug Settings agentChat.topRight.consolidate)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Panes"}},"ar":{"stringUnit":{"state":"needs_review","value":"الأجزاء"}},"bs":{"stringUnit":{"state":"needs_review","value":"Paneli"}},"da":{"stringUnit":{"state":"needs_review","value":"Paneler"}},"de":{"stringUnit":{"state":"needs_review","value":"Bereiche"}},"es":{"stringUnit":{"state":"needs_review","value":"Paneles"}},"fr":{"stringUnit":{"state":"needs_review","value":"Volets"}},"it":{"stringUnit":{"state":"needs_review","value":"Riquadri"}},"ja":{"stringUnit":{"state":"needs_review","value":"ペイン"}},"km":{"stringUnit":{"state":"needs_review","value":"ផ្ទាំង"}},"ko":{"stringUnit":{"state":"needs_review","value":"패널"}},"nb":{"stringUnit":{"state":"needs_review","value":"Ruter"}},"pl":{"stringUnit":{"state":"needs_review","value":"Panele"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Painéis"}},"ru":{"stringUnit":{"state":"needs_review","value":"Панели"}},"th":{"stringUnit":{"state":"needs_review","value":"แผง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bölmeler"}},"uk":{"stringUnit":{"state":"needs_review","value":"Панелі"}},"vi":{"stringUnit":{"state":"needs_review","value":"Ngăn"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"窗格"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"窗格"}}}},
+    "header.topRight.recentPanes": {"comment":"Agent pane chat header: the top-right layouts (Debug Settings agentChat.topRight.consolidate)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Recent Panes"}},"ar":{"stringUnit":{"state":"needs_review","value":"الأجزاء الأخيرة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Nedavni paneli"}},"da":{"stringUnit":{"state":"needs_review","value":"Seneste paneler"}},"de":{"stringUnit":{"state":"needs_review","value":"Letzte Bereiche"}},"es":{"stringUnit":{"state":"needs_review","value":"Paneles recientes"}},"fr":{"stringUnit":{"state":"needs_review","value":"Volets récents"}},"it":{"stringUnit":{"state":"needs_review","value":"Riquadri recenti"}},"ja":{"stringUnit":{"state":"needs_review","value":"最近のペイン"}},"km":{"stringUnit":{"state":"needs_review","value":"ផ្ទាំងថ្មីៗ"}},"ko":{"stringUnit":{"state":"needs_review","value":"최근 패널"}},"nb":{"stringUnit":{"state":"needs_review","value":"Nylige ruter"}},"pl":{"stringUnit":{"state":"needs_review","value":"Ostatnie panele"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Painéis recentes"}},"ru":{"stringUnit":{"state":"needs_review","value":"Недавние панели"}},"th":{"stringUnit":{"state":"needs_review","value":"แผงล่าสุด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Son bölmeler"}},"uk":{"stringUnit":{"state":"needs_review","value":"Нещодавні панелі"}},"vi":{"stringUnit":{"state":"needs_review","value":"Ngăn gần đây"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"最近的窗格"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"最近的窗格"}}}},
+    "header.topRight.openNow": {"comment":"Agent pane chat header: the top-right layouts (Debug Settings agentChat.topRight.consolidate)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Open"}},"ar":{"stringUnit":{"state":"needs_review","value":"مفتوحة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Otvoreno"}},"da":{"stringUnit":{"state":"needs_review","value":"Åbne"}},"de":{"stringUnit":{"state":"needs_review","value":"Geöffnet"}},"es":{"stringUnit":{"state":"needs_review","value":"Abiertos"}},"fr":{"stringUnit":{"state":"needs_review","value":"Ouverts"}},"it":{"stringUnit":{"state":"needs_review","value":"Aperti"}},"ja":{"stringUnit":{"state":"needs_review","value":"開いているペイン"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងបើក"}},"ko":{"stringUnit":{"state":"needs_review","value":"열림"}},"nb":{"stringUnit":{"state":"needs_review","value":"Åpne"}},"pl":{"stringUnit":{"state":"needs_review","value":"Otwarte"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Abertos"}},"ru":{"stringUnit":{"state":"needs_review","value":"Открытые"}},"th":{"stringUnit":{"state":"needs_review","value":"เปิดอยู่"}},"tr":{"stringUnit":{"state":"needs_review","value":"Açık"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відкриті"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang mở"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"已打开"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"已開啟"}}}},
+    "header.topRight.recent": {"comment":"Agent pane chat header: the top-right layouts (Debug Settings agentChat.topRight.consolidate)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Recent"}},"ar":{"stringUnit":{"state":"needs_review","value":"الأخيرة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Nedavno"}},"da":{"stringUnit":{"state":"needs_review","value":"Seneste"}},"de":{"stringUnit":{"state":"needs_review","value":"Zuletzt"}},"es":{"stringUnit":{"state":"needs_review","value":"Recientes"}},"fr":{"stringUnit":{"state":"needs_review","value":"Récents"}},"it":{"stringUnit":{"state":"needs_review","value":"Recenti"}},"ja":{"stringUnit":{"state":"needs_review","value":"最近"}},"km":{"stringUnit":{"state":"needs_review","value":"ថ្មីៗ"}},"ko":{"stringUnit":{"state":"needs_review","value":"최근"}},"nb":{"stringUnit":{"state":"needs_review","value":"Nylige"}},"pl":{"stringUnit":{"state":"needs_review","value":"Ostatnie"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Recentes"}},"ru":{"stringUnit":{"state":"needs_review","value":"Недавние"}},"th":{"stringUnit":{"state":"needs_review","value":"ล่าสุด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Son"}},"uk":{"stringUnit":{"state":"needs_review","value":"Нещодавні"}},"vi":{"stringUnit":{"state":"needs_review","value":"Gần đây"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"最近"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"最近"}}}},
+    "header.topRight.more": {"comment":"Agent pane chat header: the top-right layouts (Debug Settings agentChat.topRight.consolidate)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"More"}},"ar":{"stringUnit":{"state":"needs_review","value":"المزيد"}},"bs":{"stringUnit":{"state":"needs_review","value":"Više"}},"da":{"stringUnit":{"state":"needs_review","value":"Flere"}},"de":{"stringUnit":{"state":"needs_review","value":"Weitere"}},"es":{"stringUnit":{"state":"needs_review","value":"Más"}},"fr":{"stringUnit":{"state":"needs_review","value":"Plus"}},"it":{"stringUnit":{"state":"needs_review","value":"Altro"}},"ja":{"stringUnit":{"state":"needs_review","value":"その他"}},"km":{"stringUnit":{"state":"needs_review","value":"ច្រើនទៀត"}},"ko":{"stringUnit":{"state":"needs_review","value":"더 보기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Flere"}},"pl":{"stringUnit":{"state":"needs_review","value":"Więcej"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Mais"}},"ru":{"stringUnit":{"state":"needs_review","value":"Ещё"}},"th":{"stringUnit":{"state":"needs_review","value":"เพิ่มเติม"}},"tr":{"stringUnit":{"state":"needs_review","value":"Diğer"}},"uk":{"stringUnit":{"state":"needs_review","value":"Більше"}},"vi":{"stringUnit":{"state":"needs_review","value":"Thêm"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"更多"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"更多"}}}},
     "header.terminal": {
       "comment": "Agent pane chat header",
       "extractionState": "manual",
@@ -365874,6 +366011,33 @@
             "value": "登入 Cursor"
           }
         }
+      }
+    },
+    "turn.signIn.getKey.opencode": {
+      "comment": "Agent pane: a Cloud chat's OpenCode sign-in card, the link beside the API key field that opens opencode.ai/auth, where OpenCode Zen and Go API keys are made.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Get an OpenCode API key" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "الحصول على مفتاح API لـ OpenCode" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Nabavi OpenCode API ključ" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Hent en OpenCode API-nøgle" } },
+        "de": { "stringUnit": { "state": "translated", "value": "OpenCode-API-Schlüssel holen" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Obtener una clave de API de OpenCode" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Obtenir une clé API OpenCode" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Ottieni una chiave API OpenCode" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "OpenCode の API キーを取得" } },
+        "km": { "stringUnit": { "state": "translated", "value": "យកសោ API របស់ OpenCode" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "OpenCode API 키 받기" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Hent en OpenCode API-nøkkel" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Uzyskaj klucz API OpenCode" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Obter uma chave de API do OpenCode" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Получить ключ API OpenCode" } },
+        "th": { "stringUnit": { "state": "translated", "value": "รับคีย์ API ของ OpenCode" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "OpenCode API anahtarı al" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Отримати ключ API OpenCode" } },
+        "vi": { "stringUnit": { "state": "translated", "value": "Lấy khóa API OpenCode" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "获取 OpenCode API 密钥" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "取得 OpenCode API 金鑰" } }
       }
     },
     "turn.signIn.apiKey": {

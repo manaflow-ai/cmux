@@ -1651,6 +1651,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
         run: ./tests/test_fetch_ghostty_zig_packages.sh
 
+      - name: Validate the Zig tarball restore from the CI cache bucket
+        if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
+        run: ./tests/test_ci_zig_tarball_r2.sh
+
       - name: Validate curl-seeded Ghostty Zig package archives
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
         run: ./tests/test_seed_zig_package_archives.sh

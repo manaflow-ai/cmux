@@ -2787,6 +2787,7 @@ dependencies = [
  "cmux-server",
  "cmux-server-core",
  "cmux-signed-bundle",
+ "cmux-stack-auth",
  "cmux-terminal-client",
  "cmux-theme-pack",
  "cmux-theme-tokens",
