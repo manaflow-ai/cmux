@@ -1072,6 +1072,25 @@ fn unpinning_takes_back_the_keys_grants_and_the_gates_refuse() {
     assert_eq!(consent_of(&status(&authority, Some(ACCOUNT_ID)), "control"), "granted");
 }
 
+/// An unpin cut short after the pin was dropped but before its grants were taken back finishes
+/// when the person unpins again.
+#[test]
+fn a_repeated_unpin_finishes_one_cut_short() {
+    let (_dir, authority) = fixture();
+    let k = key();
+    pin(&authority, &k, ACCOUNT_ID);
+    apply(&authority, &account_grant(&k, NOW, |_| {}), &target(), None, NOW).unwrap();
+    assert_eq!(consent_of(&status(&authority, Some(ACCOUNT_ID)), "control"), "granted");
+    // The first unpin wrote grantors.json and stopped there.
+    crate::config::write_atomic(&authority.root().join("grantors.json"), br#"{"grantors":[]}"#)
+        .unwrap();
+    let id = grantor_id(&public(&k));
+    assert_eq!(trust(&authority, &id, false, Some(ACCOUNT_ID), NOW).unwrap()["unpinned"], false);
+    let off = status(&authority, Some(ACCOUNT_ID));
+    assert_eq!((consent_of(&off, "control"), source(&off, "control")), ("none", "none"));
+    assert!(status_fields(&authority, Some(ACCOUNT_ID), None)["accountPolicy"].is_null());
+}
+
 #[test]
 fn recompute_counts_only_grantors_still_pinned() {
     let (_dir, authority) = fixture();

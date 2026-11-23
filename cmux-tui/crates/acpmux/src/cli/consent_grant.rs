@@ -659,8 +659,6 @@ pub(crate) fn apply(
         .pinned(&grant.grantor, &grant.account)
         .map(|pin| pin.name.clone())
         .unwrap_or_default();
-    grantors.seq.insert(grant.seq_key(), grant.issued_at);
-    write_json(&root.join(GRANTORS), &grantors).map_err(|_| store())?;
     let mut stale = false;
     if grant.account_wide() {
         // The newest account policy for this account is kept whole, signature included, so this
@@ -702,6 +700,11 @@ pub(crate) fn apply(
     let granted = !stale && (turns_on(grant.control) || turns_on(grant.screen));
     let consent = rewrite_consent(authority, Some(&grant.account), granted.then_some(now))
         .map_err(|_| store())?;
+    // The counter advances only after the record and `consent.json` are written: an apply cut
+    // short before then leaves the same grant acceptable again, so an interrupted Off can be
+    // retried instead of being refused as a replay with the old On still in effect.
+    grantors.seq.insert(grant.seq_key(), grant.issued_at);
+    write_json(&root.join(GRANTORS), &grantors).map_err(|_| store())?;
     let scope = if grant.account_wide() { "account" } else { "machine" };
     let log = |what: &str, surface: Option<&str>| {
         let mut line = event(now, what, &grant.grantor);
@@ -1116,7 +1119,11 @@ pub(crate) fn trust(
     if unpinned {
         // The counter stays: a grant accepted before the unpin is never accepted again.
         write_json(&root.join(GRANTORS), &grantors).map_err(|_| TrustError::Store)?;
-        take_back(authority, id, account).map_err(|_| TrustError::Store)?;
+    }
+    // Taken back on every unpin, a repeat included: an unpin cut short after the pin was
+    // dropped but before its grants were finishes when the person tries again.
+    take_back(authority, id, account).map_err(|_| TrustError::Store)?;
+    if unpinned {
         let _ = append_log(root, Value::Object(event(now, "unpinned", id)));
     }
     let dismissed = drop_asks(root, id).map_err(|_| TrustError::Store)?;
