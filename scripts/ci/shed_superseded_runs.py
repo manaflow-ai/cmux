@@ -74,7 +74,14 @@ BASE_BRANCHES = frozenset({"main", "feat-cmux-next"})
 # Base push workflows that publish per commit and so keep every push's run, besides PROTECTED_WORKFLOW's names:
 # cmux-tui artifacts uploads each feat-cmux-next commit's daemon and acpmux as immutable objects (hot-apply and the
 # nightly train read them by commit).
-BASE_KEEP_PATHS = frozenset({".github/workflows/cmux-tui-artifacts.yml"})
+# cmux-next base autofix repairs the base and its Mac exports job keeps its queue place on purpose: a newer run
+# defers to a queued one (base-autofix-mac-busy.sh), so shedding it left no run regenerating the exports. On
+# 2026-11-23 sweeps cancelled three carriers whose Mac job waited on glaeda-side-std-xcode-26.6 (08:54Z, runs
+# 45137487300, 45139343522, 45141537736) and feat-cmux-next's settings export stayed stale from 06:45Z.
+BASE_KEEP_PATHS = frozenset({
+    ".github/workflows/cmux-tui-artifacts.yml",
+    ".github/workflows/cmux-next-base-autofix.yml",
+})
 # Lane events a newer push to the same branch replaces. workflow_run runs carry the triggering run's branch and
 # head, so a follow-up of a replaced head (attribution, PR media) reads a commit nobody looks at any more.
 LANE_EVENTS = ("push", "pull_request", "workflow_run")
