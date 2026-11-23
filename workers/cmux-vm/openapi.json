@@ -10710,7 +10710,7 @@
           },
           "budget": {
             "type": "string",
-            "enum": [
+            "x-extensible-enum": [
               "snapshots",
               "vms",
               "rate",
