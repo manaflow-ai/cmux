@@ -116,6 +116,26 @@ pub fn ls_tree(git_dir: &Path, commit: &str) -> anyhow::Result<Vec<TreeItem>> {
     parse_ls_tree(&output(command)?)
 }
 
+/// [`ls_tree`], kept in `cache` (a file for this commit): the listing of a commit never changes,
+/// and with a cold page cache `ls-tree -l` reads every blob's header out of the packs (about 11 s
+/// for cmux's 58,000 files, against 0.2 s warm), so a remount after a reboot skips git.
+pub fn ls_tree_cached(git_dir: &Path, commit: &str, cache: &Path) -> anyhow::Result<Vec<TreeItem>> {
+    if let Some(items) = std::fs::read(cache).ok().and_then(|bytes| parse_ls_tree(&bytes).ok()) {
+        return Ok(items);
+    }
+    let mut command = git(git_dir);
+    command.args(["ls-tree", "-r", "-l", "-z", "--full-tree", commit]);
+    let bytes = output(command)?;
+    let items = parse_ls_tree(&bytes)?;
+    if let Some(parent) = cache.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let temp = cache.with_extension(format!("tmp{}", std::process::id()));
+    std::fs::write(&temp, &bytes)?;
+    std::fs::rename(&temp, cache)?;
+    Ok(items)
+}
+
 /// `git ls-tree -r -l -z` output as items: `MODE TYPE OID SIZE\tPATH\0`.
 pub fn parse_ls_tree(bytes: &[u8]) -> anyhow::Result<Vec<TreeItem>> {
     let mut items = Vec::new();
@@ -223,8 +243,10 @@ pub struct Layout<'a> {
     pub now_ns: i64,
     /// The `.git` file's text (`gitdir: ...`), or none.
     pub gitfile: Option<String>,
-    /// The folder on the machine's disk that holds the build output folders.
-    pub real_root: &'a Path,
+    /// The folder on the machine's disk that holds the build output folders, or none: no links
+    /// to build output folders at all (a read-only lower that many checkouts share, where each
+    /// checkout's own upper keeps its `target/`).
+    pub real_root: Option<&'a Path>,
     /// Link texts of the commit's symlinks, by blob id.
     pub links: &'a HashMap<String, String>,
 }
@@ -259,7 +281,7 @@ impl Projection {
                 None => ("", item.path.as_str()),
             };
             for (marker, output) in REAL_DIRS {
-                if name != marker {
+                if name != marker || layout.real_root.is_none() {
                     continue;
                 }
                 let real =
@@ -319,8 +341,9 @@ impl Projection {
                 link: None,
             });
         }
-        for real in &wanted {
-            let target = layout.real_root.join(real);
+        // `wanted` is empty without a `real_root`.
+        for (real, root) in wanted.iter().filter_map(|real| Some((real, layout.real_root?))) {
+            let target = root.join(real);
             list.push(Item {
                 path: real.clone(),
                 kind: Kind::Link,

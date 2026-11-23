@@ -46,7 +46,7 @@ fn project(git_dir: &Path, commit: &str, book: &mut Book, now_ns: i64) -> Projec
         commit_ns: 1_000_000_000,
         now_ns,
         gitfile: Some("gitdir: /x\n".into()),
-        real_root: Path::new("/real"),
+        real_root: Some(Path::new("/real")),
         links: &links,
     };
     Projection::build(commit, &items, book, &layout).unwrap()
@@ -137,7 +137,7 @@ fn a_mounted_commit_is_a_clean_worktree_and_writes_land_in_the_upper_folder() {
         commit_ns: 1_000_000_000,
         now_ns: 5_000_000_000,
         gitfile: Some(Worktree::gitfile(&admin)),
-        real_root: &real_root,
+        real_root: Some(&real_root),
         links: &links,
     };
     let projection = Projection::build(&commit, &items, &mut Book::default(), &layout).unwrap();
@@ -203,4 +203,16 @@ fn git_reads_the_written_index_as_the_commit() {
     let debug = run(work, &["ls-files", "--debug", "run.sh"]);
     assert!(debug.contains("mtime: 5:0"), "{debug}");
     assert!(debug.contains("size: 10"), "{debug}");
+}
+
+#[test]
+fn a_kept_listing_answers_without_git_and_matches_it() {
+    let (dir, git_dir, commit) = repo();
+    let cache = dir.path().join("keep/trees").join(&commit);
+    let listed = ls_tree_cached(&git_dir, &commit, &cache).unwrap();
+    assert_eq!(listed, ls_tree(&git_dir, &commit).unwrap());
+    assert!(cache.exists(), "the listing is kept");
+    // A wrong git dir: only the kept listing can answer.
+    let kept = ls_tree_cached(&dir.path().join("nowhere"), &commit, &cache).unwrap();
+    assert_eq!(kept, listed);
 }
