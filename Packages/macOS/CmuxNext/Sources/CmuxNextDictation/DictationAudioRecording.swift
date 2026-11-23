@@ -84,6 +84,10 @@ public final class DictationAudioRecording: Sendable {
         var finished = false
         /// The input summed toward the next output sample, and how much of it.
         var partial: (sum: Double, count: Double) = (0, 0)
+        /// Where each tap's new samples also go (``stream(to:)``), and how many of `pending`
+        /// went there.
+        var sink: (@Sendable ([Int16]) -> Void)?
+        var streamed = 0
     }
 
     private let state = OSAllocatedUnfairLock(initialState: State())
@@ -169,14 +173,24 @@ public final class DictationAudioRecording: Sendable {
                     state.partial = (0, 0)
                 }
             }
+            if let sink = state.sink, state.pending.count > state.streamed {
+                sink(Array(state.pending[state.streamed...]))
+                state.streamed = state.pending.count
+            }
             guard state.pending.count >= Self.flushSamples else { return }
-            defer { state.pending = [] }
+            defer { state.pending = []; state.streamed = 0 }
             state.written += state.pending.count
             // Enqueued under the lock, so the writer runs the writes in the order `written` counted
             // them and before any finish or discard that read `written` after this one (async: no wait).
             let full = state.pending
             writer.async { self.write(full) }
         }
+    }
+
+    /// Also hands each tap's new 16 kHz samples to `sink`, in order, from the tap's thread under
+    /// the state lock: `sink` must not block (a streaming provider's ``DictationLiveStream/send(_:)``).
+    public func stream(to sink: @escaping @Sendable ([Int16]) -> Void) {
+        state.withLock { $0.sink = sink }
     }
 
     /// Why ``finish()`` has nothing, when the session's audio was left out rather than silent. Read

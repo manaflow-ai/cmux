@@ -862,6 +862,13 @@ pub mod method {
     pub const MUX_VOICE_STATE: &str = "_acpmux/voice/state";
     pub const MUX_VOICE_TRANSCRIBE: &str = "_acpmux/voice/transcribe";
     pub const MUX_VOICE_CHECK: &str = "_acpmux/voice/check";
+    // Streaming dictation (server/voice_stream.rs): start, audio chunks, stop or cancel; the
+    // daemon sends `stream.event` with the partial and final words.
+    pub const MUX_VOICE_STREAM_START: &str = "_acpmux/voice/stream.start";
+    pub const MUX_VOICE_STREAM_AUDIO: &str = "_acpmux/voice/stream.audio";
+    pub const MUX_VOICE_STREAM_STOP: &str = "_acpmux/voice/stream.stop";
+    pub const MUX_VOICE_STREAM_CANCEL: &str = "_acpmux/voice/stream.cancel";
+    pub const MUX_VOICE_STREAM_EVENT: &str = "_acpmux/voice/stream.event";
     /// Create a fix chat from a GitHub issue URL (`{url, cwd?}`).
     pub const CHAT_FIX_FROM_LINK: &str = "chat.fix_from_link";
     pub const CHAT_FIX_FROM_LINK_PREPARE: &str = "chat.fix_from_link.prepare";

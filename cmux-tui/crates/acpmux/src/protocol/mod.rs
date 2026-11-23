@@ -515,6 +515,11 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_VOICE_STATE, Request),
         untyped(method::MUX_VOICE_TRANSCRIBE, Request),
         untyped(method::MUX_VOICE_CHECK, Request),
+        untyped(method::MUX_VOICE_STREAM_START, Request),
+        untyped(method::MUX_VOICE_STREAM_AUDIO, Request),
+        untyped(method::MUX_VOICE_STREAM_STOP, Request),
+        untyped(method::MUX_VOICE_STREAM_CANCEL, Request),
+        untyped(method::MUX_VOICE_STREAM_EVENT, Notification),
         // Daemon.
         untyped(method::MUX_WEB_MODES, Request),
         untyped(method::MUX_WEB_TOKEN_ROTATE, Request),

@@ -2197,6 +2197,35 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/voice/stream.start",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/voice/stream.audio",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/voice/stream.stop",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/voice/stream.cancel",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/voice/stream.event",
+      "params": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/web_modes",
       "params": true,
       "result": true

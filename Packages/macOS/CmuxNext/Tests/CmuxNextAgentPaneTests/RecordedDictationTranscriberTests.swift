@@ -1,6 +1,7 @@
 import AVFoundation
 @testable import CmuxNextDictation
 import Foundation
+import Synchronization
 import Testing
 
 /// cmux's own dictation with the person's own provider (`agentPane.dictationEngine`): the engine
@@ -119,6 +120,84 @@ struct RecordedDictationTranscriberTests {
         FileManager.default.temporaryDirectory.appending(path: "recorded-dictation-\(UUID().uuidString)", directoryHint: .isDirectory)
     }
 
+    /// A provider that streams: the words appear while speaking, each tap's samples go up live,
+    /// the stop waits for the last words, and nothing goes in one call.
+    @Test func aStreamingProviderShowsWordsWhileSpeaking() async throws {
+        let folder = Self.folder()
+        let capture = ScriptedCapture()
+        let calls = ProviderCalls()
+        let live = ScriptedLiveStream(onStop: [.final("and more.")])
+        let engine = RecordedDictationTranscriber(levelMeter: nil, transcribe: { audio, locale in
+            await calls.add(audio, locale)
+            return "never"
+        }, capture: capture, recordingFolder: folder, openStream: { _ in live })
+        #expect(engine.finalizingDeadline == RecordedDictationTranscriber.streamingDeadline)
+        let stream = try await engine.transcribe(locale: Locale(identifier: "en-US"))
+        await capture.speak(seconds: 2)
+        live.hear(.partial("hello"))
+        live.hear(.final("Hello world."))
+        await engine.finishTranscribing()
+        #expect(try await Self.events(stream) == [.partial("hello"), .final("Hello world."), .final("and more.")])
+        #expect(live.samples == 32_000, "two seconds at 16 kHz went up live")
+        #expect(live.stopped)
+        #expect(await calls.audio.isEmpty)
+        try await Self.waitFor { !FileManager.default.fileExists(atPath: folder.path) }
+        #expect(!FileManager.default.fileExists(atPath: folder.path))
+    }
+
+    /// A stream that fails before any words came back: the recording goes in one call instead.
+    @Test func aStreamThatHeardNothingFallsBackToTheRecording() async throws {
+        let capture = ScriptedCapture()
+        let calls = ProviderCalls()
+        let live = ScriptedLiveStream(onStop: [], failure: .providerFailed(code: "offline", detail: ""))
+        let engine = RecordedDictationTranscriber(levelMeter: nil, transcribe: { audio, locale in
+            await calls.add(audio, locale)
+            return "heard"
+        }, capture: capture, recordingFolder: Self.folder(), openStream: { _ in live })
+        let stream = try await engine.transcribe(locale: Locale(identifier: "en-US"))
+        await capture.speak(seconds: 1)
+        await engine.finishTranscribing()
+        #expect(try await Self.events(stream) == [.final("heard")])
+        #expect(await calls.audio.count == 1)
+    }
+
+    /// A stream that fails after words came back keeps them and ends with the failure.
+    @Test func aStreamThatFailsAfterWordsKeepsThem() async throws {
+        let capture = ScriptedCapture()
+        let calls = ProviderCalls()
+        let live = ScriptedLiveStream(onStop: [], failure: .providerFailed(code: "rate_limited", detail: ""))
+        let engine = RecordedDictationTranscriber(levelMeter: nil, transcribe: { audio, locale in
+            await calls.add(audio, locale)
+            return "never"
+        }, capture: capture, recordingFolder: Self.folder(), openStream: { _ in live })
+        let stream = try await engine.transcribe(locale: Locale(identifier: "en-US"))
+        await capture.speak(seconds: 1)
+        live.hear(.final("kept"))
+        await engine.finishTranscribing()
+        var seen: [DictationTranscriptionEvent] = []
+        var failure: DictationFailure?
+        do {
+            for try await event in stream { seen.append(event) }
+        } catch {
+            failure = error as? DictationFailure
+        }
+        #expect(seen == [.final("kept")])
+        #expect(failure == .providerFailed(code: "rate_limited", detail: ""))
+        #expect(await calls.audio.isEmpty)
+    }
+
+    /// A provider that does not stream opens none: the recording goes on stop, as before.
+    @Test func aProviderThatDoesNotStreamRecords() async throws {
+        let capture = ScriptedCapture()
+        let engine = RecordedDictationTranscriber(levelMeter: nil, transcribe: { _, _ in "whole" },
+                                                  capture: capture, recordingFolder: Self.folder(),
+                                                  openStream: { _ in nil })
+        let stream = try await engine.transcribe(locale: Locale(identifier: "en-US"))
+        await capture.speak(seconds: 1)
+        await engine.finishTranscribing()
+        #expect(try await Self.events(stream) == [.final("whole")])
+    }
+
     private static func events(_ stream: AsyncThrowingStream<DictationTranscriptionEvent, any Error>) async throws -> [DictationTranscriptionEvent] {
         var all: [DictationTranscriptionEvent] = []
         for try await event in stream { all.append(event) }
@@ -181,4 +260,41 @@ private actor ProviderCalls {
         self.audio.append(audio)
         locales.append(locale.identifier)
     }
+}
+
+/// A live stream, scripted: ``hear(_:)`` is the provider's words while speaking; the stop yields
+/// `onStop`, then ends (or fails with `failure`).
+private nonisolated final class ScriptedLiveStream: DictationLiveStream {
+    private struct State {
+        var samples = 0
+        var stopped = false
+    }
+
+    let events: AsyncStream<DictationTranscriptionEvent>
+    private let words: AsyncStream<DictationTranscriptionEvent>.Continuation
+    private let onStop: [DictationTranscriptionEvent]
+    private let failure: DictationFailure?
+    private let state = Mutex(State())
+
+    init(onStop: [DictationTranscriptionEvent], failure: DictationFailure? = nil) {
+        (events, words) = AsyncStream.makeStream(of: DictationTranscriptionEvent.self)
+        self.onStop = onStop
+        self.failure = failure
+    }
+
+    var samples: Int { state.withLock { $0.samples } }
+    var stopped: Bool { state.withLock { $0.stopped } }
+
+    func hear(_ event: DictationTranscriptionEvent) { words.yield(event) }
+
+    func send(_ samples: [Int16]) { state.withLock { $0.samples += samples.count } }
+
+    func stop() async throws {
+        state.withLock { $0.stopped = true }
+        for event in onStop { words.yield(event) }
+        words.finish()
+        if let failure { throw failure }
+    }
+
+    func cancel() async { words.finish() }
 }

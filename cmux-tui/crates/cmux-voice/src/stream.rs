@@ -190,7 +190,7 @@ pub async fn run(
     mut commands: mpsc::Receiver<Command>,
     shown: mpsc::Sender<Shown>,
 ) -> Result<String, VoiceError> {
-    let key = key.map(|k| k.trim().to_owned()).filter(|k| !k.is_empty());
+    let key = crate::provider::usable_key(&endpoint, key)?;
     let key_ref = key.as_deref();
     let Some(url) = stream_url(&endpoint) else {
         return Err(VoiceError::bare(ErrorCode::NotConfigured));

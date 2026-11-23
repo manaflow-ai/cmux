@@ -8,7 +8,7 @@
 //! as the provider's `Authorization` header. A lookup that finds nothing is no key.
 //!
 //! Who may call: the unix socket only (the app's host). Never the local app's web connection, Web
-//! or a peer. No hub state is read or locked; the HTTP runs on the runtime, off the request loop's
+//! or a peer. Streaming dictation is `voice_stream.rs`. No hub state is read or locked; the HTTP runs on the runtime, off the request loop's
 //! locks, bounded by the provider's own timeouts.
 
 use std::path::PathBuf;
@@ -26,7 +26,7 @@ pub(super) const METHODS: &[&str] =
 /// The longest `state` waits on the Keychain, so a Settings page never hangs on it.
 const STATE_KEY_WAIT: Duration = Duration::from_secs(3);
 /// The longest `transcribe` and `check` wait on the Keychain.
-const USE_KEY_WAIT: Duration = Duration::from_secs(10);
+pub(super) const USE_KEY_WAIT: Duration = Duration::from_secs(10);
 
 pub(super) const ENGINE_KEY: &str = "agentPane.dictationEngine";
 pub(super) const URL_KEY: &str = "agentPane.dictationEngineURL";
@@ -60,7 +60,7 @@ fn read_settings() -> Settings {
 
 /// The key saved for `endpoint`, waiting at most `wait`; `None` when the endpoint takes none,
 /// nothing is saved, or the secret store does not answer in time.
-async fn saved_key(endpoint: &Endpoint, wait: Duration) -> Option<String> {
+pub(super) async fn saved_key(endpoint: &Endpoint, wait: Duration) -> Option<String> {
     let account = endpoint.key_account()?;
     // The account (`openai@https://api.openai.com`) goes as one argument to `security -a` or
     // `secret-tool ... account`, never through a shell or `resolve_reference`'s split.
@@ -129,11 +129,16 @@ async fn state(resolved: Resolved) -> Result<Value, RpcError> {
         .map_err(|e| RpcError::internal(e.to_string()))
 }
 
+/// The settings now, read off the runtime's threads.
+pub(super) async fn settings_now() -> Result<Settings, RpcError> {
+    blocking(read_settings).await
+}
+
 pub(super) async fn handle(origin: Origin, m: &str, params: &Value) -> Result<Value, RpcError> {
     if origin != Origin::Local {
         return Err(RpcError::invalid_params("dictation: only the unix socket may ask"));
     }
-    let resolved = cmux_voice::resolve(&blocking(read_settings).await?);
+    let resolved = cmux_voice::resolve(&settings_now().await?);
     match m {
         method::MUX_VOICE_STATE => state(resolved).await,
         method::MUX_VOICE_TRANSCRIBE => transcribe(resolved, params).await,

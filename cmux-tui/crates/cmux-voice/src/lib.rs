@@ -37,7 +37,7 @@ pub use audio::{Audio, AudioError, MAX_AUDIO_BYTES};
 pub use catalog::{Capability, KeyUse, Kind, PROVIDERS, Provider, Wire};
 pub use endpoint::{Endpoint, Resolved, Settings, key_account, resolve};
 pub use error::{ErrorCode, VoiceError};
-pub use provider::{BatchRequest, DictationProvider, Http, Transcript, provider_for};
+pub use provider::{BatchRequest, DictationProvider, Http, Transcript, provider_for, usable_key};
 pub use session::{Effect, Event, Phase, Session, Shown};
 pub use state::{State, check_reply, state, transcribe_reply};
 pub use stream::{Command, stream_url};

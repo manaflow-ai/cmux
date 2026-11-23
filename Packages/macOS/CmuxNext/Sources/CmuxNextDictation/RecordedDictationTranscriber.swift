@@ -15,6 +15,14 @@ public import Foundation
 /// yields the text as one final, and ends the stream. A failure ends the
 /// stream with a ``DictationFailure``. ``cancelTranscribing()`` sends
 /// nothing. Its WAV is removed on every path.
+///
+/// With a provider that streams (``OpenDictationStream``, acpmux's
+/// `_acpmux/voice/stream.*`) the words appear while the person speaks: each
+/// tap's samples also go up the live stream, its partials and finals are
+/// yielded as they come, and ``finishTranscribing()`` waits for the last
+/// words. A stream that fails before any words were heard falls back to the
+/// recording, transcribed in one call as above; one that fails after keeps
+/// the words and ends with the failure.
 public actor RecordedDictationTranscriber: SpeechTranscribing {
     /// Turns one recording into text: its bytes (``DictationAudio/data``) or,
     /// for a long one, its file (``DictationAudio/file``), in the session's
@@ -37,9 +45,19 @@ public actor RecordedDictationTranscriber: SpeechTranscribing {
     /// The provider has about a minute (acpmux allows 60 s for the whole
     /// request), plus the file's close and the socket's round trip.
     public static let providerDeadline: Duration = .seconds(65)
+    /// A live stream's stop waits up to 20 s for the last words (acpmux `STOP_WAIT`), then the
+    /// recording may still go in one call.
+    public static let streamingDeadline: Duration = .seconds(25) + providerDeadline
 
     private let levelMeter: DictationAudioLevelMeter?
     private let transcribeAudio: Transcribe
+    private let openStream: OpenDictationStream?
+    /// This session's live stream, when its provider streams.
+    private var live: (any DictationLiveStream)?
+    /// Hands the live stream's events to the session, in order; ends with the stream.
+    private var pump: Task<Void, Never>?
+    /// The live stream showed words: a failure keeps them rather than sending the recording.
+    private var heard = false
     private let capture: any DictationAudioCapturing
     private let recording: DictationAudioRecording
     private let deadline: Duration
@@ -56,19 +74,23 @@ public actor RecordedDictationTranscriber: SpeechTranscribing {
     ///   - recordingFolder: A fresh folder for the WAV; nil: one under this
     ///     user's temporary folder.
     ///   - finalizingDeadline: How long the session waits for the provider
-    ///     after stop.
+    ///     after stop; nil: ``providerDeadline``, or ``streamingDeadline``
+    ///     with `openStream`.
+    ///   - openStream: Opens a live stream when the provider streams.
     public init(
         levelMeter: DictationAudioLevelMeter?,
         transcribe: @escaping Transcribe,
         capture: any DictationAudioCapturing = MicrophoneDictationCapture(),
         recordingFolder: URL? = nil,
-        finalizingDeadline: Duration = RecordedDictationTranscriber.providerDeadline
+        finalizingDeadline: Duration? = nil,
+        openStream: OpenDictationStream? = nil
     ) {
         self.levelMeter = levelMeter
         transcribeAudio = transcribe
+        self.openStream = openStream
         self.capture = capture
         recording = DictationAudioRecording(folder: recordingFolder)
-        deadline = finalizingDeadline
+        deadline = finalizingDeadline ?? (openStream == nil ? Self.providerDeadline : Self.streamingDeadline)
     }
 
     public nonisolated var finalizingDeadline: Duration? { deadline }
@@ -83,6 +105,18 @@ public actor RecordedDictationTranscriber: SpeechTranscribing {
         )
         let meter = levelMeter
         let recording = recording
+        // A provider that cannot stream now (an older daemon, a refusal) still gets the recording.
+        let live = try? await openStream?(locale)
+        guard stage == .starting else {
+            await live?.cancel()
+            recording.discard()
+            continuation.finish()
+            throw CancellationError()
+        }
+        if let live {
+            self.live = live
+            recording.stream(to: { live.send($0) })
+        }
         do {
             try await capture.start(
                 onBuffer: { buffer in
@@ -95,18 +129,30 @@ public actor RecordedDictationTranscriber: SpeechTranscribing {
             )
         } catch {
             stage = .ended
+            await live?.cancel()
+            self.live = nil
             recording.discard()
             throw error as? DictationFailure ?? DictationFailure.audioCaptureFailed(error.localizedDescription)
         }
         guard stage == .starting else {
             // A finish or cancel arrived while the microphone opened.
             await capture.stop()
+            await live?.cancel()
+            self.live = nil
             recording.discard()
             continuation.finish()
             throw CancellationError()
         }
         stage = .capturing
         self.continuation = continuation
+        if let live {
+            // task-owner: stored in pump; it ends with the live stream's events, which a cancel ends
+            pump = Task { [weak self] in
+                for await event in live.events {
+                    await self?.streamed(event)
+                }
+            }
+        }
         return stream
     }
 
@@ -134,6 +180,9 @@ public actor RecordedDictationTranscriber: SpeechTranscribing {
         stage = .ended
         sending?.cancel()
         sending = nil
+        await live?.cancel()
+        live = nil
+        pump = nil
         continuation?.finish()
         continuation = nil
         if previous == .capturing {
@@ -142,9 +191,41 @@ public actor RecordedDictationTranscriber: SpeechTranscribing {
         recording.discard()
     }
 
-    /// Closes the WAV and has the provider transcribe it.
+    /// One event of the live stream, while the session still shows words.
+    private func streamed(_ event: DictationTranscriptionEvent) {
+        guard stage == .capturing || stage == .finishing else { return }
+        switch event {
+        case .partial(let text), .final(let text):
+            if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { heard = true }
+        }
+        continuation?.yield(event)
+    }
+
+    /// Closes the WAV and has the provider transcribe it: through the live stream when there is
+    /// one, else in one call.
     private func deliver() async {
         let audio = await recording.finish()
+        if let live {
+            do {
+                // Every sample went up from the tap before the recording finished.
+                try await live.stop()
+                // The last words come before the stream's end.
+                await pump?.value
+                guard stage == .finishing, !Task.isCancelled else { return }
+                recording.discard()
+                end(nil)
+                return
+            } catch {
+                await pump?.value
+                guard stage == .finishing, !Task.isCancelled else { return }
+                if heard {
+                    recording.discard()
+                    end(error as? DictationFailure ?? DictationFailure.transcriptionFailed(String(describing: error)))
+                    return
+                }
+                // Nothing came back live: the recording goes in one call below.
+            }
+        }
         // The bytes are in hand, or the provider has read the file by the time it answers.
         defer { recording.discard() }
         guard stage == .finishing else { return }

@@ -250,6 +250,8 @@ pub struct Conn {
     /// The media files of peers' chats it opened, closed on the peer when it closes
     /// (`media_forward.rs`).
     pub(super) remote_media: media_forward::RemoteMedia,
+    /// Its dictation stream (`voice_stream.rs`), cancelled when it closes.
+    pub(super) voice_streams: voice_stream::Streams,
     /// Requests this daemon sent the client, waiting on its answer (`client_request.rs`).
     client_requests: client_request::ClientRequests,
     /// The client's requests being served, by id, with their slots: what its
@@ -1862,6 +1864,7 @@ async fn serve_connection_from(
             crate::hub::media_handles::Handles::default()
         },
         remote_media: media_forward::RemoteMedia::default(),
+        voice_streams: voice_stream::Streams::default(),
         client_requests: Default::default(),
         in_flight: in_flight::InFlight::counted(hub.requests_in_flight.clone()),
         chat_windows: Default::default(),
@@ -2284,6 +2287,7 @@ async fn serve_connection_from(
     fan.abort();
     conn.media.close_all();
     conn.remote_media.close_all();
+    conn.voice_streams.close_all();
     view::release_all(&hub, &conn);
     // Leases first: ending one is cheap and synchronous, while the ephemeral
     // release awaits each session's kill. A leased peer must not keep
@@ -2729,6 +2733,7 @@ mod secrets;
 mod share_host;
 mod vault;
 mod voice;
+mod voice_stream;
 mod web_device;
 pub(crate) use vault::reply as vault_reply;
 mod races;

@@ -66,13 +66,10 @@ pub trait DictationProvider: Send + Sync {
     fn check(&self) -> BoxFuture<'_, Result<(), VoiceError>>;
 }
 
-/// The provider for `endpoint`, sending `key` when the endpoint takes one. `key_missing` when the
-/// provider requires a key and there is none; `not_configured` for the on-device engine.
-pub fn provider_for(
-    endpoint: Endpoint,
-    key: Option<String>,
-    http: Http,
-) -> Result<Box<dyn DictationProvider>, VoiceError> {
+/// The key `endpoint` may send: trimmed, `None` when it takes none (or this origin may not get
+/// one); `key_missing` when its provider needs one and none is saved. The batch and the streaming
+/// wires both read it.
+pub fn usable_key(endpoint: &Endpoint, key: Option<String>) -> Result<Option<String>, VoiceError> {
     let key = key
         .map(|k| k.trim().to_owned())
         .filter(|k| !k.is_empty())
@@ -84,6 +81,17 @@ pub fn provider_for(
             None,
         ));
     }
+    Ok(key)
+}
+
+/// The provider for `endpoint`, sending `key` when the endpoint takes one. `key_missing` when the
+/// provider requires a key and there is none; `not_configured` for the on-device engine.
+pub fn provider_for(
+    endpoint: Endpoint,
+    key: Option<String>,
+    http: Http,
+) -> Result<Box<dyn DictationProvider>, VoiceError> {
+    let key = usable_key(&endpoint, key)?;
     match endpoint.provider.wire {
         Wire::Builtin => Err(VoiceError::bare(ErrorCode::NotConfigured)),
         Wire::OpenaiTranscriptions | Wire::WhisperCppInference => {

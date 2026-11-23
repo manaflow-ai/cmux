@@ -6,7 +6,9 @@ import Foundation
 /// (`agentPane.dictationEngine`): `onDevice` keeps Apple's engine, as before; any other engine
 /// records the session and on stop has the LOCAL acpmux transcribe it (`_acpmux/voice/transcribe`),
 /// which reads the engine settings and the Keychain key itself, so no key passes through here.
-/// The engine is read when each dictation starts, so a change applies to the next one.
+/// The engine is read when each dictation starts, so a change applies to the next one. A provider
+/// that streams (acpmux `_acpmux/voice/stream.*`) shows the words while the person speaks
+/// (``AcpmuxDictationStream``); the others answer `{streaming: false}` and the recording goes on stop.
 /// Leo, 2026-11-22: "people should be able to add their own api keys/whatever and toggle that
 /// voice mode and whatever to link up to their provider of choice. just like our mic thing."
 public struct DictationProviderEngine {
@@ -24,6 +26,10 @@ public struct DictationProviderEngine {
                   settings.snapshot.agentPaneComposer.dictationEngine != .onDevice,
                   let environment = environment() else { return nil }
             return { audio, locale in try await transcribe(audio, locale: locale, environment: environment) }
+        }
+        claims.providerStream = { locale in
+            guard let environment = await environment() else { return nil }
+            return try await AcpmuxDictationStream.open(socketPath: environment.socketPath, locale: locale)
         }
     }
 

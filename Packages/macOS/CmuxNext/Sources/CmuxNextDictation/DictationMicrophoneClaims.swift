@@ -18,6 +18,9 @@ public final class DictationMicrophoneClaims {
     /// before; a transcription records the session and has the provider transcribe it on stop
     /// (``RecordedDictationTranscriber``). Set once for the surfaces that share this microphone.
     public var providerTranscription: (@MainActor () -> RecordedDictationTranscriber.Transcribe?)?
+    /// Opens a live stream for a session with the person's provider, when it streams (words while
+    /// speaking); set with ``providerTranscription``.
+    public var providerStream: OpenDictationStream?
 
     public init() {}
 
@@ -25,7 +28,8 @@ public final class DictationMicrophoneClaims {
     public func session() -> DictationSession {
         DictationSession(makeTranscriber: { [weak self] meter in
             if let transcribe = self?.providerTranscription?() {
-                return RecordedDictationTranscriber(levelMeter: meter, transcribe: transcribe)
+                return RecordedDictationTranscriber(levelMeter: meter, transcribe: transcribe,
+                                                    openStream: self?.providerStream)
             }
             return OnDeviceDictationTranscriber(levelMeter: meter)
         })
