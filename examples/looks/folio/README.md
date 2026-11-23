@@ -17,8 +17,8 @@ It is built only from public surfaces, so you can copy any part of it:
 | File | What it does |
 | --- | --- |
 | `cmux-setup.json` | Picks the theme file; sets the chat in the system sans at 16 px with a 1.5 line height, inline code at 0.85, a 760 px column, no minimap; the sidebar as a tree of pages: compact one-line rows with their icon, agent-started workspaces nested under their parent, plain section headings, buttons on hover, no timestamps, counts or branch lines; a page-preview hover card; a small rounded address field |
-| `themes/folio.json` | Default, Light. Page `#FBFAF8`, ink `#32302C`, link blue `#2383E2`, selection `#CFE2F6`, the sidebar, tab strip and docks `#F3F2EE`, Settings, New Tab, Home and pages on the same page, a `#E5E4E0` rule |
-| `themes/folio-dark.json` | Dark. Page `#191919`, ink `#D4D4D2`, the same blue, selection `#1F3D5C`, the sidebar, tab strip and docks `#202020`, a `#2E2E2D` rule |
+| `themes/folio.json` | Default, Light. Page `#FBFAF8`, ink `#32302C`, link blue `#2383E2`, selection `#CFE2F6`, the sidebar, tab strip and docks `#FAF9F5`, Settings, New Tab, Home and pages on the same page, a `#E5E4E0` rule |
+| `themes/folio-dark.json` | Dark. Page `#191919`, ink `#D4D4D2`, the same blue, selection `#597796`, the sidebar, tab strip and docks `#1B1B1B`, a `#2E2E2D` rule |
 | `agent-pane/theme.css` | A 16 px prompt bubble in the ink at 6% with no edge, cards at 4% with a 9% rule, secondary ink as dark as reads at 4.5:1, links in the blue a step toward the ink, and slash-menu menus (pending, below): `cmux.agentPane.style/1` tokens only, every color mixed from the theme's own |
 | `customize/` | A hover card laid out like a page preview (the title as a heading, an "edited" line, the page's text, its properties as a short table, what needs you in the link blue) and page rows in regular weight with a small dot, not a spinner, while work runs |
 | `markdown/theme.css` | The Markdown viewer's paint: headings with no rule, code on a soft gray with 4 px corners, quotes behind a bar in the ink's own color, tables with a plain header. Only `--cmux-md-*` properties on `:root`, every color mixed from the page's own |

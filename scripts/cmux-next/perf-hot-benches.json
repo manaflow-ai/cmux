@@ -161,6 +161,11 @@
       "bench": "CMUX_LATENCY_DRAFTS=1 bun webviews/scripts/latency/run.ts --page \"chat draft typing\" (10k and 200k-character drafts, 3,000-turn chat)",
       "owner": "agent chat composer"
     },
+    "agent-chat-stream-reveal": {
+      "what": "one reveal frame of a streaming agent reply (Markdown.tsx with replyScan.ts): the reply's footnotes and folders read from its tail, its closed blocks drawn from the elements kept for them, so a frame's cost does not grow with the reply",
+      "bench": "cd webviews && bun bench/composer-typing.bench.ts --lengths 60 --modes reply --reply-words 2000,20000 (frame_p50 / frame_p95 and key to frame while one long reply streams)",
+      "owner": "agent chat"
+    },
     "session-list-change": {
       "what": "one session_changed while the agent pane is open (direct.ts sessionChanged, then App's per-snapshot projections of snapshot.sessions: hover info, sub-session store, Waiting on you, folders). Its cost must not grow with the number of listed sessions.",
       "bench": "webviews/bench/update-one.bench.ts (update_one.<surface>.<kind>.n100|n1000|n3000 and .growth; cmux-ci test -- bun bench/update-one.bench.ts)",
