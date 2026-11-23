@@ -23,6 +23,13 @@ mod capture_tests;
 #[path = "computer_use_lifecycle.rs"]
 mod computer_use_lifecycle;
 
+#[cfg(any(target_os = "linux", test))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+#[path = "linux_screen.rs"]
+mod linux_screen;
+#[cfg(test)]
+#[path = "linux_screen_tests.rs"]
+mod linux_screen_tests;
 #[cfg(target_os = "macos")]
 #[path = "macos.rs"]
 mod platform;
@@ -1094,6 +1101,9 @@ impl crate::mux::Mux {
         self.control_clients
             .remote_host
             .configure(paths_for(daemon_socket, &state_root), Arc::downgrade(self));
+        // No cmux Remote on Linux: the machine's screen is its cmux-rd host's device.
+        #[cfg(target_os = "linux")]
+        linux_screen::watch(&self.control_clients.remote_host.inner);
         // An agent's share turns itself off with no viewer: the host's status says who views,
         // and the host's own session may turn sharing off (the hub allows it that much).
         let agents = Arc::clone(&self.control_clients.remote_agents);
