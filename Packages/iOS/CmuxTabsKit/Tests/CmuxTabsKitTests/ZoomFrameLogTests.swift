@@ -12,10 +12,12 @@ struct ZoomFrameLogTests {
             t += i == 7 ? 2.0 / 120 : 1.0 / 120
             log.frame(at: t)
         }
-        let s = try! #require(log.end(maxFPS: 120))
+        let summary = log.end(maxFPS: 120)
+        let s = try! #require(summary)
         #expect(s.toOverview && s.frames == 21)
         #expect(abs(s.firstFrameMs - 30) < 0.01 && abs(s.worstMs - 30) < 0.01)
         #expect(s.over8ms == 2 && s.over16ms == 1)
-        #expect(!log.isRunning && log.end(maxFPS: 120) == nil)
+        let again = log.end(maxFPS: 120)
+        #expect(!log.isRunning && again == nil)
     }
 }
