@@ -4,17 +4,12 @@ import XCTest
 /// grabbed the whole block. As in ChatGPT on iOS, a long press on an answer opens its context
 /// menu; the menu's Select Text opens the text in a sheet where a range is selected and copied.
 ///
-/// Both transcript paths: the native rows (standard text size) and the SwiftUI rows (every row
-/// at accessibility sizes, where `.textSelection(.enabled)` took the press and the block's menu
-/// had no Select Text).
+/// The SwiftUI rows (every row at accessibility sizes, where `.textSelection(.enabled)` took the
+/// press and the block's menu had no Select Text). On the native rows (standard text size) a hold
+/// now selects the word in place instead (Leo, 2026-11-23): `ChatHoldSelectsWordUITests`.
 final class ChatSelectTextUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
-    }
-
-    @MainActor
-    func testLongPressOnAnswerOpensMenuWithSelectTextNativeRows() {
-        run(name: "native", arguments: [])
     }
 
     @MainActor
