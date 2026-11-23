@@ -40,6 +40,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.metrics.tabFontSize` | real |  | 10 to 18 | Tab Text Size. Text size of tab titles. Unset, tabs follow the interface size. |
 | `appearance.metrics.tabStripHeight` | real |  | 22 to 44 | Tab Bar Height. Height of a pane's tab bar. Its tabs grow and shrink with it. |
 | `tabs.overflow` | string | `"shrink"` | `shrink`, `scroll` | Tab Overflow. Shrink narrows tabs before scrolling; Scroll keeps them wide. |
+| `tabs.shellIconTheme` | string | `"default"` | `default`, `machine` | Shell Tab Icons. Machines shows each shell tab with the icon of the machine it runs on. |
 | `appearance.metrics.tabMaxWidth` | real |  | 120 to 320 | Maximum Tab Width. Widest a tab gets when the strip has room. |
 | `appearance.metrics.tabMinActiveWidth` | real |  | 32 to 320 | Minimum Selected Tab Width. The selected tab stays at least this wide when tabs shrink. |
 | `appearance.metrics.tabMinInactiveWidth` | real |  | 16 to 320 | Minimum Tab Width. Narrowest the other tabs get before the strip scrolls. |
@@ -181,6 +182,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.favoriteThemes` | array | `[]` |  | Starred Themes. Themes starred in a theme picker. The picker lists them first. |
 | `appearance.rotateFavoriteThemes` | string | `"off"` | `off`, `launch`, `daily` | Rotate Starred Themes. Switches the terminal theme to the next starred one. Needs two starred themes. |
 | `appearance.accent` | string | `"neutral"` | `neutral`, `theme`, `art`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan` | Accent. The color of selection, focus and the Send button. |
+| `appearance.selection` | string | `"accent"` | `accent`, `neutral` | Selection. Accent tints the selected row and tab with the accent. Neutral keeps them gray. |
 | `appearance.themeFile` | string |  |  | Theme File. A theme file in ~/.config/cmux/themes, such as "tokyo" for tokyo.json. |
 | `appearance.themeFileExceptions` | array | `[]` |  | Changed Over Theme File. Settings you changed while a theme file sets them. Your value applies over the file's; resetting the row returns to the file's. Choosing another theme file clears the list. |
 | `appearance.highlightColor` | string |  |  | Highlight Color. The color of selected text everywhere. Unset uses the terminal theme's. |
@@ -352,6 +354,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.thinking.jumpButton` | string | `"arrow"` | `arrow`, `dots` | Jump to Latest While Working. What the Jump to latest button shows while the agent works. |
 | `agentPane.display.harnessPlacement` | string | `"symbols"` | `symbols`, `left`, `top`, `compact` | Model Picker Harness Placement |
 | `agentPane.display.rail.side` | string | `"left"` | `left`, `right` | Prompt Rail Side. Right-click the rail to move it. |
+| `agentPane.display.rail.show` | string | `"prompts"` | `prompts`, `mine`, `received`, `replies`, `everything`, `errors`, `edits`, `tools`, `subagents` | Prompt Rail Shows. Right-click the rail to change it. |
+| `agentPane.display.rail.control` | boolean | `false` |  | Prompt Rail Button. Shows what the rail lists above it while you point at it. |
 | `agentPane.display.commandLabels` | string | `[]` |  | Command Labels. The names the chat shows for background commands. |
 | `terminal.fontFamily` | string |  |  | Font Family. A monospaced font installed on this Mac. |
 | `terminal.fontSize` | real |  | 4 to 96 | Font Size |
@@ -414,6 +418,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.sessionTree` | boolean | `false` |  | Session Tree. Lists workspaces an agent started under the workspace that started them. |
 | `sidebar.showProjects` | boolean | `true` |  | Show Projects |
 | `sidebar.groupBy` | string | `"none"` | `none`, `folder`, `recents` | Group Projects By |
+| `sidebar.nav` | array | `[]` |  | Sidebar Nav Rows. Rows at the top of the sidebar that run cmux actions, by action id, optionally "id \| Title \| symbol". Empty shows none. |
 | `sidebar.showSpaces` | boolean | `false` |  | Show Spaces. Spaces show once you have more than one. New Space is in the command palette. |
 | `sidebar.showProfileControl` | boolean | `true` |  | Show Profile Button |
 | `sidebar.showSearchButton` | boolean | `false` |  | Show Search Button. A search button after the profile button. Off: search from the palette. |
@@ -432,6 +437,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.detailedStatusIcons` | boolean | `false` |  | Detailed Status Icons. Icons for working, waiting, error and done. Off: a spinner and a dot. |
 | `sidebar.showTimestamps` | boolean | `false` |  | Show Timestamps. Rows show when they last changed, such as 3d. |
 | `sidebar.settleFinished` | boolean | `false` |  | Settle Finished Chats. A chat whose answer you have read folds into Settled at the end of its list until its next turn. |
+| `sidebar.showAutomaticSessions` | boolean | `false` |  | Show Automatic Sessions. Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list. |
 | `sidebar.showColors` | boolean | `true` |  | Show Workspace Colors |
 | `workspaceColors.indicatorStyle` | string | `"leftRail"` | `dot`, `leftRail`, `fill` | Workspace Color Style. How a workspace's color shows in the sidebar. |
 | `sidebar.showLocalMachine` | boolean | `false` |  | Mark This Mac's Workspaces. With more than one computer, this Mac's workspaces show its icon too. |
@@ -581,7 +587,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `browser.customSearchEngine.suggest` | string | `""` |  | Custom Suggestions Address. An OpenSearch suggestions URL, with {searchTerms} for the typed text. |
 | `browser.omnibar.remoteSuggestions` | boolean | `true` |  | Search Suggestions. Sends what you type to the search engine. Never addresses, files or local hosts. |
 | `browser.omnibar.inlineAutocomplete` | boolean | `true` |  | Complete Addresses Inline. Completes a site you typed before or visit often. |
-| `browser.omnibar.maxRows` | real | `8` | 3 to 15 | Suggestions Shown |
+| `browser.omnibar.maxRows` | real | `6` | 3 to 15 | Suggestions Shown |
 | `browser.omnibar.calculator` | boolean | `true` |  | Calculator Answers. Shows the answer to arithmetic you type. Return copies it. |
 | `browser.omnibar.showFullURLs` | boolean | `false` |  | Always Show Full URLs. Shows the whole address, with https:// and www., when you are not editing it. |
 | `browser.omnibar.glass` | string | `"off"` | `transparent`, `regular`, `clear`, `off` | Address Bar Glass |
@@ -692,15 +698,19 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `labs.voiceRoomURL` | string | `""` |  | Voice Room Address. The room's web address. Empty uses the room server on this Mac. |
 | `labs.machineJoin` | boolean | `false` |  | Screen Sharing for Joined Machines. Shows Screen sharing and Control in Settings > Devices once this Mac joins. |
 | `labs.liveCode` | boolean | `false` |  | Live Code. Swift changes you compile apply to the running app. Takes effect after cmux restarts. |
+| `labs.pauseAgentMachines` | boolean | `false` |  | Pause Agent Machines. Pause a new agent machine after 15 idle minutes; it resumes when work arrives. |
 | `customize.fromTheApp` | boolean | `false` |  | Customize From the Window. Hold Option over a part of the window to see what changes it, and right-click it for Customize…. Turn this off to hide both. |
 | `labs.agentCustomization` | boolean | `false` |  | Claude Code and Codex Customization. Show and edit the MCP servers, skills and commands Claude Code and Codex use, in their own config files. |
 | `experiments.glassToolbarGroups` | boolean | `false` |  | Glass Toolbar Groups. The chat header's buttons become round glass buttons, with related actions sharing one glass capsule, a search chip and shortcut keycaps. |
 | `experiments.composerV2` | boolean | `false` |  | Composer Refresh. A glass composer with mode chips, mention chips and a round send button. Still being shaped. |
 | `experiments.agentBadges` | boolean | `false` |  | Agent Badges. Agent tabs show a count of unread messages and approvals, and sidebar rows show a status pill: Running, Needs approval or Done. |
 | `experiments.agentBadgesBeam` | boolean | `false` |  | Agent Badges: Running Beam. With Agent Badges on, a thin light travels along a sidebar row's edge while its agent runs. |
+| `experiments.toastsV2` | boolean | `false` |  | Toasts v2. Spinner toasts that turn into their result in place, and an Undo after closing a tab or workspace or archiving a chat. |
+| `experiments.chatWidgets` | boolean | `false` |  | Extension Chat Widgets. Installed extensions can show a card under a finished tool call in agent chat. |
 | `feed.github.enabled` | boolean | `false` |  | GitHub Inbox. Inbox shows your GitHub notifications |
 | `feed.github.pollIntervalSeconds` | real | `120` | 60 to 900 | Refresh Interval. Seconds between GitHub refreshes. Refresh in the Inbox runs immediately. |
 | `agentPane.links.outsideRoots` | string | `"open"` | `confirm`, `text`, `open` | Files Outside the Project. What a link to a file outside the chat's folders does. Keys and .env files never open. |
+| `agentPane.links.openCitationsInEditor` | boolean | `false` |  | Open File Citations in Text Editor. Open local chat links that name a line in your chosen text editor. |
 | `agentPane.images.remote` | string | `"click"` | `click`, `never`, `always` | Web Images in Replies. A web image loads from its site, which then sees that you read the reply. |
 | `agentPane.needsYou.enabled` | boolean | `false` |  | Needs You. A badge in the chat header counts what your agents wait on. |
 | `agentPane.editedFiles.show` | string | `"always"` | `always`, `collapsed`, `never` | Edited Files Card. The card that lists a turn's edited files, with Undo and View changes. |
@@ -731,6 +741,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `macScreen.debug.relayOnly` | boolean | `false` |  | Relay Only. Mac Screen tabs connect only through the relay, to test it. |
 | `remote.endSharingOnQuit` | boolean | `false` |  | End Sharing When cmux Quits. Off: this Mac stays available to your devices while cmux is quit. |
 | `remote.ultra` | string | `"auto"` | `off`, `auto`, `always` | Ultra Connection Mode. Sends repair data so lossy networks stay fast. Always uses 2 to 3 times the data. |
+| `remote.screenSharingProfile` | string | `"balanced"` | `balanced`, `ultra` | Screen Sharing Profile. Ultra spends the link on a fast direct connection when viewing another Mac: up to 120 fps, up to 150 Mbps, near-lossless text. Balanced is the default. Not Ultra Connection Mode, which repairs a lossy network. |
 | `deviceHub.url` | string | `""` |  | Device Hub Address. The device hub for Mac Screen sharing. Empty uses the built-in one. |
 | `contextMenus.showCustomizeItem` | boolean | `false` |  | Show Customize Menu…. Adds Customize Menu… to the end of every right-click menu. |
 | `imessage.enabled` | boolean | `false` |  | Connect iMessage. Lets cmux read Messages conversations on this Mac. Sending needs your click. |

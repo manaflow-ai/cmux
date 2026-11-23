@@ -57,6 +57,8 @@ FIRST_PARTY_GPL = {
     "cmux-cloud-start-core",
     "cmux-tab-discard",
     "cmux-cloud-config",
+    "cmux-cloud-environment",
+    "cmux-build-space",
     "cmux-cloud-tasks",
     "cmux-cookie-sync",
     "cmux-daemon-conn-core",
