@@ -65,7 +65,8 @@ def first_content_summary(rows: list[dict]) -> list[str]:
                 for phase in phases:
                     a, b = cells.get((surface, profile, lo, phase)), cells.get((surface, profile, hi, phase))
                     ratio.append(f"{b['p95'] / a['p95']:.2f}" if a and b and a["p95"] else "-")
-                out.append(f"| {profile} | p95 {hi}/{lo} | " + " | ".join(ratio) + " |")
+                if any(r != "-" for r in ratio):
+                    out.append(f"| {profile} | p95 {hi}/{lo} | " + " | ".join(ratio) + " |")
         out.append("")
     return out
 
