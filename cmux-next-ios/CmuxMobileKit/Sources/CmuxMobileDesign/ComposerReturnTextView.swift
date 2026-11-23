@@ -96,20 +96,66 @@ open class ComposerReturnTextView: UITextView {
         return height
     }
 
-    /// The text's own height at `width` (all of it, however tall). SwiftUI asks for the
-    /// field's size several times in one update, each a full text layout; the last
-    /// answer stands while the text, width, font and insets are the same.
+    /// The text's height at `width`, as far as the field's height depends on it: all of a
+    /// draft that fits in `maxLines`, else the height of a leading part already taller than
+    /// the field (it scrolls, so its height is `maxHeight` whatever follows).
+    ///
+    /// Constant cost per keystroke in the draft's length: a draft past the field is measured
+    /// from its first `measureChunk` units (doubled until they overflow the field), so typing
+    /// anywhere after them measures nothing (the same prefix is cached). Measuring the whole
+    /// draft on every key laid out all of it, several times per SwiftUI update, one width
+    /// per slot: seconds of lag per few keys in a 5,000-character draft on a phone in Low
+    /// Power Mode (Leo, 2026-11-23; ComposerTypingLagUITests).
     public func contentHeight(width: CGFloat) -> CGFloat {
-        let key = MeasureKey(text: text ?? "", width: max(width, 1), font: font, inset: textContainerInset,
+        let full = (text ?? "") as NSString
+        let width = max(width, 1)
+        var limit = Self.measureChunk
+        while true {
+            if full.length <= limit { return measure(full as String, width: width, whole: true) }
+            let cut = full.rangeOfComposedCharacterSequence(at: limit).location
+            let height = measure(full.substring(to: cut), width: width, whole: false)
+            if fieldHeight.scrolls(contentHeight: height) { return height }
+            limit *= 2
+        }
+    }
+
+    /// UTF-16 units measured first in a long draft: more than the field holds on a
+    /// phone (14 lines of ~45 characters); an iPad's wider lines double it once or twice.
+    static let measureChunk = 1_024
+
+    /// The height of `text` at `width` in this view's font and insets. `whole`: the view's
+    /// own text (measured by the view, as before); else a prefix, measured by a probe
+    /// configured the same. SwiftUI asks for the field's size several times in one update,
+    /// at more than one width: the last few answers stand while text, width, font and
+    /// insets are the same.
+    private func measure(_ text: String, width: CGFloat, whole: Bool) -> CGFloat {
+        let key = MeasureKey(text: text, width: width, font: font, inset: textContainerInset,
                              padding: textContainer.lineFragmentPadding)
-        if let measured, measured.key == key { return measured.height }
-        let height = sizeThatFits(CGSize(width: key.width, height: .greatestFiniteMagnitude)).height
+        if let hit = measured.first(where: { $0.key == key }) { return hit.height }
+        let height: CGFloat
+        if whole {
+            height = sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
+        } else {
+            let probe = measureProbe
+            probe.font = font
+            probe.textContainerInset = textContainerInset
+            probe.textContainer.lineFragmentPadding = textContainer.lineFragmentPadding
+            probe.text = text
+            height = probe.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
+        }
         #if DEBUG
-        Self.measuredUnits += key.text.utf16.count
+        Self.measuredUnits += (text as NSString).length
         #endif
-        measured = (key, height)
+        measured.append((key, height))
+        if measured.count > 4 { measured.removeFirst(measured.count - 4) }
         return height
     }
+
+    private lazy var measureProbe: UITextView = {
+        let probe = UITextView(frame: .zero, textContainer: nil)
+        probe.isScrollEnabled = isScrollEnabled
+        return probe
+    }()
 
     private struct MeasureKey: Equatable {
         var text: String
@@ -118,7 +164,7 @@ open class ComposerReturnTextView: UITextView {
         var inset: UIEdgeInsets
         var padding: CGFloat
     }
-    private var measured: (key: MeasureKey, height: CGFloat)?
+    private var measured: [(key: MeasureKey, height: CGFloat)] = []
 
     /// The field's size for a proposed width (SwiftUI's `sizeThatFits`):
     /// as wide as offered, as tall as `fieldHeight` says for the text.
