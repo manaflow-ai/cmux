@@ -52,6 +52,7 @@ import { setStartRecoveryPreview } from "../startRecoveryPreview";
 import { setPromptSurfaces } from "../surfaces/promptSurface";
 import { preparedMockTransport } from "../mockTransport";
 import { BridgeSocket } from "../bridgeSocket";
+import { askReady, dropEarlyConnect, takeEarlySocket } from "../earlyConnect";
 import { createAcpmuxDebug } from "../debug";
 import { type AutomationCompose, pageAction } from "../automation";
 import { acpWire } from "../wire";
@@ -892,7 +893,7 @@ export function paneSnapshotEffect({
       acpWire.lifecycle("handshake", { reconnect });
       setWaitingSince(Date.now());
       setRestartUnavailable(false);
-      const answered = await callNative<{
+      const answered = await askReady<{
         protocolVersion: number;
         transport?: string;
         /// Only the browser dev slot (devHost.ts) sends these; the app never does.
@@ -940,7 +941,7 @@ export function paneSnapshotEffect({
         sandboxState?: unknown;
         /// The tab this page is (AgentPaneHandshake `tab`); an older app sends none.
         tab?: unknown;
-      }>("ready", reconnect ? { reconnect } : {})
+      }>(reconnect)
         // The host cleared its toast box for this handshake: it hears the mounted composer's again.
         .finally(resendToastAvoidance);
       if (cancelled) return;
@@ -1225,7 +1226,7 @@ export function paneSnapshotEffect({
         mockModule
           ? () => new mockModule.MockAcpmuxSocket(undefined, window.cmuxAcpmuxMockScript) as unknown as WebSocket
           : bridge
-            ? () => new BridgeSocket() as unknown as WebSocket
+            ? () => (takeEarlySocket() ?? new BridgeSocket()) as unknown as WebSocket
             : undefined,
         mock ? "daemon" : "native",
         undefined,
@@ -2735,6 +2736,8 @@ export function paneSnapshotEffect({
         }
       }
     } finally {
+      // An early socket this attempt did not adopt (it failed or was cancelled before a client).
+      dropEarlyConnect();
       connecting = false;
       setWaitingSince(undefined);
       // The Retry this attempt ran for (`retryNow`) has its answer.

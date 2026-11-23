@@ -285,6 +285,21 @@ export class BridgeSocket {
     });
   }
 
+  /// A socket opened before anyone held it (earlyConnect.ts): its open already settled with no
+  /// handlers to hear it, so the holder that sets them now hears it once, as a fresh socket's would
+  /// come. A socket still connecting settles on its own; one that opened says open; one that failed
+  /// or closed before it was held says it never opened (the handshake asks again).
+  announce(): void {
+    if (this.readyState === CONNECTING) return;
+    queueMicrotask(() => {
+      if (this.readyState === OPEN) this.onopen?.(new Event("open"));
+      else {
+        this.onerror?.(new Event("error"));
+        this.onclose?.({ code: 1006, reason: "", wasClean: false });
+      }
+    });
+  }
+
   private stopOpenTimer(): void {
     if (this.openTimer !== undefined) clearTimeout(this.openTimer);
     this.openTimer = undefined;
