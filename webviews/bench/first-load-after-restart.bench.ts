@@ -1214,6 +1214,7 @@ try {
     servedCopy = ["native-ready-tail", "reopen-no-copy", "refused-no-copy"].includes(mode) ? null : copy;
     // VIDEO: the first relaunch of each mode is filmed (a reopen's warm renderer has no recorder).
     const filming = !!VIDEO_DIR && !isReopen(mode) && !filmed.has(mode);
+    const rawFilms = filming ? fs.mkdtempSync(path.join(os.tmpdir(), "restart-video-")) : null;
     // A reopen builds its page in the warm renderer; a relaunch in a cold context.
     const context =
       isReopen(mode) && warmContext
@@ -1222,10 +1223,7 @@ try {
             viewport: RELAUNCH_VIEWPORT,
             ...(filming
               ? {
-                  recordVideo: {
-                    dir: fs.mkdtempSync(path.join(os.tmpdir(), "restart-video-")),
-                    size: RELAUNCH_VIEWPORT,
-                  },
+                  recordVideo: { dir: rawFilms!, size: RELAUNCH_VIEWPORT },
                 }
               : {}),
           });
@@ -1329,6 +1327,8 @@ try {
         await video.saveAs(path.join(VIDEO_DIR, `${mode}.webm`));
         filmed.add(mode);
       }
+      // Playwright's own copy of every page's film (the kept one is saved above; a failed round keeps none).
+      if (rawFilms) fs.rmSync(rawFilms, { recursive: true, force: true });
     }
   };
   const filmed = new Set<Mode>();
