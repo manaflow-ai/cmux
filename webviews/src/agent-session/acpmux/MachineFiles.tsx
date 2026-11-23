@@ -2,6 +2,7 @@ import React, { useEffect, useId, useRef, useState } from "react";
 import { useT } from "./i18n";
 import { machineFolder, type MachineFilesList, type MachineFolder } from "./machineFilesModel";
 import { useScrollEdges } from "../../ui/scrollEdges";
+import { focusRoute } from "../../ui/focusRoute";
 
 type State =
   | { kind: "loading"; shown?: MachineFolder }
@@ -57,7 +58,7 @@ export function MachineFiles({
 
   useEffect(() => {
     go(start);
-    root.current?.focus();
+    focusRoute(root.current, "person", "Browse files on this machine opened: its list");
     const away = (event: PointerEvent) => {
       if (!root.current?.contains(event.target as Node)) onCloseRef.current();
     };
