@@ -55,7 +55,7 @@ public struct RecoveryGalleryRoot: View {
         let index = arguments.firstIndex(of: "-cmux-mobile-recovery-gallery")
         let named = index.flatMap { i in arguments.indices.contains(i + 1) ? arguments[i + 1] : nil } ?? "states"
         let parts = named.split(separator: "-", maxSplits: 1).map(String.init)
-        if ["chip", "chiplist"].contains(parts[0]), parts.count == 2 {
+        if ["chip", "chiplist", "stills"].contains(parts[0]), parts.count == 2 {
             scene = parts[0]
             variant = parts[1]
         } else {
@@ -95,7 +95,13 @@ public struct RecoveryGalleryRoot: View {
             case "keybar":
                 TerminalKeyBarGallery()
             case "stills":
+                // `stills-mocha`, `stills-solarized`: the same under a Mac's dark or light theme.
                 StillPictureGallery()
+                    .onAppear {
+                        guard let fixture = variant == "mocha" ? MacThemeGallery.mocha : variant == "solarized" ? MacThemeGallery.solarized : nil else { return }
+                        CmuxMobileMacTheme.shared.matchesMac = true
+                        CmuxMobileMacTheme.shared.apply(fixture, chatWallpaper: nil)
+                    }
             default:
                 states
             }
