@@ -95,8 +95,7 @@ pub(super) async fn catch_up(
     for id in attached {
         let Ok(session) = hub.resolve(&id) else { continue };
         let through = session.meta().last_seq;
-        loop {
-            let Some(after) = conn.stream_cursors.at(&id) else { break };
+        while let Some(after) = conn.stream_cursors.at(&id) {
             if after >= through {
                 break;
             }

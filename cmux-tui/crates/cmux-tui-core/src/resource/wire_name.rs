@@ -322,6 +322,7 @@ impl ResourceOperation {
             Self::CloudMachineIo => "cloud.machine.io",
             Self::CloudMachineChatAccess => "cloud.machine.chat_access",
             Self::CloudMachineShareChat => "cloud.machine.share_chat",
+            Self::CloudMachineChiefStart => "cloud.machine.chief_start",
             Self::RoomCreate => "room.create",
             Self::RoomDelete => "room.delete",
             Self::RoomFollow => "room.follow",

@@ -95,7 +95,7 @@ class RoutingTableTests(unittest.TestCase):
             route = ("${{ github.run_attempt == 1 && 'ubuntu-24.04' || "
                      "fromJSON(vars.RUNNER_POOLS).linux_2 }}")
             job = {"runs-on": route, "permissions": {"contents": "read"},
-                   "steps": [{"run": "python3 scripts/ci/portable_job_placement.py"}]}
+                   "steps": [{"run": "python3 scripts/ci/side_lane_placement.py"}]}
             for changed, accepted in (({}, True), ({"permissions": {"contents": "write"}}, False),
                                       ({"environment": "release"}, False),
                                       ({"runs-on": route.replace("github.run_attempt == 1", "vars.CI_LIGHT_LANE_RUNNER || github.run_attempt == 1")}, False),
