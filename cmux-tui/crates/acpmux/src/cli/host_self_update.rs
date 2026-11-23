@@ -22,8 +22,9 @@ use super::super::host_auto_update::NO_AUTO_UPDATE;
 use super::super::host_lock::Lease;
 use super::super::{REMOTE_HOME, Remote, RemoteOut};
 use super::{
-    CLOUD_VM_MARK, OWN_UNIT, Outcome, PeerUpdate, RESTART_STAMP, RESTART_WINDOW, UpdateOptions,
-    embedded_build, is_own_unit, local_target, update_peer,
+    CLOUD_VM_MARK, OWN_UNIT, Outcome, PeerUpdate, RESTART_STAMP, RESTART_WINDOW,
+    RESTART_WINDOW_ENV, RESTART_WINDOW_FILE, RESTART_WINDOW_SECS, UpdateOptions, embedded_build,
+    is_own_unit, local_target, update_peer,
 };
 use crate::cli::output::print_json;
 use anyhow::{Context, Result, anyhow, bail};
