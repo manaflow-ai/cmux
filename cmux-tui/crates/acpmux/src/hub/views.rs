@@ -6,7 +6,9 @@ use cmux_json::JsonSet as _;
 mod host_build;
 mod host_load;
 
-pub(crate) use host_build::{host_build_differs, other_build_host_line, other_build_hosts_line};
+pub(crate) use host_build::{
+    host_build_differs, live_host_build, other_build_host_line, other_build_hosts_line,
+};
 
 /// The mux record of a change in how many subagents a session runs (`hub/tap.rs`), which
 /// watchers hear as `_acpmux/session_changed` with the new `subagentsRunning`.
@@ -732,6 +734,8 @@ impl Hub {
             session_id: m.id.clone(),
             name: m.name.clone(),
             handle: Some(m.spoken_handle().into_owned()),
+            display_name: m.handle.clone().filter(|h| crate::session_handle::valid(h)),
+            icon: m.icon.clone(),
             name_given: m.name_given,
             former_names: m.former_names.clone(),
             harness: m.harness.clone(),

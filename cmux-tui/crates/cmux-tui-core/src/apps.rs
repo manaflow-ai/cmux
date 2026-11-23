@@ -20,6 +20,8 @@ mod actions;
 #[cfg(unix)]
 mod activation;
 #[cfg(unix)]
+mod app_settings;
+#[cfg(unix)]
 mod budget;
 #[cfg(unix)]
 mod calls;
@@ -78,6 +80,8 @@ mod mirror;
 mod open_tokens;
 #[cfg(unix)]
 mod openers;
+#[cfg(unix)]
+mod overlay;
 #[cfg(unix)]
 // The `render: web` page bridge: `page_calls` runs each page's calls through it
 // (`allowed_ops` and the rate-limited count are read only by tests).
@@ -143,6 +147,8 @@ mod terminal_links;
 mod terminal_ops;
 #[cfg(unix)]
 pub(crate) mod timer;
+#[cfg(unix)]
+mod toolbar;
 #[cfg(unix)]
 mod widgets;
 
