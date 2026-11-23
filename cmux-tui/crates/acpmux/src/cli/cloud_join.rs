@@ -16,7 +16,8 @@ mod to_revoke;
 
 pub(crate) use enroll::{
     EnrollOutcome, EnrollRequest, JOINED_BY_SIGN_IN, LeaveOutcome, enroll_self,
-    finish_leave_at_start, leave_if_auto, leave_pending, record_leave_intent, relay_may_start,
+    finish_leave_at_start, leave_if_auto, leave_pending, mint_join_token, record_leave_intent,
+    relay_may_start,
 };
 pub(crate) use self_capabilities::{
     state_after_leave as state_capabilities_after_leave,
@@ -146,7 +147,7 @@ pub fn parse_token_text(text: &str) -> Result<String> {
 
 fn origin(value: Option<String>) -> Result<String> {
     let value = value
-        .or_else(|| std::env::var("CMUX_PLATFORM_ORIGIN").ok())
+        .or_else(cmux_cloud_client::backend::platform_origin_env)
         .unwrap_or_else(|| DEFAULT_HUB.to_owned());
     let parsed =
         reqwest::Url::parse(value.trim()).map_err(|_| anyhow!("hub origin is malformed"))?;
@@ -274,6 +275,27 @@ pub struct JoinedDevice {
 /// (`finish_leave_at_start`: no mark is `signedIn`). On a Mac that signs in and out often, one
 /// such revoke the hub never took kept the tunnel off for every join after it.
 pub fn joined_device_at(home: &std::path::Path) -> Option<JoinedDevice> {
+    let record = active_join_at(home)?;
+    let hub_origin = origin(Some(record.hub_origin)).ok()?;
+    Some(JoinedDevice {
+        machine_id: record.machine_id,
+        team_id: record.team_id,
+        name: record.name,
+        hub_origin,
+    })
+}
+
+/// Owner of the active join in the specified authority's namespace.
+pub(crate) fn browser_app_owner(hub: &str) -> Option<(String, String)> {
+    let record = active_join_at(&state_dir())?;
+    let joined_origin = origin(Some(record.hub_origin)).ok()?;
+    if joined_origin != hub {
+        return None;
+    }
+    Some((record.team_id, safe_id(&record.user_id?)?))
+}
+
+fn active_join_at(home: &std::path::Path) -> Option<MachineCredential> {
     let record = load_at(home).ok().flatten()?;
     let current = host_fingerprint::current();
     let left = std::fs::symlink_metadata(home.join(enroll::LEAVE_FILE)).is_ok()
@@ -288,13 +310,7 @@ pub fn joined_device_at(home: &std::path::Path) -> Option<JoinedDevice> {
     {
         return None;
     }
-    let hub_origin = origin(Some(record.hub_origin.clone())).ok()?;
-    Some(JoinedDevice {
-        machine_id: record.machine_id,
-        team_id: record.team_id,
-        name: record.name,
-        hub_origin,
-    })
+    Some(record)
 }
 
 /// [`copied_from_another_box_at`], as the box whose fingerprint is `current`. A record that
@@ -466,6 +482,18 @@ pub(crate) fn hub_origin(value: &str) -> Result<String> {
     origin(Some(value.to_owned()))
 }
 
+/// The person a cmux access token acts for (its `sub` claim, unverified: the hub checks the
+/// token itself), as a safe id, for `host enroll-self --user-id` (`cmux device add` joins the Mac
+/// that ran it as that person). None for a token that is no JWT or names no one.
+pub fn access_token_user(token: &str) -> Option<String> {
+    sent_credential::user(token).and_then(|user| safe_id(&user))
+}
+
+/// `value`, else `CMUX_PLATFORM_ORIGIN`, else production, checked as `host join` checks it.
+pub(crate) fn hub_origin_or_default(value: Option<String>) -> Result<String> {
+    origin(value)
+}
+
 /// The relay client reads the joined bearer in-process from the owner-only store.
 /// It never receives a command, URL or environment value containing the credential.
 pub(crate) fn read_join_credential(hub_origin: &str) -> Result<String> {
@@ -520,11 +548,11 @@ pub(crate) fn credential_present() -> Result<bool> {
         .map(|value| {
             value.is_some_and(|record| !copied_here(&state_dir(), &record, current.as_deref()))
         })
-        .map_err(|_| store_error().into())
+        .map_err(|e| store_error_from(e).into())
 }
 
 pub(crate) fn already_joined(replace: bool, report: Report) -> Result<bool> {
-    let Some(record) = load().map_err(|_| store_error())? else { return Ok(false) };
+    let Some(record) = load().map_err(store_error_from)? else { return Ok(false) };
     // A copy of another box's join is no join of this one: the new join line makes one.
     if replace
         || join_incomplete()?
@@ -535,11 +563,11 @@ pub(crate) fn already_joined(replace: bool, report: Report) -> Result<bool> {
     // No released build created pre-marker credentials. Even branch-only local
     // state must persist the shared requirement before idempotent success.
     let sign_in = record.joined_by.as_deref() == Some(JOINED_BY_SIGN_IN);
-    authority().and_then(|authority| authority.enroll_as(sign_in)).map_err(|_| store_error())?;
+    authority().and_then(|authority| authority.enroll_as(sign_in)).map_err(store_error_from)?;
     // Repair a previous config-save failure before reporting idempotent success. A sign-in's
     // join leaves a relay the person set up as it is.
     relay_for_join_at(&crate::config::Config::path(), &record.hub_origin, sign_in)
-        .map_err(|_| store_error())?;
+        .map_err(store_error_from)?;
     match report {
         Report::Quiet => {}
         Report::Json => {
@@ -563,12 +591,18 @@ fn warn_existing_helpers() {
 }
 
 fn store_error() -> crate::cli::errors::AppError {
-    crate::cli::errors::AppError::new(
-        crate::cli::errors::Code::Runtime,
-        "join.store",
-        "local machine store unavailable",
-    )
-    .with_exit(5)
+    store_error_with("local machine store unavailable".to_string())
+}
+
+/// [`store_error`] that names what failed (a path refused, a lock held, a write that did not land),
+/// so a join that stops here says why. Its cause is a local file or lock error, never a token.
+pub(crate) fn store_error_from(cause: impl std::fmt::Display) -> crate::cli::errors::AppError {
+    store_error_with(format!("local machine store unavailable: {cause:#}"))
+}
+
+fn store_error_with(message: String) -> crate::cli::errors::AppError {
+    crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "join.store", message)
+        .with_exit(5)
 }
 
 pub async fn join_with_token(
@@ -771,6 +805,15 @@ pub(crate) fn http_client() -> Result<reqwest::Client> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_store_error_names_its_cause() {
+        // 2026-11-21: a join that stopped at the store said only "unavailable".
+        let cause = std::io::Error::other("home is a symlink");
+        let error = super::store_error_from(cause);
+        assert_eq!(error.message, "local machine store unavailable: home is a symlink");
+        assert_eq!(super::store_error().message, "local machine store unavailable");
+    }
+
     use super::{MachineCredential, MachineIdentity, origin, parse_token_text};
 
     #[test]

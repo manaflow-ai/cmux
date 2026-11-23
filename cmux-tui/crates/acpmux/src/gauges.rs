@@ -95,8 +95,103 @@ impl Gauges {
             "startup": phases,
             "memory": memory(),
             "peerLists": peer_lists().status(),
+            "peerNotices": peer_notices().status(),
+            "recordWrites": record_writes().status(),
             "attach": attach_latency().status(),
             "fanout": fanout_status(),
+        })
+    }
+}
+
+/// The time chats' records take to be written (`Hub::write_record_locked`): the store's append
+/// alone, and the whole write from its sequence number to its event on the hub's channel. Totals
+/// only, so a reader takes the difference across a window (the turn bench,
+/// `benches/turn_overhead.rs`, reads it around each turn).
+pub fn record_writes() -> &'static RecordWrites {
+    static WRITES: OnceLock<RecordWrites> = OnceLock::new();
+    WRITES.get_or_init(RecordWrites::default)
+}
+
+#[derive(Default)]
+pub struct RecordWrites {
+    records: AtomicU64,
+    store_ns: AtomicU64,
+    write_ns: AtomicU64,
+}
+
+impl RecordWrites {
+    /// One record written: `store` in the store's append, `write` in all.
+    pub fn note(&self, store: Duration, write: Duration) {
+        let nanos = |d: Duration| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX);
+        self.records.fetch_add(1, Ordering::Relaxed);
+        self.store_ns.fetch_add(nanos(store), Ordering::Relaxed);
+        self.write_ns.fetch_add(nanos(write), Ordering::Relaxed);
+    }
+
+    fn status(&self) -> Value {
+        json!({
+            "records": self.records.load(Ordering::Relaxed),
+            "storeNs": self.store_ns.load(Ordering::Relaxed),
+            "writeNs": self.write_ns.load(Ordering::Relaxed),
+        })
+    }
+}
+
+/// The hub's one notice loop (`hub/peer_grace.rs`): how many notices it applied, the time it
+/// spent applying them, the longest one, and the deepest its queue was when it took one. A link
+/// blocks on a full queue, so a loop slower than the notices coming in holds back every peer's
+/// chat updates behind them.
+pub fn peer_notices() -> &'static PeerNotices {
+    static NOTICES: OnceLock<PeerNotices> = OnceLock::new();
+    NOTICES.get_or_init(PeerNotices::default)
+}
+
+#[derive(Default)]
+pub struct PeerNotices {
+    applied: AtomicU64,
+    busy_us: AtomicU64,
+    max_us: AtomicU64,
+    peak_queued: AtomicU64,
+    /// Notices by `PeerNotice::label`, at most `KINDS_KEPT` labels: how many, and the µs they took.
+    kinds: Mutex<std::collections::BTreeMap<String, (u64, u64)>>,
+    /// Peer snapshot copies read back from disk (`peer_snapshot::Store::read_in`).
+    pub snapshot_reads: AtomicU64,
+    /// Loaded copies unloaded to keep the store's memory bound (`Store::trim_memory`).
+    pub snapshot_unloads: AtomicU64,
+}
+
+const KINDS_KEPT: usize = 64;
+
+impl PeerNotices {
+    /// One notice of `label` took `us` to apply, with `queued` more behind it.
+    pub fn applied(&self, label: String, us: u64, queued: u64) {
+        let mut kinds = self.kinds.lock().unwrap_or_else(PoisonError::into_inner);
+        let full = kinds.len() >= KINDS_KEPT;
+        let kind = if kinds.contains_key(&label) || !full {
+            kinds.entry(label).or_default()
+        } else {
+            kinds.entry("other".into()).or_default()
+        };
+        kind.0 += 1;
+        kind.1 += us;
+        drop(kinds);
+        self.applied.fetch_add(1, Ordering::Relaxed);
+        self.busy_us.fetch_add(us, Ordering::Relaxed);
+        self.max_us.fetch_max(us, Ordering::Relaxed);
+        self.peak_queued.fetch_max(queued, Ordering::Relaxed);
+    }
+
+    fn status(&self) -> Value {
+        let kinds = self.kinds.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        json!({
+            "applied": self.applied.load(Ordering::Relaxed),
+            "busyMs": self.busy_us.load(Ordering::Relaxed) / 1000,
+            "maxUs": self.max_us.load(Ordering::Relaxed),
+            "peakQueued": self.peak_queued.load(Ordering::Relaxed),
+            "kinds": kinds.iter().map(|(k, (n, _))| (k.clone(), *n)).collect::<std::collections::BTreeMap<_, _>>(),
+            "kindsMs": kinds.iter().map(|(k, (_, us))| (k.clone(), us / 1000)).collect::<std::collections::BTreeMap<_, _>>(),
+            "snapshotReads": self.snapshot_reads.load(Ordering::Relaxed),
+            "snapshotUnloads": self.snapshot_unloads.load(Ordering::Relaxed),
         })
     }
 }
