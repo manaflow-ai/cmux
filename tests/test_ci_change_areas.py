@@ -136,14 +136,15 @@ def test_portable_guard_runner_and_tests_are_linux_control_plane_only() -> None:
     ), (paths, actual)
 
 
-def test_portable_placement_input_keeps_the_guard_tests_linux_only() -> None:
-    # cmux-next-guards.yml may pass a free mini as guard_tests_runner; the guard
-    # tests that job names stay off the macOS and Release lanes.
+def test_the_one_linux_label_keeps_the_guard_tests_linux_only() -> None:
+    # Own-branch Linux jobs take the one label cmux-linux; the guard tests that job names stay off
+    # the macOS and Release lanes. A needs or inputs expression still fails open.
     runs_on = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
-               "inputs.guard_tests_runner != '' && inputs.guard_tests_runner || "
-               "vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}")
+               "github.event.pull_request.head.repo.full_name != github.repository && "
+               "'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}")
     assert module.is_plainly_linux_runner(runs_on)
-    assert not module.is_plainly_linux_runner(runs_on.replace("guard_tests_runner", "other_runner"))
+    assert module.is_plainly_linux_runner("cmux-linux") is False
+    assert not module.is_plainly_linux_runner(runs_on.replace("'cmux-linux'", "inputs.guard_tests_runner"))
     actual = module.classify_files(["tests/test_ci_nightly_push_throttle.py"])
     assert actual.macos is False and actual.release_build is False, actual
 
@@ -158,7 +159,7 @@ def test_portable_guard_runner_does_not_hide_a_native_change() -> None:
     assert actual.macos is True, (paths, actual)
 
 
-def test_portable_router_linux_placement_keeps_guard_references_linux_only() -> None:
+def test_the_router_keeps_guard_references_linux_only() -> None:
     workflow = (ROOT / module.CI_WORKFLOW_PATH).read_text(encoding="utf-8")
     _, jobs = module.split_workflow_jobs(workflow)
     router = jobs["changes"]
