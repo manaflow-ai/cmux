@@ -136,7 +136,7 @@ fn merge_into(
     let Some(key) = merge_key(notice) else { return false };
     for at in (0..backlog.len()).rev() {
         let (p, g, waiting) = &backlog[at];
-        let Some(theirs) = merge_key(waiting) else { return false };
+        let Some(theirs) = merge_key(waiting) else { break };
         if theirs == key && p == peer && *g == generation {
             backlog.remove(at);
             return true;
