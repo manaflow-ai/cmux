@@ -596,6 +596,9 @@ pub mod method {
     pub const MUX_COMPUTER_USE_MACHINES: &str = "_acpmux/computer_use_machines";
     /// Whether Computer Use is on here (asked by a peer for its machine list).
     pub const MUX_COMPUTER_USE_STATE: &str = "_acpmux/computer_use_state";
+    /// One file or command action on another of the person's machines, from this machine's
+    /// own socket only (`server/machine_files_relay.rs`).
+    pub const MUX_MACHINE_FILES_CALL: &str = "_acpmux/machine_files_call";
     /// The person proof for this connection's challenge (`hub/person.rs`).
     pub const MUX_PERSON_PROVE: &str = "_acpmux/person_prove";
     pub const MUX_PERSON_HOLDS: &str = "_acpmux/person_holds";
