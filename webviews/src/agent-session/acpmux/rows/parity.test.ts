@@ -372,6 +372,22 @@ test("an answered option and a mode are named from the ask row's request", async
   });
 });
 
+test("two late grants patch the settled tool once and keep its output", async () => {
+  const snapshot = await v2("parity");
+  const row = snapshot.rows
+    .flatMap((entry) => entry.row ?? [])
+    .find((row) => row.kind === "tool" && (row.body as { callId?: string }).callId === "late-call")!;
+  expect(row.rev).toBe(2);
+  expect(row.approvedAfterSettle).toBe(true);
+  const views = adaptChat(snapshot, { sessionId: SESSION }).rows;
+  const item = views.flatMap((view) => view.items ?? []).find((item) => item.tool?.id === "late-call");
+  expect(item?.tool?.approved).toBe(true);
+  expect(item?.tool?.output).toContain("timed out pulling image");
+  for (const permissionId of ["late-1", "late-2"]) {
+    expect(views.some((view) => view.permission?.permissionId === permissionId)).toBe(false);
+  }
+});
+
 test("options with no kind: the translator's decision is the one the card's reading gives", async () => {
   const before = v1("parity");
   const record = before.rows.find(

@@ -8642,7 +8642,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                   topInset={soloUnder ? tabRow.height : 0}
                                                                   rows={transcriptRows}
                                                                   chatRowsV2={!childRows && snapshot.chatRowsV2}
-                                                                  heightSid={childRows ? undefined : snapshot.chatRowsHeightSid}
+                                                                  heightSid={
+                                                                    childRows ? undefined : snapshot.chatRowsHeightSid
+                                                                  }
                                                                   streams={!childRows}
                                                                   earlier={
                                                                     !childRows ? snapshot.earlierPrompts : undefined

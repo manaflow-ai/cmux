@@ -95,6 +95,9 @@ pub enum Change {
     Row(OwnedRow),
     /// Rare replacement of a settled live-message block; rev is incremented.
     Patch(OwnedRow),
+    /// Resolve a grant against the settled tool in this prompt. Its immutable output remains
+    /// in the book. A hint locates a recent call in one read.
+    Approve { ask: u64, call: String, turn: Option<u64>, hint: Option<u64> },
     /// A row taken back: a reply the harness superseded, a prompt that never ran. Its body
     /// becomes `{"hidden":true}`, its estimate zero and its phase `leaving`; its id and place stay.
     /// At rev 1 the row was open and settles so; past 1 it had settled and is patched. The page
@@ -472,6 +475,10 @@ pub struct State {
     reply: Option<Stream>,
     thought: Option<Stream>,
     tools: BTreeMap<String, OwnedRow>,
+    // The common late answer locates its tool without walking the turn. Older calls can still
+    // be found in the book when a turn outgrows this bounded checkpoint index.
+    recent_calls: std::collections::VecDeque<(u64, u64)>,
+    calls_overflowed: bool,
     subs: BTreeMap<String, OwnedRow>,
     group: Option<OwnedRow>,
     plan: Option<OwnedRow>,
@@ -1518,6 +1525,8 @@ impl State {
         } else {
             row.fields.insert("steer".into(), "false".into());
             self.turn = Some(row.id);
+            self.recent_calls.clear();
+            self.calls_overflowed = false;
             self.turn_key = key.into();
             self.turn_start_ms = self.at_ms;
             row.turn = self.turn;
@@ -1874,6 +1883,9 @@ impl State {
                     let mut row = self.tools.remove(&key).or_else(|| self.subs.remove(&key));
                     if let Some(mut row) = row.take() {
                         row.open = false;
+                        if row.kind == RowKind::Tool {
+                            row.field("callId", &key);
+                        }
                         self.remember_forced(&key, row.id);
                         out.row(&row);
                     }
@@ -1973,6 +1985,11 @@ impl State {
             row
         } else {
             let mut row = self.row(RowKind::Tool, out)?;
+            if self.recent_calls.len() == 64 {
+                self.recent_calls.pop_front();
+                self.calls_overflowed = true;
+            }
+            self.recent_calls.push_back((prompt_hash(key), row.id));
             row.group = self.group.as_ref().map(|g| g.id);
             row.fields.insert("startedAt".into(), self.at_ms.to_string());
             let activity_at = *self.activity_start_ms.get_or_insert(self.at_ms);
@@ -1990,6 +2007,8 @@ impl State {
             row
         };
         if ended {
+            // The book may outline the bulk output. Keep its lookup key on that outline.
+            row.field("callId", key);
             row.fields.insert("endedAt".into(), self.at_ms.to_string());
         }
         let mut provenance = serde_json::Map::new();
@@ -2014,7 +2033,7 @@ impl State {
             row.open = false;
             out.row(&row);
         } else {
-            row.fields.clear();
+            row.fields.retain(|field, _| field == "approved");
             self.tools.insert(key.into(), row);
         }
         Ok(())

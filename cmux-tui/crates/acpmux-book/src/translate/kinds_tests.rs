@@ -147,6 +147,7 @@ fn each_result_field_goes_into_the_turn_end_notice() {
             ("notice", "\"turn_result\""),
             ("forkable", "true"),
             ("seq", "7"),
+            ("turnId", "\"p~resume-2\""),
             ("status", "\"failed\""),
             ("error", "\"model unreachable\""),
             ("errorCode", "\"overloaded\""),
@@ -169,7 +170,12 @@ fn a_result_with_none_of_the_optional_fields_writes_none() {
         run(&mut state, Harness::V1, &[prompt(1, "p"), mux(2, "turn_result", r#"{"turnId":"p"}"#)]);
     assert_eq!(
         turn_end(&ops),
-        fields(&[("notice", "\"turn_result\""), ("forkable", "true"), ("seq", "2")])
+        fields(&[
+            ("notice", "\"turn_result\""),
+            ("forkable", "true"),
+            ("seq", "2"),
+            ("turnId", "\"p\"")
+        ])
     );
     // Zero tokens, a false flag, an empty code, a code that is not a string, `error` on a turn
     // that did not fail, and checkpoints without the starting one's key: all absent.
@@ -182,6 +188,7 @@ fn a_result_with_none_of_the_optional_fields_writes_none() {
             ("notice", "\"turn_result\""),
             ("forkable", "true"),
             ("seq", "2"),
+            ("turnId", "\"p\""),
             ("status", "\"completed\""),
         ])
     );

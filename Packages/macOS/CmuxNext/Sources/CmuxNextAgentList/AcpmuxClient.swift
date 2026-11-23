@@ -101,6 +101,14 @@ public nonisolated final class AcpmuxClient: @unchecked Sendable {
     }
     @discardableResult public func chatPage(_ request: Data) -> Int32 { mutate(request) { handle, p, n in acpmux_client_chat_page(handle, p, n) } }
     public func chatBlob(_ request: Data) -> Data? { call(request) { handle, p, n, out in acpmux_client_chat_blob(handle, p, n, out) } }
+    /// Reads exact row measurements remembered by the native chat host.
+    public func rowHeightsRead(_ request: Data) -> Data? {
+        call(request) { handle, p, n, out in acpmux_client_row_heights_read(handle, p, n, out) }
+    }
+    /// Stores exact row measurements for reuse by a later page mount.
+    public func rowHeightsWrite(_ request: Data) -> Data? {
+        call(request) { handle, p, n, out in acpmux_client_row_heights_write(handle, p, n, out) }
+    }
 
     private func take(_ invoke: (UnsafeMutablePointer<AcpmuxClientBytes>) -> Int32) -> Data? {
         var bytes = AcpmuxClientBytes(ptr: nil, len: 0)

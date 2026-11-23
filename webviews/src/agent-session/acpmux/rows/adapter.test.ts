@@ -3,6 +3,7 @@
 import { expect, test } from "bun:test";
 import { chatRowsFeed } from "../../../../test/support/chatRowsFeed";
 import { turnView } from "../conversation/turns";
+import { bookRevision } from "./bookRevision";
 import { ChatAdapter } from "./adapter";
 import { ChatRowsHost, type ChatRowsPost } from "./host";
 import { ChatRowStore } from "./store";
@@ -56,6 +57,7 @@ test("a new snapshot adapts only the rows that changed", async () => {
   expect(next[2]).toBe(first[2]!);
   expect(next[1]).not.toBe(first[1]!);
   expect(next[1]!.text).toBe("edited");
+  expect(bookRevision(next[1]!)).toBe(2);
 });
 
 test("each open text delta redraws the shaped answer at the same wire revision", async () => {
@@ -68,6 +70,7 @@ test("each open text delta redraws the shaped answer at the same wire revision",
   const after = answer();
   expect(after.text).toBe("r2 hello");
   expect(after.version).toBeGreaterThan(before.version);
+  expect(bookRevision(after)).toBe(1);
   expect(snapshot().rows.find((entry) => entry.id === 2)?.rev).toBe(1);
   op({ op: "text", rowId: 2, text: " world" });
   expect(answer().version).toBeGreaterThan(after.version);

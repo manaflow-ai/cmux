@@ -12,6 +12,7 @@ import type { AcpmuxRow, QueuedPrompt } from "../model";
 import { answeredBy } from "../multiplayer/participants";
 import { DECISION_TEXT, PERMISSION_RECORD, type PermissionDecision } from "../permissions/record";
 import type { IncomingContext } from "../conversation/incomingMessage";
+import { BOOK_REVISION } from "./bookRevision";
 import { type UserBody, userPrompt } from "./incoming";
 import type { ChatRowEntry, ChatRowsSnapshot } from "./store";
 import type { ChatRow } from "./wire";
@@ -98,7 +99,7 @@ export function adaptRow(
   const row = entry.row;
   if (!row) return [];
   const body = (row.body ?? {}) as Record<string, any>;
-  const head = { id: `row-${row.id}`, version: viewVersion, at: body.atMs ?? row.at * 1000 };
+  const head = { id: `row-${row.id}`, version: viewVersion, at: body.atMs ?? row.at * 1000, [BOOK_REVISION]: row.rev };
   switch (row.kind) {
     case "user":
       return [
@@ -141,7 +142,7 @@ export function adaptRow(
       if (item.tool) {
         item.tool.startedAt = body.startedAt;
         item.tool.endedAt = body.endedAt;
-        if (body.approved) item.tool.approved = true;
+        if (body.approved || row.approvedAfterSettle) item.tool.approved = true;
         if (body.provenance) item.tool.provenance = body.provenance;
       }
       return [

@@ -2,17 +2,20 @@
 /// <reference types="bun" />
 // The production pane, with the same flat conversation served as v1 records or v2 row changes.
 // The stand-in has 100k visible messages and pages in 40 turns. Open and older start at the
-// page's request. Token starts at delivery. The first painted frame showing the result ends each.
+// page's request. Token and prepend start at input/page delivery. Open, older and token stop
+// when their row is visible; prepend stops when an older row is mounted in a painted frame,
+// including overscan. Rects count Element and Range.getBoundingClientRect across the document.
 // Run from webviews: bun bench/transcript-fling-rows.bench.ts
 import type { Page } from "playwright";
 import { chromium } from "./browsers";
+import { perfRow } from "./perfRow";
 import { papercutPane, type PapercutStep } from "../test/support/papercutChat";
 import type { ChatChange, ChatRow } from "../src/agent-session/acpmux/rows/wire";
 import { installPaintedFrames } from "../test/support/paintedFrames";
 
 type Arm = "v1" | "v2";
-type Reading = { ms: number; rects: number; rowRects: number; turn: number };
-type Phase = "open" | "older" | "token";
+type Reading = { ms: number; rects: number; rowRects: number; turn?: number };
+type Phase = "open" | "older" | "prepend" | "token";
 type Results = Partial<Record<Phase, Reading>>;
 const turns = Number(process.env.ROWS ?? 100_000) / 2;
 const pageTurns = 40;
@@ -65,12 +68,13 @@ function rows(first: number, last: number): ChatRow[] {
 async function instrument(page: Page, arm: Arm) {
   await installPaintedFrames(page);
   await page.addInitScript(
-    ({ arm, turns, token, traceRects }) => {
+    ({ arm, turns, pageTurns, token, traceRects }) => {
       type Envelope = { op?: string; id?: number; params?: Record<string, unknown> };
       const scope = window as unknown as {
         __rowsResult: Results;
+        __cmuxOlderTrace(phase: string): void;
         __rectStacks: Record<string, number>;
-        __rowsHost(method: string, params: Record<string, unknown>): Promise<{ sid?: string; change?: ChatChange }>;
+        __rowsHost(method: string, params: Record<string, unknown>): Promise<{ value?: unknown; change?: ChatChange }>;
         __rowsReceive(change: ChatChange): void;
         cmuxChatRows: { receive(batch: { batch: number; changes: string[] }): void };
       };
@@ -79,11 +83,27 @@ async function instrument(page: Page, arm: Arm) {
       scope.__rectStacks = {};
       scope.__rowsResult = result;
       const pending = new Map<Phase, { began: number; rects: number; rowRects: number }>();
+      const firstTailTurn = turns - pageTurns + 1;
+      let olderBoundary = firstTailTurn;
       const begin = (phase: Phase, before?: number) => {
         if (pending.has(phase) || result[phase]) return;
         const active = { began: performance.now(), rects: 0, rowRects: 0 };
         pending.set(phase, active);
         window.cmuxAfterPaint(() => {
+          if (phase === "prepend") {
+            const mounted = Array.from(document.querySelectorAll(".acpmux-row[data-row-id]")).some((row) => {
+              const turn = Number(/(?:Question |Answer )(\d+)/.exec(row.textContent ?? "")?.[1]);
+              return turn > 0 && turn < olderBoundary;
+            });
+            if (!mounted) return true;
+            result.prepend = {
+              ms: performance.now() - active.began,
+              rects: active.rects,
+              rowRects: active.rowRects,
+            };
+            pending.delete(phase);
+            return false;
+          }
           // Hit test painted rows. A prefetched row sitting in the virtualizer's overscan
           // must not win the older-page measurement.
           for (let y = 25; y < innerHeight; y += 14) {
@@ -106,59 +126,90 @@ async function instrument(page: Page, arm: Arm) {
           return true;
         });
       };
-      const rect = Element.prototype.getBoundingClientRect;
-      Element.prototype.getBoundingClientRect = function () {
+      const countRect = (element: Element | null) => {
         for (const [phase, active] of pending) {
           active.rects++;
-          if (traceRects && phase === "older") {
+          if (traceRects && phase === "prepend") {
             const site = (new Error().stack ?? "")
               .split("\n")
-              .slice(2, 6)
+              .slice(3, 7)
               .map((line) => line.trim())
               .join(" <- ");
             scope.__rectStacks[site] = (scope.__rectStacks[site] ?? 0) + 1;
           }
-          if (this.closest(".acpmux-row")) active.rowRects++;
+          if (element?.closest(".acpmux-row")) active.rowRects++;
         }
+      };
+      const rect = Element.prototype.getBoundingClientRect;
+      Element.prototype.getBoundingClientRect = function () {
+        countRect(this);
         return rect.call(this);
+      };
+      const rangeRect = Range.prototype.getBoundingClientRect;
+      Range.prototype.getBoundingClientRect = function () {
+        const node = this.commonAncestorContainer;
+        countRect(node instanceof Element ? node : node.parentElement);
+        return rangeRect.call(this);
       };
       scope.__rowsReceive = (change) => {
         if (change.kind === "chatOp") begin("token");
+        if (change.kind === "chatPage") begin("prepend");
         scope.cmuxChatRows.receive({ batch: ++batch, changes: [JSON.stringify(change)] });
+      };
+      let olderAsked = false;
+      scope.__cmuxOlderTrace = (phase) => {
+        if (arm !== "v1") return;
+        if (phase === "ask") olderAsked = true;
+        if (phase === "reply" && pending.has("older")) begin("prepend");
       };
       const Socket = window.WebSocket;
       window.WebSocket = class extends Socket {
         constructor(...args: ConstructorParameters<typeof WebSocket>) {
           super(...args);
           this.addEventListener("message", (event) => {
-            if (arm === "v1" && typeof event.data === "string" && event.data.includes(token)) begin("token");
+            if (arm !== "v1" || typeof event.data !== "string") return;
+            if (event.data.includes(token)) begin("token");
           });
         }
         override send(data: Parameters<WebSocket["send"]>[0]) {
           if (arm === "v1" && typeof data === "string") {
             const { method, params } = JSON.parse(data);
             if (method === "_acpmux/attach") begin("open");
-            if (method === "_acpmux/events" && params.beforeSeq && !params.promptIndex)
-              begin("older", Math.ceil(params.beforeSeq / 4));
+            if (method === "_acpmux/events" && olderAsked && params.beforeSeq && !params.promptIndex) {
+              if (!pending.has("older")) olderBoundary = Math.min(firstTailTurn, Math.ceil(params.beforeSeq / 4));
+              begin("older", olderBoundary);
+            }
           }
           super.send(data);
         }
       };
-      if (arm === "v2") {
+      {
         const handlers = new Proxy({} as Record<string, unknown>, {
           set(target, key: string, value: { postMessage(request: Envelope): Promise<unknown> }) {
             if (key !== "cmuxPage") target[key] = value;
             else
               target[key] = {
                 async postMessage(request: Envelope) {
-                  if (!request.op?.startsWith("cmux.agent.chat.rows.")) return value.postMessage(request);
+                  if (request.op === "cmux.agent.handshake") {
+                    const reply = (await value.postMessage(request)) as { value: { linkScheme: string } };
+                    // A NIGHTLY handshake. The dev host normally advertises cmux-dev, enabling
+                    // its dev-only whole-document motion audit even in a production bundle.
+                    reply.value.linkScheme = "cmux-nightly";
+                    return reply;
+                  }
+                  if (arm !== "v2" || !request.op?.startsWith("cmux.agent.chat.rows."))
+                    return value.postMessage(request);
                   const method = request.op.slice("cmux.agent.chat.rows.".length);
                   const params = request.params ?? {};
                   if (method === "open") begin("open");
-                  if (method === "page") begin("older", Math.ceil(Number(params.before) / 4));
+                  if (method === "page") {
+                    if (!pending.has("older"))
+                      olderBoundary = Math.min(firstTailTurn, Math.ceil(Number(params.before) / 4));
+                    begin("older", olderBoundary);
+                  }
                   const reply = await scope.__rowsHost(method, params);
                   if (reply.change) scope.__rowsReceive(reply.change);
-                  return { t: "ok", id: request.id, value: reply.sid ? { sid: reply.sid } : {} };
+                  return { t: "ok", id: request.id, value: reply.value ?? {} };
                 },
               };
             return true;
@@ -167,16 +218,18 @@ async function instrument(page: Page, arm: Arm) {
         Object.assign(window, { webkit: { messageHandlers: handlers } });
       }
     },
-    { arm, turns, token, traceRects },
+    { arm, turns, pageTurns, token, traceRects },
   );
 }
 
 async function readArm(arm: Arm) {
+  const reply = answer(turns);
+  const split = reply.lastIndexOf(" ");
   const extra: PapercutStep[] = [
     ["mux", "user_message", { text: question(turns) }],
     ["mux", "turn_started", {}],
-    ["in", "agent_message_chunk", chunk(answer(turns).slice(0, -6))],
-    ["in", "agent_message_chunk", chunk(answer(turns).slice(-6))],
+    ["in", "agent_message_chunk", chunk(reply.slice(0, split))],
+    ["in", "agent_message_chunk", chunk(reply.slice(split))],
   ];
   const browser = await chromium.launch({ headless: true });
   try {
@@ -195,6 +248,9 @@ async function readArm(arm: Arm) {
       await instrument(page, arm);
       let sid = "";
       const asks: string[] = [];
+      type HeightKey = { id: number; rev: number; width: number; signature: string };
+      const heights = new Map<string, number>();
+      const keyFor = ({ id, rev, width, signature }: HeightKey) => JSON.stringify([id, rev, width, signature]);
       await page.exposeFunction("__rowsHost", (method: string, params: Record<string, unknown>) => {
         asks.push(method);
         if (method === "open") {
@@ -202,7 +258,7 @@ async function readArm(arm: Arm) {
           const tail = rows(turns - pageTurns + 1, turns);
           const open = tail.pop()!;
           return {
-            sid,
+            value: { sid, heights: true },
             change: {
               kind: "chatWindow",
               replaces: true,
@@ -216,6 +272,18 @@ async function readArm(arm: Arm) {
                 hasAfter: false,
               },
             } satisfies ChatChange,
+          };
+        }
+        if (method === "heights.write") {
+          const entries = params.entries as (HeightKey & { height: number })[];
+          for (const entry of entries) heights.set(keyFor(entry), entry.height);
+          return { value: { stored: entries.length } };
+        }
+        if (method === "heights.read") {
+          return {
+            value: {
+              rows: (params.rows as HeightKey[]).map((row) => ({ ...row, height: heights.get(keyFor(row)) ?? null })),
+            },
           };
         }
         if (method === "page") {
@@ -285,6 +353,7 @@ async function readArm(arm: Arm) {
         requestAnimationFrame(up);
       });
       await waitFor("older");
+      await waitFor("prepend");
       if (arm === "v2" ? !asks.includes("page") : !pane.history.requests.some((before) => before !== undefined))
         throw new Error(`${arm} did not request an older page`);
       const measured = await page.evaluate(() => (window as unknown as { __rowsResult: Results }).__rowsResult);
@@ -296,9 +365,15 @@ async function readArm(arm: Arm) {
         );
         console.log("TRANSCRIPT_FLING_ROWS_TRACE", JSON.stringify({ arm, stacks }));
       }
+      if (!traceRects) {
+        for (const [phase, reading] of Object.entries(measured)) {
+          perfRow({ name: `transcript_fling.${arm}.${phase}_to_paint`, p95: reading.ms, samples: [reading.ms] });
+          perfRow({ name: `transcript_fling.${arm}.${phase}_rects`, p95: reading.rects, unit: "calls" });
+        }
+      }
       console.log(
         "TRANSCRIPT_FLING_ROWS_JSON",
-        JSON.stringify({ arm, rows: turns * 2, engine: "chromium", ...measured }),
+        JSON.stringify({ arm, rows: turns * 2, engine: "chromium", storedHeights: heights.size, ...measured }),
       );
     } finally {
       await pane.close();

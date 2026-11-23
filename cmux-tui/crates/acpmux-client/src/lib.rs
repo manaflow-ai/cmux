@@ -357,10 +357,7 @@ where
     /// use that id so closing and reopening a page sid can reuse its cache while
     /// an unrelated chat cannot observe it.
     pub(crate) fn chat_cache_sid(&self, sid: &str) -> Option<String> {
-        self.chats
-            .get(sid)
-            .and_then(|chat| chat.request.stream.as_str().strip_prefix("chat:"))
-            .map(str::to_owned)
+        self.chats.get(sid).and_then(chat::ChatSub::chat_id).map(str::to_owned)
     }
 
     pub fn connected(&mut self) {

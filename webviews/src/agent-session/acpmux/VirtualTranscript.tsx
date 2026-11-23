@@ -207,7 +207,14 @@ import { hasPromptTops, keepPromptTops, knownPromptTop } from "./conversation/tr
 import { holdWebSwap } from "../../pages/shared/webSwap";
 import { playChatSwitch, type ChatSwitchPlay } from "./chatSwitch";
 import { chatSwitchMotion } from "./chatSwitch.experiment";
-import { heightKey, layoutIdentity, type MeasuredRow, readHeights, writeHeights } from "./rows/heights";
+import {
+  heightKey,
+  layoutIdentity,
+  type MeasuredRow,
+  type RowHeightKey,
+  readHeights,
+  writeHeights,
+} from "./rows/heights";
 import { callNative } from "./callNative";
 import { StreamReveal } from "./streamReveal";
 import { type NativeRegistry, type OpenDiff } from "./rows/rowProps";
@@ -2335,7 +2342,7 @@ function TranscriptView({
     if (!heightSid || flowing) return;
     const shown = rowsRef.current;
     const positions = new Map<number, number>();
-    const keys = [];
+    const keys: RowHeightKey[] = [];
     for (let index = 0; index < shown.length; index += 1) {
       const key = heightKey(shown, index, sessionId, heightLayout, scaledRowWidth);
       if (key) {
@@ -2355,15 +2362,35 @@ function TranscriptView({
         const key = heightKey(current, index, sessionId, heightLayout, scaledRowWidth);
         if (!key || key.rev !== entry.rev || key.width !== entry.width || key.signature !== entry.signature) continue;
         const known = pendingDrawn.current.get(row.id) ?? drawnRef.current.get(row.id);
-        if (known?.sessionId === sessionId && known?.width === scaledRowWidth && known.version === row.version) continue;
+        if (known?.sessionId === sessionId && known?.width === scaledRowWidth && known.version === row.version)
+          continue;
         const next = nextDrawnRow(current, index);
-        reportDrawn(row.id, row.version, entry.height, keepsReplyRoom(row, next),
-          statusEdge(row, next, prevDrawnRow(current, index)), false, row);
+        reportDrawn(
+          row.id,
+          row.version,
+          entry.height,
+          keepsReplyRoom(row, next),
+          statusEdge(row, next, prevDrawnRow(current, index)),
+          false,
+          row,
+        );
       }
       flushDrawn();
     });
-    return () => { active = false; };
-  }, [heightSid, sessionId, heightLayout, scaledRowWidth, firstHeightRow, lastHeightRow, flowing, reportDrawn, flushDrawn]);
+    return () => {
+      active = false;
+    };
+  }, [
+    heightSid,
+    sessionId,
+    heightLayout,
+    scaledRowWidth,
+    firstHeightRow,
+    lastHeightRow,
+    flowing,
+    reportDrawn,
+    flushDrawn,
+  ]);
 
   /// Reports the height `target` (a drawn row) lays out at now.
   const reportRow = useCallback(
@@ -2549,6 +2576,10 @@ function TranscriptView({
             // A flowing drag's rows rewrap every frame at a width they were not placed at: their
             // heights are read once, when the width holds (`endFlow`).
             if (liveResize.current.flow !== undefined || renderedFlowing.current) return;
+            const targets = (entries ?? []).map((entry) => entry.target as HTMLElement);
+            const measure = () => {
+              for (const target of targets) reportRow(target);
+            };
             if (observeRowSize) {
               // An undisplayed row has no inline size. A laid-out, empty row may be zero high.
               const measured: MeasuredRow[] = [];
@@ -2559,8 +2590,15 @@ function TranscriptView({
                 reportRow(target, box.blockSize);
                 if (!heightSid) continue;
                 const id = target.dataset.rowId;
-                const pending = id && pendingDrawn.current.get(id);
-                if (!pending || pending.collapsing || sameDrawn(drawnRef.current.get(id!), pending) || heightFoldInFlight(target)) continue;
+                if (!id) continue;
+                const pending = pendingDrawn.current.get(id);
+                if (
+                  !pending ||
+                  pending.collapsing ||
+                  sameDrawn(drawnRef.current.get(id), pending) ||
+                  heightFoldInFlight(target)
+                )
+                  continue;
                 const index = Number(target.getAttribute("aria-posinset")) - 1;
                 const shown = rowsRef.current;
                 if (shown[index]?.id !== id) continue;
@@ -2568,15 +2606,7 @@ function TranscriptView({
                 if (key) measured.push({ ...key, height: box.blockSize });
               }
               if (heightSid && measured.length) writeHeights(heightSid, measured);
-              if (changesDrawn(drawnRef.current, pendingDrawn.current)) flushSync(flushDrawn);
-              else pendingDrawn.current.clear();
-              return;
-            }
-            const targets = (entries ?? []).map((entry) => entry.target as HTMLElement);
-            const measure = () => {
-              for (const target of targets) reportRow(target);
-            };
-            measure();
+            } else measure();
             // A late size change (a font loading) must not paint a frame of overlap first. Sizes
             // that did not change render nothing: a synchronous render here for nothing was the
             // "ResizeObserver loop completed with undelivered notifications" while streaming.
@@ -2617,7 +2647,12 @@ function TranscriptView({
             // before paint, as a followed view's is.
             // Not while a key or pointer event waits: a synchronous render here holds the typed
             // character behind it, so the frame's own commit places the rows instead.
-            else if (
+            else if (observeRowSize) {
+              // The delivered border boxes already include this frame's layout. The next
+              // observer delivery places any rows resized by this commit.
+              if (inputPending()) flushDrawn();
+              else flushSync(flushDrawn);
+            } else if (
               !inputPending() &&
               (rode ||
                 followingRef.current ||
@@ -6136,7 +6171,11 @@ function TranscriptView({
     const declareFold = (line: Element | null | undefined) => {
       const rowId = line?.closest<HTMLElement>("[data-row-id]")?.dataset.rowId;
       if (rowId)
-        transition(motionList, { cause: "disclosure", anchorRow: rowId, ms: FOLD_HOLD_MIN_MS + FOLD_SETTLE_MS });
+        transition(motionList, {
+          cause: "disclosure",
+          anchorRow: rowId,
+          ms: FOLD_HOLD_MIN_MS + FOLD_SETTLE_MS,
+        });
     };
     // First on the window, so a fling's momentum held after a jump reaches no other listener.
     const removeMomentumHold = installMomentumHold(node, scrollRunning);

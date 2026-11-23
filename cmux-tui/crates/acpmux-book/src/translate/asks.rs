@@ -3,7 +3,7 @@
 //! (`request`, then `outcome`) and its small proven facts as fields; the page builds the view's
 //! `AcpmuxPermission` and a question's answered state from the same bytes (v1's
 //! `permissionFromMessage` and `decidedQuestion`). No row holds localized text.
-use super::{BodyField, Error, OwnedRow, State, input, prompt_hash, user};
+use super::{BodyField, Change, Error, OwnedRow, State, input, prompt_hash, user};
 use crate::row::RowKind;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, value::RawValue};
@@ -251,17 +251,37 @@ impl State {
             matches!(decision["kind"].as_str(), Some("allowed" | "allowedAlways" | "fullAccess"));
         let call =
             row.fields.get("toolCallId").and_then(|s| serde_json::from_str::<String>(s).ok());
-        let tool = call.as_ref().and_then(|id| self.tools.get_mut(id)).filter(|_| approval);
+        let tool = call
+            .as_ref()
+            .and_then(|id| self.tools.get_mut(id))
+            .filter(|tool| approval && tool.turn == self.turn);
         let drawn_on_tool = tool.is_some();
         if let Some(tool) = tool {
             tool.fields.insert("approved".into(), "true".into());
             out.row(tool);
+        } else if approval && let Some(call) = call {
+            let hint = self
+                .recent_calls
+                .iter()
+                .rev()
+                .find(|(key, _)| *key == prompt_hash(&call))
+                .map(|(_, id)| *id);
+            if hint.is_some() || self.calls_overflowed {
+                out.emit(Change::Approve { ask: row.id, call, turn: self.turn, hint });
+            } else {
+                self.permission_line();
+            }
         } else {
-            self.activity_start_ms = None;
+            self.permission_line();
         }
         row.fields.insert("drawnOnTool".into(), drawn_on_tool.to_string());
         row.fields.insert("decidedAtMs".into(), self.at_ms.to_string());
         row.fields.insert("decision".into(), json(decision));
+    }
+
+    /// A receipt with no matching tool divides consecutive activity runs.
+    pub fn permission_line(&mut self) {
+        self.activity_start_ms = None;
     }
 
     /// `secret_decision` and `elevation_decision`: the outcome's word (provided, declined,

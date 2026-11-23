@@ -25,7 +25,7 @@ fn a_row_encodes_to_the_designs_text() {
     assert_eq!(placement, Placement::Inline);
     assert_eq!(
         String::from_utf8(out).unwrap(),
-        r#"{"id":48211,"rev":1,"kind":"tool","turn":9120,"group":48190,"at":1794480726,"open":false,"phase":"settled","body":{"name":"Bash","out":"ok"},"est":3}"#
+        r#"{"id":48211,"rev":1,"kind":"tool","turn":9120,"group":48190,"at":1794480726,"open":false,"phase":"settled","body":{"name":"Bash","out":"ok"},"est":3,"approvedAfterSettle":false}"#
     );
 }
 
@@ -123,7 +123,12 @@ fn a_five_megabyte_body_leaves_a_head_and_a_preview_of_at_most_4_kb() {
     let text = String::from_utf8(out).unwrap();
     assert!(is_compact_value(&text), "the preview is escaped and cut on a character");
     assert!(text.len() <= MAX_ROW_TEXT);
-    let preview = text.split_once(r#""preview":""#).unwrap().1.strip_suffix("\"}}").unwrap();
+    let preview = text
+        .split_once(r#""preview":""#)
+        .unwrap()
+        .1
+        .strip_suffix(r#""},"approvedAfterSettle":false}"#)
+        .unwrap();
     assert!(preview.len() <= MAX_PREVIEW && preview.len() > MAX_PREVIEW - 8, "{}", preview.len());
     assert!(preview.starts_with(r#"line one\n\"two\"\t\u0001é漢字 "#));
     assert!(text.contains(r#""body":{"name":"Bash"},"#));
@@ -252,6 +257,31 @@ fn spilled_and_in_memory_bodies_have_identical_row_text() -> Result<(), Box<dyn 
         Err(RowError::Head)
     );
     Ok(())
+}
+
+#[test]
+fn a_late_tool_approval_preserves_inline_and_outlined_output() {
+    for body in [
+        r#"{"callId":"x","content":"hello"}"#.to_owned(),
+        format!(r#"{{"long":"{}"}}"#, "x".repeat(20_000)),
+    ] {
+        let mut before = Vec::new();
+        row(&body)
+            .encode(Some(Outline { head: r#"{"callId":"x"}"#, preview: "écho" }), &mut before)
+            .unwrap();
+        let head = RowHead::parse(&before).unwrap();
+        let after = crate::row::approve_settled_tool(&before, &head).unwrap();
+        let old: serde_json::Value = serde_json::from_slice(&before).unwrap();
+        let new: serde_json::Value = serde_json::from_slice(&after).unwrap();
+        assert_eq!(new["rev"], 2);
+        assert_eq!(new["approvedAfterSettle"], true);
+        assert_eq!(new["body"], old["body"]);
+        assert_eq!(new["blob"], old["blob"]);
+        assert!(after.len() <= before.len());
+        assert!(
+            crate::row::approve_settled_tool(&after, &RowHead::parse(&after).unwrap()).is_none()
+        );
+    }
 }
 
 #[test]
