@@ -31,9 +31,8 @@ extension BrowserProfileService {
         return TabProfileBadge(name: record?.name ?? displayName(id), color: record?.color.flatMap(GroupColor.init(rawValue:)))
     }
 
-    /// The avatar the toolbar's profile button draws for tab `key`, with one profile too (the button is
-    /// where a second one is made); nil for incognito tabs (their window says incognito), which keep
-    /// the plain glyph.
+    /// The avatar the toolbar's profile button draws for tab `key`, with one profile too; nil for
+    /// incognito tabs (their window says incognito), which keep the plain glyph.
     func toolbarBadge(forTab key: String) -> BrowserProfileBadge? {
         guard !services.cache.browserTabs.isIncognitoTab(key) else { return nil }
         let id = services.cache.tabModel(key).map(profileID(ofTab:)) ?? BrowserProfileRecord.defaultID
@@ -42,17 +41,11 @@ extension BrowserProfileService {
                                    name: record?.name ?? displayName(id))
     }
 
-    /// Whether tab `key`'s toolbar shows its profile button, and in color (`browser.profileButton`). At the
-    /// default level it shows once the person has a second profile of their own (the Agents profile does
-    /// not count), or for an incognito or Agents tab; always in ink unless they chose the color level.
+    /// Tab `key`'s profile button (`browser.profileButton`; the Agents profile is not one of the person's).
     func toolbarPresence(forTab key: String) -> BrowserProfileButtonPresence {
         let style = services.settings.map(BrowserProfileButtonSetting.current) ?? BrowserProfileButtonSetting.fallback
-        let id = services.cache.tabModel(key).map(profileID(ofTab:)) ?? BrowserProfileRecord.defaultID
-        return BrowserProfileButtonPresence.resolve(
-            alwaysShown: style != .quiet, colored: style == .color,
-            personProfiles: ordered.lazy.filter { $0.id != AgentBrowserProfile.id }.count,
-            incognito: services.cache.browserTabs.isIncognitoTab(key), agentsProfile: id == AgentBrowserProfile.id
-        )
+        return .resolve(alwaysShown: style != .quiet, colored: style == .color, personProfiles: ordered.count { $0.id != AgentBrowserProfile.id },
+                        incognito: services.cache.browserTabs.isIncognitoTab(key), agentsProfile: services.cache.tabModel(key)?.browserProfileID == AgentBrowserProfile.id)
     }
 
     /// Re-renders every browser toolbar after a profile or a default changed. Tab strips follow by
