@@ -825,11 +825,12 @@ fn is_long_by_design(method: &str) -> bool {
 
 /// The tail file, readable by its owner only: it names chats and clients.
 fn open_private(path: &std::path::Path) -> std::io::Result<std::fs::File> {
-    let mut options = std::fs::OpenOptions::new();
-    options.create(true).write(true).truncate(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    options.open(path)
+    crate::home_fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(path)
 }
 
 fn round(value: f64) -> f64 {
@@ -870,6 +871,8 @@ fn short_id(id: &str) -> &str {
     id.get(..8).unwrap_or(id)
 }
 
+// Tests that want another clock build their own Watch (Watch::with_clock), never this one.
+// test-hook-allow: holds no hook; its clock is the wall clock, fixed when it is built
 static GLOBAL: Watch = Watch::new();
 
 /// This daemon's watch.

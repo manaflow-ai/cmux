@@ -499,6 +499,44 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     ),
     ("share-host on", &[("Turn sharing this Mac's screen on", "acpmux share-host on")]),
     ("share-host off", &[("Turn sharing this Mac's screen off", "acpmux share-host off")]),
+    (
+        "share-host screens",
+        &[
+            ("List the shares this machine hosts and views", "acpmux share-host screens"),
+            ("Read them as JSON", "acpmux share-host screens --json"),
+        ],
+    ),
+    (
+        "share-host start",
+        &[
+            ("Share this machine's screen to your iPhone", "acpmux share-host start --to iphone"),
+            ("Share it view-only", "acpmux share-host start --to iphone --view-only"),
+        ],
+    ),
+    ("share-host stop", &[("End a share by its session id prefix", "acpmux share-host stop 3f2a")]),
+    (
+        "share-host move",
+        &[
+            (
+                "Hand a share's viewer side to another device",
+                "acpmux share-host move 3f2a --to ipad",
+            ),
+            (
+                "Show the viewer another host's screen",
+                "acpmux share-host move 3f2a --host studio-mac",
+            ),
+        ],
+    ),
+    (
+        "share-host link",
+        &[
+            ("Print the view-only link to this Mac's screen", "acpmux share-host link"),
+            (
+                "Link to a run's virtual display, with full control",
+                "acpmux share-host link --display 2 --control",
+            ),
+        ],
+    ),
     ("router", &[("Start the local CodeRouter", "acpmux router serve")]),
     ("router serve", &[("Start the local router listeners", "acpmux router serve")]),
 ];
