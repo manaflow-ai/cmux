@@ -154,6 +154,24 @@ fn send(text: &str) -> SendCall {
     }
 }
 
+fn plain_reply_script() -> Script {
+    Box::new(|_, _| {
+        vec![
+            json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+            json!({
+                "dir": "in",
+                "kind": "claude.assistant",
+                "msg": {"message": {"id": "m1", "model": "test", "usage": {"input_tokens": 10, "output_tokens": 4}}}
+            }),
+            update(
+                "agent_message_chunk",
+                json!({"content": {"type": "text", "text": "A plain reply ends this turn."}}),
+            ),
+            json!({"dir": "in", "kind": "claude.result", "msg": {"type": "result", "subtype": "success"}}),
+        ]
+    })
+}
+
 #[test]
 fn turn_tools_send_posts_a_top_level_message_now_and_a_repeat_is_a_noop() {
     let mut h = Harness::new(default_script());
@@ -171,6 +189,24 @@ fn turn_tools_send_posts_a_top_level_message_now_and_a_repeat_is_a_noop() {
     h.agents.hold(false);
     h.agents.release();
     h.settle_posts();
+}
+
+#[test]
+fn a_plain_reply_ends_without_a_stop_request_and_is_posted() {
+    let mut h = Harness::new(plain_reply_script());
+    running(&mut h, "answer this directly");
+    h.agents.hold(false);
+    h.agents.release();
+    h.settle_posts();
+
+    assert_eq!(h.agents.inner.lock().unwrap().prompts.len(), 1);
+    assert_eq!(h.agents.inner.lock().unwrap().cancels.len(), 1);
+    assert!(
+        sends(&h)
+            .iter()
+            .any(|(_, parts, _, _)| texts(parts).contains("A plain reply ends this turn.")),
+        "the final plain text is posted"
+    );
 }
 
 /// cmux#25634: `send` with `delay_seconds` posts nothing now; the owner
@@ -680,31 +716,32 @@ fn turn_tools_the_chief_has_send_stop_and_sleep_and_a_subagent_does_not() {
     }
 }
 
-/// The reply length gate (chief_kernel::replies): the first send of a turn
-/// over `replies.maxWords` posts nothing and answers with its word count, so
-/// Chief cuts it; the next send of that turn posts as is.
+/// The reply length gate (chief_kernel::replies) keeps a long send within the
+/// short-message style by posting sentence-sized parts in one tool call.
 #[test]
-fn turn_tools_send_refuses_the_first_long_reply_of_a_turn_then_posts_the_next() {
+fn turn_tools_send_splits_a_long_reply_without_a_resend() {
     let mut h = Harness::new(default_script());
     running(&mut h, "status?");
-    let long = format!("{} end.", "word ".repeat(80));
+    let long = (0..3)
+        .map(|n| format!("Point {n}: {}.", "word ".repeat(20)))
+        .collect::<Vec<_>>()
+        .join(" ");
     let sp = spawner(&h);
-    let first = long.clone();
-    let refused = run(&mut h, move || sp.send(send(&first))).expect_err("refused");
-    assert!(
-        refused.contains("80 words") || refused.contains("81 words"),
-        "{refused}"
-    );
-    assert!(refused.contains("nothing was posted"), "{refused}");
-    assert!(
-        sends(&h).iter().all(|s| !texts(&s.1).contains("word word")),
-        "nothing posted"
-    );
-    let sp = spawner(&h);
-    let again = long.clone();
-    let answer = run(&mut h, move || sp.send(send(&again))).expect("the second send posts");
+    let answer = run(&mut h, move || sp.send(send(&long))).expect("send answers");
     assert!(answer.starts_with("outcome: done"), "{answer}");
-    wait_send(&mut h, "end.");
+    wait_send(&mut h, "Point 0:");
+    h.settle_posts();
+    let posted: Vec<_> = sends(&h)
+        .into_iter()
+        .filter(|(_, parts, _, _)| texts(parts).contains("Point "))
+        .collect();
+    assert!(
+        posted.len() >= 2,
+        "one tool call posts multiple parts: {posted:?}"
+    );
+    assert!(posted.iter().all(|(_, parts, _, _)| {
+        chief_kernel::replies::reply_words(&texts(parts)) <= chief_kernel::replies::REPLY_MAX_WORDS
+    }));
     h.agents.hold(false);
     h.agents.release();
     h.settle_posts();

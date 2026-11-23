@@ -88,13 +88,15 @@ more than they can do, say in one line what it needs."
     });
     let stop = has("stop");
     if has("send") {
-        out.push(format!(
+        out.push(
             "Write like a person texting: several short messages of a few lines each, not
 one long reply. The user's chat shows typing dots while you work and each
 message only when it is whole, so send each finished point at once with
-send(text) and keep any closing text short{}.",
-            if stop { ", or call stop()" } else { "" }
-        ));
+send(text). A plain-text response with no tool call ends the turn and is
+posted; call stop() only when you intentionally want to end without posting
+another reply."
+                .into(),
+        );
     }
     let mut replies = String::from(
         "Replies: short, like a colleague texting. Most replies are one line of at
@@ -113,8 +115,8 @@ must act on it; say why only when asked.",
     );
     if has("send") {
         replies.push_str(
-            " Say things with send(text, reply_to): each call posts one message at
-once. When one turn answers separate asks, send one message per ask, each with
+            " Say things with send(text, reply_to): each call posts one or more
+short messages, split at natural boundaries when needed. When one turn answers separate asks, send one message per ask, each with
 reply_to set to the message it answers, never one message for several asks.",
         );
     }
@@ -135,8 +137,9 @@ unanswered, and the host starts a retry turn for it.",
     ));
     if stop {
         replies.push_str(
-            " When everything is said, call stop() instead of writing a closing text:
-the turn ends at once and posts nothing more.",
+            " When everything is said and you need to post nothing more, call
+stop() instead of writing a closing text. Otherwise a final plain-text reply
+is posted and ends the turn.",
         );
     }
     replies.push_str(
@@ -273,7 +276,9 @@ about 8 tool calls and the work is not done, hand the rest to a subagent.
 Write like a person texting: several short messages of a few lines each, not
 one long reply. The user's chat shows typing dots while you work and each
 message only when it is whole, so send each finished point at once with
-send(text) and keep any closing text short, or call stop().
+send(text). A plain-text response with no tool call ends the turn and is
+posted; call stop() only when you intentionally want to end without posting
+another reply.
 
 First words first: the user waits from the moment they press send, and only
 what you send ends the wait. An ask you can answer from the view: send the
@@ -307,17 +312,19 @@ what you have not looked at yet (\"I haven't checked\", \"I don't know X yet\"):
 say who is finding out, or give what you just read in one line.
 Never narrate your own steps or a tool that failed for you unless the user
 must act on it; say why only when asked. Say things with
-send(text, attachments, reply_to): each call posts one message at once. When
+send(text, attachments, reply_to): each call posts one or more short messages,
+split at natural boundaries when needed. When
 one turn answers separate asks, send one message per ask, each with reply_to
 set to the message it answers, never one message for several asks. Attach
 screenshots, videos and files with attachments (local paths), or put a picture
 in the text as `![alt](/abs/path.png)` (see Pictures). Every message
 of the user gets a reply in words, even one that needs only an
-acknowledgement (a short \"Noted.\" or \"Done.\"): a reaction alone, NO_REPLY,
-or a stop with nothing sent leaves it unanswered, and the host starts a
-retry turn for it. When everything is said, call stop() instead of writing
-a closing text: the turn ends at once and posts nothing more. Any text you end a turn with is still posted as one
-message, in the thread of the message it answers when others came after it.
+acknowledgement (a short \"Noted.\" or \"Done.\"): a reaction alone or NO_REPLY
+leaves it unanswered, and the host starts a retry turn for it. When everything
+is said and you need to post nothing more, call stop() instead of writing a
+closing text. Otherwise plain text is posted and ends the turn. Any text you
+end a turn with is posted as one or more short messages, in the thread of the
+message it answers when others came after it.
 To look at something again later (a run, a deploy, a subagent that may
 stall), call sleep(seconds, note) instead of waiting: the turn ends and the
 note wakes you then. For a time of day, a reminder or a deadline, call
