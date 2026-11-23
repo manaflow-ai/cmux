@@ -597,7 +597,7 @@ mod tests {
             assert_eq!(o.p.len(), 1 + 3 * GOO_OUTLINE_POINTS);
             assert_eq!(o.anchors().count(), GOO_OUTLINE_POINTS);
             assert!(o.is_finite());
-            assert!((o.p[0].x - o.p[GOO_OUTLINE_LEN - 1].x).abs() < 1e-9);
+            assert!((o.p[0].x - o.p[crate::goo::GOO_OUTLINE_LEN - 1].x).abs() < 1e-9);
         }
     }
 
