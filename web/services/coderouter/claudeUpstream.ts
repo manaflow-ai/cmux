@@ -8,6 +8,7 @@ import {
   loadClaudeAccountRowById,
   teamHasAnyClaudeAccount,
   type ClaudeFallbackDependencies,
+  type FallbackCaller,
   type FallbackRefusal,
   type FallbackReservation,
 } from "./claudeFallback";
@@ -551,9 +552,15 @@ export function createClaudeUpstreamService(dependencies: ClaudeUpstreamDependen
   return { list, hasActive, add, update, remove, removeAll, select, cooldown, touchUsed };
 }
 
-/** Only a Cloud machine carries a plan the house route can read. */
-function fallbackCaller(teamId: string, access?: CoderouterAccountAccess) {
-  return { teamId, vmId: access?.kind === "vm" ? access.vmId : null };
+/**
+ * Only a Cloud machine carries a plan the house route can read: a classic VM
+ * by its id, a platform machine (`chatmux:<id>`) by the owner its signed token
+ * names.
+ */
+function fallbackCaller(teamId: string, access?: CoderouterAccountAccess): FallbackCaller {
+  if (access?.kind === "vm") return { teamId, vmId: access.vmId };
+  if (access?.kind === "team-machine") return { teamId, vmId: access.machineId, ownerId: access.ownerId ?? null };
+  return { teamId, vmId: null };
 }
 
 function retryAfter(eligible: readonly ClaudeAccountRow[], at: Date): number {

@@ -384,6 +384,21 @@ describe("house route plan from the sign-in record", () => {
     expect(await read({ teamId: NEWCOMER, vmId: null })).toEqual({ kind: "plan", planId: null });
     expect(readVmUser).toHaveBeenCalledTimes(2);
   });
+
+  test("a platform machine (chatmux: id) reads its signed owner's pass, with no cloud_vms read", async () => {
+    const { read, readVmUser, readUserMetadata } = reader({ metadata: meta("next_intro", future) });
+    const platform = { kind: "team-machine" as const, teamId: NEWCOMER, machineId: "chatmux:vm_63ca3c389bacb2ec76ca", ownerId: BUYER };
+    const { service } = await withFallbackAccount({ planReader: read, spent: 10 });
+    expect(await service.select(NEWCOMER, { access: platform, stickyKey: platform.machineId, model: sonnet } as never))
+      .toMatchObject({ kind: "selected", included: { spentCents: 10, capCents: 500 } });
+    expect(readUserMetadata).toHaveBeenCalledWith(BUYER);
+    expect(readVmUser).not.toHaveBeenCalled();
+    // No owner on the token, or a non-UUID id that is not a platform machine: no plan, nothing read.
+    expect(await read({ teamId: NEWCOMER, vmId: "chatmux:vm_x", ownerId: null })).toEqual({ kind: "plan", planId: null });
+    expect(await read({ teamId: NEWCOMER, vmId: "vm_x", ownerId: BUYER })).toEqual({ kind: "plan", planId: null });
+    expect(readUserMetadata).toHaveBeenCalledTimes(1);
+    expect(readVmUser).not.toHaveBeenCalled();
+  });
 });
 
 describe("house route spend", () => {

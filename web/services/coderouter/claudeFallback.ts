@@ -63,6 +63,8 @@ import { defaultClickHouseDependencies, query, type ClickHouseDependencies } fro
 export const FALLBACK_ACCOUNT_ENV = "CODEROUTER_CLAUDE_FALLBACK_ACCOUNT_ID";
 
 const ACCOUNT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** routeTokenAuth.ts authenticateChatmuxMachine: a platform (cmux-platform) machine's id. */
+const PLATFORM_MACHINE_PREFIX = "chatmux:";
 const SPEND_TTL_MS = 60_000;
 const PLAN_TTL_MS = 60_000;
 const MAX_CACHED_TEAMS = 10_000;
@@ -142,9 +144,9 @@ export function createFallbackPlanReader(options: {
   const cache = new Map<string, PlanEntry>();
   const inflight = new Map<string, Promise<NextPlan | null>>();
 
-  const read = async (teamId: string, vmId: string, signal?: AbortSignal): Promise<NextPlan | null> => {
+  const read = async (teamId: string, vmId: string, ownerId: string | null, signal?: AbortSignal): Promise<NextPlan | null> => {
     try {
-      const userId = await readVmUser({ teamId, vmId }, signal);
+      const userId = ownerId ?? await readVmUser({ teamId, vmId }, signal);
       if (!userId) return { planId: null, endsAtMs: null };
       return nextPlanFromMetadata(await readUserMetadata(userId), now());
     } catch {
@@ -153,8 +155,12 @@ export function createFallbackPlanReader(options: {
   };
 
   return async (caller, signal) => {
-    if (!caller.vmId || !ACCOUNT_ID.test(caller.vmId)) return { kind: "plan", planId: null };
-    const key = `${caller.teamId}\x00${caller.vmId}`;
+    if (!caller.vmId) return { kind: "plan", planId: null };
+    // A classic VM is a cloud_vms row (a UUID); a platform machine is
+    // `chatmux:<id>` and carries its signed owner instead.
+    const platformOwner = caller.vmId.startsWith(PLATFORM_MACHINE_PREFIX) ? caller.ownerId?.trim() || null : null;
+    if (!platformOwner && !ACCOUNT_ID.test(caller.vmId)) return { kind: "plan", planId: null };
+    const key = `${caller.teamId}\x00${caller.vmId}\x00${platformOwner ?? ""}`;
     const at = now();
     const entry = cache.get(key);
     if (entry && at - entry.readAt < ttlMs) {
@@ -163,7 +169,7 @@ export function createFallbackPlanReader(options: {
     }
     let pending = inflight.get(key);
     if (!pending) {
-      pending = read(caller.teamId, caller.vmId, signal).finally(() => inflight.delete(key));
+      pending = read(caller.teamId, caller.vmId, platformOwner, signal).finally(() => inflight.delete(key));
       inflight.set(key, pending);
     }
     const plan = await pending;
@@ -432,7 +438,16 @@ export type ClaudeFallbackDependencies<Row> = {
   readonly spend: ClaudeFallbackSpend;
 };
 
-export type FallbackCaller = { readonly teamId: string; readonly vmId: string | null };
+export type FallbackCaller = {
+  readonly teamId: string;
+  readonly vmId: string | null;
+  /**
+   * A platform machine's owner (`chatmux:` ids), from the same signed token as
+   * its team: its pass is read from this user's record, as it has no
+   * `cloud_vms` row.
+   */
+  readonly ownerId?: string | null;
+};
 
 export type FallbackDecision<Row> =
   | { readonly kind: "none" }
