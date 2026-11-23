@@ -103,7 +103,8 @@ pub(crate) struct PreviewPlaces {
 
 impl PreviewPlaces {
     /// The place of `session`'s card (the default for one never moved).
-    pub(crate) fn place(&self, session: &str) -> Place {
+    #[cfg(test)]
+    fn place(&self, session: &str) -> Place {
         self.entries.get(session).map(|entry| entry.place).unwrap_or_default()
     }
 
