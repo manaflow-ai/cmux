@@ -8,7 +8,15 @@
 //! Foundation (module `mediafoundation`, Windows only).
 
 mod codec;
+/// The stream's colour: the hosts' matrix and range, its VUI tag, and the viewers' conversion.
+pub mod color;
 mod picture;
+
+/// Which H.264 profiles an OpenH264 viewer decodes, and the gate that refuses the rest.
+pub mod h264_profile;
+
+/// A per-frame size guard any encoder can run (each frame's QP floor from its damage and budget).
+pub mod frame_guard;
 
 #[cfg(any(feature = "openh264-source", feature = "openh264-runtime"))]
 pub mod openh264;

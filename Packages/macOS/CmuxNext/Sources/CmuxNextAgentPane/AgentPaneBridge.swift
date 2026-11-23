@@ -108,7 +108,15 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
         guard request == .ready else { return await model.respond(to: request) }
         AgentPaneLaunchTimings.shared.mark("agent_pane.handshake_start")
         defer { AgentPaneLaunchTimings.shared.mark("agent_pane.handshake_end") }
-        return await model.respond(to: request)
+        let reply = await model.respond(to: request)
+        // A tab took this page before its handshake, so the page can be one that did not hear the take's event. The reply has the
+        // tab's context too, but a page that drew from the context of its document takes only a missing folder and
+        // missing actions from a reply: it would keep the context of the tab that had it before. The page listens
+        // for the event before it sends `ready`, so the take's call runs again here, one time (it clears the mark).
+        if model.newTabAdoptUnheard, model.hasHandshake, !model.newTabPrepared, let page = model.newTab {
+            view?.adoptNewTab(page)
+        }
+        return reply
     }
 
     private func isTrusted(_ message: WKScriptMessage) -> Bool {

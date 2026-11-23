@@ -9,7 +9,10 @@ use serde_json::{Value, json};
 use super::answer::{
     Prefetched, TicketCache, grant_vmk, key_text, parse_answer, read_reply, token_subject,
 };
-use super::client::{Marks, PARK_REDIAL, classify, park_until, pinned_daemon, resume_outcome};
+use super::client::{
+    Marks, PARK_REDIAL, PEER_JOIN_REDIAL, classify, join_stalled, park_until, peer_join_wait,
+    pinned_daemon, resume_outcome,
+};
 use super::contract::{
     Failure, Phase, PhaseTimes, PhasesOf, StdinLine, Step, Vmk, answer_line, connected_line,
     detail_code, failure_line, parse_deadline, phases_line, route_line, served_line, serving_line,
@@ -420,6 +423,69 @@ fn a_parked_link_is_redialed_long_before_the_deadline() {
     assert_eq!(park_until(nearly, now), nearly);
 }
 
+/// A circuit the daemon never joins is given up after [`PEER_JOIN_REDIAL`] on the first
+/// attempt, not the 15 s control timeout; each attempt that stalled at the join doubles the next
+/// one's wait, up to that timeout, so a daemon that is only slow to join still connects.
+#[test]
+fn a_join_the_daemon_never_answers_is_redialed_in_seconds_and_backs_off() {
+    assert_eq!(peer_join_wait(0), PEER_JOIN_REDIAL);
+    assert!(PEER_JOIN_REDIAL <= Duration::from_secs(5), "{PEER_JOIN_REDIAL:?}");
+    assert_eq!(peer_join_wait(1), PEER_JOIN_REDIAL * 2);
+    assert_eq!(peer_join_wait(2), Duration::from_secs(15));
+    assert_eq!(peer_join_wait(40), Duration::from_secs(15));
+    assert!(join_stalled(&Failure::retry(
+        Step::Relay,
+        "link transport failed: relay circuit join timed out"
+    )));
+    assert!(!join_stalled(&Failure::retry(Step::Parked, "relay allocation timed out")));
+}
+
+/// A daemon that never answers a first connect's handshake is given up after
+/// [`HANDSHAKE_REDIAL`], not the 15 s handshake timeout; each attempt that stalled there doubles
+/// the next one's wait, up to that timeout, so a daemon that is only slow to answer still connects.
+#[test]
+fn a_handshake_the_daemon_never_answers_is_redialed_in_seconds_and_backs_off() {
+    use super::client::{HANDSHAKE_REDIAL, handshake_stalled, handshake_wait};
+    assert_eq!(handshake_wait(0), HANDSHAKE_REDIAL);
+    assert!(HANDSHAKE_REDIAL <= Duration::from_secs(5), "{HANDSHAKE_REDIAL:?}");
+    assert_eq!(handshake_wait(1), HANDSHAKE_REDIAL * 2);
+    assert_eq!(handshake_wait(2), Duration::from_secs(15));
+    assert_eq!(handshake_wait(40), Duration::from_secs(15));
+    assert!(!handshake_stalled(&Failure::retry(Step::Handshake, "the handshake timed out")));
+}
+
+/// The watch starts at the first lane's allocation (or the connection's start, when the link was
+/// allocated before it, while the dial asked for the daemon key), never during the park, and its
+/// failure is a retryable handshake failure the dial counts as a stall.
+#[tokio::test(start_paused = true)]
+async fn a_handshake_watch_runs_from_the_first_allocated_lane() {
+    use super::client::{HANDSHAKE_REDIAL, Progress, handshake_stalled, handshake_watch};
+    use tokio::time::{Instant, sleep, timeout};
+    let step = std::sync::Arc::new(Progress::default());
+    let began = Instant::now();
+    let watch = tokio::spawn({
+        let step = step.clone();
+        async move { (handshake_watch(&step, began, HANDSHAKE_REDIAL).await, Instant::now()) }
+    });
+    // Parked for 30 s: nothing fires while the relay has not allocated a lane.
+    sleep(Duration::from_secs(30)).await;
+    assert!(!watch.is_finished());
+    step.allocated_lane();
+    let allocated = Instant::now();
+    step.allocated_lane();
+    let (failure, fired) = watch.await.unwrap();
+    assert_eq!(fired - allocated, HANDSHAKE_REDIAL);
+    assert_eq!(failure.step, Step::Handshake);
+    assert!(failure.retryable && handshake_stalled(&failure), "{failure:?}");
+    assert_eq!(detail_code(&failure.detail).as_deref(), Some("timeout"));
+    // Allocated before the connection began: the wait runs from its start.
+    let since = Instant::now() + Duration::from_secs(6);
+    sleep(Duration::from_secs(6)).await;
+    let late = timeout(HANDSHAKE_REDIAL * 2, handshake_watch(&step, since, HANDSHAKE_REDIAL));
+    late.await.expect("the watch fires");
+    assert_eq!(Instant::now() - since, HANDSHAKE_REDIAL);
+}
+
 #[test]
 fn failures_name_the_step_they_did_not_get_past() {
     let allocation = ConnectionError::Provider(ProviderError::Link(LinkError::Transport(
@@ -694,4 +760,78 @@ fn a_carrier_desktop_open_that_its_send_finds_the_session_gone_takes_a_fresh_ses
     let refused = desktop_failure(BridgeError::Rejected("not the owner".into()), false);
     assert_eq!(refused.step, Step::Service);
     assert!(!refused.fresh_session);
+}
+
+/// A park whose asks answer, in turn, from `replies` (the last one repeats),
+/// counting them; `None` is an answer without the key.
+fn asks(
+    replies: Vec<Result<Option<[u8; 32]>, Failure>>,
+) -> (
+    std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    impl Fn() -> std::future::Ready<Result<super::answer::CarrierAnswer, Failure>>,
+) {
+    let count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = count.clone();
+    let ask = move || {
+        let n = counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let reply = replies[n.min(replies.len() - 1)].clone().map(|key| {
+            let mut value = answer_value();
+            value["daemon_key"] = key.map_or(Value::Null, |key| json!(key_text(&key)));
+            parse_answer(&value).unwrap()
+        });
+        std::future::ready(reply)
+    };
+    (count, ask)
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_park_ends_at_a_refusal_for_good_not_at_the_deadline() {
+    use super::client::{PARKED_ASK_EVERY, park_for_key};
+    // A machine bound by an image older than the carrier: the ask before its bind
+    // has no key, the next is refused for good, and its daemon never registers.
+    let refused = Failure::fatal(
+        Step::Ticket,
+        "cmux-platform answered 409 cloud.carrier.image_unsupported: this machine runs an image older than the Cloud carrier",
+    );
+    let (count, ask) = asks(vec![Ok(None), Err(refused.clone())]);
+    let started = tokio::time::Instant::now();
+    let parked = tokio::time::timeout(
+        Duration::from_secs(180),
+        park_for_key(std::future::pending::<Result<(), Failure>>(), ask, PARKED_ASK_EVERY),
+    )
+    .await
+    .expect("the park ends before the deadline");
+    assert_eq!(parked.unwrap_err(), refused);
+    assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 2);
+    assert!(started.elapsed() <= PARKED_ASK_EVERY, "{:?}", started.elapsed());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_park_keeps_asking_through_retryable_failures_and_stops_once_it_has_the_key() {
+    use super::client::park_for_key;
+    let every = Duration::from_secs(3);
+    let busy = Failure::retry(Step::Ticket, "cmux-platform answered 503 http: ");
+    let (count, ask) = asks(vec![Ok(None), Err(busy), Ok(Some([9; 32]))]);
+    let open = async {
+        tokio::time::sleep(Duration::from_secs(20)).await;
+        Ok::<_, Failure>("link")
+    };
+    let (link, daemon) = park_for_key(open, ask, every).await.unwrap();
+    assert_eq!((link, daemon), ("link", [9; 32]));
+    // At 0, 3 and 6 s; none after the key, nor once the link is allocated.
+    assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 3);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_park_allocated_before_any_key_asks_once_more_and_pins_only_a_key() {
+    use super::client::park_for_key;
+    let every = Duration::from_secs(3);
+    let allocated = || async { Ok::<_, Failure>("link") };
+    let (count, ask) = asks(vec![Ok(None), Ok(Some([5; 32]))]);
+    assert_eq!(park_for_key(allocated(), ask, every).await.unwrap().1, [5; 32]);
+    assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 2);
+    // Still no key once allocated: the handshake never runs unpinned.
+    let (_, keyless) = asks(vec![Ok(None)]);
+    let failure = park_for_key(allocated(), keyless, every).await.unwrap_err();
+    assert_eq!(failure, Failure::fatal(Step::Ticket, "the machine has no daemon key"));
 }

@@ -49,6 +49,8 @@ nonisolated enum PaletteStrings {
         String(localized: "palette.noMatch.runCommand", defaultValue: "Run “\(text)” in a New Workspace", bundle: .localizedModule)
     }
     static var actions: String { String(localized: "palette.footer.actions", defaultValue: "Actions", bundle: .localizedModule) }
+    /// Between a chord's two strokes on its keycaps: ⌘ J then S.
+    static var keycapThen: String { String(localized: "palette.keycap.then", defaultValue: "then", bundle: .localizedModule) }
     static var hideFromPalette: String { String(localized: "palette.action.hideFromPalette", defaultValue: "Hide from Palette", bundle: .localizedModule) }
     static var showInPalette: String { String(localized: "palette.action.showInPalette", defaultValue: "Show in Palette", bundle: .localizedModule) }
     static var resetRanking: String { String(localized: "palette.action.resetRanking", defaultValue: "Reset Ranking", bundle: .localizedModule) }
@@ -93,6 +95,10 @@ nonisolated enum PaletteStrings {
     }
     static var searchEverythingPlaceholder: String {
         String(localized: "palette.placeholder.searchEverything", defaultValue: "Search workspaces, tabs, history, chats, settings and commands…", bundle: .localizedModule)
+    }
+    /// The line under Search's field: how to search one kind of row.
+    static var searchFiltersHint: String {
+        String(localized: "palette.hint.searchFilters", defaultValue: "Narrow with in:tabs, in:history, in:settings, or leave a kind out with -in:chats", bundle: .module)
     }
     static var goToAnythingPlaceholder: String {
         String(localized: "palette.placeholder.goToAnything", defaultValue: "Search workspaces, groups, panes and tabs…", bundle: .localizedModule)
