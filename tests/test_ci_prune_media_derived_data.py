@@ -82,6 +82,22 @@ def build_tree(root, outside):
 JOBS = []
 
 
+def wait_for(condition, seconds=10, step=0.05):
+    """Until condition() is true or seconds pass; its last value."""
+    deadline = time.monotonic() + seconds
+    while not condition() and time.monotonic() < deadline:
+        time.sleep(step)
+    return condition()
+
+
+def asleep_or_gone(child):
+    """The child has reached its sleep (ps state S) or has already exited (macOS kills a copied binary)."""
+    if child.poll() is not None:
+        return True
+    state = subprocess.run(["ps", "-o", "stat=", "-p", str(child.pid)], capture_output=True, text=True).stdout
+    return state.strip().startswith("S")
+
+
 def held_by_a_running_job():
     """media_tag_lock.py arguments that tie a hold to a stand-in for another tour's Runner.Worker, alive until
     the checks end: a hold that lapsed by --max-hold while a loaded machine ran the prune would read as a bug."""
@@ -294,7 +310,8 @@ def run_from(path, age_seconds):
     shutil.copy(shutil.which("sleep"), binary)
     child = subprocess.Popen([binary, "600"], start_new_session=True)
     JOBS.append(child)
-    time.sleep(0.3)
+    if not wait_for(lambda: asleep_or_gone(child)):
+        raise AssertionError(f"the copied sleep in {path} neither reached its sleep nor exited in 10 s")
     stamp = time.time() - age_seconds
     for current, dirs, files in os.walk(path, topdown=False):
         for entry in files + dirs:
@@ -337,8 +354,7 @@ def scenario_dead_tours_app():
         print(result.stdout + result.stderr)
         _check(result.returncode == 0, "the prune exits 0")
         names = remaining(root)
-        time.sleep(0.5)
-        _check(dead.poll() is not None, "ends the dead tour's own process")
+        _check(wait_for(lambda: dead.poll() is not None), "ends the dead tour's own process")
         _check("cmux-ci-media-pr-7-head" not in names, "removes the dir its dead tour's app held open")
         _check(shared.poll() is None and "cmux-ci-media-pr-8-head" in names,
                "keeps a dir another process also holds, and its app")

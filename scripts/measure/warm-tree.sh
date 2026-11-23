@@ -169,4 +169,4 @@ for lang in ${langs//,/ }; do
   summary+=("\"$lang\":{\"cold_s\":$cold_s,\"current_s\":$current_s,\"warm_s\":$warm_s}")
 done
 printf 'WARMTREE-SUMMARY {%s,"k":%s,"ref":"%s","host":"%s","xcode":"%s"}\n' \
-  "$(IFS=,; echo "${summary[*]}")" "$k" "$ref" "$(hostname -s)" "$(xcodebuild -version 2>/dev/null | head -1)"
+  "$(IFS=,; echo "${summary[*]-}")" "$k" "$ref" "$(hostname -s)" "$(xcodebuild -version 2>/dev/null | head -1)"

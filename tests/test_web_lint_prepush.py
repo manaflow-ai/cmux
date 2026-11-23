@@ -29,6 +29,8 @@ _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
     "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # noqa: E402
+from real_git import real_git  # noqa: E402
 
 
 SOURCE = Path(__file__).resolve().parents[1]
@@ -200,7 +202,7 @@ class WebLintPrePushTests(unittest.TestCase):
 
     def git(self, *args, check=True):
         return subprocess.run(["git", "-C", str(self.repo), *args], env=self.env,
-                              text=True, capture_output=True, check=check)
+                              text=True, capture_output=True, check=check, timeout=120)
 
     def write(self, relative, text):
         path = self.repo / relative
@@ -1568,7 +1570,9 @@ class WebLintPrePushTests(unittest.TestCase):
                 peak["seen"] = peak.get("seen", 0) + 1
                 if not weighty(words) and heavy_now:
                     overlapped.append(name)
-            time.sleep(0.3)  # long enough for the pool to start whatever it would run beside this one
+            # sleep-ok: a simulated command run time, the window the pool's overlap is measured in:
+            # long enough for the pool to start whatever it would run beside this one.
+            time.sleep(0.3)
             with lock:
                 running.discard(name)
             return subprocess.CompletedProcess(command, 0, "", "")
@@ -1880,7 +1884,7 @@ class TuiBindingsTests(unittest.TestCase):
         for name, text in (("npm", FAKE_NPM), ("bun", FAKE_BUN)) if npm else (("bun", FAKE_BUN),):
             (tools / name).write_text(text)
             (tools / name).chmod(0o755)
-        for name, target in (("python3", sys.executable), ("git", shutil.which("git"))):
+        for name, target in (("python3", sys.executable), ("git", real_git())):
             (tools / name).symlink_to(target)
         # No real npm, node or bun: only the stand-ins, so the order of the calls is the test.
         self.env.update(PATH=f"{tools}{os.pathsep}/usr/bin{os.pathsep}/bin", TOOL_LOG=str(self.tool_log))
@@ -2647,6 +2651,50 @@ class TrustBoundaryTests(unittest.TestCase):
         for package in lint.ESLINT_PACKAGES:
             self.assertEqual(lint.executed_symlinks(SOURCE, head, package.executed, (),
                                                     lint.package_directories(package)), [])
+
+
+class InstalledBunTests(unittest.TestCase):
+    """A lane VM had bun at ~/.bun/bin/bun, off PATH; the hook said "bun is not on PATH" and refused the push."""
+
+    def setUp(self):
+        self.lint = load_lint(Path(__file__).resolve().parents[1])
+        self.temporary = tempfile.TemporaryDirectory(prefix="cmux-bun-home-")
+        self.addCleanup(self.temporary.cleanup)
+        self.home = Path(self.temporary.name)
+        self.empty = self.home / "empty-bin"
+        self.empty.mkdir()
+
+    def install(self, root):
+        bun = root / "bin" / "bun"
+        bun.parent.mkdir(parents=True)
+        bun.write_text("#!/bin/sh\n")
+        bun.chmod(0o755)
+        return bun
+
+    def test_the_installers_bun_is_put_on_path_when_none_is_there(self):
+        bun = self.install(self.home / ".bun")
+        environ = {"PATH": str(self.empty)}
+        self.assertTrue(self.lint.add_installed_bun_to_path(environ, home=self.home))
+        self.assertEqual(environ["PATH"], os.pathsep.join([str(bun.parent), str(self.empty)]))
+        self.assertEqual(shutil.which("bun", path=environ["PATH"]), str(bun))
+
+    def test_bun_install_names_the_directory(self):
+        bun = self.install(self.home / "custom")
+        environ = {"PATH": str(self.empty), "BUN_INSTALL": str(self.home / "custom")}
+        self.assertTrue(self.lint.add_installed_bun_to_path(environ, home=self.home))
+        self.assertTrue(environ["PATH"].startswith(str(bun.parent)))
+
+    def test_a_bun_already_on_path_wins_and_path_is_left_alone(self):
+        self.install(self.home / ".bun")
+        on_path = self.install(self.home / "first")
+        environ = {"PATH": str(on_path.parent)}
+        self.assertFalse(self.lint.add_installed_bun_to_path(environ, home=self.home))
+        self.assertEqual(environ["PATH"], str(on_path.parent))
+
+    def test_no_bun_anywhere_leaves_path_alone(self):
+        environ = {"PATH": str(self.empty)}
+        self.assertFalse(self.lint.add_installed_bun_to_path(environ, home=self.home))
+        self.assertEqual(environ["PATH"], str(self.empty))
 
 
 class FreeMemoryHeavyTests(unittest.TestCase):
