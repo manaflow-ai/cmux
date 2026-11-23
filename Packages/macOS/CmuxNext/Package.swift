@@ -737,6 +737,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCompat",
                 "CmuxNextDaemonService",
                 "CmuxNextDesign",
+                "CmuxNextHomeEngine",
                 "CmuxNextIcons",
                 "CmuxNextOnboarding",
                 "CmuxNextPages",
@@ -988,6 +989,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextPages",
                 "CmuxNextSettings",
                 "CmuxNextTestSupport",
+                "CmuxNextWakeupsTestSupport",
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
             ],
@@ -1000,6 +1002,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextHostedChief",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextActions",
+                "CmuxNextCloud",
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
                 "CmuxNextHomeEngine",
@@ -2618,7 +2622,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .process("Localizable.xcstrings"),
             ],
             swiftSettings: daemonSwiftSettings,
-            // The Schema/*.generated.swift files, from schemas/settings (RFD 0048).
+            // The generated Schema Swift files (Schema/<name>.generated.swift), from schemas/settings (RFD 0048).
             plugins: [.plugin(name: "SettingsSchemaPlugin")]
         ),
         // Runs scripts/cmux-next/gen-settings-sources.py --swift-out into its work directory.

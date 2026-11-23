@@ -65,6 +65,7 @@ members = [
     "crates/cmux-follow-cam",
     "crates/cmux-cloud-start-core",
     "crates/cmux-tab-discard",
+    "crates/cmux-lifeline",
     "crates/cmux-cloud-machine",
     "crates/cmux-cloud-tasks",
     "crates/cmux-cloud-config",
@@ -155,6 +156,7 @@ members = [
     "crates/cmux-tab-snapshots",
     "crates/cmux-palette-ranker",
     "crates/cmux-palette-eval",
+    "crates/cmux-backdrop-gen",
     "crates/cmux-action-catalog",
     "crates/cmux-host-budget",
     "crates/cmux-device-kind",
@@ -211,6 +213,7 @@ default-members = [
     "crates/cmux-focus-core",
     "crates/cmux-cloud-start-core",
     "crates/cmux-tab-discard",
+    "crates/cmux-lifeline",
     "crates/cmux-cloud-machine",
     "crates/cmux-cloud-tasks",
     "crates/cmux-cloud-config",
@@ -368,6 +371,7 @@ cmux-follow-cam = { path = "crates/cmux-follow-cam" }
 cmux-bookmarks-core = { path = "crates/cmux-bookmarks-core" }
 cmux-bookmarks-ops = { path = "crates/cmux-bookmarks-ops" }
 cmux-cloud-start-core = { path = "crates/cmux-cloud-start-core" }
+cmux-lifeline = { path = "crates/cmux-lifeline" }
 cmux-cloud-machine = { path = "crates/cmux-cloud-machine" }
 cmux-cloud-tasks = { path = "crates/cmux-cloud-tasks" }
 cmux-cloud-config = { path = "crates/cmux-cloud-config" }
