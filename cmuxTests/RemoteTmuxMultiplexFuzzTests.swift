@@ -1066,3 +1066,114 @@ private final class MultiplexFuzzHarness {
             "workspace count bounded \(ctx): tabs=\(manager.tabs.count) expected=\(initialLocalCount + liveTotal + detachLeftovers)")
     }
 }
+
+/// Runs the view stream against a real tmux server on this machine, through a transport that
+/// starts `tmux -CC` directly instead of over ssh.
+private struct LocalTmuxTransportProfile: RemoteTmuxTransportProfile {
+    let tmuxPath: String
+    let socketPath: String
+
+    func executablePath() -> String { tmuxPath }
+
+    func controlStreamArgv(
+        host: RemoteTmuxHost,
+        sessionName: String,
+        mode: RemoteTmuxControlAttachMode
+    ) -> [String] {
+        ["-S", socketPath, "-f", "/dev/null"] + mode.tmuxArguments(sessionName: sessionName)
+    }
+
+    func oneShotArgv(host: RemoteTmuxHost, remoteCommand: String) -> [String] {
+        ["-S", socketPath, remoteCommand]
+    }
+
+    var requiresPseudoTerminal: Bool { true }
+    var remoteHalfSurvivesLocalExit: Bool { false }
+}
+
+/// A stream that ends without tmux hearing a `detach-client` leaves its control client on the view
+/// session. On a live host an app's reconnect loop left 89 of them on one view session. The next
+/// stream must detach them, against a real tmux server rather than a scripted one, because the
+/// rule depends on what tmux itself reports for `#{client_name}` and `#{client_control_mode}`.
+@MainActor
+@Suite(.serialized)
+struct RemoteTmuxViewStaleClientTests {
+    @Test func connectingDetachesControlClientsEarlierStreamsLeftOnTheViewSession() async throws {
+        let tmuxPath = try #require(
+            ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux"]
+                .first { FileManager.default.isExecutableFile(atPath: $0) },
+            "needs a local tmux")
+        let directory = URL(fileURLWithPath: "/tmp/cmux-xctest-iso", isDirectory: true)
+            .appendingPathComponent("stale-\(UUID().uuidString.prefix(8))", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let socket = directory.appendingPathComponent("s").path
+        defer {
+            _ = Self.tmux(tmuxPath, socket, ["kill-server"])
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        let ownerId = "stale-test-\(UUID().uuidString)"
+        let viewName = RemoteTmuxViewSession(ownerId: ownerId).sessionName
+        #expect(Self.tmux(tmuxPath, socket, ["new-session", "-d", "-s", viewName, "-x", "120", "-y", "40"]).status == 0)
+        _ = Self.tmux(tmuxPath, socket, ["new-session", "-d", "-s", "work"])
+
+        // Three control clients left on the view by streams that are gone as far as cmux knows.
+        var leftovers: [(Process, Pipe)] = []
+        defer { for (process, _) in leftovers where process.isRunning { process.terminate() } }
+        for _ in 0..<3 {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/script")
+            process.arguments = ["-q", "/dev/null", tmuxPath, "-S", socket, "-CC", "attach-session", "-t", "=\(viewName)"]
+            let input = Pipe()
+            process.standardInput = input
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+            try process.run()
+            leftovers.append((process, input))
+        }
+        #expect(await Self.waitForControlClients(tmuxPath, socket, viewName, count: 3))
+
+        let view = RemoteTmuxViewConnection(
+            host: RemoteTmuxHost(destination: "stale-client-test"),
+            ownerId: ownerId,
+            transportProfile: LocalTmuxTransportProfile(tmuxPath: tmuxPath, socketPath: socket))
+        defer { view.stop() }
+        try view.start()
+
+        // The new stream attaches (four control clients), then detaches the three it did not open.
+        #expect(await Self.waitForControlClients(tmuxPath, socket, viewName, count: 1),
+                "left: \(Self.controlClients(tmuxPath, socket, viewName))")
+        #expect(view.connection?.connectionState == .connected, "the new stream must keep its own client")
+    }
+
+    private static func waitForControlClients(
+        _ tmuxPath: String, _ socket: String, _ viewName: String, count: Int
+    ) async -> Bool {
+        // A deadline on an external server's state, checked every 100 ms: tmux sends no event this
+        // test could wait on instead.
+        for _ in 0..<200 {
+            if controlClients(tmuxPath, socket, viewName).count == count { return true }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        return false
+    }
+
+    private static func controlClients(_ tmuxPath: String, _ socket: String, _ viewName: String) -> [String] {
+        tmux(tmuxPath, socket, ["list-clients", "-t", "=\(viewName)", "-F", "#{client_control_mode} #{client_name}"])
+            .output.split(separator: "\n").filter { $0.hasPrefix("1 ") }.map(String.init)
+    }
+
+    @discardableResult
+    private static func tmux(_ tmuxPath: String, _ socket: String, _ arguments: [String]) -> (status: Int32, output: String) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: tmuxPath)
+        process.arguments = ["-S", socket, "-f", "/dev/null"] + arguments
+        let out = Pipe()
+        process.standardOutput = out
+        process.standardError = FileHandle.nullDevice
+        do { try process.run() } catch { return (-1, "") }
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return (process.terminationStatus, String(decoding: data, as: UTF8.self))
+    }
+}

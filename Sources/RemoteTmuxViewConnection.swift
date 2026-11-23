@@ -220,13 +220,18 @@ final class RemoteTmuxViewConnection {
     /// them before resuming the continuation exactly once.
     private var firstWorkspacesTimeoutTasks: [UUID: Task<Void, Never>] = [:]
 
+    /// Overrides the host's transport. Tests use it to run the stream against a local tmux.
+    private let transportProfile: RemoteTmuxTransportProfile?
+
     init(
         host: RemoteTmuxHost,
         ownerId: String,
         initialCols: Int = RemoteTmuxViewConnection.defaultInitialCols,
-        initialRows: Int = RemoteTmuxViewConnection.defaultInitialRows
+        initialRows: Int = RemoteTmuxViewConnection.defaultInitialRows,
+        transportProfile: RemoteTmuxTransportProfile? = nil
     ) {
         self.host = host
+        self.transportProfile = transportProfile
         self.view = RemoteTmuxViewSession(ownerId: ownerId)
         self.initialCols = initialCols
         self.initialRows = initialRows
@@ -248,7 +253,8 @@ final class RemoteTmuxViewConnection {
         let conn = RemoteTmuxControlConnection(
             host: host,
             sessionName: view.sessionName,
-            attachMode: .attachOrCreateSized(columns: initialCols, rows: initialRows))
+            attachMode: .attachOrCreateSized(columns: initialCols, rows: initialRows),
+            transportProfile: transportProfile)
         conn.isSharedViewStream = true
         observerToken = conn.addObserver(
             onTopologyChanged: { [weak self] in self?.scheduleReconcile() },
