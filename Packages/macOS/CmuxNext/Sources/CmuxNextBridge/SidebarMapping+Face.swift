@@ -145,7 +145,7 @@ extension SidebarMapping {
                  harnessIcons: HarnessIconLookup, options: FaceOptions) -> SidebarWorkspace {
         let workspace = request.workspace, newTabPages = request.newTabPages, machine = options.machine
         func at(_ index: Int?) -> TabModel? { index.flatMap { tabs.indices.contains($0) ? tabs[$0] : nil } }
-        let statuses = StatusMapping.shared.summaries(tabs: tabs, status: workspace.status)
+        let statuses = StatusMapping.shared.summaries(tabs: tabs, status: workspace.status, workspaceID: workspace.id)
         let indicator = statuses.workspace
         // The focused tab; the label tab the row is named for (a chat over an idle shell); the face tab (the
         // label, or the work a page beside it was opened from) whose name, icon and kind the row shows.
@@ -238,12 +238,17 @@ extension SidebarMapping {
             folder: facts.bucket
         )
         row.focusedTab = focused.map { TabID($0.id) }
+        row.paneShape = Self.paneShape(workspace)
         row.iconFromShownTab = ownIcon == nil && row.icon != nil
         row.activityFromProgram = indicator.primary?.source == .program
         row.presence = presence(tabs)
         row.startsInCloud = page?.startsInCloud ?? false
         row.audio = SidebarWorkspaceAudio.merge(tabs.lazy.map { browserFaces[$0.id]?.audio })
         row.lastMessage = at(facts.chat)?.agentSession.flatMap(AgentTurnStateStore.shared.lastMessage(for:))
+        // The chat the face picked: when it last changed what it does, its row's age (`SidebarWorkspace.rowAge`).
+        // The row already reads this chat's detail (`detail(tabs:...)`), so this adds no observation.
+        row.chatActivity = at(facts.chat)?.agentSession.flatMap(AgentTurnStateStore.shared.detail(for:))?.laneSinceMs
+            .flatMap { $0 == 0 ? nil : Self.date(ms: $0) }
         // What an agent needs the person to do in a tab says why the row is marked; it comes
         // before the newest notification's text (tab-attention-v1).
         if options.showsUnread {
@@ -256,9 +261,11 @@ extension SidebarMapping {
         row.reported = Self.reported(workspace.status, asset: options.iconAsset)
         row.workspaceDescription = workspace.workspaceDescription
         row.taskStatus = workspace.taskStatus.map(Self.taskStatus)
+        row.createdBy = Self.creator(workspace.createdBy)
         row.checklist = workspace.checklist.map(Self.checklistItem)
         row.detail = detail(tabs: tabs, indicator: indicator.state, agentTab: agentTab, front: front,
                             notification: row.notificationText)
+        row.detail.origin = Self.origin(workspace.createdBy)
         return row
     }
 

@@ -12,7 +12,7 @@ import { resetSummaryCards } from "../../agent-session/acpmux/summary/cardState"
 import { setChatDisplay } from "../../agent-session/acpmux/chatDisplay";
 import { prepareMockTransport } from "../../agent-session/acpmux/mockTransport";
 import { setPreviewComposerLook } from "../../agent-session/acpmux/composerLook";
-import { lookDisplay, schemeOf } from "../golden/look";
+import { lookComposerLook, lookDisplay, schemeOf } from "../golden/look";
 
 type Message = { id?: string; method?: string; params?: Record<string, unknown> };
 
@@ -44,7 +44,9 @@ function withLook(state: AgentPaneVariant, context: StageContext): AgentPaneVari
   const page = look.schemes[schemeOf(context.env.colorScheme)].surfaces?.agentPane;
   return {
     ...state,
-    composerLook: state.composerLook ?? look.composerLook,
+    // A setup's own agentPane.composerLook, after a registry entry's pick (looks.json).
+    composerLook:
+      state.composerLook ?? look.composerLook ?? (lookComposerLook(look) as AgentPaneVariant["composerLook"]),
     display: { ...lookDisplay(look), ...state.display },
     theme: { ...(page && { pageBackground: page, surfaceBackground: page }), ...state.theme },
     userCSS: [fontCSS, look.themeCSS ?? ""].filter(Boolean).join("\n"),

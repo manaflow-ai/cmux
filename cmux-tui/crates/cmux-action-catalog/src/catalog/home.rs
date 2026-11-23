@@ -46,6 +46,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "sparkles",
         surfaces: PALETTE,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action home-meet-chief",
         focuses: true,
         ..Action::DEFAULT
     },
@@ -298,6 +299,20 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::NAME_3.optional(), args::HARNESS.optional(), args::ENGINE_2.optional()],
         cli_name: "home new-chief",
         main_menu: Some("file"),
+        waits_for_result: true,
+        ..Action::DEFAULT
+    },
+    // Set My Picture: the person's own conversation picture (`user_local`), as
+    // `cmux avatar set me FILE` (`participant.avatar.set`); the app asks for the image.
+    Action {
+        id: "home.setMyAvatar",
+        group: GROUP,
+        title: t("HomeActions", "action.home.setMyAvatar", "Set My Picture…"),
+        keywords: &["avatar", "picture", "photo", "profile", "image", "me", "channels", "conversation"],
+        category: "window",
+        symbol: "person.crop.circle",
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "avatar set",
         waits_for_result: true,
         ..Action::DEFAULT
     },

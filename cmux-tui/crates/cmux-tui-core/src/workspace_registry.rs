@@ -48,6 +48,7 @@ use session_reset::*;
 
 pub(crate) use open::{
     open_registry_database, open_registry_database_read_only, open_registry_database_with_flags,
+    truncate_wal_after_delete,
 };
 use std::borrow::Cow;
 #[cfg(test)]
@@ -291,6 +292,12 @@ const JOURNAL_AUTO_VACUUM_META_KEY: &str = "journal_auto_vacuum_migrated";
 const RESOURCE_EFFECT_PEPPER_ID_DOMAIN: &[u8] = b"cmux.resource-effect-pepper-id.v1";
 const RESOURCE_INPUT_RECEIPT_DOMAIN: &[u8] = b"cmux.resource-input-receipt.v2";
 pub(crate) const WORKSPACE_REGISTRY_FILE: &str = "workspace-registry.sqlite3";
+/// The first part and the last part of the name that a reset gives a session
+/// folder before it deletes it: `.reset-NAME-KIND-UUID.deleting`, a direct
+/// child of the state root (session_reset.rs). The rollback check reads each
+/// folder with such a name (store_schemas.rs).
+pub(crate) const RESET_DIR_HEAD: &str = ".reset-";
+pub(crate) const RESET_DIR_TAIL: &str = ".deleting";
 
 /// An extra write that runs inside a workspace-registry commit transaction.
 pub(crate) type RegistryTransactionWrite<'a> = &'a dyn Fn(&Transaction<'_>) -> anyhow::Result<()>;

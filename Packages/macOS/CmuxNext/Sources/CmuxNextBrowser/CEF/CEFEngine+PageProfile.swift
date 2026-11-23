@@ -108,6 +108,8 @@ extension CEFEngine {
             guard let reply = try await devTools(browserID: browserID, method: method, params: arguments) else {
                 throw CEFPageProfileError.pageGone(browserID)
             }
+            // main-actor-ok: the heap, metrics and enable/disable replies are under a few KB; the CPU profile, which
+            // runs to MBs, is read by cpuProfileParts off the main actor.
             return (try? JSONSerialization.jsonObject(with: Data(reply.utf8))) as? [String: Any] ?? [:]
         }
         var profile = CEFPageProfile()
@@ -132,12 +134,20 @@ extension CEFEngine {
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
             window.schedule(after: .seconds(seconds)) { done.resume() }
         }
-        let stopped = try await call("Profiler.stop")
+        guard let stopped = try await devTools(browserID: browserID, method: "Profiler.stop", params: [:]) else {
+            throw CEFPageProfileError.pageGone(browserID)
+        }
         _ = try await call("Profiler.disable")
-        let cpu = stopped["profile"] as? [String: Any] ?? [:]
-        profile.cpuProfile = (try? JSONSerialization.data(withJSONObject: cpu)).flatMap { String(data: $0, encoding: .utf8) }
-        profile.topSelf = Self.topSelf(cpu)
+        (profile.cpuProfile, profile.topSelf) = await Self.cpuProfileParts(stopped)
         return profile
+    }
+
+    /// `Profiler.stop`'s reply: its `profile` as JSON and the functions with the most self time in it. Off the main
+    /// actor: a few seconds of 1 ms samples is MBs of JSON.
+    @concurrent nonisolated static func cpuProfileParts(_ reply: String) async -> (json: String?, top: [(name: String, ms: Double)]) {
+        let stopped = (try? JSONSerialization.jsonObject(with: Data(reply.utf8))) as? [String: Any] ?? [:]
+        let cpu = stopped["profile"] as? [String: Any] ?? [:]
+        return ((try? JSONSerialization.data(withJSONObject: cpu)).flatMap { String(data: $0, encoding: .utf8) }, topSelf(cpu))
     }
 
     /// The 15 functions with the most self time in a V8 CPU profile, idle and program left out.
