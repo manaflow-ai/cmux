@@ -89,6 +89,37 @@ struct AppFontRetargetTests {
         #expect(layer.font.familyName == NSFont.systemFont(ofSize: 12).familyName)
     }
 
+    /// Review at 0dcfbbd8: Georgia has no semibold, so system semibold draws Georgia Bold; Escape
+    /// back to the system font must give semibold again, not the snapped bold, and medium stays medium.
+    @Test func previewThenRevertKeepsTheWeightAskedFor() {
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        let semibold = NSTextField(labelWithString: "Title")
+        semibold.font = .systemFont(ofSize: 13, weight: .semibold)
+        let medium = NSTextField(labelWithString: "Tab")
+        medium.font = .systemFont(ofSize: 13, weight: .medium)
+        [semibold, medium].forEach(root.addSubview)
+        let semiboldBefore = semibold.font
+        let mediumBefore = medium.font
+
+        AppFontRetarget.apply(to: root, from: nil, to: "Georgia")
+        AppFontRetarget.apply(to: root, from: "Georgia", to: "Futura")
+        AppFontRetarget.apply(to: root, from: "Futura", to: nil)
+        #expect(semibold.font == semiboldBefore)
+        #expect(medium.font == mediumBefore)
+    }
+
+    /// Code and terminal-like text chose a monospaced face; no walk moves it, whatever the app font was.
+    @Test func monospacedTextNeverMoves() {
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        let code = NSTextField(labelWithString: "let x")
+        code.font = NSFont(name: "Menlo", size: 12) ?? .monospacedSystemFont(ofSize: 12, weight: .regular)
+        root.addSubview(code)
+        let before = code.font
+
+        AppFontRetarget.apply(to: root, from: code.font?.familyName, to: "Georgia")
+        #expect(code.font == before)
+    }
+
     /// Review F1 at 3d6b70f1: tabs, sidebar rows and pane chrome are `ChromeLabel`s (not
     /// controls), and a button's attributed title carries its own font.
     @Test func mountedChromeLabelsAndButtonTitlesMoveToTheNewFaceAndBack() {

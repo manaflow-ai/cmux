@@ -1684,13 +1684,6 @@
                 "key": null,
                 "text": "American Typewriter"
               }
-            },
-            {
-              "value": "Menlo",
-              "title": {
-                "key": null,
-                "text": "Menlo"
-              }
             }
           ],
           "default": "system",
