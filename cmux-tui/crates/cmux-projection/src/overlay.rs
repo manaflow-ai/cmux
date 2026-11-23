@@ -270,6 +270,9 @@ struct Handle {
     lower: Option<u32>,
 }
 
+/// One folder entry: inode, type, name, and its attributes when the manifest alone answers them.
+pub type Listed = (u64, Type, String, Option<Attr>);
+
 /// A projected folder as the machine sees it.
 pub struct Overlay {
     manifest: Arc<Manifest>,
@@ -885,6 +888,12 @@ impl Overlay {
         (self.ino_of(&path, &node) == ino).then_some((path, node))
     }
 
+    /// Whether folder `ino` is only in the manifest (no upper folder under it): its names change
+    /// only through the mount, which the kernel sees, so the kernel may keep its listing.
+    pub fn lower_only(&self, ino: u64) -> bool {
+        matches!(self.named(ino), Some((_, Node::Lower(_))))
+    }
+
     pub fn getattr(&self, ino: u64) -> Result<Attr, i32> {
         if let Some((path, node)) = self.named(ino) {
             return Ok(self.attr(&path, &node));
@@ -900,26 +909,44 @@ impl Overlay {
 
     /// The merged listing of folder `ino`: upper names, then lower names not hidden or shadowed.
     pub fn readdir(&self, ino: u64) -> Result<Vec<(u64, Type, String)>, i32> {
+        Ok(self
+            .list(ino, false)?
+            .into_iter()
+            .map(|(ino, kind, name, _)| (ino, kind, name))
+            .collect())
+    }
+
+    /// [`Self::readdir`] with each entry's attributes where the manifest alone answers them (a
+    /// folder only in the manifest: no upper file can shadow a child), the ones [`Self::lookup`]
+    /// would give; `None` for an entry that needs a lookup. One pass, no `stat` of the disk per
+    /// name: what `READDIRPLUS` hands the kernel for a whole folder.
+    pub fn readdir_plus(&self, ino: u64) -> Result<Vec<Listed>, i32> {
+        self.list(ino, true)
+    }
+
+    fn list(&self, ino: u64, attrs: bool) -> Result<Vec<Listed>, i32> {
         let path = self.path_of(ino)?;
         let node = self.node(&path).ok_or(ENOENT)?;
         if Self::kind(&node, &self.manifest) != Type::Dir {
             return Err(ENOTDIR);
         }
-        let mut names: BTreeMap<String, (Type, Option<u64>)> = BTreeMap::new();
+        // The value: kind, the upper inode (an upper name), the manifest index (a lower name).
+        let mut names: BTreeMap<String, (Type, Option<u64>, Option<u32>)> = BTreeMap::new();
         if let Some(index) = self.lower(&path) {
-            let (_, children) = self.manifest.children(index);
+            let (first, children) = self.manifest.children(index);
             let inner = self.lock();
-            for entry in children {
+            for (at, entry) in (first..).zip(children) {
                 if !Self::hidden(&inner, &join(&path, &entry.name)) {
-                    names.insert(entry.name.clone(), (Type::of_kind(entry.kind), None));
+                    names.insert(entry.name.clone(), (Type::of_kind(entry.kind), None, Some(at)));
                 }
             }
         }
+        let lower_only = matches!(node, Node::Lower(_));
         if let Node::Upper(stat) = &node
             && stat.is_dir()
         {
             for (name, inode, kind) in self.upper.list(&path).unwrap_or_default() {
-                names.insert(name, (Type::of_mode(kind), Some(inode)));
+                names.insert(name, (Type::of_mode(kind), Some(inode), None));
             }
         }
         let dev = match &node {
@@ -929,13 +956,16 @@ impl Overlay {
         let mut inner = self.lock();
         Ok(names
             .into_iter()
-            .map(|(name, (kind, inode))| {
+            .map(|(name, (kind, inode, index))| {
                 let child = join(&path, &name);
                 let ino = match inode {
                     Some(inode) => self.upper_ino(&mut inner, &child, (dev, inode)),
                     None => self.name_ino(&mut inner, &child),
                 };
-                (ino, kind, name)
+                let attr = index
+                    .filter(|_| attrs && lower_only)
+                    .map(|index| self.attr_of(ino, &Node::Lower(index)));
+                (ino, kind, name, attr)
             })
             .collect())
     }
