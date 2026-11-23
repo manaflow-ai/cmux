@@ -5,8 +5,8 @@ import XCTest
 /// composer." The Safari bar moved to the top, so from a workspace's composer, keyboard up, one
 /// tap on Back reaches the Workspaces list: no swipe, no dismissing the keyboard first.
 ///
-/// On the bottom bar this fails: Back is under the keyboard (not above it, so the tap lands on
-/// the keyboard). Each check prints a `CMUX_TOP_BACK` line; every step attaches the screen.
+/// On the bottom bar this fails: Back rides the keyboard's top edge, not the top of the screen
+/// where Leo taps for it. Each check prints a `CMUX_TOP_BACK` line; every step attaches the screen.
 final class TopBackOneTapUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = true
@@ -58,8 +58,13 @@ final class TopBackOneTapUITests: XCTestCase {
                 attach(app, "\(step)-keyboard-up")
                 let back = app.buttons["Back"].firstMatch
                 let above = back.exists && back.isHittable && back.frame.maxY < keyboard.frame.minY
-                print("CMUX_TOP_BACK \(step) back=\(back.exists ? "\(back.frame)" : "none") keyboard=\(keyboard.frame): \(above ? "above" : "HIDDEN")")
+                // "a tap to the top": Back is in the top quarter of the screen, where the thumb
+                // reaches for it, not riding the keyboard's top edge.
+                let atTop = back.exists && back.frame.midY < app.frame.height * 0.25
+                print("CMUX_TOP_BACK \(step) back=\(back.exists ? "\(back.frame)" : "none") keyboard=\(keyboard.frame) " +
+                      "screen=\(app.frame.size): \(above ? "above" : "HIDDEN") \(atTop ? "top" : "NOT-AT-TOP")")
                 XCTAssertTrue(above, "\(step): Back is not above the keyboard (\(back.frame) vs \(keyboard.frame))")
+                XCTAssertTrue(atTop, "\(step): Back is not at the top (\(back.frame) on \(app.frame.size))")
                 // One tap, wherever Back is: a hidden Back's tap lands on the keyboard and stays put.
                 if back.exists { back.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
                 let home = app.buttons["workspace.row.\(workspace)"].waitForExistence(timeout: 8)
