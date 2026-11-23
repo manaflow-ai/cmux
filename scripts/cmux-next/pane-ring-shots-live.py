@@ -29,6 +29,7 @@ OUT = os.path.realpath(os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix
 os.makedirs(OUT, exist_ok=True)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from state_wait import wait_stable  # noqa: E402
 
 
 def say(*parts):
@@ -191,7 +192,13 @@ try:
     wait(lambda: (rpc("debug.surfaces") or {}).get("windows"), 60, 0.5)
     subprocess.run(["open", APP], capture_output=True)  # active with a key window, as the person's app is
     say("daemon socket", daemon_socket())
-    time.sleep(2)  # capture harness: the first window settles
+    # Until `open` made the app's main window key, then the window and its panes hold still.
+    key = lambda: any(w.get("key") for w in (rpc("debug.window_list") or {}).get("windows") or []  # noqa: E731
+                      if w.get("kind") == "main" and w.get("visible"))
+    if not wait(key, 15, 0.1):
+        say("the main window never became key in 15 s")
+    wait_stable(lambda: json.dumps([rpc("debug.window_list"), rpc("debug.surfaces")], sort_keys=True),
+                "the first window", timeout=10, interval=0.1, reads=4, raise_on_timeout=False)
     count = 0
     for scene in SCENES:
         for theme in ("light", "dark"):

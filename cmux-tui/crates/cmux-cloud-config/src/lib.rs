@@ -13,6 +13,8 @@
 //!   how a launch signs in, the debug auto sign-in's account pick, the launch
 //!   keys auth keeps, the active team's checks, where sign-in opens, the seat
 //!   facts and invite answers.
+//! - [`cli_sign_in`]: sign-in with no callback: Stack's CLI login (a login code confirmed on cmux.com,
+//!   polled for the session), so no build's URL scheme needs cmux.com's allowlist.
 //! - [`device_identity_slots`]: which login Keychain items hold the device
 //!   hub identity, and where a renewal puts the new one when another build's
 //!   items stay.
@@ -36,6 +38,7 @@
 pub mod agent_key;
 pub mod auth;
 pub mod capture_auth;
+pub mod cli_sign_in;
 pub mod config;
 pub mod device_identity_slots;
 pub mod device_list;

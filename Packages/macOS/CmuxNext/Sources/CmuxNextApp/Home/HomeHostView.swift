@@ -20,7 +20,6 @@ import CmuxNextOnboarding
 import CmuxNextPages
 import CmuxNextSidebar
 import CmuxNextWakeups
-import ImageIO
 
 /// A conversation tab's content (`conversation-tabs-v1`, home.md 7): the
 /// native AppKit transcript (`HomeNativeTranscriptView`, MessagesLab's code,
@@ -35,6 +34,7 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
     /// conversation only), made on its first open (``HomeChiefSettingsCard``), never by a switch.
     private let card = HomeChiefSettingsCard()
     private var petRows: ChiefPetSettingsRows?  // the pet's rows in the popover's Appearance section, made with it
+    private var chatLookRows: HomeChiefChatLookRows?  // Bubble Style and Chat Colors in the same section, made with it
     /// The Chief whose character the popover offers and the header wears (nil: the default Chief).
     private var petChief: String? { didSet { if petChief != oldValue { petRows?.chief = petChief; followChosenPicture() } } }
     private(set) var isChief = false { didSet { if isChief != oldValue { watchHeaderPanels(); watchNeedsYou(); watchSetupCard() } } }
@@ -219,6 +219,7 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
         }
         // Settings > Home: whether attached photos and videos keep their location.
         transcript.keepLocation = { [weak services] in services?.settings?.snapshot.homeKeepLocation ?? false }
+        transcript.clipboardHistory = service.clipboardHistory  // the + menu's recent copies
 
         spellCheckingWatch = Task { [weak self, weak services] in
             for await enabled in ObservationStream({ services?.settings?.snapshot.agentPaneComposer.spellChecking ?? false }) {
@@ -402,6 +403,9 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
         petRows.onRefusal = { [settingsView] in settingsView.showNote($0) }  // why an upload was refused
         petRows.install(in: self, addRow: { [settingsView] in settingsView.addAppearanceRow($0, control: $1) },
                         open: { [weak self] in self?.openProfile(.settings) ?? false })
+        chatLookRows = HomeChiefChatLookRows(settings: { [weak services] in services?.settings }, openColors: { [weak self, weak services] in self?.card.close()
+            _ = services?.registry.perform("home.chatColors", invocation: ActionInvocation(arguments: ["conversation": .string(conversation)], origin: .user)) })
+        chatLookRows?.install(addRow: { [settingsView] in settingsView.addAppearanceRow($0, control: $1) })
         // Each Chief's tile reads its own brain home: this re-reads them, so only the
         // Chief whose picture changed draws differently (cx-327wl).
         settingsView.onAvatar = { [weak self, weak service] in self?.loadAvatar(); service?.refreshChiefAvatars() }
@@ -506,7 +510,7 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
             // Decoded off the main actor: an upload's still or the registry picture.
             let data = avatar.picture
             // task-owner: one decode of the avatar picture; ends when it is shown
-            let decoded = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) { data.flatMap(Self.decode) }.value
+            let decoded = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) { data.flatMap(HomePictureDecode.firstFrame) }.value
             // A read for the Chief or the character shown before (another came in since) is dropped.
             guard let self, control.brainHome == home,
                   fallback == fallbackPicture else { return }
@@ -518,12 +522,6 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
             (control.services.pages.provider(.chiefComputer) as? ChiefComputerPages)?
                 .setAvatar(conversation: control.conversation.rawValue, picture: picture, text: text)
         }
-    }
-
-    /// The first frame of the picture `data` holds, decoded now.
-    private nonisolated static func decode(_ data: Data) -> CGImage? {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
-        return CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS
