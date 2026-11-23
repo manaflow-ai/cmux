@@ -248,6 +248,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // and are freed again once their idle limit passes with no open or menu (IconPickerService/GroupEditorService.idleLimit);
         // each menu or palette open makes them again or pushes that limit back.
         launchSettle.whenSettled { [palette = services.palette, weak services] in Self.preparePalette(palette, step: 0) { services?.hoverCards.warm() }; services?.iconPicker.prepare(page: false) }
+        // The settled windows' first capture for the next launch's stage 0 (`WindowLaunchImages`).
+        launchSettle.whenSettled { [weak services] in services?.windows.recordSaver.launchImages.windowsChanged() }
         let warmOverlays = { @MainActor [weak services] in services?.iconPicker.prepare(); services?.groupEditor.prepare() }
         services.keyRouter.menuPickKeys.tracking.onMenus(warmOverlays)
         services.palette.onShows(warmOverlays)

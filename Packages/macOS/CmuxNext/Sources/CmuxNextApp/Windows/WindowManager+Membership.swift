@@ -380,6 +380,7 @@ extension WindowManager {
     /// workspaces then move to the most recent other window, as before.
     /// An incognito window closes for good: its workspaces close too.
     func userClosed(_ id: String) {
+        recordSaver.launchImages.windowClosed(id) // its launch images go with it (stub-decision.md 8)
         if restoring || !restored { restoreClosed.closed(id) } // the restore must not open it again
         let snapshots = services.sidebarSnapshots
         Task { await snapshots.forget(window: id) }

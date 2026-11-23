@@ -52,6 +52,9 @@ final class WindowRecordSaver {
         snapshot: { [weak self] images, socketPath in
             self?.host?.launchRecordSnapshot(images: images, socketPath: socketPath) ?? LaunchRecordSnapshot()
         })
+    /// Each window's last frame for the next launch's stage 0 (`WindowLaunchImages`).
+    private(set) lazy var launchImages = WindowLaunchImages(manager: owner, work: work, record: launchRecord,
+                                                            bundleID: host?.environment.launch.bundleID)
     private var selectedTabsCache: [String: TabSelectionRecord] = [:]
     /// Panes whose remembered tab a record build read on the main thread (`SpaceSwitchRecordSaveTests`).
     var paneReads: Int { selectedTabsCache.values.reduce(0) { $0 + $1.paneReads } }
@@ -117,6 +120,7 @@ final class WindowRecordSaver {
 
     private func requestSave() {
         launchRecord.schedule()
+        launchImages.windowsChanged()
         saves.requested = true
         if let ticket = services?.daemon.openTicket() { saves.tickets.append(ticket) }
         scheduleDrain()
@@ -281,10 +285,18 @@ extension AppServices {
                 content.panes.values.filter { !$0.view.isHiddenOrHasHiddenAncestor }.compactMap { $0.stripModel.selectedID?.rawValue }
             }
             let display = (window.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0
-            return LaunchRecordWindowSnapshot(id: controller.state.id, frame: window.frame, displayID: display,
+            var snapshot = LaunchRecordWindowSnapshot(id: controller.state.id, frame: window.frame, displayID: display,
                 backgroundRGBA: rgba, barRGBA: rgba, imageKey: image?.key ?? "",
                 imagePixelSize: (image?.pixelWidth ?? 0, image?.pixelHeight ?? 0),
                 workspaceID: controller.state.workspaceID ?? "", tabIDs: tabs)
+            // What stage 0 checks before it draws the image (cmux-launch-shell `plan`): the display's
+            // frame and scale, the system's appearance (the record's is compared with the launch's), full screen.
+            snapshot.backingScale = window.screen?.backingScaleFactor ?? 0
+            snapshot.screenFrame = window.screen?.frame ?? .zero
+            snapshot.appearance = WindowLaunchImages.systemIsDark ? 1 : 0
+            snapshot.appearanceFollowsSystem = true
+            snapshot.fullscreen = window.styleMask.contains(.fullScreen)
+            return snapshot
         }
         return LaunchRecordSnapshot(windows: windows, sidebarRows: sidebars, sessionSocketPath: socketPath)
     }
