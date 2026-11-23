@@ -53,6 +53,16 @@ public final class MockTerminalSession: TerminalSession {
     public private(set) var bytesFromPhone = 0
     /// DEBUG bench: wheel reports and cursor keys `claudefull` scrolled by.
     public private(set) var appScrolls = 0
+    /// Stamps every write as hostd stamps a redraw (`.paintMark`), so the screen reports
+    /// when it painted it (``reportPaint(_:)``): the simulator's receive-to-paint.
+    public var stampsRedraws = false
+    private var paintSeq = 0
+    /// What the screen reported painted (`[seq, received, painted]`, epoch ms).
+    public var paintSamples: [TerminalPaintTally.Sample] = []
+
+    public func reportPaint(_ samples: [TerminalPaintTally.Sample]) {
+        paintSamples += samples
+    }
     /// DEBUG bench (`tuipan`): input goes the way `DaemonTerminalSession`
     /// sends it, one `send` per main-queue turn with everything Ghostty
     /// wrote in it (`scheduleInputDrain`), on a later turn: the finger's
@@ -281,6 +291,10 @@ public final class MockTerminalSession: TerminalSession {
         // No link in mock mode: the shell's output is what the transport would deliver.
         ReceivedByteCount.shared.add(data.count)
         handler?(.output(data))
+        if stampsRedraws {
+            paintSeq += 1
+            handler?(.paintMark(seq: paintSeq, receivedMs: TerminalPaintReport.nowMs))
+        }
     }
 
     /// The primary screen's history the Mac would replay (its last 256 KB).
