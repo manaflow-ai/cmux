@@ -1122,7 +1122,7 @@ check_no_github_hosted_runners() {
 import pathlib, re, sys, yaml
 root, repo = pathlib.Path(sys.argv[1]), sys.argv[2]
 hosted, fork, trusted, nightly = (re.compile(p) for p in sys.argv[3:7])
-key = re.compile(r"^(runs-on|runs_on|os|labels|group|[A-Za-z0-9_-]*runner[A-Za-z0-9_-]*)$", re.IGNORECASE)
+key = re.compile(r"^(runs-on|runs_on|os|labels|group|[A-Za-z0-9_-]*runner[A-Za-z0-9_-]*|[A-Za-z0-9_-]*_label|fleet_linux)$", re.IGNORECASE)
 def spans(node):
     """A scalar under a runner key that starts and ends on different lines."""
     if isinstance(node, yaml.MappingNode):
@@ -1171,7 +1171,7 @@ PY
       done
       [[ "$allowed" -eq 1 ]] && continue
       echo "FAIL: GitHub-hosted runner label: ${line#"$ROOT_DIR"/}" | cut -c1-260
-    done < <(grep -rnE "(runs-on:|^[[:space:]]+(labels|group):|[[:space:]\"](os|runs_on|runs-on|[A-Za-z0-9_-]*[Rr]unner)\"?:[[:space:]]|[A-Za-z0-9_-]*RUNNER[A-Za-z0-9_-]*:[[:space:]]|^[[:space:]]*-[[:space:]]+[A-Za-z0-9._-]+[[:space:]]*$|^[[:space:]]+default:[[:space:]])" "$dir")
+    done < <(grep -rnE "(runs-on:|^[[:space:]]+(labels|group):|[[:space:]\"](os|runs_on|runs-on|[A-Za-z0-9_-]*[Rr]unner)\"?:[[:space:]]|[A-Za-z0-9_-]*RUNNER[A-Za-z0-9_-]*:[[:space:]]|[A-Za-z0-9_-]*_LABEL:[[:space:]]|FLEET_LINUX:[[:space:]]|^[[:space:]]*-[[:space:]]+[A-Za-z0-9._-]+[[:space:]]*$|^[[:space:]]+default:[[:space:]])" "$dir")
   }
   local fixture scan_out failed=0
   fixture="$(mktemp -d)"
@@ -1201,6 +1201,12 @@ jobs:
     with:
       linux_runner: >-
         ${{ vars.X || 'ubuntu-24.04' }}
+  h:
+    # A placement script's label inputs become runs-on (portable_job_placement.py): a fork pull
+    # request's hosted ubuntu-24.04 hid here until 2026-11-19 (Leo: "Fuck GitHub").
+    env:
+      SIDE_LABEL: ${{ github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.X }}
+      FLEET_LINUX: ${{ github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.X }}
 YAML
   cat > "$fixture/clean-nightly.yml" <<'YAML'
 jobs:
@@ -1221,8 +1227,8 @@ jobs:
 YAML
   scan_out="$(hosted_scan "$fixture")"
   rm -rf "$fixture"
-  if [[ "$(grep -c '^FAIL:' <<<"$scan_out")" -ne 8 ]] || grep -q 'clean-nightly.yml' <<<"$scan_out"; then
-    echo "FAIL: GitHub-hosted runner guard self-test: the scan must flag exactly the eight hosted selections in its fixture and nothing in the clean one:"
+  if [[ "$(grep -c '^FAIL:' <<<"$scan_out")" -ne 10 ]] || grep -q 'clean-nightly.yml' <<<"$scan_out"; then
+    echo "FAIL: GitHub-hosted runner guard self-test: the scan must flag exactly the ten hosted selections in its fixture and nothing in the clean one:"
     echo "$scan_out"
     exit 1
   fi
