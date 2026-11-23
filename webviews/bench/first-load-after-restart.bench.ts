@@ -99,7 +99,7 @@ import { classifyFrames, type FrameMetrics, type FrameRecord } from "./firstLoad
 import { perfRow } from "./perfRow";
 import { newestPage } from "./daemonPage";
 import { connectDelay, LinkPipe, linkProfile } from "./linkModel";
-import { goneRows, restartSettled } from "./restartSettled";
+import { goneRows, liveTurnLine, restartSettled } from "./restartSettled";
 import { longRun } from "../src/agent-session/acpmux/sim/scenarios";
 import { parseRecords } from "../src/agent-session/acpmux/sim/sanitize";
 import { hostTailOf, keptEvents } from "../src/agent-session/acpmux/tailCache";
@@ -329,7 +329,7 @@ if (FIXTURE !== "plain" && (RUNNING || CONTENT !== "plain"))
 /// turn as a watcher sees it (liveTurnWork `open`: every finished call in sight until the turn ends), and goneRows
 /// counts any row the reload drew that the still-open turn no longer draws. The turn then ends OPEN_ENDS_MS (1500;
 /// 0 never) after the relaunched page's attach is answered, as a running turn the reload caught does: its
-/// `turn_end` record and the session back to ready, pushed live. goneRows then also counts every row the reload drew
+/// end records (turn_end on) and the session back to ready, pushed live. goneRows then also counts every row the reload drew
 /// that the ended turn's fold took away (Leo: "i see this rush and barrage of tool calls and message on a sort of
 /// "renewed-load" of chats. but they get folded/hidden anyways").
 const OPEN = process.env.OPEN === "1";
@@ -341,7 +341,8 @@ const [workRecords, openEnd] = (() => {
   let end = all.length;
   while (end > 0 && all[end - 1]!.kind !== "turn_end") end -= 1;
   if (end === 0) throw new Error("OPEN=1: the work fixture has no turn_end");
-  return [all.slice(0, end - 1), all[end - 1]!] as const;
+  // The end is the turn's own records from its `turn_end` on (turn_end, turn_result, status ready, ...).
+  return [all.slice(0, end - 1), all.slice(end - 1)] as const;
 })();
 /// The open turn's ids (OPEN=1), from its `turn_started`, for the session's `turn`.
 const openTurn = (() => {
@@ -937,8 +938,8 @@ try {
             // fixed-wait: when the open turn ends is the condition OPEN_ENDS_MS sets; stops with the run.
             const timer = setTimeout(() => {
               delayedReplies.delete(timer);
-              const seq = (events.at(-1)?.seq ?? 0) + 1;
               const at = Date.now();
+              const seq = openEnd.at(-1)!.seq;
               const notify = (method: string, params: unknown) => {
                 try {
                   ws.send(JSON.stringify({ jsonrpc: "2.0", method, params }));
@@ -946,7 +947,8 @@ try {
                   // Closed: the round is over.
                 }
               };
-              notify("_acpmux/event", { ...openEnd, sessionId: PAPERCUT_CHAT, seq, at });
+              if (WIRE_TRACE) console.log(`wire ${at - wireT0} ms -> the turn's end through seq ${seq}, session ready`);
+              for (const record of openEnd) notify("_acpmux/event", { ...record, sessionId: PAPERCUT_CHAT, at });
               const { turn: _turn, ...ended } = session as typeof session & { turn?: unknown };
               notify("_acpmux/session_changed", {
                 kind: "updated",
@@ -1686,7 +1688,7 @@ try {
     json[`${mode}.split`] = split;
     // Restart to settled (bench/restartSettled.ts), what scripts/measure/restart-settled-linux.sh sets beside the
     // terminal's reattach under the same LINK: medians over the rounds.
-    const settled = rounds.map((r) => restartSettled(r.frames, r.metrics, r.liveLatestMs));
+    const settled = rounds.map((r) => restartSettled(r.frames, r.metrics, r.liveLatestMs, OPEN_ENDS_MS > 0));
     const settledRow = {
       link: LINK_NAME,
       mode,
@@ -1739,7 +1741,7 @@ try {
         const blanks = new Set(worst.metrics.blankAt);
         const final = new Set((worst.frames.at(-1)?.rows ?? []).map((row) => row.id));
         worst.frames.forEach((frame, at) => {
-          const gone = frame.rows.filter((row) => !final.has(row.id));
+          const gone = frame.rows.filter((row) => !final.has(row.id) && !(OPEN_ENDS_MS > 0 && liveTurnLine(row.id)));
           const bottom = frame.rows.at(-1);
           const layer = frame.copyShown ? "copy" : frame.rootHidden ? "hid " : "live";
           const marks = `${blanks.has(at) ? "B" : " "}${shifts.has(at) ? "S" : " "}`;
@@ -1808,7 +1810,7 @@ try {
       median: medians,
       max: maxima,
       // Rows a frame showed that the settled chat does not (restartSettled.ts `goneRows`), per round.
-      gone: rounds.map((r) => goneRows(r.frames)),
+      gone: rounds.map((r) => goneRows(r.frames, OPEN_ENDS_MS > 0)),
     };
     const row = mode.replace("-", "_");
     for (const [metric, key, unit] of [

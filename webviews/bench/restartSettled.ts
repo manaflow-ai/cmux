@@ -30,8 +30,10 @@ export type RestartSettled = {
 
 /// The rows in view in some frame and not in the last one, and the frames that showed any of them. A row
 /// whose words a last-frame row shows is that row under another id (the copy's v1 rows before the row
-/// store's), not a gone one.
-export function goneRows(frames: FrameRecord[]): { rows: number; frames: number } {
+/// store's), not a gone one. With `turnEnds` (an open turn the run ends) the running turn's own lines, its
+/// header and thinking line (turns.ts `working-<prompt>`, `thinking-live`), are not counted: they end with the turn
+/// for a watcher too, and what is measured is the work the reload drew that the turn's fold takes away.
+export function goneRows(frames: FrameRecord[], turnEnds = false): { rows: number; frames: number } {
   const last = frames.at(-1);
   if (!last) return { rows: 0, frames: 0 };
   const final = new Set(last.rows.map((row) => row.id));
@@ -41,7 +43,7 @@ export function goneRows(frames: FrameRecord[]): { rows: number; frames: number 
   for (const frame of frames) {
     let any = false;
     for (const row of frame.rows)
-      if (!final.has(row.id) && !(row.text && finalText.has(row.text))) {
+      if (!final.has(row.id) && !(row.text && finalText.has(row.text)) && !(turnEnds && liveTurnLine(row.id))) {
         gone.add(row.id);
         any = true;
       }
@@ -49,6 +51,9 @@ export function goneRows(frames: FrameRecord[]): { rows: number; frames: number 
   }
   return { rows: gone.size, frames: shown };
 }
+
+/// The running turn's own header or thinking line (turns.ts WORKING, THINKING), not its work.
+export const liveTurnLine = (id: string) => id.startsWith("working-") || id === "thinking-live";
 
 /// How far anything in view moved from `before` to `after`: rows by id, the composer's top and height.
 export function movedPx(before: FrameRecord, after: FrameRecord): number {
@@ -71,6 +76,7 @@ export function restartSettled(
   frames: FrameRecord[],
   metrics: FrameMetrics,
   liveLatestMs: number | null,
+  turnEnds = false,
 ): RestartSettled {
   let shiftPxMax = 0;
   let shiftPxSum = 0;
@@ -79,7 +85,7 @@ export function restartSettled(
     shiftPxMax = Math.max(shiftPxMax, px);
     shiftPxSum += px;
   }
-  const gone = goneRows(frames);
+  const gone = goneRows(frames, turnEnds);
   const settledMs = liveLatestMs === null ? null : Math.max(liveLatestMs, metrics.finalFirstPaintMs ?? liveLatestMs);
   return {
     firstContentMs: metrics.firstContentMs,
