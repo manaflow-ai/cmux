@@ -14,6 +14,8 @@ on:
       - "schemas/agent-pane/stylesheet-guard.json"
       - "schemas/settings/source/general.json"
       - "webviews/src/apps/scene/extTemplateScenes.json"
+      - "schemas/type-scale/scene-type.json"
+      - "webviews/src/apps/scene/fixtures/design-check-scenes.json"
       - "cmux-tui/**"
       - "cmux-tui/scripts/verify-pypi-tui-upload.sh"
       - ".github/actions/setup-cmux-tui-rust/**"
@@ -168,6 +170,8 @@ on:
       - "webviews/src/agent-session/acpmux/rows/parity/r1-reply-2.changes.jsonl"
       - "webviews/src/agent-session/acpmux/rows/parity/seed-turn.changes.jsonl"
       - "webviews/src/apps/scene/extTemplateScenes.json"
+      - "schemas/type-scale/scene-type.json"
+      - "webviews/src/apps/scene/fixtures/design-check-scenes.json"
       - "workers/cmux-vm/cli/crates/cmux-vm-codegen/src/normalize.rs"
       - "workers/cmux-vm/cli/crates/cmux-vm-client/Cargo.toml"
       - "workers/cmux-vm/cli/crates/cmux-vm-client/src/**"
@@ -189,6 +193,8 @@ on:
       - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
       - "schemas/settings/source/general.json"
       - "webviews/src/apps/scene/extTemplateScenes.json"
+      - "schemas/type-scale/scene-type.json"
+      - "webviews/src/apps/scene/fixtures/design-check-scenes.json"
       - "cmux-tui/**"
       - "cmux-tui/scripts/verify-pypi-tui-upload.sh"
       - ".github/actions/setup-cmux-tui-rust/**"
@@ -343,6 +349,8 @@ on:
       - "webviews/src/agent-session/acpmux/rows/parity/r1-reply-2.changes.jsonl"
       - "webviews/src/agent-session/acpmux/rows/parity/seed-turn.changes.jsonl"
       - "webviews/src/apps/scene/extTemplateScenes.json"
+      - "schemas/type-scale/scene-type.json"
+      - "webviews/src/apps/scene/fixtures/design-check-scenes.json"
       - "workers/cmux-vm/cli/crates/cmux-vm-codegen/src/normalize.rs"
       - "workers/cmux-vm/cli/crates/cmux-vm-client/Cargo.toml"
       - "workers/cmux-vm/cli/crates/cmux-vm-client/src/**"
@@ -596,6 +604,8 @@ jobs:
         if: matrix.language == 'rust'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui -> target
           save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
@@ -803,6 +813,8 @@ jobs:
         if: matrix.language == 'rust'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: |
             cmux-tui/bindings/examples/rust-agent-dashboard -> target
@@ -980,6 +992,8 @@ jobs:
       - name: Cache cargo build
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: |
             cmux-tui -> target
@@ -1138,6 +1152,8 @@ jobs:
         if: ${{ steps.tree.outputs.hit != 'true' && (steps.headless-cache.outputs.cache-hit != 'true') }}
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-headless-debug
