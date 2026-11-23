@@ -5,10 +5,6 @@ export type ScrollCoordinateNode = {
 };
 
 const origins = new WeakMap<ScrollCoordinateNode, number>();
-/// The fraction of a pixel of the room held above the loaded rows for older history that the
-/// thread's `top` leaves out (VirtualTranscript `threadRoom`): it shares the thread's margin with the
-/// origin, and is no part of the scroll coordinates.
-const roomFractions = new WeakMap<ScrollCoordinateNode, number>();
 /**
  * The origin is the thread's top margin: it moves the thread (absolutely placed at its `top`) by the
  * remainder in layout, as an offset of its `top` would. A plain property, not a custom one: Chromium
@@ -46,32 +42,11 @@ function originStyle(node: ScrollCoordinateNode): ScrollCoordinateNode["style"] 
   return thread?.style ?? node.style;
 }
 
-/** The thread's margin: the origin and the room's fraction together, one write. */
-function writeMargin(node: ScrollCoordinateNode): void {
-  const margin = (origins.get(node) ?? 0) + (roomFractions.get(node) ?? 0);
-  if (margin === 0) originStyle(node).removeProperty(SCROLL_ORIGIN_PROPERTY);
-  else originStyle(node).setProperty(SCROLL_ORIGIN_PROPERTY, `${margin}px`);
-}
-
 /** Reset on an intentional navigation/session/follow handoff, before its target is written. */
 export function clearScrollOrigin(node: ScrollCoordinateNode): void {
   // No origin held, none written: nothing to restyle.
   if (!origins.delete(node)) return;
-  writeMargin(node);
-}
-
-/**
- * The room's fraction the thread stands under (VirtualTranscript `threadRoomFraction`), kept beside
- * the origin in the thread's margin. Layout coordinates do not move: the room is in the rows' places.
- * The same fraction again writes nothing.
- */
-export function holdRoomFraction(node: ScrollCoordinateNode, fraction: number): void {
-  const held = roomFractions.get(node) ?? 0;
-  const next = Number.isFinite(fraction) ? fraction : 0;
-  if (held === next) return;
-  if (next === 0) roomFractions.delete(node);
-  else roomFractions.set(node, next);
-  writeMargin(node);
+  originStyle(node).removeProperty(SCROLL_ORIGIN_PROPERTY);
 }
 
 /**
@@ -95,7 +70,7 @@ export function retainScrollOrigin(node: ScrollCoordinateNode, desiredLogicalTop
   // The same remainder as the one written: the thread already stands there.
   else if (origins.get(node) !== residual) {
     origins.set(node, residual);
-    writeMargin(node);
+    originStyle(node).setProperty(SCROLL_ORIGIN_PROPERTY, `${residual}px`);
   }
   return residual;
 }

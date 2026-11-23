@@ -85,9 +85,6 @@ type RowFramesView = {
   rows: readonly AcpmuxRow[];
   mountedRanges: readonly { first: number; last: number }[];
   geometry: { topAt(index: number): number; gapAt(index: number): number };
-  /// The room held above the loaded rows for older history (ConversationLayout.origin): the thread
-  /// stands under it, so each row's `top` counts from the loaded rows, not from the room.
-  roomAbove: number;
   frameKey: string;
   registry: NativeRegistry;
   setSizeRef: React.MutableRefObject<string>;
@@ -179,7 +176,7 @@ export function drawRowFrames(
       const frameId = rowFrameKey(row);
       const inputs = cache.scratch;
       inputs.index = absoluteIndex;
-      inputs.top = geometry.topAt(absoluteIndex) - view.roomAbove;
+      inputs.top = geometry.topAt(absoluteIndex);
       inputs.gapBelow = absoluteIndex + 1 < rows.length ? geometry.gapAt(absoluteIndex + 1) : 0;
       inputs.expanded = isExpanded;
       inputs.active = view.activeRowId === row.id;

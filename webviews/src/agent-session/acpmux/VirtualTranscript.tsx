@@ -60,7 +60,6 @@ import { useBesideStack } from "./conversation/useBesideStack";
 import { attachUserScrollIntent, userScrollIntent } from "./conversation/userScroll";
 import {
   clearScrollOrigin,
-  holdRoomFraction,
   layoutScrollTop,
   physicalScrollTop,
   retainScrollOrigin,
@@ -183,7 +182,7 @@ import {
 import { jumpUpButton } from "./jumpUp.experiment";
 import { experimentArm } from "../../experiments/experiment";
 import { MOTION_MS, MOTION_SEND_CURVE, MOTION_SEND_MS } from "../../motion/scale.generated";
-import { followShownScrollerFade, SHOWN_INK_PROPERTIES } from "../../scrollers";
+import { SHOWN_INK_PROPERTIES, followShownScrollerFade } from "../../scrollers";
 import { thumbMotion } from "./conversation/thumbMotion.experiment";
 import { editableTarget, wheelScrollsDown } from "./conversation/wheelChain";
 import { heightLeftAbove, type NewerReserve, newerReserve, rowsReplaced } from "./conversation/newerReserve";
@@ -1981,8 +1980,9 @@ function TranscriptView({
     // A page of older history lands above the first row that was already there (a date divider
     // moves up to the page's first turn, so the first known row, not the first row): those rows never
     // take a live row's entrance. They draw in place, as if they had always been there, unless the
-    // page came late: the reader already reached the top of the loaded rows, and only then do they
-    // fade in as they are first seen (Leo 2026-10-31: no fade unless it's the worst case).
+    // page came late: the reader already reached the top of the loaded rows and stopped there, and
+    // only then do they fade in as they are first seen (Leo 2026-10-31: no fade unless it's the
+    // worst case). A page landing under a scroll draws in full ink.
     const oldFirst = rows.findIndex((row) => knownRows.current!.has(rowFrameKey(row)));
     const arrived: AcpmuxRow[] = [];
     let olderLate: boolean | undefined;
@@ -2008,7 +2008,10 @@ function TranscriptView({
       // transcript cleared and refilled), draws in place: it is not news and does not fade again.
       if (redrawn) continue;
       if (index < oldFirst) {
-        olderLate = olderLate ?? readerAtLoadedTop(ref.current, olderRoom.current?.room ?? 0);
+        // A page that lands while the reader scrolls is part of that motion: it draws in full ink,
+        // with no 0.35 start (transcript motion model step 3: "no 0.35 fade for rows mounted while
+        // scrolling"). Only a page that lands with the reader at rest at the top fades in.
+        olderLate = olderLate ?? (!readerIsMoving && readerAtLoadedTop(ref.current, olderRoom.current?.room ?? 0));
         if (olderLate) olderRows.add(row.id);
         else if (loadArrival) loadFade.arrive(row.id);
       } else if (loadArrival) loadFade.arrive(row.id);
@@ -2197,9 +2200,6 @@ function TranscriptView({
     // Read before a length is written below, where it was read to choose the anchor.
     const scrolled = end ? scroller.scrollTop : 0;
     const live = liveResize.current;
-    // The thread stands under the room held for older history (`threadRoom`): the lengths written
-    // here are in its coordinates, so the room comes off the rows' places.
-    const room = latestLayout.current.layout.origin ?? 0;
     if (end) {
       live.hold = undefined;
       const at = geometry.topAt(placed.last - 1) + geometry.heightAt(placed.last - 1);
@@ -2207,12 +2207,12 @@ function TranscriptView({
       // taller of the placed height and the view). Over a chat taller than the view that is the
       // latest row's placed bottom; over one that fits, the same room above the view's lower edge.
       const under = latestLayout.current.layout.totalHeight - THREAD_TOP - at;
-      writeFlow(live, threadNode, "end", `calc(100% - ${under + room}px)`);
+      writeFlow(live, threadNode, "end", `calc(100% - ${under}px)`);
       // The first row's place when the view holds the whole chat, in the thread's coordinates at
       // this scroll offset. No such place while older rows are unmounted above the first mounted
       // one: the strut then gets the box's own length, which leaves the rows at its end.
       const whole = placed.first === 0 ? geometry.topAt(0) + scrolled : at;
-      writeFlow(live, threadNode, "start", `${THREAD_TOP + whole - room}px`);
+      writeFlow(live, threadNode, "start", `${THREAD_TOP + whole}px`);
     } else {
       // The same mounted rows under the same held row keep the padding `holdFlow` gave them.
       if (live.hold?.row.isConnected && live.hold.first === placed.first && threadNode.classList.contains(FLOW_CLASS))
@@ -2235,7 +2235,7 @@ function TranscriptView({
           break;
         }
       }
-      const pad = THREAD_TOP + geometry.topAt(placed.first) - room;
+      const pad = THREAD_TOP + geometry.topAt(placed.first);
       if (live.hold) Object.assign(live.hold, { pad, first: placed.first });
       writeFlow(live, threadNode, "start", `${pad}px`);
       writeFlow(live, threadNode, "end", undefined);
@@ -3706,22 +3706,6 @@ function TranscriptView({
     }),
     [measured, rowsEnd, keptEnd, draggedHeight],
   );
-  // Rows are placed under the room held for older history (ConversationLayout.origin) by the thread,
-  // never one by one: that room changes as pages land and as the reader rises while room is owed
-  // (conversation/olderReserve.ts), a frame at a time, and placing each row under it rewrote the top
-  // of every mounted row, and missed every kept frame (RowFrameCache), on every such frame (Leo,
-  // 2026-11-11: "scrolling up is slow and it layout shift and everythng lag"). Now such a frame moves
-  // one element. Its whole pixels go in the thread's `top`; the fraction a payment leaves joins the
-  // scroll origin in the thread's margin (scrollCoordinates.ts `holdRoomFraction`), as the rows split
-  // theirs (RowFrame), since WebKit drops fractional bits of large offsets.
-  const olderRoomAbove = layout.origin ?? 0;
-  const threadRoom = Math.floor(olderRoomAbove);
-  const threadRoomFraction = olderRoomAbove - threadRoom;
-  // Declared before the placement and flow passes' layout effects, so they read the thread where it
-  // draws (a stale margin is up to a pixel off in what they measure).
-  useLayoutEffect(() => {
-    if (ref.current) holdRoomFraction(ref.current, threadRoomFraction);
-  }, [threadRoomFraction]);
   // Each commit: what this pass kept for the reader (`readerKept`), and whether it followed, for the next.
   useLayoutEffect(() => {
     const followed = following && !sessionSwitched;
@@ -4754,13 +4738,12 @@ function TranscriptView({
     // The glide reads where the rows lie from this placement (each frame's `top` is set from it), not
     // from every mounted row's box. Rows that flow (a live resize) lie where the page puts them: read.
     const placedGeometry = layout.geometry;
-    const placedRoom = layout.origin ?? 0;
     const placedRows: PlacedRows | undefined = thread.current?.classList.contains(FLOW_CLASS)
       ? undefined
       : {
           idAt: (index) => rows[index]?.id,
           indexOf: (id) => mountedIndexOf(rows, mountedRanges, id),
-          topAt: (index) => THREAD_TOP + placedGeometry.topAt(index) - placedRoom,
+          topAt: (index) => THREAD_TOP + placedGeometry.topAt(index),
           heightAt: (index) => placedGeometry.heightAt(index),
           mounted: mountedRanges,
         };
@@ -5656,11 +5639,21 @@ function TranscriptView({
       return;
     }
     const was = scrolledTo.current;
+    const upPending = readerUpPending.current;
     if (readerUpPending.current) readerUpPending.current = false;
     const measured = scrollPosition(node, layout.totalHeight);
+    // A fall that still rests at or past the scroller's own end, with no upward input behind it, is
+    // the browser's spring back, not the reader leaving: a trackpad scroll down at the end stretches
+    // the scroller on macOS, WebKit reports the stretch in the offset, and its return is a run of
+    // scroll events falling back to the end inside the reader's input hold. Read as the reader's
+    // scroll up, each stopped following at the very end, and the reply streaming on grew under the
+    // composer behind Jump to latest until the next wheel at the end armed it again (Leo, 2026-11-18:
+    // "did we fix this scroll bounce at the bottom yet?"; agent-pane-bottom-rebound-follow.test.ts).
+    // The layout pass reads the same fall as a clamp (`clamped`). A reader's own step up leaves the end.
+    const sprangBack = !upPending && next >= node.scrollHeight - node.clientHeight - 0.5;
     // A recent upward input is authoritative even when it moved only a pixel or two. The
     // deadband absorbs layout rounding, but must not turn a real trackpad step into bottom follow.
-    const movedUp = next < was.top - 0.5;
+    const movedUp = !sprangBack && next < was.top - 0.5;
     const recentUp = !programmatic && movedUp;
     // Only the reader's own downward scroll input brings following back at the end; the input hold
     // alone (`programmatic`) is any input of the last second, a press or a hover after a lost
@@ -6632,7 +6625,6 @@ function TranscriptView({
     rows,
     mountedRanges,
     geometry: layout.geometry,
-    roomAbove: olderRoomAbove,
     frameKey,
     registry,
     setSizeRef,
@@ -6716,6 +6708,7 @@ function TranscriptView({
     earlier,
     canLoadNewer,
     canLoadOlder,
+    loading,
     later,
     promptCount,
     loadThrough,
@@ -6732,7 +6725,6 @@ function TranscriptView({
     findReveal,
     lane,
     lift,
-    threadRoom,
     standIns,
     frameKey,
     thread,
