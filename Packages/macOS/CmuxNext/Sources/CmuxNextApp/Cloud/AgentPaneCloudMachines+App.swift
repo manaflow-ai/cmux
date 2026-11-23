@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextDaemonService
 
 extension AgentPaneCloudMachines {
     /// How old the App's machine list may be when a picker reads it: an open picker reads every
@@ -47,11 +48,33 @@ extension AgentPaneCloudMachines {
         pause = { [weak services] id in services.map { Self.perform("cloudPauseMachine", on: id, services: $0) { $0.effectiveStatus == .running } } ?? false }
         // Kill Machine is destructive: as the person's own run, the registry shows its confirmation sheet first.
         delete = { [weak services] id in services.map { Self.perform("cloudKillMachine", on: id, services: $0) { $0.effectiveStatus != .deleting } } ?? false }
+        // The rule (which machine a typing hint resumes, and the pause after a failed resume) is Rust's:
+        // `cloud_handler_prewarm` (cmux-cloud-handlers `decide::prewarm`). This keeps the clock of each failure.
+        let failures = PrewarmFailures()
         prewarm = { [weak services] id in
             guard let services else { return false }
             let cloud = services.cloud, status = services.machines.cloud.first(where: { $0.machineID == id })?.effectiveStatus
             let allowed = !services.registry.disabledFeatures.contains(.cloud) && cloud.mayCallCloud && cloud.unavailableReason == nil
-            return await Self.prewarmIfPaused(allowed: allowed && cloud.isSignedIn && cloud.hasLoadedCurrentMachines, status: status) { try await cloud.resumeMachine(id, origin: .script) }
+            var facts: [String: Any] = ["allowed": allowed && cloud.isSignedIn, "loaded": cloud.hasLoadedCurrentMachines]
+            if let status { facts["status"] = status.rawValue }
+            if let ms = failures.sinceFailureMs(id) { facts["sinceFailureMs"] = ms }
+            // An FFI without the op (nil) leaves the old rule: `prewarmIfPaused` below still resumes only a paused machine.
+            if let answer = CloudHandlerRules().ask("cloud_handler_prewarm", facts), answer["resume"] as? Bool != true { return false }
+            let resumed = await Self.prewarmIfPaused(allowed: true, status: status) { try await cloud.resumeMachine(id, origin: .script) }
+            if resumed { failures.clear(id) } else { failures.failed(id) }
+            return resumed
+        }
+    }
+
+    /// When each machine's last typing-prewarm resume failed, for ``CloudHandlerRules`` `cloud_handler_prewarm`.
+    @MainActor private final class PrewarmFailures {
+        private var at: [String: ContinuousClock.Instant] = [:]
+        func failed(_ id: String) { at[id] = .now }
+        func clear(_ id: String) { at[id] = nil }
+        func sinceFailureMs(_ id: String) -> Int? {
+            guard let start = at[id] else { return nil }
+            let d = start.duration(to: .now)
+            return Int(d.components.seconds * 1000 + d.components.attoseconds / 1_000_000_000_000_000)
         }
     }
 
