@@ -718,6 +718,7 @@ import {
   offersAcpmuxRestart,
   readHostRestoring,
   hostSelfRetrying,
+  troubleSinceAfterLoss,
   lostRetryDelay,
   jitteredDelay,
   quickRetry,
@@ -6945,6 +6946,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// When this pane's connection to acpmux was lost (its client's `onLost`), until a handshake
   /// connects again: the quiet "Reconnecting…" line counts from it (HostRecoveringLine).
   const [relinkingSince, setRelinkingSince] = useState<number | undefined>();
+  /// When the pane's trouble began (the connect loop's `troubleSince`): bounds the bare "Reconnecting…".
+  const [hostTroubleSince, setHostTroubleSince] = useState<number | undefined>();
   /// The host says acpmux is restoring its chats after a start (its `acpmux-host-status` event, or
   /// a refused handshake's `details.restoring`): the line says "Restoring sessions… m:ss" instead.
   const [hostRestoring, setHostRestoring] = useState<HostRestoring | undefined>();
@@ -8053,6 +8056,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     /// When the handshakes began failing (cleared by a connect): a recovery is said only once it
     /// has failed for HOST_ERROR_DEADLINE_MS (hostRetry.ts).
     let failingSince: number | undefined;
+    /// When the pane's trouble began: unlike `failingSince`, a connect that is lost again within
+    /// CONNECTION_STABLE_MS does not end it (hostRetry.ts `troubleSinceAfterLoss`), so a chat that
+    /// never stays open stops being a bare "Reconnecting…" past SELF_RETRY_SAID_MS.
+    let troubleSince: number | undefined;
     let connecting = false;
     /// The user asked to retry while an attempt was in flight; run a full one when it ends.
     let retryPending = false;
@@ -8434,6 +8441,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             // the handshakes fail past the deadline, then the waiting line or the failure.
             failingSince = Date.now();
             setRelinkingSince(failingSince);
+            troubleSince = troubleSinceAfterLoss(troubleSince, failingSince - connectedAt, failingSince);
+            setHostTroubleSince(troubleSince);
             // A client lost soon after it connected keeps the backoff growing: a daemon that drops
             // the pane right after every connect is not asked again every 250 ms. Jittered so the
             // tabs that lost one daemon together do not ask it again in lockstep.
@@ -9943,6 +9952,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           setHostFailure(error);
           setHostRestoring(readHostRestoring((error as { details?: unknown } | null)?.details, Date.now()));
           failingSince ??= Date.now();
+          troubleSince ??= failingSince;
+          setHostTroubleSince(troubleSince);
           const recovering = hostIsReconnecting(error);
           // A sleeping Cloud machine is never "Can't reach"; an SSH peer of the same name still is.
           const asleep = (peer: string | undefined) =>
@@ -13298,7 +13309,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         onRetry={() => retryHost.current?.()}
         // The pane asks again by itself unless asking cannot change the answer: a chat too large to
         // open, or another build's acpmux holding the socket (only Restart clears it).
-        selfRetrying={hostSelfRetrying(hostFailure, acpmuxRestartOffered)}
+        selfRetrying={hostSelfRetrying(
+          hostFailure,
+          acpmuxRestartOffered,
+          hostTroubleSince === undefined ? 0 : Date.now() - hostTroubleSince,
+        )}
         restarting={restartingAcpmux}
         onRestart={
           acpmuxRestartOffered
