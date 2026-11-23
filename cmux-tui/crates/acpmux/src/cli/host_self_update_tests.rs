@@ -401,6 +401,28 @@ async fn a_marker_that_is_on_decides_acpmuxs_build_over_the_r2_channel() {
 }
 
 #[tokio::test]
+async fn an_r2_that_cannot_be_read_does_not_stop_the_controllers_marker() {
+    let peer = FakePeer::new("self-marker-r2-down");
+    let new = fake_acpmux(NEW, Some(NEW));
+    // No R2 channel file: R2 answers 404, the controller serves the marker.
+    let files = with_marker(Files::default(), "on", &new);
+    let plan = ready_from_controller(&peer, &files).await;
+    assert_eq!(plan.picked.source, Source::Controller);
+    assert_eq!(plan.sha256, sha_of(&new));
+    let up = apply(&peer, &plan, TARGET, true);
+    assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(NEW)), "{up:?}");
+    drop(plan);
+
+    // With the marker off too, the update fails and names both reasons.
+    let files = with_marker(Files::default(), "off", &new);
+    let err = match from_controller(&peer, &files).await {
+        Err(e) => format!("{e:#}"),
+        Ok(_) => panic!("an update with neither source went ahead"),
+    };
+    assert!(err.contains("channel") && err.contains("controller's marker"), "{err}");
+}
+
+#[tokio::test]
 async fn a_marker_that_is_not_on_or_cannot_be_used_leaves_the_r2_channel_deciding() {
     let new = fake_acpmux(NEW, Some(NEW));
     let theirs = fake_acpmux(STALE, Some(STALE));

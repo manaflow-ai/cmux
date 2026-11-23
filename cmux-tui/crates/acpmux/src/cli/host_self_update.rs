@@ -463,16 +463,23 @@ pub(super) async fn prepare(
     let Some(lease) = Lease::take(&paths.home)? else {
         return Ok(Prepared::Locked);
     };
-    let body = fetch
-        .get(&url, CHANNEL_MAX_BYTES)
-        .await
-        .map_err(|e| anyhow!("reading the {channel} channel ({url}): {e}"))?;
-    let feed = Channel::parse(&body).with_context(|| format!("the {channel} channel ({url})"))?;
+    // The R2 channel is read every run (cmux-rd follows it), but an R2 that
+    // cannot be read fails only the R2 path: the controller's marker still
+    // updates acpmux, so the update never depends on a service we do not run.
+    let feed = match fetch.get(&url, CHANNEL_MAX_BYTES).await {
+        Err(e) => Err(format!("reading the {channel} channel ({url}): {e}")),
+        Ok(body) => {
+            Channel::parse(&body).map_err(|e| format!("the {channel} channel ({url}): {e:#}"))
+        }
+    };
     // cmux-rd first: a restart of acpmux below never waits on it, and its
     // outcome never fails acpmux's update.
-    let rd = match &paths.rd {
-        Some(rd_paths) => rd::refresh(rd_paths, fetch, &feed, std::time::SystemTime::now()).await,
-        None => RdOutcome::NotJoined,
+    let rd = match (&paths.rd, &feed) {
+        (None, _) => RdOutcome::NotJoined,
+        (Some(_), Err(why)) => RdOutcome::Failed(why.clone()),
+        (Some(rd_paths), Ok(feed)) => {
+            rd::refresh(rd_paths, fetch, feed, std::time::SystemTime::now()).await
+        }
     };
     let downloads = paths.home.join("update");
     let installed = std::fs::read(&paths.installed).ok();
@@ -507,6 +514,8 @@ pub(super) async fn prepare(
             }
         },
     };
+    // Neither source can be read: the update fails, nothing changed.
+    let feed = feed.map_err(|r2| anyhow!("{r2}; and the controller's marker: {marker_skipped}"))?;
     let mut picked =
         Picked { source: Source::R2, marker_skipped: Some(marker_skipped), kept_installed: None };
     let sha = feed.sha256_for(paths.target)?.to_owned();
