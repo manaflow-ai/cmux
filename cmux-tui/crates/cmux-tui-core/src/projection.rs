@@ -751,8 +751,18 @@ fn mount(
         (meta.uid(), meta.gid()),
     )
     .map_err(|error| io("opening the projection", &format!("{error:#}")))?;
-    let mounted = cmux_projection::mount::mount(Arc::new(overlay), at)
+    let overlay = Arc::new(overlay);
+    let mounted = cmux_projection::mount::mount(overlay.clone(), at)
         .map_err(|error| ("projection.mount_failed", format!("{error:#}")))?;
+    // Pinned folders an earlier mount recorded are fetched whole in the background, so they read
+    // with the Mac away again (a new manifest starts a fresh cache). Mac away: it stops at the
+    // first absence, and the next mount tries again.
+    if !overlay.pins().is_empty() {
+        let pinned = overlay.clone();
+        let _ = std::thread::Builder::new()
+            .name("projection-pins".into())
+            .spawn(move || drop(pinned.hydrate_pins()));
+    }
     let projected = Arc::new(Projected {
         link,
         digest,
