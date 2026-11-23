@@ -22,9 +22,10 @@
 // chat's load, prompt and stream. In local mode the mesh hub is a fake one this script serves on
 // loopback (the four endpoints those calls use, from cmux-cloud-client/openapi.json), and the
 // daemon's home holds a join record naming it (machine-credential.json, meshRelay in config).
+// The chat's folder is recorded trusted in that home (trust.json), the host owner's answer.
 // --real-sign-in stubs nothing (a person reads the emailed code: --email, --code).
 //
-//   node scripts/agent-pane/web-client-e2e.mjs [--out DIR] [--pane DIR] [--acpmux BIN]
+//   node scripts/agent-pane/web-client-e2e.mjs [--out DIR] [--pane DIR] [--acpmux BIN | --build-daemon]
 //        [--url URL --session ID] [--real-sign-in --email E --code C] [--timeout-ms N]
 //
 // Outputs in --out (default $FAST_CHECKS_OUT, else a temp dir): video/*.webm, NN-step.png,
@@ -44,6 +45,7 @@ const { values: args } = parseArgs({
     out: { type: "string" },
     pane: { type: "string" },
     acpmux: { type: "string" },
+    "build-daemon": { type: "boolean", default: false },
     url: { type: "string" },
     session: { type: "string" },
     "real-sign-in": { type: "boolean", default: false },
@@ -181,16 +183,30 @@ async function startFakeHub() {
   return `http://127.0.0.1:${server.address().port}`;
 }
 
+/** --acpmux, else an installed acpmux, else this checkout's daemon built with cargo (a fleet
+ * worker has none installed; --build-daemon always builds it). */
 function acpmuxBin() {
   if (args.acpmux) return args.acpmux;
-  for (const candidate of [path.join(os.homedir(), ".local/bin/acpmux"), "/usr/local/bin/acpmux"])
-    if (fs.existsSync(candidate)) return candidate;
-  return "acpmux";
+  if (!args["build-daemon"])
+    for (const candidate of [path.join(os.homedir(), ".local/bin/acpmux"), "/usr/local/bin/acpmux"])
+      if (fs.existsSync(candidate)) return candidate;
+  const tui = path.join(repo, "cmux-tui");
+  log("building acpmux from this checkout (cargo build -p acpmux --bin acpmux)");
+  const started = performance.now();
+  execFileSync("cargo", ["build", "-p", "acpmux", "--bin", "acpmux"], {
+    cwd: tui,
+    stdio: ["ignore", "inherit", "inherit"],
+    timeout: 45 * 60_000,
+  });
+  report.daemonBuildMs = Math.round(performance.now() - started);
+  const target = process.env.CARGO_TARGET_DIR ?? path.join(tui, "target");
+  return path.join(target, "debug", "acpmux");
 }
 
 /** A daemon of this run's own: scratch home (0700, as the daemon requires), loopback listener. */
 async function startLocalDaemon() {
   const bin = acpmuxBin();
+  report.acpmux = execFileSync(bin, ["--version"], { encoding: "utf8", timeout: 10_000 }).trim();
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "web-e2e-daemon-"));
   fs.chmodSync(scratch, 0o700);
   const home = path.join(scratch, "home");
@@ -215,11 +231,21 @@ async function startLocalDaemon() {
     }),
     { mode: 0o600 },
   );
+  // The host owner's answer to the folder's trust question (`acp.trust.set`, trust.rs `set`): a
+  // web client cannot answer it, and an auto-trust rule is no answer for one, so a person on the
+  // host decides it once, as in the app. Here the scratch folder is recorded trusted.
+  fs.writeFileSync(path.join(home, "trust.json"), JSON.stringify({ [fs.realpathSync(work)]: "trusted" }), {
+    mode: 0o600,
+  });
   const config = {
     meshRelay: { url: hub, credential: "join" },
     harnesses: { fake: { argv: ["python3", path.join(repo, "cmux-tui/crates/acpmux/tests/fake_agent.py")] } },
     defaultHarness: "fake",
-    permissionPolicy: "approve-all",
+    // A web device prompts only a chat that asks before it acts (server/remote_guard.rs).
+    permissionPolicy: "ask",
+    // The fake agent's modes, listed as asking ones as the daemon's own tests list them
+    // (cmux-tui/crates/acpmux/tests/cancel_owner.rs).
+    webAskingModes: { fake: ["normal", "strict"] },
     websocket: { listen: `127.0.0.1:${port}` },
   };
   fs.writeFileSync(path.join(home, "config.json"), JSON.stringify(config), { mode: 0o600 });
