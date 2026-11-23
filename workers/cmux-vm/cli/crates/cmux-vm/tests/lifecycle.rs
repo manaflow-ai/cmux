@@ -2724,6 +2724,149 @@ async fn revoke_removes_an_unreadable_stored_token() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A stored token past its expiry renews itself from the default config
+/// file's team key, with no person involved, and never revokes the old key
+/// (that would delete the VMs it made).
+#[cfg(not(target_os = "macos"))]
+mod renewal {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    const TEAM_KEY: &str = "cmuxvm_sk_team_test";
+    const NEW_KEY: &str = "cmuxvm_sk_renewed_test";
+
+    fn setup(name: &str, base: &str, team_key: bool) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("cmux-vm-renew-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let cmux = dir.join("cmux");
+        std::fs::create_dir_all(&cmux).unwrap();
+        let stored = json!({
+            "key": "cmuxvm_sk_old_test", "keyId": "vmk_old",
+            "expiresAt": "2026-11-22T19:42:00Z", "teamId": "team_alpha", "baseUrl": base,
+            "scopes": ["vm:read", "vm:write", "vm:exec"],
+            "maxVms": 2, "maxUsdPerHour": 1.5, "ttlSeconds": 3600
+        });
+        let file = cmux.join("vm-token.json");
+        std::fs::write(&file, stored.to_string()).unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+        if team_key {
+            std::fs::write(
+                cmux.join("vm.json"),
+                json!({"apiKey": TEAM_KEY, "baseUrl": base}).to_string(),
+            )
+            .unwrap();
+        }
+        dir
+    }
+
+    async fn mount_list(server: &MockServer, key: &str, times: u64) {
+        Mock::given(method("GET"))
+            .and(path("/v1/vms"))
+            .and(header("authorization", format!("Bearer {key}").as_str()))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(json!({"items": [], "nextCursor": null})),
+            )
+            .expect(times)
+            .mount(server)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn an_expired_stored_token_renews_itself_and_keeps_the_old_key() {
+        let server = MockServer::start().await;
+        let uri = server.uri();
+        let dir = setup("ok", &uri, true);
+        Mock::given(method("POST"))
+            .and(path("/v1/agent-keys"))
+            .and(header(
+                "authorization",
+                format!("Bearer {TEAM_KEY}").as_str(),
+            ))
+            .and(body_json(json!({
+                "name": "cmux vm token",
+                "scopes": ["vm:read", "vm:write", "vm:exec"],
+                "ttlSeconds": 3600, "maxVms": 2, "maxUsdPerHour": 1.5
+            })))
+            .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+                "id": "vmk_new", "key": NEW_KEY, "expiresAt": "2099-01-01T00:00:00Z",
+                "scopes": ["vm:read", "vm:write", "vm:exec"], "maxVms": 2, "maxUsdPerHour": 1.5
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("DELETE"))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(0)
+            .mount(&server)
+            .await;
+        mount_list(&server, NEW_KEY, 2).await;
+        let xdg = dir.to_string_lossy().into_owned();
+        let env = [("XDG_CONFIG_HOME", xdg.as_str())];
+
+        let out = cli_with_env(&["list"], &env).await;
+        assert_eq!(out.code, exit::OK, "{}", out.stderr);
+        assert!(
+            out.stderr.contains("renewed it as vmk_new"),
+            "{}",
+            out.stderr
+        );
+        assert!(!out.stderr.contains(NEW_KEY) && !out.stderr.contains(TEAM_KEY));
+        // The new token is stored, with the team and lifetime kept; the next
+        // call uses it without minting again.
+        let stored: Value =
+            serde_json::from_slice(&std::fs::read(dir.join("cmux/vm-token.json")).unwrap())
+                .unwrap();
+        assert_eq!(stored["keyId"], "vmk_new");
+        assert_eq!(stored["teamId"], "team_alpha");
+        let again = cli_with_env(&["list"], &env).await;
+        assert_eq!(again.code, exit::OK, "{}", again.stderr);
+        assert!(!again.stderr.contains("renewed"), "{}", again.stderr);
+        let requests = server.received_requests().await.unwrap();
+        assert!(
+            requests.iter().all(|r| r.method.as_str() != "DELETE"),
+            "the old key was revoked"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn without_a_minting_credential_an_expired_token_is_refused_as_before() {
+        let server = MockServer::start().await;
+        let uri = server.uri();
+        let dir = setup("none", &uri, false);
+        let xdg = dir.to_string_lossy().into_owned();
+        let env = [("XDG_CONFIG_HOME", xdg.as_str())];
+        let out = cli_with_env(&["list"], &env).await;
+        assert_eq!(out.code, exit::UNAUTHENTICATED, "{}", out.stderr);
+        assert!(out.stderr.contains("expired at"), "{}", out.stderr);
+        assert!(server.received_requests().await.unwrap().is_empty());
+        let stored: Value =
+            serde_json::from_slice(&std::fs::read(dir.join("cmux/vm-token.json")).unwrap())
+                .unwrap();
+        assert_eq!(stored["keyId"], "vmk_old");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn an_explicit_key_never_renews_the_stored_token() {
+        let server = MockServer::start().await;
+        let uri = server.uri();
+        let dir = setup("explicit", &uri, true);
+        mount_list(&server, KEY, 1).await;
+        let xdg = dir.to_string_lossy().into_owned();
+        let env = [
+            ("XDG_CONFIG_HOME", xdg.as_str()),
+            ("CMUX_VM_API_KEY", KEY),
+            ("CMUX_VM_BASE_URL", uri.as_str()),
+        ];
+        let out = cli_with_env(&["list"], &env).await;
+        assert_eq!(out.code, exit::OK, "{}", out.stderr);
+        let requests = server.received_requests().await.unwrap();
+        assert!(requests.iter().all(|r| r.url.path() != "/v1/agent-keys"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
 /// The guest command that removes the run's archives on every exit path.
 const REMOVE_ARCHIVES: &str = "rm -f /tmp/cmux-run.tgz /tmp/cmux-pull.tgz /tmp/cmux-pull.tgz.rc";
 
