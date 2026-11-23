@@ -54,183 +54,108 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
     public init() {}
 
     /// The rows for `state`, with unbound actions and empty sections left out and one separator
-    /// between two sections.
+    /// between two sections. The rows are built in Rust (cmux-action-catalog `status_menus`).
     ///
     /// - Parameters:
     ///   - state: What the menu shows besides its fixed rows.
     ///   - isBound: Whether the build binds an action (`ActionRegistry.action(for:)`).
     /// - Returns: The rows, never starting or ending with a separator.
     public func items(for state: MenuBarMenuState, isBound: (ActionID) -> Bool) -> [Item] {
-        var out: [Item] = []
-        for section in sections(for: state) {
-            let rows = Self.bound(section, isBound: isBound)
-            guard rows.contains(where: { if case .header = $0 { false } else { true } }) else { continue }
-            if !out.isEmpty { out.append(.separator) }
-            out += rows
-        }
-        return out
+        let bound = Self.actionIDs.filter { isBound(ActionID(rawValue: $0)) }
+        let request: [String: Any] = ["op": "menu_bar_items", "state": state.json, "locale": RustCatalogCall.language, "bound": bound]
+        let rows = RustCatalogCall.reply(request)?["items"] as? [Any] ?? []
+        return rows.compactMap(Item.init(node:))
     }
 
-    /// `rows` without unbound actions, in submenus too, and without a separator left at an end
-    /// or next to another.
-    private static func bound(_ rows: [Item], isBound: (ActionID) -> Bool) -> [Item] {
-        var out: [Item] = []
-        for row in rows {
-            switch row {
-            case .action(let id, _, _) where !isBound(id): continue
-            case .sessionAction(let id, _, _, _) where !isBound(id): continue
-            case .setting where !isBound("openSettings"): continue
-            case .computerUse(let app, let bundleID, let items):
-                out.append(.computerUse(app: app, bundleID: bundleID, items: bound(items, isBound: isBound)))
-            case .separator where out.last == nil || out.last == .separator: continue
-            default: out.append(row)
-            }
-        }
-        if out.last == .separator { out.removeLast() }
-        return out
-    }
-
-    private func sections(for state: MenuBarMenuState) -> [[Item]] {
-        let computerUse: [Item] = state.computerUse.map { [Self.computerUse($0)] } ?? []
-        let unread = Self.chats(state.unread, header: Self.text("menu.menuBar.unread", "Unread"))
-        let running = Self.chats(state.running, header: Self.text("menu.menuBar.running", "Running"))
-        var account: [Item] = []
-        if let signedIn = state.account {
-            for (index, line) in signedIn.lines.enumerated() {
-                account.append(.info(line, symbol: nil, avatar: index == 0))
-            }
-            if let team = signedIn.team { account.append(.action("openTeamPicker", title: team, symbol: signedIn.teamSymbol)) }
-        } else {
-            account.append(.action("palette.auth.signIn", title: Self.text("menu.menuBar.signIn", "Sign In to cmux…"),
-                                   symbol: "person.crop.circle"))
-        }
-        var agents: [Item] = []
-        if let awake = state.keepingAwake {
-            // A click opens the setting behind the hold (user 2026-11-09, on the defaults: "nor sure").
-            let title = Self.text("menu.menuBar.keepingAwake", "Keeping Mac awake")
-            agents.append(awake.setting.map { .setting(title, key: $0, symbol: "cup.and.saucer") }
-                ?? .info(title, symbol: "cup.and.saucer", avatar: false))
-            if awake.commands > 0 { agents.append(.info(Self.commandsRunning(awake.commands), symbol: "terminal", avatar: false)) }
-        }
-        if state.agentsWorking > 0 {
-            agents.append(.info(Self.agentsWorking(state.agentsWorking), symbol: "circle.dotted", avatar: false))
-        }
-        if state.agentsNeedingInput > 0 {
-            agents.append(.action("agent.jumpToNextNeedingInput", title: Self.needsInput(state.agentsNeedingInput), symbol: "exclamationmark.bubble"))
-        }
-        let open: [Item] = [
-            .action("showMainWindow", title: Self.text("menu.menuBar.openCmux", "Open cmux"), symbol: "macwindow"),
-            .action("newTab", title: nil, symbol: "plus.rectangle.on.rectangle"),
-            .action("home.show", title: nil, symbol: "house"),
-            .action("home.messageChiefPet", title: nil, symbol: "bubble.left"),
-            .action("palette.quickAgentChat", title: nil, symbol: "bubble.left.and.text.bubble.right"),
-        ]
-        let help: [Item] = [
-            .action("sendFeedback", title: nil, symbol: "envelope"),
-            .action("help.documentation", title: nil, symbol: "book"),
-            .action("help.troubleshooting", title: nil, symbol: "lifepreserver"),
-        ]
-        let community: [Item] = [
-            .action("help.discord", title: nil, symbol: "bubble.left.and.bubble.right"),
-            .action("help.followOnX", title: nil, symbol: "at"),
-            .action("help.github", title: nil, symbol: "chevron.left.forwardslash.chevron.right"),
-            .action("updates.whatsNew", title: nil, symbol: "sparkles"),
-        ]
-        // Restart to Update only on a click (the nightly restart policy): the row runs the same
-        // install path as the Update Ready card's button.
-        let update: Item = state.updateReady
-            ? .action("palette.applyUpdateIfAvailable", title: Self.text("menu.menuBar.restartToUpdate", "Restart to Update"),
-                      symbol: "arrow.down.circle.fill")
-            : .action("palette.checkForUpdates", title: nil, symbol: "arrow.down.circle")
-        let app: [Item] = [.action("about", title: nil, symbol: "info.circle"), update, .action("openSettings", title: nil, symbol: "gear")]
-        let logs: [Item] = [
-            .action("help.revealLogs", title: nil, symbol: "folder"),
-            .action("help.copyLogs", title: nil, symbol: "doc.on.clipboard"),
-        ]
-        var end: [Item] = []
-        if state.account != nil { end.append(.action("palette.auth.signOut", title: nil, symbol: "rectangle.portrait.and.arrow.right")) }
-        end.append(.action("quit", title: nil, symbol: "power"))
-        return [computerUse, unread, running, account, agents, open, help, community, app, logs, end]
-    }
-
-    /// A chat list under its header, ending with More… (Search Everything) past the cap; empty for none.
-    private static func chats(_ chats: MenuBarMenuState.Chats, header: String) -> [Item] {
-        guard !chats.shown.isEmpty else { return [] }
-        var rows: [Item] = [.header(header)] + chats.shown.map(Item.chat)
-        if chats.more > 0 { rows.append(.action("search.chats", title: text("menu.menuBar.more", "More…"), symbol: "ellipsis")) }
-        return rows
-    }
-
-    /// The Computer Use row and its submenu (user 2026-11-09: "make a menu bar that lets you: stop on
-    /// agent's CU (must communicate to agent if stopped), focus on an agents cursor for CU"): per
-    /// agent session, its line (who, on which app; acting now, idle or stopped), then Stop (or
-    /// Resume once stopped), Show Cursor and Show Window; then Focus Calling Terminal, Stop for every
-    /// agent, and Agent Activity. With no session: Agent Activity and setup. There is no Take Over:
-    /// the person takes over by using the mouse or keyboard (`computerUse.pauseOnTakeover`).
-    private static func computerUse(_ state: MenuBarMenuState.ComputerUse) -> Item {
-        guard let newest = state.session else {
-            return .computerUse(app: nil, bundleID: nil, items: [
-                .action("agentActivity.open", title: nil, symbol: "cursorarrow.click.2"),
-                .action("palette.computerUse.setup", title: nil, symbol: "gear"),
-            ])
-        }
-        var items: [Item] = []
-        for session in state.sessions.prefix(computerUseSessionLimit) {
-            items += sessionRows(session)
-            items.append(.separator)
-        }
-        items += [
-            .action("computerUseFocusCallingTerminal", title: nil, symbol: "terminal"),
-            .action("computerUseStop", title: text("menu.menuBar.computerUse.stopAll", "Stop All Agents"), symbol: "stop.circle"),
-            .separator,
-            .action("agentActivity.open", title: nil, symbol: "cursorarrow.click.2"),
-        ]
-        return .computerUse(app: newest.appName, bundleID: newest.bundleID, items: items)
-    }
-
-    /// One session's line and its rows: Stop or Resume, Show Cursor, Show Window.
-    private static func sessionRows(_ session: MenuBarMenuState.ComputerUse.Session) -> [Item] {
-        let line = sessionLine(session)
-        let symbol = session.stopped ? "stop.circle" : session.acting ? "cursorarrow.motionlines" : "cursorarrow"
-        let title = session.stopped
-            ? String(localized: "menu.menuBar.computerUse.stoppedLine", defaultValue: "\(line) (Stopped)", table: "ProfileActions", bundle: .localizedModule)
-            : line
-        let stopOrResume: Item = session.stopped
-            ? .command(.computerUseResume(session.id), title: text("menu.menuBar.computerUse.resume", "Resume"), symbol: "play.circle")
-            : .sessionAction("computerUseStop", session: session.id, title: text("menu.menuBar.computerUse.stop", "Stop"), symbol: "stop.circle")
-        return [
-            .info(title, symbol: symbol, avatar: false),
-            stopOrResume,
-            .command(.computerUseShowCursor(session.id), title: text("menu.menuBar.computerUse.showCursor", "Show Cursor"), symbol: "scope"),
-            .sessionAction("computerUseFocus", session: session.id, title: text("menu.menuBar.computerUse.showWindow", "Show Window"),
-                           symbol: "macwindow"),
-        ]
-    }
-
-    /// "Claude Code in Notes", or the one of them the worker knows.
-    static func sessionLine(_ session: MenuBarMenuState.ComputerUse.Session) -> String {
-        switch (session.agent, session.appName) {
-        case let (agent?, app?):
-            String(localized: "menu.menuBar.computerUse.agentInApp", defaultValue: "\(agent) in \(app)", table: "ProfileActions", bundle: .localizedModule)
-        case let (agent?, nil): agent
-        case let (nil, app?): app
-        case (nil, nil): text("menu.menuBar.computerUse.anAgent", "An agent")
-        }
-    }
-
-    static func agentsWorking(_ count: Int) -> String {
-        String(localized: "menu.menuBar.agentsWorking", defaultValue: "Agents working: \(count)", table: "ProfileActions", bundle: .localizedModule)
-    }
-
-    static func commandsRunning(_ count: Int) -> String {
-        String(localized: "menu.menuBar.commandsRunning", defaultValue: "Commands running: \(count)", table: "ProfileActions", bundle: .localizedModule)
-    }
-
-    static func needsInput(_ count: Int) -> String {
-        String(localized: "menu.menuBar.needsInput", defaultValue: "Needs input: \(count)", table: "ProfileActions", bundle: .localizedModule)
-    }
+    /// Every action id the menu can show, which `items(for:isBound:)` asks the build about.
+    private static let actionIDs: [String] = RustCatalogCall.reply(["op": "menu_bar_action_ids"])?["ids"] as? [String] ?? []
 
     static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: value, table: "ProfileActions", bundle: .localizedModule)
+    }
+}
+
+nonisolated extension MenuBarMenuSpec.Item {
+    /// The row a `menu_bar_items` reply row holds, nil when it is not one.
+    init?(node: Any) {
+        guard let object = node as? [String: Any], let entry = object.first else { return nil }
+        let (tag, body) = (entry.key, entry.value)
+        let row = body as? [String: Any] ?? [:]
+        let title = row["title"] as? String
+        let symbol = row["symbol"] as? String ?? ""
+        switch tag {
+        case "info":
+            self = .info(row["text"] as? String ?? "", symbol: row["symbol"] as? String, avatar: row["avatar"] as? Bool ?? false)
+        case "action":
+            guard let id = row["id"] as? String else { return nil }
+            self = .action(ActionID(rawValue: id), title: title, symbol: symbol)
+        case "setting":
+            guard let key = row["key"] as? String else { return nil }
+            self = .setting(row["text"] as? String ?? "", key: key, symbol: symbol)
+        case "separator":
+            self = .separator
+        case "header":
+            self = .header(body as? String ?? "")
+        case "chat":
+            guard let id = row["id"] as? String else { return nil }
+            self = .chat(MenuBarMenuState.Chat(id: id, title: row["title"] as? String ?? "", harness: row["harness"] as? String))
+        case "command":
+            guard let target = row["target"] as? String else { return nil }
+            let command: MenuBarMenuSpec.Command
+            switch row["command"] as? String {
+            case "openChat": command = .openChat(target)
+            case "computerUseResume": command = .computerUseResume(target)
+            case "computerUseShowCursor": command = .computerUseShowCursor(target)
+            default: return nil
+            }
+            self = .command(command, title: title ?? "", symbol: symbol)
+        case "sessionAction":
+            guard let id = row["id"] as? String, let session = row["session"] as? String else { return nil }
+            self = .sessionAction(ActionID(rawValue: id), session: session, title: title ?? "", symbol: symbol)
+        case "computerUse":
+            let items = (row["items"] as? [Any] ?? []).compactMap { MenuBarMenuSpec.Item(node: $0) }
+            self = .computerUse(app: row["app"] as? String, bundleID: row["bundleID"] as? String, items: items)
+        default:
+            return nil
+        }
+    }
+}
+
+nonisolated extension MenuBarMenuState {
+    /// The state as the `menu_bar_items` request's `state` (cmux-action-catalog `status_menus`).
+    var json: [String: Any] {
+        func chats(_ chats: Chats) -> [String: Any] {
+            ["shown": chats.shown.map(Self.json(chat:)), "more": chats.more]
+        }
+        var out: [String: Any] = [
+            "unread": chats(unread), "running": chats(running),
+            "agentsWorking": agentsWorking, "agentsNeedingInput": agentsNeedingInput, "updateReady": updateReady,
+        ]
+        if let computerUse {
+            out["computerUse"] = ["sessions": computerUse.sessions.map { session -> [String: Any] in
+                var row: [String: Any] = ["id": session.id, "acting": session.acting, "stopped": session.stopped]
+                row["agent"] = session.agent
+                row["appName"] = session.appName
+                row["bundleID"] = session.bundleID
+                return row
+            }]
+        }
+        if let keepingAwake {
+            var awake: [String: Any] = ["commands": keepingAwake.commands]
+            awake["setting"] = keepingAwake.setting
+            out["keepingAwake"] = awake
+        }
+        if let account {
+            var signedIn: [String: Any] = ["lines": account.lines, "teamSymbol": account.teamSymbol]
+            signedIn["team"] = account.team
+            out["account"] = signedIn
+        }
+        return out
+    }
+
+    private static func json(chat: Chat) -> [String: Any] {
+        var row: [String: Any] = ["id": chat.id, "title": chat.title]
+        row["harness"] = chat.harness
+        return row
     }
 }

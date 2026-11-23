@@ -11,161 +11,88 @@ public nonisolated struct WhenClauseParseError: Error, Equatable, Sendable {
 }
 
 extension WhenClause {
-    /// Parses `text`. Throws ``WhenClauseParseError``.
+    /// Parses `text` (in Rust, cmux-action-catalog `when_clause`). Throws ``WhenClauseParseError``.
     public nonisolated static func parse(_ text: String) throws(WhenClauseParseError) -> WhenClause {
-        var parser = WhenClauseParser(Array(text.utf8))
-        let clause = try parser.parseOr()
-        parser.skipSpace()
-        guard parser.isAtEnd else { throw parser.error("unexpected text") }
+        guard let reply = RustCatalogCall.reply(["op": "when_parse", "text": text]) else {
+            throw WhenClauseParseError(message: "the clause parser did not answer", offset: 0)
+        }
+        if let error = reply["error"] as? [String: Any] {
+            throw WhenClauseParseError(message: error["message"] as? String ?? "", offset: error["offset"] as? Int ?? 0)
+        }
+        guard let clause = reply["clause"].flatMap(WhenClause.init(node:)) else {
+            throw WhenClauseParseError(message: "the clause parser did not answer", offset: 0)
+        }
         return clause
+    }
+
+    /// The clause a `when_parse` tree node holds (`{"has":"k"}`, `{"and":[…]}`, …), nil when it is not one.
+    nonisolated init?(node: Any) {
+        guard let object = node as? [String: Any], let entry = object.first else { return nil }
+        let (tag, body) = (entry.key, entry.value)
+        func pair() -> (key: String, value: Any)? {
+            guard let items = body as? [Any], items.count == 2, let key = items[0] as? String else { return nil }
+            return (key, items[1])
+        }
+        func list() -> [WhenClause]? {
+            guard let items = body as? [Any] else { return nil }
+            let clauses = items.compactMap { WhenClause(node: $0) }
+            return clauses.count == items.count ? clauses : nil
+        }
+        switch tag {
+        case "const": guard let value = body as? Bool else { return nil }; self = .constant(value)
+        case "has": guard let key = body as? String else { return nil }; self = .has(key)
+        case "not": guard let inner = WhenClause(node: body) else { return nil }; self = .not(inner)
+        case "and": guard let clauses = list() else { return nil }; self = .and(clauses)
+        case "or": guard let clauses = list() else { return nil }; self = .or(clauses)
+        case "eq": guard let operands = pair(), let value = KeyContextValue(node: operands.value) else { return nil }; self = .equals(operands.key, value)
+        case "ne": guard let operands = pair(), let value = KeyContextValue(node: operands.value) else { return nil }; self = .notEquals(operands.key, value)
+        case "match": guard let operands = pair(), let pattern = operands.value as? String else { return nil }; self = .matches(operands.key, pattern: pattern)
+        case "in": guard let operands = pair(), let list = operands.value as? String else { return nil }; self = .isIn(operands.key, listKey: list)
+        default: return nil
+        }
+    }
+
+    /// The clause as a `when_text` tree node (the inverse of ``init(node:)``).
+    nonisolated var node: [String: Any] {
+        switch self {
+        case .constant(let value): ["const": value]
+        case .has(let key): ["has": key]
+        case .not(let clause): ["not": clause.node]
+        case .and(let clauses): ["and": clauses.map(\.node)]
+        case .or(let clauses): ["or": clauses.map(\.node)]
+        case .equals(let key, let value): ["eq": [key, value.node]]
+        case .notEquals(let key, let value): ["ne": [key, value.node]]
+        case .matches(let key, let pattern): ["match": [key, pattern]]
+        case .isIn(let key, let listKey): ["in": [key, listKey]]
+        }
     }
 }
 
-nonisolated struct WhenClauseParser {
-    private let bytes: [UInt8]
-    private var index = 0
-
-    init(_ bytes: [UInt8]) {
-        self.bytes = bytes
-    }
-
-    var isAtEnd: Bool { index >= bytes.count }
-
-    func error(_ message: String) -> WhenClauseParseError {
-        WhenClauseParseError(message: message, offset: index)
-    }
-
-    mutating func skipSpace() {
-        while index < bytes.count, bytes[index] == 0x20 || bytes[index] == 0x09 { index += 1 }
-    }
-
-    private mutating func take(_ token: String) -> Bool {
-        skipSpace()
-        let utf8 = Array(token.utf8)
-        guard index + utf8.count <= bytes.count, Array(bytes[index..<index + utf8.count]) == utf8 else { return false }
-        index += utf8.count
-        return true
-    }
-
-    /// A keyword followed by a non-word byte (`in` must not eat `inbox`).
-    private mutating func takeWord(_ word: String) -> Bool {
-        let start = index
-        guard take(word) else { return false }
-        if index < bytes.count, Self.isWordByte(bytes[index]) {
-            index = start
-            return false
+extension KeyContextValue {
+    /// The value a tree node holds (`{"bool":…}`, `{"number":…}`, `{"string":…}`, `{"strings":[…]}`).
+    nonisolated init?(node: Any) {
+        guard let object = node as? [String: Any], let entry = object.first else { return nil }
+        let (tag, body) = (entry.key, entry.value)
+        switch tag {
+        case "bool": guard let flag = body as? Bool else { return nil }; self = .bool(flag)
+        case "number":
+            // Not finite: Rust sends the text ("inf", "nan"), which JSON has no number for.
+            if let text = body as? String, let number = Double(text) { self = .number(number) }
+            else if let number = body as? Double { self = .number(number) }
+            else { return nil }
+        case "string": guard let text = body as? String else { return nil }; self = .string(text)
+        case "strings": guard let list = body as? [String] else { return nil }; self = .strings(list)
+        default: return nil
         }
-        return true
     }
 
-    mutating func parseOr() throws(WhenClauseParseError) -> WhenClause {
-        var clauses = [try parseAnd()]
-        while take("||") { clauses.append(try parseAnd()) }
-        return clauses.count == 1 ? clauses[0] : .or(clauses)
-    }
-
-    private mutating func parseAnd() throws(WhenClauseParseError) -> WhenClause {
-        var clauses = [try parseUnary()]
-        while take("&&") { clauses.append(try parseUnary()) }
-        return clauses.count == 1 ? clauses[0] : .and(clauses)
-    }
-
-    private mutating func parseUnary() throws(WhenClauseParseError) -> WhenClause {
-        skipSpace()
-        if index + 1 < bytes.count, bytes[index] == UInt8(ascii: "!"), bytes[index + 1] != UInt8(ascii: "=") {
-            index += 1
-            return .not(try parseUnary())
+    /// The value as a tree node; a number that is not finite goes as its text.
+    nonisolated var node: [String: Any] {
+        switch self {
+        case .bool(let flag): ["bool": flag]
+        case .number(let number): ["number": number.isFinite ? number as Any : String(number) as Any]
+        case .string(let text): ["string": text]
+        case .strings(let list): ["strings": list]
         }
-        return try parsePrimary()
-    }
-
-    private mutating func parsePrimary() throws(WhenClauseParseError) -> WhenClause {
-        if take("(") {
-            let inner = try parseOr()
-            guard take(")") else { throw error("expected )") }
-            return inner
-        }
-        if takeWord("true") { return .constant(true) }
-        if takeWord("false") { return .constant(false) }
-        let key = try parseKey()
-        if take("==") { return .equals(key, try parseValue()) }
-        if take("!=") { return .notEquals(key, try parseValue()) }
-        if take("=~") { return .matches(key, pattern: try parseRegex()) }
-        let beforeNot = index
-        if takeWord("not") {
-            guard takeWord("in") else {
-                index = beforeNot
-                return .has(key)
-            }
-            return .not(.isIn(key, listKey: try parseKey()))
-        }
-        if takeWord("in") { return .isIn(key, listKey: try parseKey()) }
-        return .has(key)
-    }
-
-    private mutating func parseKey() throws(WhenClauseParseError) -> String {
-        skipSpace()
-        let start = index
-        while index < bytes.count, Self.isWordByte(bytes[index]) { index += 1 }
-        guard index > start else { throw error("expected a context key") }
-        return String(decoding: bytes[start..<index], as: UTF8.self)
-    }
-
-    private mutating func parseValue() throws(WhenClauseParseError) -> KeyContextValue {
-        skipSpace()
-        guard index < bytes.count else { throw error("expected a value") }
-        let quote = bytes[index]
-        if quote == UInt8(ascii: "'") || quote == UInt8(ascii: "\"") {
-            index += 1
-            let start = index
-            while index < bytes.count, bytes[index] != quote { index += 1 }
-            guard index < bytes.count else { throw error("unterminated string") }
-            let text = String(decoding: bytes[start..<index], as: UTF8.self)
-            index += 1
-            return .string(text)
-        }
-        let start = index
-        while index < bytes.count, Self.isValueByte(bytes[index]) { index += 1 }
-        guard index > start else { throw error("expected a value") }
-        let text = String(decoding: bytes[start..<index], as: UTF8.self)
-        if text == "true" { return .bool(true) }
-        if text == "false" { return .bool(false) }
-        if let number = Double(text) { return .number(number) }
-        return .string(text)
-    }
-
-    private mutating func parseRegex() throws(WhenClauseParseError) -> String {
-        skipSpace()
-        guard index < bytes.count, bytes[index] == UInt8(ascii: "/") else { throw error("expected /regex/") }
-        index += 1
-        var pattern: [UInt8] = []
-        while index < bytes.count, bytes[index] != UInt8(ascii: "/") {
-            if bytes[index] == UInt8(ascii: "\\"), index + 1 < bytes.count {
-                pattern.append(bytes[index])
-                index += 1
-            }
-            pattern.append(bytes[index])
-            index += 1
-        }
-        guard index < bytes.count else { throw error("unterminated /regex/") }
-        index += 1
-        var flags = ""
-        while index < bytes.count, Self.isWordByte(bytes[index]) {
-            flags.append(Character(UnicodeScalar(bytes[index])))
-            index += 1
-        }
-        let text = String(decoding: pattern, as: UTF8.self)
-        return flags.contains("i") ? "(?i)" + text : text
-    }
-
-    /// Context key bytes: letters, digits, `.`, `_`, `-`, `:`.
-    static func isWordByte(_ byte: UInt8) -> Bool {
-        (byte >= 0x30 && byte <= 0x39) || (byte >= 0x41 && byte <= 0x5A) || (byte >= 0x61 && byte <= 0x7A)
-            || byte == UInt8(ascii: ".") || byte == UInt8(ascii: "_") || byte == UInt8(ascii: "-") || byte == UInt8(ascii: ":")
-    }
-
-    /// Bare value bytes: key bytes plus `/`, `@`, `+`, `#`.
-    static func isValueByte(_ byte: UInt8) -> Bool {
-        isWordByte(byte) || byte == UInt8(ascii: "/") || byte == UInt8(ascii: "@") || byte == UInt8(ascii: "+") || byte == UInt8(ascii: "#")
     }
 }

@@ -42,34 +42,29 @@ public nonisolated struct ProfileMenuSpec: Sendable {
     public var account: [Row]
     public var creation: [Row]
 
+    /// The rows, built in Rust (cmux-action-catalog `status_menus`) in the app's language.
     public init() {
-        // The current profile's submenu: its own options (real switching and
-        // creating come with the profiles lane).
-        profileActions = ["browserProfile.rename", "browserProfile.setColor", "browserProfile.setIcon", "browserProfile.manageExtensions"]
-        submenus = [
-            Submenu(key: "bookmarks", title: Self.text("menu.profile.bookmarks", "Bookmarks"), symbol: "bookmark",
-                    actions: ["bookmark.addPage", "bookmark.addAllTabs", "bookmark.toggleBar", "bookmark.manager", "bookmark.import"]),
-            Submenu(key: "downloads", title: Self.text("menu.profile.downloads", "Downloads"), symbol: "arrow.down.to.line",
-                    actions: ["browser.downloads.showFolder"]),
-            Submenu(key: "extensions", title: Self.text("menu.profile.extensions", "Extensions"), symbol: "puzzlepiece",
-                    actions: ["browser.extensions.manage", "browser.extensions.webStore", "browser.extensions.loadUnpacked"]),
-            Submenu(key: "history", title: Self.text("menu.profile.history", "History"), symbol: "clock.arrow.circlepath",
-                    actions: ["history.show", "recentlyClosed", "history.reopen", "history.clear"]),
-            Submenu(key: "developers", title: Self.text("menu.profile.developers", "Developers"),
-                    symbol: "chevron.left.forwardslash.chevron.right",
-                    actions: ["toggleBrowserDeveloperTools", "showBrowserJavaScriptConsole", "inspectBrowserElement"]),
-        ]
-        chief = Row(action: "home.openChief", title: Self.text("menu.profile.showChief", "Show Chief"), symbol: "sparkles")
-        settings = Row(action: "openSettings", title: nil, symbol: "gear")
-        updates = Row(action: "palette.checkForUpdates", title: nil, symbol: "arrow.down.circle")
-        account = [
-            Row(action: "accounts.show", title: nil, symbol: "person.crop.circle"),
-            Row(action: "palette.openCloudPane", title: Self.text("menu.profile.cloud", "Cloud"), symbol: "cloud"),
-        ]
-        creation = [
-            Row(action: "newTab.default", title: nil, symbol: "plus"),
-            Row(action: "newIncognitoWindow", title: Self.text("menu.profile.incognito", "Incognito Window"), symbol: "eyeglasses"),
-        ]
+        let reply = RustCatalogCall.reply(["op": "profile_menu", "locale": RustCatalogCall.language]) ?? [:]
+        profileActions = Self.ids(reply["profileActions"])
+        submenus = (reply["submenus"] as? [[String: Any]] ?? []).map { submenu in
+            Submenu(key: submenu["key"] as? String ?? "", title: submenu["title"] as? String ?? "",
+                    symbol: submenu["symbol"] as? String ?? "", actions: Self.ids(submenu["actions"]))
+        }
+        chief = Self.row(reply["chief"])
+        settings = Self.row(reply["settings"])
+        updates = Self.row(reply["updates"])
+        account = (reply["account"] as? [Any] ?? []).map { Self.row($0) }
+        creation = (reply["creation"] as? [Any] ?? []).map { Self.row($0) }
+    }
+
+    private static func ids(_ node: Any?) -> [ActionID] {
+        (node as? [String] ?? []).map { ActionID(rawValue: $0) }
+    }
+
+    private static func row(_ node: Any?) -> Row {
+        let row = node as? [String: Any] ?? [:]
+        return Row(action: ActionID(rawValue: row["action"] as? String ?? ""), title: row["title"] as? String,
+                   symbol: row["symbol"] as? String ?? "")
     }
 
     /// The setting the Show Chief Pet / Hide Chief Pet row flips (CmuxNextSettings `HomeChiefPetSetting`).
