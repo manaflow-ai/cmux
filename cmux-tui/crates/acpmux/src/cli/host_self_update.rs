@@ -409,8 +409,8 @@ pub(super) fn apply(
     // Only a verdict on the build marks it: its daemon did not answer, or
     // answered on another build. A restart script that failed (`restartFailed`:
     // the old daemon was still stopping, the unit was mid-restart) never got
-    // to check the build, so the next run tries it again: gcp-agent-lane-7,
-    // -9 and -14 (2026-11-23) marked a good build rolled back for good on such
+    // to check the build, so the next run tries it again: three fleet hosts
+    // (2026-11-23) marked a good build rolled back for good on such
     // a failure and then sat on the old build, every run "waiting for a newer
     // one". The restart window keeps that retry to once an hour.
     if up.outcome == Outcome::RolledBack && up.reason.as_deref() != Some("restartFailed") {

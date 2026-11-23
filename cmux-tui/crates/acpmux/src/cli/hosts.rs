@@ -964,7 +964,7 @@ pub(crate) const SYSTEMD_LINGERING: &str = r#"{ [ "$(loginctl show-user "$(id -u
 /// already done: the old daemon saw its binary replaced and handed over
 /// through `systemctl --user restart --no-block acpmux.service` while the
 /// update ran, so the unit read `deactivating` (not active) and the update
-/// took the shutdown branch. gcp-agent-lane-7, 2026-11-23 10:53Z: this check
+/// took the shutdown branch. A fleet Linux host, 2026-11-23 10:53Z: this check
 /// read the unit's new daemon (pid 326107, the new build) as the old one not
 /// shutting down, and the update rolled a good build back for good.
 pub(super) const STILL_RUNNING_CHECK: &str = r#"acpmux_q=$(~/.local/bin/acpmux --json daemon status 2>/dev/null | sed -n 's/^ *"pid": *\([0-9][0-9]*\).*/\1/p' | head -1)

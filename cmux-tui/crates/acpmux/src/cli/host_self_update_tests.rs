@@ -426,7 +426,7 @@ async fn a_rollback_that_cannot_be_marked_says_the_build_will_be_tried_again() {
     assert!(matches!(&again, Prepared::Ready(_)), "the next run tries it again");
 }
 
-/// gcp-agent-lane-7, 2026-11-23 10:53Z: the old daemon saw its binary
+/// A fleet Linux host, 2026-11-23 10:53Z: the old daemon saw its binary
 /// replaced and handed over itself (`systemctl --user restart --no-block
 /// acpmux.service`), so the update found the unit not active, shut the
 /// daemon down, and then read the unit's new daemon, on the new build, as
