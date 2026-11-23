@@ -46,7 +46,8 @@ your build (`CMUX_NEXT_TUI_BIN=<path> scripts/reload.sh --tag <tag>`).
 
 ## Blacksmith Testbox
 
-Blacksmith Testbox gives maintainers with Blacksmith access a remote Linux box for cmux-tui Rust
+Build and test cmux-tui on the fleet first (`cmux-ci`, Linux lanes); the Testbox is overflow only.
+It gives maintainers with Blacksmith access a remote Linux box for cmux-tui Rust
 and Zig builds: warm your own box before the build, and never compile cmux-tui on the Mac. The
 workflows, `scripts/blacksmith-*.sh`, and the `tests/test_testbox_*` guards live here. Team members
 with a cmuxterm-hq checkout can run `HQ_TOOLS=<hq checkout on main> ./scripts/blacksmith-testbox-demo.sh`

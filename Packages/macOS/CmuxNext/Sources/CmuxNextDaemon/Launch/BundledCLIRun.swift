@@ -27,4 +27,40 @@ public struct BundledCLIRun {
         guard result.status != 0 else { return nil }
         return lastLine(result.stderr) ?? "cmux customize library off --code exited \(result.status)"
     }
+
+    /// Turns off every experiment layer past its bound with `cmux customize library expire`: a PR
+    /// layer whose PR merged or closed, a code layer on longer than 24 hours, a hand-installed
+    /// web-dev.json overlay as old. The CLI records each with its one command back, which
+    /// `cmux customize library status` and `cmux version` print. Nil when it ran; else why not.
+    public static func expireStaleLayers(_ bundled: BundledExecutable) async -> String? {
+        guard let cli = await bundled.resolve() else { return "this build has no cmux CLI" }
+        guard let result = await run(cli, ["customize", "library", "expire"], timeout: .seconds(30)) else {
+            return "cmux customize library expire did not finish"
+        }
+        guard result.status != 0 else { return nil }
+        return lastLine(result.stderr) ?? "cmux customize library expire exited \(result.status)"
+    }
+
+    /// What the app runs once at launch, off the main actor: stale layers off
+    /// (``expireStaleLayers(_:)``), then every code layer checked against this app when the app's
+    /// commit changed since the last refresh (``refreshIfAppChanged(_:)``, RFD 0038). In this order:
+    /// both write library.json, and an expired layer needs no refresh.
+    public static func atLaunch(_ bundled: BundledExecutable) async {
+        _ = await bundled.resolve()
+        _ = await expireStaleLayers(bundled)
+        _ = await refreshIfAppChanged(bundled)
+    }
+
+    /// Runs `cmux customize library refresh --if-app-changed`: every code layer against this app,
+    /// only when the app's commit is not the one refresh last ran on (the CLI keeps it in
+    /// library.json and decides), so it runs once after an update and is quiet on every other
+    /// start. Nil when it ran or had nothing to do; else why not.
+    public static func refreshIfAppChanged(_ bundled: BundledExecutable) async -> String? {
+        guard let cli = await bundled.resolve() else { return "this build has no cmux CLI" }
+        guard let result = await run(cli, ["customize", "library", "refresh", "--if-app-changed"], timeout: .seconds(120)) else {
+            return "cmux customize library refresh did not finish"
+        }
+        guard result.status != 0 else { return nil }
+        return lastLine(result.stderr) ?? "cmux customize library refresh exited \(result.status)"
+    }
 }

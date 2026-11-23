@@ -21,8 +21,10 @@ private final class Handles: Sendable {
 }
 
 /// A host on a real socket to a daemon of this test process.
-private func socketHost(_ daemon: ChatDaemonSocket, handles: Handles, receiver: ChatRowsReceiver) -> AcpmuxChatRowsHost {
-    let host = AcpmuxChatRowsHost(socketPath: daemon.path, deliver: receiver.deliver, makeClient: handles.make, connector: .socket)
+private func socketHost(_ daemon: ChatDaemonSocket, handles: Handles, receiver: ChatRowsReceiver,
+                        ackWait: TimeInterval = AcpmuxChatRowsHost.ackWait) -> AcpmuxChatRowsHost {
+    let host = AcpmuxChatRowsHost(socketPath: daemon.path, deliver: receiver.deliver, makeClient: handles.make, connector: .socket,
+                                  ackWait: ackWait)
     receiver.attach(host)
     return host
 }
@@ -44,7 +46,9 @@ struct AcpmuxChatRowsSocketTests {
         let handles = Handles()
         let receiver = ChatRowsReceiver()
         receiver.hold(true)
-        let host = socketHost(daemon, handles: handles, receiver: receiver)
+        // A page holding taken longer than ``AcpmuxChatRowsHost/ackWait`` is a lost taken, and the batch goes
+        // again (#47334): this page holds for 2 s, so its host's ack wait is longer than the hold.
+        let host = socketHost(daemon, handles: handles, receiver: receiver, ackWait: 60)
         #expect(await host.open(sid: "rows.1", request: ChatWire.open) == .success("rows.1"))
         #expect(await eventually { !receiver.batches.isEmpty })
         try await Task.sleep(for: .milliseconds(200))
@@ -98,8 +102,11 @@ struct AcpmuxChatRowsSocketTests {
         host = socketHost(daemon, handles: handles, receiver: again)
         #expect(await host?.open(sid: "rows.1", request: ChatWire.open) == .success("rows.1"))
         #expect(await eventually { again.rowIds.count == 10 })
-        // A barrier, not a wait: the driver's turn on what it read, then the host's turn.
-        await host?.snapshotForTesting().driver?.flushForTesting()
+        // First proof that the driver read every byte the daemon wrote, so nothing is left in the
+        // socket; then a barrier, not a wait: the driver's turn on what it read, then the host's turn.
+        let driver = try #require(await host?.snapshotForTesting().driver)
+        #expect(await eventually { await driver.heldForTesting().bytes == first.count && daemon.written(1) == first.count })
+        await driver.flushForTesting()
         _ = await host?.snapshotForTesting()
         #expect(daemon.connections == 2 && handles.count == 2)
         #expect(daemon.count("\"method\":\"sub\"", in: 1) == 1)

@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "b7de957f80c552e979202a6f8615e2b76b3c6deb9472f8976ff71abf35be1482",
+  "catalog_sha256": "905cfbf5288f7a5894ecfe4732b0c695a7b84ad0a7a0f7c12555c5ddf8f99a4a",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -190,6 +190,9 @@
     "cloud.machine.chat_access": {
       "class": "read"
     },
+    "cloud.machine.chief_start": {
+      "class": "mutation"
+    },
     "cloud.machine.io": {
       "class": "mutation"
     },
@@ -206,6 +209,12 @@
       "class": "mutation"
     },
     "cloud.owner.github_app": {
+      "class": "read"
+    },
+    "cloud.owner.github_connect": {
+      "class": "mutation"
+    },
+    "cloud.owner.github_repos": {
       "class": "read"
     },
     "cloud.owner.handoff_begin_turn": {
@@ -465,6 +474,9 @@
     },
     "keybindings.set": {
       "class": "mutation"
+    },
+    "language_packs.ensure": {
+      "class": "read"
     },
     "layout.bulk": {
       "class": "mutation"

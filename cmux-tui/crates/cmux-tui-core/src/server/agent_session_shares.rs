@@ -35,7 +35,7 @@
 //! also goes to the room (`pending_room_ops`, retried until acknowledged). Without one a share is
 //! `active` from its create and `url` is null.
 
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
@@ -50,7 +50,7 @@ use sha2::{Digest as _, Sha256};
 use super::super::{MessageWriter, Refusal, Response, ok, send_response, tab_session};
 use super::Teammate;
 use crate::apps::timer::{TimerId, Timers};
-use crate::mux::Mux;
+use crate::mux::{Mux, MuxEvent};
 use crate::server::agent_transfer::state_file::{read_trusted, save};
 
 #[path = "agent_session_share_link.rs"]
@@ -715,7 +715,25 @@ impl LinkShares {
             }
         };
         self.note_ended(&start, shares);
+        let changed = changed_chats(&start, shares, now);
+        drop(slot);
+        self.publish(changed);
         answer
+    }
+
+    /// Tells the owner's watching connections (`agent-session-share-changed`) that the shares of
+    /// each chat in `chats` changed. Sent after the shares lock is released; nothing without a
+    /// daemon (set by the first verb or bind).
+    fn publish(&self, chats: BTreeSet<String>) {
+        if chats.is_empty() {
+            return;
+        }
+        let Some(mux) = self.mux.lock().unwrap_or_else(|e| e.into_inner()).upgrade() else {
+            return;
+        };
+        for session in chats {
+            mux.emit(MuxEvent::AgentSessionShareChanged { session });
+        }
     }
 
     /// The shares in `directory`'s file (none without one). A file that is there but does not
@@ -1231,11 +1249,15 @@ impl LinkShares {
             }
         }
         self.note_ended(&start, shares);
-        if changed && let Some(Err(error)) = self.save(directory, shares) {
+        let chats = changed_chats(&start, shares, self.now());
+        let unsaved =
+            if changed { self.save(directory, shares).and_then(Result::err) } else { None };
+        drop(slot);
+        if let Some(error) = unsaved {
             eprintln!("cmux-tui: ended link shares not written, retrying: {error}");
-            drop(slot);
             self.save_later(Duration::from_secs(1));
         }
+        self.publish(chats);
     }
 
     /// Writes the shares again after `wait`, doubling up to a minute until a write succeeds
@@ -1329,6 +1351,21 @@ impl LinkShares {
     }
 }
 
+/// The chats whose shares read differently in `now` than in `start` (`-list`'s view at `at`: a
+/// share made, ended or dropped, an invite, an uninvite, a join, a kick; a room's own bookkeeping
+/// is not shown, so it changes nothing), each once.
+fn changed_chats(start: &[LinkShare], now: &[LinkShare], at: u64) -> BTreeSet<String> {
+    if start == now {
+        return BTreeSet::new();
+    }
+    let same = |a: &LinkShare, others: &[LinkShare]| {
+        others.iter().any(|b| b.share_id == a.share_id && b.shown(at) == a.shown(at))
+    };
+    let made_or_changed = now.iter().filter(|share| !same(share, start));
+    let dropped = start.iter().filter(|was| !now.iter().any(|s| s.share_id == was.share_id));
+    made_or_changed.chain(dropped).map(|share| share.session.clone()).collect()
+}
+
 /// The agent chat `session` was closed or removed: its link shares close (design 4.2, "Closing
 /// the chat ends its shares"), their guests' connections end, and each room hears `end
 /// {reason: closed}` and its `DELETE`.
@@ -1415,7 +1452,12 @@ pub(super) fn handle(
 ) -> bool {
     let id = object.remove("id");
     object.remove("cmd");
-    if bound || !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
+    // The owner's own connection: a same-user local one, or the owner's signed Native dial to
+    // their own Cloud machine (a Cloud chat's share, cloud multiplayer lane C). Redeem stays the
+    // room bridge's own (local).
+    let local = mux.control_clients.is_unix(client) && !mux.is_remote_client(client);
+    let native_owner = mux.is_native_agent_owner(client) && cmd != "agent-session-share-redeem";
+    if bound || !(local || native_owner) {
         return fail(writer, id, "share.not_trusted");
     }
     let shares = &mux.control_clients.agent_sessions.link_shares;
@@ -1618,3 +1660,7 @@ mod invite_chat_tests;
 #[cfg(test)]
 #[path = "agent_session_shares_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "agent_session_share_events_tests.rs"]
+mod event_tests;

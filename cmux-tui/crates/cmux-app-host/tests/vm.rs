@@ -162,6 +162,53 @@ mod apps {
         assert_eq!(h.vm.next_timer_due(), None, "unmount clears the app's timers");
     }
 
+    /// A one-shot armed while a timer fires is a chain (`after` re-arming itself): the host floors
+    /// it at 1 s like a repeating timer, so a chain of 50 ms one-shots cannot run at 20 Hz. A
+    /// one-shot armed outside a timer (a render, a tap) keeps the 50 ms floor.
+    #[test]
+    fn a_chained_one_shot_timer_is_floored_at_one_second_in_the_host() {
+        let mut h = Harness::new(&app(r#"const [n, setN] = signal(0)
+        const tick = () => { setN((v) => v + 1); cmux.timer.after(5, tick) }
+        const fromJob = () => { setN((v) => v + 1); Promise.resolve().then(() => cmux.timer.after(5, fromJob)) }
+        return {
+          render: () => { cmux.timer.after(5, tick); return Text(() => "t" + n()) },
+          job: () => { cmux.timer.after(5, fromJob); return Text(() => "j" + n()) },
+        }"#));
+        h.mount("m", "render", json!({}));
+        let first = h.vm.next_timer_due().expect("armed");
+        assert!(
+            first < Instant::now() + Duration::from_millis(500),
+            "a first one-shot keeps 50 ms"
+        );
+        h.vm.fire_due_timers(first).expect("fire");
+        h.pump().expect("pump");
+        assert!(h.texts("m").contains(&"t1".to_string()), "{:?}", h.texts("m"));
+        let chained = h.vm.next_timer_due().expect("re-armed by the callback");
+        assert!(
+            chained >= Instant::now() + Duration::from_millis(900),
+            "a one-shot armed in a timer callback is floored to 1 s"
+        );
+        h.vm.unmount("m").expect("unmount");
+
+        h.mount("j", "job", json!({}));
+        let first = h.vm.next_timer_due().expect("armed");
+        h.vm.fire_due_timers(first).expect("fire");
+        h.pump().expect("pump");
+        let chained = h.vm.next_timer_due().expect("re-armed from a microtask");
+        assert!(
+            chained >= Instant::now() + Duration::from_millis(900),
+            "a microtask of the timer entry counts as the chain too"
+        );
+        h.vm.unmount("j").expect("unmount");
+
+        h.mount("m", "render", json!({}));
+        let after_timer = h.vm.next_timer_due().expect("armed");
+        assert!(
+            after_timer < Instant::now() + Duration::from_millis(500),
+            "a one-shot armed outside a timer entry is not chained"
+        );
+    }
+
     #[test]
     fn unmount_releases_subscriptions_and_live_rereads_on_events() {
         let mut h = Harness::new(&app(

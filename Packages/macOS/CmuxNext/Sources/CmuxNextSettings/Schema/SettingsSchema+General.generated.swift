@@ -3,6 +3,13 @@
 
 public import CmuxNextDesign
 
+extension AppLanguageSetting {
+    /// `app.language`: System follows the macOS language order, as before this setting. Every other value is a locale cmux ships; cmux-config's language module lists them and resolves fallbacks. Choice titles are endonyms, never translated.
+    public nonisolated static let configPath = ["app", "language"]
+    public nonisolated static let fallback = "system"
+    public nonisolated static let values = ["system", "en", "ar", "bs", "da", "de", "es", "fr", "it", "nb", "pl", "pt-BR", "tr", "vi", "ru", "uk", "th", "km", "ja", "ko", "zh-Hans", "zh-Hant"]
+}
+
 extension TerminalCommandHistorySetting {
     /// `history.terminalCommands`: Off: a command line can hold secrets, so recording commands is opt-in.
     public nonisolated static let configPath = ["history", "terminalCommands"]
@@ -60,9 +67,9 @@ extension CmuxConfigSnapshot {
     /// `app.startAgentGlobalHotKey`: Off when unset or invalid.
     public nonisolated static let startAgentGlobalHotKeyPath = ["app", "startAgentGlobalHotKey"]
     public nonisolated static let startAgentGlobalHotKeyDefault = false
-    /// `app.hideDockIconWithoutWindows`: On when unset or invalid.
+    /// `app.hideDockIconWithoutWindows`: Off when unset or invalid.
     public nonisolated static let hideDockIconWithoutWindowsPath = ["app", "hideDockIconWithoutWindows"]
-    public nonisolated static let hideDockIconWithoutWindowsDefault = true
+    public nonisolated static let hideDockIconWithoutWindowsDefault = false
     /// `app.showMenuBarIcon`: On when unset or invalid.
     public nonisolated static let showMenuBarIconPath = ["app", "showMenuBarIcon"]
     public nonisolated static let showMenuBarIconDefault = true
@@ -78,6 +85,9 @@ extension CmuxConfigSnapshot {
     /// `app.confirmQuit`: Lawrence 2026-11-10: an accidental Cmd-Q ended every agent and terminal with no question. Asks only when the quit ends them.
     public nonisolated static let confirmQuitPath = ["app", "confirmQuit"]
     public nonisolated static let confirmQuitDefault = true
+    /// `app.warnBeforeQuitShortcut`: https://github.com/manaflow-ai/cmux/issues/48621: an accidental Cmd-Q quit at once. The first Cmd-Q asks "Quit cmux?" (Quit, Cancel, Don't ask again); pressing or holding it again quits. The Quit menu, the Dock and scripts quit at once.
+    public nonisolated static let warnBeforeQuitShortcutPath = ["app", "warnBeforeQuitShortcut"]
+    public nonisolated static let warnBeforeQuitShortcutDefault = true
 }
 
 extension DefaultColumnWidthSetting {
@@ -217,11 +227,52 @@ extension PaletteRankingSetting {
 extension ContextMenusSetting {
     /// `contextMenus.showCustomizeItem`.
     public nonisolated static let showCustomizeItemPath = ["contextMenus", "showCustomizeItem"]
-    public nonisolated static let showCustomizeItemDefault = true
+    public nonisolated static let showCustomizeItemDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum GeneralSettingsSchema {
+    static var language: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.language", "Language")
+        return [
+            SettingDescriptor(
+                AppLanguageSetting.configPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.app.language", "Language"),
+                help: SettingsText.keyed("settings.app.language.help", "The language of cmux's menus, pages and messages."),
+                kind: .choice([
+                    SettingChoice("system", SettingsText.keyed("settings.app.language.system", "System")),
+                    SettingChoice("en", "English"),
+                    SettingChoice("ar", "العربية"),
+                    SettingChoice("bs", "Bosanski"),
+                    SettingChoice("da", "Dansk"),
+                    SettingChoice("de", "Deutsch"),
+                    SettingChoice("es", "Español"),
+                    SettingChoice("fr", "Français"),
+                    SettingChoice("it", "Italiano"),
+                    SettingChoice("nb", "Norsk bokmål"),
+                    SettingChoice("pl", "Polski"),
+                    SettingChoice("pt-BR", "Português (Brasil)"),
+                    SettingChoice("tr", "Türkçe"),
+                    SettingChoice("vi", "Tiếng Việt"),
+                    SettingChoice("ru", "Русский"),
+                    SettingChoice("uk", "Українська"),
+                    SettingChoice("th", "ไทย"),
+                    SettingChoice("km", "ខ្មែរ"),
+                    SettingChoice("ja", "日本語"),
+                    SettingChoice("ko", "한국어"),
+                    SettingChoice("zh-Hans", "简体中文"),
+                    SettingChoice("zh-Hant", "繁體中文"),
+                ]),
+                default: .string(AppLanguageSetting.fallback),
+                keywords: ["language", "locale", "localization", "translation", "Sprache", "langue", "idioma", "lingua", "言語", "언어", "语言", "язык"]
+            ),
+        ]
+    }
+}
+
+extension GeneralSettingsSchema {
     static var history: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.history", "History")
         return [
@@ -241,7 +292,7 @@ nonisolated enum GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.navigation.historyScope", "Back and Forward"),
-                help: SettingsText.keyed("settings.navigation.historyScope.help", "What Go Back and Go Forward walk: places in this workspace, in this window, or the focused page's own history."),
+                help: SettingsText.keyed("settings.navigation.historyScope.help", "What Go Back and Go Forward walk."),
                 kind: .choice([
                     SettingChoice("workspace", SettingsText.keyed("settings.navigation.historyScope.workspace", "Workspace")),
                     SettingChoice("window", SettingsText.keyed("settings.navigation.historyScope.window", "Window")),
@@ -255,7 +306,7 @@ nonisolated enum GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.navigation.historySteps", "Back and Forward Steps"),
-                help: SettingsText.keyed("settings.navigation.historySteps.help", "Workspaces: Go Back and Go Forward move between workspaces and top pages, and return to the tab each one last had focused. Everything: they also step through tabs and panes inside a workspace."),
+                help: SettingsText.keyed("settings.navigation.historySteps.help", "Everything also steps through tabs and panes inside a workspace."),
                 summary: SettingsText.keyed("settings.navigation.historySteps.summary", "What Go Back and Go Forward step through"),
                 kind: .choice([
                     SettingChoice("workspaces", SettingsText.keyed("settings.navigation.historySteps.workspaces", "Workspaces")),
@@ -279,7 +330,7 @@ nonisolated enum GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.history.closed.maxGroups", "Recently Closed Items to Keep"),
-                help: SettingsText.keyed("settings.history.closed.maxGroups.help", "Each machine deletes its oldest closed tabs, screens, workspaces and windows past this many. 0 keeps them all."),
+                help: SettingsText.keyed("settings.history.closed.maxGroups.help", "Older closed tabs, workspaces and windows are deleted. 0 keeps them all."),
                 kind: .number(SettingNumber(ClosedHistoryRetentionSetting.maxGroupsRange, step: 1, unit: .count)),
                 default: .number(ClosedHistoryRetentionSetting.maxGroupsDefault),
                 keywords: ["history", "recently closed", "reopen", "retention", "delete", "privacy"]
@@ -293,81 +344,6 @@ nonisolated enum GeneralSettingsSchema {
                 kind: .number(SettingNumber(ClosedHistoryRetentionSetting.maxAgeDaysRange, step: 1, unit: .days)),
                 default: .number(ClosedHistoryRetentionSetting.maxAgeDaysDefault),
                 keywords: ["history", "recently closed", "reopen", "retention", "delete", "privacy", "days"]
-            ),
-        ]
-    }
-}
-
-extension GeneralSettingsSchema {
-    static var window: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.window", "Window")
-        return [
-            SettingDescriptor(
-                WindowTitlebarSetting.configPath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.window.titlebar", "Titlebar"),
-                help: SettingsText.keyed("settings.window.titlebar.help", "Minimal has no titlebar strip; the top row moves the window."),
-                kind: .choice([
-                    SettingChoice(TitlebarStyle.minimal.rawValue, SettingsText.keyed("settings.choice.minimal", "Minimal")),
-                    SettingChoice(TitlebarStyle.standard.rawValue, SettingsText.keyed("settings.choice.standard", "Standard")),
-                ]),
-                default: .string(WindowTitlebarSetting.fallback.rawValue),
-                keywords: ["traffic lights", "title"]
-            ),
-            SettingDescriptor(
-                TitlebarButtonsSetting.configPath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.window.titlebarButtons", "Titlebar Buttons"),
-                help: SettingsText.keyed("settings.window.titlebarButtons.help", "With the sidebar hidden, On Hover hides the sidebar button, Back and Forward until the pointer is over the top row. With the sidebar open, they always show."),
-                kind: .choice([
-                    SettingChoice(TitlebarButtonsMode.hover.rawValue, SettingsText.keyed("settings.choice.onHover", "On Hover")),
-                    SettingChoice(TitlebarButtonsMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
-                ]),
-                default: .string(TitlebarButtonsSetting.fallback.rawValue),
-                keywords: ["titlebar", "buttons", "back", "forward", "hover", "hide", "traffic lights", "toolbar"]
-            ),
-            SettingDescriptor(
-                CmuxConfigSnapshot.globalHotKeyPath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.app.globalHotKey", "Global Hot Key"),
-                help: SettingsText.keyed("settings.app.globalHotKey.help", "Show/Hide All Windows (⌃⌥⌘.) works while another app is in front."),
-                summary: SettingsText.keyed("settings.app.globalHotKey.summary", "Show or hide all windows from any app"),
-                kind: .toggle,
-                default: .bool(CmuxConfigSnapshot.globalHotKeyDefault),
-                keywords: ["global", "hotkey", "hot key", "summon", "show", "hide", "windows", "system-wide"]
-            ),
-            SettingDescriptor(
-                CmuxConfigSnapshot.startAgentGlobalHotKeyPath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.app.startAgentGlobalHotKey", "Start Agent from Any App"),
-                help: SettingsText.keyed("settings.app.startAgentGlobalHotKey.help", "Start Agent (⌃⌥⌘Space) works while another app is in front. Change its key in Keyboard Shortcuts."),
-                kind: .toggle,
-                default: .bool(CmuxConfigSnapshot.startAgentGlobalHotKeyDefault),
-                keywords: ["global", "hotkey", "hot key", "summon", "start agent", "agent", "quick", "chat", "launcher", "system-wide"]
-            ),
-            SettingDescriptor(
-                CmuxConfigSnapshot.hideDockIconWithoutWindowsPath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.app.hideDockIconWithoutWindows", "Hide Dock Icon When No Windows Are Open"),
-                help: SettingsText.keyed("settings.app.hideDockIconWithoutWindows.help", "cmux keeps running in the menu bar, out of the Dock and the app switcher, until a window opens."),
-                kind: .toggle,
-                default: .bool(CmuxConfigSnapshot.hideDockIconWithoutWindowsDefault),
-                keywords: ["dock", "icon", "menu bar", "background", "app switcher", "command tab", "accessory", "windows"]
-            ),
-            SettingDescriptor(
-                CmuxConfigSnapshot.showMenuBarIconPath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.app.showMenuBarIcon", "Show Menu Bar Icon"),
-                help: SettingsText.keyed("settings.app.showMenuBarIcon.help", "A cmux item in the menu bar: open cmux, your account, working agents, help, Discord, updates, logs and Quit."),
-                kind: .toggle,
-                default: .bool(CmuxConfigSnapshot.showMenuBarIconDefault),
-                keywords: ["menu bar", "status item", "menubar", "tray", "icon", "raycast", "extra", "discord", "logs"]
             ),
         ]
     }

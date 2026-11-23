@@ -42,6 +42,20 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "browser.goToHistoryEntry",
+        group: GROUP,
+        title: t("ActionCatalog", "action.browser.goToHistoryEntry", "Go Back or Forward to…"),
+        keywords: &["browser", "history", "back", "forward", "page", "earlier page", "navigate", "back list", "forward list"],
+        category: "browser",
+        symbol: "clock.arrow.circlepath",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        requires: &["browserFocused"],
+        arguments: &[args::BACK_FORWARD_ENTRY],
+        targets: &["pane"],
+        cli_name: "action browser-go-to-history-entry",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "browserReload",
         group: GROUP,
         title: t("ActionCatalog", "action.browserReload", "Reload Page"),
@@ -573,6 +587,58 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "browser.savePageAs",
+        group: GROUP,
+        title: t("ActionCatalog", "action.browser.savePageAs", "Save Page As…"),
+        keywords: &["browser", "save", "page", "download", "html", "web archive", "save as"],
+        category: "browser",
+        symbol: "square.and.arrow.down",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        requires: &["webViewFocused"],
+        targets: &["pane"],
+        cli_name: "action browser-save-page-as",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "browser.cast",
+        group: GROUP,
+        title: t("ActionCatalog", "action.browser.cast", "Cast…"),
+        keywords: &["browser", "cast", "chromecast", "tv", "stream", "media", "route", "speaker"],
+        category: "browser",
+        symbol: "tv",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        requires: &["webViewFocused"],
+        targets: &["pane"],
+        cli_name: "action browser-cast",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "browser.createQRCode",
+        group: GROUP,
+        title: t("ActionCatalog", "action.browser.createQRCode", "Create QR Code for This Page"),
+        keywords: &["browser", "qr", "qr code", "share", "phone", "page", "link", "url"],
+        category: "browser",
+        symbol: "qrcode",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        requires: &["webViewFocused"],
+        targets: &["pane"],
+        cli_name: "action browser-create-qr-code",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "browser.translate",
+        group: GROUP,
+        title: t("ActionCatalog", "action.browser.translate", "Translate Page…"),
+        keywords: &["browser", "translate", "translation", "language", "google translate", "page"],
+        category: "browser",
+        symbol: "character.bubble",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        requires: &["webViewFocused"],
+        targets: &["pane"],
+        cli_name: "action browser-translate",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "browserScreenshotPage",
         group: GROUP,
         title: t("ActionCatalog", "action.browserScreenshotPage", "Screenshot Page"),
@@ -886,6 +952,51 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "diffViewerZoomIn",
+        group: GROUP,
+        title: t("ActionCatalog", "action.diffViewerZoomIn", "Diff: Zoom In"),
+        keywords: &["diff", "zoom"],
+        default_shortcut: Some(Shortcut { key: "=", modifiers: CMD }),
+        category: "browser",
+        symbol: "plus.magnifyingglass",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("stepAdjust")), context_menu_exemption: Some("stepAdjust"), ..SurfacePlan::DEFAULT },
+        requires: &["diffViewerFocused"],
+        targets: &["pane"],
+        cli_name: "browser diff-zoom-in",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "diffViewerZoomOut",
+        group: GROUP,
+        title: t("ActionCatalog", "action.diffViewerZoomOut", "Diff: Zoom Out"),
+        keywords: &["diff", "zoom"],
+        default_shortcut: Some(Shortcut { key: "-", modifiers: CMD }),
+        category: "browser",
+        symbol: "minus.magnifyingglass",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("stepAdjust")), context_menu_exemption: Some("stepAdjust"), ..SurfacePlan::DEFAULT },
+        requires: &["diffViewerFocused"],
+        targets: &["pane"],
+        cli_name: "browser diff-zoom-out",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "diffViewerZoomReset",
+        group: GROUP,
+        title: t("ActionCatalog", "action.diffViewerZoomReset", "Diff: Actual Size"),
+        keywords: &["diff", "zoom", "reset"],
+        default_shortcut: Some(Shortcut { key: "0", modifiers: CMD }),
+        category: "browser",
+        symbol: "1.magnifyingglass",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("stepAdjust")), context_menu_exemption: Some("stepAdjust"), ..SurfacePlan::DEFAULT },
+        requires: &["diffViewerFocused"],
+        targets: &["pane"],
+        cli_name: "browser diff-actual-size",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "browserDevice",
         group: GROUP,
         title: t("ActionCatalog", "action.browserDevice", "Emulate Device…"),
@@ -1070,6 +1181,19 @@ pub static ACTIONS: &[Action] = &[
         requires: &["webViewFocused"],
         targets: &["pane"],
         cli_name: "action devtools-open-docked",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "devtools.openDockedLeft",
+        group: GROUP,
+        title: t("DevToolsActions", "action.devtools.openDockedLeft", "Developer Tools: Dock to Left"),
+        keywords: &["developer tools", "web inspector", "devtools", "inspector", "dock", "left", "side"],
+        category: "browser",
+        symbol: "rectangle.lefthalf.inset.filled",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("familyMember"), ..SurfacePlan::DEFAULT },
+        requires: &["webViewFocused"],
+        targets: &["pane"],
+        cli_name: "action devtools-open-docked-left",
         ..Action::DEFAULT
     },
     Action {

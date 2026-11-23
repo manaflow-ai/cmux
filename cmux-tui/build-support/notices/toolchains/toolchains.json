@@ -64,7 +64,7 @@
       "ghostty_sources": [
         "ghostty-next"
       ],
-      "binaries": "Contents/MacOS/cmux (GhosttyNextKit), bin/cmux and bin/cmux-tui-ssh/* (libghostty-vt): Zig std and compiler_rt"
+      "binaries": "Contents/Frameworks/CmuxNextApp.framework (GhosttyNextKit), bin/cmux and bin/cmux-tui-ssh/* (libghostty-vt): Zig std and compiler_rt"
     }
   ]
 }

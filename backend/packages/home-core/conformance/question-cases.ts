@@ -113,7 +113,10 @@ export const questionCases = (c: Corpus): void => {
 /** A question is an agent turn: it counts toward the loop guard and the gap, and a person's answer is a human turn. */
 const questionBudgetCases = (c: Corpus): void => {
   const send = (key: string, parts: ReadonlyArray<Part>): Op => ({ kind: "message.send", client_msg_id: key, parts })
-  const guard = new CoreHost()
+  // Two agents: the cap applies only where agents could loop with each other.
+  const made = create({ id: "conv_01J00000000000000000GUARD", actor: ALICE, title: "mux", participants: [human(ALICE), agent(MUX), agent("agent_two")], now: NOW })
+  if (!made.ok) throw new Error(made.code)
+  const guard = new CoreHost(made.head)
   guard.send(ALICE, "h1", "go")
   for (let turn = 0; turn < MAX_AGENT_TURNS; turn++) {
     guard.advance(10_000)
@@ -126,6 +129,8 @@ const questionBudgetCases = (c: Corpus): void => {
   c.op(guard, "question budget: the person answers", "user_local", "a1",
     ({ kind: "question.answer", message_id: pending, part_index: 0, answer: { selections: { q0: { option_ids: ["keys"] } } } }) as never, "commit")
   c.op(guard, "question budget: an answer is a human turn, the agent may go on", MUX, "t10", send("t10", [text("thanks")]), "commit")
-  guard.advance(1_999)
+  guard.advance(50)
+  c.op(guard, "question budget: the second agent answers in the free round", "agent_two", "t11", send("t11", [text("me too")]), "commit")
+  guard.advance(1_949)
   c.op(guard, "question budget: a question within the 2 s gap", MUX, "q10", send("q10", [questionPart()]), "agent_rate")
 }

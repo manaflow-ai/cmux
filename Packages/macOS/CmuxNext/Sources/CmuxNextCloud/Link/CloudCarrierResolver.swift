@@ -82,6 +82,8 @@ public actor CloudCarrierServe {
     private var ownershipObserver: (@Sendable (CloudCallerOwnership) async -> Void)?
     /// The last ownership hand-off: each waits for the one before, so answers arrive in order.
     private var publishing: Task<Void, Never>?
+    /// The dials ahead (``dialAhead(limit:keep:)``) that wait for the serve's answer, by the id each asked with.
+    private var dials: [UInt64: AsyncStream<Bool>.Continuation] = [:]
 
     private static let closed = CloudLinkError.disconnected(reason: "closed")
     private static let exited = CloudLinkError.helperNotRunning(reason: "cmux carrier serve exited")
@@ -115,16 +117,52 @@ public actor CloudCarrierServe {
         }
     }
 
+    /// Dials the machine ahead of its session, once the serve is up: the supervisor opens one connection on the
+    /// serving socket (`carrier supervise`'s `ahead` line), which the serve answers by dialing the machine, so the
+    /// session's own first connection only opens a stream on the session held. The supervisor holds that connection,
+    /// so the serve keeps the session, until the first connect, a park, a stop or `keep`, whichever is first. True when
+    /// the dial connected within `limit`; false when it was refused, the serve is not up or is stopped, the supervisor
+    /// holds no connection for it, or `limit` passed first (the dial then goes on in the serve, and a session that
+    /// connects meanwhile joins it).
+    public func dialAhead(limit: Duration, keep: Duration) async -> Bool {
+        guard !stopped, !connector.isFenced, let supervisor else { return false }
+        lastWaiter &+= 1
+        let dial = lastWaiter
+        let (answers, sink) = AsyncStream.makeStream(of: Bool.self, bufferingPolicy: .bufferingNewest(1))
+        dials[dial] = sink
+        guard supervisor.writeInput(line: #"{"ahead":\#(dial),"keep_ms":\#(Int(min(3_600_000, max(0, keep / .milliseconds(1)))))}"#) else {
+            dials[dial] = nil
+            return false
+        }
+        let dialed = await Self.race(limit) { () async -> Bool in
+            for await dialed in answers { return dialed }
+            return false
+        }
+        dials[dial] = nil
+        return dialed ?? false
+    }
+
+    /// The serve's answer to the dials ahead that wait: `dialed`, or false once it is refused or gone.
+    private func answerDials(_ dialed: Bool) {
+        for sink in dials.values {
+            sink.yield(dialed)
+            sink.finish()
+        }
+        dials = [:]
+    }
+
     /// Ends the serve for good: its child stops, and every connect waiting resumes closed.
     public func stop() {
         stopped = true
         refusal = Self.closed
+        answerDials(false)
         supervisor?.writeInput(line: #"{"stop":true}"#)
         supervisor?.closeInput()
     }
 
     /// Ends the child while the machine is paused; the next connect starts a fresh one.
     public func park() {
+        answerDials(false)
         if supervisor?.writeInput(line: #"{"park":true}"#) == false {
             Self.log.error("carrier supervise \(self.connector.dial.machine, privacy: .public): the park did not reach the supervisor")
         }
@@ -179,8 +217,17 @@ public actor CloudCarrierServe {
         } else if let state = object["state"] as? [String: Any] {
             refusal = stopped ? Self.closed : (state["refusal"] as? [String: Any]).flatMap(CloudLinkError.init(wire:))
             answer = (state["answer"] as? String).flatMap(CloudCallerOwnership.init(rawValue:))
+            // A refusal, or a connected answer, is the dial's outcome; a state with neither says nothing yet.
+            if refusal != nil { answerDials(false) } else if answer != nil { answerDials(true) }
+        } else if let dial = object["ahead"] as? UInt64, object["held"] as? Bool == false {
+            // The supervisor holds no connection for this dial ahead (no serve child is ready, or one is held).
+            if let sink = dials.removeValue(forKey: dial) {
+                sink.yield(false)
+                sink.finish()
+            }
         } else if let word = object["publish"] as? String, let caller = CloudCallerOwnership(rawValue: word) {
             answer = caller
+            answerDials(true)
             let (previous, observer) = (publishing, ownershipObserver)
             // task-owner: one observer call, after the one before it
             publishing = Task {
@@ -269,6 +316,7 @@ public actor CloudCarrierServe {
         if let held { connector.streams?.release(held) }
         held = nil
         answer = nil
+        answerDials(false)
         let ended = stopped ? Self.closed : Self.supervisorExited(status: status, stderr: process.stderrText)
         if stopped {
             Self.log.notice("carrier supervise \(self.connector.dial.machine, privacy: .public): exited with status \(status) after a stop")
@@ -315,6 +363,7 @@ extension CloudLinkError {
         case "invalid_answer": self = .invalidAnswer(text("detail"))
         case "not_up": self = .notUp(state: text("state"))
         case "failed": self = .failed(code: text("code"), message: text("message"))
+        case "helper_refused": self = .helperRefused(code: text("code"), message: text("message"))
         case "unsupported": self = .unsupported
         default: return nil
         }
@@ -331,6 +380,7 @@ extension CloudLinkError {
         case .invalidAnswer(let detail): ["kind": "invalid_answer", "detail": detail]
         case .notUp(let state): ["kind": "not_up", "state": state]
         case .failed(let code, let message): ["kind": "failed", "code": code, "message": message]
+        case .helperRefused(let code, let message): ["kind": "helper_refused", "code": code, "message": message]
         case .unsupported: ["kind": "unsupported"]
         }
     }

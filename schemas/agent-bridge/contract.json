@@ -24,7 +24,6 @@
     "chat.attach.source": "chat.attach.source",
     "chat.attention.open": "chat.attention.open",
     "chat.btw.inline": "chat.btw.inline",
-    "chat.cloudCredentialTransfer": "chat.cloudCredentialTransfer",
     "chat.computerUsePreview": "chat.computerUsePreview",
     "chat.draftAttachments": "chat.draftAttachments",
     "chat.draftAttachments.get": "chat.draftAttachments.get",
@@ -76,6 +75,7 @@
     "cloud.environment.list": "cloud.environment.list",
     "cloud.environment.update": "cloud.environment.update",
     "cloud.handoffTurn": "cloud.handoffTurn",
+    "cloud.plan.subscribe": "cloud.plan.subscribe",
     "cloud.preview.open": "cloud.preview.open",
     "cloud.releaseReservation": "cloud.releaseReservation",
     "cloud.repickChat": "cloud.repickChat",
@@ -86,6 +86,7 @@
     "cloud.repo.sync": "cloud.repo.sync",
     "cloud.repo.wait_github": "cloud.repo.wait_github",
     "cloud.reserve": "cloud.reserve",
+    "cloud.setUp": "cloud.setUp",
     "cloud.signIn": "cloud.signIn",
     "cloud.signInCancel": "cloud.signInCancel",
     "cloud.startChat": "cloud.startChat",
@@ -99,6 +100,7 @@
     "cloudMachine.resume": "cloudMachine.resume",
     "composer.capture": "composer.capture",
     "composer.copy": "composer.copy",
+    "designSelection.released": "designSelection.released",
     "diag.flicker": "diag.flicker",
     "dictation.audio": "dictation.audio",
     "dictation.cancel": "dictation.cancel",
@@ -133,6 +135,10 @@
     "git.worktree.create": "git.worktree.create",
     "git.worktree.remove": "git.worktree.remove",
     "git.worktree.setup": "git.worktree.setup",
+    "github.connect": "github.connect",
+    "github.repos.checkout": "github.repos.checkout",
+    "github.repos.list": "github.repos.list",
+    "github.status": "github.status",
     "handshake": "ready",
     "harness.restart": "harness.restart",
     "harness.symbol": "harness.symbol",
@@ -172,6 +178,7 @@
     "pane.finishSound": "pane.finishSound",
     "pane.framePacing": "pane.framePacing",
     "pane.glass": "pane.glass",
+    "pane.launchSettle": "pane.launchSettle",
     "pane.moveToMachine": "pane.moveToMachine",
     "pane.noticeAction": "pane.noticeAction",
     "pane.painted": "pane.painted",
@@ -233,6 +240,7 @@
     "uiPointer.report": "uiPointer.report",
     "video.frames": "video.frames",
     "video.info": "video.info",
+    "video.probes": "video.probes",
     "video.quickLook": "video.quickLook",
     "video.transcript": "video.transcript",
     "workspace.chooseFolder": "workspace.chooseFolder",
@@ -309,6 +317,9 @@
       "times"
     ],
     "video.info": [
+      "src"
+    ],
+    "video.probes": [
       "src"
     ],
     "video.quickLook": [

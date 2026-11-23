@@ -42,6 +42,29 @@ pub mod kind {
     pub const AUTH_SIGNED_OUT: &str = "auth.signed_out";
     /// The agent's sign-in expired: an expired OAuth token or credential ([`super::auth_kind`]).
     pub const AUTH_EXPIRED: &str = "auth.expired";
+    /// A Cloud machine's model call found the owner's own gateway (their Mac) not connected:
+    /// the Mac is asleep, offline or not running cmux (`inference.gateway_offline`, `_gone`).
+    pub const GATEWAY_OFFLINE: &str = "gateway.offline";
+    /// The owner's gateway answered, but the agent's sign-in on their Mac is missing or expired
+    /// (`inference.gateway_login`).
+    pub const GATEWAY_LOGIN: &str = "gateway.login";
+    /// The agent does not know the model it was asked to run (Claude Code's
+    /// `unrecognized_model`, an API's `model_not_found`; `model_catalog::is_model_error`). acpmux
+    /// retries such a turn once under the model's catalog id when it has one
+    /// (`hub/auto_resume/model_reroute.rs`); a sweeper reads this kind for the rest.
+    pub const MODEL_UNRECOGNIZED: &str = "model.unrecognized";
+}
+
+/// The `errorKind` of a model call the owner's own gateway could not answer, by the code the
+/// Cloud service or the gateway put in the agent's error text.
+pub fn gateway_kind(message: &str) -> Option<&'static str> {
+    if message.contains("inference.gateway_offline") || message.contains("inference.gateway_gone") {
+        Some(kind::GATEWAY_OFFLINE)
+    } else if message.contains("inference.gateway_login") {
+        Some(kind::GATEWAY_LOGIN)
+    } else {
+        None
+    }
 }
 
 /// What an agent's error says about its sign-in: `auth.expired` when it says a credential
@@ -61,6 +84,18 @@ pub fn auth_kind(message: &str) -> Option<&'static str> {
     } else {
         None
     }
+}
+
+/// Whether a sign-in failure's `message` is about an API key a provider issued, not the agent's
+/// own login: it names an API key ("This API key has expired", `api_key_expired`, "Invalid API
+/// key · Fix external API key") and does not send the person to a login ("Invalid API key ·
+/// Please run /login" is Claude Code's own sign-in). A new key fixes it; signing in does not.
+pub fn says_api_key(message: &str) -> bool {
+    let m = message.to_lowercase();
+    let key = ["api key", "api_key", "apikey", "x-api-key"].iter().any(|k| m.contains(k));
+    let login =
+        ["/login", "auth login", "please log in", "run login"].iter().any(|k| m.contains(k));
+    key && !login
 }
 
 /// Whether `message` is codex's "Missing environment variable: `OPENAI_API_KEY`.": its provider
@@ -201,10 +236,27 @@ fn classify(
         );
         return Some((kind::PEER_UNREACHABLE, recovery, details));
     }
+    // Before the sign-in kinds: the fix is on the owner's Mac, not a login on this machine.
+    if let Some(kind) = gateway_kind(message) {
+        let recovery = if kind == kind::GATEWAY_OFFLINE {
+            "Your Mac answers this chat's model calls, and it isn't reachable right now: it may be \
+             asleep, offline, or not running cmux. Wake your Mac and open cmux on it, then send \
+             the message again."
+        } else {
+            "The agent's sign-in on your Mac is missing or expired. Open the agent on your Mac once \
+             so it signs in or renews its sign-in, then send the message again."
+        };
+        return Some((kind, recovery.into(), Map::new()));
+    }
     // Before `agent.exited`: an agent that died saying it is not signed in needs a sign-in, and
     // sending again would fail the same way.
     if let Some(kind) = auth_kind(message) {
-        let recovery = if kind == kind::AUTH_EXPIRED {
+        let recovery = if says_api_key(message) {
+            "The provider refused the agent's API key (expired or no longer valid), and signing in \
+             again does not renew it. Create a new key with that provider and enter it where the \
+             agent reads it (`cmux harness login <harness>`, or the harness's own login in a \
+             terminal on this machine), then send the message again."
+        } else if kind == kind::AUTH_EXPIRED {
             "The agent's sign-in expired. Sign in again with its login command (`cmux harness \
              login <harness>`, or the harness's own login in a terminal on this machine), then \
              send the message again."
@@ -214,6 +266,16 @@ fn classify(
              the message again."
         };
         return Some((kind, recovery.into(), Map::new()));
+    }
+    if crate::model_catalog::is_model_error(message) {
+        return Some((
+            kind::MODEL_UNRECOGNIZED,
+            "The agent does not know this chat's model. Pick one it lists in the chat's model \
+             picker, or set it with `acpmux session set <session> model=<id>`, then send the \
+             message again."
+                .into(),
+            Map::new(),
+        ));
     }
     if dead {
         return Some((
@@ -545,6 +607,25 @@ mod tests {
         e.data.as_ref()?.get("errorKind")?.as_str()
     }
 
+    /// A turn the agent failed because it does not know its model (Claude Code refused
+    /// `fable-5.2`, Leo 2026-11-22) is `model.unrecognized`, for a sweeper; capacity is not.
+    #[test]
+    fn a_model_the_agent_does_not_know_is_model_unrecognized() {
+        let e = RpcError::new(
+            -32603,
+            "[claude-code:unrecognized_model] There's an issue with the selected model \
+             (fable-5.2). It may not exist or you may not have access to it.",
+        );
+        let mut typed = e.clone();
+        annotate_as(&mut typed, None, dead_process(&e));
+        assert_eq!(kind_of(&typed), Some(kind::MODEL_UNRECOGNIZED), "{typed:?}");
+        let busy =
+            RpcError::new(-32603, "Selected model is at capacity. Please try a different model.");
+        let mut typed = busy.clone();
+        annotate_as(&mut typed, None, dead_process(&busy));
+        assert_ne!(kind_of(&typed), Some(kind::MODEL_UNRECOGNIZED), "{typed:?}");
+    }
+
     /// Every form the turn finalizer treats as a dead process is `agent.exited`: the bare ACP
     /// closes, "Internal error" and a short -32603. A long -32603 is the agent's own answer.
     #[test]
@@ -674,10 +755,27 @@ mod tests {
                 None,
             ),
             ("agent process closed", true, Some(kind::AGENT_EXITED)),
+            (
+                r#"API Error: 503 {"error":{"code":"inference.gateway_offline","message":"Your model gateway is offline"}}"#,
+                false,
+                Some(kind::GATEWAY_OFFLINE),
+            ),
+            (
+                r#"API Error: 502 {"error":{"code":"inference.gateway_login","message":"the agent's sign-in on your Mac expired"}}"#,
+                true,
+                Some(kind::GATEWAY_LOGIN),
+            ),
         ] {
             let mut e = RpcError::new(-32000, message);
             annotate_as(&mut e, None, dead);
             assert_eq!(kind_of(&e), want, "{message}");
+            if want.is_some_and(|k| k.starts_with("gateway.")) {
+                let recovery = e.data.as_ref().unwrap()["recovery"].as_str().unwrap().to_owned();
+                assert!(
+                    recovery.contains("your Mac") && !recovery.contains("harness login"),
+                    "{recovery}"
+                );
+            }
             if want.is_some_and(|k| k.starts_with("auth.")) {
                 let recovery = e.data.as_ref().unwrap()["recovery"].as_str().unwrap().to_owned();
                 assert!(recovery.contains("cmux harness login"), "{recovery}");

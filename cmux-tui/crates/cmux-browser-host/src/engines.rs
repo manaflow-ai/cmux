@@ -154,7 +154,8 @@ impl HostEngines {
             self.agent_source.clone(),
             events,
             lease,
-        )?;
+        )?
+        .placed_in(session.workspace.clone());
         Ok(Arc::new(engine))
     }
 

@@ -54,12 +54,30 @@ pub struct Answer {
     pub seed_phase: Option<String>,
     pub seed_started_at: Option<f64>,
     pub seed_finished_at: Option<f64>,
+    /// `seed_refused`: the seed plan's code for why the machine can't clone the folder (`not_git`, ...).
+    pub fallback_code: Option<String>,
+    /// `seed_refused` for `seed.needs_github`: the cmux GitHub App's install page for the repository.
+    #[serde(rename = "installURL")]
+    pub install_url: Option<String>,
+    /// `link seed fetch --find-root`: the machine's folder it copied (the chat's repository root).
+    pub remote_root: Option<String>,
     /// `link start-chat plan`'s refusal of the platform's Cloud table (cmux-platform#1192): the
     /// same send may pass later (a busy machine, a rate limit, an outage), so the card offers
     /// Retry; false for a cap or any line that does not say.
     pub retryable: bool,
     /// With `retryable`, a rate limit's window in seconds: a Retry before it meets the limit again.
     pub retry_after_s: Option<u64>,
+    /// `seed_refused`: the bytes a copy of the folder would send (its first pass past the copy's limits).
+    pub copy_bytes: Option<u64>,
+    /// A copy past its limits sent a first pass: the files it left on this Mac (`skipped_counts.left_on_mac`,
+    /// at the top or in its `copy` summary). None for a copy sent whole.
+    pub left_on_mac: Option<u64>,
+    /// `link start-chat plan`'s `cloud.size.locked`: `{needed, allowed, upgrade_plan}` as the platform named them
+    /// (`upgrade_plan` `"nothing"`: no plan lifts it).
+    pub size_locked: Option<Value>,
+    /// `link start-chat plan`'s `seed_refused` for a machine too small for the folder (`machine.too_small`): the
+    /// machine's name, for "more than <machine> has room for".
+    pub machine_title: Option<String>,
 }
 
 impl Answer {
@@ -151,10 +169,26 @@ pub fn parse(output: &Output) -> (Answer, Option<Map<String, Value>>) {
         seed_phase: string(&object, "seed_phase"),
         seed_started_at: object.get("seed_started_at").and_then(Value::as_f64),
         seed_finished_at: object.get("seed_finished_at").and_then(Value::as_f64),
+        fallback_code: string(&object, "fallback_code"),
+        install_url: string(&object, "install_url"),
+        remote_root: string(&object, "remote_root"),
         retryable: boolean(&object, "retryable").unwrap_or(false),
         retry_after_s: object.get("retry_after_s").and_then(Value::as_u64),
+        copy_bytes: object.get("copy_bytes").and_then(Value::as_u64),
+        left_on_mac: left_on_mac(&object),
+        size_locked: object.get("size_locked").filter(|size| size.is_object()).cloned(),
+        machine_title: string(&object, "machine_title"),
     };
     (answer, Some(object))
+}
+
+/// A first-pass copy's `left_on_mac` count, at the line's top or in its `copy` summary; None when nothing was left.
+fn left_on_mac(object: &Map<String, Value>) -> Option<u64> {
+    [object.get("skipped_counts"), object.get("copy").and_then(|copy| copy.get("skipped_counts"))]
+        .into_iter()
+        .flatten()
+        .find_map(|counts| counts.get("left_on_mac").and_then(Value::as_u64))
+        .filter(|left| *left > 0)
 }
 
 /// A `link machine update` success is exit 0 with `updated`, and with the `build` it reached
@@ -255,6 +289,12 @@ pub struct StartChatPlan {
     pub target_pane: Option<String>,
     pub create_team: Option<String>,
     pub create_sent: bool,
+    /// The route the sent create took (`direct` or `relay`); none: not sent, or sent on the relay
+    /// before routes were kept.
+    pub create_route: Option<String>,
+    /// The ledger keeps a sent create's route (`create-sent --route`): only then may the App send
+    /// a person's own create direct, since a retry must take the first send's route.
+    pub keeps_create_route: bool,
     pub environment_id: Option<String>,
     pub setup: Option<Setup>,
     /// `machine` was made for this send by this plan (the platform's workspace machine it created
@@ -280,6 +320,8 @@ pub fn start_chat_plan(
         target_pane: string(object, "target_pane"),
         create_team: string(object, "create_team"),
         create_sent: boolean(object, "create_sent").unwrap_or(false),
+        create_route: string(object, "create_route"),
+        keeps_create_route: boolean(object, "create_routes").unwrap_or(false),
         environment_id: info.environment_id,
         setup: info.setup,
         made_for_send: string(object, "machine").is_some()
@@ -366,6 +408,15 @@ pub enum Call {
         local: String,
         remote: String,
     },
+    /// `link seed fetch --find-root` (Transfer to This Mac): the first copy of the machine's folder
+    /// of a chat in a new folder here; `adopt` (the chat moves here) keeps the sync records.
+    TransferFetch {
+        socket: String,
+        local: String,
+        remote: String,
+        #[serde(default)]
+        adopt: bool,
+    },
     /// `link seed pull --or-copy` (Bring Back Local).
     BringBackPull {
         socket: String,
@@ -401,6 +452,14 @@ pub enum Call {
     },
     /// `link machine pin`: the Linux build this client pins.
     MachinePin,
+    /// `inference gateway status --json [--team TEAM]`: a team's inference gateway and the agents it serves now
+    /// (`serves`), which the Cloud start gate counts when nothing of the person's own serves the chat (hq#15762).
+    /// `team`: the backend team the start's machines are made in (the install's own). A team's gateway serves only
+    /// that team's machines, so the gate reads that one, never the active team's (`--team` absent).
+    InferenceGatewayStatus {
+        #[serde(default)]
+        team: Option<String>,
+    },
     /// `link start-chat reserve|release --request JSON`.
     StartChatReservation {
         release: bool,
@@ -433,6 +492,9 @@ pub enum Call {
         account: String,
         team: String,
         create_key: String,
+        /// `direct` or `relay`; named only for a ledger that keeps routes (the plan's `keepsCreateRoute`).
+        #[serde(default)]
+        route: Option<String>,
     },
     StartChatCreateRefused {
         key: String,
@@ -475,6 +537,10 @@ pub enum Call {
         acpmux_home: Option<String>,
         #[serde(default)]
         store: bool,
+        /// What the copy does when the machine can't clone the folder from its git remote; none
+        /// leaves cmux-tui's own default (copy).
+        #[serde(default)]
+        on_seed_refusal: Option<SeedRefusal>,
     },
     /// `link start-chat trust`: this Mac's acpmux trust level for the folder a start would copy, read
     /// before any machine is taken (the copy is trusted there only when this Mac trusts it).
@@ -482,6 +548,26 @@ pub enum Call {
         folder: String,
         acpmux_home: String,
     },
+}
+
+/// What a start copy does when the machine can't clone the folder from its git remote
+/// (cmux-tui `--on-seed-refusal`): `ask` answers `seed_refused` with the reason and what a copy
+/// would send, and copies nothing; `copy` copies the folder instead.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SeedRefusal {
+    Ask,
+    Copy,
+}
+
+impl SeedRefusal {
+    /// The `--on-seed-refusal` value.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ask => "ask",
+            Self::Copy => "copy",
+        }
+    }
 }
 
 /// How the app runs one call: its arguments and how long it may take.
@@ -551,6 +637,14 @@ pub fn invocation(call: &Call) -> Invocation {
         Call::SeedPush { socket, local, remote } => {
             plain(words(&["link", "seed", "push", "--socket", socket, local, remote]))
         }
+        Call::TransferFetch { socket, local, remote, adopt } => {
+            let mut args =
+                words(&["link", "seed", "fetch", "--socket", socket, local, remote, "--find-root"]);
+            if *adopt {
+                args.push("--adopt".to_owned());
+            }
+            plain(args)
+        }
         Call::BringBackPull { socket, local, remote } => {
             plain(words(&["link", "seed", "pull", "--socket", socket, local, remote, "--or-copy"]))
         }
@@ -592,6 +686,14 @@ pub fn invocation(call: &Call) -> Invocation {
             timeout_seconds: Some(150),
             min_timeout_seconds: None,
         },
+        // One status read on a start's path, before any machine: short, so a slow API costs a start little.
+        Call::InferenceGatewayStatus { team } => {
+            let mut args = words(&["inference", "gateway", "status", "--json"]);
+            if let Some(team) = team {
+                args.extend(words(&["--team", team]));
+            }
+            Invocation { args, timeout_seconds: Some(10), min_timeout_seconds: None }
+        }
         Call::StartChatReservation { release, request } => Invocation {
             args: words(&[
                 "link",
@@ -642,19 +744,25 @@ pub fn invocation(call: &Call) -> Invocation {
             "--create-key",
             create_key,
         ])),
-        Call::StartChatCreateSent { key, account, team, create_key } => ledger(words(&[
-            "link",
-            "start-chat",
-            "create-sent",
-            "--key",
-            key,
-            "--account",
-            account,
-            "--team",
-            team,
-            "--create-key",
-            create_key,
-        ])),
+        Call::StartChatCreateSent { key, account, team, create_key, route } => {
+            let mut args = words(&[
+                "link",
+                "start-chat",
+                "create-sent",
+                "--key",
+                key,
+                "--account",
+                account,
+                "--team",
+                team,
+                "--create-key",
+                create_key,
+            ]);
+            if let Some(route) = route {
+                args.extend(words(&["--route", route]));
+            }
+            ledger(args)
+        }
         Call::StartChatCreateRefused { key, account, create_key } => ledger(words(&[
             "link",
             "start-chat",
@@ -710,6 +818,7 @@ pub fn invocation(call: &Call) -> Invocation {
             work_roots,
             acpmux_home,
             store,
+            on_seed_refusal,
         } => {
             let mut args = words(&[
                 "link",
@@ -738,6 +847,9 @@ pub fn invocation(call: &Call) -> Invocation {
             // store (cmux-tui `link/sync_cli/store.rs`); the link copy stays its fallback.
             if *store {
                 args.extend(words(&["--store", "default"]));
+            }
+            if let Some(refusal) = on_seed_refusal {
+                args.extend(words(&["--on-seed-refusal", refusal.as_str()]));
             }
             plain(args)
         }

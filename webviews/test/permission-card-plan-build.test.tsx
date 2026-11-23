@@ -182,7 +182,7 @@ test("a build refused before anything started says acpmux's reason on the card",
   const alert = host.querySelector('[role="alert"]');
   // acpmux's reason, in the pane's words; its agent-facing text stays in the log.
   expect(alert?.textContent).toBe(
-    "The plan was not built: This chat already runs as many sub-sessions as its limit allows. Wait for one to finish, or raise the limit in Settings.",
+    "The plan was not built: This chat is at its sub-session limit. Wait for one to finish, or raise the limit in Settings.",
   );
   act(() => root.unmount());
 });

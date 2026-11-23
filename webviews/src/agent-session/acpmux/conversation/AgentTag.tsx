@@ -1,5 +1,6 @@
 import type { HTMLAttributes, MouseEvent, ReactNode, Ref } from "react";
 import type { SessionHoverTrigger } from "../started/useSessionHover";
+import { WithFacts } from "../chips/FactsHoverCard";
 import "./AgentTag.css";
 
 /** A compact agent or lane name tag shared by transcript activity rows. One that opens a chat is a
@@ -12,6 +13,7 @@ import "./AgentTag.css";
 export function AgentTag({
   name,
   title,
+  about,
   onClick,
   ariaLabel,
   className,
@@ -22,6 +24,9 @@ export function AgentTag({
 }: {
   name: ReactNode;
   title?: string;
+  /// What a tag that opens a chat cannot show (its harness, model and effort): on its facts card when
+  /// no chat hover card says more. A plain tag's `title` does this.
+  about?: string;
   onClick?(event: MouseEvent<HTMLButtonElement>): void;
   ariaLabel?: string;
   className?: string;
@@ -34,38 +39,62 @@ export function AgentTag({
 } & Omit<HTMLAttributes<HTMLElement>, "onClick" | "title" | "className">) {
   const classes = `cv-agent-tag${className ? ` ${className}` : ""}`;
   if (onClick) {
+    // A chat's hover card (or a hover card trigger's) says more and would sit under the facts card.
+    const said = hover?.onPointerEnter || trigger.onPointerEnter ? [] : [{ value: about ?? "" }];
     return (
-      <button
-        {...trigger}
-        ref={ref as Ref<HTMLButtonElement> | undefined}
-        type="button"
-        className={`${classes} is-open`}
-        // A chat's hover card says more than the tooltip and would sit under it.
-        title={hover?.onPointerEnter ? undefined : title}
-        aria-label={ariaLabel}
-        data-interactive=""
-        {...attributes}
-        {...hover}
-        onClick={(event) => {
-          // A hover card trigger's own click (it puts the card away) runs first.
-          (trigger as { onClick?(event: MouseEvent<HTMLButtonElement>): void }).onClick?.(event);
-          onClick(event);
-        }}
-      >
-        <span className="cv-agent-tag__label">{name}</span>
-      </button>
+      <WithFacts facts={said}>
+        {({ ref: anchor, ...card }) => (
+          <button
+            {...trigger}
+            {...card}
+            ref={(element: HTMLButtonElement | null) => {
+              anchor(element);
+              if (typeof ref === "function") ref(element);
+              else if (ref) (ref as { current: HTMLElement | null }).current = element;
+            }}
+            type="button"
+            className={`${classes} is-open`}
+            aria-label={ariaLabel}
+            data-interactive=""
+            {...attributes}
+            {...hover}
+            onClick={(event) => {
+              // A hover card trigger's own click (it puts the card away) runs first.
+              (trigger as { onClick?(event: MouseEvent<HTMLButtonElement>): void }).onClick?.(event);
+              onClick(event);
+            }}
+          >
+            <span className="cv-agent-tag__label">{name}</span>
+          </button>
+        )}
+      </WithFacts>
     );
   }
+  // A plain tag's title (the agent's whole name) shows on its facts card; a hover card the tag
+  // triggers (ui/Tooltip.tsx passes its handlers in `trigger`) says more and would sit under it.
+  const facts = trigger.onPointerEnter ? [] : [{ value: title ?? "" }];
+  /** The tag's own ref and the facts card's anchor, on one element. */
+  const both =
+    (anchor: (element: HTMLElement | null) => void) =>
+    (element: HTMLElement | null): void => {
+      anchor(element);
+      if (typeof ref === "function") ref(element);
+      else if (ref) (ref as { current: HTMLElement | null }).current = element;
+    };
   return (
-    <span
-      {...trigger}
-      ref={ref as Ref<HTMLSpanElement> | undefined}
-      className={`${classes} is-plain`}
-      title={title}
-      data-interactive=""
-      aria-hidden="true"
-    >
-      {name}
-    </span>
+    <WithFacts facts={facts}>
+      {({ ref: anchor, ...card }) => (
+        <span
+          {...trigger}
+          {...card}
+          ref={both(anchor)}
+          className={`${classes} is-plain`}
+          data-interactive=""
+          aria-hidden="true"
+        >
+          {name}
+        </span>
+      )}
+    </WithFacts>
   );
 }

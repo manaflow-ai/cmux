@@ -251,6 +251,7 @@ impl Surface {
                     input_port::InputRoute::Exited,
                 ))),
                 input_port: Default::default(),
+                paste_pacer: Mutex::default(),
                 runtime: RankedMutex::new(
                     LockRank::Runtime,
                     "pty.runtime",
@@ -270,6 +271,8 @@ impl Surface {
                 dead: AtomicBool::new(true),
                 owner_detaching: AtomicBool::new(false),
                 recover_requested: AtomicBool::new(false),
+                #[cfg(unix)]
+                host_fence_wait: Default::default(),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Exited as u8),
                 host_fallback: std::sync::OnceLock::new(),
                 dirty: AtomicBool::new(true),

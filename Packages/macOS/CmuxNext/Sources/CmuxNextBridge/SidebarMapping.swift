@@ -45,7 +45,7 @@ public struct SidebarMapping {
               tab.kind == .pty || tab.kind == .remoteTerminal, tab.name?.isEmpty ?? true,
               tab.titleText.isEmpty || TerminalTitle.isBareShell(tab.titleText) || Self.trimmingSlash(tab.titleText) == cwd,
               tab.agent == nil, tab.agentSession == nil else { return false }
-        return label == URL(fileURLWithPath: cwd).lastPathComponent || Self.trimmingSlash(label) == cwd
+        return label == (cwd as NSString).lastPathComponent || Self.trimmingSlash(label) == cwd
     }
 
     /// `title` when `workspace` is unnamed and `label`, the name its face tab `face` gives it, is only its shell's home
@@ -69,14 +69,19 @@ public struct SidebarMapping {
         /// The page's sound (a browser tab playing sound or muted); the row
         /// merges its tabs' (`SidebarWorkspaceAudio.merge`).
         public var audio: SidebarWorkspaceAudio?
-        /// A cmux page's own icon (`cmux://remote-view` of a Cloud machine: the Cloud icon), in place of a favicon:
+        /// The front tab is a New Tab page whose Send starts a Cloud chat (``AgentCloudStartTitles``), or a Cloud machine's
+        /// desktop: the row's trailing cloud mark.
+        public var startsInCloud = false
+        /// A cmux page's own icon (`cmux://remote-view` of a Cloud machine: the display icon), in place of a favicon:
         /// a cmux page is no site, so its row never wears the no-favicon globe.
         public var icon: IconName?
 
-        public init(title: String? = nil, favicon: SidebarFavicon? = nil, audio: SidebarWorkspaceAudio? = nil, icon: IconName? = nil) {
+        public init(title: String? = nil, favicon: SidebarFavicon? = nil, audio: SidebarWorkspaceAudio? = nil, startsInCloud: Bool = false,
+                    icon: IconName? = nil) {
             self.title = title
             self.favicon = favicon
             self.audio = audio
+            self.startsInCloud = startsInCloud
             self.icon = icon
         }
     }

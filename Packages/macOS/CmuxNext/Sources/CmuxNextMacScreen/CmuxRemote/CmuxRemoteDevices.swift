@@ -67,6 +67,24 @@ public nonisolated final class CmuxRemoteDevices: Sendable {
         try makeIdentity(try blockingCall(renew ? "device.renew" : "device.identity", [:]))
     }
 
+    /// ``blockingIdentity(renew:)`` and the hub user the device signed in as (`user_id`: the acpmux
+    /// daemon's share host sends it while its machine sign-in holds; nil otherwise).
+    func blockingIdentityAndUser() throws -> (identity: DeviceIdentity, userID: String?) {
+        let answer = try blockingCall("device.identity", [:])
+        return (try makeIdentity(answer), (answer["user_id"] as? String).flatMap { $0.isEmpty ? nil : $0 })
+    }
+
+    /// The app's hub as this channel's device: `identity` (from ``identity(renew:)``) signs through
+    /// the channel, and the channel's pushes are the hub's socket. Used for the cmux Remote worker
+    /// and the acpmux daemon's share host (ShareHostDevice.swift) alike.
+    @MainActor func makeHub(url: URL, identity: DeviceIdentity, bundleID: String, loginKeychain: LoginKeychain,
+                            tokens: @escaping @Sendable () async throws -> String) -> DeviceHub {
+        let client = DeviceHubClient(baseURL: url, identity: identity, tokens: DeviceHubAccountToken(tokens))
+        return DeviceHub(client: client, socket: DeviceHubSocket(connector: RemotePushConnector(devices: self)),
+                         secrets: KeychainRelaySecretStore(bundleIdentifier: bundleID, loginKeychain: loginKeychain), deviceName: MacScreenShareHost.computerName,
+                         renewIdentity: { [self] in try blockingIdentity(renew: true) })
+    }
+
     private func makeIdentity(_ answer: [String: Any]) throws -> DeviceIdentity {
         guard let id = (answer["id"] as? String).flatMap(UUID.init(uuidString:)),
               let signing = (answer["signing_key"] as? String).flatMap({ Data(base64Encoded: $0) }),

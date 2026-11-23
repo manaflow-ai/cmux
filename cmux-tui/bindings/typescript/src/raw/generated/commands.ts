@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 395c64cf019d86e9b1348fc53d3c55625bc449821f6428bea0c29cb515a8cec8. */
+/* cmux-tui mux protocol 12, IR 2e0877c88adc3bd75bf9e49964f9345f01e89bccf21a8b32cbba5f203a9bd76f. */
 
 
 import type * as T from "./types.js";
@@ -70,6 +70,8 @@ export interface AttachSurfaceRequest extends CmuxRequestBase {
   "output_coalesce_ms"?: (number) | null;
   "replay_history_rows"?: (number) | null;
   "replay_history_start"?: (bigint) | null;
+  "resume_generation"?: (string) | null;
+  "resume_offset"?: (bigint) | null;
   "rows"?: (number) | null;
   "snapshot"?: (string) | null;
   "snapshot_images"?: boolean;
@@ -673,6 +675,28 @@ export interface CloudSessionStatusRequest extends CmuxRequestBase {
   cmd: "cloud-session-status";
 }
 export type CloudSessionStatusResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface ComputerUseApprovalsRequest extends CmuxRequestBase {
+  cmd: "computer-use-approvals";
+  "action": string;
+  "answer"?: (string) | null;
+  "app_id"?: (string) | null;
+}
+export type ComputerUseApprovalsResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface ComputerUseConfigRequest extends CmuxRequestBase {
+  cmd: "computer-use-config";
+  "config": (T.JsonValue) | null;
+}
+export type ComputerUseConfigResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface ComputerUseEndpointRequest extends CmuxRequestBase {
+  cmd: "computer-use-endpoint";
+}
+export type ComputerUseEndpointResult = T.JsonValue;
 
 /** Protocol v12; authority: local-admin. */
 export interface ConversationAgentTokenRequest extends CmuxRequestBase {
@@ -1279,6 +1303,19 @@ export interface FeedLocalReadRequest extends CmuxRequestBase {
   "items": Array<string>;
 }
 export type FeedLocalReadResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
+export interface FloatPaneRequest extends CmuxRequestBase {
+  cmd: "float-pane";
+  "h"?: (number) | null;
+  "mode"?: (string) | null;
+  "pane": T.Id;
+  "transaction"?: (bigint) | null;
+  "w"?: (number) | null;
+  "x"?: (number) | null;
+  "y"?: (number) | null;
+}
+export type FloatPaneResult = T.JsonValue;
 
 /** Protocol v6; authority: control. */
 export interface FocusDirectionRequest extends CmuxRequestBase {
@@ -2057,6 +2094,18 @@ export interface PutSessionRequest extends CmuxRequestBase {
 }
 export type PutSessionResult = T.JsonValue;
 
+/** Protocol v12; authority: control. */
+export interface QuickTerminalRequest extends CmuxRequestBase {
+  cmd: "quick-terminal";
+  "h"?: (number) | null;
+  "mode"?: (string) | null;
+  "screen": T.Id;
+  "w"?: (number) | null;
+  "x"?: (number) | null;
+  "y"?: (number) | null;
+}
+export type QuickTerminalResult = T.JsonValue;
+
 /** Protocol v5; authority: control. */
 export interface ReadScreenRequest extends CmuxRequestBase {
   cmd: "read-screen";
@@ -2131,6 +2180,7 @@ export type RemoteHostCallResult = T.JsonValue;
 /** Protocol v12; authority: local-admin. */
 export interface RemoteHostConfigRequest extends CmuxRequestBase {
   cmd: "remote-host-config";
+  "app_permissions"?: (T.RemoteHostAppPermissions) | null;
   "computer_use"?: (boolean) | null;
   "headless"?: (boolean) | null;
   "screen_sharing"?: (boolean) | null;
@@ -2363,6 +2413,7 @@ export interface SendRequest extends CmuxRequestBase {
   "expect_agent"?: (T.SendExpectAgent) | null;
   "expect_foreground"?: (string) | null;
   "flow"?: (bigint) | null;
+  "key"?: (string) | null;
   "paste"?: boolean;
   "submit"?: boolean;
   "surface"?: (T.Id) | null;
@@ -2700,6 +2751,7 @@ export interface ShutdownDaemonRequest extends CmuxRequestBase {
   "end_terminals"?: boolean;
   "force"?: boolean;
   "generation": string;
+  "if_idle"?: boolean;
   "keep_layout"?: boolean;
   "pid": number;
   "restart"?: (boolean) | null;
@@ -3135,6 +3187,9 @@ export type CmuxRequest =
   | CloudSessionClearRequest
   | CloudSessionSetRequest
   | CloudSessionStatusRequest
+  | ComputerUseApprovalsRequest
+  | ComputerUseConfigRequest
+  | ComputerUseEndpointRequest
   | ConversationAgentTokenRequest
   | ConversationAttachmentLinkRequest
   | ConversationAttachmentReadRequest
@@ -3185,6 +3240,7 @@ export type CmuxRequest =
   | FeedLocalHandoffDoneRequest
   | FeedLocalListRequest
   | FeedLocalReadRequest
+  | FloatPaneRequest
   | FocusDirectionRequest
   | FocusPaneRequest
   | ForgetSessionRequest
@@ -3262,6 +3318,7 @@ export type CmuxRequest =
   | PutBlobRequest
   | PutFrontendProjectionRequest
   | PutSessionRequest
+  | QuickTerminalRequest
   | ReadScreenRequest
   | ReadScrollbackRequest
   | ReattachViewRequest
@@ -3903,6 +3960,30 @@ export interface CmuxCommandDefinitionMap {
     capability: "cloud-conversations-v1";
     stream: null;
   };
+  "computer-use-approvals": {
+    request: ComputerUseApprovalsRequest;
+    result: ComputerUseApprovalsResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "computer-use-v1";
+    stream: null;
+  };
+  "computer-use-config": {
+    request: ComputerUseConfigRequest;
+    result: ComputerUseConfigResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "computer-use-v1";
+    stream: null;
+  };
+  "computer-use-endpoint": {
+    request: ComputerUseEndpointRequest;
+    result: ComputerUseEndpointResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "computer-use-v1";
+    stream: null;
+  };
   "conversation-agent-token": {
     request: ConversationAgentTokenRequest;
     result: ConversationAgentTokenResult;
@@ -4301,6 +4382,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "feed-local-owner-v1";
+    stream: null;
+  };
+  "float-pane": {
+    request: FloatPaneRequest;
+    result: FloatPaneResult;
+    authority: "control";
+    since: 12;
+    capability: "floating-panes-v1";
     stream: null;
   };
   "focus-direction": {
@@ -4917,6 +5006,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "profiles-v1";
+    stream: null;
+  };
+  "quick-terminal": {
+    request: QuickTerminalRequest;
+    result: QuickTerminalResult;
+    authority: "control";
+    since: 12;
+    capability: "quick-terminal-v1";
     stream: null;
   };
   "read-screen": {

@@ -118,9 +118,7 @@ struct MacScreenHomeSnapshot: Equatable {
             if let hub = source.box.hub {
                 let listed = Self.listed(hub.otherDevices)
                 if listed.isEmpty {
-                    devices = .note(hub.status == .ready || hub.status == .idle
-                        ? L.t("macScreen.home.noSharedDevices", "None of your other devices share Mac Screen. On the Mac you want to see, turn on Allow Mac Screen on this Mac.")
-                        : L.t("macScreen.home.devicesLoading", "Loading your devices…"))
+                    devices = .note(Self.emptyNote(DeviceDiscovery.of(hub, shown: 0)))
                 } else {
                     devices = .list(listed.map { device in
                         Self.device(device, access: MacScreenAccess(hub.scope(host: device.id, viewer: hub.identity.id)),
@@ -137,11 +135,25 @@ struct MacScreenHomeSnapshot: Equatable {
                                       showFirstUse: Self.showsFirstUse(store: source.store, isSharing: hubHost.isSharing))
                 }
             } else {
-                devices = source.box.startupMessage.map(Devices.note) ?? Self.setupDevices(configured: source.box.configured)
+                devices = source.box.startupMessage.map(Devices.note) ?? Self.setupDevices(configured: source.box.configured,
+                                                                                               restoring: source.box.restoring || source.box.connecting)
             }
         }
         if let shortcuts = home.systemShortcuts {
             keyboard = Keyboard(enabled: shortcuts.enabled, needsAccessibility: shortcuts.needsAccessibility)
+        }
+    }
+
+    /// What Your Devices says with no row to list (`DeviceDiscovery`, Rust's rule): "none" only after a
+    /// device-list read succeeded; before it, loading; a failure says why, never "none" (ask-6a79af928f).
+    static func emptyNote(_ discovery: DeviceDiscovery) -> String {
+        switch discovery {
+        case .noDevices:
+            return L.t("macScreen.home.noSharedDevices", "None of your other devices share Mac Screen. On the Mac you want to see, turn on Allow Mac Screen on this Mac.")
+        case .list, .finding:
+            return L.t("macScreen.home.devicesLoading", "Loading your devices…")
+        case let .failed(reason, detail):
+            return reason.words(detail: detail)
         }
     }
 
@@ -166,11 +178,13 @@ struct MacScreenHomeSnapshot: Equatable {
 
     /// What the home page says while Mac Screen cannot work: it needs a
     /// signed-in cmux account, and a DEV build's Device Hub Address override
-    /// (Settings › Development) must be valid when set.
-    static func setupDevices(configured: Bool) -> Devices {
+    /// (Settings › Development) must be valid when set. While the saved
+    /// sign-in restores, it is loading: neither signed out nor a bad address.
+    static func setupDevices(configured: Bool, restoring: Bool = false) -> Devices {
         guard configured else {
             return .note(L.t("macScreen.home.invalidHubAddress", "Mac Screen works through the device hub. The Device Hub Address in Settings › Development is not a valid web address; fix it, or clear it to use the built-in hub."))
         }
+        if restoring { return .note(L.t("macScreen.home.devicesLoading", "Loading your devices…")) }
         return .signedOut(L.t("macScreen.home.devicesSignIn", "Sign in to cmux to see your other Macs here."))
     }
 }
@@ -298,6 +312,14 @@ extension MacScreenHomeView {
             reason.setContentCompressionResistancePriority(.required, for: .horizontal)
             reason.setAccessibilityIdentifier("macScreen.home.\(state == .blocked ? "blocked" : "notShared").\(device.name)")
             views.append(reason)
+            // One step its host takes, not just a grey word (Leo, 2026-11-18: "idk why that was greyed").
+            let fix: ScreenPicker.Fix = state == .blocked ? .deviceAccess : .shareThisMac
+            let host = device.name
+            views.append(MacScreenButton(L.t("macScreen.guide.setUp", "Set Up…"), compact: true, id: "macScreen.home.setUp.\(device.name)") { [weak self] in
+                guard let self, let hub = devices?.box.hub else { return }
+                let thisMac = MacScreenHostSetupGuide.ThisMac(id: hub.identity.id, name: hub.thisDevice?.name ?? hub.deviceName)
+                MacScreenHostSetupGuide(host: host, fix: fix, thisMac: thisMac).present(in: window)
+            })
         case .offline:
             if setup.showsStart { views.append(startButton(device, compact: true)) }
         }
@@ -552,4 +574,20 @@ enum MacScreenSetupPlacement: String, CaseIterable {
     case below
     /// Both in the row's buttons: Set Up cmux plain, Start the default button while offline.
     case buttons
+}
+
+/// Why Your Devices (and Settings › Devices) cannot list, in words: the reason, then the hub's own words.
+extension DeviceDiscovery.Reason {
+    func words(detail: String?) -> String {
+        let text = switch self {
+        case .hub, .connection, .replaced:
+            L.t("macScreen.home.listFailed.hub", "Can’t reach the device hub, so your other Macs can’t be listed yet. cmux keeps trying.")
+        case .list:
+            L.t("macScreen.home.listFailed.list", "Couldn’t load your devices. cmux tries again when the hub reconnects.")
+        case .removed, .signedOut:
+            L.t("devices.status.removed", "This Mac left your devices.")
+        }
+        guard let detail, !detail.isEmpty else { return text }
+        return text + " (" + detail + ")"
+    }
 }

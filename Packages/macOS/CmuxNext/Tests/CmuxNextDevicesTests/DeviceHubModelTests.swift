@@ -33,7 +33,7 @@ import Testing
         let hub = makeHub(stub)
         await hub.handle(.push(.permissionsChanged(hostID: "h1")))
         #expect(hub.scope(host: "h1", viewer: "v1") == .full)
-        #expect(hub.scope(host: "h1", viewer: "v2") == .ask)
+        #expect(hub.scope(host: "h1", viewer: "v2") == .full, "no stored permission reads as the hub's own-device default")
         #expect(stub.requests.last?.pathAndQuery == "/v1/permissions?host=h1")
     }
 
@@ -213,6 +213,37 @@ import Testing
             Issue.record("expected failed, got \(hub.status)")
             return
         }
+    }
+
+    /// Leo, 2026-11-19 (ask-6a79af928f), "i simply dont see ANYTHING on the scren sharing screen": an empty
+    /// `devices` before the first read is not "no devices". The hub says it read the list only after a read
+    /// succeeds, keeps why a read failed, and forgets both on sign-out; Your Devices says "none" only then.
+    @Test func theDeviceListSaysWhetherItWasRead() async {
+        let me = self.me, phone = self.phone
+        let failing = Locked(true)
+        let stub = StubHub { request in
+            if request.url.path == "/v1/auth/stack" { return (200, #"{"session":"hub-session","userId":"u","expiresAt":1800003600000}"#) }
+            if failing.value { return (503, #"{"error":{"code":"unavailable","message":"down"}}"#) }
+            return (200, devicesJSON([(me, "Studio"), (phone, "Phone")]))
+        }
+        let hub = makeHub(stub)
+        #expect(!hub.devicesListed && hub.devicesListError == nil)
+        #expect(DeviceDiscovery.of(hub, shown: 0) == .finding)
+        await hub.refreshDevices()
+        #expect(!hub.devicesListed)
+        #expect(hub.devicesListError != nil)
+        guard case .failed(.list, _) = DeviceDiscovery.of(hub, shown: 0) else {
+            Issue.record("a failed read must say so, got \(DeviceDiscovery.of(hub, shown: 0))")
+            return
+        }
+        failing.set(false)
+        await hub.refreshDevices()
+        #expect(hub.devicesListed && hub.devicesListError == nil)
+        #expect(hub.otherDevices.map(\.id) == [phone.id])
+        #expect(DeviceDiscovery.of(hub, shown: 0) == .noDevices)
+        #expect(DeviceDiscovery.of(hub, shown: 1) == .list)
+        hub.stop()
+        #expect(!hub.devicesListed && hub.devicesListError == nil && hub.devices.isEmpty)
     }
 }
 

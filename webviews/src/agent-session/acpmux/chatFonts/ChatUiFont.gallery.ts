@@ -42,7 +42,8 @@ const NOTES: Record<ChatUiFont, string> = {
   plex: "IBM Plex Sans, bundled (Latin).",
   "source-sans": "Source Sans 3, bundled (Latin).",
   geist: "Geist, bundled (Latin).",
-  "cmux-sans": "cmux Sans, ours: Source Sans 3 with an 8 % taller lowercase, bundled (Latin).",
+  "cmux-sans":
+    "cmux Sans, ours: Source Sans 3 with an 8 % taller lowercase, a step looser than its designed spacing so its letters stop crowding (0.015em at body, 0.02em at caption), bundled (Latin).",
   hanken: "Hanken Grotesk, a warm grotesque, bundled (Latin).",
   atkinson: "Atkinson Hyperlegible Next, built for legibility, bundled (Latin).",
   "system-ui": "The default: the system font (SF Pro on macOS) at its own spacing. Linux draws its own sans.",
