@@ -59,7 +59,7 @@ import Testing
     func timed(_ flow: CloudMachineCreateFlow, _ time: Time) -> CloudMachineCreateFlow {
         var flow = flow
         flow.pause = { attempt in
-            let wait = CloudApprovedRetry.backoff(attempt)
+            let wait = CloudMachineCreateFlow.backoff(attempt)
             time.waits.append(wait)
             time.now += wait
         }
@@ -106,10 +106,10 @@ import Testing
 
     /// The backoffs after the approval fill the patience (two minutes) and stop there, however short each one is.
     @Test func theRetriesFillThePatienceAndNoMore() {
-        let waits = CloudApprovedRetry.waits(within: CloudAppOpRunner.timeout)
-        let pauses = (1..<waits).reduce(Duration.zero) { $0 + CloudApprovedRetry.backoff($1) }
+        let waits = CloudMachineCreateFlow.waits(within: CloudAppOpRunner.timeout)
+        let pauses = (1..<waits).reduce(Duration.zero) { $0 + CloudMachineCreateFlow.backoff($1) }
         #expect(pauses >= CloudAppOpRunner.timeout && pauses < CloudAppOpRunner.timeout + .seconds(2), "\(waits) waits add up to \(pauses)")
-        #expect(CloudApprovedRetry.waits(within: .zero) == 1)
+        #expect(CloudMachineCreateFlow.waits(within: .zero) == 1)
     }
 
     @Test func anApprovedCreateStillPendingAfterTwoMinutesEndsStillPendingAndItsRetryGetsTheSameMachine() async throws {
