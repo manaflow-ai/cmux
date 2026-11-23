@@ -465,13 +465,19 @@ def main() -> int:
         return superseded_pass(janitor, repo, cleanup=cleanup_requested, limit=limit)
     now = dt.datetime.now(dt.timezone.utc)
     eligible: list[tuple[dict[str, Any], str]] = []
+    # One read per commit in the inventory: on 2026-11-22 the report-only schedule read commits/{sha}/pulls for 227
+    # old runs of 19 commits, twice an hour, from the GITHUB_TOKEN hour the production promote gates read. A pull
+    # request that closes during the pass only shows in the next one, and cleanup reads again before it acts.
+    commit_prs: dict[str, list[dict[str, Any]]] = {}
     try:
         for status in ("queued", "in_progress"):
             for run in janitor.runs(status):
                 if not may_be_eligible(run, now=now, min_age_seconds=min_age_minutes * 60):
                     continue
-                # Read per run, not per commit: a pull request can close between two runs of one commit.
-                prs = janitor.pull_requests_for_commit(run.get("head_sha", ""))
+                sha = run.get("head_sha", "")
+                if sha not in commit_prs:
+                    commit_prs[sha] = janitor.pull_requests_for_commit(sha)
+                prs = commit_prs[sha]
                 reason = classify_run(run, prs, now=now, min_age_seconds=min_age_minutes * 60)
                 if reason:
                     eligible.append((run, reason))

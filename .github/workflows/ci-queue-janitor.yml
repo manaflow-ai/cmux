@@ -102,7 +102,7 @@ permissions: {}
 env:
   # Temporary REST budget attribution until 2026-11-22 00:00 UTC: one gh-call line per GitHub API call
   # (scripts/ci/api_call_log/env.sh). GitHub runs this file from main, and it had no attribution.
-  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
   # The file behind the `CI` display name in on.workflow_run.workflows;
   # tests/test_ci_workflow_run_sources.py derives the expected name from it.
   SOURCE_WORKFLOW_PATHS: .github/workflows/ci.yml
@@ -134,11 +134,13 @@ jobs:
     # The repair path must not wait on a pool it judges: this sweep judges the owned labels
     # (glaeda-*, cmux-fleet-linux-x64; starved_labels.py) and moves the Blacksmith pools
     # (runner_pools.py), and on 2026-11-20 one sweep waited 77 minutes to start.
-    # So it runs on GitHub-hosted Ubuntu (minutes are free on a public repository), and
-    # CI_QUEUE_JANITOR_ON_FLEET=1 moves it to the fleet label while hosted runners are busy.
-    # No Blacksmith label (tests/test_ci_self_hosted_guard.sh
+    # So it runs on the CI repair workflows' one-job JIT label (cmux-gcp-repair-jit-x64:
+    # an ephemeral VM per job, so the App key leaves with it), which the janitor does not
+    # judge; CI_QUEUE_JANITOR_ON_FLEET=1 moves it to the fleet label. Not GitHub-hosted:
+    # on 2026-11-20 the hosted pool served none of our jobs for 15 hours (Leo, 2026-11-21:
+    # "the ci must flow"). No Blacksmith label (tests/test_ci_self_hosted_guard.sh
     # check_queue_janitor_runs_off_the_pools_it_judges).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_QUEUE_JANITOR_ON_FLEET == '1' && 'cmux-fleet-linux-x64' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_QUEUE_JANITOR_ON_FLEET == '1' && 'cmux-fleet-linux-x64' || 'cmux-gcp-repair-jit-x64' }}
     # A sweep that lists the whole queue took up to 13 minutes on 2026-10-30; a timed-out
     # job skips the upload below, so this leaves room for the longest one seen.
     timeout-minutes: 30
@@ -240,9 +242,25 @@ jobs:
           filter: blob:none
           persist-credentials: false
 
+      # The routing App's read-only runner token, as in ci-queue-janitor-watchdog.yml: the sweep counts the owned
+      # Linux labels' idle runners with it (queue_janitor.attach_owned_idle()), so runner_pools.py moves a pool off
+      # an owned label only when none is idle. Any failure leaves it empty and the queue-only rule in place.
+      - name: Mint the runner roster token
+        id: route-token
+        if: vars.GLAEDA_ROUTE_APP_ID != '' && steps.fresh.outputs.skip != 'true'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
       - name: Cancel wasted macOS runs
         if: steps.fresh.outputs.skip != 'true'
         env:
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
           GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || steps.glaeda-token.outputs.token || github.token }}
           # Takes over when the App's token is refused (queue_janitor.GitHub).
           GH_FALLBACK_TOKEN: ${{ github.token }}
@@ -263,6 +281,9 @@ jobs:
           QUEUE_THRESHOLD: ${{ vars.CI_JANITOR_QUEUE_THRESHOLD }}
           CI_PULL_REQUEST_SUITE: ${{ vars.CI_PULL_REQUEST_SUITE || 'compile-only' }}
           ORPHAN_MINUTES: ${{ vars.CI_JANITOR_ORPHAN_MINUTES }}
+          # '0' lets the orphan pass cancel a feat-cmux-next base tier run waiting for a Mac runner again (the
+          # default since 2026-11-22 keeps and reports it; the base tier kick reads the same variable).
+          CMUX_NEXT_BASE_TIER_KEEP_QUEUED: ${{ vars.CMUX_NEXT_BASE_TIER_KEEP_QUEUED }}
           POOL_LOAD_OUT: ${{ runner.temp }}/macos-pool-load.json
           # Copied into the snapshot for fork pull requests, which get no
           # repository variables of their own (scripts/ci/pr_runner_pool.py).
