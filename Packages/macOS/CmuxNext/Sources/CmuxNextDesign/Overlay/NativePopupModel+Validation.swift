@@ -36,7 +36,8 @@ extension NativePopupModel {
             guard columns.compactMap(\.width).reduce(0, +) <= width else { return false }
         } else if columnsHeight != nil { return false }
         if let searchAccessory {
-            guard search != nil, searchAccessory.kind == .submenu || searchAccessory.kind == .action else { return false }
+            // Only the columns layout draws the search row's accessory (NativePopupContent+Columns).
+            guard search != nil, columns != nil, searchAccessory.kind == .submenu || searchAccessory.kind == .action else { return false }
         }
         return Self.validate(allRows, depth: 0, identifiers: &identifiers)
     }

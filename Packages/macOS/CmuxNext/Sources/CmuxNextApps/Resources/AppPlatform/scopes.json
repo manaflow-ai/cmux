@@ -1625,6 +1625,18 @@
       "scope": "sidebar:write",
       "class": "mutation"
     },
+    "signal.publish": {
+      "scope": "none",
+      "class": "mutation"
+    },
+    "signal.read": {
+      "scope": "none",
+      "class": "read"
+    },
+    "signal.sources.list": {
+      "scope": "none",
+      "class": "read"
+    },
     "skills_app.cycle_variant": {
       "scope": "skills_app:write",
       "class": "mutation"
