@@ -5,11 +5,11 @@
 //
 // Leo, 2026-11-23 (relayed): "Run the #50373 frame tally against a replayed transcript in a headless nightly on a GCP
 // VM with stress-ng at 4x cores, and get frame_p95_ms and renderer_main_busy_pct publishing from there on every sensor
-// pass, with the cosmic-gray reading as a second series. Done when the board has a number for both goals while my
+// pass, with the [his Mac's] reading as a second series. Done when the board has a number for both goals while my
 // nightly is closed."
 //
 // cmuxterm-hq goals/visible-frame-p95-under-load.md and goals/renderer-main-busy.md read
-// `perf_sensor.leo_nightly.*`, a sample of Leo's running NIGHTLY on cosmic-gray; when it is closed they have no
+// `perf_sensor.leo_nightly.*`, a sample of Leo's running NIGHTLY on his Mac; when it is closed they have no
 // number. This bench is their proxy: scripts/measure/replay-under-load.sh runs it under `stress-ng --cpu 4*nproc` on a
 // fleet VM and NOW publishes the reading as `perf_sensor.vm_replay`.
 //
