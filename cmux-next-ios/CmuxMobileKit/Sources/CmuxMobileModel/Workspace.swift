@@ -139,6 +139,10 @@ public struct WorkspaceTab: Identifiable, Hashable, Sendable, Codable {
     /// What a `.waiting` agent waits for, when the Mac's acpmux says (agent tabs).
     /// Nil for a terminal agent, whose report says only that it is blocked.
     public var waitingFor: WaitingFor?
+    /// When a `.working` agent's Mac last reported it started working (its report's time: the
+    /// turn's prompt, as the Mac counts it). Nil when not working, or the Mac sent no time
+    /// (older Macs, mock data). Optional so older saved copies still decode.
+    public var workingSince: Date?
     /// Pinned on the Mac (`set-tab-pinned`): pinned tabs sort first in their pane.
     /// Optional so older saved copies still decode; nil reads as not pinned.
     public var pinned: Bool?

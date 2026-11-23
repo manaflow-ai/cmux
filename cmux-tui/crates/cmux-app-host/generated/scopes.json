@@ -1217,6 +1217,10 @@
       "scope": "participants:write",
       "class": "mutation"
     },
+    "project.actions.list": {
+      "scope": "project:read",
+      "class": "read"
+    },
     "project.add": {
       "scope": "project:write",
       "class": "mutation"
@@ -2173,6 +2177,7 @@
     "cloud.fs.remove",
     "cloud.machine.archive_delete",
     "cloud.machine.chat_access",
+    "cloud.machine.chief_resize",
     "cloud.machine.chief_start",
     "cloud.machine.create",
     "cloud.machine.delete",

@@ -15,7 +15,9 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
 use acpmux::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
 use acpmux::hub::Hub;
-use acpmux::hub_carrier::{CarrierAnswer, CircuitService, HubCarrier, Tickets, Timings};
+use acpmux::hub_carrier::{
+    CarrierAnswer, CircuitLane, CircuitService, HubCarrier, Tickets, Timings,
+};
 use acpmux::rpc::{Message, method};
 use acpmux::server::peer_auth::PeerAuth;
 use acpmux::server::{WsAuth, bind_ws, serve_connection, serve_ws_with};
@@ -85,6 +87,54 @@ impl C {
             }
         }
     }
+}
+
+impl C {
+    /// A request whose answer nobody waits for (a turn that runs until it is stopped).
+    async fn send(&mut self, m: &str, p: Value) {
+        self.next += 1;
+        self.tx.send(Message::request(self.next, m, p).to_line()).await.unwrap();
+    }
+
+    /// Reads until a notification `m` whose params satisfy `pred`.
+    async fn wait_for(&mut self, m: &str, pred: impl Fn(&Value) -> bool) {
+        loop {
+            let line = tokio::time::timeout(Duration::from_secs(20), self.rx.recv())
+                .await
+                .unwrap_or_else(|_| panic!("no {m} within 20 s"))
+                .expect("closed");
+            if let Ok(Message::Notification { method, params }) = Message::parse(&line)
+                && method == m
+                && params.as_ref().is_some_and(&pred)
+            {
+                return;
+            }
+        }
+    }
+}
+
+/// Every record of a session's log, page after page.
+async fn all_events(c: &mut C, id: &str) -> Vec<Value> {
+    let mut out: Vec<Value> = Vec::new();
+    loop {
+        let after = out.last().and_then(|e| e["seq"].as_u64()).unwrap_or(0);
+        let page = c
+            .call(method::MUX_EVENTS, json!({"sessionId": id, "afterSeq": after, "limit": 5000}))
+            .await;
+        out.extend(page["events"].as_array().cloned().unwrap_or_default());
+        if page["hasMore"] != true {
+            return out;
+        }
+    }
+}
+
+/// The first 16 characters of each `user_message` of `events`.
+fn user_texts(events: &[Value]) -> Vec<String> {
+    events
+        .iter()
+        .filter(|e| e["kind"] == "user_message")
+        .filter_map(|e| e["msg"]["text"].as_str().map(|t| t.chars().take(16).collect()))
+        .collect()
 }
 
 async fn client(h: Arc<Hub>) -> C {
@@ -505,8 +555,8 @@ async fn hub_carrier_a_dial_to_a_machine_whose_carrier_is_off_says_so_fast() {
     assert!(started.elapsed() < Duration::from_secs(5), "the dial waited {:?}", started.elapsed());
     assert!(said.contains("hub carrier is off"), "{said}");
     assert!(said.contains("carrier.not_serving"), "{said}");
-    // The hub's own 404 (`machine.not_found`: FixedTickets knows no such machine) ends the same
-    // way, at once: it is no relay wait at all.
+    // The hub's own 404 (`machine.not_found`: FixedTickets knows no such machine) ends at once
+    // too, on its own terminal reason: it is no relay wait at all.
     let started = std::time::Instant::now();
     let said = match dialer
         .dial_service(&public(&random_key()), CircuitService::CmuxTui { port: 7781 })
@@ -516,7 +566,7 @@ async fn hub_carrier_a_dial_to_a_machine_whose_carrier_is_off_says_so_fast() {
         Err(said) => said,
     };
     assert!(started.elapsed() < Duration::from_secs(2), "the dial waited {:?}", started.elapsed());
-    assert!(said.contains("carrier.not_serving"), "{said}");
+    assert!(said.ends_with("(machine.not_joined)"), "{said}");
     // The hub scopes the ticket to the caller's team: the words name it, not the far carrier.
     assert!(said.contains("another of your teams"), "{said}");
 }
@@ -1263,7 +1313,7 @@ impl acpmux::hub_carrier::SessionGate for TestSessionGate {
     ) -> Result<std::path::PathBuf, acpmux::hub_carrier::ServiceRefusal> {
         use acpmux::session_service::{Decision, decide, session_socket};
         let consent = self.consent.lock().unwrap().clone();
-        match decide(&consent, Some("user-1")) {
+        match decide(&consent, Some("user-1"), false) {
             Decision::Admit => session_socket(Some(&self.socket)),
             Decision::Refuse { refusal, ask } => {
                 if ask {
@@ -1960,6 +2010,424 @@ async fn hub_carrier_a_black_holed_direct_path_costs_no_more_than_the_relay_open
     drop(hole);
 }
 
+/// A hub move's pages over the carrier (`transfer_service.rs`, `hub/transfer_pull.rs`): machine A
+/// moves a chat to B (`to.hub` is B's key). B dials A naming the transfer service and reads the
+/// bundle; C, another of the person's machines, is refused while A's hub book does not list it,
+/// and reads no page of B's move once it does; a machine with no transfer gate refuses by name.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_moves_pages_reach_only_the_machine_it_moves_to() {
+    use acpmux::hub::transfer_pull::PageSource;
+    use acpmux::transfer_service::{CircuitPages, ConfiguredTransferGate};
+
+    let _ = HERMETIC;
+    let relay_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let relay_address = relay_listener.local_addr().unwrap();
+    let relay = cmux_relay::Relay::new(cmux_relay::RelayConfig {
+        allow_open: true,
+        ..cmux_relay::RelayConfig::default()
+    })
+    .unwrap();
+    let (relay_listener, router) = relay.server_parts(relay_listener);
+    tokio::spawn(async move {
+        let _ = axum::serve(relay_listener, router).await;
+    });
+    let route = format!("relay+ws://{relay_address}");
+    let (key_a, key_b, key_c, key_d) = (random_key(), random_key(), random_key(), random_key());
+    let (a_key, b_key, c_key, d_key) =
+        (public(&key_a), public(&key_b), public(&key_c), public(&key_d));
+    let fast = Timings {
+        control: Duration::from_secs(5),
+        handshake: Duration::from_secs(5),
+        ..Timings::default()
+    };
+    let carrier = |key: [u8; 32], peers: Vec<String>| {
+        HubCarrier::new(
+            Arc::new(FixedTickets { relay: route.clone(), peers, asked: AtomicU64::new(0) }),
+            key,
+            fast,
+        )
+    };
+
+    // A, with a chat moving to B.
+    let a = hub();
+    let mut ca = client(a.clone()).await;
+    let dir = tempfile::tempdir().unwrap();
+    let s = ca.call(method::SESSION_NEW, json!({"cwd": dir.path(), "mcpServers": []})).await;
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let hi = json!({"sessionId": id, "prompt": [{"type": "text", "text": "hi"}]});
+    ca.call(method::SESSION_PROMPT, hi).await;
+    let begin = ca
+        .call(
+            "_acpmux/transfer_begin",
+            json!({"sessionId": id, "gatesQueueApproval": true,
+                   "to": {"hub": b_key, "host": "machine-b"}}),
+        )
+        .await;
+    let read = json!({"transferId": begin["transferId"], "path": "session.json", "offset": 0,
+                      "limit": 4096, "epoch": begin["epoch"]});
+
+    let carrier_a = carrier(key_a, vec![b_key.clone(), c_key.clone()]);
+    carrier_a.set_transfer_gate(Arc::new(ConfiguredTransferGate::new(&a)));
+    a.set_mesh_book_machines(BTreeMap::from([(b_key.clone(), "machine-b".to_owned())]));
+    let nothing = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+    let _serving = carrier_a.serve(nothing);
+    let carrier_b = carrier(key_b, vec![a_key.clone(), d_key.clone()]);
+    let carrier_c = carrier(key_c, vec![a_key.clone()]);
+
+    // B reads its move's pages, A's registration perhaps still on its way.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    let stream = loop {
+        match carrier_b.dial_service(&a_key, CircuitService::TransferSource).await {
+            Ok(stream) => break stream,
+            Err(e) => {
+                assert!(tokio::time::Instant::now() < deadline, "A never answered: {e}");
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        }
+    };
+    let mut pages = CircuitPages::new(stream);
+    let page = pages.call("read", read.clone()).await.unwrap();
+    assert!(page["data"].as_str().is_some_and(|d| !d.is_empty()), "{page}");
+    assert!(page["next"].as_u64().is_some_and(|n| n > 0), "{page}");
+    let renewed = pages
+        .call("renew", json!({"transferId": begin["transferId"], "epoch": begin["epoch"]}))
+        .await;
+    assert!(renewed.is_ok(), "{renewed:?}");
+    // Nothing else runs on the circuit.
+    let commit = json!({"sessionId": id, "transferId": begin["transferId"]});
+    assert!(pages.call("commit", commit).await.is_err());
+
+    // C: not in A's book, refused at the hello; in it, refused each page of B's move.
+    let refused = carrier_c.dial_service(&a_key, CircuitService::TransferSource).await.unwrap_err();
+    assert!(refused.contains("machine.unlisted"), "{refused}");
+    a.set_mesh_book_machines(BTreeMap::from([
+        (b_key.clone(), "machine-b".to_owned()),
+        (c_key.clone(), "machine-c".to_owned()),
+    ]));
+    let stream = carrier_c.dial_service(&a_key, CircuitService::TransferSource).await.unwrap();
+    let refused = CircuitPages::new(stream).call("read", read.clone()).await.unwrap_err();
+    assert!(refused.message.contains("not_yours"), "{}", refused.message);
+
+    // A machine that serves no move pages refuses by name.
+    let carrier_d = carrier(key_d, vec![b_key.clone()]);
+    let _serving_d = carrier_d.serve(nothing);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        match carrier_b.dial_service(&d_key, CircuitService::TransferSource).await {
+            Ok(_) => panic!("admitted with no transfer gate"),
+            Err(e) if e.contains("service.off") => break,
+            Err(e) => {
+                assert!(tokio::time::Instant::now() < deadline, "D never answered: {e}");
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        }
+    }
+}
+
+/// A whole hub move over the relay (`hub/transfer_pull.rs`, `transfer_service.rs`): A begins the
+/// move of a chat with a few MiB of history to B (`to.hub` is B's key); B takes op `move` through
+/// its control hook as the hub delivers it, dials A through the relay with its own
+/// [`CarrierDial`] (the daemon's, not a stand-in), pulls every page, imports the chat under its
+/// own guard and answers; A commits. The chat then runs on B with its whole history once: the
+/// cut turn's continuation, then the prompt queued on A before the move. A ran nothing after
+/// the move began. No connection between A and B but the relay's.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_chat_moves_whole_over_the_relay_and_runs_on_the_target() {
+    let whole = move_over_relay(false).await;
+    assert!(whole.pages >= 3, "{whole:?}");
+}
+
+/// The same move, pre-copied (`hub/transfer_hub_precopy.rs`): B stages the history over the
+/// relay before the freeze, and only the log's tail crosses it inside the freeze. The harness
+/// is [`move_over_relay`]'s, run both ways. The chat's history lands once and the queued prompt
+/// runs once, as in the whole move.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_pre_copied_chat_moves_only_its_tail_inside_the_freeze() {
+    let whole = move_over_relay(false).await;
+    let copied = move_over_relay(true).await;
+    eprintln!(
+        "hub move freeze, whole vs pre-copied: bundle {} B vs {} B, pages paged inside the freeze \
+         {} ({} B, {} ms) vs {} ({} B, {} ms), freeze {} ms vs {} ms (pre-copy before it: {} ms)",
+        whole.bundle,
+        copied.bundle,
+        whole.pages,
+        whole.page_bytes,
+        whole.pages_ms,
+        copied.pages,
+        copied.page_bytes,
+        copied.pages_ms,
+        whole.freeze_ms,
+        copied.freeze_ms,
+        copied.staging_ms
+    );
+    assert!(whole.bundle > 1 << 20, "{whole:?}");
+    // Measured about 200x smaller; 5x leaves room for a busy runner without hiding a regression
+    // to a whole move.
+    assert!(copied.bundle * 5 < whole.bundle, "the freeze's bundle is the tail: {copied:?}");
+    assert!(copied.page_bytes * 5 < whole.page_bytes, "{copied:?} vs {whole:?}");
+    assert!(copied.pages < whole.pages, "{copied:?} vs {whole:?}");
+    assert!(copied.carried_in_freeze * 5 < whole.carried_in_freeze, "{copied:?} vs {whole:?}");
+    // A loose wall-clock bound (measured 132 ms): a freeze that waits on a timeout fails here.
+    assert!(copied.freeze_ms < 5_000, "the pre-copied freeze took {} ms", copied.freeze_ms);
+    // The history crossed the relay once, before the freeze.
+    assert!(copied.staged_carried >= whole.bundle / 2, "{copied:?} vs {whole:?}");
+}
+
+/// What one move over the relay measured, from its freeze (the begin) to its commit.
+#[derive(Debug)]
+struct MoveRun {
+    bundle: u64,
+    pages: u64,
+    page_bytes: u64,
+    pages_ms: u64,
+    freeze_ms: u128,
+    carried_in_freeze: u64,
+    staged_carried: u64,
+    staging_ms: u128,
+}
+
+async fn move_over_relay(precopy: bool) -> MoveRun {
+    use acpmux::mesh::{ControlHook as _, InMessage};
+    use acpmux::mesh_http::MeshControlFrom;
+    use acpmux::server::mesh_relay::MeshControlHook;
+    use acpmux::transfer_service::{CarrierDial, ConfiguredTransferGate};
+
+    let _ = HERMETIC;
+    let relay_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let relay_address = relay_listener.local_addr().unwrap();
+    let relay = cmux_relay::Relay::new(cmux_relay::RelayConfig {
+        allow_open: true,
+        ..cmux_relay::RelayConfig::default()
+    })
+    .unwrap();
+    let (relay_listener, router) = relay.server_parts(relay_listener);
+    tokio::spawn(async move {
+        let _ = axum::serve(relay_listener, router).await;
+    });
+    let proxy = Proxy::start(relay_address).await;
+    let route = format!("relay+ws://127.0.0.1:{}", proxy.port);
+    let (key_a, key_b) = (random_key(), random_key());
+    let (a_key, b_key) = (public(&key_a), public(&key_b));
+    let fast = Timings {
+        control: Duration::from_secs(5),
+        handshake: Duration::from_secs(5),
+        ..Timings::default()
+    };
+    let carrier = |key: [u8; 32], peers: Vec<String>| {
+        HubCarrier::new(
+            Arc::new(FixedTickets { relay: route.clone(), peers, asked: AtomicU64::new(0) }),
+            key,
+            fast,
+        )
+    };
+    // A guarded receive takes only a plain agent session id (`transfer_guard.rs`).
+    let plain_ids = || {
+        let mut cfg = config();
+        for profile in cfg.harnesses.values_mut() {
+            profile.env.insert("FAKE_SESSION_PREFIX".into(), "fake-session-".into());
+        }
+        let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        Hub::new(cfg, store)
+    };
+
+    // A serves its moves' pages on its relay slot, to the machines its hub book lists.
+    let a = plain_ids();
+    let carrier_a = carrier(key_a, vec![b_key.clone()]);
+    carrier_a.set_transfer_gate(Arc::new(ConfiguredTransferGate::new(&a)));
+    a.set_mesh_book_machines(BTreeMap::from([(b_key.clone(), "machine-b".to_owned())]));
+    let nothing = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+    let _serving = carrier_a.serve(nothing);
+    // B: its carrier and dial as `hub_carrier::start_configured` sets them, one webRoot.
+    let b = plain_ids();
+    let home = dirs::home_dir().expect("a home directory");
+    let root = home.join(format!("acpmux-hub-relay-move-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    let root = std::fs::canonicalize(&root).unwrap();
+    let root_text = root.to_string_lossy().into_owned();
+    {
+        let mut cfg = b.config.write().await;
+        cfg.web_roots = vec![root_text.clone()];
+        // A chat under the guard's `peer` control runs only in a mode that asks (`resolve.rs`).
+        cfg.web_asking_modes.insert("fake".into(), vec!["normal".into()]);
+    }
+    b.hub_carrier.set(carrier(key_b, vec![a_key.clone()]));
+    b.set_transfer_dial(Arc::new(CarrierDial::new(&b)));
+    let ledger = tempfile::tempdir().unwrap();
+    let hook = MeshControlHook::new(
+        vec![MeshControlFrom {
+            daemon_id: String::new(),
+            same_user: true,
+            ops: vec!["move".into()],
+        }],
+        Some(ledger.path().join("mesh-controls.json")),
+    )
+    .with_own_user(Arc::new(|| Some("user-1".to_owned())));
+
+    // A chat on A with history past one page (1 MiB) of the pull.
+    let mut ca = client(a.clone()).await;
+    let s =
+        ca.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": []})).await;
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let filler = "x".repeat(32 << 10);
+    for n in 0..40 {
+        let text = format!("turn {n} {filler}");
+        ca.call(
+            method::SESSION_PROMPT,
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]}),
+        )
+        .await;
+    }
+    // A turn running and a prompt queued behind it: the move stops the turn and carries the queue.
+    let prompt = |prompt_id: &str, text: &str| {
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": text}],
+               "_meta": {"acpmux": {"promptId": prompt_id}}})
+    };
+    ca.send(method::SESSION_PROMPT, prompt("p-turn", "until-cancel")).await;
+    ca.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "running").await;
+    ca.send(method::SESSION_PROMPT, prompt("p-after", "after the move")).await;
+    ca.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-after" && p["queued"] == true)
+        .await;
+
+    let control = |message_id: &str, body: &Value| -> InMessage {
+        serde_json::from_value(json!({
+            "messageId": message_id, "kind": "control", "op": "move", "mode": "now",
+            "to": {"daemonId": b_key},
+            "from": {"daemonId": a_key, "user": "user-1", "host": "machine-a"},
+            "body": body.to_string(),
+        }))
+        .unwrap()
+    };
+    // Pre-copy: A prepares the history for B and B stages it over the relay, the chat running.
+    let (mut begin_params, mut stage_id) = (Value::Null, None);
+    let (staging_started, staged_before) =
+        (tokio::time::Instant::now(), proxy.bytes.load(Ordering::SeqCst));
+    if precopy {
+        let prepared = ca
+            .call("_acpmux/transfer_hub", json!({"sessionId": id, "prepare": {"daemon": b_key}}))
+            .await;
+        let body = json!({"version": 1, "sessionId": id, "stage": {"manifest": prepared}});
+        let stage = control("m-relay-stage", &body);
+        let ack = within("B's stage over the relay", hook.control(&b, &stage)).await;
+        let ack = serde_json::to_value(ack.expect("an answer within the hook's wait")).unwrap();
+        assert_eq!(ack["state"], "delivered", "{ack}");
+        let staged: Value = serde_json::from_str(ack["result"].as_str().unwrap()).unwrap();
+        stage_id = staged["stageId"].as_str().map(str::to_owned);
+        assert!(stage_id.is_some(), "{staged}");
+        begin_params =
+            json!({"prepareId": prepared["prepareId"], "afterSeq": prepared["afterSeq"]});
+    }
+    let staging_ms = if precopy { staging_started.elapsed().as_millis() } else { 0 };
+    let staged_carried =
+        if precopy { proxy.bytes.load(Ordering::SeqCst) - staged_before } else { 0 };
+    let started = tokio::time::Instant::now();
+    let mut begin_request = json!({"sessionId": id, "interrupt": true, "gatesQueueApproval": true,
+                                   "to": {"hub": b_key, "host": "machine-b"}});
+    if let Some(extra) = begin_params.as_object() {
+        begin_request.as_object_mut().unwrap().extend(extra.clone());
+    }
+    let begin = ca.call("_acpmux/transfer_begin", begin_request).await;
+    assert_eq!(begin.get("prefix").is_some(), precopy, "{begin}");
+    let began = started.elapsed();
+    let bundle: u64 = begin["files"]
+        .as_array()
+        .map(|files| files.iter().filter_map(|f| f["size"].as_u64()).sum())
+        .unwrap_or(0);
+    assert!(precopy || bundle > 1 << 20, "the history spans more than one page: {begin}");
+    let mut body = json!({"version": 1, "transferId": begin["transferId"], "sessionId": id,
+                          "manifest": begin, "folder": {"cwd": root_text}});
+    if let Some(stage_id) = &stage_id {
+        body["stageId"] = json!(stage_id);
+    }
+    let message = control("m-relay-1", &body);
+    let carried_before = proxy.bytes.load(Ordering::SeqCst);
+    let pull_started = tokio::time::Instant::now();
+    let ack = within("B's pull over the relay", hook.control(&b, &message)).await;
+    let pulled = pull_started.elapsed();
+    let carried = proxy.bytes.load(Ordering::SeqCst) - carried_before;
+    let ack = serde_json::to_value(ack.expect("an answer within the hook's wait")).unwrap();
+    assert_eq!(ack["state"], "delivered", "{ack}");
+    let moved: Value = serde_json::from_str(ack["result"].as_str().unwrap()).unwrap();
+    assert_eq!(moved["sessionId"], id.as_str(), "{moved}");
+    assert_eq!(moved["cwd"], root_text.as_str(), "{moved}");
+    // Every page crossed the relay: what it carried is at least the bundle.
+    assert!(carried >= bundle, "the relay carried {carried} B of a {bundle} B bundle");
+    let moved_timings = moved["timings"].clone();
+
+    let commit_started = tokio::time::Instant::now();
+    let to = json!({"host": "machine-b", "via": "hub", "sessionId": id, "cwd": moved["cwd"]});
+    let committed = ca
+        .call(
+            "_acpmux/transfer_commit",
+            json!({"sessionId": id, "transferId": begin["transferId"], "to": to, "epoch": begin["epoch"]}),
+        )
+        .await;
+    let commit = commit_started.elapsed();
+    assert_eq!(committed["committed"], true, "{committed}");
+    let split = &moved["timings"];
+    let freeze = started.elapsed();
+    // Loose (measured 319 ms whole, 132 ms pre-copied): a stalled page or timeout fails here.
+    assert!(freeze < Duration::from_secs(10), "the freeze took {freeze:?}");
+    eprintln!(
+        "hub move over the relay{}: bundle {bundle} B, relay carried {carried} B, begin {} ms, \
+         pull+import {} ms (circuit open {} ms, {} pages {} ms, import {} ms), commit {} ms, \
+         freeze {} ms",
+        if precopy { " (pre-copied)" } else { "" },
+        began.as_millis(),
+        pulled.as_millis(),
+        split["dialMs"],
+        split["pages"],
+        split["pagesMs"],
+        split["finishMs"],
+        commit.as_millis(),
+        started.elapsed().as_millis()
+    );
+
+    // The chat runs on B, with its history: the queued prompt runs there, once.
+    let mut cb = client(b.clone()).await;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    let events = loop {
+        let events = all_events(&mut cb, &id).await;
+        let users = user_texts(&events);
+        if users.last().is_some_and(|t| t == "after the move") {
+            break events;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the moved queue never ran on B: {users:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    };
+    let users = user_texts(&events);
+    // The history once, the cut turn, its continuation (acpmux's, ahead of the queue), then
+    // the person's queued prompt, once.
+    assert!(users[0].starts_with("turn 0 "), "{users:?}");
+    assert_eq!(users[40], "until-cancel", "{users:?}");
+    assert_eq!(users.len(), 43, "{users:?}");
+    assert_eq!(users[41], "This chat moved ", "{users:?}");
+    assert_eq!(users[42], "after the move", "{users:?}");
+    let landed = events
+        .iter()
+        .filter(|e| e["kind"] == "transferred_in")
+        .map(|e| e["msg"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(landed.len(), 1, "{landed:?}");
+    assert_eq!(landed[0]["from"]["via"], "hub", "{landed:?}");
+    assert_eq!(landed[0]["from"]["daemonId"], a_key.as_str(), "{landed:?}");
+    let left = ca.call(method::MUX_INFO, json!({"sessionId": id})).await;
+    assert_eq!(left["status"], "closed", "{left}");
+    let _ = std::fs::remove_dir_all(&root);
+    MoveRun {
+        bundle,
+        pages: moved_timings["pages"].as_u64().unwrap_or(0),
+        page_bytes: moved_timings["pageBytes"].as_u64().unwrap_or(0),
+        pages_ms: moved_timings["pagesMs"].as_u64().unwrap_or(0),
+        freeze_ms: freeze.as_millis(),
+        carried_in_freeze: carried,
+        staged_carried,
+        staging_ms,
+    }
+}
+
 // ---- One kept, multiplexed circuit per machine pair (`src/hub_carrier_mux.rs`). ----
 
 /// A TCP proxy that holds every chunk `delay` in each direction (latency, not a rate limit), as
@@ -1971,6 +2439,12 @@ struct DelayProxy {
 
 impl DelayProxy {
     async fn start(target: SocketAddr, delay: Duration) -> Self {
+        Self::start_with(target, delay, None).await
+    }
+
+    /// [`Self::start`], each connection carrying at most `rate` bytes a second each way (one
+    /// TCP's share of a thin link: what queues in it waits its turn).
+    async fn start_with(target: SocketAddr, delay: Duration, rate: Option<u64>) -> Self {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let (cut, _) = watch::channel(0u64);
@@ -1985,8 +2459,8 @@ impl DelayProxy {
                     let (ir, iw) = inbound.into_split();
                     let (or, ow) = outbound.into_split();
                     tokio::select! {
-                        _ = delayed(ir, ow, delay) => {}
-                        _ = delayed(or, iw, delay) => {}
+                        _ = delayed(ir, ow, delay, rate) => {}
+                        _ = delayed(or, iw, delay, rate) => {}
                         _ = cut.changed() => {}
                     }
                 });
@@ -2004,6 +2478,7 @@ async fn delayed(
     mut from: tokio::net::tcp::OwnedReadHalf,
     mut to: tokio::net::tcp::OwnedWriteHalf,
     delay: Duration,
+    rate: Option<u64>,
 ) {
     let (tx, mut rx) = mpsc::unbounded_channel::<(tokio::time::Instant, Vec<u8>)>();
     let read = async move {
@@ -2024,6 +2499,9 @@ async fn delayed(
             tokio::time::sleep_until(at).await;
             if to.write_all(&bytes).await.is_err() {
                 return;
+            }
+            if let Some(rate) = rate {
+                tokio::time::sleep(Duration::from_secs_f64(bytes.len() as f64 / rate as f64)).await;
             }
         }
     };
@@ -2121,6 +2599,16 @@ impl KeptFixture {
 /// A dials B's stand-in sshd over the in-process relay, A's leg `delay` away each way. Returns once B
 /// serves (its gate's refusal came back), with control not granted yet unless `granted`.
 async fn kept_fixture(delay: Duration, b_keeps_circuits: bool, granted: bool) -> KeptFixture {
+    kept_fixture_with(delay, None, b_keeps_circuits, granted).await
+}
+
+/// [`kept_fixture`], A's leg carrying at most `rate` bytes a second per connection.
+async fn kept_fixture_with(
+    delay: Duration,
+    rate: Option<u64>,
+    b_keeps_circuits: bool,
+    granted: bool,
+) -> KeptFixture {
     let relay_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let relay_address = relay_listener.local_addr().unwrap();
     let relay = cmux_relay::Relay::new(cmux_relay::RelayConfig {
@@ -2134,7 +2622,7 @@ async fn kept_fixture(delay: Duration, b_keeps_circuits: bool, granted: bool) ->
         let _ = axum::serve(relay_listener, router).await;
     });
     // Only A's leg runs through the proxy: a cut drops A's circuits, not B's registration.
-    let proxy = DelayProxy::start(relay_address, delay).await;
+    let proxy = DelayProxy::start_with(relay_address, delay, rate).await;
     let route = format!("relay+ws://127.0.0.1:{}", proxy.port);
     let direct = format!("relay+ws://{relay_address}");
     let sshd = standin_sshd().await;
@@ -2195,6 +2683,60 @@ async fn kept_fixture(delay: Duration, b_keeps_circuits: bool, granted: bool) ->
     assert!(serves, "B never served: {last}");
     fixture.gate.granted.store(granted, Ordering::SeqCst);
     fixture
+}
+
+/// RFD 0039 cut 5 (H13): a pair keeps two circuits, so a cheap read never waits behind bulk in one
+/// circuit's TCP. A's leg carries 2 MiB/s per connection; 4 bulk transfers of 8 MiB each run on
+/// the bulk circuit, read as they come, while a cheap echo on the cheap circuit answers in under
+/// 200 ms (durability F18's bound). The same echo on the bulk circuit, behind the bulk streams'
+/// windows, is printed beside it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_cheap_read_never_waits_behind_four_bulk_transfers() {
+    let _ = HERMETIC;
+    let fixture = kept_fixture_with(Duration::ZERO, Some(2 << 20), true, true).await;
+    let mut bulks = Vec::new();
+    for _ in 0..4 {
+        let mut bulk = fixture.dial_to_banner().await;
+        bulk.write_all(b"bulk 8388608\n").await.unwrap();
+        bulks.push(tokio::spawn(async move {
+            let mut got = Vec::new();
+            let _ = bulk.read_to_end(&mut got).await;
+            got.len()
+        }));
+    }
+    let open_cheap = || async {
+        let mut stream = within(
+            "a cheap dial",
+            fixture.a.dial_service_on(&fixture.b_key, fixture.service(), CircuitLane::Cheap),
+        )
+        .await
+        .unwrap();
+        let mut banner = vec![0u8; BANNER.len()];
+        within("the cheap banner", stream.read_exact(&mut banner)).await.unwrap();
+        stream
+    };
+    let mut cheap = open_cheap().await;
+    assert_eq!(fixture.a.kept_circuits(&fixture.b_key), 2, "one cheap circuit, one bulk");
+    // Let the bulk streams fill their windows first.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let mut worst = Duration::ZERO;
+    for n in 0..10 {
+        let started = std::time::Instant::now();
+        echo(&mut cheap, format!("cheap {n}\n").as_bytes()).await;
+        worst = worst.max(started.elapsed());
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let mut behind = fixture.dial_to_banner().await;
+    let started = std::time::Instant::now();
+    echo(&mut behind, b"behind bulk\n").await;
+    let behind = started.elapsed();
+    eprintln!(
+        "H13: cheap read during 4 bulk transfers: worst {worst:?} on the cheap circuit, {behind:?} on the bulk one"
+    );
+    assert!(worst < Duration::from_millis(200), "a cheap read took {worst:?}");
+    for bulk in bulks {
+        assert_eq!(within("a bulk transfer", bulk).await.unwrap(), 8 << 20);
+    }
 }
 
 /// Echo `text` through `stream` and read it back.
