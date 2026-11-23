@@ -33,11 +33,13 @@ struct TabSplitMapBadge: View {
                 let rect = CGRect(x: cell.rect.minX * size.width, y: cell.rect.minY * size.height,
                                   width: cell.rect.width * size.width, height: cell.rect.height * size.height)
                     .insetBy(dx: gap / 2, dy: gap / 2)
+                // White, as the card's chips: the app's accent drew no fill on a terminal's black
+                // (fleet step a29c8df1aed467b35a008f43, video: only the other pane's outline showed).
                 RoundedRectangle(cornerRadius: 3, style: .continuous)
-                    .fill(own ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.white.opacity(0.12)))
+                    .fill(own ? AnyShapeStyle(.white) : AnyShapeStyle(.white.opacity(0.12)))
                     .overlay {
                         RoundedRectangle(cornerRadius: 3, style: .continuous)
-                            .strokeBorder(own ? Color.accentColor : .white.opacity(0.55), lineWidth: 1.5)
+                            .strokeBorder(.white.opacity(own ? 1 : 0.55), lineWidth: 1.5)
                     }
                     .frame(width: max(rect.width, 0), height: max(rect.height, 0))
                     .offset(x: rect.minX, y: rect.minY)
@@ -46,11 +48,11 @@ struct TabSplitMapBadge: View {
         .frame(width: size.width, height: size.height, alignment: .topLeading)
         .padding(5)
         .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-        .accessibilityElement()
-        .accessibilityLabel(Self.label(map))
     }
 
-    /// "Pane 2 of 3 in a split" for VoiceOver.
+    /// "Pane 2 of 3 in a split" for VoiceOver: the card's accessibility value
+    /// (`WorkspaceTabsSource.cardAccessibilityValue(for:)`), since TabsKit makes a card one element
+    /// and nothing drawn inside it is read.
     static func label(_ map: TabSplitMap) -> String {
         let index = (map.cells.firstIndex { $0.pane == map.pane } ?? 0) + 1
         return "Pane \(index) of \(map.cells.count) in a split"

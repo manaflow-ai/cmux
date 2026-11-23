@@ -56,6 +56,10 @@ public protocol TabsDataSource: AnyObject, Observable {
     /// into view, so its card shows the screen you left, not its top rows.
     /// The zoom moves it with the scale (none full screen). Default 0.
     func cardContentOffset(for id: TabsKitTab.ID, visibleHeight: CGFloat) -> CGFloat
+    /// The card's accessibility value: what its content shows that its title
+    /// does not (a card is one element, "title, tab", so nothing drawn inside
+    /// `card(for:)` reaches VoiceOver or UI tests). Default nil.
+    func cardAccessibilityValue(for id: TabsKitTab.ID) -> String?
     /// A snapshot of the tab's page at full screen size for the default card.
     func thumbnail(for id: TabsKitTab.ID) -> UIImage?
     /// The tab grid is about to appear: refresh thumbnails now (once per
@@ -157,6 +161,7 @@ extension TabsDataSource where EditingBackground == TabsKitAddressSuggestions {
 extension TabsDataSource {
     public func thumbnail(for id: TabsKitTab.ID) -> UIImage? { nil }
     public func cardContentOffset(for id: TabsKitTab.ID, visibleHeight: CGFloat) -> CGFloat { 0 }
+    public func cardAccessibilityValue(for id: TabsKitTab.ID) -> String? { nil }
     public func overviewWillAppear() {}
     public func overviewVisibilityChanged(_ visible: Bool) {}
     public func overviewScrollingChanged(_ scrolling: Bool) {}

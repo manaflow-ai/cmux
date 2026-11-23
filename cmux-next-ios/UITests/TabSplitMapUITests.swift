@@ -2,7 +2,8 @@ import XCTest
 
 /// The tab grid's split map (gallery variant, `CMUX_TABS_CARD_SPLIT_MAP=1`): on `ws-panes`
 /// (build, server, logs | tests, git), each terminal's card shows its screen's two panes with
-/// its own filled. Without the variant the grid draws no map.
+/// its own filled. A card is one accessibility element ("build, tab"), so the map is read as the
+/// card's value ("Pane 1 of 2 in a split"). Without the variant the grid draws no map.
 final class TabSplitMapUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
@@ -11,19 +12,23 @@ final class TabSplitMapUITests: XCTestCase {
     @MainActor
     func testGridCardsShowTheirSplitMap() throws {
         let app = openGrid(variant: true)
-        let maps = app.descendants(matching: .any).matching(NSPredicate(format: "label ENDSWITH ' in a split'"))
+        let maps = app.descendants(matching: .any).matching(NSPredicate(format: "value ENDSWITH ' in a split'"))
         XCTAssertTrue(maps.firstMatch.waitForExistence(timeout: 10), "split map on a card\n\(app.debugDescription)")
         attach(app, "grid-split-map")
-        let labels = Set(maps.allElementsBoundByIndex.map(\.label))
-        print("CMUX_TAB_SPLIT_MAP \(labels.sorted())")
-        XCTAssertTrue(labels.isSubset(of: ["Pane 1 of 2 in a split", "Pane 2 of 2 in a split"]), "\(labels)")
+        let values = Set(maps.allElementsBoundByIndex.compactMap { $0.value as? String })
+        print("CMUX_TAB_SPLIT_MAP \(values.sorted())")
+        XCTAssertTrue(values.isSubset(of: ["Pane 1 of 2 in a split", "Pane 2 of 2 in a split"]), "\(values)")
+        // build is in the left pane, tests in the right one (MockData.mockPanesWorkspace).
+        XCTAssertEqual(app.buttons["build, tab"].value as? String, "Pane 1 of 2 in a split")
+        XCTAssertEqual(app.buttons["tests, tab"].value as? String, "Pane 2 of 2 in a split")
     }
 
     @MainActor
     func testGridWithoutTheVariantHasNoMap() throws {
         let app = openGrid(variant: false)
         attach(app, "grid-default")
-        let maps = app.descendants(matching: .any).matching(NSPredicate(format: "label ENDSWITH ' in a split'"))
+        let maps = app.descendants(matching: .any).matching(NSPredicate(format: "value ENDSWITH ' in a split'"))
+        XCTAssertTrue(app.buttons["build, tab"].waitForExistence(timeout: 10), "grid\n\(app.debugDescription)")
         XCTAssertFalse(maps.firstMatch.exists, "no split map by default")
     }
 
