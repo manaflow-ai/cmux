@@ -7,6 +7,8 @@
 /* The one Tailwind theme (schemas/design-scale, type-scale and motion-scale, through
    webviews/scripts/pages/gen-design-scale.mjs): p-3, rounded-md, text-body, bg-hover, shadow-elevation-2. */
 @import "./ui/theme.generated.css";
+/* The chrome follows the app density (diffSurface marks the root data-page-density). */
+@import "./pages/shared/pageDensity.css";
 
 :root {
   color-scheme: light dark;
@@ -530,20 +532,10 @@ body {
   white-space: nowrap;
   font-weight: 500;
 }
+/* The shared `Spinner` (its sheet turns it, and Reduce Motion holds it still, cx-sya4n). */
 .base-picker-spinner {
-  width: 12px;
-  height: 12px;
   flex: 0 0 auto;
-  border-radius: 50%;
-  border: 1.6px solid color-mix(in lab, var(--cmux-diff-fg) 26%, transparent);
-  border-top-color: var(--cmux-diff-fg);
-  animation: cmux-spin var(--cmux-spinner-period, 2000ms) linear infinite;
-}
-/* Reduce Motion stops it (cx-sya4n); the diff viewer has no Static setting of its own. */
-@media (prefers-reduced-motion: reduce) {
-  .base-picker-spinner {
-    animation: none;
-  }
+  color: var(--cmux-diff-fg);
 }
 .base-picker-popover {
   /* Portaled to `document.body` and viewport-anchored so it escapes BOTH
@@ -567,9 +559,9 @@ body {
      geometry without drawing a second border over the glass surface. */
   border: 1px solid transparent;
   border-radius: var(--ds-radius-lg);
-  background: var(--glass-tint, var(--cmux-diff-bg));
-  -webkit-backdrop-filter: var(--surface-blur, none);
-  backdrop-filter: var(--surface-blur, none);
+  /* No tint or blur of its own: .ui-popup.ui-glass is the one menu glass (ui/glass/glass.css GLASS
+     LEVELS). Its own --surface-blur here was the chrome blur, a second, thinner glass than every
+     other menu's (Leo 2026-11-22: "doubled up glass/wack looking glass all over the place"). */
   z-index: 120;
   overflow: hidden;
 }
@@ -1297,49 +1289,13 @@ body[data-status-only="true"] #status-text {
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
-/* Icon badge: only for the friendly empty state, not errors or while loading. */
-#status-icon {
-  display: none;
-}
-body[data-status-only="true"] #status:not([data-error="true"]):not([data-pending="true"]) #status-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 56px;
-  height: 56px;
-  border-radius: 16px;
-  background: color-mix(in lab, var(--cmux-diff-fg) 5%, transparent);
-  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
-}
-body[data-status-only="true"] #status:not([data-error="true"]):not([data-pending="true"]) #status-icon::before {
-  content: "";
-  display: block;
-  width: 26px;
-  height: 26px;
-  background-color: currentcolor;
-  opacity: 0.8;
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'/%3E%3Cpath d='M14 2v6h6'/%3E%3Cpath d='M9 13h6'/%3E%3Cpath d='M9 17h4'/%3E%3C/svg%3E") center / contain no-repeat;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'/%3E%3Cpath d='M14 2v6h6'/%3E%3Cpath d='M9 13h6'/%3E%3Cpath d='M9 17h4'/%3E%3C/svg%3E") center / contain no-repeat;
-}
-#status[data-pending="true"]::before,
-body[data-loading="true"] #status::before {
-  content: "";
-  width: 14px;
-  height: 14px;
+/* The status line's spinner while the diff loads: the shared `Spinner` (diff-viewer/Loading.tsx). */
+#status .status-spinner {
   flex: 0 0 auto;
-  border: 2px solid color-mix(in lab, var(--cmux-diff-fg) 20%, transparent);
-  border-top-color: color-mix(in lab, var(--cmux-diff-fg) 70%, var(--cmux-diff-bg));
-  border-radius: 50%;
-  animation: cmux-spin var(--cmux-spinner-period, 2000ms) linear infinite;
+  color: color-mix(in lab, var(--cmux-diff-fg) 70%, var(--cmux-diff-bg));
 }
 #status[data-error="true"] {
   color: var(--cmux-diff-deletion-fg);
-}
-@media (prefers-reduced-motion: reduce) {
-  #status[data-pending="true"]::before,
-  body[data-loading="true"] #status::before {
-    animation: none;
-  }
 }
 
 /* Diff review comments */
@@ -1907,6 +1863,31 @@ svg[data-icon-fill] {
   fill: currentcolor;
   stroke: none;
 }
+/* A file's bar shows its path and its counts; its buttons show while the pointer is on the bar or
+   the keyboard is in it (a1315's cuts, 2026-11-20). A viewed file keeps its eye (it says the file is
+   done) and an open menu keeps its button. Opacity, not display, so nothing moves and Tab still
+   reaches each button. */
+.file-header
+  :is(
+    .file-review-viewed[aria-pressed="false"],
+    .file-header-menu-button:not([aria-expanded="true"]),
+    .file-review-stage,
+    .file-review-revert
+  ) {
+  opacity: 0;
+  transition: opacity var(--cmux-motion-micro) var(--cmux-ease-out);
+}
+.file-header:is(:hover, :focus-within)
+  :is(.file-review-viewed, .file-header-menu-button, .file-review-stage, .file-review-revert),
+.file-header:is(:has([data-popup-open]), :focus-within)
+  :is(.file-review-viewed, .file-header-menu-button, .file-review-stage, .file-review-revert) {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .file-header :is(.file-review-viewed, .file-header-menu-button, .file-review-stage, .file-review-revert) {
+    transition: none;
+  }
+}
 /* The page is as wide as its pane. In a narrow pane the file name keeps
    priority: the deferral badge and the "Viewed" word hide, and both stay
    reachable as tooltips on "Load diff" and the checkbox. */
@@ -2062,9 +2043,7 @@ svg[data-icon-fill] {
      geometry without drawing a second border over the glass surface. */
   border: 1px solid transparent;
   border-radius: var(--ui-popup-radius, var(--ds-radius-lg));
-  background: var(--glass-tint, color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg)));
-  -webkit-backdrop-filter: var(--surface-blur, none);
-  backdrop-filter: var(--surface-blur, none);
+  /* The tint and blur are .ui-popup.ui-glass's, the menu level every page's menus share. */
   color: var(--cmux-diff-fg);
 }
 .toolbar-menu-section {
@@ -2316,7 +2295,6 @@ svg[data-icon-fill] {
 /* The base picker popover uses the toolbar menu surface. */
 .base-picker-popover {
   border-radius: var(--ui-popup-radius, var(--ds-radius-lg));
-  background: var(--glass-tint, color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg)));
 }
 .base-picker-search {
   padding: 9px 12px;
@@ -2360,7 +2338,7 @@ svg[data-icon-fill] {
   padding: 0 12px 0 17px;
   font-family: var(--cmux-diff-ui-font-family);
   font-size: var(--text-field);
-  line-height: calc(20px * var(--cmux-interface-scale, 1));
+  line-height: calc(20px * var(--page-density-text, var(--cmux-interface-scale, 1)));
   /* Regular weight, as the code below it (diffWeight.ts). */
   font-weight: 400;
   color: var(--cmux-diff-fg);
@@ -2484,8 +2462,8 @@ button.file-header-open:focus-visible {
   font-size: calc(var(--cmux-diff-ui-font-size) * 0.85);
   white-space: nowrap;
 }
-/* "+N -N" then a five-block bar of the added share (FileHeader.tsx DiffStatBar), in tabular figures
-   so the counts of stacked headers line up. */
+/* "+N -N", only the counts that are not zero, in tabular figures so the counts of stacked headers
+   line up. */
 .file-header-stats {
   flex: 0 0 auto;
   display: inline-flex;
@@ -2493,23 +2471,6 @@ button.file-header-open:focus-visible {
   gap: 5px;
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
-}
-.file-header-bar {
-  display: inline-flex;
-  gap: 1.5px;
-  margin-left: 2px;
-}
-.file-header-bar > span {
-  width: 6px;
-  height: 6px;
-  border-radius: 1.5px;
-  background: var(--cmux-diff-muted-bg);
-}
-.file-header-bar > span[data-kind="added"] {
-  background: var(--cmux-diff-count-added);
-}
-.file-header-bar > span[data-kind="deleted"] {
-  background: var(--cmux-diff-count-deleted);
 }
 .file-header-additions {
   color: var(--cmux-diff-count-added);

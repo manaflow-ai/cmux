@@ -54,6 +54,12 @@ impl TimerSchedule {
         Self { last_activity: now, last_tick: now, swept: false, persistent_keepalive }
     }
 
+    /// Tick for the persistent keepalive or not (off while the tunnel is
+    /// held: `WgNet::hold`).
+    pub fn set_persistent_keepalive(&mut self, on: bool) {
+        self.persistent_keepalive = on;
+    }
+
     /// A datagram was authenticated, or a data or handshake datagram left.
     pub fn on_activity(&mut self, now: Instant) {
         if now > self.last_activity {

@@ -38,7 +38,7 @@ def row(side, label, front=None, marks=None, first=None, **extra):
 def run(rows, case="kept", seeded="", keys=False):
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
-        result = module.summarize(rows, case, seeded, keys)
+        result = module.summarize(rows, case, seeded, keys=keys)
     return result, out.getvalue().splitlines()
 
 
@@ -295,6 +295,28 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(module.first_surface({"marks": {"home.first_page": 1}}), "home")
         self.assertEqual(module.first_surface({"marks": {}}), "none")
 
+    # A fresh launch's window readies its own regions (sidebar rows, the tab strip, the pane holding Home's page)
+    # before Home's page draws: marks from a real fresh run (cmux-ci step 8feecdfbb939cc88ee5f3023, 2026-11-21).
+    FRESH_MARKS = {"reveal.sidebar": 305.0, "reveal.tabs": 556.0, "reveal.pane": 584.0, "reveal.home": 972.0,
+                   "home.first_page": 972.0, "window_usable": 1128.0}
+
+    def test_regions_readied_before_home_are_not_a_surface(self):
+        r = row("head", "run1", None, self.FRESH_MARKS, "sidebar")
+        self.assertEqual(module.first_surface(r), "home")
+        self.assertIsNone(module.judge(r, "home", None))
+
+    def test_a_terminal_drawn_before_home_is_tabs(self):
+        marks = dict(self.FRESH_MARKS, first_terminal_frame=700.0)
+        r = row("head", "run1", None, marks, "sidebar")
+        self.assertEqual(module.first_surface(r), "tabs")
+        self.assertIn("on a tab with no saved state", module.judge(r, "home", None))
+        snap = row("head", "run1", None, dict(self.FRESH_MARKS, launch_snapshot_shown=200.0), "sidebar")
+        self.assertEqual(module.first_surface(snap), "tabs")
+
+    def test_a_terminal_after_home_is_still_home(self):
+        r = row("head", "run1", None, dict(self.FRESH_MARKS, first_terminal_frame=3140.0), "sidebar")
+        self.assertEqual(module.first_surface(r), "home")
+
 
 class KeysTests(unittest.TestCase):
     # head: three measured launches, two whose message held keys (first_key_ms 900 and 1100); base: one, none held.
@@ -327,6 +349,35 @@ class KeysTests(unittest.TestCase):
                 with contextlib.redirect_stdout(out):
                     module.main([runs] + argv)
                 self.assertEqual("LR-KEYS head 1000.0 2/3" in out.getvalue().splitlines(), want)
+
+
+LAYOUT = {"main_start": 30.0, "layout.first_frame": 530.0, "layout.settle": 930.0, "layout.max_move": 32.0,
+          "layout.max_move.SidebarRowView": 32.0, "layout.last.TabStripView": 930.0, "layout.changed_frames": 3.0}
+
+
+class LayoutTests(unittest.TestCase):
+    def test_settle_after_main_start_and_after_the_first_frame(self):
+        lay = module.layout_of({"marks": LAYOUT})
+        self.assertEqual(lay["first_frame_ms"], 500.0)
+        self.assertEqual(lay["settle_ms"], 900.0)
+        self.assertEqual(lay["settle_minus_first_frame_ms"], 400.0)
+        self.assertEqual((lay["max_move_pt"], lay["moved"], lay["last"]), (32.0, "SidebarRowView", "TabStripView"))
+
+    def test_layout_line_per_side_with_missing_launches(self):
+        rows = [row("head", "prime", TAB), row("head", "run1", TAB, dict(TAB_MARKS, **LAYOUT), "tabs"),
+                row("head", "run2", TAB, TAB_MARKS, "tabs")]
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            module.summarize(rows, "kept", "", "state=kept front=tab")
+        line = next(l for l in out.getvalue().splitlines() if l.startswith("LR-LAYOUT head "))
+        self.assertIn("state=kept front=tab n=1 n_missing=1 first_frame_ms=500.0 settle_ms=900.0 settle_minus_first_frame_ms=400.0", line)
+        self.assertIn("moved=SidebarRowView:1", line)
+        self.assertIn("web_n_missing=1", line)
+
+    def test_no_layout_mark_prints_none_not_zero(self):
+        _, lines = run([row("base", "prime", TAB), row("base", "run1", TAB, TAB_MARKS, "tabs")])
+        line = next(l for l in lines if l.startswith("LR-LAYOUT base "))
+        self.assertIn("n=0 n_missing=1 first_frame_ms=none settle_ms=none", line)
 
 
 def layout(window_moved, window_changes, sidebar_moved=None, sidebar_changes=0):

@@ -51,21 +51,30 @@ impl Network {
     }
 
     fn json(&self, request: reqwest::blocking::RequestBuilder) -> Result<Value> {
-        self.json_refusing(request, |_| "server.pair.api_refused")
+        self.json_refusing(request, |_, _| "server.pair.api_refused")
     }
 
-    /// [`Self::json`], naming each 4xx refusal (the begin route's invite answers).
+    /// [`Self::json`], naming each 4xx refusal from its status and (bounded) JSON body: the begin
+    /// route's invite answers, the challenge route's unknown-or-revoked answer.
     fn json_refusing(
         &self,
         request: reqwest::blocking::RequestBuilder,
-        refusal: impl Fn(reqwest::StatusCode) -> &'static str,
+        refusal: impl Fn(reqwest::StatusCode, Option<&Value>) -> &'static str,
     ) -> Result<Value> {
         let response = request
             .send()
             .map_err(|error| if error.is_connect() { unsent() } else { unavailable() })?;
         if !response.status().is_success() {
             return Err(if response.status().is_client_error() {
-                Error::rejected(refusal(response.status()))
+                let status = response.status();
+                let mut bytes = Vec::new();
+                let body = match response.take(MAX_FRAME_BYTES as u64 + 1).read_to_end(&mut bytes) {
+                    Ok(_) if bytes.len() <= MAX_FRAME_BYTES => {
+                        serde_json::from_slice::<Value>(&bytes).ok()
+                    }
+                    _ => None,
+                };
+                Error::rejected(refusal(status, body.as_ref()))
             } else if response.status() == reqwest::StatusCode::SERVICE_UNAVAILABLE {
                 // The begin route's 503 means no free code: nothing was issued.
                 unsent()
@@ -120,6 +129,9 @@ impl super::Transport for Network {
         if let Some(token) = bearer {
             request = request.bearer_auth(token);
         }
+        if path == "/v1/auth/challenge" {
+            return self.json_refusing(request, challenge_refusal);
+        }
         self.json(request)
     }
     fn native_post(&self, origin: &str, path: &str, body: &Value) -> Result<Option<Value>> {
@@ -158,7 +170,7 @@ impl super::Transport for Network {
         if body.get("invite").is_none() {
             return self.json(request);
         }
-        self.json_refusing(request, invite_refusal)
+        self.json_refusing(request, |status, _| invite_refusal(status))
     }
 
     fn wait(&self, api: &str, begun: &Begun) -> Result<Waited> {
@@ -307,5 +319,20 @@ pub(super) fn invite_refusal(status: reqwest::StatusCode) -> &'static str {
         reqwest::StatusCode::NOT_FOUND => super::invite::UNKNOWN,
         reqwest::StatusCode::CONFLICT => super::invite::USED,
         _ => "server.pair.api_refused",
+    }
+}
+
+/// The challenge route's one answer for an unknown or revoked install (user-do.ts `challenge`):
+/// 403 `auth.forbidden` "challenge refused". Every other 4xx (a failed lookup, validation, a rate
+/// limit, a policy gate) says nothing about the install and stays the generic refusal.
+pub(super) fn challenge_refusal(status: reqwest::StatusCode, body: Option<&Value>) -> &'static str {
+    let field = |name: &str| body.and_then(|b| b.get(name)).and_then(Value::as_str);
+    if status == reqwest::StatusCode::FORBIDDEN
+        && field("code") == Some("auth.forbidden")
+        && field("message") == Some("challenge refused")
+    {
+        super::unpair::CHALLENGE_REFUSED
+    } else {
+        "server.pair.api_refused"
     }
 }
