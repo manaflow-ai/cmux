@@ -21,9 +21,9 @@
 //!   cores only, started and stopped (joined) by the bench and never past [`LOAD_BOUND`]: a Mac
 //!   running a build, its cores oversubscribed, while the phone stays idle.
 //!
-//! The gate: each arm's p95 total (the median of its trials' p95) must stay at or under
-//! `baseline_p95 * (1 + margin_ratio) + margin_ms` from `scroll_to_display_baseline.json`, measured
-//! with this same harness on the CI runner (ios-reliability-matrix.yml's protocol job).
+//! The gate: each arm's p95 total (the median of its trials' p95) must stay at or under its
+//! `total_p95_ms * (1 + margin_ratio) + margin_ms` in `scroll_to_display_baseline.json`, measured
+//! with this same test on Linux CI; the margins and the runs they come from are written there.
 //!
 //! `cargo test --release -p cmux-mobile-host --test scroll_to_display -- --ignored --nocapture`
 //! (`SCROLL_GATE=off` prints the rows and skips the comparison.)
@@ -47,7 +47,7 @@ use tokio::runtime::Runtime;
 /// Redraws per trial (5 s at 60 Hz).
 const LINES: u64 = 300;
 /// Trials per arm; an arm's number is the median of its trials.
-const TRIALS: usize = 5;
+const TRIALS: usize = 7;
 const EVERY: Duration = Duration::from_micros(16_667);
 const ROWS: usize = 40;
 const COLS: usize = 100;
@@ -259,17 +259,30 @@ fn arm(mac_rt: &Runtime, phone_rt: &Runtime, label: &str) -> Arm {
     }
 }
 
+/// The machine's CPU, for reading rows from unlike runners apart.
+fn cpu_model() -> String {
+    std::fs::read_to_string("/proc/cpuinfo")
+        .ok()
+        .and_then(|info| {
+            info.lines()
+                .find(|l| l.starts_with("model name"))
+                .map(|l| l.split(':').nth(1).unwrap_or("").trim().to_owned())
+        })
+        .unwrap_or_default()
+}
+
 #[derive(Debug, serde::Deserialize)]
 struct Baseline {
-    margin_ratio: f64,
-    margin_ms: f64,
     idle: BaselineArm,
     loaded: BaselineArm,
 }
 
+/// An arm's p95 total and its margin: the limit is `total_p95_ms * (1 + margin_ratio) + margin_ms`.
 #[derive(Debug, serde::Deserialize)]
 struct BaselineArm {
     total_p95_ms: f64,
+    margin_ratio: f64,
+    margin_ms: f64,
 }
 
 #[test]
@@ -301,7 +314,8 @@ fn mac_scroll_to_phone_display_idle_and_loaded_stays_under_its_baseline() {
     }
     println!(
         "SCROLL-JSON {}",
-        serde_json::json!({"idle": idle, "loaded": loaded, "mac_cores": mac_cpus.len(), "busy_threads": busy})
+        serde_json::json!({"idle": idle, "loaded": loaded, "mac_cores": mac_cpus.len(), "busy_threads": busy,
+            "cpu": cpu_model()})
     );
 
     if std::env::var("SCROLL_GATE").as_deref() == Ok("off") {
@@ -310,7 +324,7 @@ fn mac_scroll_to_phone_display_idle_and_loaded_stays_under_its_baseline() {
     let baseline: Baseline = serde_json::from_str(include_str!("scroll_to_display_baseline.json")).unwrap();
     let mut over = Vec::new();
     for (name, measured, base) in [("idle", &idle, &baseline.idle), ("loaded", &loaded, &baseline.loaded)] {
-        let limit = base.total_p95_ms * (1.0 + baseline.margin_ratio) + baseline.margin_ms;
+        let limit = base.total_p95_ms * (1.0 + base.margin_ratio) + base.margin_ms;
         let ok = measured.total_p95_ms <= limit;
         println!(
             "SCROLL-GATE {name}: p95 {} ms, baseline {} ms, limit {limit:.2} ms: {}",

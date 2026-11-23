@@ -1,6 +1,4 @@
 {
-  "margin_ratio": 1.0,
-  "margin_ms": 5.0,
-  "idle": {"total_p95_ms": 10.0},
-  "loaded": {"total_p95_ms": 20.0}
+  "idle": {"total_p95_ms": 6.0, "margin_ratio": 1.0, "margin_ms": 4.0},
+  "loaded": {"total_p95_ms": 100.0, "margin_ratio": 3.0, "margin_ms": 50.0}
 }
