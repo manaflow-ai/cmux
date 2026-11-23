@@ -35,19 +35,21 @@ def open_text(path):
     return gzip.open(path, "rt", encoding="utf-8") if path.suffix == ".gz" else path.open(encoding="utf-8")
 
 
-def runner_vm(name):
+def runner_vm(name, vm_names):
     if name.startswith(ONESHOT):
         short, _, tag = name[len(ONESHOT):].rpartition("-")
         if short and re.fullmatch("[0-9a-f]{4}", tag):
-            return POOL + short
+            name = POOL + short
+    if name in vm_names:
+        return name
     if name.startswith(POOL):
-        match = re.fullmatch(r"(.+-\d{4,})(?:-\d+)?", name)
-        if match:
-            return match[1]
-    return name
+        parent, _, slot = name.rpartition("-")
+        if slot.isdecimal() and parent in vm_names:
+            return parent
+    return None
 
 
-def busy_intervals(path, begin, end):
+def busy_intervals(path, begin, end, vm_names):
     jobs = defaultdict(list)
     with open_text(path) as stream:
         for line in stream:
@@ -57,8 +59,8 @@ def busy_intervals(path, begin, end):
                 start = stop - row["seconds"]
             else:
                 name, start, stop = row[:3]
-            vm = runner_vm(name or "")
-            if vm.startswith((POOL, JIT)) and max(start, begin) < min(stop, end):
+            vm = runner_vm(name or "", vm_names)
+            if vm is not None and max(start, begin) < min(stop, end):
                 jobs[vm].append((max(start, begin), min(stop, end)))
     for vm, intervals in jobs.items():
         merged = []
@@ -88,11 +90,12 @@ def read_snapshots(directory):
 
 def power_events(snapshots):
     events = defaultdict(dict)
+    shapes = defaultdict(list)
     previous_time, previous = None, set()
     for t, _, rows in snapshots:
         current = set()
         for r in rows:
-            key = (r["name"], r["zone"], r["created"], r["machine_type"])
+            key = (r["name"], r["zone"], r["created"])
             current.add(key)
             events_vm = events[key]
             if previous_time is not None and key not in previous:
@@ -100,11 +103,25 @@ def power_events(snapshots):
             for field in ("last_stop", "last_suspended", "last_start"):
                 if r.get(field):
                     events_vm[stamp(r[field])] = (field == "last_start", True)
-            events_vm[t] = (r["status"] == "RUNNING", False)
+            observed_on = r["status"] == "RUNNING"
+            events_vm[t] = (observed_on, events_vm.get(t) == (observed_on, True))
+            history = shapes[key]
+            if not history:
+                history.append((stamp(r["created"]), r["machine_type"]))
+            elif history[-1][1] != r["machine_type"]:
+                # Resizing requires a stopped VM. Charge a new run at its new
+                # rate, without replaying any of the old shape's power events.
+                transition = (previous_time + t) / 2
+                for field in ("last_start", "last_stop", "last_suspended"):
+                    edge = stamp(r[field]) if r.get(field) else None
+                    if edge is not None and previous_time < edge <= t:
+                        transition = edge
+                        break
+                history.append((transition, r["machine_type"]))
         for key in previous - current:
             events[key][t] = (False, False)
         previous, previous_time = current, t
-    return events
+    return events, shapes
 
 
 def running_spans(events, created, begin, end):
@@ -122,10 +139,23 @@ def running_spans(events, created, begin, end):
         yield start, end
 
 
+def priced_spans(spans, shapes):
+    i = 0
+    for start, stop in spans:
+        while i + 1 < len(shapes) and shapes[i + 1][0] <= stop:
+            edge = shapes[i + 1][0]
+            if start < edge:
+                yield start, edge, shapes[i][1]
+            start = max(start, edge)
+            i += 1
+        if start < stop:
+            yield start, stop, shapes[i][1]
+
+
 def occupancy(spans, intervals):
     # Both streams are sorted. A job may extend across an inferred power edge.
     i = 0
-    for start, stop in spans:
+    for start, stop, shape in spans:
         busy = 0
         while i < len(intervals):
             a, b = intervals[i]
@@ -135,7 +165,7 @@ def occupancy(spans, intervals):
             if b > stop:
                 break
             i += 1
-        yield (stop - start) / 3600, (stop - start - busy) / 3600
+        yield shape, (stop - start) / 3600, (stop - start - busy) / 3600
 
 
 def measure(directory):
@@ -149,12 +179,14 @@ def measure(directory):
     job_files = [p for p in (directory / "jobs.jsonl", directory / "jobs.jsonl.gz") if p.is_file()]
     if len(job_files) != 1:
         raise ValueError("supply one jobs.jsonl or jobs.jsonl.gz")
-    jobs = busy_intervals(job_files[0], begin, end)
+    histories, shapes = power_events(snapshots)
+    jobs = busy_intervals(job_files[0], begin, end, {key[0] for key in histories})
     totals = {"persistent": Counter(), "jit": Counter()}
-    for (name, zone, created, shape), events in power_events(snapshots).items():
+    for key, events in histories.items():
+        name, zone, created = key
         group = totals["persistent" if name.startswith(POOL) else "jit"]
         spans = running_spans(events, stamp(created), begin, end)
-        for running, idle in occupancy(spans, jobs.get(name, ())):
+        for shape, running, idle in occupancy(priced_spans(spans, shapes[key]), jobs.get(name, ())):
             group["running_vm_hours"] += running
             group["idle_vm_hours"] += idle
             group["idle_list_usd"] += idle * prices[f"{shape}/{zone.rsplit('-', 1)[0]}"]
