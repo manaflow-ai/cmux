@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 2e0877c88adc3bd75bf9e49964f9345f01e89bccf21a8b32cbba5f203a9bd76f.
+// cmux-tui mux protocol 12, IR 69fa34844098cf552177a00cf8a770179750916108759df3f37bd21ed1ef53d3.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -376,6 +376,9 @@ pub struct ChiefWorkTask {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ClientInfo {
     pub attached: Vec<Id>,
+    /// The capabilities this connection declared in set-client-info that the daemon recognized, sorted (for example agent-cli-hybrid-v1). Absent from daemons older than this field.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<Vec<String>>,
     pub client: u64,
     pub connected_seconds: u64,
     pub kind: Nullable<String>,

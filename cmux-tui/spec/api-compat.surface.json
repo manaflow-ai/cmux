@@ -7506,6 +7506,14 @@
         "ty": "uint64",
         "nullable": true
       },
+      "/resume_generation": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/resume_offset": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/rows": {
         "ty": "uint16",
         "nullable": true
@@ -18200,6 +18208,12 @@
       },
       "/data/*/attached/*": {
         "ty": "uint64"
+      },
+      "/data/*/capabilities": {
+        "ty": "array"
+      },
+      "/data/*/capabilities/*": {
+        "ty": "string"
       },
       "/data/*/client": {
         "ty": "uint64",

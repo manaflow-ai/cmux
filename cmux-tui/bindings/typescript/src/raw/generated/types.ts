@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2e0877c88adc3bd75bf9e49964f9345f01e89bccf21a8b32cbba5f203a9bd76f. */
+/* cmux-tui mux protocol 12, IR 69fa34844098cf552177a00cf8a770179750916108759df3f37bd21ed1ef53d3. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -199,6 +199,8 @@ export type ChiefWorkTask = {
 
 export type ClientInfo = {
   "attached": Array<Id>;
+  /** The capabilities this connection declared in set-client-info that the daemon recognized, sorted (for example agent-cli-hybrid-v1). Absent from daemons older than this field. */
+  "capabilities"?: Array<string>;
   "client": bigint;
   "connected_seconds": bigint;
   "kind": (string) | null;
