@@ -55,8 +55,29 @@
 use super::*;
 use std::time::Duration;
 
+mod seams;
+#[cfg(any(debug_assertions, test))]
+use seams::note_taken;
+#[cfg(any(debug_assertions, test))]
+pub use seams::records_taken;
+use seams::test_flush_fails;
+#[cfg(debug_assertions)]
+use seams::test_pause;
+#[cfg(debug_assertions)]
+pub use seams::{fail_flush_once, pause_once_holding, test_paused};
+
 /// The most records one restore takes.
 pub const MAX_RECORDS: usize = 4096;
+
+/// The `initialize` feature of a machine that takes a restore in pages (cmuxterm-hq
+/// `docs/design/remote-cloud-durability.md` 4.5, F19): a request whose `throughSeq` is past its
+/// last record is one page of a restore that ends there. The page goes in as any try does, and
+/// once it is in whole the try stops short on purpose: answered `append_failed` with `page:
+/// true` and its `lastSeq`, the chat held for the owner's next page (`RESTORE_HOLD`), and only
+/// the page that reaches `throughSeq` settles the log. So a link cut midway costs the page in
+/// flight, never the pages before it: the next link's restore goes on from where the journal
+/// ends. A machine without the feature takes the whole restore in one request, as before.
+pub const PAGES_FEATURE: &str = "journalRestorePages";
 
 /// Tests only: the rules of an earlier head, which a review of #37284 found losing prompts or
 /// history, for the tests and the move simulation to replay (0: the rules of now). Each later
@@ -283,6 +304,8 @@ impl Hub {
                 "at most {MAX_RECORDS} records restore at once"
             )));
         }
+        #[cfg(any(debug_assertions, test))]
+        note_taken(id, raw.len());
         let mut records = Vec::with_capacity(raw.len());
         let mut last = after;
         for r in raw {
@@ -345,13 +368,15 @@ impl Hub {
         let hub = self.clone();
         let held = session.clone();
         let files = files_of(params)?;
+        // A page of a longer restore names where the whole restore ends ([`PAGES_FEATURE`]).
+        let through = params.get("throughSeq").and_then(Value::as_u64);
         let old = self.at_ff3d();
         let result = blocking(move || {
             // ff3da306 wrote the files before it decided (review of #37284 at ff3da306, F2).
             if old {
                 restore_files(&held, &files, true)?;
             }
-            hub.restore_records(&held, after, records, resumed, &files)
+            hub.restore_records(&held, after, records, resumed, &files, through)
         });
         // (5) Stopped short: the chat stays held for the owner's next try, at most
         // [`RESTORE_HOLD`], so no prompt takes the seqs the rest of the records need.
@@ -374,6 +399,7 @@ impl Hub {
         records: Vec<EventRecord>,
         resumed: bool,
         files: &[(std::path::PathBuf, Vec<u8>)],
+        through: Option<u64>,
     ) -> Result<Value, RpcError> {
         // The chat's log is read first, now, when a deferred start has not read it yet (review
         // of #37284 at 98b4575a, F3): the restore settles the log it writes into, and only then
@@ -388,7 +414,7 @@ impl Hub {
         if !*loaded {
             return Err(refused("busy", "this chat's log is not read yet", session));
         }
-        let result = self.write_restored(session, after, &records, resumed, files);
+        let result = self.write_restored(session, after, &records, resumed, files, through);
         if result.as_ref().is_err_and(|e| reason_of(e) != Some("append_failed")) {
             self.recover_pending(session, None);
         }
@@ -407,6 +433,7 @@ impl Hub {
         records: &[EventRecord],
         resumed: bool,
         files: &[(std::path::PathBuf, Vec<u8>)],
+        through_seq: Option<u64>,
     ) -> Result<Value, RpcError> {
         let old = self.at_ff3d();
         let (at, failed, flush_failed) = {
@@ -573,11 +600,21 @@ impl Hub {
             self.save_meta(session);
         }
         let last = session.seq.load(Ordering::SeqCst);
-        let through = records.last().map_or(after, |r| r.seq);
+        let page_end = records.last().map_or(after, |r| r.seq);
+        // A page of a longer restore ([`PAGES_FEATURE`]) ends where the whole restore does.
+        let through = page_end.max(through_seq.unwrap_or(0));
         // Only every record in and flushed to stable storage is a restore: until then nothing
         // settles the log, and the owner keeps its copy and delivers nothing again
         // (`peer_snapshot/restore.rs`). A flush that failed fails it however far the log reads.
         let short = last < through;
+        // A page taken whole is a try that stopped short on purpose: held for the next page,
+        // as a try the disk stopped is, and the owner goes on from `lastSeq`. It returns before
+        // anything below (the parked records, `recover_pending`, `settle_restored`), and its
+        // `append_failed` keeps `restore_records` from recovering: no record but the copy's goes
+        // in between pages, so the next page starts where this one ended.
+        if short && flush_failed.is_none() && failed.is_none() && last >= page_end {
+            return Err(page_taken(session, last, through));
+        }
         if let Some(e) = flush_failed
             .or_else(|| failed.filter(|_| short))
             .or_else(|| short.then(|| anyhow::anyhow!("the journal ends at {last}, not {through}")))
@@ -1030,6 +1067,14 @@ fn reason_of(e: &RpcError) -> Option<&str> {
     e.data.as_ref()?.get("reason")?.as_str()
 }
 
+/// One page of a longer restore went in whole: the answer of a try that stopped short
+/// (`append_failed`, so the chat is held for the next page), marked `page`, at `last`.
+fn page_taken(session: &Session, last: u64, through: u64) -> RpcError {
+    tracing::debug!(session = %session.id, last, through, "journal restore: a page went in");
+    RpcError::internal(format!("journal restore: a page went in, through {last} of {through}"))
+        .with_data(json!({"reason": "append_failed", "lastSeq": last, "page": true}))
+}
+
 fn stopped(session: &Session, e: &anyhow::Error) -> RpcError {
     tracing::warn!(session = %session.id, "journal restore stopped: {e:#}");
     let last = session.seq.load(Ordering::SeqCst);
@@ -1168,63 +1213,4 @@ fn test_between_records(id: &str) {
     if let Some(crash) = crash {
         crash();
     }
-}
-
-/// Debug builds only: the restore of chat `id` waits `ms` once it holds the chat, so a test can
-/// send a prompt in that window ([`test_paused`] says when it is in it).
-#[cfg(debug_assertions)]
-static PAUSE: std::sync::Mutex<Option<(String, u64, bool)>> = std::sync::Mutex::new(None);
-
-#[cfg(debug_assertions)]
-#[doc(hidden)]
-pub fn pause_once_holding(id: &str, ms: u64) {
-    *PAUSE.lock().unwrap_or_else(|e| e.into_inner()) = Some((id.to_owned(), ms, false));
-}
-
-#[cfg(debug_assertions)]
-#[doc(hidden)]
-pub fn test_paused() -> bool {
-    PAUSE.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_some_and(|p| p.2)
-}
-
-#[cfg(debug_assertions)]
-async fn test_pause(id: &str) {
-    let ms = {
-        let mut pause = PAUSE.lock().unwrap_or_else(|e| e.into_inner());
-        match pause.as_mut() {
-            Some(p) if p.0 == id && !p.2 => {
-                p.2 = true;
-                p.1
-            }
-            _ => return,
-        }
-    };
-    tokio::time::sleep(Duration::from_millis(ms)).await;
-    *PAUSE.lock().unwrap_or_else(|e| e.into_inner()) = None;
-}
-
-/// Debug builds only: the next flush of a restore of chat `id` fails (a disk whose fsync fails),
-/// after every record is written.
-#[cfg(debug_assertions)]
-static FLUSH_FAILS: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
-
-#[cfg(debug_assertions)]
-#[doc(hidden)]
-pub fn fail_flush_once(id: &str) {
-    *FLUSH_FAILS.lock().unwrap_or_else(|e| e.into_inner()) = Some(id.to_owned());
-}
-
-#[cfg(debug_assertions)]
-fn test_flush_fails(id: &str) -> bool {
-    let mut armed = FLUSH_FAILS.lock().unwrap_or_else(|e| e.into_inner());
-    let fails = armed.as_deref() == Some(id);
-    if fails {
-        *armed = None;
-    }
-    fails
-}
-
-#[cfg(not(debug_assertions))]
-fn test_flush_fails(_: &str) -> bool {
-    false
 }
