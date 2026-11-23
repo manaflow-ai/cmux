@@ -81,7 +81,7 @@ async fn the_resumed_turn_takes_the_carried_prompt_and_writes_nothing() {
     tr.owe_resumed();
     assert!(tr.holding().is_some(), "output is held until the turn's prompt comes");
     let prompt = Message::request(
-        Id::Num(7),
+        7,
         method::SESSION_PROMPT,
         json!({"sessionId": "c", "prompt": [], "_meta": {"carried": true}}),
     );
@@ -90,5 +90,7 @@ async fn the_resumed_turn_takes_the_carried_prompt_and_writes_nothing() {
         _ => panic!("the carried prompt is answered by the turn's result, not at once"),
     }
     assert!(tr.holding().is_none());
-    assert!(matches!(tr.pending.lock().await.get(&Id::Num(7).to_string()), Some(Pending::Prompt)));
+    let pending = tr.pending.lock().await;
+    assert_eq!(pending.len(), 1);
+    assert!(pending.values().all(|p| matches!(p, Pending::Prompt)));
 }

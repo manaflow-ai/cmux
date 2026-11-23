@@ -941,6 +941,31 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// A move at a tool boundary marks its continuation as one the harness may run from its own
+    /// transcript; a move that cut the turn anywhere (`--interrupt`) does not. Both keep the
+    /// text, the reason and the id, which every other harness and every record reader use.
+    #[tokio::test]
+    async fn only_a_boundary_moves_continuation_may_run_with_no_prompt() {
+        for (cut, want) in [(Cut::MoveAtBoundary, true), (Cut::Move, false), (Cut::Restart, false)]
+        {
+            let (root, hub, session) = cut_turn(Some(vec![10_000]), 0);
+            let id = hub.log_continuation(&session, "t1", cut);
+            assert_eq!(id, Some(format!("p1{SUFFIX}1")), "{cut:?}");
+            let events = hub.events("c1", 0, 10_000).unwrap();
+            let queued = events.iter().rfind(|e| e.kind == "queued").expect("queued").msg.clone();
+            let provenance = queued.pointer("/_meta/provenance");
+            assert_eq!(silent(provenance), want, "{cut:?}: {queued}");
+            let text = queued["text"].as_str().unwrap();
+            assert!(text.starts_with(cut.opening()), "{cut:?}: {text}");
+            assert_eq!(Cut::MoveAtBoundary.opening(), Cut::Move.opening());
+            assert_eq!(Cut::MoveAtBoundary.reason(), Cut::Move.reason());
+            hub.shutdown_all().await;
+            let _ = std::fs::remove_dir_all(&root);
+        }
+        assert!(!silent(None));
+        assert!(!silent(Some(&json!({"kind": "person", "silent": true}))));
+    }
+
     /// The key unset keeps the default waits' attempts, and `[]` still turns it off.
     #[tokio::test]
     async fn an_unset_key_keeps_the_default_attempts_and_an_empty_list_turns_it_off() {
