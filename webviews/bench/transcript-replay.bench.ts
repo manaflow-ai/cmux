@@ -79,6 +79,9 @@ const ALLOC = process.env.ALLOC === "1";
 /// `PROBE=1` counts, per burst record, geometry reads, forced layouts and row renders (BurstResult `probe`), with a
 /// DevTools trace on: its time is not a clean measurement, its counts are.
 const PROBE = process.env.PROBE === "1";
+/// `SNAPSHOT=DIR` writes, after each measured burst, the page as one static file (its DOM with scripts removed and
+/// every stylesheet's rules inlined) for bench/long-chat-floor.bench.ts, the per-record floor of that exact DOM.
+const SNAPSHOT = process.env.SNAPSHOT;
 /// `CLOCK=cpu` times each burst in main-thread CPU time (`threadTicks`), not wall time: a busy shared runner
 /// stretches wall time by whatever else it runs (p95 swung 40% between runs), CPU time much less.
 const CPU_CLOCK = process.env.CLOCK === "cpu";
@@ -280,6 +283,32 @@ export function movedPx(frames: Sample[][], viewHeight: number): { px: number; r
   return { px: Math.round(px * 10) / 10, row };
 }
 
+/// SNAPSHOT=DIR: the page as one static HTML file: every stylesheet's rules inlined, scripts removed, the scroller's
+/// offset kept as `data-floor-scroll-top` (a static copy cannot hold a scroll position).
+async function snapshotPage(page: Page, file: string) {
+  const html = await page.evaluate(() => {
+    const css: string[] = [];
+    for (const sheet of document.styleSheets) {
+      try {
+        for (const rule of sheet.cssRules) css.push(rule.cssText);
+      } catch {
+        // A cross-origin sheet: its rules are unreadable, and the pane has none.
+      }
+    }
+    const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+    if (scroller) scroller.dataset.floorScrollTop = String(scroller.scrollTop);
+    const root = document.documentElement.cloneNode(true) as HTMLElement;
+    if (scroller) delete scroller.dataset.floorScrollTop;
+    for (const node of root.querySelectorAll("script, link[rel=stylesheet], link[rel=modulepreload], style"))
+      node.remove();
+    const style = document.createElement("style");
+    style.textContent = css.join("\n");
+    root.querySelector("head")?.append(style);
+    return `<!doctype html>\n${root.outerHTML}`;
+  });
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, html);
+}
 async function metric(cdp: CDPSession, name: string): Promise<number> {
   const { metrics } = (await cdp.send("Performance.getMetrics")) as { metrics: { name: string; value: number }[] };
   return metrics.find((each) => each.name === name)?.value ?? 0;
@@ -731,6 +760,7 @@ async function startLive(ctx: Ctx, daemon: Daemon, log: ReplayLog): Promise<Live
           ? ((await cdp.send("HeapProfiler.stopSampling")) as { profile: HeapProfile }).profile
           : undefined;
       burstWindows.push([windowStart, await page.evaluate(() => performance.now())]);
+      if (SNAPSHOT) await snapshotPage(page, path.join(SNAPSHOT, `${log.name}-${burst.kind}-${burst.rows}.html`));
       const dom = await domSize(page);
       bursts.push({
         dom,
