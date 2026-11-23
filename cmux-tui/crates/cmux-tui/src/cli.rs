@@ -176,6 +176,8 @@ mod start_stages;
 #[cfg(unix)]
 mod vm;
 #[cfg(unix)]
+mod vm_bootstrap;
+#[cfg(unix)]
 mod vm_cleanup;
 mod vm_gcp;
 #[cfg(unix)]
