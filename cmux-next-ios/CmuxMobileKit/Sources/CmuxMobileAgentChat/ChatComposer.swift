@@ -1,5 +1,5 @@
-#if os(iOS)
 import CmuxMobileArtifacts
+#if os(iOS)
 import CmuxMobileDesign
 import CmuxMobileRealtime
 import CmuxMobileTransport
@@ -48,8 +48,15 @@ struct ChatComposer: View {
     /// Set by a tap on the collapsed capsule: the text field only exists
     /// when expanded, so focus can only move into it after it is built.
     @State private var expandRequested = false
-    /// The slash-command list's bottom edge, window y (its height bound's floor).
-    @State private var suggestionsBottom: CGFloat?
+    /// The composer card's top, window y: the slash-command list's bottom edge less the
+    /// stack's spacing, so its height bound's floor. Measured on the card, which is laid out
+    /// before the list exists and which the list never moves, so the list opens at its one
+    /// final height. Measured on the list itself it was unknown on the list's first frame:
+    /// the list drew at the 5.5-row fallback, then shrank (or grew) a frame later to the real
+    /// room, a second animation on top of its entrance.
+    @State private var cardTop: CGFloat?
+    /// The space between the list (or the mention list) and the card.
+    private static let suggestionsGap: CGFloat = 8
     /// The session's files for `@` mentions, scanned once per transcript change, not per key.
     @State private var mentionIndex = MentionIndex()
 
@@ -66,7 +73,7 @@ struct ChatComposer: View {
     @State private var placedCollapsible: Bool?
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: Self.suggestionsGap) {
             if !slashMatches.isEmpty {
                 slashSuggestions
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -75,6 +82,11 @@ struct ChatComposer: View {
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
             card
+                // The card's top, which only the keyboard, the resting place or the card's own
+                // growth moves (the stack is bottom-aligned), so the list's height never feeds back.
+                .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .global).minY }) { top in
+                    if cardTop != top { cardTop = top }
+                }
         }
         .animation(.cmuxMobileSmooth.unlessReduceMotion, value: collapsed)
         .animation(.cmuxMobileSnappy.unlessReduceMotion, value: attachments)
@@ -232,6 +244,7 @@ struct ChatComposer: View {
             }
             HStack(spacing: 8) {
                 plusMenu
+                if voice.placement == .leading { voiceButton }
                 if collapsed {
                     // One placeholder: the collapsed capsule reads the same as the field it opens.
                     Text(placeholder)
@@ -251,8 +264,11 @@ struct ChatComposer: View {
                 // Voice mode instead of a dictation mic (the keyboard's own mic still
                 // dictates into the field): with no draft, the send circle is the voice
                 // button (ChatGPT's composer); while the agent runs it sits beside Stop.
-                if primaryState == .empty || primaryState == .stop, voice.isAvailable { voiceButton }
-                if primaryState != .empty || !voice.isAvailable { primaryButton }
+                // Hidden unless turned on in Settings → Composer (Leo, 2026-11-22: "im
+                // hiding this by default"); "Left of Field" puts it after +.
+                let voiceInSend = voice.placement == .sendButton
+                if primaryState == .empty || primaryState == .stop, voiceInSend { voiceButton }
+                if primaryState != .empty || !voiceInSend { primaryButton }
             }
             .padding(.horizontal, 8)
             // CMUX-46: the collapsed "Reply to <agent>" capsule is the 44 pt row plus 2 pt each
@@ -636,7 +652,7 @@ struct ChatComposer: View {
     /// Every matching command, in a list as tall as its rows while they fit between the
     /// ceiling and the composer card, scrolling past that (`SlashSuggestionsBound`).
     private var slashSuggestions: some View {
-        let bound = SlashSuggestionsBound(ceiling: suggestionsCeiling, bottom: suggestionsBottom)
+        let bound = SlashSuggestionsBound(ceiling: suggestionsCeiling, cardTop: cardTop, gap: Self.suggestionsGap)
         return CappedHeightLayout(maxHeight: bound.maxHeight) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
@@ -661,11 +677,6 @@ struct ChatComposer: View {
         }
         .clipShape(.rect(cornerRadius: 20, style: .continuous))
         .glassEffect(.regular, in: .rect(cornerRadius: 20, style: .continuous))
-        // The card's top, which only the keyboard or the resting place moves (the
-        // stack is bottom-aligned), so the list's own height never feeds back here.
-        .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .global).maxY }) { bottom in
-            if suggestionsBottom != bottom { suggestionsBottom = bottom }
-        }
         .padding(.horizontal, 12)
     }
 

@@ -711,22 +711,25 @@ struct AgentChatLoadingState: View {
 }
 
 /// Kept rows show while the chat is away from the Mac or catches up with it; after
-/// ``QuietStatusGate/threshold`` one quiet line by the composer says so
-/// (``AgentChatStore/connectionLine``). Never a pill over the rows.
+/// ``QuietStatusGate/threshold`` a small chip floats just above the composer
+/// (``AgentChatStore/connectionLine`` is its VoiceOver sentence). An overlay, never
+/// in the stack, so it pushes nothing up (Leo, 2026-11-21: "these messages should
+/// not be pushing up the text ... a symbol or short thing, not a sentence. stop
+/// layout shifting").
 struct AgentChatConnectionLine: View {
     let store: AgentChatStore
 
     var body: some View {
-        if let line = store.connectionLine {
-            Text(verbatim: line)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 20)
-                .accessibilityIdentifier("agentChat.connectionLine")
-                .allowsHitTesting(false)
-                .transition(.opacity)
+        Group {
+            if let line = store.connectionLine {
+                ConnectionChip(.init(store.summary.status == .disconnected ? .connecting : .updating, sentence: line))
+                    .padding(.leading, 20)
+                    .alignmentGuide(.top) { $0[.bottom] + 8 }
+                    .accessibilityIdentifier("agentChat.connectionLine")
+                    .transition(.opacity)
+            }
         }
+        .animation(.cmuxMobileSmooth.unlessReduceMotion, value: store.connectionLine)
     }
 }
 
@@ -828,7 +831,6 @@ public struct AgentChatBottomStack: View {
                     .transition(.opacity.combined(with: .offset(y: 8)))
                     .accessibilityHint("Dismiss")
                 }
-                AgentChatConnectionLine(store: store)
                 // Pinned plan progress while a turn runs (ACP web UI parity).
                 if let progress = store.runningPlan, let entries = store.runningPlanEntries {
                     PlanProgressBar(progress: progress, entries: entries)
@@ -915,6 +917,9 @@ public struct AgentChatBottomStack: View {
                 surface.drawnStackHeight = height
                 surface.stackHeightFrame?(height)
             })
+            // Floats just above the stack, never in it: showing it moves
+            // neither the composer nor the transcript's rows.
+            .overlay(alignment: .topLeading) { AgentChatConnectionLine(store: store) }
             // As in Messages, a downward swipe on the composer takes the
             // keyboard down (the transcript's interactive dismissal covers
             // drags that start above it).

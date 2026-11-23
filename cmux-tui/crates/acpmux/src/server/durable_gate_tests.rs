@@ -32,14 +32,26 @@ fn hub_and_durability(
     journal: &SimStorage,
     kept_sync_quiet: Duration,
 ) -> (Arc<crate::hub::Hub>, crate::store::Durability) {
-    let mut config = Config::default();
-    config.store.mode = StoreMode::Local;
-    let journal_config = cmux_journal::Config {
+    hub_with_journal(home, journal, cmux_journal::Config { kept_sync_quiet, ..journal_config() })
+}
+
+/// The tests' journal: retries quickly.
+fn journal_config() -> cmux_journal::Config {
+    cmux_journal::Config {
         retry_min: Duration::from_millis(1),
         retry_max: Duration::from_millis(5),
-        kept_sync_quiet,
         ..cmux_journal::Config::default()
-    };
+    }
+}
+
+/// [`hub_and_durability`] with the journal `journal_config`.
+fn hub_with_journal(
+    home: &Path,
+    journal: &SimStorage,
+    journal_config: cmux_journal::Config,
+) -> (Arc<crate::hub::Hub>, crate::store::Durability) {
+    let mut config = Config::default();
+    config.store.mode = StoreMode::Local;
     let store = crate::store::open_with_journal(
         &config.store,
         home,
@@ -77,7 +89,10 @@ async fn send(input: &mpsc::Sender<String>, message: Message) {
 }
 
 /// The next line `outgoing` sends that `stop` takes, within 10 s.
-async fn until(outgoing: &mut mpsc::Receiver<String>, stop: impl Fn(&Value) -> bool) -> Value {
+async fn until(
+    outgoing: &mut mpsc::Receiver<String>,
+    mut stop: impl FnMut(&Value) -> bool,
+) -> Value {
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             let line = outgoing.recv().await.unwrap_or_else(|| panic!("the connection ended"));
@@ -246,6 +261,90 @@ async fn agent_output_is_not_held_behind_another_chats_acked_change() {
     assert!(marked.get("error").is_none(), "markUnread: {marked}");
     assert_eq!(update["params"]["update"]["content"]["text"], "hi", "{update}");
     assert!(took < SYNC / 2, "agent output waited {took:?} behind another chat's change");
+}
+
+/// The turn bench (`benches/turn_overhead.rs`, 2026-11-19): a prompting connection got its turn's
+/// reply only with the turn's last records, 3.8 ms of a 4.5 ms turn after the agent wrote it. The
+/// gate took the reply's line with the acknowledged lines queued after it and waited for the
+/// newest one's sync. Agent output queued after one acknowledged change and before another goes
+/// out once the first is durable, never after the second's sync; the lines keep their order.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn agent_output_waits_for_the_changes_before_it_not_after() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(64);
+    let hub = hub(home.path(), &journal);
+    let (viewer, mut viewer_out) = connect(&hub).await;
+    let attach = json!({"sessionId": CHAT, "visible": false, "waitLogs": false});
+    send(&viewer, Message::request(2, method::MUX_ATTACH, attach)).await;
+    let reply = until(&mut viewer_out, |line| line["id"] == 2).await;
+    assert!(reply.get("error").is_none(), "attach: {reply}");
+    let session = hub.resolve(CHAT).unwrap_or_else(|e| panic!("{e:?}"));
+    journal.set_sync_delay(SYNC);
+    let started = Instant::now();
+    // A turn's first record: its line waits for this sync.
+    let _ = hub.append(&session, "mux", "note", json!({"n": "before"}));
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let _ = hub.append(
+        &session,
+        "in",
+        method::SESSION_UPDATE,
+        json!({"jsonrpc": "2.0", "method": method::SESSION_UPDATE, "params": {
+            "sessionId": CHAT,
+            "update": {"sessionUpdate": "agent_message_chunk",
+                "content": {"type": "text", "text": "between"}}
+        }}),
+    );
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    // A later record, whose sync starts once the first one's ends.
+    let _ = hub.append(&session, "mux", "note", json!({"n": "after"}));
+    let mut order = Vec::new();
+    let update = until(&mut viewer_out, |line| {
+        let text = line.to_string();
+        for word in ["before", "between", "after"] {
+            if text.contains(&format!("\"{word}\"")) {
+                order.push(word);
+            }
+        }
+        line["method"] == method::SESSION_UPDATE
+    })
+    .await;
+    let took = started.elapsed();
+    let _ = until(&mut viewer_out, |line| line.to_string().contains("\"after\"")).await;
+    journal.set_sync_delay(Duration::ZERO);
+    assert_eq!(update["params"]["update"]["content"]["text"], "between", "{update}");
+    assert_eq!(order, ["before", "between"], "the lines went out out of order");
+    assert!(
+        took < SYNC + SYNC / 2,
+        "agent output waited {took:?}, past the first change's sync ({SYNC:?}) for the second's"
+    );
+}
+
+/// The turn bench (`benches/turn_overhead.rs`, 2026-11-19): the journal's group window held a
+/// turn's lines. The first acked change after a quiet time is synced at once; one within
+/// `ack_group_window` of that sync waited out the rest of the window, though a client was waiting
+/// to see it. A connection that holds a line for a change asks for its sync: the second change is
+/// answered after its own sync, not at the window's end.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_change_a_client_waits_for_does_not_wait_out_the_group_window() {
+    const WINDOW: Duration = Duration::from_millis(800);
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(65);
+    let config = cmux_journal::Config { ack_group_window: WINDOW, ..journal_config() };
+    let (hub, _) = hub_with_journal(home.path(), &journal, config);
+    let (input, mut outgoing) = connect(&hub).await;
+    // The first change after a quiet time: synced at once, and the window starts.
+    send(&input, Message::request(2, method::MUX_MARK_UNREAD, json!({"sessionId": CHAT}))).await;
+    let reply = until(&mut outgoing, |line| line["id"] == 2).await;
+    assert!(reply.get("error").is_none(), "markUnread: {reply}");
+    let started = Instant::now();
+    send(&input, Message::request(3, method::MUX_MARK_UNREAD, json!({"sessionId": OTHER}))).await;
+    let reply = until(&mut outgoing, |line| line["id"] == 3).await;
+    let took = started.elapsed();
+    assert!(reply.get("error").is_none(), "markUnread: {reply}");
+    assert!(
+        took < WINDOW / 2,
+        "the second change waited {took:?} for the group window ({WINDOW:?})"
+    );
 }
 
 /// huge-blue, 2026-11-08: a saturated disk (35-50% iowait, a 10.4 s fdatasync) made a reply wait
@@ -522,6 +621,7 @@ async fn the_gauge_counts_the_lines_the_gate_holds_and_the_transport_has_not_rea
         durable,
         kept: Arc::new(AtomicU64::new(0)),
         written,
+        ask: Arc::new(|_| {}),
         stalled: Arc::new(|_: Duration| false),
     };
     let scope = cmux_scope::Scope::new("durable-gate-test");
