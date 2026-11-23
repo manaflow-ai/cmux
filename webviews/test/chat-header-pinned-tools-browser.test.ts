@@ -9,10 +9,11 @@
 //
 // The App's side is modeled as in chat-header-summary-row-fit-browser (PR 49863): the need is the last positive width
 // reported, the row is offered while need <= room / 2, and a chat out of the row is laid under the strip.
-// For no summary, a short one and a long one, at pane widths 280, 360, 480 and 800, in the tab row and in the chat's own
+// For no summary, a short one, a long one and a long one under a long name, at pane widths 280, 360, 480 and 800, in the tab row and in the chat's own
 // row, it asserts (a) the trailing tools sit exactly where they sit with no summary, (b) in the tab row the width the
 // page reports does not depend on the summary's text and the row is offered the same, (c) no tool intersects the title,
-// the summary, the tabs or another tool, (d) the summary is whole (nothing clipped) or the chip.
+// the summary, the tabs or another tool, (d) the summary is whole (nothing clipped) or the chip, (e) a long name is
+// cut only with an ellipsis at its end, and is cut at 280 and 360.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -30,6 +31,9 @@ await requireBrowserLane("chat-header-pinned-tools-browser.test.ts", async () =>
   const PLAIN = "0190a000-0000-7000-8000-0000000000e1";
   const SHORT = "0190a000-0000-7000-8000-0000000000e2";
   const LONG = "0190a000-0000-7000-8000-0000000000e3";
+  /// A long name and the long summary: the name ends in an ellipsis at narrow widths and the tools stay put.
+  const NAMED = "0190a000-0000-7000-8000-0000000000e4";
+  const LONG_TITLE = "release-coordinator for the uploader's permission-stall history and the retry log follow-up";
   const START = Date.UTC(2026, 10, 23, 5, 0, 0);
   const REPLY = "Posted the stall history.";
   const SUMMARIES: Record<string, { text: string; next?: string }> = {
@@ -39,6 +43,7 @@ await requireBrowserLane("chat-header-pinned-tools-browser.test.ts", async () =>
       next: "Wait for the owner's read of both",
     },
   };
+  SUMMARIES[NAMED] = SUMMARIES[LONG]!;
   const WIDTHS = [280, 360, 480, 800];
   const WINDOW = 1512;
   const INSET = 40;
@@ -66,7 +71,7 @@ await requireBrowserLane("chat-header-pinned-tools-browser.test.ts", async () =>
   const sessionFor = (sessionId: string) => ({
     sessionId,
     cwd: "/home/dev/uploader",
-    title: "release-coordinator",
+    title: sessionId === NAMED ? LONG_TITLE : "release-coordinator",
     harness: "claude",
     family: "claude",
     status: "idle",
@@ -74,7 +79,7 @@ await requireBrowserLane("chat-header-pinned-tools-browser.test.ts", async () =>
     updatedAt: START,
     ...(SUMMARIES[sessionId] ? { rollingSummary: SUMMARIES[sessionId] } : {}),
   });
-  const ALL = [PLAIN, SHORT, LONG];
+  const ALL = [PLAIN, SHORT, LONG, NAMED];
 
   function answer(method: string, params: { sessionId?: unknown } | undefined): unknown {
     const id = ALL.find((candidate) => candidate === params?.sessionId) ?? PLAIN;
@@ -152,6 +157,8 @@ await requireBrowserLane("chat-header-pinned-tools-browser.test.ts", async () =>
     /** What shows of the summary: the whole line or the chip. */
     summary?: Box & { kind: string; clipped: boolean };
     title?: Box;
+    /** The name's text overflows its box, and whether it ends in an ellipsis there. */
+    titleCut?: { overflows: boolean; ellipsis: boolean };
     room?: { slot: number; measure: number; header: number };
   };
 
@@ -283,6 +290,15 @@ await requireBrowserLane("chat-header-pinned-tools-browser.test.ts", async () =>
         tools,
         summary,
         title: box(header.querySelector(".acpmux-thread-title")),
+        titleCut: (() => {
+          const name = header.querySelector<HTMLElement>(".acpmux-thread-title");
+          if (!name) return undefined;
+          return {
+            overflows: name.scrollWidth > name.clientWidth + 0.5,
+            ellipsis:
+              getComputedStyle(name).textOverflow === "ellipsis" && getComputedStyle(name).whiteSpace === "nowrap",
+          };
+        })(),
       };
     });
 
@@ -321,6 +337,7 @@ await requireBrowserLane("chat-header-pinned-tools-browser.test.ts", async () =>
             ["none", PLAIN],
             ["short", SHORT],
             ["long", LONG],
+            ["named", NAMED],
           ] as const) {
             const page = await open(chat, width, mode);
             at[state] = await layout(page);
@@ -334,9 +351,11 @@ await requireBrowserLane("chat-header-pinned-tools-browser.test.ts", async () =>
                 : "none"
             }, overlaps ${JSON.stringify(overlaps(l))}`;
           };
-          console.log(`chat-header-pinned ${mode} ${width}px | ${line("none")} | ${line("short")} | ${line("long")}`);
+          console.log(
+            `chat-header-pinned ${mode} ${width}px | ${line("none")} | ${line("short")} | ${line("long")} | ${line("named")} title ${JSON.stringify(at.named!.titleCut)}`,
+          );
           expect(at.none!.tools.length).toBeGreaterThan(0);
-          for (const state of ["short", "long"]) {
+          for (const state of ["short", "long", "named"]) {
             const l = at[state]!;
             // (a) the buttons never move: same row, same top, height and right edge as with no summary.
             expect({ state, shared: l.shared, tools: l.tools.map(round) }).toEqual({
@@ -358,6 +377,11 @@ await requireBrowserLane("chat-header-pinned-tools-browser.test.ts", async () =>
             }
           }
           expect(overlaps(at.none!)).toEqual([]);
+          // A long name gives way first: at a narrow pane it is cut, and only ever with an ellipsis at its end.
+          const cut = at.named!.titleCut;
+          expect(cut).toBeDefined();
+          if (cut!.overflows) expect({ width, ellipsis: cut!.ellipsis }).toEqual({ width, ellipsis: true });
+          if (width <= 360) expect({ width, overflows: cut!.overflows }).toEqual({ width, overflows: true });
           if (mode === "tab row") {
             // (b) the width the page reports does not depend on the summary's text.
             expect({ reported: at.long!.reported, shared: at.long!.shared }).toEqual({
