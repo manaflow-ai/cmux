@@ -183,6 +183,9 @@ impl ViewerIo {
                 use cmux_rd_link::net::NetEvent;
                 use cmux_rd_link::{EndpointEvent, Event};
                 for event in link.net.events() {
+                    if let Some(line) = event.phase_line() {
+                        println!("{line}");
+                    }
                     match event {
                         NetEvent::Endpoint(EndpointEvent::Link(Event::Datagram(d))) => {
                             out.push(Arrived::Datagram(d))
@@ -1034,10 +1037,12 @@ pub fn run(opts: &Opts) -> Res<()> {
             None => None,
         },
         service: cmux_rd_core::service::SERVICE_DESKTOP.into(),
-        // Upstream media needs both caps (rd change C4). `--caps A,B` offers more, such as
-        // `video.scaled` (the resolution ladder).
+        // Upstream media needs both caps (rd change C4). This reassembler rebuilds frames in
+        // interleaved FEC blocks. `--caps A,B` offers more, such as `video.scaled` (the
+        // resolution ladder).
         caps: {
-            let mut offered = vec![caps::CLOCK.into(), caps::LEDGER.into()];
+            let mut offered =
+                vec![caps::CLOCK.into(), caps::LEDGER.into(), caps::FEC_BLOCKS.into()];
             // Decoding with OpenH264 (Linux's only H.264 decoder, `--decoder openh264` on macOS):
             // ask an H.264 host for Constrained Baseline, the profile it shows correctly.
             if bench_decodes_with_openh264(opts.get("decoder")) {
@@ -1412,6 +1417,9 @@ fn link_io() -> Res<ViewerIo> {
     let first_send_us = now_ns() / 1000;
     // This side's candidates go out through the test's stand-in hub.
     for event in net.events() {
+        if let Some(line) = event.phase_line() {
+            println!("{line}");
+        }
         if let NetEvent::Candidate(c) = event {
             println!("{}", json!({"candidate": c.to_wire()}));
         }
