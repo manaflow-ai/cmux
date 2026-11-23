@@ -149,9 +149,18 @@ fn after_turn_failed(name: &str, bound: std::time::Duration) -> String {
 }
 
 /// How long a move waits, after its commit, for this machine to list the chat reachable on the
-/// target (`await_arrival`), and how often it asks.
-const ARRIVAL_WAIT: std::time::Duration = std::time::Duration::from_secs(20);
-const ARRIVAL_POLL: std::time::Duration = std::time::Duration::from_millis(250);
+/// target (`await_arrival`), and how often it asks. The row is there within a poll or two of
+/// the commit while the link is up; the bound is for a link that is down.
+const ARRIVAL_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+const ARRIVAL_POLL: std::time::Duration = std::time::Duration::from_millis(50);
+
+/// The key this machine lists the moved chat `there` under once it runs on `target`
+/// (`Hub::rows_by_key`): `TARGET/ID`, the peer's mirrored row, or the bare id when the target
+/// is this machine (`--from` a peer to here). Never the bare id for a peer: a move keeps the
+/// chat's id, so that names the closed row the source keeps, which no wait turns into a peer's.
+fn arrival_key(target: &Target, there: &str) -> String {
+    if target.ssh.is_empty() { there.to_owned() } else { format!("{}/{there}", target.name) }
+}
 
 /// Whether `reply` (`_acpmux/info` with `sessionIds`, `row: true`) lists the moved chat `id` as
 /// a reachable row of a peer: a peer's row, not a last-known copy (`stale`), its link up
@@ -160,11 +169,16 @@ fn arrived(reply: &Value, id: &str) -> Result<(), String> {
     let rows = reply.get("rows").and_then(Value::as_array).into_iter().flatten();
     let mut why = "not listed here yet".to_owned();
     for row in rows
+        .filter(|r| r.is_object())
         .filter(|r| r.get("sessionId").and_then(Value::as_str).is_none_or(|s| s == id))
-        .filter(|r| r.get("peer").and_then(Value::as_str).is_some_and(|p| !p.is_empty()))
     {
         let state = row.get("peerState").and_then(Value::as_str);
-        if row.get("stale").and_then(Value::as_bool) == Some(true) {
+        if row.get("peer").and_then(Value::as_str).is_none_or(str::is_empty) {
+            if row.get("status").and_then(Value::as_str) != Some("closed") {
+                return Ok(());
+            }
+            why = "listed here as closed".to_owned();
+        } else if row.get("stale").and_then(Value::as_bool) == Some(true) {
             why = format!("listed as its last-known copy (peer {})", state.unwrap_or("down"));
         } else if let Some(s) = state.filter(|s| !matches!(*s, "connected" | "degraded")) {
             why = format!("peer {s}");
@@ -176,35 +190,38 @@ fn arrived(reply: &Value, id: &str) -> Result<(), String> {
 }
 
 /// Waits, at most `bound`, asking every `poll` (one request for all still waited on), until
-/// `src` lists every moved chat in `there` as reachable on its new machine (`arrived`): a move
+/// `observer` lists every moved chat in `there` as reachable on its new machine (`arrived`): a move
 /// that ends before then leaves `ls` showing it unknown, its peer reconnecting, though it runs
 /// there. One wait for all the chats of a move, not one per chat. Returns the ids not listed by
 /// the bound, each with why.
 async fn await_arrival(
-    src: &Client,
-    there: &[String],
+    observer: &Client,
+    entries: &[(String, String)],
     bound: std::time::Duration,
     poll: std::time::Duration,
 ) -> Vec<(String, String)> {
     let deadline = tokio::time::Instant::now() + bound;
-    let mut left: Vec<String> = there.to_vec();
+    let mut left = entries.to_vec();
     loop {
-        let params = json!({"sessionIds": left, "row": true});
-        let reply = src.request(method::MUX_INFO, params).await.map_err(|e| format!("{e:#}"));
-        let mut why = Vec::new();
-        for id in &left {
-            let w = match &reply {
+        let keys: Vec<&str> = left.iter().map(|(key, _)| key.as_str()).collect();
+        let reply = observer
+            .request(method::MUX_INFO, json!({"sessionIds": keys, "row": true}))
+            .await
+            .map_err(|e| format!("{e:#}"));
+        let mut late = Vec::new();
+        for (key, id) in &left {
+            let why = match &reply {
                 Ok(r) => arrived(r, id).err(),
                 Err(e) => Some(e.clone()),
             };
-            if let Some(w) = w {
-                why.push((id.clone(), w));
+            if let Some(why) = why {
+                late.push((key.clone(), id.clone(), why));
             }
         }
-        if why.is_empty() || tokio::time::Instant::now() + poll > deadline {
-            return why;
+        if late.is_empty() || tokio::time::Instant::now() + poll > deadline {
+            return late.into_iter().map(|(_, id, why)| (id, why)).collect();
         }
-        left = why.into_iter().map(|(id, _)| id).collect();
+        left = late.into_iter().map(|(key, id, _)| (key, id)).collect();
         tokio::time::sleep(poll).await;
     }
 }
@@ -212,29 +229,35 @@ async fn await_arrival(
 /// After the moves: done only once this machine lists each moved chat where it went,
 /// reachable, else `ls` right after shows it unknown, its peer reconnecting (item D). One wait
 /// for them all; a chat still not listed at the bound is named, and still moved.
-async fn settle_arrivals(src: &Client, outcomes: &[Outcome]) {
-    let moved: Vec<&Outcome> = outcomes.iter().filter(|o| o.moved && o.there.is_some()).collect();
-    if moved.is_empty() {
-        return;
-    }
-    let there: Vec<String> = moved.iter().filter_map(|o| o.there.clone()).collect();
-    let who = match moved.as_slice() {
-        [one] => one.name.clone(),
+async fn settle_arrivals(observer: &Client, outcomes: &mut [Outcome]) {
+    let there: Vec<(String, String)> = outcomes
+        .iter()
+        .filter(|o| o.moved)
+        .filter_map(|o| Some((o.arrival_key.clone()?, o.there.clone()?)))
+        .collect();
+    let who = match there.as_slice() {
+        [] => return,
+        [(_, id)] => outcomes
+            .iter()
+            .find(|o| o.there.as_deref() == Some(id.as_str()))
+            .map_or_else(|| id.clone(), |o| o.name.clone()),
         many => format!("{} chats", many.len()),
     };
     let step = "waiting until this machine lists it reachable where it went";
-    let late = waiting(&who, step, await_arrival(src, &there, ARRIVAL_WAIT, ARRIVAL_POLL)).await;
-    for (id, why) in late {
-        let Some(o) = moved.iter().find(|o| o.there.as_deref() == Some(id.as_str())) else {
-            continue;
-        };
-        eprintln!(
-            "move: {}: moved to {}, but this machine does not list it reachable there after {}s \
-             ({why}); it runs there, and `acpmux ls` shows it once the link is up",
-            o.name,
-            o.host.as_deref().unwrap_or("?"),
-            ARRIVAL_WAIT.as_secs()
-        );
+    let late =
+        waiting(&who, step, await_arrival(observer, &there, ARRIVAL_WAIT, ARRIVAL_POLL)).await;
+    for o in outcomes.iter_mut().filter(|o| o.moved && o.arrival_key.is_some()) {
+        let why = late.iter().find(|(id, _)| o.there.as_deref() == Some(id.as_str()));
+        o.reachable = Some(why.is_none());
+        if let Some((_, why)) = why {
+            eprintln!(
+                "move: {}: moved to {}, but this machine does not list it reachable there after \
+                 {}s ({why}); it runs there, and `acpmux ls` shows it once the link is up",
+                o.name,
+                o.host.as_deref().unwrap_or("?"),
+                ARRIVAL_WAIT.as_secs()
+            );
+        }
     }
 }
 
@@ -315,6 +338,11 @@ struct Outcome {
     moved: bool,
     /// The chat's id on the target, once moved.
     there: Option<String>,
+    /// The key this machine uses to list the moved chat on its target.
+    arrival_key: Option<String>,
+    /// Once moved: whether this machine listed the chat reachable on the target when the move
+    /// ended (`await_arrival`); a send to it then goes through at once.
+    reachable: Option<bool>,
     /// With `resume_there`: whether a held queue ran there, or why it did not (the chat moved).
     resumed: Result<bool, String>,
     /// With `--carry-changes`: what was carried (`Carry::record`).
@@ -334,6 +362,8 @@ impl Outcome {
             cwd: None,
             moved: false,
             there: None,
+            arrival_key: None,
+            reachable: None,
             resumed: Ok(false),
             carried: None,
             error: None,
@@ -410,7 +440,8 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
         outcomes.push(outcome);
     }
     if !args.dry_run {
-        settle_arrivals(&src, &outcomes).await;
+        let observer = targets.observer.as_deref().unwrap_or(&src);
+        settle_arrivals(observer, &mut outcomes).await;
     }
     let failed = outcomes.iter().filter(|o| o.error.is_some()).count();
     if json_out {
@@ -420,7 +451,7 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
                 json!({"sessionId": o.session, "name": o.name, "host": o.host, "cwd": o.cwd,
                        "moved": o.moved, "dryRun": args.dry_run, "carried": o.carried,
                        "error": o.error, "errorCode": o.error_code,
-                       "preflight": o.preflight, "targetSessionId": o.there})
+                       "preflight": o.preflight, "targetSessionId": o.there, "reachable": o.reachable})
             })
             .collect();
         print_json(&json!({"moves": rows, "failed": failed}));
@@ -507,8 +538,8 @@ pub(crate) async fn move_auto(src: &Client, id: &str, resume_there: bool) -> Res
     let peers = src.request("_acpmux/peers", json!({})).await?;
     let mut targets = Targets::new(&args.host, &peers)?;
     let home = dirs::home_dir().ok_or_else(|| anyhow!("this machine has no home folder"))?;
-    let o = move_one(src, id, &args, &home, &mut targets).await;
-    settle_arrivals(src, std::slice::from_ref(&o)).await;
+    let mut o = move_one(src, id, &args, &home, &mut targets).await;
+    settle_arrivals(src, std::slice::from_mut(&mut o)).await;
     if let Some(e) = o.error {
         bail!("{e}");
     }
@@ -747,6 +778,9 @@ async fn move_steps(
     targets.placed(&target.name);
     o.moved = true;
     o.there = moved.get("sessionId").and_then(Value::as_str).map(str::to_owned);
+    if let Some(there) = o.there.clone() {
+        o.arrival_key = Some(arrival_key(&target, &there));
+    }
     if args.resume_there
         && let Some(there) = o.there.clone()
     {
