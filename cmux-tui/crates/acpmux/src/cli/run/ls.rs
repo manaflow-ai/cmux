@@ -168,7 +168,10 @@ async fn bounded_total<T>(
 /// budget, never a daemon that is gone (it answered the connect).
 fn timeout_error(budget: &ListBudget, step: &str, waited: Duration) -> anyhow::Error {
     let next = if budget.route == LOCAL_ROUTE {
-        format!("the daemon is not answering (`{} daemon status` shows why)", crate::cli::entry::program())
+        format!(
+            "the daemon is not answering (`{} daemon status` shows why)",
+            crate::cli::entry::program()
+        )
     } else {
         "the machine is not answering (`acpmux machine ls` shows its link)".to_owned()
     };
