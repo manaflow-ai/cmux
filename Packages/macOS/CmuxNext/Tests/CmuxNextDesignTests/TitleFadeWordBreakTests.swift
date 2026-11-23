@@ -53,7 +53,7 @@ import Testing
         let cut = TitleFadeGeometry(textWidth: 46, span: 40, visibleWidth: 30.6, leadingPadding: 6, trailingPadding: 0,
                                     fadeWidth: 20, wordStarts: words)
         #expect(cut.fadeEnd == 27.6)
-        #expect(cut.fadeStart == 27.6 - 13.8)
+        #expect(abs(cut.fadeStart - 13.8) < 0.0001)
         // The stops carry it: clear from the T's start on.
         #expect(abs(cut.maskLocations[3] - (6 + 27.6) / 46) < 0.0001)
         // Past the T's first glyph the fade is the plain one (the T reads as a T, then "Ta", "Tab").
