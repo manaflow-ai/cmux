@@ -17,7 +17,7 @@ import { ContextMenu } from "../../../ui/ContextMenu";
 import { VirtualList } from "../../../ui/VirtualList";
 import { useT } from "../i18n";
 
-import { AgentMark } from "../NewTabPage";
+import { AgentMark } from "../tabMarks";
 import type { HarnessIconSpec } from "../../shared/harnessIcons";
 import { ageLabel, nextAgeLabel } from "../newTabModel";
 import { useNt } from "./strings";
