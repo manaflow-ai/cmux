@@ -286,6 +286,11 @@ impl Brain {
             return false;
         };
         if let Some(id) = outcome_id {
+            // The loop guard refuses the Chief's posts: a held outcome stays
+            // untold for the person's next message (budget_hold.rs).
+            if self.budget_held() {
+                return false;
+            }
             let Some(u) = self.state.untold.iter_mut().find(|u| u.id == id) else {
                 return false;
             };

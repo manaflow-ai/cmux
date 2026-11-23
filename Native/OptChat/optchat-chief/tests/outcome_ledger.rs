@@ -41,6 +41,11 @@ fn script(chief: fn(usize, &str) -> Option<&'static str>) -> Script {
         if text.contains("REPORT-TASK") && !text.contains("<open-items>") {
             return say("Landed the sidebar fix on feat-cmux-next.");
         }
+        // A judgment report (an open question) keeps the model turn: it is
+        // never host-posted, so it waits untold for the Chief.
+        if text.contains("REPORT-QUESTION") && !text.contains("<open-items>") {
+            return say("Blocked: should I keep the old sidebar? Need you to decide.");
+        }
         match chief(turn, &text) {
             Some(t) => say(t),
             None => default(turn, blocks),
@@ -78,6 +83,12 @@ fn prompts(h: &Harness) -> Vec<String> {
 
 /// a1 is spawned, reports, and the Chief's turn on its report ends.
 fn report_and_settle(h: &mut Harness) -> Arc<Spawner> {
+    report_task(h, "REPORT-TASK fix it")
+}
+
+/// As [`report_and_settle`], with the subagent's task `task` (its report
+/// follows the marker it names: REPORT-TASK or REPORT-QUESTION).
+fn report_task(h: &mut Harness, task: &str) -> Arc<Spawner> {
     let spawner = Arc::new(Spawner::new(
         h.chat.clone(),
         h.agents.clone(),
@@ -97,7 +108,8 @@ fn report_and_settle(h: &mut Harness) -> Arc<Spawner> {
     ));
     h.connect();
     let sp = spawner.clone();
-    let worker = std::thread::spawn(move || sp.spawn(vec!["REPORT-TASK fix it".into()], None));
+    let task = task.to_owned();
+    let worker = std::thread::spawn(move || sp.spawn(vec![task], None));
     let deadline = Instant::now() + Duration::from_secs(20);
     let mut idle_sent = false;
     while !h.log().iter().any(|(_, t)| t.starts_with("[a1] ")) {
@@ -121,15 +133,16 @@ fn report_and_settle(h: &mut Harness) -> Arc<Spawner> {
 
 #[test]
 fn a_report_turn_that_never_names_the_subagent_gets_one_untold_retry() {
-    // The Chief's turns answer without naming a1, until the retry names it.
+    // A question keeps the model turn. The Chief's turns answer without
+    // naming a1, until the retry names it.
     let mut h = Harness::new(script(|_, prompt| {
         if prompt.contains(UNTOLD_TAG) {
-            Some("a1: landed the sidebar fix.")
+            Some("a1: asks whether to keep the old sidebar.")
         } else {
             None
         }
     }));
-    report_and_settle(&mut h);
+    report_task(&mut h, "REPORT-QUESTION fix it");
     assert_eq!(
         h.brain.untold_outcomes(),
         vec!["a1".to_owned()],
@@ -169,7 +182,7 @@ fn a_report_turn_that_names_the_subagent_needs_no_retry() {
 #[test]
 fn after_one_retry_that_still_does_not_tell_it_is_dropped() {
     let mut h = Harness::new(script(|_, _| None));
-    report_and_settle(&mut h);
+    report_task(&mut h, "REPORT-QUESTION fix it");
     h.brain.fire_outcome_checks_at(u64::MAX / 2);
     h.settle_posts();
     h.brain.fire_outcome_checks_at(u64::MAX / 2);
@@ -189,7 +202,7 @@ fn a_subagent_sent_back_to_work_is_not_untold() {
     // pushed a ping the person did not want ("this ping is noise"). An agent
     // that runs again reports again; that report is the one to tell.
     let mut h = Harness::new(script(|_, _| None));
-    let spawner = report_and_settle(&mut h);
+    let spawner = report_task(&mut h, "REPORT-QUESTION fix it");
     assert_eq!(h.brain.untold_outcomes(), vec!["a1".to_owned()]);
     let worker = std::thread::spawn(move || spawner.tell("a1", "finish the fleet runs and land"));
     let deadline = Instant::now() + Duration::from_secs(20);
@@ -224,12 +237,12 @@ fn untold_checks_wait_a_batching_window_and_ask_for_one_digest() {
     );
     let mut h = Harness::new(script(|_, prompt| {
         if prompt.contains(UNTOLD_TAG) {
-            Some("a1: landed the sidebar fix.")
+            Some("a1: asks whether to keep the old sidebar.")
         } else {
             None
         }
     }));
-    report_and_settle(&mut h);
+    report_task(&mut h, "REPORT-QUESTION fix it");
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -248,4 +261,48 @@ fn untold_checks_wait_a_batching_window_and_ask_for_one_digest() {
         .find(|t| t.contains(UNTOLD_TAG))
         .expect("an untold retry turn once the window passed");
     assert!(retry.contains("one message"), "a digest: {retry}");
+}
+
+/// A final report is host-posted at once: the person's chat gets `[a1]` and
+/// it needs no Chief turn. The Chief's next turn is told in its log that the
+/// host posted it, so the Chief sees the result without a repost.
+#[test]
+fn a_host_posted_result_shows_in_the_chiefs_next_turn() {
+    let mut h = Harness::new(script(|_, _| None));
+    report_and_settle(&mut h);
+    assert!(
+        h.brain.untold_outcomes().is_empty(),
+        "host-posted: nothing waits for the Chief"
+    );
+    assert!(
+        h.log().iter().any(|(_, t)| t.starts_with("[a1] ")),
+        "the result reached the chat: {:?}",
+        h.log()
+    );
+    h.say("person", "what happened to the sidebar?");
+    h.settle();
+    let turns = prompts(&h);
+    let next = turns
+        .iter()
+        .rev()
+        .find(|t| t.contains("what happened to the sidebar"))
+        .expect("the person's turn");
+    assert!(
+        next.contains("host posted subagent a1's result; it is in the Chief log"),
+        "the next turn is told the result was posted: {next}"
+    );
+}
+
+/// A judgment report (an open question) is never host-posted: the Chief's
+/// turn answers it, so the chat gets no `[a1]` post from the host.
+#[test]
+fn a_judgment_report_is_not_host_posted() {
+    let mut h = Harness::new(script(|_, _| None));
+    report_task(&mut h, "REPORT-QUESTION fix it");
+    assert!(
+        !h.log().iter().any(|(_, t)| t.starts_with("[a1] ")),
+        "no host post for a question: {:?}",
+        h.log()
+    );
+    assert_eq!(h.brain.untold_outcomes(), vec!["a1".to_owned()]);
 }
