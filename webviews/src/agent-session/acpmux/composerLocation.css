@@ -1663,33 +1663,21 @@
     max(0px, calc(8px * var(--cmux-interface-scale, 1) - var(--cmux-scroller-size, 8px)))
     calc(var(--acpmux-prompt-inset) - var(--acpmux-prompt-drop)) var(--acpmux-composer-lead-gap);
 }
-/* The draft's scrollbar runs down the box's own right edge, as the chat's runs down the pane's (Leo
-   2026-10-22: "shouldn't the styling wrt composer vs the chat/window (these should be one and hte
-   same) be more cohesive? ... claude indeed has it on the inside"), and as Claude desktop draws it:
-   the prompt spans the actions' column too, its thin thumb in the box's last 8 px, the track clear of
-   the box's rounded top corner and stopping above Send. The text keeps its width and stays clear of
-   the actions: the right padding gives their column back (--acpmux-actions-width, measured by
-   composerScrollLane.ts), and the actions draw and take the pointer over the prompt's empty corner.
-   Other placements (the lane beside the text, outside the box as Codex, the box's full height) are
-   the gallery's agent-pane.composer-scrollbar variants. New Tab's box is its own textarea
-   (.nt-field, newtab/screen.css) with the system scroller and keeps its placement. */
+/* The draft's scrollbar runs in a lane between the text and the actions, down to the box's bottom
+   inset, as Claude desktop draws it (Leo 2026-11-22, his 1:42 clip of Claude: "the thumb only
+   appears when it's relevant ... AND IT ACTUALLY GOES IN A REASONABLE LOOKING PLACE, INSTEAD OF OUR
+   THUMB THAT STOPS ATOP BUTTONS!? ... OUR CALIBRATION OF "BOTTOM" LOOKS STUPID"). It ran down the
+   box's right edge before and stopped a block inset over Send, so its bottom end sat on the buttons'
+   tops. In the lane the thumb is still inside the box, as the chat's runs inside the pane (Leo
+   2026-10-22: "claude indeed has it on the inside"), its track clear of the box's rounded top corner
+   and ending the same inset over the bottom edge, level with the buttons' bottoms. The prompt takes
+   its own column only, so the text and its lane never pass under the actions. Other placements (the
+   box's right edge stopping over Send, its full height, outside the box as Codex) are the gallery's
+   agent-pane.composer-scrollbar variants. New Tab's box is its own textarea (.nt-field,
+   newtab/screen.css) with the system scroller and keeps its placement. */
 .acpmux-composer-box[data-composer-grid] > .acpmux-composer-field-menu > .acpmux-md-field {
-  grid-column: 2 / -1;
-  /* The lane sits just inside the box's hairline rim, never on it. */
-  margin-right: calc(2px * var(--cmux-interface-scale, 1));
-  padding-right: calc(
-    var(--acpmux-actions-width, 64px) + var(--acpmux-composer-lead-gap) + max(0px, calc(8px * var(--cmux-interface-scale, 1) - var(--cmux-scroller-size, 8px)))
-  );
-  /* The track ends a block inset above the button row, which stands one control inset over the
-     box's bottom edge at every height: the thumb never runs over + / Send / the mic nor stops on
-     their tops (Leo 2026-11-22: "INSTEAD OF OUR THUMB THAT STOPS ATOP
-     BUTTONS!?"). Default: 10 + 28 + 10 = 48 px (the minimal scroller's end inset, scrollers.ts). */
-  --cmux-minimal-scroller-inset-end: calc(
-    var(--acpmux-prompt-control-top) + var(--acpmux-composer-control) + var(--acpmux-composer-block-inset)
-  );
-}
-.acpmux-composer-box[data-composer-grid] > .acpmux-composer-field-menu > .acpmux-md-field .acpmux-md-placeholder {
-  right: calc(var(--acpmux-actions-width, 64px) + var(--acpmux-composer-lead-gap) + 8px * var(--cmux-interface-scale, 1));
+  grid-column: 2;
+  --cmux-minimal-scroller-inset-end: var(--cmux-minimal-scroller-inset, 0px);
 }
 .acpmux-composer-inner > .acpmux-composer-actions {
   position: relative;

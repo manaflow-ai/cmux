@@ -609,8 +609,11 @@
    above the composer, so the two split it evenly. Absent, the composer docks at the bottom (above). */
 .acpmux-main[data-new-chat][data-empty-chat-composer="center"]::after{content:"";flex:1 1 0;min-height:0}
 .acpmux-main[data-new-chat][data-empty-chat-composer="center"] .acpmux-empty{justify-content:flex-end;padding-bottom:var(--ds-space-6,24px)}
-/* Home lists (HomeLists.tsx): the welcome lists between the hero and the docked composer, in its column; they scroll when tall. */
-.acpmux-main[data-new-chat]>.acpmux-dock>.acpmux-home-area{flex:0 1 auto;min-height:0;max-height:50%}
+/* Home lists (HomeLists.tsx): the welcome lists between the hero and the docked composer, in its column; they scroll when tall.
+   They give way before the composer (bottomStack.css's order): at a shrink of 1 the two split a short pane's deficit by
+   their sizes, so a card growing past the dock's cap shrank the composer too, eating the quiet row's room and sliding the
+   card down 6 px under a tile pasted into it (test/composer-attach-no-jump.test.ts, the narrow pane). */
+.acpmux-main[data-new-chat]>.acpmux-dock>.acpmux-home-area{flex:0 1000 auto;min-height:0;max-height:50%}
 /* The hero (header, glyph and title) keeps its room on a short pane; the lists, which scroll, give way first. */
 .acpmux-main[data-new-chat]:has(>.acpmux-dock>.acpmux-home-area:not(:empty))>.acpmux-stage{min-height:128px}
 /* No lists to show: no wrapper either, so the hero centers exactly as without this feature. */

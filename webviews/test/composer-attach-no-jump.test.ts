@@ -131,15 +131,6 @@ await requireBrowserLane("composer-attach-no-jump.test.ts", async () => {
         const fresh = all.filter((tile) => !probe.before.has(tile));
         const old = [...probe.before].find((tile) => tile.isConnected);
         const tile = fresh[0];
-        {
-          const chain: string[] = [];
-          for (let el: Element | null = box; el && chain.length < 9; el = el.parentElement) {
-            const r = el.getBoundingClientRect();
-            chain.push(`${el.className.toString().split(" ")[0]}:${Math.round(r.top)}-${Math.round(r.bottom)}`);
-          }
-          const sib = box.parentElement ? [...box.parentElement.children].map((c) => `${c.className.toString().split(" ")[0]}:${Math.round(c.getBoundingClientRect().top)}-${Math.round(c.getBoundingClientRect().bottom)}`) : [];
-          ((window as any).__chain ??= []).push(chain.join(" < ") + " || sibs " + sib.join(", "));
-        }
         probe.frames.push({
           box: box.getBoundingClientRect().height,
           top: box.getBoundingClientRect().top,
@@ -321,15 +312,18 @@ await requireBrowserLane("composer-attach-no-jump.test.ts", async () => {
       if (frame.row) expect(frame.tile!.y).toBeGreaterThanOrEqual(frame.row.y - 1);
     }
     // Every tile, in every frame, is in the text (the inline view draws no strip), and the one
-    // already there keeps its place in the composer (which grows upward from its bottom edge, so
-    // its place is read from the composer's top) and its size.
+    // already there keeps its place and size: in the composer (which grows upward from its bottom
+    // edge, so that place is read from the composer's top), or, while the card grows on its spring
+    // with its bottom held (fieldGrowth.ts), on the screen where it ends. Either way it moves once,
+    // to the line the paste wraps it to, and never anywhere in between.
     const final = frames.at(-1)!;
     for (const frame of frames) {
       expect(frame.tiles.filter((each) => each.where === "strip")).toEqual([]);
       if (frame.row && final.row)
-        expect(close({ ...frame.row, y: frame.row.y - frame.top }, { ...final.row, y: final.row.y - final.top })).toBe(
-          true,
-        );
+        expect(
+          close({ ...frame.row, y: frame.row.y - frame.top }, { ...final.row, y: final.row.y - final.top }) ||
+            close(frame.row, final.row),
+        ).toBe(true);
     }
     // The composer never grows past where it ends.
     const finalBox = frames.at(-1)!.box;
