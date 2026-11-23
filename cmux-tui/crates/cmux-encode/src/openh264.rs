@@ -199,6 +199,12 @@ pub struct OpenH264 {
 /// the one screen usage would have made), and [`CALM_FRAMES_TO_SCREEN`] pictures in a row
 /// that changed less than [`CALM_CHANGE`] move it back. A move rebuilds the encoder, so its
 /// next frame is an IDR. One page flip or a scroll stays in screen usage.
+///
+/// The share's start keyframe counts as such an IDR: a share that starts on full-screen
+/// motion moves on its second picture. Waiting for screen usage's own IDR there cost a third
+/// keyframe in three frames (start 750 KB, scene change 430 KB, the move 750 KB at 1080p),
+/// 1.9 s of an 8 Mbit/s path, and the queue it left kept key presses near a second late for
+/// the whole share (hq#19915).
 pub const MOTION_CHANGE: f32 = 0.5;
 pub const CALM_CHANGE: f32 = 0.25;
 pub const CALM_FRAMES_TO_SCREEN: u32 = 30;
@@ -212,6 +218,10 @@ struct MotionGuard {
     self_idr: bool,
     /// The instance has coded no frame yet (its first is an IDR).
     fresh: bool,
+    /// The last coded frame was the share's start keyframe in screen usage.
+    after_start: bool,
+    /// This encoder has coded a frame (any instance).
+    started: bool,
     /// Pictures in a row that changed little (camera usage).
     calm: u32,
     /// Every [`SAMPLE_STEP`]th luma sample of the previous picture.
@@ -420,6 +430,7 @@ impl OpenH264 {
         self.enc = enc;
         self.screen = screen;
         self.motion.self_idr = false;
+        self.motion.after_start = false;
         self.motion.fresh = true;
         self.motion.calm = 0;
         // SAFETY: plain version query.
@@ -464,7 +475,7 @@ impl OpenH264 {
         }
         let changed = self.motion.changed(pic);
         if self.screen {
-            if self.motion.self_idr && changed > MOTION_CHANGE {
+            if (self.motion.self_idr || self.motion.after_start) && changed > MOTION_CHANGE {
                 // A failed rebuild keeps screen usage; the next IDR tries again.
                 let _ = self.rebuild(false);
             }
@@ -692,6 +703,8 @@ impl H264Encoder for OpenH264 {
         let idr = info.eFrameType == videoFrameTypeIDR;
         // A new instance's first IDR is the move's, not a scene change's.
         self.motion.self_idr = self.screen && idr && !force_idr && !self.motion.fresh;
+        self.motion.after_start = self.screen && idr && !self.motion.started;
+        self.motion.started = true;
         self.idr_cause = unasked_idr_cause(idr, force_idr, self.motion.fresh);
         self.motion.fresh = false;
         Ok(idr)

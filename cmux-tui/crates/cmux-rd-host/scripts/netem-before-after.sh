@@ -37,7 +37,8 @@ git -C "$repo" fetch -q origin "${BASE#origin/}" 2>/dev/null
 base_sha="$(git -C "$repo" merge-base HEAD "$BASE")" || { echo "no merge base with $BASE" >&2; exit 2; }
 base_dir="$(mktemp -d)/base"
 git -C "$repo" worktree add -q --detach "$base_dir" "$base_sha" || exit 2
-target="${CARGO_TARGET_DIR:-$repo/cmux-tui/target}"
+# cmux-rd-host is its own workspace, so its default target is the crate's own.
+target="${CARGO_TARGET_DIR:-$crate/target}"
 head_bin="$(build "$repo" "$target")" || { echo "head build failed" >&2; exit 1; }
 base_bin="$(build "$base_dir" "$target-base")" || { echo "base build failed" >&2; exit 1; }
 echo "base $base_sha, head $(git -C "$repo" rev-parse HEAD)"

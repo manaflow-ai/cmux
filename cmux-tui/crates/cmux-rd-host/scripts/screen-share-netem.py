@@ -72,16 +72,23 @@ def setup(args):
                             "--workload", args.workload],
                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
     time.sleep(1.0)
-    started(app, "testapp")
+    started(app, "testapp", also=[xvfb])
     return [app, xvfb]
 
 
-def started(proc, what):
+def started(proc, what, also=()):
     """Stops the run when a helper exited during start-up: every attempt after it would fail
-    with the host's "Connection refused" and say nothing of why."""
+    with the host's "Connection refused" and say nothing of why. It stops the helpers already
+    running too (`also`): a leftover Xvfb holds the display, and the next run cannot start."""
     if proc.poll() is None:
         return
     err = (proc.stderr.read() if proc.stderr else "").strip()
+    for other in also:
+        other.terminate()
+        try:
+            other.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            other.kill()
     teardown()
     sys.exit(f"screen-share-netem: {what} exited {proc.returncode} at start: {err[-400:]}")
 
