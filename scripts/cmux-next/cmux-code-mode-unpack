@@ -1,0 +1,67 @@
+#!/bin/sh
+# Prints the folder that holds the app's code-mode resources (the TypeScript SDK, mcp.mjs and the
+# operation catalogs) for `cmux run` and the code-mode MCP.
+#
+#   cmux-code-mode-unpack RESOURCES
+#
+# The app ships them packed as RESOURCES/code-mode.tar.xz (scripts/cmux-next/pack-code-mode.py,
+# CMUX-570, app size). The first run unpacks the archive into the user's cache, under a folder
+# named after the archive's checksum, and every later run reads that copy; a new app version has
+# a new checksum and unpacks again. Nothing is downloaded. A RESOURCES/code-mode folder (a build
+# that did not pack) is used as it is.
+set -eu
+
+resources=${1:?usage: cmux-code-mode-unpack RESOURCES}
+if [ -d "$resources/code-mode/sdk" ]; then
+  printf '%s\n' "$resources/code-mode"
+  exit 0
+fi
+archive="$resources/code-mode.tar.xz"
+[ -f "$archive" ] || { echo "cmux code mode: $archive is missing" >&2; exit 2; }
+
+if [ -n "${CMUX_CODE_MODE_CACHE:-}" ]; then
+  cache=$CMUX_CODE_MODE_CACHE
+elif [ "$(uname -s)" = Darwin ] && [ -n "${HOME:-}" ]; then
+  cache="$HOME/Library/Caches/cmux-code-mode"
+elif [ -n "${XDG_CACHE_HOME:-}" ]; then
+  cache="$XDG_CACHE_HOME/cmux-code-mode"
+elif [ -n "${HOME:-}" ]; then
+  cache="$HOME/.cache/cmux-code-mode"
+else
+  cache="${TMPDIR:-/tmp}/cmux-code-mode-$(id -u)"
+fi
+key=$(cksum < "$archive" | awk '{print $1 "-" $2}')
+dir="$cache/$key"
+marker="$dir/code-mode/.unpacked"
+
+if [ ! -f "$marker" ]; then
+  mkdir -p "$cache"
+  chmod 700 "$cache" 2>/dev/null || true
+  tmp=$(mktemp -d "$cache/.unpack.XXXXXX")
+  if ! tar -xJf "$archive" -C "$tmp" || [ ! -d "$tmp/code-mode/sdk" ]; then
+    rm -rf "$tmp"
+    echo "cmux code mode: cannot unpack $archive" >&2
+    exit 2
+  fi
+  : > "$tmp/code-mode/.unpacked"
+  # A half-written folder from an interrupted run has no marker: replace it.
+  [ -d "$dir" ] && [ ! -f "$marker" ] && rm -rf "$dir"
+  if [ ! -d "$dir" ]; then
+    mv "$tmp" "$dir" 2>/dev/null || true
+  fi
+  # Another run unpacked the same archive first (or mv put ours inside it): drop ours.
+  [ -d "$tmp" ] && rm -rf "$tmp"
+  [ -d "$dir/${tmp##*/}" ] && rm -rf "$dir/${tmp##*/}"
+  [ -f "$marker" ] || { echo "cmux code mode: cannot unpack $archive into $cache" >&2; exit 2; }
+fi
+# Copies other app versions unpacked and nobody has run for 30 days are removed; this one's
+# marker is refreshed on every run so it never ages out while in use.
+touch "$marker" 2>/dev/null || true
+for other in "$cache"/*-*; do
+  [ "$other" = "$dir" ] && continue
+  [ -f "$other/code-mode/.unpacked" ] || continue
+  if [ -n "$(find "$other/code-mode/.unpacked" -mtime +30 2>/dev/null)" ]; then
+    rm -rf "$other"
+  fi
+done
+printf '%s\n' "$dir/code-mode"
