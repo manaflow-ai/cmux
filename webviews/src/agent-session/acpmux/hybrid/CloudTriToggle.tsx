@@ -144,7 +144,10 @@ export function CloudTriToggle({
   const dotOn: HybridPin = pin === "local" ? "cloud" : pin;
   const dot = <span className="acpmux-hybrid-tri__dot" aria-hidden="true" />;
   const tip = (mode: HybridPin) =>
-    why ? { label: t(BLOCKED[why]), detail: t(BLOCKED_HELP[why]) } : { label: t(NAMES[mode]), detail: t(HELP[mode]) };
+    why
+      ? // A hover card, so the sentence saying what a click does shows (a plain tooltip is one line).
+        { label: t(BLOCKED[why]), detail: t(BLOCKED_HELP[why]), className: "ui-card" }
+      : { label: t(NAMES[mode]), detail: t(HELP[mode]) };
   const blockedClick = (blockedWhy: HybridBlockedWhy) => {
     if (blockedWhy === "slept") {
       if (!onLitChange) return;

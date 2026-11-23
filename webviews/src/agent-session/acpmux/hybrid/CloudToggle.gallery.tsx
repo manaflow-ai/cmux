@@ -208,6 +208,8 @@ for (const why of ["signed-out", "no-plan"] as const) {
 firstRun["chat-above-three-state-full-holders"] = {
   note: `${SPOT_NOTES["chat-above"]} Keep Running asked for and every slot taken: the name opens the chats holding the slots, each with Give This Chat Its Slot.`,
   props: { page: "chat", spot: "above", look: "rainbow", state: "waiting", tri: "segments", holders: HOLDERS },
+  // Tall enough for the open menu above the strip.
+  height: 400,
 };
 
 export default componentEntry<Props>({
