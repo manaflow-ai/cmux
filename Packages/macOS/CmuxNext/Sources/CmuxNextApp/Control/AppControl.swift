@@ -148,7 +148,20 @@ final class AppControl {
                 guard let services, let (tab, _) = services.locateTab(id) else { return .missing }
                 guard tab.agentSession != nil else { return .notAgentChat }
                 return services.madeAgentTabs.flatMap { $0.views[$0.tabKey(of: tab)] }.map { .page($0) } ?? .notLoaded
-            }.controlMethod(sources: { [weak services] in services?.madeAgentTabs?.retirer.sources }), ClickTraceControl.method(), // and `cmux app clicks`: where the last presses went (every build)
+            }.controlMethod(sources: { [weak services] in services?.madeAgentTabs?.retirer.sources }),
+            // `cmux app chat memory`: the pids of each open chat's page, the app and the daemons; the CLI reads their footprint (Rust).
+            AgentChatMemoryControl(
+                chats: { [weak services] in
+                    guard let store = services?.madeAgentTabs else { return [] }
+                    return store.views.entries.map { entry in
+                        AgentChatMemoryControl.Chat(tab: entry.key.key, machine: entry.key.machine, view: entry.value, newTab: store.views.marked.contains(entry.key))
+                    }
+                },
+                daemonPids: { [weak services] in
+                    services?.machines.daemons.filter(\.isLocal).compactMap { $0.identity?.pid }.filter { $0 > 0 } ?? []
+                }
+            ).controlMethod,
+            ClickTraceControl.method(), // and `cmux app clicks`: where the last presses went (every build)
         ])
         // Frames, hangs, layout counters and switch times in Release too, off by default (PerfProbes):
         // `perf.probes.enable {"on": true}` opens them for `cmux perf profile --frames`.

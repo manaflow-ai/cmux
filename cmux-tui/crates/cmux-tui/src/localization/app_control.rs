@@ -81,6 +81,8 @@ pub(crate) struct AppControlMessages {
     pub live: LiveMessages,
     /// `cmux app chat perf` (cli/app/chat_perf.rs).
     pub chat_perf: ChatPerfMessages,
+    /// `cmux app chat memory` (cli/app/chat_memory.rs).
+    pub chat_memory: ChatMemoryMessages,
     /// `cmux app launch-times` (cli/app/launch_times.rs).
     pub launch_times: LaunchTimesMessages,
 }
@@ -97,6 +99,23 @@ pub(crate) struct LaunchTimesMessages {
     pub empty: &'static str,
     /// The file could not be read: `{path}`, `{error}`.
     pub unreadable: &'static str,
+}
+
+/// `cmux app chat memory`: each chat page's memory. The JSON keys stay English; `{name}`
+/// placeholders are filled by cli/app/chat_memory.rs.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct ChatMemoryMessages {
+    pub usage: &'static str,
+    pub metric: &'static str,
+    pub app: &'static str,
+    pub daemon: &'static str,
+    pub empty: &'static str,
+    pub empty_none: &'static str,
+    pub no_chats: &'static str,
+    pub chat: &'static str,
+    pub chat_shared: &'static str,
+    pub chat_no_page: &'static str,
+    pub summary: &'static str,
 }
 
 /// `cmux app chat perf`: a chat page's frames and record-to-paint times over a window. The JSON
@@ -478,6 +497,19 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         chromium_no_checkout: "no cmux checkout here: run this inside a clone of manaflow-ai/cmux, or pass --worktree PATH (it needs scripts/cmux-next/chromium-live.py)",
         abi_mismatch: "nothing started or written: this checkout's web UI needs web ABI {tree_abi}, {app} has web ABI {app_abi} (it would refuse it and reload every page); try it in a side copy instead: `cmux app try .`, or use a checkout at web ABI {app_abi}",
     },
+    chat_memory: ChatMemoryMessages {
+        usage: "usage: cmux app chat memory [--empty-tab <tab>] [--empty-bytes <n>]\n  Reads, now, the memory of each open chat's web content process, the app's and the daemons' own,\n  and each chat's ratio against an empty chat's page. Chats that share one web content process are\n  grouped by it and counted once. The empty chat is --empty-bytes, else the chat in --empty-tab, else\n  a New Tab page that has its process to itself. --json prints the report.",
+        metric: "Memory: {metric}",
+        app: "App (pid {pid}): {size}",
+        daemon: "Daemon (pid {pid}): {size}",
+        empty: "Empty chat page: {size}",
+        empty_none: "Empty chat page: none ({reason}); ratios are not computed. Open a new chat and name it with --empty-tab, or pass --empty-bytes.",
+        no_chats: "No open chat has a page.",
+        chat: "Chat {tab} (pid {pid}): {size}, {ratio} an empty chat",
+        chat_shared: "Chat {tab} (pid {pid}, shared with {others} more): {size}, {ratio} an empty chat (the process, counted once)",
+        chat_no_page: "Chat {tab}: no web content process (not loaded, ended, or not WebKit)",
+        summary: "Web content: {processes} processes ({shared} shared), {total} in all; ratio to an empty chat: median {median}, max {max}",
+    },
     chat_perf: ChatPerfMessages {
         usage: "usage: cmux app chat perf --tab <tab> [--seconds <1-60>]\n  Measures the chat in <tab> as it runs, without focusing or showing it: frames, long tasks, layout\n  shift, and how long each record the chat receives takes to reach a painted frame, by kind. Default\n  5 seconds. A hidden or covered chat draws no frames, and the result says so. --json prints the report.",
         seconds: "--seconds must be a whole number from 1 to 60",
@@ -702,6 +734,19 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
         chromium_not_watching: "Chromium ライブ: 監視していません (cmux のチェックアウトで `cmux live start --chromium` を実行すると開始します)",
         chromium_no_checkout: "ここに cmux のチェックアウトがありません。manaflow-ai/cmux のクローン内で実行するか、--worktree パス を指定してください (scripts/cmux-next/chromium-live.py が必要です)",
         abi_mismatch: "何も起動・書き込みしていません: このチェックアウトの Web UI は Web ABI {tree_abi} が必要ですが、{app} は Web ABI {app_abi} です (アプリはそれを拒否し、すべてのページを再読み込みします)。代わりに別のコピーで試してください: `cmux app try .`、または Web ABI {app_abi} のチェックアウトを使ってください",
+    },
+    chat_memory: ChatMemoryMessages {
+        usage: "使い方: cmux app chat memory [--empty-tab <タブ>] [--empty-bytes <数>]\n  開いている各チャットの Web コンテンツプロセス、アプリとデーモン自身のメモリを今この場で読み、\n  空のチャットのページとの比を出します。1 つの Web コンテンツプロセスを共有するチャットはそのプロセスで\n  まとめて 1 回だけ数えます。空のチャットは --empty-bytes、なければ --empty-tab のチャット、\n  なければ専用のプロセスを持つ New Tab ページです。--json でレポートを表示します。",
+        metric: "メモリ: {metric}",
+        app: "アプリ (pid {pid}): {size}",
+        daemon: "デーモン (pid {pid}): {size}",
+        empty: "空のチャットのページ: {size}",
+        empty_none: "空のチャットのページ: なし ({reason})。比は計算しません。新しいチャットを開いて --empty-tab で指定するか、--empty-bytes を渡してください。",
+        no_chats: "ページを持つチャットはありません。",
+        chat: "チャット {tab} (pid {pid}): {size}、空のチャットの {ratio}",
+        chat_shared: "チャット {tab} (pid {pid}、ほか {others} 件と共有): {size}、空のチャットの {ratio} (プロセス全体、1 回だけ数えます)",
+        chat_no_page: "チャット {tab}: Web コンテンツプロセスなし (未読み込み、終了済み、または WebKit ではありません)",
+        summary: "Web コンテンツ: {processes} プロセス (共有 {shared})、合計 {total}、空のチャットとの比: 中央値 {median}、最大 {max}",
     },
     chat_perf: ChatPerfMessages {
         usage: "使い方: cmux app chat perf --tab <タブ> [--seconds <1-60>]\n  <タブ> のチャットを、フォーカスも表示もせずに動作中のまま計測します: フレーム、長いタスク、レイアウトシフト、\n  チャットが受け取る各レコードが描画済みフレームに届くまでの時間 (種類別)。既定は 5 秒。非表示や\n  隠れたチャットはフレームを描かず、結果にそう示されます。--json でレポートを表示します。",
