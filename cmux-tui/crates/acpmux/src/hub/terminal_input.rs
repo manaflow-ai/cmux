@@ -231,16 +231,22 @@ impl super::Hub {
     pub(super) fn drop_typed(&self, session: &super::Session) {
         let dropped = waiting().remove(&session.id).unwrap_or_default();
         for (uuid, _) in dropped {
-            let Some(prompt_id) = super::bridge::fail_delivery_of(&uuid, WRITABLE_OFF) else {
-                continue;
-            };
-            let error = format!("terminal.writable_off: {WRITABLE_OFF}");
-            let data = json!({"reason": "terminal.writable_off"});
-            let msg = json!({"promptId": prompt_id, "error": error, "data": data});
-            self.append(session, "mux", "prompt_refused", msg);
+            self.refuse_writable_off(session, &uuid);
         }
         // The typing loop wakes, finds nothing left and ends.
         turn_ended();
+    }
+
+    /// Fails delivery `uuid` as dropped because the setting went off: its sender gets why, every
+    /// other client a `prompt_refused` notice. Nothing when it was already answered.
+    fn refuse_writable_off(&self, session: &super::Session, uuid: &str) {
+        let Some(prompt_id) = super::bridge::fail_delivery_of(uuid, WRITABLE_OFF) else {
+            return;
+        };
+        let error = format!("terminal.writable_off: {WRITABLE_OFF}");
+        let data = json!({"reason": "terminal.writable_off"});
+        let msg = json!({"promptId": prompt_id, "error": error, "data": data});
+        self.append(session, "mux", "prompt_refused", msg);
     }
 
     /// Types delivery `uuid` (`wire`) into the terminal `d` drives `session` from: now when its
@@ -254,6 +260,10 @@ impl super::Hub {
         uuid: &str,
         wire: &str,
     ) -> Result<(), String> {
+        if !self.terminal_chat_writable() {
+            self.refuse_writable_off(session, uuid);
+            return Err(WRITABLE_OFF.to_owned());
+        }
         let queued = waiting().get(&session.id).is_some_and(|q| !q.is_empty());
         if !queued {
             match type_prompt(d, agent_session, wire).await {
@@ -271,6 +281,21 @@ impl super::Hub {
             q.push_back((uuid.to_owned(), wire.to_owned()));
             q.len() == 1
         };
+        // The setting can go off while this send was on its way here, after `drop_typed` emptied
+        // the queue: the flag goes off before that drop, so one of the two sees it and drops it.
+        if !self.terminal_chat_writable() {
+            let mine = waiting().get_mut(&session.id).and_then(|q| {
+                let at = q.iter().position(|(u, _)| u == uuid)?;
+                q.remove(at)
+            });
+            if mine.is_some() {
+                self.refuse_writable_off(session, uuid);
+                turn_ended();
+                return Err(WRITABLE_OFF.to_owned());
+            }
+            // `drop_typed` took it and answered it already.
+            return Ok(());
+        }
         if start {
             let (session, d, agent_session) =
                 (session.clone(), d.clone(), agent_session.to_owned());
