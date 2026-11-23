@@ -43,6 +43,8 @@ final class CEFPageRendererGC {
     /// Each renderer's used heap right after its last collection.
     private var live: [Int32: Int] = [:]
     private var checking = false
+    /// Runs at the end of every check (the App's chat renderer recycle, `CEFChatRendererRecycle`).
+    var checked: (@MainActor () async -> Void)?
 
     init(pages: @escaping @MainActor () -> [Page],
          heapUsed: @escaping @MainActor (Int32) async -> Int?,
@@ -68,6 +70,7 @@ final class CEFPageRendererGC {
             await collect(target.browser)
             if let after = await heapUsed(target.browser) { live[target.renderer] = after }
         }
+        await checked?()
     }
 
     /// The used heap at which a renderer is collected: twice what was live after its last collection, and at
