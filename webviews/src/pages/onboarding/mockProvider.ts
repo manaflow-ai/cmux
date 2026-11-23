@@ -7,6 +7,9 @@ import { OPS, type DensityChoice, type ImportDataKind, type OnboardingState, typ
 
 export class MockOnboardingProvider implements PageClient {
   private state: OnboardingState;
+  /** Make cmux Yours' choices when the window opened: Skip puts them back, as the host does (cmux#49701's
+   * keepForSkip). */
+  private readonly openingChoices: OnboardingState["makeItYours"];
   private readonly listeners = new Set<(state: OnboardingState) => void>();
 
   /** `initial`: the state to open on (a gallery variant's fixture); else `step`'s first fixture. */
@@ -22,6 +25,7 @@ export class MockOnboardingProvider implements PageClient {
             : step === "makeItYours"
               ? makeItYoursState("fresh")
               : agentsState("mixed"));
+    this.openingChoices = this.state.makeItYours ?? null;
   }
 
   private change(next: OnboardingState): void {
@@ -108,6 +112,8 @@ export class MockOnboardingProvider implements PageClient {
         return {} as R;
       }
       case OPS.skip:
+        if (state.step === "makeItYours" && state.makeItYours && this.openingChoices)
+          this.change({ ...state, makeItYours: { ...state.makeItYours, ...pickedChoices(this.openingChoices) } });
         if (state.step === "agentTools" && !state.agentTools?.answered) this.change(agentToolsState("declined"));
         return {} as R;
       case OPS.workStyle:
@@ -147,4 +153,9 @@ export class MockOnboardingProvider implements PageClient {
   handle(_op: string, _handler: PageHandler): () => void {
     return () => {};
   }
+}
+
+/** The three picks of Make cmux Yours, without the backgrounds offered or their load state. */
+function pickedChoices(choices: NonNullable<OnboardingState["makeItYours"]>) {
+  return { workStyle: choices.workStyle, density: choices.density, background: choices.background };
 }
