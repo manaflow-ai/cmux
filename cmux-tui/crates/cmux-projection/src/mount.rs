@@ -25,11 +25,11 @@ use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use fuser::consts::{FOPEN_KEEP_CACHE, FUSE_AUTO_INVAL_DATA};
+use fuser::consts::{FOPEN_KEEP_CACHE, FUSE_AUTO_INVAL_DATA, FUSE_DO_READDIRPLUS};
 use fuser::{
     BackgroundSession, FileAttr, FileType, Filesystem, KernelConfig, MountOption, Notifier,
-    ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry, ReplyOpen,
-    ReplyStatfs, ReplyWrite, Request, TimeOrNow,
+    ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyDirectoryPlus, ReplyEmpty, ReplyEntry,
+    ReplyOpen, ReplyStatfs, ReplyWrite, Request, TimeOrNow,
 };
 
 use crate::overlay::{Attr, Overlay, Set, Type, Version, Who};
@@ -189,7 +189,7 @@ struct Fs {
     jobs: Sender<Job>,
     /// Folder listings by handle, taken at `opendir` and again at each read from the start, so
     /// paging is stable and cheap.
-    listings: HashMap<u64, Vec<(u64, FileType, String)>>,
+    listings: HashMap<u64, Arc<[(u64, FileType, String)]>>,
     /// Each file's [`Version`] at its last open: the pages the kernel holds are of it.
     versions: Arc<Mutex<HashMap<u64, Version>>>,
     notifier: Arc<OnceLock<Notifier>>,
@@ -261,6 +261,22 @@ impl Fs {
         Ok(listing)
     }
 
+    /// The listing a read of handle `fh` at `offset` answers from. A read from the start (the
+    /// first, or one after rewinddir) lists the folder as it is now: POSIX has rewinddir see
+    /// names made or deleted since the folder was opened.
+    fn listing_at(
+        &mut self,
+        ino: u64,
+        fh: u64,
+        offset: i64,
+    ) -> Result<Arc<[(u64, FileType, String)]>, i32> {
+        if offset == 0 && self.listings.contains_key(&fh) {
+            let listing = self.listing(ino)?;
+            self.listings.insert(fh, listing.into());
+        }
+        self.listings.get(&fh).cloned().ok_or(libc::EBADF)
+    }
+
     fn run(&self, job: impl FnOnce(&Overlay) + Send + 'static) {
         let overlay = self.overlay.clone();
         let _ = self.jobs.send(Box::new(move || job(&overlay)));
@@ -328,6 +344,11 @@ impl Filesystem for Fs {
     fn init(&mut self, _req: &Request<'_>, config: &mut KernelConfig) -> Result<(), libc::c_int> {
         // A kernel without it still works: an open of a changed file drops its pages anyway.
         let _ = config.add_capabilities(FUSE_AUTO_INVAL_DATA);
+        // Every listing carries its entries' attributes (not `FUSE_READDIRPLUS_AUTO`, which sends
+        // them only for a folder's first chunk or one already looked up in): the manifest answers
+        // them with no fetch, and a walk then never asks per file. A kernel without it lists as
+        // before and looks each name up.
+        let _ = config.add_capabilities(FUSE_DO_READDIRPLUS);
         Ok(())
     }
 
@@ -571,7 +592,7 @@ impl Filesystem for Fs {
         });
         match listed {
             Ok((handle, listing)) => {
-                self.listings.insert(handle, listing);
+                self.listings.insert(handle, listing.into());
                 reply.opened(handle, 0);
             }
             Err(errno) => reply.error(errno),
@@ -586,27 +607,53 @@ impl Filesystem for Fs {
         offset: i64,
         mut reply: ReplyDirectory,
     ) {
-        // A read from the start (the first, or one after rewinddir) lists the folder as it is now:
-        // POSIX has rewinddir see names made or deleted since the folder was opened.
-        if offset == 0 && self.listings.contains_key(&fh) {
-            match self.listing(ino) {
-                Ok(listing) => {
-                    self.listings.insert(fh, listing);
-                }
-                Err(errno) => {
-                    reply.error(errno);
-                    return;
-                }
+        let listing = match self.listing_at(ino, fh, offset) {
+            Ok(listing) => listing,
+            Err(errno) => {
+                reply.error(errno);
+                return;
             }
-        }
-        let Some(listing) = self.listings.get(&fh) else {
-            reply.error(libc::EBADF);
-            return;
         };
         let start = usize::try_from(offset).unwrap_or(0);
         for (at, (ino, kind, name)) in listing.iter().enumerate().skip(start) {
             let next = i64::try_from(at + 1).unwrap_or(i64::MAX);
             if reply.add(*ino, next, *kind, name) {
+                break;
+            }
+        }
+        reply.ok();
+    }
+
+    /// A listing with each entry's attributes (`FUSE_DO_READDIRPLUS`), so the kernel holds every
+    /// name and `stat` of the folder from one call: a walk (`find`, `git status`, `rg`) then
+    /// `stat`s each file with no `LOOKUP` round trip. The attributes are the ones `lookup` would
+    /// answer, kept as long ([`LOWER_TTL`], [`UPPER_TTL`]).
+    fn readdirplus(
+        &mut self,
+        _req: &Request<'_>,
+        ino: u64,
+        fh: u64,
+        offset: i64,
+        mut reply: ReplyDirectoryPlus,
+    ) {
+        let listing = match self.listing_at(ino, fh, offset) {
+            Ok(listing) => listing,
+            Err(errno) => {
+                reply.error(errno);
+                return;
+            }
+        };
+        let start = usize::try_from(offset).unwrap_or(0);
+        for (at, (child, _, name)) in listing.iter().enumerate().skip(start) {
+            let next = i64::try_from(at + 1).unwrap_or(i64::MAX);
+            // `.` and `..` are never linked by the kernel (it takes no lookup for them), so their
+            // attributes are the folder's own.
+            let attr =
+                if at < 2 { self.overlay.getattr(ino) } else { self.overlay.lookup(ino, name) };
+            // A name gone since the listing was taken (a race with an unlink): leave it out, as
+            // a fresh listing would.
+            let Ok(attr) = attr else { continue };
+            if reply.add(*child, next, name, &ttl(&attr), &file_attr(&attr), 0) {
                 break;
             }
         }

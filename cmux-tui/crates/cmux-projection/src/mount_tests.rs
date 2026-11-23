@@ -383,3 +383,62 @@ fn a_version_seen_while_racy_never_earns_the_kept_cache() {
     assert_eq!(open_flags(&overlay, &versions, &notifier, ino), 0);
     assert_eq!(open_flags(&overlay, &versions, &notifier, ino), FOPEN_KEEP_CACHE);
 }
+
+#[test]
+fn a_listing_hands_the_kernel_each_entrys_stat_as_a_lookup_would() {
+    let state = tempfile::tempdir().unwrap();
+    let at = tempfile::tempdir().unwrap();
+    let mtime_ns = 1_700_000_000_123_456_789;
+    let files: &[(&str, &[u8])] =
+        &[("a.txt", b"one"), ("b/c.rs", b"fn c() {}"), ("b/d/e.md", b"# e"), ("f", b"")];
+    let Some((_overlay, mounted)) = mounted(files, mtime_ns, state.path(), at.path()) else {
+        return;
+    };
+    let root = at.path();
+    // An upper file beside the lower ones, listed in the same folder.
+    std::fs::write(root.join("b/new.rs"), "fn new() {}").unwrap();
+    // Walk first (READDIRPLUS fills the kernel's entries), then stat every name the walk saw.
+    let mut seen = Vec::new();
+    let mut folders = vec![root.to_path_buf()];
+    while let Some(folder) = folders.pop() {
+        for entry in std::fs::read_dir(&folder).unwrap() {
+            let entry = entry.unwrap();
+            let kind = entry.file_type().unwrap();
+            if kind.is_dir() {
+                folders.push(entry.path());
+            }
+            seen.push((entry.path(), kind.is_dir()));
+        }
+    }
+    seen.sort();
+    let rel: Vec<_> =
+        seen.iter().map(|(path, _)| path.strip_prefix(root).unwrap().to_owned()).collect();
+    assert_eq!(
+        rel,
+        ["a.txt", "b", "b/c.rs", "b/d", "b/d/e.md", "b/new.rs", "f"].map(std::path::PathBuf::from)
+    );
+    let mut inodes = std::collections::HashSet::new();
+    for (path, is_dir) in &seen {
+        let meta = std::fs::symlink_metadata(path).unwrap();
+        assert_eq!(meta.is_dir(), *is_dir, "{path:?}");
+        assert!(inodes.insert(meta.ino()), "{path:?} shares an inode");
+        let name = path.strip_prefix(root).unwrap().to_str().unwrap();
+        if name == "b/new.rs" {
+            assert_eq!(meta.len(), 11);
+        } else if let Some((_, bytes)) = files.iter().find(|(file, _)| *file == name) {
+            assert_eq!(meta.len(), bytes.len() as u64, "{name}");
+            assert_eq!(meta.mode() & 0o7777, 0o644, "{name}");
+            assert_eq!(meta.mtime_nsec(), mtime_ns % 1_000_000_000, "{name}");
+        }
+    }
+    // A name deleted after a listing is gone for stat, and a fresh listing leaves it out.
+    std::fs::remove_file(root.join("b/c.rs")).unwrap();
+    assert!(std::fs::symlink_metadata(root.join("b/c.rs")).is_err());
+    let mut names: Vec<String> = std::fs::read_dir(root.join("b"))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect();
+    names.sort();
+    assert_eq!(names, ["d", "new.rs"]);
+    mounted.unmount();
+}
