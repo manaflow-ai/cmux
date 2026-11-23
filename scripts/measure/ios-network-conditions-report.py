@@ -31,7 +31,9 @@ METRIC_ORDER = [
     "bytes_up",
     "round_trips",
 ]
-PHASE_ORDER = ["cold", "warm", "warm-full", "streaming", "reconnect", "path-change"]
+# path-change is the app's redial on a blackout (the row targets read); harness-dark-dial is the
+# harness's own dial from the dark riding the shaper's SYN backoff, kept for comparison.
+PHASE_ORDER = ["cold", "warm", "warm-full", "streaming", "reconnect", "path-change", "harness-dark-dial"]
 
 
 def first_content_summary(rows: list[dict]) -> list[str]:

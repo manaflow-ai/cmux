@@ -305,6 +305,10 @@ enum Inbound {
     Output { surface: u64, data: Vec<u8>, vt_state: bool },
 }
 
+/// The app's wait after a path change before it redials (cmux-next-ios
+/// LinkController.swift:180 `networkSettle`).
+const NETWORK_SETTLE: Duration = Duration::from_millis(150);
+
 /// One phone channel to the daemon over the shaper.
 struct Conn {
     writer: tokio::net::tcp::OwnedWriteHalf,
@@ -656,10 +660,11 @@ impl Bench {
         }
     }
 
-    /// `path_back` (the path-change row): a dial from the dark still pending when the link comes
-    /// back is dropped for a new one, as the app does on its NWPathMonitor event
-    /// (NetworkPathFilter yields `.changed` on wasDown, cmux-next-ios NetworkPathMonitor.swift).
-    /// The reconnect row keeps the dial from the dark, as a phone with no path event would.
+    /// `path_back` (the path-change row, the app's behaviour): a dial from the dark still pending
+    /// when the link comes back is dropped for a new one after `NETWORK_SETTLE`, as the app does
+    /// on its NWPathMonitor event (cmux-next-ios NetworkPathMonitor.swift:55, LinkController.swift
+    /// :180, :193). Without it, on a blackout (the harness-dark-dial row), the harness's own dial
+    /// from the dark rides the shaper's SYN backoff; the app does not do that.
     async fn reconnect(
         &self,
         profile: &LinkProfile,
@@ -668,7 +673,13 @@ impl Bench {
         seed: u64,
         path_back: bool,
     ) {
-        let phase = if path_back { "path-change" } else { "reconnect" };
+        let blackout =
+            matches!(profile.disruption, Some(cmux_fault::shaper::Disruption::Blackout { .. }));
+        let phase = match (path_back, blackout) {
+            (true, _) => "path-change",
+            (false, true) => "harness-dark-dial",
+            (false, false) => "reconnect",
+        };
         let scale = "1x";
         let shaper = match Shaper::start(self.upstream, profile.clone(), seed, &Trace::new()).await
         {
@@ -727,19 +738,27 @@ impl Bench {
             None => {
                 drop(conn);
                 let addr = shaper.addr();
-                // The fresh output's time, and the dial's: when it went out, when it opened.
+                // The fresh output's time, and the dial's: when it went out, when it opened. The
+                // local connect to the shaper returns at once (it holds the upstream connect, SYN
+                // backoff included), so the dial is open at the first answer through it: the
+                // client-info/identify reply, as chat's is at `initialize`.
                 let dial = move || async move {
                     let sent = Instant::now();
                     let mut new = Conn::open(addr).await.ok()?;
+                    let ids = new
+                        .send(vec![("set-client-info", client_info()), ("identify", json!({}))])
+                        .await
+                        .ok()?;
+                    new.reply(*ids.last()?, |_, _, _, _| {}).await?;
                     let open = Instant::now();
-                    Some((attach(&mut new, surface, true).await?, sent, open))
+                    Some((attach(&mut new, surface, false).await?, sent, open))
                 };
                 let now = Instant::now();
                 let got = if path_back && now < back {
                     match timeout(back - now, dial()).await.ok().flatten() {
                         Some(got) => Some(got),
                         None => {
-                            tokio::time::sleep_until(back).await;
+                            tokio::time::sleep_until(back + NETWORK_SETTLE).await;
                             dial().await
                         }
                     }

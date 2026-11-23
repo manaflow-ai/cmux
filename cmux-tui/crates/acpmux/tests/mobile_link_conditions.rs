@@ -698,6 +698,10 @@ async fn cold_and_warm(
     Some(link)
 }
 
+/// The app's wait after a path change before it redials (cmux-next-ios
+/// LinkController.swift:180 `networkSettle`), so a burst of path updates settles first.
+const NETWORK_SETTLE: Duration = Duration::from_millis(150);
+
 /// The agent streams; the link drops (the profile's disruption); the app's policy reconnects.
 #[allow(clippy::too_many_arguments)]
 async fn reconnect(
@@ -790,10 +794,12 @@ async fn reconnect(
     }
     drop(old);
     // Redial: each try bounded as the app's requests are, until the overall bound. With
-    // `path_back` (the path-change row), a try still pending when the link comes back is dropped
-    // for a new one: the app's NWPathMonitor reports the path back (NetworkPathFilter yields
-    // `.changed` on wasDown, cmux-next-ios NetworkPathMonitor.swift) and it redials at once. The
-    // reconnect row keeps the dial from the dark, as a phone with no path event would.
+    // `path_back` (the path-change row, the app's behaviour), a try still pending when the link
+    // comes back is dropped for a new one after `NETWORK_SETTLE`: the app's NWPathMonitor reports
+    // the path back (cmux-next-ios NetworkPathMonitor.swift:55, LiveCoordinator.swift:392) and
+    // LinkController redials after its settle (LinkController.swift:180, :193). Without it (the
+    // harness-dark-dial row on a blackout) the harness's own dial from the dark rides the shaper's
+    // SYN backoff (cmux-fault shaper.rs `connect_at`); the app does not do that.
     let mut why = String::from("no reconnect before the bound");
     let mut dialed = None;
     while first.is_none() && Instant::now() < deadline {
@@ -803,7 +809,8 @@ async fn reconnect(
         if cut {
             attempt = attempt.min(back);
         }
-        let wait_for_back = || tokio::time::sleep_until(if cut { back } else { Instant::now() });
+        let wait_for_back =
+            || tokio::time::sleep_until(if cut { back + NETWORK_SETTLE } else { Instant::now() });
         let mut l = match Link::open(shaper.addr(), token, attempt).await {
             Ok(l) => {
                 dialed = Some((now, Instant::now()));
@@ -979,7 +986,12 @@ async fn chat_open_and_reconnect_under_mobile_link_profiles() {
                     continue;
                 };
                 if profile.disrupts_lan() {
-                    let k = Key { profile: &name, phase: "reconnect", scale, run, seed };
+                    // On a blackout this row is the harness's own dial from the dark, riding the
+                    // shaper's SYN backoff: not the app, which redials on the path change (the
+                    // path-change row below, the one the targets read).
+                    let blackout = matches!(profile.disruption, Some(Disruption::Blackout { .. }));
+                    let phase = if blackout { "harness-dark-dial" } else { "reconnect" };
+                    let k = Key { profile: &name, phase, scale, run, seed };
                     reconnect(&shaper, &mut control, link, &listener.token, &session, &k, false)
                         .await;
                     // path-change: the same drop, redialing when the path comes back. Only a
