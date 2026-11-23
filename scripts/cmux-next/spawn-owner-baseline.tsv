@@ -5,6 +5,7 @@ cmux-tui/crates/acpmux/src/agent_host/host/orphan.rs	4
 cmux-tui/crates/acpmux/src/agent_host/link.rs	5
 cmux-tui/crates/acpmux/src/agent_host/wait.rs	1
 cmux-tui/crates/acpmux/src/agent_login.rs	3
+cmux-tui/crates/acpmux/src/agent_tools/cua_helper.rs	1
 cmux-tui/crates/acpmux/src/bg_run.rs	5
 cmux-tui/crates/acpmux/src/cli/bounded_child.rs	2
 cmux-tui/crates/acpmux/src/cli/cli_agent.rs	8
@@ -80,6 +81,7 @@ cmux-tui/crates/acpmux/src/hub/inbox.rs	3
 cmux-tui/crates/acpmux/src/hub/inbox_digest.rs	1
 cmux-tui/crates/acpmux/src/hub/lane_reports.rs	4
 cmux-tui/crates/acpmux/src/hub/lifecycle.rs	1
+cmux-tui/crates/acpmux/src/hub/list_guard.rs	1
 cmux-tui/crates/acpmux/src/hub/live_models.rs	3
 cmux-tui/crates/acpmux/src/hub/live_name.rs	1
 cmux-tui/crates/acpmux/src/hub/media_handles.rs	1
@@ -143,16 +145,19 @@ cmux-tui/crates/acpmux/src/peer_ssh.rs	1
 cmux-tui/crates/acpmux/src/server/carrier.rs	4
 cmux-tui/crates/acpmux/src/server/chat_windows.rs	1
 cmux-tui/crates/acpmux/src/server/chats.rs	1
+cmux-tui/crates/acpmux/src/server/durable_gate.rs	1
 cmux-tui/crates/acpmux/src/server/fanout.rs	1
 cmux-tui/crates/acpmux/src/server/fix_from_link.rs	1
 cmux-tui/crates/acpmux/src/server/media_forward.rs	1
 cmux-tui/crates/acpmux/src/server/mesh_relay.rs	2
 cmux-tui/crates/acpmux/src/server/mod.rs	7
+cmux-tui/crates/acpmux/src/server/outbound.rs	2
 cmux-tui/crates/acpmux/src/server/outbox.rs	2
 cmux-tui/crates/acpmux/src/server/peer_forward.rs	1
 cmux-tui/crates/acpmux/src/server/races/peer.rs	1
 cmux-tui/crates/acpmux/src/server/requests.rs	1
 cmux-tui/crates/acpmux/src/server/requests/briefs.rs	1
+cmux-tui/crates/acpmux/src/server/requests/cancel_refused.rs	1
 cmux-tui/crates/acpmux/src/server/requests/info.rs	1
 cmux-tui/crates/acpmux/src/server/requests/workflow_dispatch.rs	1
 cmux-tui/crates/acpmux/src/server/review_queue.rs	1
