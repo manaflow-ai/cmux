@@ -137,6 +137,7 @@ impl Projection {
         if let Some(old) = &self.view {
             view.bytes_out = old.bytes_out;
             view.resets = old.resets;
+            view.pushed_at_paint = old.pushed_at_paint;
             // The reader's lines (in the old view's rows, above its live
             // part) and a screen above them stay in the window.
             let live = old.live_rows();

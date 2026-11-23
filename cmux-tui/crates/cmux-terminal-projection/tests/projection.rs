@@ -643,25 +643,22 @@ fn a_backlog_painted_once_matches_a_paint_per_chunk() {
         }
         phone.apply(host.flush());
         assert_same(&host, &phone, &format!("backlog of {backlog}"));
-        // A reset (the clear, the trip back from the alternate screen) sends
-        // the phone a window, not the whole scrollback (older rows come with
-        // `load_older`), so a phone that painted once may hold fewer old
-        // lines than one that streamed them all. The lines it holds are the
-        // same lines, ending in the same place, with the cursor on the same glyph.
+        // The phone holds every row the host does (a reset paints the rows
+        // pushed since the last paint, not only its tail window): none is
+        // left for `load_older`, and its lines are the host's from the first.
+        assert_eq!(host.older_rows(), 0, "backlog of {backlog}: host rows not on the phone");
         let (lines, cursor) = logical(&phone.term, 0);
+        let (host_lines, _) = logical(host.terminal(), 0);
         let (each_lines, each_cursor) = logical(&each_phone.term, 0);
-        let shared = lines.len().min(each_lines.len());
-        assert!(shared >= 38, "backlog of {backlog}: the phone holds a screen ({shared} lines)");
-        assert_eq!(
-            lines[lines.len() - shared..],
-            each_lines[each_lines.len() - shared..],
-            "backlog of {backlog}: the phone's lines"
+        eprintln!(
+            "backlog {backlog}: phone {} lines, host {} lines ({} history rows), paint-per-chunk phone {} lines",
+            lines.len(),
+            host_lines.len(),
+            host.terminal().history.len(),
+            each_lines.len()
         );
-        assert_eq!(
-            (lines.len() - cursor.0, cursor.1),
-            (each_lines.len() - each_cursor.0, each_cursor.1),
-            "backlog of {backlog}: the phone's cursor"
-        );
+        assert_eq!(lines, each_lines, "backlog of {backlog}: the phone's lines");
+        assert_eq!(cursor, each_cursor, "backlog of {backlog}: the phone's cursor");
         assert!(paints <= chunks.len() / backlog + 1);
     }
 }
