@@ -31,7 +31,6 @@ colour	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarFaviconRendi
 colour	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/WorkspaceStatusView.swift	1
 colour	Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabHoverCardGallery.swift	2
 colour	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/GhosttyRuntime.swift	2
-colour	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalHostView.swift	1
 colour	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalSurfaceView+Actions.swift	1
 colour	webviews/src/agent-session/acpmux/QuickModelColumns.tsx	1
 colour	webviews/src/agent-session/acpmux/composer/imageWork.ts	1
@@ -59,10 +58,6 @@ colour	webviews/src/pages/editor/settings.ts	2
 colour	webviews/src/pages/editor/view.ts	1
 colour	webviews/src/pages/github/styles.css	1
 colour	webviews/src/pages/group-editor/fixtures.ts	10
-colour	webviews/src/pages/home-messages/transcript/colors.ts	1
-colour	webviews/src/pages/home-messages/transcript/transcript.css	4
-colour	webviews/src/pages/home-messages/viewer/pictureModel.ts	1
-colour	webviews/src/pages/home-messages/viewer/viewer.css	9
 colour	webviews/src/pages/keybindings/styles.css	2
 colour	webviews/src/pages/markdown/diagrams.ts	4
 colour	webviews/src/pages/markdown/markdownFind.ts	3
@@ -85,7 +80,6 @@ duration	webviews/src/agent-session/acpmux/conversation/conversation.css	4
 duration	webviews/src/agent-session/acpmux/conversation/renderBase.ts	1
 duration	webviews/src/agent-session/acpmux/dictation.css	1
 duration	webviews/src/pages/changelog/updateSurfaces.css	1
-duration	webviews/src/pages/home-messages/list/swipe.ts	1
 duration	webviews/src/pages/markdown/styles.css	2
 duration	webviews/src/pierre-options.ts	1
 duration	webviews/src/ui/wave.css	1

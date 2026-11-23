@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextDevices
 import CmuxNextPages
@@ -46,6 +47,7 @@ import Testing
             }
             return owner.record
         }
+        var readError: String? { takes ? nil : owner.refusal }
         func close() { closed = true }
     }
 
@@ -58,6 +60,8 @@ import Testing
         var person = true
         /// acpmux announces `machine-consent-v1`.
         var capable = true
+        /// acpmux's words when it does not take the write.
+        var refusal: String?
         /// acpmux takes the write.
         var takes = true
         /// acpmux's consent record.
@@ -101,7 +105,7 @@ import Testing
         await model.refresh()
         for surface in JoinConsentSurface.allCases {
             let error = await model.set(surface, on: true)
-            #expect(error == JoinConsentStrings.onFailed)
+            #expect(error == JoinConsentStrings.notProven, "says it is not proven the person's")
         }
         #expect(fake.writes.isEmpty, "no on reached acpmux")
         #expect(fake.lines.allSatisfy { $0.closed })
@@ -125,13 +129,13 @@ import Testing
         let fake = Fake()
         let model = JoinConsentModel(services: fake.services())
         fake.enabled = false
-        #expect(await model.set(.screen, on: true) == JoinConsentStrings.onFailed)
+        #expect(await model.set(.screen, on: true) == JoinConsentStrings.changedMeanwhile)
         fake.enabled = true
         fake.status = JoinStatus(credentialPresent: true, machineId: "m_1", revoked: true)
-        #expect(await model.set(.screen, on: true) == JoinConsentStrings.onFailed)
+        #expect(await model.set(.screen, on: true) == JoinConsentStrings.notJoined)
         #expect(!model.shown, "a revoked join shows no switches")
         fake.status = JoinStatus(credentialPresent: false)
-        #expect(await model.set(.control, on: true) == JoinConsentStrings.onFailed)
+        #expect(await model.set(.control, on: true) == JoinConsentStrings.notJoined)
         #expect(fake.writes.isEmpty, "no on reached acpmux")
         fake.enabled = false
         #expect(await model.set(.screen, on: false) == nil)
@@ -151,6 +155,131 @@ import Testing
         #expect(shown.values == ["true", "true"])
         #expect(await model.answer(allow: false) == nil)
         #expect(model.ask == nil && model.askError == nil && shown.values.last == "false")
+    }
+
+    /// Every way an on is not written says which, on the page and on the sheet, never a silent no: not
+    /// joined, revoked, confirm cancelled or unavailable, no line, not proven, unsupported, and acpmux's
+    /// own refusal in its words. The page's `error` is that text (what the switches show under them).
+    @Test func eachWayAnOnIsNotWrittenSaysWhichOnThePageAndTheSheet() async throws {
+        let fake = Fake()
+        let model = JoinConsentModel(services: fake.services())
+        await model.refresh()
+        let cases: [(String, () -> Void, String)] = [
+            ("not joined", { fake.status = JoinStatus(credentialPresent: false) }, JoinConsentStrings.notJoined),
+            ("cancelled", { fake.confirm = .cancelled }, JoinConsentStrings.confirmCancelled),
+            ("unavailable", { fake.confirm = .unavailable }, JoinConsentStrings.confirmUnavailable),
+            ("not proven", { fake.person = false }, JoinConsentStrings.notProven),
+            ("unsupported", { fake.capable = false }, JoinConsentStrings.unsupported),
+            ("acpmux's words", { fake.takes = false; fake.refusal = "machine.unlisted" }, JoinConsentStrings.acpmuxRefused("machine.unlisted")),
+            ("no words", { fake.takes = false }, JoinConsentStrings.onFailed),
+        ]
+        for (name, arrange, text) in cases {
+            let reset = Fake()
+            (fake.status, fake.confirm, fake.person, fake.capable, fake.takes, fake.refusal) =
+                (reset.status, reset.confirm, reset.person, reset.capable, reset.takes, reset.refusal)
+            arrange()
+            #expect(await model.set(.control, on: true) == text, "\(name)")
+            #expect(model.lastError == text, "\(name)")
+            if fake.status?.credentialPresent == true {
+                #expect(try Self.page(model)["error"] as? String == text, "\(name): the page shows it under the switches")
+            }
+            fake.askShown = false
+            model.refused(JoinConsentRefusal(requester: "lane-vm-3", surface: .control))
+            #expect(await model.answer(allow: true) == text, "\(name)")
+            if fake.status?.credentialPresent == true {
+                #expect(model.ask != nil && model.askError == text, "\(name): the sheet shows it")
+            } else {
+                #expect(model.ask == nil, "\(name): a Mac that is not joined has nothing to allow, so the sheet closes")
+            }
+            _ = await model.answer(allow: false)
+        }
+
+        #expect(model.consent?.control != true)
+    }
+
+    /// SECURITY (cmux#37286): macOS 15.4+ may capture a window with `sharingType` none, so every capture cmux
+    /// makes leaves the sheet out by its window id: screen sharing, `cmux rd serve` and the recorders read
+    /// `CaptureExcludedWindows`, which lists it while it shows. Computer Use refuses it for the same property.
+    @Test func cmuxsOwnCapturesLeaveTheSheetOut() async throws {
+        _ = NSApplication.shared
+        let model = JoinConsentModel(services: Fake().services())
+        await model.refresh()
+        model.refused(JoinConsentRefusal(requester: "lane-vm-3", surface: .control))
+        let panel = JoinConsentAskPanel(model: model)
+        #expect(panel.sharingType == .none, "the sharing state CaptureExcludedWindows reads")
+        panel.setShown(true)
+        defer { panel.hide() }
+        // With no window server connection (a test step over SSH) the panel has no number and no capture runs.
+        guard panel.windowNumber > 0 else { return }
+        let id = CGWindowID(panel.windowNumber)
+        // The window server takes the new window in its own time.
+        for _ in 0..<40 where !CaptureExcludedWindows().windowIDs.contains(id) { try await Task.sleep(for: .milliseconds(50)) }
+        #expect(CaptureExcludedWindows().windowIDs.contains(id), "left out of cmux's captures")
+    }
+
+    /// The sheet's Allow refuses a click that is not the person's own (a remote driver's posted click) and a
+    /// press through its action (Accessibility): nothing is granted, and the sheet says why instead of
+    /// doing nothing. The gate is unchanged: the person's own click still grants.
+    @Test func aRefusedAllowOnTheSheetSaysWhy() async throws {
+        _ = NSApplication.shared
+        let fake = Fake()
+        let model = JoinConsentModel(services: fake.services())
+        await model.refresh()
+        model.refused(JoinConsentRefusal(requester: "lane-vm-3", surface: .control))
+        let panel = JoinConsentAskPanel(model: model)
+        model.present = { [weak panel] _ in panel?.content.rebuild() }
+        // Shown as the app shows it (``JoinConsentAskPanel/setShown(_:)``): the content joins the panel only then, and
+        // Allow's action finds its panel through its window (before 27ee68fa the panel's init held the content).
+        panel.setShown(true)
+        defer { panel.hide() }
+        let allow = { try #require(AddDeviceShotsTests.find(panel.content, id: "cmux.joinConsentAsk.allow") as? NSButton) }
+        // The card's words are ChromeLabels (the dialog card draws no NSTextField labels).
+        func texts(_ view: NSView) -> [String] {
+            (((view as? NSTextField)?.stringValue ?? (view as? ChromeLabel)?.stringValue).map { [$0] } ?? []) + view.subviews.flatMap(texts)
+        }
+        let shown = { (text: String) in texts(panel.content).contains(text) }
+        var number = 0
+        let mouse = { (type: NSEvent.EventType) throws -> NSEvent in
+            number += 1
+            let button = try allow()
+            let at = button.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), to: nil)
+            return try #require(NSEvent.mouseEvent(with: type, location: at, modifierFlags: [], timestamp: TimeInterval(number),
+                                                   windowNumber: panel.windowNumber, context: nil, eventNumber: number, clickCount: 1, pressure: 0))
+        }
+        var genuine: Set<Int> = []
+        panel.isPersonEvent = { genuine.contains($0.eventNumber) }
+        var current: NSEvent?
+        panel.eventInHand = { current }
+        let settle = { for _ in 0..<50 { await Task.yield() } }
+        #expect(model.askError == nil && !shown(JoinConsentStrings.personOnly))
+        // A driver's click: both halves posted, the mouse-up dispatched on its own.
+        let down = try mouse(.leftMouseDown), up = try mouse(.leftMouseUp)
+        current = down
+        panel.dispatch(down) {}
+        current = up
+        panel.dispatch(up) {}
+        await settle()
+        #expect(fake.writes.isEmpty && fake.confirms.isEmpty, "refused before the confirm, nothing sent")
+        #expect(model.ask != nil && model.askError == JoinConsentStrings.personOnly)
+        #expect(shown(JoinConsentStrings.personOnly), "the sheet draws the reason")
+        // An Accessibility press, outside any click, on a new ask.
+        _ = await model.answer(allow: false)
+        fake.askShown = false
+        model.refused(JoinConsentRefusal(requester: "lane-vm-3", surface: .control))
+        #expect(model.askError == nil && !shown(JoinConsentStrings.personOnly))
+        _ = try allow().accessibilityPerformPress()
+        await settle()
+        #expect(fake.writes.isEmpty && fake.confirms.isEmpty && model.askError == JoinConsentStrings.personOnly)
+        #expect(shown(JoinConsentStrings.personOnly))
+        // The person's own click still grants.
+        let personDown = try mouse(.leftMouseDown), personUp = try mouse(.leftMouseUp)
+        genuine.formUnion([personDown.eventNumber, personUp.eventNumber])
+        current = personDown
+        panel.dispatch(personDown) {
+            current = personUp
+        }
+        for _ in 0..<1000 where model.ask != nil { await Task.yield() }
+        #expect(fake.writes == ["control true"] && model.ask == nil && model.askError == nil)
     }
 
     @Test func turningTheLabsSwitchOffClosesAnOpenSheet() async {
@@ -345,7 +474,7 @@ import Testing
         #expect(await model.set(.control, on: true) == nil)
         #expect(model.ask != nil, "another surface's grant leaves it up")
         fake.confirm = .cancelled
-        #expect(await model.set(.screen, on: true) == JoinConsentStrings.onFailed)
+        #expect(await model.set(.screen, on: true) == JoinConsentStrings.confirmCancelled)
         #expect(model.ask != nil, "a grant that did not go through leaves it up")
         fake.confirm = .confirmed
         #expect(await model.set(.screen, on: true) == nil)
@@ -601,7 +730,7 @@ import Testing
         fake.confirm = refusal
         let model = JoinConsentModel(services: fake.services())
         await model.refresh()
-        let error = refusal == .unavailable ? JoinConsentStrings.confirmUnavailable : JoinConsentStrings.onFailed
+        let error = refusal == .unavailable ? JoinConsentStrings.confirmUnavailable : JoinConsentStrings.confirmCancelled
         #expect(await model.set(.screen, on: true) == error)
         #expect(fake.writes.isEmpty && fake.confirms == ["screen"], "the switch: asked, nothing sent")
         model.refused(JoinConsentRefusal(requester: "lane-vm-3", surface: .control))
@@ -636,12 +765,79 @@ import Testing
         #expect(fake.writes.isEmpty)
     }
 
+    private static func page(_ model: JoinConsentModel) throws -> [String: Any] {
+        let data = try #require(model.pageData())
+        return try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    /// Every way the page is left with no record says which one it is (2026-11-15: one generic "could not
+    /// read" line for all of them, and nothing in the log): no acpmux, a refused one, one that never
+    /// answered, an older one, one without the capability, and a failed read.
+    @Test func eachWayWithoutARecordSaysWhichOnThePage() async throws {
+        let cases: [(JoinConsentUnread, String)] = [
+            (.notRunning(path: "/tmp/x/acpmux.sock"), JoinConsentStrings.notRunning),
+            (.refused("the socket's peer runs as uid 0, not this user"), JoinConsentStrings.refusedDaemon),
+            (.noAnswer, JoinConsentStrings.noAnswer),
+            (.olderDaemon(path: "/usr/local/bin/acpmux"), JoinConsentStrings.olderDaemon),
+        ]
+        for (why, text) in cases {
+            let model = JoinConsentModel(services: JoinConsentServices(
+                status: { JoinStatus(credentialPresent: true, machineId: "m_1", teamId: "t_1") }, openLine: { nil },
+                enabled: { true }, askShown: { false }, markAskShown: {}, open: { .failed(why) }))
+            await model.refresh()
+            #expect(model.unread == why)
+            let page = try Self.page(model)
+            #expect(page["error"] as? String == text, "\(why)")
+            #expect(text != JoinConsentStrings.unread)
+            #expect(page["known"] as? Bool == false)
+            #expect(!model.permitsMacScreen(control: false))
+        }
+        let fake = Fake()
+        fake.capable = false
+        let unsupported = JoinConsentModel(services: fake.services())
+        await unsupported.refresh()
+        #expect(unsupported.unread == .unsupported)
+        fake.capable = true
+        fake.readFails = true
+        let failed = JoinConsentModel(services: fake.services())
+        await failed.refresh()
+        #expect(failed.unread == .readFailed(nil))
+        #expect(try Self.page(failed)["error"] as? String == JoinConsentStrings.unread)
+    }
+
+    /// The incident's Mac once the line reads another install's acpmux: the switches show what it holds,
+    /// disabled, with no Turn All Off (it takes no off from this app either), and the page names that
+    /// acpmux. Mac Screen never serves on it: any same-user process may bind that socket and say granted.
+    @Test func aRecordReadButNotProvenShowsItsStateAndNamesTheDaemon() async throws {
+        final class ForeignLine: JoinConsentLine {
+            let isPerson = false
+            let supportsConsent = true
+            var notProven: JoinConsentUnread? { .notProven(foreignPath: "/Users/me/.local/bin/acpmux", why: "another install's") }
+            func read() async -> JoinConsentRecord? { JoinConsentRecord(screen: true, control: false, lastRefusal: .control) }
+            func set(_ surface: JoinConsentSurface, granted: Bool, ticket: JoinConsentGrantTicket?) async -> JoinConsentRecord? { nil }
+            func close() {}
+        }
+        let model = JoinConsentModel(services: JoinConsentServices(
+            status: { JoinStatus(credentialPresent: true, machineId: "m_1", teamId: "t_1") }, openLine: { ForeignLine() },
+            enabled: { true }, askShown: { false }, markAskShown: {}))
+        await model.refresh()
+        #expect(model.ask == nil, "its recorded refusal shows no sheet whose Allow could never take")
+        let page = try Self.page(model)
+        #expect(page["error"] as? String == JoinConsentStrings.otherDaemon("/Users/me/.local/bin/acpmux"))
+        #expect(page["known"] as? Bool == false && page["revoke_all"] == nil)
+        let switches = try #require(page["switches"] as? [[String: Any]])
+        #expect(switches.first { $0["surface"] as? String == "screen" }?["on"] as? Bool == true, "shows what acpmux holds")
+        #expect(!model.permitsMacScreen(control: false) && !model.permitsMacScreen(control: true), "Mac Screen never follows another install's record")
+        #expect(!(await model.allowsMacScreen(control: false, requester: "lane-vm-3")))
+        #expect(model.ask == nil, "no sheet whose Allow could never take, and the one ask is not spent")
+    }
+
     @Test func noAcpmuxIsAFailureNeverAnOn() async {
         let model = JoinConsentModel(services: JoinConsentServices(status: { JoinStatus(credentialPresent: true) }, openLine: { nil },
                                                                    enabled: { true }, confirmOwner: { _ in .confirmed },
                                                                    askShown: { false }, markAskShown: {}))
-        #expect(await model.set(.screen, on: true) == JoinConsentStrings.onFailed)
-        #expect(await model.set(.screen, on: false) == JoinConsentStrings.offFailed)
+        #expect(await model.set(.screen, on: true) == JoinConsentStrings.noAnswer)
+        #expect(await model.set(.screen, on: false) == JoinConsentStrings.noAnswer)
     }
 
     @Test func theRecordReadsOnlyGrantedAsOnAndTheSwitchesShowOnlyWhenJoinedAndTheLabsSwitchIsOn() async throws {
@@ -982,7 +1178,7 @@ import Testing
             model.featureSwitched()
         }
         held.open()
-        #expect(await grant.value == JoinConsentStrings.onFailed)
+        #expect(await grant.value == JoinConsentStrings.changedMeanwhile)
         #expect(fake.writes.isEmpty)
     }
 
@@ -1022,7 +1218,7 @@ import Testing
         await settings.reload()
         #expect(settings.snapshot.machineJoin, "on again before the grant's line opens")
         held.open()
-        #expect(await grant.value == JoinConsentStrings.onFailed)
+        #expect(await grant.value == JoinConsentStrings.changedMeanwhile)
         #expect(fake.writes.isEmpty)
         // With no settings change in between, the person's grant goes through.
         #expect(await model.set(.screen, on: true) == nil)
@@ -1133,7 +1329,7 @@ import Testing
             _ = try await page.call("cmux.settings.devices.join_consent", params: on, context: PageCallContext(page: PageDescriptor.settings.id))
             Issue.record("page script turned it on")
         } catch let error as PageError {
-            #expect(error.code == PageNativeOp.userOnlyCode)
+            #expect(error.code == PageNativeOp.userOnlyCode && error.message == JoinConsentStrings.personOnly, "says only the person's click can allow it")
         }
         _ = try await page.call("cmux.settings.devices.join_consent", params: off, context: PageCallContext(page: PageDescriptor.settings.id))
         let click = PageCallContext(page: PageDescriptor.settings.id, userGesture: true, gestureEvent: 9)
@@ -1200,7 +1396,7 @@ import Testing
             try await call(posted, true)
             Issue.record("a posted click turned it on")
         } catch let error as PageError {
-            #expect(error.code == PageNativeOp.userOnlyCode)
+            #expect(error.code == PageNativeOp.userOnlyCode && error.message == JoinConsentStrings.personOnly)
         }
         #expect(sets.values.isEmpty, "consent unchanged")
         try await call(posted, false)

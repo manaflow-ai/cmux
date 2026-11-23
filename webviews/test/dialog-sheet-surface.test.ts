@@ -53,7 +53,10 @@ const subjectIs = (selector: string, cls: string) =>
 test("the sheet role is one rule: veil, radius, depth and the Reduce Transparency fill", () => {
   const sheet = rules(read("ui/popupSurface.css")).find((rule) => rule.selectors.includes(".ui-dialog.ui-glass"));
   expect(sheet).toBeDefined();
-  expect(sheet!.body).toContain("--glass-tint: var(--surface-sheet-veil)");
+  expect(sheet!.body).toContain("--glass-tint: var(--transient-surface-veil)");
+  expect(sheet!.body).toContain(
+    "--glass-backdrop: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation))",
+  );
   // The corner is the button corner plus --ui-dialog-padding (the padding that a dialog must pad with).
   // It is concentric with the buttons only of a dialog that pads with that token.
   expect(sheet!.body).toContain("--ui-dialog-padding: var(--ds-space-5)");

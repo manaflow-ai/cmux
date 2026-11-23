@@ -16,6 +16,7 @@ pub mod agent_start_launch;
 mod agent_status;
 pub mod agent_view;
 mod apps;
+pub mod packed_catalogs;
 pub mod route_table;
 /// Daemon primitives; the cmux-tui-util crate, re-exported at the old paths.
 pub use cmux_tui_util::backoff;
@@ -23,6 +24,8 @@ mod browser;
 pub mod browser_host;
 mod browser_host_history;
 mod browser_provider;
+/// The Linux and Windows Computer Use worker the daemon supervises.
+pub mod computer_use_host;
 /// Where the daemon finds the first-party app packages (cx-0uo1, cx-e0cs).
 pub mod first_party_dir;
 #[cfg(all(test, unix))]
@@ -55,6 +58,10 @@ mod git_ops;
 pub mod git_seed;
 mod history_ops;
 pub mod history_search;
+/// `language_packs.ensure`: the app's languages, downloaded on first use.
+pub(crate) mod language_packs;
+#[cfg(unix)]
+pub mod projection;
 /// The image paste spool; the cmux-tui-image-paste crate, re-exported at the old path.
 #[cfg(unix)]
 use cmux_tui_image_paste::image_paste;
@@ -74,12 +81,14 @@ use cmux_tui_remote_access::pairing;
 mod output_store;
 /// `RecoverPoison` and `JsonFields` (panic-free lane).
 mod panic_free;
+mod paste_pacing;
 mod program_status;
 mod prompt_mode_reset;
 pub mod provider_management;
 mod pty_input_room;
 #[cfg(unix)]
 mod pty_write;
+mod pty_write_marks;
 /// A mutex-guarded value whose readers load a published projection without the lock (R-DAEMON-STATE).
 use cmux_tui_util::published;
 mod terminal_title;

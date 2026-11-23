@@ -5,12 +5,14 @@ import SwiftUI
 
 /// The key row (classic cmux iOS's accessory toolbar): pinned at the leading
 /// edge the keyboard key, the joystick and the compose key; then a scroller
-/// of keys that hug their labels, in classic's order, ending in Hide Toolbar.
+/// of keys that hug their labels, in `KeyBarLayout`'s order (classic's, with
+/// the arrows before the agent launchers), ending in Hide Toolbar.
 /// It shows whether or not the keyboard is up. Each key is its own Liquid
 /// Glass cap (classic: `.glass()` / `.prominentGlass()`), in cmux NEXT's
 /// small-radius shape; there is no bar behind them.
 struct TerminalKeyBar: View {
     let model: TerminalModel
+    var layout: KeyBarLayout = .current
     /// Scroller keys clipped at its edges (`KeyBarClipping`): hidden from
     /// accessibility, offered as row actions.
     @State private var clipped = KeyBarClippedKeys()
@@ -24,8 +26,9 @@ struct TerminalKeyBar: View {
             // Its own view, fed only reference types: the per-frame
             // `scrolled` updates below re-evaluate this bar's body, but
             // SwiftUI skips the ~30 glass keys' bodies when their inputs are
-            // unchanged (they were rebuilt every scroll frame: the lag).
-            KeyBarScrollerKeys(model: model, clipped: clipped)
+            // unchanged (they were rebuilt every scroll frame: the lag). The
+            // layout is a plain enum, so it keeps that.
+            KeyBarScrollerKeys(model: model, layout: layout, clipped: clipped)
         }
         .scrollIndicators(.hidden)
         .onScrollGeometryChange(for: CGFloat.self) { geometry in
@@ -81,7 +84,7 @@ struct TerminalKeyBar: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("More keys")
         .accessibilityActions {
-            ForEach(KeyBarKey.row.filter { clipped.keys.contains($0) }, id: \.self) { key in
+            ForEach(layout.scroller.filter { clipped.keys.contains($0) }, id: \.self) { key in
                 Button(key.accessibilityLabel) { model.keyBar(key) }
             }
         }
@@ -101,15 +104,16 @@ final class KeyBarClippedKeys {
     }
 }
 
-/// The scroller's keys, in classic's order, ending in Hide Toolbar.
+/// The scroller's keys (`KeyBarLayout`), ending in Hide Toolbar.
 struct KeyBarScrollerKeys: View {
     let model: TerminalModel
+    let layout: KeyBarLayout
     let clipped: KeyBarClippedKeys
 
     var body: some View {
         GlassEffectContainer(spacing: 0) {
             HStack(spacing: TerminalDockMetrics.keySpacing) {
-                ForEach(KeyBarKey.row, id: \.self) { key in
+                ForEach(layout.scroller, id: \.self) { key in
                     KeyBarScrollerKey(key: key, model: model, clipped: clipped)
                 }
             }
@@ -129,9 +133,10 @@ struct KeyBarScrollerKey: View {
         Group {
             if key == .paste {
                 // The system paste control: no "Allow Paste" prompt (Codex QA F14).
+                // It draws its own cap: no glass over it (`PasteKeyCap`).
                 PasteKeyCap(model: model)
                     .frame(width: TerminalDockMetrics.minKeyWidth, height: TerminalDockMetrics.keyRowHeight)
-                    .keyGlass(armed: false)
+                    .clipShape(RoundedRectangle(cornerRadius: KeyRowGlass.cornerRadius, style: .continuous))
             } else {
                 KeyCap(key: key, model: model)
             }
@@ -263,6 +268,9 @@ enum KeyRowGlass {
     static let cornerRadius: CGFloat = 8
     /// Space the scroller leaves above and below its keys for the glass's lift on touch.
     static let liftRoom: CGFloat = 8
+    /// Paste's own cap (`PasteKeyCap`): opaque, the tone of a glass key over
+    /// the terminal's black.
+    static let pasteBackground = UIColor(white: 0.2, alpha: 1)
 }
 
 extension View {
@@ -275,6 +283,13 @@ extension View {
 /// The key row's Paste: a `UIPasteControl` that pastes into the terminal
 /// surface. A tap on it is the explicit paste gesture iOS trusts, so it never
 /// raises the "Allow Paste" prompt (Codex QA F14).
+///
+/// iOS draws the control's glyph itself and draws nothing when it cannot
+/// show that glyph plainly: covered by another layer, or with no contrast
+/// to its background. The key drew blank (Leo's screenshot, 2026-11-21)
+/// with a clear background under SwiftUI's glass, which wraps the view in
+/// its own layers. So the control draws its own opaque cap in the glass
+/// keys' tone, with no glass over it.
 struct PasteKeyCap: UIViewRepresentable {
     let model: TerminalModel
 
@@ -282,9 +297,9 @@ struct PasteKeyCap: UIViewRepresentable {
         let configuration = UIPasteControl.Configuration()
         configuration.displayMode = .iconOnly
         configuration.cornerStyle = .medium
-        // The glass behind it is drawn by SwiftUI (`keyGlass`), like every other key.
-        configuration.baseBackgroundColor = .clear
-        configuration.baseForegroundColor = .label
+        // Opaque, near the dark glass keys over the terminal's black.
+        configuration.baseBackgroundColor = KeyRowGlass.pasteBackground
+        configuration.baseForegroundColor = .white
         let control = UIPasteControl(configuration: configuration)
         control.target = model.controller?.surface
         control.accessibilityIdentifier = "terminal.key.paste"

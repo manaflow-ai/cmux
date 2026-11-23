@@ -9,8 +9,12 @@
 #     [--arg=--workspaces=N] [--arg=--repeat-delay-ms=MS] [--arg=--repeat-ms=MS] [--arg=--film] [--arg=--no-gate] \
 #     [--arg=--launch-form=auto|activate|one-key] [--arg=--allow-no-chromium] --artifact held-new-tab.tgz
 # A step brings back ONE --artifact (of 2 the client keeps the last): held-new-tab.tgz is the report, each take's
-# record and signpost stream, and with --film frames.json and each fifth JPEG frame; held-new-tab.json is the report
-# alone (the bench `newtab` asks for that one).
+# record and signpost stream, build-flags.json, and with --film frames.json and each fifth JPEG frame;
+# held-new-tab.json is the report alone (the bench `newtab` asks for that one).
+# The report's `build` and build-flags.json say the form of the app's build, from the reload's own log
+# (scripts/measure/build-flags.py): the reload's `bench configuration` line, the optimization settings of the build's
+# command line, and the count of the Swift compiler's command lines with -Onone, with -O and with -Osize. The step's
+# log has them in one `BUILD-FLAGS` line.
 # --config=<debug|release|bench> picks reload.sh's build configuration, --vdisplay=HZ a virtual main display at HZ
 # (as burst-bench.sh; the helper is this script's own, no label gives it), --film one more take as JPEG frames,
 # --no-gate exit 0 when a row did not measure what it names and each round still has a valid row (the tool's exit 2).
@@ -71,6 +75,9 @@ if [[ -z "$app" || ! -d "$app" ]]; then
   grep -E "error:|BUILD FAILED" "$out/reload.log" | head -n 60 >&2 || true
   exit 1
 fi
+# The form of the build, for the report and the artifact. A fault of this read stops no measure: the report then
+# says that the build's form was not read.
+python3 scripts/measure/build-flags.py "$out/reload.log" --out "$out/build-flags.json" || true
 vdisplay_pid="" display="real"
 # shellcheck disable=SC2329 # run by the trap below
 cleanup() {
@@ -94,14 +101,25 @@ if [[ -n "$vdisplay_hz" ]]; then
     done
     display="$(grep -m1 '^ready\|^error' "$vd/out" 2>/dev/null || echo 'the virtual display never reported')"
     echo "held-new-tab: display: $display"
-    sleep 2  # WindowServer settles the new main display before the app opens on it
+    # Until a new process sees the virtual display as its main display (what the app opens on), 15 s.
+    # Only when the helper's ready line says it made the display main (main=ID).
+    vd_id="$(sed -n 's/^ready \([0-9]*\) [0-9.]* main=\1 .*/\1/p' "$vd/out" 2>/dev/null | head -1 || true)"
+    if [[ -n "$vd_id" ]]; then
+      vd_main="" vd_deadline=$((SECONDS + 15))
+      while (( SECONDS < vd_deadline )); do
+        vd_main="$("$vd/VDisplay.app/Contents/MacOS/VDisplay" probe 2>/dev/null | awk '$1 == "main" {print $2}' || true)"
+        [[ "$vd_main" == "$vd_id" ]] && break
+        sleep 0.2
+      done
+      [[ "$vd_main" == "$vd_id" ]] || echo "warning: a new process still sees display ${vd_main:-?} as main, not the virtual display $vd_id, after 15 s" >&2
+    fi
   else
     echo "held-new-tab: the virtual display helper did not compile; measuring on the real display"
   fi
 fi
 status=0
 python3 scripts/measure/held-new-tab.py --app "$app" --out "$out/measure" --display="$display" \
-  --artifact "$PWD/held-new-tab.tgz" ${measure_args[@]+"${measure_args[@]}"} || status=$?
+  --build "$out/build-flags.json" --artifact "$PWD/held-new-tab.tgz" ${measure_args[@]+"${measure_args[@]}"} || status=$?
 cp "$out/measure/report.json" "$PWD/held-new-tab.json" 2>/dev/null || true
 # An artifact comes back only from a passing step: --no-gate passes a run in which each round has a valid row (the
 # tool's exit 2). A failed preflight, and a round with no valid row, stay a failed step: the log's HELD-NEW-TAB

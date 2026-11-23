@@ -188,6 +188,15 @@ final class LayoutViewContext {
     /// show in one frame with it on or off. A test that pins `reduceMotionOverride` pins this too.
     var animatesPaneLayout: Bool { reduceMotionOverride.map { !$0 } ?? Motion.panes.animatesPaneLayout(in: window()) }
 
+    /// Asks for the panes' move at a split, a close and a zoom in a test that pins `reduceMotionOverride`
+    /// (``movesPanesAtCommit``); nil: the pin alone gives none.
+    var commitMotionOverride: Bool?
+
+    /// Whether a split, a close and a zoom move their panes (``PaneCommitMotion``): movement animates and
+    /// `ui.paneAnimations` is on. A test that pins `reduceMotionOverride` gets no move unless it asks for one, so a
+    /// fixture that counts the frames of a change that shows in one commit keeps its count.
+    var movesPanesAtCommit: Bool { !reduceMotion && (commitMotionOverride ?? (reduceMotionOverride == nil && animatesPaneLayout)) }
+
     /// `pane`'s host: the one it has, the one a change kept for it, or a new one. A host that comes back hidden (a pane
     /// a zoom covered) stays hidden: its screen shows it in the pass that places it
     /// (`ScreenContentView.showSnapReturning`), never a frame earlier at the place it had.
@@ -198,15 +207,18 @@ final class LayoutViewContext {
         if let entry = retired.removeValue(forKey: pane) {
             // Before it shows again, in this turn: a release held for it ran after its new content, and took it (base order).
             runClosingWork(of: pane, now: true)
-            entry.host.leavingRank = nil
-            entry.host.chrome.isHidden = entry.host.isHidden
+            entry.host.isLeaving = false
+            entry.host.chrome.isHidden = entry.host.hidesRing // a move still keeps it under the others: no ring in this turn
             // Its ring is placed again by the next overlay sync, whatever it last showed.
             entry.host.overlaySyncKey = nil
             hosts[pane] = entry.host
             if entry.until == .landing { provider?.retainContentView(entry.host.content, for: pane, retired: false) }
             return entry.host
         }
+        // A probe's time of the make of a pane's content while `debug.motion` records (with views made ahead or with none).
+        MotionTrace.begin("layout.content")
         let content = provider?.makeContentView(for: pane) ?? NSView()
+        MotionTrace.end("layout.content")
         // The provider handed the content made ahead: its host, parked in the window, takes the pane (no window walk now).
         if let spare = spareHost, spare.content === content {
             spareHost = nil
@@ -259,13 +271,13 @@ final class LayoutViewContext {
     }
 
     /// Takes `pane`'s host out of the layout without tearing it down; it is released at `until`. The layout change
-    /// that takes the pane out has not shown yet: the host and its ring stay as they show, at the stacking rank
-    /// `shownAtRank` and with no clicks, until it does (``hideRetiredShown(of:)`` hides them then: no hit, no focus, no
-    /// AX, and a hidden terminal stops drawing), so no frame shows the old layout without this pane. A pane with no
-    /// host does nothing.
-    func retire(_ pane: PaneID, from screen: ScreenID, until: Retirement, shownAtRank: Int) {
+    /// that takes the pane out has not shown yet: the host and its ring stay as they show, with no clicks, until it
+    /// does (``hideRetiredShown(of:)`` hides them then: no hit, no focus, no AX, and a hidden terminal stops drawing),
+    /// so no frame shows the old layout without this pane. The stacking order changes in the pass that hides them, so
+    /// they keep their rank until then. A pane with no host does nothing.
+    func retire(_ pane: PaneID, from screen: ScreenID, until: Retirement) {
         guard let host = hosts.removeValue(forKey: pane) else { return }
-        host.leavingRank = shownAtRank
+        host.isLeaving = true
         retired[pane] = (host, screen, until, true)
         // A close took it out of the layout now: the provider's shown panes lose it in this update, only its teardown
         // waits. A zoom's covered pane is still in the layout (its focus topology, theme, suspend): the provider keeps it.
@@ -288,19 +300,37 @@ final class LayoutViewContext {
     }
 
     /// The layout change that took them out shows in this turn: the hosts `screen` kept shown for it
-    /// (``retire(_:from:until:shownAtRank:)``) hide, their rings with them. Their teardown is work no frame
+    /// (``retire(_:from:until:)``) hide, their rings with them. Their teardown is work no frame
     /// shows: it follows that frame's commit (``releaseRetired(of:until:)``). Returns whether any hid.
     @discardableResult
     func hideRetiredShown(of screen: ScreenID) -> Bool {
+        // A probe's time of this loop while `debug.motion` records (one hide for each pane that the change took out).
+        MotionTrace.begin("layout.hide")
+        defer { MotionTrace.end("layout.hide") }
         var hid = false
         for (pane, entry) in retired where entry.screen == screen && entry.shown {
-            entry.host.leavingRank = nil
+            entry.host.isLeaving = false
             entry.host.isHidden = true
             entry.host.chrome.isHidden = true
             retired[pane]?.shown = false
             hid = true
         }
         return hid
+    }
+
+    /// The presentation that shows an unzoom placed its panes: each host of `panes` that `screen` holds hidden shows
+    /// (the panes that the zoom covered come back). Returns whether any did.
+    func showReturning(_ panes: [PaneID], on screen: NSView) -> Bool {
+        // A probe's time of this loop while `debug.motion` records (one show for each pane that comes back).
+        MotionTrace.begin("layout.show")
+        defer { MotionTrace.end("layout.show") }
+        var shown = false
+        for pane in panes {
+            guard let host = hosts[pane], host.superview === screen, host.isHidden else { continue }
+            host.isHidden = false
+            shown = true
+        }
+        return shown
     }
 
     /// Whether `pane` left the layout in a close whose host has not gone yet: it waits for the close to show, or,

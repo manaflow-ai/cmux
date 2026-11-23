@@ -29,6 +29,10 @@
 # safe. Standard input is replayed only when the call reads it (`--input -`,
 # `@-`, `-F -`); otherwise it is left alone for the caller. With GH_TOKEN_SPARE set (a
 # token with its own limit), the first refusal moves the call to it at once, with no wait.
+# A request that never reached GitHub (a TLS handshake timeout, a failed dial or DNS lookup:
+# run 44154643146's nightly-loop restart died on one) is tried again the same way, after 15,
+# 30, 60, then 120 s; a failure after the request went out (a reset, a read timeout) is not,
+# since a dispatch may already have run.
 # Runs on macOS's bash 3.2.
 
 REAL_GH=gh # --install writes the real gh's path here
@@ -39,6 +43,8 @@ ledger_dir="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/gh-budget-wait"
 max_total="${GH_BUDGET_WAIT_MAX_SECONDS:-3600}"
 attempts="${GH_BUDGET_WAIT_ATTEMPTS:-6}"
 throttled='rate limit exceeded|secondary rate limit|abuse detection|too many requests|HTTP 429'
+# Go's net/http errors for a request that was never sent.
+unsent='net/http: TLS handshake timeout|dial tcp'
 
 # No ledger yet is nothing waited; one that cannot be read or parsed counts as the whole
 # budget spent (fail closed: an earlier step's waits are unknown).
@@ -92,7 +98,7 @@ log_wait() {
 
 # Sleep for $1 seconds within this job's total, logging why. Fails when the total is spent.
 wait_for_budget() {
-  local want="$1" why="$2" spent remaining
+  local want="$1" why="$2" until="${3:-for the budget to reset}" spent remaining
   spent="$(waited_so_far)"
   remaining=$((max_total - spent))
   [ "$remaining" -gt 0 ] || return 1
@@ -105,8 +111,8 @@ wait_for_budget() {
     log_wait "could not record a ${want}s wait in $ledger_dir/waited; not waiting"
     return 1
   }
-  log_wait "$why; waiting ${want}s for the budget to reset (${spent}s waited in this job so far)"
-  sleep "$want"
+  log_wait "$why; waiting ${want}s $until (${spent}s waited in this job so far)"
+  sleep "$want"  # sleep-ok: waiting out the API rate-limit reset is the point
 }
 
 if [ "${1:-}" = "--install" ]; then
@@ -229,9 +235,14 @@ while [ "$try" -le "$attempts" ]; do
     "$REAL_GH" "$@" >"$work/out" 2>"$work/err"
   fi
   rc=$?
-  if [ "$rc" -eq 0 ] || [ "$try" -eq "$attempts" ] ||
-    ! grep -qiE "$throttled" "$work/err" "$work/out"; then
-    break
+  [ "$rc" -ne 0 ] && [ "$try" -lt "$attempts" ] || break
+  if ! grep -qiE "$throttled" "$work/err" "$work/out"; then
+    grep -qE "$unsent" "$work/err" || break
+    want=$((15 << (try - 1)))
+    [ "$want" -le 120 ] || want=120
+    wait_for_budget "$want" "gh ${1:-} ${2:-} did not reach GitHub ($(grep -oE "$unsent" "$work/err" | head -n 1), try $try of $attempts)" "before trying again" || break
+    try=$((try + 1))
+    continue
   fi
   # A spare token with its own limit (GH_TOKEN_SPARE, the cmux-bot App's) takes the next try at
   # once, before any wait: every workflow's github.token shares one installation budget.

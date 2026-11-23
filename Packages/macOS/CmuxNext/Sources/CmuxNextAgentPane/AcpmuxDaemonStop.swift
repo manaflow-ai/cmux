@@ -171,7 +171,7 @@ nonisolated final class AcpmuxDaemonStop: Sendable {
               let pid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)),
               pid > 1, pid != getpid(), agentPaneProcessIsRunning(pid),
               let path = AcpmuxVersionHandoff.executablePath(pid: pid),
-              ["acpmux", "cmux"].contains(URL(fileURLWithPath: path).lastPathComponent),
+              ["acpmux", "cmux"].contains((path as NSString).lastPathComponent),
               listenerPID(socketPath: environment.socketPath) == pid else { return nil }
         return pid
     }

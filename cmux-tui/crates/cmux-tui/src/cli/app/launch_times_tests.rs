@@ -111,6 +111,34 @@ fn launch_times_reads_the_apps_record_back() {
     assert!(!lines[1].contains("31583607a"), "the commit is shortened: {text}");
 }
 
+/// A bare launch's record (nothing to restore) shows when its window took keys and its first shell went live;
+/// an older record without those fields shows `-` for them.
+#[test]
+fn launch_times_shows_the_bare_launch_fields() {
+    let bare = r#"{"build":"201","first_launch_of_build":false,"first_shell_live_ms":512.9,"first_window_frame_ms":150,"no_snapshot":true,"prewarmed":false,"started_at":"2027-01-15T08:00:00Z","version":"1.0.0","window_usable_ms":231}"#;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(FILE_NAME);
+    std::fs::write(&path, format!("{LINE}\n{bare}\n")).unwrap();
+    let records = read(&path, None).unwrap();
+    let text = table(&records, false);
+    let lines: Vec<&str> = text.lines().collect();
+    for column in ["window_usable_ms", "first_shell_live_ms", "no_snapshot"] {
+        assert!(lines[0].contains(column), "{column} missing from {text}");
+    }
+    for cell in ["231", "512.9", "yes"] {
+        assert!(lines[2].contains(cell), "{cell} missing from {text}");
+    }
+    // The older record shows `-` in the three bare-launch columns (other columns it lacks, such as
+    // prior_chat_*, show `-` too, so count by column, not across the row).
+    // The table is aligned and a cell may hold a space ("1.0.0 (200)"): read each cell at its
+    // header's offset.
+    for column in ["window_usable_ms", "first_shell_live_ms", "no_snapshot"] {
+        let at = lines[0].find(column).expect(column);
+        let cell = lines[1].get(at..).and_then(|rest| rest.split_whitespace().next());
+        assert_eq!(cell, Some("-"), "{column} of the older record: {text}");
+    }
+}
+
 /// A relaunch into a chat (CMUX-119) prints the prior chat's columns; a launch with another tab in
 /// front shows `-` there.
 #[test]

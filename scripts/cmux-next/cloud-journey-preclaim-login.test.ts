@@ -4,6 +4,15 @@ import { FIXTURE_LOGIN, runJourney } from "./cloud-journey-fake";
 // The journey plays the app's part on a warm spare (--preclaim-login): before create it copies the login on the
 // spare's cloud.spare.ready, and after the claim a login receipt for the machine leaves only the post-bind check.
 describe("the production journey copies the login on spare.ready, as the app's SpareReady path", () => {
+  test("ordinary and warmed journeys request the app's machine size, so the warm pool can satisfy either", () => {
+    for (const preclaim of [undefined, { receipt: true }]) {
+      const { steps, log } = runJourney({ preclaim, login: FIXTURE_LOGIN });
+      expect(steps.find((step) => step.step === "create machine")?.status).toBe("pass");
+      const sizes = log.filter((line) => line.startsWith("create size ")).map((line) => JSON.parse(line.slice("create size ".length)));
+      expect(sizes).toEqual([{ cpu: 4, memory_mb: 16384, disk_mb: 65536 }]);
+    }
+  });
+
   test("with a receipt, the full copy after bind is skipped and only the post-bind check runs", () => {
     const { steps, probe, log } = runJourney({ preclaim: { receipt: true }, login: FIXTURE_LOGIN });
     const create = log.indexOf("create");
@@ -34,10 +43,20 @@ describe("the production journey copies the login on spare.ready, as the app's S
     expect(probe.login_path).toBe("copy");
   });
 
-  test("without --preclaim-login the login is the copy after bind, as before", () => {
+  test("the warm goes to client-config's platform_origin, never the API host (an empty 404 there)", () => {
+    // Every production journey from 11-18 to 11-20 skipped this step with "the cmux platform refused the reservation
+    // (404 )": the warm named cloud-api.cmux.dev, which forwards no /v1/machines/reservations. The fake cmux-tui refuses
+    // the same way unless the request names the platform, so a pass here means the warm reached it.
+    const { steps } = runJourney({ preclaim: { receipt: true }, login: FIXTURE_LOGIN });
+    const pre = steps.find((s) => s.step === "preclaim login (spare.ready)");
+    expect(pre?.detail ?? "").not.toContain("refused");
+    expect(pre?.status).toBe("pass");
+  });
+
+  test("without --preclaim-login the login goes with the agent's start, as the app sends it (cmux#40159), never a copy", () => {
     const { steps, probe, log } = runJourney({ login: FIXTURE_LOGIN });
     expect(steps.find((s) => s.step === "preclaim login (spare.ready)")).toBeUndefined();
-    expect(log.slice(0, log.indexOf("create"))).not.toContain("fs/write credential");
-    expect(probe.login_path).toBe("copy");
+    expect(log).not.toContain("fs/write credential");
+    expect(probe.login_path).toBe("launch");
   });
 });

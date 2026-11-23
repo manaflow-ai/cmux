@@ -1,5 +1,6 @@
 import { useId, useRef, useState } from "react";
 import type { Strings } from "../shared/i18n";
+import { Switch } from "../../ui/Switch";
 import { L } from "./strings";
 import {
   DEFAULT_SECRET_HEADER,
@@ -48,11 +49,11 @@ export function EnvironmentNetwork({
         <>
           <p className="env-note">{t(L.envNetworkPending)}</p>
           <label className="env-checkbox">
-            <input
+            <Switch
+              size="sm"
               aria-label={t(L.envPackages)}
-              type="checkbox"
               checked={network.package_managers}
-              onChange={(event) => store.edit({ network: { ...network, package_managers: event.target.checked } })}
+              onCheckedChange={(on) => store.edit({ network: { ...network, package_managers: on } })}
             />
             {t(L.envPackages)}
           </label>

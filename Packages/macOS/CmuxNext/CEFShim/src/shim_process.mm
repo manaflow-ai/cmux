@@ -325,6 +325,7 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(side_panel_press, "cmux_side_panel_press");
   CMUX_BIND(profile_passkeys_list, "cmux_profile_passkeys_list");
   CMUX_BIND(profile_passkey_delete, "cmux_profile_passkey_delete");
+  CMUX_BIND(tab_set_webauthn_mode, "cmux_tab_set_webauthn_mode");
   CMUX_BIND(password_list, "cmux_password_list");
   CMUX_BIND(password_remove, "cmux_password_remove");
   CMUX_BIND(password_exception_remove, "cmux_password_exception_remove");
@@ -347,6 +348,9 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(set_drag_source_handler, "cmux_set_drag_source_handler");
   CMUX_BIND(browser_drag_source_ended, "cmux_browser_drag_source_ended");
   CMUX_BIND(browser_drag_target_enter_source, "cmux_browser_drag_target_enter_source");
+  CMUX_BIND(set_keychain_item, "cmux_set_keychain_item");
+  CMUX_BIND(browser_set_draw_on_input, "cmux_browser_set_draw_on_input");
+  CMUX_BIND(draw_on_input_key_frames, "cmux_draw_on_input_key_frames");
 #undef CMUX_BIND
 }
 
@@ -406,6 +410,14 @@ void cmux_shim_set_chrome_policy_id(const char* policy_id) {
 
 int cmux_shim_fork_api_version(void) {
   return fork_api().version;
+}
+
+int cmux_shim_set_keychain_item(const char* service, const char* account) {
+  // The fork refuses once a CefContext exists and refuses the shared item's names.
+  if (!fork_api().set_keychain_item || !service || !account) {
+    return 0;
+  }
+  return fork_api().set_keychain_item(service, account) == 1 ? 1 : 0;
 }
 
 int cmux_shim_prepare_application(void) {

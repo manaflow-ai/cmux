@@ -18,7 +18,9 @@ public import Foundation
 /// global name, which is what global means.
 public struct CloudMachineSecrets: Equatable, Sendable {
     public init() {}
-    public static let service = "cmux-cloud-secret"
+    /// This build's Keychain service (``BuildStatePaths/cloudSecretsService``): `cmux-cloud-secret`, a DEV
+    /// build's own as its launch sets it.
+    public static var service: String { BuildStatePaths.cloudSecretsService(environment: ProcessInfo.processInfo.environment) }
 
     /// One declared name and the Keychain account that holds its value (`owner/name/NAME`, else `*/NAME`).
     public struct Item: Equatable, Sendable {

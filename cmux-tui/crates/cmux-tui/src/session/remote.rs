@@ -754,8 +754,8 @@ impl RemoteSurface {
             apply_terminal_colors(&mut fresh, colors);
         }
         fresh.vt_write(pending_sequence);
-        if let Some(rows_from_viewport_top_to_end) = scrolled_back_anchor(&term) {
-            restore_scrolled_back_anchor(&mut fresh, rows_from_viewport_top_to_end);
+        if let Some(anchor) = scrolled_back_anchor(&mut term) {
+            restore_scrolled_back_anchor(&mut fresh, &anchor);
         }
         *term = fresh;
         if daemon_replay {
@@ -990,31 +990,69 @@ enum RemoteGeometryTestStep {
     CellPixelCommitBoundary,
 }
 
-/// Rows from the top of a scrolled-back viewport to the end of the screen,
-/// or `None` when the viewport follows the live bottom.
+/// Where a scrolled-back viewport is, for a rebuilt mirror: the rows from its
+/// top to the end of the screen, and the text of the rows it shows.
+#[derive(Debug)]
+pub(crate) struct ScrolledBackAnchor {
+    pub(crate) rows_from_end: u64,
+    rows: Vec<String>,
+}
+
+/// The anchor of a scrolled-back viewport, or `None` when the viewport
+/// follows the live bottom.
 ///
 /// A rebuilt mirror keeps the same trailing content as the old one (the
 /// replay ends at the live screen) while its oldest history may differ, so
-/// the distance from the end is the stable anchor for the row being read.
-fn scrolled_back_anchor(term: &Terminal) -> Option<u64> {
+/// the distance from the end places the row being read, unless output
+/// arrived between the old state and the replay: every new row pushes the
+/// reader's rows further from the end. The rows' text finds them again.
+pub(crate) fn scrolled_back_anchor(term: &mut Terminal) -> Option<ScrolledBackAnchor> {
     let scrollbar = term.scrollbar()?;
-    scrollbar.scrolled_back().then(|| scrollbar.total.saturating_sub(scrollbar.offset))
+    if !scrollbar.scrolled_back() {
+        return None;
+    }
+    let rows = term
+        .viewport_text()
+        .map(|text| text.lines().map(str::to_owned).collect())
+        .unwrap_or_default();
+    Some(ScrolledBackAnchor {
+        rows_from_end: scrollbar.total.saturating_sub(scrollbar.offset),
+        rows,
+    })
 }
 
-/// Scroll a freshly rebuilt mirror so the viewport top sits the same number
-/// of rows from the end as before, clamped to the retained history.
-fn restore_scrolled_back_anchor(term: &mut Terminal, rows_from_viewport_top_to_end: u64) {
+/// Scroll a freshly rebuilt mirror back to the rows the anchor was taken on:
+/// the nearest place at or above the same distance from the end whose rows
+/// read the same, else that distance, clamped to the retained history.
+pub(crate) fn restore_scrolled_back_anchor(term: &mut Terminal, anchor: &ScrolledBackAnchor) {
     let Some(scrollbar) = term.scrollbar() else {
         return;
     };
     let live_offset = scrollbar.total.saturating_sub(scrollbar.len);
-    let target = scrollbar.total.saturating_sub(rows_from_viewport_top_to_end).min(live_offset);
+    let by_end = scrollbar.total.saturating_sub(anchor.rows_from_end).min(live_offset);
+    let target = offset_showing(term, &anchor.rows, by_end).unwrap_or(by_end);
     let delta = i128::from(target) - i128::from(scrollbar.offset);
     if let Ok(delta) = isize::try_from(delta)
         && delta != 0
     {
         term.scroll_delta(delta);
     }
+}
+
+/// The highest viewport offset at or below `from` whose rows read `rows`
+/// (blank rows alone match anywhere, so they find nothing). One row read per
+/// offset tried, past the first mismatch; it runs once per resync.
+fn offset_showing(term: &mut Terminal, rows: &[String], from: u64) -> Option<u64> {
+    if rows.iter().all(|row| row.trim().is_empty()) {
+        return None;
+    }
+    let last_col = term.cols().saturating_sub(1);
+    (0..=from).rev().find(|&top| {
+        rows.iter().zip(top..).all(|(want, row)| {
+            let have = term.selection_text_absolute((0, row), (last_col, row)).unwrap_or_default();
+            have.trim_end() == want.trim_end()
+        })
+    })
 }
 
 fn pointer_frame_is_in_range(browser: &RemoteBrowserState, frame_seq: u64) -> bool {

@@ -775,16 +775,7 @@ impl Transcript {
             "exited" | "stopped"
                 if msg.get("hibernated").and_then(Value::as_bool) == Some(true) => {}
             "resumed" if msg.get("wake").and_then(Value::as_bool) == Some(true) => {}
-            "exited" => self.items.push(Item::Status {
-                text: if msg.get("code").and_then(Value::as_i64) == Some(0) {
-                    "agent stopped".into()
-                } else {
-                    format!(
-                        "agent exited unexpectedly (code {})",
-                        msg.get("code").map(|c| c.to_string()).unwrap_or_default()
-                    )
-                },
-            }),
+            "exited" => self.items.push(Item::Status { text: exited_text(msg) }),
             "stopped" => self.items.push(Item::Status { text: "agent stopped".into() }),
             "resumed" => self.items.push(Item::Status {
                 text: format!(
@@ -920,6 +911,7 @@ impl Transcript {
 
     /// Show an error this client raised (not one the daemon logged). A paging transcript keeps it
     /// as a record with no seq, so a rebuild puts it back where it was shown.
+    #[cfg(feature = "tui")]
     pub(crate) fn push_local_error(&mut self, text: String) {
         if self.keeps_records {
             self.raw_events.push(json!({"dir": LOCAL_ERROR, "text": text}));
@@ -928,6 +920,7 @@ impl Transcript {
     }
 
     /// Record a message shown before the daemon echoes it, with the row it is shown as.
+    #[cfg(any(test, feature = "tui"))]
     pub(crate) fn push_optimistic(&mut self, text: String, row: Item) {
         self.items.push(row.clone());
         self.optimistic.push(text);
@@ -982,6 +975,31 @@ pub fn item_text(item: &Item) -> String {
 #[cfg(test)]
 #[path = "transcript_tests.rs"]
 mod tests;
+
+/// What an `exited` record (an agent process that ended with no Stop, close or idle exit asking:
+/// `hub/exit_reason.rs`) reads as. Never "agent stopped", its code 0 included: that is what a
+/// Stop reads as, and nobody stopped it. Its stderr's `reason` and `error` say why, when it said.
+fn exited_text(msg: &Value) -> String {
+    let code = msg.get("code").filter(|c| !c.is_null()).map_or("?".to_owned(), Value::to_string);
+    let why = match msg.get("reason").and_then(Value::as_str) {
+        Some("rate_limit") => ", rate limited",
+        Some("capacity") => ", no capacity upstream",
+        Some("transport") => ", connection lost",
+        Some("context") => ", context window full",
+        Some("auth") => ", signed out",
+        _ => "",
+    };
+    let mut text = format!("agent exited unexpectedly (code {code}{why})");
+    if let Some(error) = msg.get("error").and_then(Value::as_str) {
+        text.push_str(": ");
+        text.push_str(error);
+    }
+    // A signed-out harness needs its sign-in first; anything else comes back on the next message.
+    if why != ", signed out" {
+        text.push_str("; the next message resumes it");
+    }
+    text
+}
 
 /// A message or thought chunk: the words a reader of the chat's own text keeps.
 fn is_words(update: &Value) -> bool {

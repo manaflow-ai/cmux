@@ -146,8 +146,8 @@ struct PaneMotionBench {
         }
         var times: [Double] = []
         // The most frames the 3 rounds of a zoom or an unzoom take: the dim's fade in frames (`PaneZoomDim.fade(on:)`,
-        // read before the change) and the frame that shows the change, which follows them for a zoom and comes first for
-        // an unzoom.
+        // read before the change) and the frame that shows the change, which comes first. An unzoom has its dim after that
+        // frame; a zoom is that frame alone here (this harness asks for no move of its panes, so no dim comes).
         var dimFrames = 0
         for _ in 0..<3 {
             // Column close starts focused on the column it closes: the camera rests at the strip's end, and the close

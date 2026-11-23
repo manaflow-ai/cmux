@@ -102,7 +102,7 @@
   min-height: 20px;
   padding: 0 8px;
   border-radius: 4px;
-  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  background: var(--ds-surface-inset);
   font-variant-numeric: tabular-nums;
 }
 .acpmux-cloud-start__chips li > span:last-child {
@@ -240,6 +240,21 @@
 .acpmux-cloud-plan-team__team { color: var(--agent-muted); font-size: var(--text-body); line-height: var(--text-body--line-height); }
 .acpmux-cloud-plan-team[data-look="banner"] .acpmux-cloud-plan-team__actions { margin-top: 0; margin-left: auto; }
 .acpmux-cloud-plan-team[data-look="card"] { margin-top: 8px; }
+/* The pricing card's plans (CloudStartView PlanCard): the plans side by side, one under the other in a narrow
+   pane. Each is the ask's title, a muted price and line, and its Subscribe, inside the ask button's border. */
+.acpmux-cloud-plans {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--ds-space-2);
+  margin: 4px 0 0; padding: 0; list-style: none;
+}
+.acpmux-cloud-plans__plan {
+  display: flex; flex-direction: column; align-items: flex-start; gap: var(--grid-half-step); min-width: 0;
+  padding: var(--ds-space-2);
+  border: 1px solid color-mix(in srgb, var(--agent-border) 72%, transparent);
+  border-radius: var(--ds-radius-control);
+  color: var(--agent-text);
+}
+.acpmux-cloud-plans__price { color: var(--agent-muted); font-size: var(--text-body); line-height: var(--text-body--line-height); }
+.acpmux-cloud-plans__plan .acpmux-cloud-ask__button { margin-top: var(--ds-space-1); }
 /* Set up Cloud (conversation/CloudSetupCard.tsx): Cloud first use, under the message. */
 .acpmux-cloud-setup { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
 .acpmux-cloud-setup__title { font-weight: 600; font-size: var(--text-body); line-height: var(--text-body--line-height); }

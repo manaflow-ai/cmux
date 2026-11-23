@@ -15,22 +15,16 @@ import {
   type OmnibarRow,
 } from "../omnibar";
 import { activityTime, listed, normalizedSessionEntry, sessionMark, type AcpmuxSessionEntry } from "../sessionList";
-import { classifyNewTabInput, TERMINAL_PREFIX } from "../newTabIntent";
+import { classifyNewTabInput, TERMINAL_PREFIX, type NewTabIntent } from "../newTabIntent";
+import { resumeReference } from "../resumeCommand";
 import { commandLikeness, isMultiline } from "./commandIntent";
 import { type Translate, translate } from "../i18n";
 import type { DeviceChat } from "./deviceChats";
 import { DEFAULT_SUGGESTION_ORDER, type SuggestionOrder } from "./suggestionOrder";
+import type { ScreenSections } from "./templates";
 import { TOP_SITES } from "./topSites";
 import { translateNewTab, type NewTabTranslate } from "./strings";
-import {
-  chatRows,
-  type ChatRow,
-  type FolderListing,
-  launchRows,
-  type LaunchAgent,
-  type LaunchRow,
-  type OmnibarChat,
-} from "./launchRows";
+import { type FolderListing, launchRows, type LaunchAgent, type LaunchRow } from "./launchRows";
 
 export type ScreenAgent = { id: string; name: string };
 
@@ -59,20 +53,20 @@ export type ScreenRow =
   | { type: "newProfile"; url: string; name?: string }
   /// Open `url` in the browser profile `id` (a row of the profile search).
   | { type: "profile"; url: string; id: string; name: string; color?: string }
-  /// A chat that matches the text (launchRows.ts): opens it.
-  | ChatRow
   /// Start an agent in a folder (launchRows.ts): "Codex in ~/fun/cmux".
   | LaunchRow
   /// Run `command` in a terminal in the page's folder, as `!command` does (commandIntent.ts).
-  | { type: "run"; command: string };
+  | { type: "run"; command: string }
+  /// Resume the chat `ref` names (resumeCommand.ts `resumeReference`): `/resume <ref>`, a pasted
+  /// session id, `claude --resume <id>`. It runs `/resume <ref>`, the chat composer's command.
+  | { type: "resume"; ref: string };
 
-/// The omnibar's agent sources: the chats to search, the folders and agents to start, and the
-/// disk's answer for a typed path (``FolderListing``). All optional: without them the rows are as
-/// before.
+/// The omnibar's agent sources: the folders and agents to start, and the disk's answer for a typed
+/// path (``FolderListing``). All optional: without them the rows are as before. No chats: the
+/// field starts things, the sidebar and All chats find chats (Lucas 2026-11-18).
 export type ScreenAgentSources = {
   translate?: NewTabTranslate;
   create?: readonly ("terminal" | "browser" | "chat")[];
-  chats?: readonly OmnibarChat[];
   folders?: readonly string[];
   agents?: readonly LaunchAgent[];
   defaultAgent?: string;
@@ -80,7 +74,7 @@ export type ScreenAgentSources = {
 };
 
 /// Groups used to rank suggestions before the web search.
-export type ScreenSection = "lead" | "open" | "chats" | "start" | "pages" | "actions" | "web";
+export type ScreenSection = "lead" | "open" | "start" | "pages" | "actions" | "web";
 
 /// The group a suggestion belongs to.
 export function rowSection(row: ScreenRow): ScreenSection {
@@ -88,8 +82,6 @@ export function rowSection(row: ScreenRow): ScreenSection {
     case "tab":
     case "workspace":
       return "open";
-    case "chat":
-      return "chats";
     case "launch":
       return "start";
     case "history":
@@ -243,6 +235,20 @@ function navigationRows(
     typingPort(text, context.home) ?? classifyNewTabInput(text, context.home ? { home: context.home } : {});
   // A pairing link offers nothing: no search, no Ask, no address, no create row (they carry the text).
   if (intent.kind === "none" || intent.kind === "terminal" || intent.kind === "refused") return [];
+  // A chat to resume leads (user 2026-11-20: "resuming claude sessions needs to 'just work'"). Typed
+  // as `/resume <ref>` it is the one row: Ask would run the same command, and it is no web search.
+  const resumeRef = resumeReference(text);
+  const resume: ScreenRow[] = resumeRef ? [{ type: "resume", ref: resumeRef }] : [];
+  if (resume.length && text.trim().startsWith("/")) return resume;
+  return [...resume, ...typedRows(text, intent, context)].slice(0, resume.length ? MAX_SUGGESTIONS : undefined);
+}
+
+/// The rows for typed text that is not only a chat to resume.
+function typedRows(
+  text: string,
+  intent: Exclude<NewTabIntent, { kind: "none" | "terminal" | "refused" }>,
+  context: { omnibar: OmnibarContext; home?: string; ask?: ScreenAsk; order?: SuggestionOrder } & ScreenAgentSources,
+): ScreenRow[] {
   const order = context.order ?? DEFAULT_SUGGESTION_ORDER;
   const query = text.trim();
   const ask: ScreenRow[] = context.ask ? [{ type: "ask", text: query, ...context.ask }] : [];
@@ -294,7 +300,7 @@ function navigationRows(
   const top = addressTop ? found[0] : exactMatch(query, found, context.omnibar);
   const rest = found.filter((row) => row !== top);
   const cap = order === "minimal" ? MINIMAL_MATCH_ROWS : MAX_MATCH_ROWS;
-  // The open tabs and workspaces, then the chats and the agents to start, then the visited pages:
+  // The open tabs and workspaces, then the agents to start, then the visited pages:
   // each section ranked inside itself (`ranked` keeps tabs, workspaces, pages in that order).
   // An agent named with a folder ("codex ~/fun/cmux") leads: what Return starts. Never over an
   // address or an exact name ("claude" completing to claude.ai, a workspace named "codex"): those
@@ -328,7 +334,6 @@ function navigationRows(
   const below = share(
     [
       kept.filter((row) => rowSection(row) === "open"),
-      agent.chats,
       agent.named ? [] : agent.launch.slice(0, MAX_UNNAMED_LAUNCH_ROWS),
       kept.filter((row) => rowSection(row) !== "open"),
     ],
@@ -353,14 +358,13 @@ function share(sections: readonly (readonly ScreenRow[])[], room: number): Scree
   return sections.flatMap((rows, index) => rows.slice(0, counts[index]));
 }
 
-/// The chats the text finds and the agent starts it names (launchRows.ts); `named` when the text
-/// named an agent, so its starts lead.
+/// The agent starts the text names (launchRows.ts); `named` when the text named an agent, so its
+/// starts lead.
 function agentRows(
   query: string,
   context: ScreenAgentSources & { home?: string },
-): { chats: ScreenRow[]; launch: ScreenRow[]; named: boolean } {
-  const chats = context.chats?.length ? chatRows(query, context.chats) : [];
-  if (!context.agents?.length) return { chats, launch: [], named: false };
+): { launch: ScreenRow[]; named: boolean } {
+  if (!context.agents?.length) return { launch: [], named: false };
   const launch = launchRows(query, {
     agents: context.agents,
     folders: context.folders ?? [],
@@ -368,7 +372,7 @@ function agentRows(
     ...(context.home ? { home: context.home } : {}),
     ...(context.listing ? { listing: context.listing } : {}),
   });
-  return { chats, launch: launch.rows, named: launch.named && launch.rows.length > 0 };
+  return { launch: launch.rows, named: launch.named && launch.rows.length > 0 };
 }
 
 /// The Commands palette actions the text names, best match first (the palette's order breaks
@@ -436,6 +440,35 @@ function exactMatch(query: string, rows: readonly ScreenRow[], omnibar: OmnibarC
 /// with no agent to ask has the web search on top, and Return takes it.
 export function defaultSelection(rows: readonly ScreenRow[]): number {
   return rows[0] ? 0 : -1;
+}
+
+/// The row Return takes for the text, the one path Return, Send and the composer's Return hint
+/// read: the highlighted row (`current`) of the shown `rows`; with the list closed, the top of
+/// `suggested` (closed suggestions still answer Return: "reddit" opens reddit.com); with no row
+/// highlighted (↑ from the top row), the top one when the text is an address, since an address is
+/// never sent as a prompt. Staged files make Return send a prompt unless the row asks or creates
+/// (navigation keeps them in the chat). Undefined: Return sends the text as a prompt.
+export function returnRow(
+  rows: readonly ScreenRow[],
+  suggested: readonly ScreenRow[],
+  current: number,
+  context: { address: boolean; attachments: number },
+): { row: ScreenRow | undefined; takes: boolean } {
+  const list = rows.length ? rows : suggested;
+  const opensTop = !rows.length || (current < 0 && context.address);
+  const row = opensTop ? list[defaultSelection(list)] : rows[current];
+  const takes = !!row && (context.attachments === 0 || row.type === "ask" || row.type === "create");
+  return { row, takes };
+}
+
+/// Whether the top row is the prompt for the composer's own agent (Ask, for the agent the model
+/// chip names). That row is what Return does with plain text, which the chip and Send already say,
+/// so the list draws it as no row (David Beyer 2026-11-20: "the Ask Claude code thing is confusing
+/// 'cause it's not clear that I'm ... already set on Claude Code"). It stays the list's first stop:
+/// Down leaves it for the first drawn row and Up comes back to it, Return's highlight on nothing.
+export function promptLeads(rows: readonly ScreenRow[], harness: string | undefined): boolean {
+  const top = rows[0];
+  return top?.type === "ask" && top.harness === harness;
 }
 
 /// The inline address completion accepted by Right or End. Only a top row that is an address and
@@ -739,9 +772,27 @@ export function recentChatCards(
     }));
   const cards = [...live, ...fill];
   if (!fold) return cards;
-  const children = indexChildren(sessions, device, now, t);
+  const parents = new Set(cards.flatMap((card) => [card.sessionId, card.chatKey].filter((id): id is string => !!id)));
+  const children = indexChildren(sessions, device, now, t, parents);
   return cards.map((card) => withChildren(card, children));
 }
+
+/// The cards a template's page draws (`sections`): none, with no pass over the chats, on a page
+/// that lists none (Minimal, the default, and Composer). Leo 2026-11-18, on New Tab sorting every
+/// chat and carding about 2,500 child chats behind Minimal: "We literally don't even have that as
+/// a visible option at all anymore".
+export function pageChatCards(
+  sections: ScreenSections,
+  sessions: AcpmuxSnapshot["sessions"],
+  now: number,
+  t: Translate,
+  device: DeviceChat[],
+): ChatCard[] {
+  if (sections.chats === "none") return NO_CHAT_CARDS;
+  return recentChatCards(sessions, now, t, device, sections.recent, sections.chats === "list");
+}
+
+const NO_CHAT_CARDS: ChatCard[] = [];
 
 /// The stage layout's needs-you rows (NewTabScreen's suggestions card).
 export const MAX_NEEDS_YOU = 3;
@@ -795,21 +846,25 @@ function sessionCard(session: AcpmuxSessionEntry, now: number, t: Translate): Ch
 /// Child rows indexed once per snapshot, so each visible card does not rescan every session.
 type ChildCard = { parent: string; at: number; card: ChatCard };
 
+/// Only the shown cards' children (`parents`) get a card: thousands of child chats under parents
+/// past the cut cost one pass, not a card each.
 function indexChildren(
   sessions: AcpmuxSnapshot["sessions"],
   device: DeviceChat[],
   now: number,
   t: Translate,
+  parents: ReadonlySet<string>,
 ): Map<string, ChildCard[]> {
   const indexed = new Map<string, ChildCard[]>();
   for (const raw of sessions) {
     const session = normalizedSessionEntry(raw as Parameters<typeof normalizedSessionEntry>[0]);
-    if (!session.spawnedBy || !listed(session) || sessionMark(session, false) === "input") continue;
+    if (!session.spawnedBy || !parents.has(session.spawnedBy)) continue;
+    if (!listed(session) || sessionMark(session, false) === "input") continue;
     const child = { parent: session.spawnedBy, at: activityTime(session) ?? 0, card: sessionCard(session, now, t) };
     indexed.set(session.spawnedBy, [...(indexed.get(session.spawnedBy) ?? []), child]);
   }
   for (const chat of device) {
-    if (!chat.parent) continue;
+    if (!chat.parent || !parents.has(chat.parent)) continue;
     const child = {
       parent: chat.parent,
       at: chat.updatedAt,

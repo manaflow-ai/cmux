@@ -107,3 +107,61 @@ test("with acpmux's record known there is no turn-both-off action", async () => 
   expect(page.container.querySelector('[data-devices-join-action="revokeAll"]')).toBeNull();
   page.unmount();
 });
+
+test("the host's refusal of an on that is not the person's own click shows under the switches, never silently", async () => {
+  const page = await renderPage({
+    path: "/settings/devices",
+    mock: { devicesJoin: mockDevicesJoin },
+    setup: (provider) => {
+      provider.joinConsentRefusal = "Only a click by the person at this Mac can allow this.";
+    },
+  });
+  await settle();
+  await act(async () => toggle(page.container, "control").click());
+  await settle();
+  const alert = group(page.container)!.querySelector('[role="alert"]');
+  expect(alert?.textContent).toBe("Only a click by the person at this Mac can allow this.");
+  expect(toggle(page.container, "control").getAttribute("aria-checked")).toBe("false");
+  expect(toggle(page.container, "control").hasAttribute("disabled")).toBe(false);
+  page.provider.joinConsentRefusal = null;
+  await act(async () => toggle(page.container, "control").click());
+  await settle();
+  expect(group(page.container)!.querySelector('[role="alert"]')).toBeNull();
+  expect(toggle(page.container, "control").getAttribute("aria-checked")).toBe("true");
+  page.unmount();
+});
+
+test("a reply that carries the host's reason shows it under the switches", async () => {
+  const page = await renderPage({
+    path: "/settings/devices",
+    mock: { devicesJoin: mockDevicesJoin },
+    setup: (provider) => {
+      provider.joinConsentReplyError = "Still off: another change to these switches is being written.";
+    },
+  });
+  await settle();
+  await act(async () => toggle(page.container, "control").click());
+  await settle();
+  expect(group(page.container)!.querySelector('[role="alert"]')?.textContent).toBe(
+    "Still off: another change to these switches is being written.",
+  );
+  expect(toggle(page.container, "control").getAttribute("aria-checked")).toBe("false");
+  page.unmount();
+});
+
+test("a write the host could not make shows the host's reason under the switches", async () => {
+  const page = await renderPage({
+    path: "/settings/devices",
+    mock: {
+      devicesJoin: {
+        ...mockDevicesJoin,
+        error: "Still off: Touch ID or your login password was cancelled, so this Mac could not confirm it was you.",
+      },
+    },
+  });
+  await settle();
+  expect(group(page.container)!.querySelector('[role="alert"]')?.textContent).toBe(
+    "Still off: Touch ID or your login password was cancelled, so this Mac could not confirm it was you.",
+  );
+  page.unmount();
+});

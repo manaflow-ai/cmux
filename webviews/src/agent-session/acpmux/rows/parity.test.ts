@@ -108,6 +108,11 @@ const DRAWN_FROM: readonly { field: string; from: readonly string[]; why: string
     why: "the turn's Retry is named by its prompt row's id",
   },
   {
+    field: "worked.workedRun",
+    from: ["id"],
+    why: "a reply-less turn's fold names the turns it joins by their fold keys, made from their prompts' ids",
+  },
+  {
     field: "row:worked",
     from: ["row:permissionRecord"],
     why: "v1's receipt is the work of its turn, which the turn folds",

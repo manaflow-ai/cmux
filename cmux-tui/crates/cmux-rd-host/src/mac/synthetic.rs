@@ -7,13 +7,14 @@
 use super::sys::{cf, cv, CFDictionaryRef, CFStringRef, CFTypeRef, CVPixelBufferRef};
 use crate::desktop::{Desktop, FrameSource, Halves};
 use crate::stream::SessionCfg;
-use crate::synthetic::{self, Motion, Nv12, Synthetic};
+use crate::synthetic::{self, Motion, Nv12, Painter, Synthetic};
 use crate::Res;
 use cmux_encode::framework;
 use cmux_encode::videotoolbox::{
     ColorTag, SurfaceEncoder, SurfaceFormat, SurfaceFrame, SurfaceRect, VideoToolbox,
 };
 use cmux_rd_core::flow::Rect;
+use cmux_rd_core::profile::EncodeProfile;
 use cmux_rd_proto::InputEvent;
 use std::ffi::{c_long, c_void};
 use std::io::{Read, Write};
@@ -23,7 +24,7 @@ use std::ptr::{null, null_mut};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange, as ScreenCaptureKit delivers.
 const PIXEL_420V: u32 = u32::from_be_bytes(*b"420v");
@@ -77,6 +78,7 @@ pub struct SyntheticDesktop {
 pub struct SyntheticFrames {
     shared: Arc<Shared>,
     surface: PixelBuffer,
+    painter: Painter,
     size: (u32, u32),
     motion: Motion,
     /// Frames the bars have moved.
@@ -145,8 +147,8 @@ impl PixelBuffer {
         Ok(Self(buffer))
     }
 
-    /// Paints one picture (`synthetic::paint`) with the buffer locked for writing.
-    fn paint(&mut self, size: (u32, u32), counter: u32, phase: u32) -> Res<()> {
+    /// Paints one picture (`Painter::paint`) with the buffer locked for writing.
+    fn paint(&mut self, painter: &Painter, size: (u32, u32), counter: u32, phase: u32) -> Res<()> {
         let buffer = self.0;
         // SAFETY: our own pixel buffer, locked for the writes and unlocked before return;
         // the plane slices cover rows x bytes-per-row of each plane and end with the lock.
@@ -156,7 +158,7 @@ impl PixelBuffer {
             }
             let result = match (plane(buffer, 0), plane(buffer, 1)) {
                 (Some((y, y_stride)), Some((uv, uv_stride))) => {
-                    synthetic::paint(
+                    painter.paint(
                         &mut Nv12 {
                             y,
                             y_stride,
@@ -258,17 +260,23 @@ pub fn open(cfg: &SessionCfg, source: Synthetic) -> Res<Halves> {
         let shared = shared.clone();
         let interval = Duration::from_nanos(1_000_000_000 / u64::from(fps.max(1)));
         std::thread::Builder::new().name("cmux-rd-synthetic".into()).spawn(move || {
+            let mut deadline = Instant::now() + interval;
             while !shared.stop.load(Ordering::Relaxed) {
-                std::thread::sleep(interval);
+                synthetic::sleep_until(deadline);
                 shared.wake();
+                deadline = synthetic::next_tick(deadline, interval, Instant::now());
             }
         })
     });
     let ticker = ticker.transpose()?;
-    eprintln!("cmux-rd host: synthetic source {width}x{height}, {fps} fps, {:?}", source.motion);
+    eprintln!(
+        "cmux-rd host: synthetic source {width}x{height}, {fps} fps, {:?}, {:?}",
+        source.motion, source.scene
+    );
     let frames = SyntheticFrames {
         shared: shared.clone(),
         surface,
+        painter: Painter::new(source.scene, width as usize, height as usize),
         size: (width, height),
         motion: source.motion,
         moved: 0,
@@ -362,7 +370,7 @@ impl FrameSource for SyntheticFrames {
         if self.motion != Motion::Still {
             self.moved += 1;
         }
-        self.surface.paint(self.size, counter, synthetic::phase(self.moved))?;
+        self.surface.paint(&self.painter, self.size, counter, synthetic::phase(self.moved))?;
         // The picture exists the moment it is painted: shown and handed over at once.
         let now = crate::clock::now_ns() / 1000;
         self.picked = Some(damage);
@@ -392,12 +400,36 @@ impl FrameSource for SyntheticFrames {
         SurfaceEncoder::set_bitrate(&mut self.encoder, kbps);
     }
 
+    fn set_profile(&mut self, profile: EncodeProfile, refine: bool) {
+        self.encoder.set_ultra(profile.is_ultra());
+        self.encoder.set_refine(refine);
+    }
+
+    fn applies_profile(&self) -> bool {
+        true
+    }
+
+    fn set_changed_pixels(&mut self, pixels: u64) {
+        self.encoder.set_changed_pixels(pixels);
+    }
+
     fn kbps(&self) -> u32 {
         SurfaceEncoder::kbps(&self.encoder)
     }
 
     fn encoder_name(&self) -> String {
         self.name.clone()
+    }
+
+    /// The resolution ladder's picture, scaled on the GPU and capped by its QP ceiling the way
+    /// the captured display's is (`MacFrames::set_picture`), so a synthetic run measures it.
+    fn set_picture(&mut self, picture: Option<cmux_rd_core::resolution::Picture>) {
+        self.encoder.set_picture_size(picture.map(|p| (p.width, p.height)));
+        self.encoder.set_max_qp(picture.and_then(|p| p.max_qp));
+    }
+
+    fn idr_cause(&self) -> Option<&'static str> {
+        cmux_encode::H264Encoder::idr_cause(&self.encoder)
     }
 }
 
@@ -410,7 +442,8 @@ mod tests {
         super::super::sys::load().expect("frameworks");
         let mut surface = PixelBuffer::new(1280, 720).expect("IOSurface-backed 420v buffer");
         assert!(surface.io_surface().is_some());
-        surface.paint((1280, 720), 41, 0).expect("paint");
+        let painter = Painter::new(crate::synthetic::Scene::Bars, 1280, 720);
+        surface.paint(&painter, (1280, 720), 41, 0).expect("paint");
         assert_eq!(surface.marker(), Some(41));
 
         // The desktop half: a key press bumps the counter and makes a frame due; a release,
@@ -438,7 +471,8 @@ mod tests {
         desktop.drain(&mut damage).expect("drain");
         assert_eq!(damage.len(), 1, "the press made one frame due");
         assert_eq!(damage[0].height, crate::marker::CELL);
-        surface.paint((1280, 720), shared.counter.load(Ordering::Relaxed), 0).expect("paint");
+        let counter = shared.counter.load(Ordering::Relaxed);
+        surface.paint(&painter, (1280, 720), counter, 0).expect("paint");
         assert_eq!(surface.marker(), Some(1));
     }
 }

@@ -54,7 +54,7 @@ public struct ConversationFileInfo: Sendable, Hashable, Codable {
 }
 
 /// A file picked for sending, waiting for upload.
-public struct ConversationPendingFile: Sendable, Hashable {
+public struct ConversationPendingFile: Sendable, Hashable, Codable {
     public var data: Data
     public var info: ConversationFileInfo
 

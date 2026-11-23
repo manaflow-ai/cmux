@@ -87,8 +87,39 @@ struct DeviceHubStartupRecoveryTests {
         #expect(await events.next() == true)
         #expect(pages.hub === hub)
         #expect(pages.hubStartupError == nil)
-        #expect(clock.sleeperCount == 0)
+        // The installed test hub cannot register, so its registration retries on this clock; the identity
+        // loop itself is done: no load after it, however long the clock runs.
+        clock.advance(by: .seconds(60))
         #expect(count == 2)
+    }
+
+    /// "Couldn't reach the device hub. cmux keeps trying.": a hub whose registration failed (a network
+    /// blip at launch, a refused token) registers again after the Rust backoff, with no account change and
+    /// no restart. Before, its first failure left it failed for the app's whole run.
+    @Test func aFailedRegistrationIsTriedAgain() async throws {
+        let pages = pages(), clock = ManualClock()
+        let (asks, report) = AsyncStream<Int>.makeStream()
+        let hub = makeHub(tokens: DeviceHubAccountToken {
+            report.yield(1)
+            throw CancellationError()
+        })
+        let service = DeviceHubService(pages: pages, account: .init(awaitRestored: {}, userID: { "account" },
+            accessToken: { throw CancellationError() }), bundleIdentifier: "test.hub-recovery", loginKeychain: LoginKeychain(),
+            selectedBaseURL: URL(string: "https://hub.invalid"), retryClock: clock,
+            makeAppHub: { _, _, _, _, _ in hub })
+        defer { service.willSignOut(); report.finish() }
+        var events = asks.makeAsyncIterator()
+        service.start(settings: settings())
+        #expect(await events.next() == 1, "the first registration asks for the account token")
+        try await clock.waitForSleeper()
+        if case .failed = hub.status {} else { Issue.record("the registration failed: \(hub.status)") }
+        #expect(service.settingsModel.state.status.tone == "danger")
+        let delay = try #require(clock.sleeperDeadlines.first).offset - clock.now.offset
+        clock.advance(by: delay)
+        #expect(await events.next() == 1, "registered again after the backoff")
+        try await clock.waitForSleeper()
+        service.willSignOut()
+        #expect(clock.sleeperCount == 0, "a sign-out ends the retries")
     }
 
     /// Signed out, Device Hub Address empty, and the launch restore not ended (on a fresh home it can stall):
@@ -207,13 +238,13 @@ struct DeviceHubStartupRecoveryTests {
         #expect(await starts.next() == 3)
         #expect(pages.hub === newHub)
         #expect(pages.hubStartupError == nil)
-        #expect(clock.sleeperCount == 0)
+        #expect(count == 2, "no identity load after the new hub installed")
     }
 
-    private func makeHub() -> DeviceHub {
+    private func makeHub(tokens: DeviceHubAccountToken = DeviceHubAccountToken { throw CancellationError() }) -> DeviceHub {
         let identity = DeviceIdentity(deviceID: UUID(), keys: Keys())
         let client = DeviceHubClient(baseURL: URL(string: "https://hub.invalid")!, identity: identity,
-                                    tokens: DeviceHubAccountToken { throw CancellationError() })
+                                    tokens: tokens)
         return DeviceHub(client: client, secrets: MemoryRelaySecretStore(), deviceName: "Test Mac")
     }
 

@@ -94,7 +94,7 @@ function adoptShadowSheets(root: ParentNode, sheets: CSSStyleSheet[]): void {
 }
 
 function restoreScroll(root: ParentNode): void {
-  // Reads after every write: one layout for the whole copy. The copy's shadow roots too (capture.ts
+  // Reads before every write: one layout for the whole copy. The copy's shadow roots too (capture.ts
   // `shadowTemplate` keeps their offsets).
   const scrolled: HTMLElement[] = [];
   const collect = (scope: ParentNode) => {
@@ -102,11 +102,18 @@ function restoreScroll(root: ParentNode): void {
     for (const element of Array.from(scope.querySelectorAll("*"))) if (element.shadowRoot) collect(element.shadowRoot);
   };
   collect(root);
-  for (const element of scrolled) {
-    const [top, left] = (element.getAttribute(SNAPSHOT_SCROLL_ATTRIBUTE) ?? "").split(",").map(Number);
-    element.scrollTop = top || 0;
+  // One scrolled to its end (the transcript at its latest row) stays there in a window of another
+  // height, as the live page keeps it: at its saved top, the copy drew every row that far from where the
+  // live page then drew it (Leo, 2026-11-16, after a restart: "it layout shifted as it drew").
+  const marks = scrolled.map((element) => (element.getAttribute(SNAPSHOT_SCROLL_ATTRIBUTE) ?? "").split(","));
+  const ends = scrolled.map((element, at) =>
+    marks[at]![2] === "end" ? element.scrollHeight - element.clientHeight : undefined,
+  );
+  scrolled.forEach((element, at) => {
+    const [top, left] = marks[at]!.map(Number);
+    element.scrollTop = ends[at] ?? (top || 0);
     element.scrollLeft = left || 0;
-  }
+  });
 }
 
 /// What the boot script hears of a copy it asked for (boot.ts).

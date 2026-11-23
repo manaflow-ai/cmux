@@ -1,7 +1,7 @@
 //! Journal write budget: a write that changes one tab or one screen journals
 //! that change, not the session.
 //!
-//! Lawrence's session (2026-11-10): 826 workspaces, 5713 live resources. Each
+//! A large session (2026-11-10): 826 workspaces, 5713 live resources. Each
 //! `tab.update` (a browser tab's back list, a zoom, an attention mark)
 //! journaled an upsert of all 5713 resources: 2.5 MB of `payload_json` for a
 //! change to one tab, 15 times in 6 minutes (37.6 MB of 79 MB of live journal

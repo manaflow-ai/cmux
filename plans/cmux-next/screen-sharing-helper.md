@@ -71,7 +71,14 @@ cmux NIGHTLY.app/Contents/Library/cmux NIGHTLY Screen Sharing.app
   - A session's helper is the app's child: the app reaps it (`SignedHelperLaunch.reap`) and closes
     its stdin when the session ends, as it did for the in-app child.
   - When the app dies, its pipes close and `serve` exits on EOF.
+  - The app keeps a session helper's stdout and stderr pipes for the session's life
+    (`MacScreenRdProcess.startSpawned`). No `Process` holds them, and a released `Pipe` closes
+    its read end under its reader. That left the helper's answer unread and the viewer at
+    "Connecting..." (cmuxterm-hq#13721).
   - Probes have a 10 s deadline, then SIGKILL.
+  - A started host that has not answered within 15 s fails the session. A viewer whose connect
+    shows no picture within 15 s fails naming the stage it reached (no answer, no link, no
+    frame). `mac_screen.state` reports it as `connect_stage` / `timed_out_at`.
 - **No fallback across the line.** If a build carries the helper but staging fails, the share
   fails. Running capture in the app would silently move the grant back to cmux. A build without the
   helper (a local build with no cached Rust binary) keeps the old in-app path, so a dev build still

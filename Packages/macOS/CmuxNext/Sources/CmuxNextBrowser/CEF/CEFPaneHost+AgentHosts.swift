@@ -17,6 +17,10 @@ extension CEFPaneHost {
     /// background tab's): never a pane, a window request's target or a spare.
     var holdsOwnTab: Bool { isPopupHost || isAgentHost }
 
+    /// A pane of a regular profile's web tabs, which an extension's popup window may open over: not an
+    /// off-the-record store (incognito, cmux pages), a popup's or an agent's own host, or a spare.
+    var hostsExtensionWindows: Bool { !holdsOwnTab && !isSpare && !key.offTheRecord }
+
     /// True when `tab` is a background tab of this pane's window: the pane shows another tab, so
     /// presenting `tab` here would take the page window from the pane.
     func lendsToAgent(_ tab: CEFTab) -> Bool {

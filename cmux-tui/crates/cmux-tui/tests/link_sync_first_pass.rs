@@ -330,6 +330,73 @@ fn a_conflicting_edit_to_a_first_pass_is_surfaced_not_dropped() {
     );
 }
 
+/// cmuxterm-hq#11697 item 2: the agent of a Cloud chat on a first pass of `~/Projects` is told,
+/// with its first message, what stayed on this Mac (the 21 GiB image, each repository's history),
+/// with sizes, and how to get a file of it, so it asks instead of searching the machine or taking
+/// those files for missing. Its chat may open below the copy's top. The note never comes back to
+/// this Mac, and a copy sent whole later takes it away.
+#[test]
+fn the_agent_of_a_first_pass_is_told_what_stayed_on_the_mac() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let local = root.join("Projects");
+    projects(&local);
+    let state = root.join("state");
+    let home = root.join("home");
+    std::fs::create_dir_all(home.join("work")).unwrap();
+    let sockets = tempfile::Builder::new().prefix("fp").tempdir_in("/tmp").unwrap();
+    let socket = sockets.path().join("m.sock");
+    serve(&socket, &home);
+    let remote = home.join("work/Projects");
+    let note = remote.join(acpmux::left_on_mac::NOTE);
+
+    let summary = push(&state, &socket, &local, &remote);
+    assert!(summary["skipped_counts"]["left_on_mac"].as_u64().unwrap_or(0) >= 1, "{summary}");
+    assert!(note.is_file(), "no note of what stayed on the Mac: {summary}");
+
+    // What a chat's session in that folder (or one inside it) gets with its first message.
+    for cwd in [remote.clone(), remote.join("cmux/src")] {
+        let meta: acpmux::store::SessionMeta = serde_json::from_value(json!({
+            "schema": "acpmux.session.v1", "id": "s", "name": "s", "harness": "claude",
+            "cwd": cwd, "status": "idle", "createdAt": 0, "updatedAt": 0,
+        }))
+        .unwrap();
+        let parts =
+            acpmux::context_inventory::snapshot_session(&meta, &acpmux::config::Config::default());
+        let mut blocks = Vec::new();
+        acpmux::context_inventory::append_snapshot(Some(&parts), &mut blocks);
+        let context = blocks
+            .iter()
+            .filter_map(|block| block["text"].as_str())
+            .find(|text| text.starts_with("<cmux-left-on-mac-context>"))
+            .unwrap_or_else(|| panic!("the agent is not told what stayed on the Mac: {blocks:?}"));
+        for named in [
+            "`Downloads/`: 1 file, 22.5 GB",
+            "`Downloads/disk.img`: 22.5 GB",
+            "`cmux/.git/`",
+            "`FEX/.git/`",
+            "`work/api/.git/`",
+            "repository history",
+        ] {
+            assert!(context.contains(named), "{named} is not named: {context}");
+        }
+        let request = format!("cmux link access request {}/PATH", local.display());
+        assert!(context.contains(&request), "{context}");
+        assert!(context.contains("not missing"), "{context}");
+    }
+
+    // Bring Back Local never brings the note to this Mac.
+    let (ok, _, text) = bring_back(&state, &socket, &local, &remote);
+    assert!(ok, "{text}");
+    assert!(!local.join(acpmux::left_on_mac::NOTE).exists(), "the note came back: {text}");
+
+    // Without the image the folder goes whole, and nothing stayed behind to tell of.
+    std::fs::remove_file(local.join("Downloads/disk.img")).unwrap();
+    let summary = push(&state, &socket, &local, &remote);
+    assert_eq!(summary["skipped_counts"]["left_on_mac"].as_u64().unwrap_or(0), 0, "{summary}");
+    assert!(!note.exists(), "a whole copy keeps the first pass's note: {summary}");
+}
+
 /// A folder of `files` files of 1 MiB each, under every size limit.
 fn megabytes(at: &Path, files: usize) {
     for index in 0..files {

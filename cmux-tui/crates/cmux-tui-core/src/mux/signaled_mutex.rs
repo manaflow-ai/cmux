@@ -189,6 +189,21 @@ impl<T> SignaledMutex<T> {
             .saturating_add(self.plain_waiters.load(Ordering::Acquire))
     }
 
+    /// One try, for work that must not wait for the lock: `None` while
+    /// another thread holds it. The take does not queue behind the lockers
+    /// that wait.
+    #[track_caller]
+    pub(crate) fn try_lock_free(&self) -> Option<LockResult<SignaledMutexGuard<'_, T>>> {
+        let (site, waited_from) = (std::panic::Location::caller(), Instant::now());
+        match self.value.try_lock() {
+            Ok(value) => Some(Ok(self.guard(value, site, waited_from, None))),
+            Err(TryLockError::WouldBlock) => None,
+            Err(TryLockError::Poisoned(error)) => {
+                Some(Err(PoisonError::new(self.guard(error.into_inner(), site, waited_from, None))))
+            }
+        }
+    }
+
     /// An interactive locker waits and has not used up its streak.
     fn interactive_goes_first(&self) -> bool {
         self.interactive_waiters.load(Ordering::Acquire) > 0

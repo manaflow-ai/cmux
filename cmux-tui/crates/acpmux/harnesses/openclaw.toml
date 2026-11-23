@@ -1,0 +1,19 @@
+# OpenClaw (openclaw/openclaw) speaks ACP through its Gateway bridge: `openclaw acp`.
+# Install: npm install -g openclaw. Its bridge refuses per-session MCP servers, so cmux
+# gives it none here; a Chief turn on OpenClaw uses the Chief's own OpenClaw home, with
+# sandbox mode "all", no ClawHub skills and cmux's MCP servers in its Gateway config.
+schema = 1
+id = "openclaw"
+name = "OpenClaw"
+icon = "openclaw"
+protocol = "acp"
+command = "openclaw"
+args = ["acp"]
+
+[capabilities]
+permission_modes = true
+resume = true
+
+[auth]
+login = "openclaw onboard"
+docs = "https://docs.openclaw.ai/cli/acp"

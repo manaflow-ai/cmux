@@ -17,7 +17,7 @@ cmux-rd testapp --display :99 --workload marker|text|motion|idle
 ## macOS host
 
 ```
-cmux-rd host --owner USER --token-fd N [--display main|INDEX] [--max-fps N (default: the display's refresh rate, else 60)] [--profile high|baseline]
+cmux-rd host --owner USER --token-fd N [--display main|INDEX] [--max-fps N (default: the display's refresh rate, else 60)] [--profile high|baseline] [--encode-profile standard|ultra]
 ```
 
 The codec is always `videotoolbox`, fed the captured IOSurface with no copy. The process, or
@@ -29,11 +29,14 @@ Build on a fleet Mac: `cargo build --release --no-default-features --features be
 
 For transport, encoder and controller measurements without any grant, a bench build of
 `cmux-rd host` or `cmux-rd serve` takes `--source synthetic|synthetic-still|synthetic-tick
-[--synthetic-size WxH]` (default 1920x1080, fitted to `--max-width`): it streams a generated
+[--synthetic-size WxH] [--synthetic-scene bars|text|noise|churn]` (default 1920x1080 bars, fitted to `--max-width`): it streams a generated
 NV12 picture with the marker at 0,0 through the same VideoToolbox and send path, and a
 viewer's key press, click or scroll bumps the marker instead of reaching the Mac.
 `synthetic` moves bars every frame, `synthetic-still` sends a frame only when input bumps
-the marker, and `synthetic-tick` also counts every frame (the fps probe). The two-Mac
+the marker, and `synthetic-tick` also counts every frame (the fps probe). Flat bars compress
+to almost nothing; `text` (dense glyphs scrolling 4 px a frame) and `noise` (grain-textured
+bars) translate, which an encoder predicts cheaply; `churn` (the grain at a new random
+offset every frame) is new content every frame. The two-Mac
 harness runs it over ssh with no rig and no marker app:
 `scripts/screen-share-vs.py run --source synthetic --stacks cmux --via ssh --host A --viewer B
 --host-ip IP --bin cmux-rd` (key trials use `synthetic-still`, fps trials `synthetic-tick`).
@@ -55,6 +58,18 @@ scripts/screen-share-vs.py run --host SHARED_MAC --viewer VIEWING_MAC --host-ip 
   --tools ./tools --label after --cua-vnc PATH/cua-vnc \
   --vnc-user USER --vnc-password-file PATH_ON_VIEWING_MAC --out after.jsonl
 scripts/screen-share-vs.py compare before.jsonl after.jsonl
+```
+
+`--host-arg=ARG` adds a `cmux-rd serve` flag and `--viewer-arg=ARG` a `cmux-rd bench` flag, each
+repeatable and in the `=` form (the value starts with `-`). Only an allowlist passes
+(`--resolution-ladder`, `--max-qp N`, `--max-kbps N`; `--caps LIST`); anything else
+is refused. Both lists go into every output line and the table headers, so `compare` shows what
+differed. A head run with the resolution ladder on:
+
+```
+scripts/screen-share-vs.py run ... --label ladder --out ladder.jsonl \
+  --host-arg=--resolution-ladder --host-arg=--max-qp=40 --host-arg=--max-kbps=1000 \
+  --viewer-arg=--caps=video.scaled
 ```
 
 The shared Mac runs the rig (`screen-share-vs.py rig`) inside an app that holds Screen Recording
@@ -228,6 +243,54 @@ This crate is its own Cargo workspace (excluded from the cmux-tui workspace) bec
 builds C code: openh264 from source (bench builds), and x264 only with `--features x264`. Build it on Linux (a Testbox or a
 VM), never on a Mac: `cargo build --release`.
 
+### Stage ledger: where each frame's milliseconds go (`cmux.rd-stage-ledger/1`)
+
+Decision D8 of cmuxterm-hq `docs/design/screen-share-under-100ms.md`. A viewer that offers
+cap `ledger` (and `clock`, so its times convert to the host's) gets, after each frame's last
+shard, a `FrameTimes` datagram (kind 12, cmux-rd-proto `frame_times.rs`) with the host's times
+for that frame: display time (ScreenCaptureKit's, 0 where the capture backend has none), encode
+start, bitstream ready, first and last datagram handed to the carrier. The viewer adds first
+shard, last shard (the frame became decodable), released, decoded and presented
+(cmux-rd-core `ledger.rs`). A viewer that does not offer the cap gets nothing new.
+
+`cmux-rd bench` prints the run's table as `stage_ledger` in its report line, and the app logs
+it every 5 s (`remote-view-rd`, "stage ledger: ..."). One JSON object, all times in ms on the
+host's clock:
+
+```json
+{"schema":"cmux.rd-stage-ledger/1","clock":"host monotonic","frames":N,"frames_with_host_times":N,
+ "offset_us":-1234,"received_mbps":14.2,
+ "stages":[{"stage":"Capture","from":"display time","to":"encode start","budget_ms":8.000,
+            "n":N,"p50_ms":3.1,"p95_ms":6.0,"reason":null}, ...],
+ "display_to_decoded":{"n":N,"p50_ms":..,"p95_ms":..}}
+```
+
+`stages` always has these twelve rows, in order: Input, Screen, Capture, Encode, Send,
+Network, Transport, Recovery, Reassembly, Decode, Present, Total. They are the ten rows of the
+design's budget table plus Network split in two right after it: Transport + Recovery = Network
+for every frame. A row with no samples has `n: 0`, null percentiles and a `reason`:
+
+| Stage | From, to | Filled by |
+| --- | --- | --- |
+| Input | viewer key down to host inject | the fleet harness (observer input receipt + host `inject_us`) |
+| Screen | inject to display time | the fleet harness (host `inject_us` + `shown_us`) |
+| Capture | display time to encode start | host |
+| Encode | encode start to bitstream ready | host |
+| Send | bitstream ready to last datagram sent | host |
+| Network | last datagram sent to last shard received | host + viewer (needs the clock offset) |
+| Transport | first datagram sent to first shard received: the path's one-way delay | host + viewer (needs the clock offset) |
+| Recovery | arrival spread (first to last shard) minus send spread (first to last datagram): time lost to retransmits, waiting for parity, jitter and queueing; can be negative when the path squeezes the burst | host + viewer (one clock each) |
+| Reassembly | last shard to frame released | viewer |
+| Decode | released to decoded | viewer |
+| Present | decoded to on glass (drawable presented time) | the app; `cmux-rd bench` has no renderer |
+| Total | display time to presented | the app; the bench reports `display_to_decoded` instead |
+
+Send ends when the last datagram is handed to the carrier: on a link carrier that is the link
+thread's queue, not the socket. `CMUX_RD_TIMING_LOG` lines carry the same host times per frame
+(`release_us` is the gate's release, `capture_us` the frame's `t_capture_us`, `encode_start_us`,
+`encoded_us`, `first_sent_us`, `sent_us`), for the harness to join with its observer's input and
+presented-marker receipts.
+
 ## Release
 
 `.github/workflows/cmux-rd-release.yml` publishes a GitHub release `cmux-rd-vX.Y.Z` (tag on
@@ -274,6 +337,17 @@ the glibc 2.31 floor. The archive holds `bin/cmux-rd`, `LICENSE` (GPL-3.0-or-lat
   NVENC, and VideoToolbox on macOS hosts) are later implementations of the same trait.
 - `--profile high` (default) is for the macOS pane's VideoToolbox decoder; the Linux bench
   decoder (openh264) needs `--profile baseline` on the host (scripts/loopback-bench.sh sets it).
+- `--encode-profile ultra` (`host` and `serve`; opt-in, standard is the default) stops saving
+  bandwidth on a fat link: frames at the viewer's rate (else the display's refresh) up to 120 fps,
+  a 150 Mbps ceiling unless `--max-kbps` names one. On VideoToolbox it holds frame rate first:
+  it runs the regular hardware encoder instead of the low-latency one (whose realtime encoder
+  refuses DataRateLimits and drops frames instead), and each frame gets one frame interval's
+  share of the target (DataRateLimits) but never more than 3 bits per pixel (about 0.78 MB at
+  1080p), with no QP ceiling and no QP floor (`CMUX_RD_VT_ULTRA_MIN_QP` sets one), so extra
+  rate buys fps before per-frame quality. A keyframe alone gets QP 30 or more. One frame
+  interval after the screen goes still, one refinement frame takes up to four frame budgets.
+  H.264 level 5.2 still bounds the frame rate at large sizes
+  (`mac::encoder_fps`): a 4K display encodes at most about 64 fps in H.264.
 
 ## Upstream media (development)
 
@@ -410,3 +484,20 @@ readback). Stage distributions include startup; sample vectors cap at 8192.
 Duration is bounded to 2–30 seconds, sockets have timeouts, and the host and
 viewer each have a deadline. Keep this harness and motion source unchanged
 when comparing before/after optimization results.
+
+The Windows host prefers DXGI Desktop Duplication and falls back to GDI if the
+primary output cannot be duplicated or access is lost. `--capture gdi` and
+`--capture dxgi` select a backend explicitly; forced DXGI fails by HRESULT rather
+than measuring GDI under the DXGI name. The workflow runs both through the same
+loopback harness and motion source. JSON `capture_details` identifies the backend,
+fallback reason, acquired frames and copied bytes.
+
+Duplication retains one CPU BGRA surface and one staging texture. It copies dirty
+rectangles and move destinations from the complete current desktop texture,
+respects row pitch, and uses a full copy for initialization or fragmented damage.
+It avoids full-frame hashing. Encoding still converts the full frame, so no
+unchanged-region conversion claim is made. An unchanged acquisition reuses the
+last surface when feedback requests a frame. Memory is bounded to a 256 MiB CPU
+surface plus the matching staging texture and at most 1 MiB metadata per list.
+The existing capture surface excludes a separately supplied hardware cursor;
+this preserves the GDI BitBlt behavior. Rotated outputs retain the GDI path.

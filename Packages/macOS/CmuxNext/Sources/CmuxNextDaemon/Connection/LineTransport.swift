@@ -501,6 +501,15 @@ final class LineTransport: Sendable {
             state.lineCount += 1
             return state.lineCount
         }
+        // The hot event (an attach `output`) names itself from one byte scan, not a JSON tree.
+        if let fast = AttachLineScanner.scanOutput(line, decodeData: false), let name = fast.event, !fast.hasType {
+            let index = state.withLock { state -> UInt64 in
+                if name == "daemon-shutdown" { state.sawShutdown = true }
+                return state.noteEvent(line: lineNumber)
+            }
+            onEvent(name, line, index)
+            return
+        }
         guard let envelope = try? decoder.decode(Envelope.self, from: line) else { return }
         // A v2 stream line goes to the stream handler of a dedicated
         // connection (`SessionJournalRead`); on the control connection it
