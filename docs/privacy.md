@@ -79,6 +79,10 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 
 | Host | Kind | What for |
 |---|---|---|
+| `*.*.wdev.cmux.dev` | connects | a cmux developer's preview stack, only when the iPhone app's backend override names one |
+| `api.*.wdev.cmux.dev` | connects | the API of a cmux developer's preview stack, only when the iPhone app's backend override names one |
+| `stun.cloudflare.com` | connects | a STUN server for the phone and remote-desktop links when the link names none: it learns only the device's public address, no session traffic |
+| `stun.l.google.com` | connects | the second fallback STUN server for the remote-desktop link: it learns only the public address, no session traffic |
 | `claude.ai` | connects | Claude sign-in and the Claude Code installer, when you install or sign in Claude Code |
 | `opencode.ai` | connects | OpenCode's config schema and installer, when you install OpenCode |
 | `linear.app` | connects | the Linear integration, only when an agent uses it in your signed-in browser |
@@ -342,6 +346,10 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 
 | Host | Kind | What for |
 |---|---|---|
+| `api.datadoghq.com` | example | a sample secret's host in the env-secrets playground |
+| `hooks.stripe.com` | example | a sample secret's host in the env-secrets playground |
+| `http-intake.logs.datadoghq.com` | example | a sample secret's host in the env-secrets playground |
+| `maps.googleapis.com` | example | a sample secret's host in the env-secrets playground |
 | `docs.github.com` | example | a sample error text |
 | `api.stripe.com` | example | an example in a tool description |
 | `github.com.evil` | example | a value in a self-check |
@@ -355,6 +363,11 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 
 | Host | Kind | What for |
 |---|---|---|
+| `command.io` | not-a-host | an error code for a custom command's file error |
+| `prior.app` | not-a-host | the app bundle `cmux app try` sets aside |
+| `rejected.app` | not-a-host | the app bundle `cmux app try` sets aside when a swap is refused |
+| `runner-fork-guard.sh` | not-a-host | a script file name in the VM pool runner |
+| `runner-guest.sh` | not-a-host | a script file name in the VM pool runner |
 | `task.ai` | not-a-host | a symbol or icon name |
 | `argument.app` | not-a-host | a localized string key |
 | `toast.detail.io` | not-a-host | a localized string key |
