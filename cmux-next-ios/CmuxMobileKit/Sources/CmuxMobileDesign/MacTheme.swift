@@ -457,6 +457,9 @@ public final class CmuxMobileMacTheme: @unchecked Sendable {
         }
     }
 
+    /// One Core Image context for every wallpaper blur (a context is costly to make; it is thread-safe).
+    private nonisolated(unsafe) static let blurContext = CIContext(options: [.cacheIntermediates: false])
+
     /// `image` under a Gaussian blur of `radius` pixels, edges clamped (no dark rim); nil at 0 or
     /// when Core Image fails (the sharp picture shows).
     nonisolated static func blurred(_ image: UIImage, radius: Double) -> UIImage? {
@@ -465,7 +468,7 @@ public final class CmuxMobileMacTheme: @unchecked Sendable {
         filter.inputImage = input.clampedToExtent()
         filter.radius = Float(radius)
         guard let output = filter.outputImage?.cropped(to: input.extent),
-              let cg = CIContext(options: [.cacheIntermediates: false]).createCGImage(output, from: input.extent)
+              let cg = blurContext.createCGImage(output, from: input.extent)
         else { return nil }
         return UIImage(cgImage: cg, scale: image.scale, orientation: image.imageOrientation)
     }

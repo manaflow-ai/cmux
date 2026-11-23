@@ -32,7 +32,7 @@ final class TerminalGroundView: UIView {
         layer.addSublayer(picture)
         layer.addSublayer(tint)
         clipsToBounds = true
-        if let fade { layer.mask = fade }
+        if let mask = self.fade { layer.mask = mask }
     }
 
     @available(*, unavailable)
