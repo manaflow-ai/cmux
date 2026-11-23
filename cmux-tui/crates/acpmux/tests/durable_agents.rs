@@ -4386,6 +4386,13 @@ async fn a_prompt_open_when_its_link_breaks_on_an_unstored_entry_is_answered_at_
         "neither an answer nor an error after {:?}: {reply}",
         started.elapsed()
     );
+    // Its host still runs: the chat does not read dead while the next request reattaches.
+    let listed = rpc.call("_acpmux/sessions", json!({})).await;
+    let status = listed["sessions"]
+        .as_array()
+        .and_then(|l| l.iter().find(|s| s["sessionId"] == session.as_str()))
+        .map(|s| s["status"].clone());
+    assert_ne!(status, Some(json!("disconnected")), "after the break: {listed}");
     let again = rpc.reply("session/prompt", hi).await;
     assert!(again.get("error").is_none(), "the next prompt after the break: {again}");
 }
