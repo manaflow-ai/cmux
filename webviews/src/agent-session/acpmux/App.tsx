@@ -1,6 +1,7 @@
 import { BrowserSidebar } from "./browser/BrowserSidebar";
 import { composerHealthHarness } from "./composerPickerEntries";
 import { Spinner } from "./conversation/icons";
+import { PaneLoadingMark } from "./PaneLoadingMark";
 import { forkMenuRows } from "./header/forkMenu";
 import { useFold } from "./conversation/fold";
 import { openFork, openInOwnTab } from "./conversation/openFork";
@@ -13568,9 +13569,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       >
         {/* The host's loading state covers this until the page paints; a page it gave up on shows here
             still connecting, so it shows the same mark, never a blank pane (cmux#48605). */}
-        <div className="acpmux-pane-loading" role="progressbar" aria-label={t("transcript.loading")}>
-          <Spinner size={18} loading />
-        </div>
+        <PaneLoadingMark label={t("transcript.loading")} />
       </section>
     </ShortcutsContext.Provider>
   ) : (

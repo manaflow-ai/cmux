@@ -56,7 +56,8 @@ afterAll(async () => {
 });
 
 const reply: AcpmuxRow = { id: "reply", kind: "assistant", version: 1, at: 2, text: "The review is complete." };
-const marks = () => [...document.querySelectorAll('[role="progressbar"]')].map((node) => node.getAttribute("aria-label"));
+const marks = () =>
+  [...document.querySelectorAll(".acpmux-transcript-loading, .acpmux-older-loading")].map((node) => node.getAttribute("aria-label"));
 
 test("a chat still reading its rows shows a spinner, and the spinner goes once the rows are in", async () => {
   const root = createRoot(document.getElementById("root")!);

@@ -2411,24 +2411,14 @@ pre.cv-math-source {
 .acpmux-older-loading {
   height: 32px;
 }
-/* A page still connecting, shown once the host's loading state gave up on it (App.tsx): the same mark,
-   after the same beat as the host's (AgentPaneLoadingView.markDelay), so a page that is about to draw
-   shows no mark that pops up and goes. */
+/* A page still connecting, shown once the host's loading state gave up on it (PaneLoadingMark.tsx,
+   whose timer holds the spinner back for the host's beat). */
 .acpmux-pane-loading {
   display: grid;
   flex: 1;
   place-items: center;
   color: var(--agent-muted);
   pointer-events: none;
-  animation: acpmux-pane-loading-in 1ms 600ms both;
-}
-@keyframes acpmux-pane-loading-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
 }
 /* The stand-ins' layer (conversation/standIns.ts): at the thread's place, under it, its children empty
    boxes with no class that a row rule could match. */

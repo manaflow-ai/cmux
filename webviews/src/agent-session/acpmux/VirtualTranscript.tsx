@@ -6859,21 +6859,20 @@ function TranscriptView({
                 {/* A chat still reading its rows with none to show yet: a spinner, never an empty pane
                     (cmux#48605). The spacer is at least the view's height, so it sits in the view's middle. */}
                 {loading && rows.length === 0 && (
-                  <div className="acpmux-transcript-loading" role="progressbar" aria-label={t("transcript.loading")}>
-                    <Spinner size={18} loading />
-                  </div>
+                  <output className="acpmux-transcript-loading" aria-label={t("transcript.loading")}>
+                    <Spinner size={20} loading />
+                  </output>
                 )}
                 {/* Older history still to load: a spinner just above the first loaded row, in the room held
                     for that history, so a reader who scrolls up to the loaded top sees the next page is coming. */}
                 {canLoadOlder && rows.length > 0 && (layout.origin ?? 0) >= OLDER_SPINNER_BOX && (
-                  <div
+                  <output
                     className="acpmux-older-loading"
-                    role="progressbar"
                     aria-label={t("transcript.loadingOlder")}
                     style={{ top: lift + topInset + THREAD_TOP + (layout.origin ?? 0) - OLDER_SPINNER_BOX }}
                   >
                     <Spinner size={16} loading />
-                  </div>
+                  </output>
                 )}
                 {/* Under the rows, at the thread's place: one empty element per stand-in. */}
                 <div className="acpmux-stand-ins" aria-hidden style={{ top: lift + topInset }}>
