@@ -146,6 +146,8 @@ mod terminal_ops;
 #[cfg(unix)]
 pub(crate) mod timer;
 #[cfg(unix)]
+mod toolbar;
+#[cfg(unix)]
 mod widgets;
 
 use std::sync::{Arc, Mutex, OnceLock};
