@@ -17,7 +17,9 @@ import UIKit
 /// yet never shows. Nothing here toggles a property that changes the view's
 /// measured size, so measuring it never feeds back into another layout.
 open class ComposerReturnTextView: UITextView {
-    public var returnPolicy: ComposerReturnPolicy
+    public var returnPolicy: ComposerReturnPolicy {
+        didSet { unsettle() }
+    }
     /// Called when Return should send the draft.
     public var onSend: (() -> Void)?
     /// Whether the edit menu offers New Line (for a composer whose Return sends).
@@ -61,7 +63,18 @@ open class ComposerReturnTextView: UITextView {
     }
 
     override open var text: String! {
-        didSet { updatePlaceholder() }
+        didSet {
+            updatePlaceholder()
+            unsettle()
+        }
+    }
+
+    override open var font: UIFont? {
+        didSet { unsettle() }
+    }
+
+    override open var textContainerInset: UIEdgeInsets {
+        didSet { unsettle() }
     }
 
     // MARK: Height
@@ -188,11 +201,60 @@ open class ComposerReturnTextView: UITextView {
     private static let measuredWidths = 16
     private var measured: [(key: MeasureKey, height: CGFloat)] = []
 
-    /// The field's size for a proposed width (SwiftUI's `sizeThatFits`):
-    /// as wide as offered, as tall as `fieldHeight` says for the text.
+    /// The field's size for a proposed width (SwiftUI's `sizeThatFits`): as wide as offered,
+    /// as tall as `fieldHeight` says for the text at the field's own width.
+    ///
+    /// The height is settled after each edit (`settleAfterEdit()`) and on a width change, and
+    /// answered here as stored, whatever width is proposed: SwiftUI's HStack asks several
+    /// widths per pass, and passes repeat, so measuring here measured tens of times per key
+    /// (seconds of lag in a 5,000-character draft, Leo 2026-11-23; ComposerTypingLagUITests).
+    /// Before the view has a width it measures at the proposed one.
     public func fittingSize(proposedWidth: CGFloat?) -> CGSize {
         let width = proposedWidth ?? (bounds.width > 0 ? bounds.width : 240)
-        return CGSize(width: width, height: fieldHeight.height(contentHeight: contentHeight(width: width)))
+        #if DEBUG
+        if Self.measuresWholeDraft {
+            return CGSize(width: width, height: fieldHeight.height(contentHeight: contentHeight(width: width)))
+        }
+        #endif
+        if let settled { return CGSize(width: width, height: settled.height) }
+        guard bounds.width > 0 else {
+            return CGSize(width: width, height: fieldHeight.height(contentHeight: contentHeight(width: width)))
+        }
+        return CGSize(width: width, height: settle(width: bounds.width).height)
+    }
+
+    /// After the text changed (the delegate's `textViewDidChange`): settles the height for the
+    /// new text and asks SwiftUI to size the field again only when the height changed. A key
+    /// typed into a draft already past `maxLines` lays out nothing: typing only adds lines,
+    /// and the field is at its cap.
+    public func settleAfterEdit() {
+        let insertedOnly = insertingOnly
+        insertingOnly = false
+        #if DEBUG
+        if Self.measuresWholeDraft { return invalidateIntrinsicContentSize() }
+        #endif
+        guard let old = settled else { return invalidateIntrinsicContentSize() }
+        if insertedOnly, old.scrolls { return }
+        if settle(width: old.width).height != old.height { invalidateIntrinsicContentSize() }
+    }
+
+    /// The field's height at the field's width: `height`, and whether the text overflows it.
+    private var settled: (width: CGFloat, height: CGFloat, scrolls: Bool)?
+    /// Set while a typed text goes in at a caret with nothing selected or marked.
+    private var insertingOnly = false
+
+    @discardableResult
+    private func settle(width: CGFloat) -> (width: CGFloat, height: CGFloat, scrolls: Bool) {
+        let rule = fieldHeight
+        let content = contentHeight(width: width)
+        let result = (width: width, height: rule.height(contentHeight: content), scrolls: rule.scrolls(contentHeight: content))
+        settled = result
+        return result
+    }
+
+    /// Text, font, insets or `maxLines` changed: the next size asked for measures again.
+    private func unsettle() {
+        settled = nil
     }
 
     /// Whether the text is taller than the field (it scrolls inside).
@@ -237,11 +299,23 @@ open class ComposerReturnTextView: UITextView {
     /// answer kept, as before the fix (ComposerTypingLagUITests' before rows).
     static let measuresWholeDraft = CommandLine.arguments.contains("-cmux-mobile-composer-measure-whole")
 
+    #endif
+
+    /// A typed text at a bare caret only adds lines (`settleAfterEdit()`).
+    override open func insertText(_ text: String) {
+        insertingOnly = selectedRange.length == 0 && markedTextRange == nil
+        defer { insertingOnly = false }
+        #if DEBUG
+        if let trace = InputLatencyTrace.shared { return tracedInsert(text, trace: trace) }
+        #endif
+        super.insertText(text)
+    }
+
+    #if DEBUG
     /// A typed key to the frame that draws it (`InputLatencyTrace`:
     /// `<field id>_key_frame`), to its frame committed (`_key_commit`), and
     /// the text it laid out to measure the field (`_key_layout_units`).
-    override open func insertText(_ text: String) {
-        guard let trace = InputLatencyTrace.shared else { return super.insertText(text) }
+    private func tracedInsert(_ text: String, trace: InputLatencyTrace) {
         let id = accessibilityIdentifier ?? "composer"
         let start = CACurrentMediaTime()
         let units = Self.measuredUnits
@@ -260,6 +334,11 @@ open class ComposerReturnTextView: UITextView {
 
     override open func layoutSubviews() {
         super.layoutSubviews()
+        // A new width (rotation, the send button showing): the height for it.
+        if let old = settled, bounds.width > 0, abs(bounds.width - old.width) > 0.5,
+           settle(width: bounds.width).height != old.height {
+            invalidateIntrinsicContentSize()
+        }
         if !textOverflows { pinToTop() }
         let width = max(0, bounds.width - textContainerInset.left - textContainerInset.right)
         let size = placeholderLabel.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
