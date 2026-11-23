@@ -26,6 +26,7 @@ pub mod agent;
 pub mod agent_credentials;
 pub mod agent_displays;
 pub mod agent_guidance;
+pub mod agent_home;
 pub mod agent_host;
 pub mod agent_link;
 pub mod agent_login;

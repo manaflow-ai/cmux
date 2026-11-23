@@ -79,6 +79,7 @@ dependencies = [
  "cmux-worktree-care",
  "crossterm",
  "dhat",
+ "diffy",
  "dirs",
  "flate2",
  "futures",
