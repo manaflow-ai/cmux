@@ -10,6 +10,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { popupItems } from "../../ui/popupHost";
+import { setHintsRevealed, useOutcomeHints } from "./composerOutcomeHintsModel";
 import { SlashMenu } from "./SlashMenu";
 import type { SlashMatch } from "./slashCommands";
 import { settleReact } from "../../../test/support/domTeardown";
@@ -21,7 +22,16 @@ const saved = new Map<string, unknown>();
 
 function installDom(): HTMLElement {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
-  for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
+  for (const key of [
+    "window",
+    "document",
+    "navigator",
+    "Node",
+    "HTMLElement",
+    "Element",
+    "IS_REACT_ACT_ENVIRONMENT",
+    "cmuxExperiments",
+  ])
     saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
@@ -38,6 +48,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  setHintsRevealed(false);
   await settleReact();
   dom?.window.close();
   dom = undefined;
@@ -63,9 +74,51 @@ const MATCHES: SlashMatch[] = [
   { command: { name: "review", description: "Review a pull request", source: "skill" }, ranges: [] },
 ];
 
-// The rows are names only (a1315's cuts, 2026-11-21): the highlighted row also reads its arguments,
-// then a dash and what it does, and the panel's line follows the highlight (popupHost re-reads the
-// rows on every change).
+test("a menu opened while Option is held inherits the composer's hints", async () => {
+  const host = installDom();
+  globalThis.cmuxExperiments = { "composer-outcome-hints": "option" };
+  root = createRoot(host);
+  function ComposerWithMenu({ open }: { open: boolean }) {
+    const hints = useOutcomeHints();
+    return (
+      <>
+        <output data-composer-hints={hints.rows} />
+        {open && (
+          <SlashMenu
+            query="model"
+            matches={[MATCHES[1]]}
+            active={0}
+            empty="No commands"
+            onHover={() => undefined}
+            onPick={() => undefined}
+          />
+        )}
+      </>
+    );
+  }
+  const show = (open: boolean) => act(async () => root!.render(<ComposerWithMenu open={open} />));
+  const key = (down: boolean) =>
+    act(async () => {
+      window.dispatchEvent(new window.KeyboardEvent(down ? "keydown" : "keyup", { key: "Alt", altKey: down }));
+    });
+  const hint = () => host.querySelector(".acpmux-slash-actions")?.textContent;
+  await show(false);
+  await key(true);
+  expect(host.querySelector("output")?.getAttribute("data-composer-hints")).toBe("true");
+  await show(true);
+  expect(hint()).toBe("↩Run⇥Complete");
+  await key(false);
+  expect(hint()).toBeUndefined();
+  await key(true);
+  await show(false);
+  await show(true);
+  expect(hint()).toBe("↩Run⇥Complete");
+  await act(async () => window.dispatchEvent(new window.Event("blur")));
+  expect(hint()).toBeUndefined();
+});
+
+// Every row reads its description; the highlighted row also reads its arguments.
+// Optional keyboard hints never change the native panel labels.
 test("the highlighted row reads as command, arguments, then a dash and what it does in the native panel", async () => {
   const host = installDom();
   root = createRoot(host);
@@ -73,6 +126,7 @@ test("the highlighted row reads as command, arguments, then a dash and what it d
     act(async () => {
       root!.render(
         <SlashMenu
+          query=""
           matches={MATCHES}
           active={active}
           empty="No commands"
@@ -87,15 +141,61 @@ test("the highlighted row reads as command, arguments, then a dash and what it d
   const labels = () => popupItems(list, "list").items.map((item) => item.label);
   expect(labels()).toEqual([
     "/compact — Clear conversation history but keep a summary",
-    "/model",
-    "/customize",
-    "/review",
+    "/model — Model",
+    "/customize — Customize cmux by asking: it changes live, then you apply or discard",
+    "/review — Review a pull request",
   ]);
   await show(2);
   expect(labels()).toEqual([
-    "/compact",
-    "/model",
+    "/compact — Clear conversation history but keep a summary",
+    "/model — Model",
     "/customize <change> — Customize cmux by asking: it changes live, then you apply or discard",
-    "/review",
+    "/review — Review a pull request",
   ]);
+});
+
+// The hint must follow the same typed-word decision as both production key handlers, including
+// a partial local command and text-only extensions. Tips never enter the native popup's labels.
+test("on-demand hints distinguish insertion from running and leave the default quiet", async () => {
+  const host = installDom();
+  root = createRoot(host);
+  const show = (query: string, match: SlashMatch = MATCHES[1]) =>
+    act(async () => {
+      root!.render(
+        <SlashMenu
+          query={query}
+          matches={[match]}
+          active={0}
+          empty="No commands"
+          onHover={() => undefined}
+          onPick={() => undefined}
+        />,
+      );
+    });
+  globalThis.cmuxExperiments = { "composer-outcome-hints": "now" };
+  await show("model");
+  expect(host.querySelector(".acpmux-slash-actions")).toBeNull();
+  globalThis.cmuxExperiments = { "composer-outcome-hints": "hint" };
+  await show("model");
+  expect(host.querySelector(".acpmux-slash-actions")).toBeNull();
+  await act(async () => setHintsRevealed(true));
+  const hint = () => host.querySelector(".acpmux-slash-actions")?.textContent;
+  expect(hint()).toBe("↩Run⇥Complete");
+  expect(popupItems(host.querySelector("#acpmux-slash-menu")!, "list").items[0].label).toBe("/model — Model");
+  await show("mod");
+  expect(hint()).toBe("↩Insert");
+  await show("customize", MATCHES[2]);
+  expect(hint()).toBe("↩Run⇥Complete");
+  await show("review", {
+    command: { name: "review", hint: "<PR>", description: "Review", source: "skill" },
+    ranges: [],
+  });
+  expect(hint()).toBe("↩Insert");
+  await show("template", {
+    command: { name: "template", description: "Template", source: "extension", insert: "Review this code" },
+    ranges: [],
+  });
+  expect(hint()).toBe("↩Insert");
+  await act(async () => setHintsRevealed(false));
+  expect(host.querySelector(".acpmux-slash-actions")).toBeNull();
 });

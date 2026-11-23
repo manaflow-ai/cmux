@@ -96,7 +96,7 @@ import { StatusIsland } from "../statusIsland/StatusIsland";
 import { experimentArm } from "../../../experiments/experiment";
 import { sandboxRetryable, type SandboxTab, type RunModeRows, type SandboxRun } from "../sandboxRun";
 import { SandboxRunView } from "../SandboxRunView";
-import { PaneFeatureTips } from "../featureTips";
+import { ComposerHintsTip, PaneFeatureTips } from "../featureTips";
 import { callNative } from "../callNative";
 import { openOfferChat } from "../rows/rowActions";
 import { VirtualTranscript } from "../VirtualTranscript";
@@ -1353,6 +1353,7 @@ export function drawPaneBody({
                 </header>
                 {/* A feature tip under its header control (featureTips.tsx; it portals out). */}
                 {!quick && !showNewTab && snapshot.sessionId && <PaneFeatureTips streaming={turnWorking} />}
+                {!quick && !showNewTab && snapshot.sessionId && <ComposerHintsTip streaming={turnWorking} />}
                 {!sessionInfo.on && !summaryCard.column && summaryPanel}
                 {underHeader.checkpointReview && checkpoints.review}
                 {/* The lines under the header drop in from the top (ui/popupSurface.css `data-enter`). */}

@@ -7,6 +7,7 @@ import { Listbox } from "../../ui/Listbox";
 import { useT } from "./i18n";
 import { FileSearchLoading } from "./FileSearchLoading";
 import { type MentionState } from "./mentionMenuModel";
+import { useOutcomeHints } from "./composerOutcomeHintsModel";
 /// The picker under the prompt, styled as the slash menu: other chats, folders, then files
 /// (mentionItems.ts), each with its icon, its name with the matched letters bold and its project or
 /// folder muted beside it. The prompt keeps focus and its keys (Composer.tsx): arrows move, Return
@@ -26,6 +27,7 @@ export function MentionMenu({
   onPick(item: MentionItem): void;
 }) {
   const t = useT();
+  const showOutcomeHints = useOutcomeHints().rows;
   // Above the composer's box, or past the window's edge when the pane has no room there (cx-6k6cg).
   // The list draws out of the box (backdropLayer.tsx): the box is what it stands beside.
   const box = useComposerListBox();
@@ -66,7 +68,7 @@ export function MentionMenu({
             </output>
           ) : undefined
         }
-        renderItem={(item) => (
+        renderItem={(item, index) => (
           <>
             <span className="acpmux-mention-icon" data-mention-icon={item.kind}>
               <Icon name={item.kind === "session" || item.kind === "harness" ? "agent.chat" : item.kind} size={14} />
@@ -80,6 +82,12 @@ export function MentionMenu({
               <span className="acpmux-slash-description">{t("mention.readOnlyGuest")}</span>
             ) : (
               item.dir.length > 0 && <span className="acpmux-slash-description">{runs(item.dir)}</span>
+            )}
+            {showOutcomeHints && index === active && (
+              <span className="acpmux-slash-actions" data-popup-skip>
+                <kbd className="acpmux-slash-keycap">↩</kbd>
+                {t("composer.actionInsert")}
+              </span>
             )}
           </>
         )}

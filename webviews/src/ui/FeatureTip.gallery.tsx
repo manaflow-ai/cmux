@@ -9,7 +9,7 @@ import type { FeatureTipLook } from "./FeatureTip";
 import { PanelToggle } from "../agent-session/acpmux/header/PanelToggle";
 import { memoryTipHost } from "./featureTips/store";
 
-type Target = "browser" | "inspector" | "composer";
+type Target = "browser" | "inspector" | "composer" | "composerHints";
 /** `live`: the shipped wiring itself (PaneFeatureTips: the catalog, the anchor table and the
     scheduler), with records in memory and a page opened long ago. */
 type Props = { target: Target; look: FeatureTipLook; live?: boolean };
@@ -33,6 +33,14 @@ const PLACEMENTS: Record<Target, { selector: string; side: "top" | "bottom"; tit
     side: "top",
     title: "Ask a side question while your agent works",
     body: "Type /btw followed by a question in the chat composer.",
+  },
+  /** The composer outcome hints' `tip` arm (agent-session/acpmux/featureTips.tsx ComposerHintsTip),
+      in its English strings (composer.hintsTipTitle, composer.hintsTipBody). */
+  composerHints: {
+    selector: ".feature-tip-gallery-composer",
+    side: "top",
+    title: "Commands and files",
+    body: "Type / for commands and @ for files; Return picks a row.",
   },
 };
 
@@ -177,6 +185,12 @@ export default componentEntry<Props>({
       "A composer feature (/btw): the tip opens above the composer. Gallery only.",
     ),
     "composer-accent": variant("composer", "accent", "The accent look above the composer. Gallery only."),
+    // Leo 2026-11-22 09:50Z on the composer outcome hints: "this is good as tips".
+    "composer-hints-glass": variant(
+      "composerHints",
+      "glass",
+      "Composer outcome hints, tip (a): once per install, above today's composer, on the 14-day tip budget. Experiment arm `tip`.",
+    ),
     close: { note: "The X closes it at once.", props: { target: "browser", look: "glass" }, play: closes },
   },
 });

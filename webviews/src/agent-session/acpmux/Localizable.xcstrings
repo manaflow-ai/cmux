@@ -1,6 +1,270 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "composer.actionInsert": {
+      "comment": "Composer suggestion hint: Return inserts the selected command or mention into the draft without sending it.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Insert"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إدراج"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Umetni"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indsæt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einfügen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Insertar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Insérer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inserisci"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "挿入"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ចូល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "삽입"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sett inn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wstaw"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inserir"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вставить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แทรก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вставити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chèn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "插入"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "插入"
+          }
+        }
+      }
+    },
+    "composer.actionComplete": {
+      "comment": "Composer suggestion hint: Tab completes the selected command in the draft without running it. Imperative action, not a completed status.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Complete"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إكمال"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dopuni"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fuldfør"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vervollständigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Completar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compléter"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Completa"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "補完"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បំពេញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동 완성"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fullfør"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uzupełnij"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Completar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дополнить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เติมให้ครบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamamla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доповнити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hoàn thành"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "补全"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "補全"
+          }
+        }
+      }
+    },
     "transcript.loading": {"comment":"Agent pane: accessible label of the spinner the transcript shows while a chat's messages are still loading (VirtualTranscript.tsx)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"جارٍ تحميل الدردشة…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Učitavanje razgovora…"}},"da":{"stringUnit":{"state":"needs_review","value":"Indlæser chat…"}},"de":{"stringUnit":{"state":"needs_review","value":"Chat wird geladen…"}},"en":{"stringUnit":{"state":"translated","value":"Loading chat…"}},"es":{"stringUnit":{"state":"needs_review","value":"Cargando el chat…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Chargement de la discussion…"}},"it":{"stringUnit":{"state":"needs_review","value":"Caricamento della chat…"}},"ja":{"stringUnit":{"state":"needs_review","value":"チャットを読み込み中…"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងផ្ទុកការជជែក…"}},"ko":{"stringUnit":{"state":"needs_review","value":"채팅 불러오는 중…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Laster inn chat…"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wczytywanie czatu…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Carregando o chat…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Загрузка чата…"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังโหลดแชต…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Sohbet yükleniyor…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Завантаження чату…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang tải cuộc trò chuyện…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在加载对话…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在載入對話…"}}}},
     "transcript.loadingOlder": {"comment":"Agent pane: accessible label of the spinner above a chat's loaded messages while earlier ones load (VirtualTranscript.tsx)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"جارٍ تحميل الرسائل السابقة…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Učitavanje ranijih poruka…"}},"da":{"stringUnit":{"state":"needs_review","value":"Indlæser tidligere beskeder…"}},"de":{"stringUnit":{"state":"needs_review","value":"Frühere Nachrichten werden geladen…"}},"en":{"stringUnit":{"state":"translated","value":"Loading earlier messages…"}},"es":{"stringUnit":{"state":"needs_review","value":"Cargando mensajes anteriores…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Chargement des messages précédents…"}},"it":{"stringUnit":{"state":"needs_review","value":"Caricamento dei messaggi precedenti…"}},"ja":{"stringUnit":{"state":"needs_review","value":"以前のメッセージを読み込み中…"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងផ្ទុកសារមុនៗ…"}},"ko":{"stringUnit":{"state":"needs_review","value":"이전 메시지 불러오는 중…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Laster inn tidligere meldinger…"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wczytywanie wcześniejszych wiadomości…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Carregando mensagens anteriores…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Загрузка предыдущих сообщений…"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังโหลดข้อความก่อนหน้า…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Önceki mesajlar yükleniyor…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Завантаження попередніх повідомлень…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang tải tin nhắn trước đó…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在加载更早的消息…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在載入較早的訊息…"}}}},
     "composer.slashHelp": {"comment":"Composer slash menu: description of cmux's /help command, which opens a searchable sheet of commands, skills and keys.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"عرض كل الأوامر والمهارات والمفاتيح"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prikaži sve naredbe, vještine i tipke"}},"da":{"stringUnit":{"state":"needs_review","value":"Vis alle kommandoer, færdigheder og taster"}},"de":{"stringUnit":{"state":"needs_review","value":"Alle Befehle, Skills und Tasten anzeigen"}},"en":{"stringUnit":{"state":"translated","value":"Show every command, skill and key"}},"es":{"stringUnit":{"state":"needs_review","value":"Ver todos los comandos, skills y teclas"}},"fr":{"stringUnit":{"state":"needs_review","value":"Afficher toutes les commandes, compétences et touches"}},"it":{"stringUnit":{"state":"needs_review","value":"Mostra tutti i comandi, le skill e i tasti"}},"ja":{"stringUnit":{"state":"needs_review","value":"すべてのコマンド、スキル、キーを表示"}},"km":{"stringUnit":{"state":"needs_review","value":"បង្ហាញពាក្យបញ្ជា ជំនាញ និងគ្រាប់ចុចទាំងអស់"}},"ko":{"stringUnit":{"state":"needs_review","value":"모든 명령, 스킬, 키 보기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Vis alle kommandoer, ferdigheter og taster"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pokaż wszystkie polecenia, umiejętności i klawisze"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Ver todos os comandos, skills e teclas"}},"ru":{"stringUnit":{"state":"needs_review","value":"Показать все команды, навыки и клавиши"}},"th":{"stringUnit":{"state":"needs_review","value":"แสดงคำสั่ง สกิล และปุ่มทั้งหมด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Tüm komutları, becerileri ve tuşları göster"}},"uk":{"stringUnit":{"state":"needs_review","value":"Показати всі команди, навички й клавіші"}},"vi":{"stringUnit":{"state":"needs_review","value":"Hiện mọi lệnh, kỹ năng và phím"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"显示所有命令、技能和按键"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"顯示所有指令、技能與按鍵"}}}},
@@ -173674,6 +173938,534 @@
         }
       }
     },
+    "composer.hintsHide": {
+      "comment": "Agent pane: the composer outcome hints experiment's ? button, pressed, which hides the hints again",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إخفاء تلميحات كتابة الرسالة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sakrij savjete za pisanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjul skrivehjælp"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eingabehinweise ausblenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide composer hints"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar sugerencias de escritura"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masquer les conseils de saisie"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nascondi suggerimenti di scrittura"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力のヒントを非表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លាក់គន្លឹះសរសេរសារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "입력 힌트 숨기기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjul skrivehint"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukryj wskazówki wpisywania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar dicas de escrita"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скрыть подсказки ввода"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซ่อนคำแนะนำการเขียนข้อความ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yazma ipuçlarını gizle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Приховати підказки введення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ẩn gợi ý soạn tin"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏输入提示"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏輸入提示"
+          }
+        }
+      }
+    },
+    "composer.hintsShow": {
+      "comment": "Agent pane: the composer outcome hints experiment's ? button, which shows the / and @ lists' descriptions and Return keycap",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار تلميحات كتابة الرسالة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži savjete za pisanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis skrivehjælp"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eingabehinweise anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show composer hints"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar sugerencias de escritura"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher les conseils de saisie"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra suggerimenti di scrittura"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力のヒントを表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញគន្លឹះសរសេរសារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "입력 힌트 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis skrivehint"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż wskazówki wpisywania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar dicas de escrita"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать подсказки ввода"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงคำแนะนำการเขียนข้อความ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yazma ipuçlarını göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показати підказки введення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện gợi ý soạn tin"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示输入提示"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示輸入提示"
+          }
+        }
+      }
+    },
+    "composer.hintsTipBody": {
+      "comment": "Agent pane: the composer outcome hints experiment's one-time feature tip sentence (at most 12 words)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اكتب / للأوامر و@ للملفات؛ اضغط Return لاختيار صف."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upišite / za naredbe i @ za datoteke; Return bira red."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skriv / for kommandoer og @ for filer; Retur vælger en række."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tippe / für Befehle und @ für Dateien; die Eingabetaste wählt eine Zeile aus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Type / for commands and @ for files; Return picks a row."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escribe / para comandos y @ para archivos; Intro selecciona una fila."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tapez / pour les commandes et @ pour les fichiers ; Retour sélectionne une ligne."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Digita / per i comandi e @ per i file; Invio seleziona una riga."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/ でコマンド、@ でファイルを表示し、Return で行を選択します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "វាយ / សម្រាប់ពាក្យបញ្ជា និង @ សម្រាប់ឯកសារ; ចុច Return ដើម្បីជ្រើសរើសជួរដេក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "명령어는 /, 파일은 @를 입력하세요. Return 키로 행을 선택합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skriv / for kommandoer og @ for filer; Retur velger en rad."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wpisz /, aby wybrać polecenie, lub @, aby wybrać plik; Return wybiera wiersz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Digite / para comandos e @ para arquivos; Return seleciona uma linha."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Введите / для команд и @ для файлов; Return выбирает строку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พิมพ์ / สำหรับคำสั่งและ @ สำหรับไฟล์ กด Return เพื่อเลือกแถว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komutlar için /, dosyalar için @ yazın; Return bir satır seçer."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Введіть / для команд і @ для файлів; Return вибирає рядок."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhập / để chọn lệnh và @ để chọn tệp; Return chọn một hàng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入 / 查看命令，输入 @ 查看文件；按 Return 选择一行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "輸入 / 查看指令，輸入 @ 查看檔案；按 Return 選取一列。"
+          }
+        }
+      }
+    },
+    "composer.hintsTipTitle": {
+      "comment": "Agent pane: the composer outcome hints experiment's one-time feature tip title, above the composer",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الأوامر والملفات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Naredbe i datoteke"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kommandoer og filer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Befehle und Dateien"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commands and files"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comandos y archivos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commandes et fichiers"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comandi e file"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドとファイル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពាក្យបញ្ជា និងឯកសារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "명령어 및 파일"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kommandoer og filer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Polecenia i pliki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comandos e arquivos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Команды и файлы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำสั่งและไฟล์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komutlar ve dosyalar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Команди та файли"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lệnh và tệp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "命令和文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "指令和檔案"
+          }
+        }
+      }
+    },
     "composer.imagesUnsupported": {
       "comment": "Agent pane",
       "extractionState": "manual",
@@ -174990,6 +175782,270 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "輸入 / 檢視指令"
+          }
+        }
+      }
+    },
+    "composer.placeholderAgent": {
+      "comment": "Agent pane: experimental composer responder and mode hint",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "راسل {agent}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pošaljite poruku agentu {agent}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skriv til {agent}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nachricht an {agent}"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Message {agent}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar un mensaje a {agent}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Écrire à {agent}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invia un messaggio a {agent}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{agent} にメッセージを送信"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ញើសារទៅ {agent}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{agent}에게 메시지 보내기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send melding til {agent}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyślij wiadomość do {agent}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar mensagem para {agent}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Написать {agent}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งข้อความถึง {agent}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{agent} için mesaj yazın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Написати {agent}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhắn tin cho {agent}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "给 {agent} 发消息"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "傳送訊息給 {agent}"
+          }
+        }
+      }
+    },
+    "composer.placeholderAgentModes": {
+      "comment": "Agent pane: experimental composer responder and mode hint",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "راسل {agent} · / للأوامر، @ للملفات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pošaljite poruku agentu {agent} · / za naredbe, @ za datoteke"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skriv til {agent} · / for kommandoer, @ for filer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nachricht an {agent} · / für Befehle, @ für Dateien"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Message {agent} · / for commands, @ for files"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar un mensaje a {agent} · / para comandos, @ para archivos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Écrire à {agent} · / pour les commandes, @ pour les fichiers"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invia un messaggio a {agent} · / per i comandi, @ per i file"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{agent} にメッセージを送信 · / でコマンド、@ でファイル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ញើសារទៅ {agent} · / សម្រាប់ពាក្យបញ្ជា, @ សម្រាប់ឯកសារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{agent}에게 메시지 보내기 · / 명령어, @ 파일"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send melding til {agent} · / for kommandoer, @ for filer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyślij wiadomość do {agent} · / — polecenia, @ — pliki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar mensagem para {agent} · / para comandos, @ para arquivos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Написать {agent} · / для команд, @ для файлов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งข้อความถึง {agent} · / สำหรับคำสั่ง, @ สำหรับไฟล์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{agent} için mesaj yazın · komutlar için /, dosyalar için @"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Написати {agent} · / для команд, @ для файлів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhắn tin cho {agent} · / cho lệnh, @ cho tệp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "给 {agent} 发消息 · / 查看命令，@ 查看文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "傳送訊息給 {agent} · / 查看指令，@ 查看檔案"
           }
         }
       }

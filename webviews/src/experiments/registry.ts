@@ -113,6 +113,7 @@ import { composerShellLook } from "../agent-session/acpmux/composer/shellLook.ex
 import { composerFooterControls } from "../agent-session/acpmux/composer/footerControls.experiment";
 import { composerEmptyHeight } from "../agent-session/acpmux/composer/emptyHeight.experiment";
 import { toastsV2 } from "../ui/toastsV2.experiment";
+import { composerOutcomeHints } from "../agent-session/acpmux/composerOutcomeHints.experiment";
 import type { Experiment } from "./experiment";
 
 export const EXPERIMENTS: readonly Experiment[] = [
@@ -233,6 +234,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   menuStyleV2,
   menuRowStates,
   toastsV2,
+  composerOutcomeHints,
 ];
 
 export function experimentById(id: string): Experiment | undefined {

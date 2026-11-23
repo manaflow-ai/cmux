@@ -5,7 +5,8 @@ import { useComposerListBox } from "./backdropLayerModel";
 import { BoltIcon } from "./BoltIcon";
 import { COMPOSER_LABELS } from "./composerModel";
 import { useT } from "./i18n";
-import { isFastCommand, shownName, type SlashCommand, type SlashMatch } from "./slashCommands";
+import { isFastCommand, returnPicks, shownName, type SlashCommand, type SlashMatch } from "./slashCommands";
+import { useOutcomeHints } from "./composerOutcomeHintsModel";
 import {
   SLASH_MAX_VIEWPORT_PX,
   SLASH_ROW_PX,
@@ -27,6 +28,7 @@ import {
  */
 export function SlashMenu({
   matches,
+  query,
   active,
   empty,
   fast,
@@ -34,6 +36,8 @@ export function SlashMenu({
   onPick,
 }: {
   matches: SlashMatch[];
+  /** The typed word without `/`, shared with the composer's Return handler. */
+  query: string;
   active: number;
   empty: string;
   /// The chat's fast mode, which the /fast row's sentence follows (undefined: not reported).
@@ -42,6 +46,7 @@ export function SlashMenu({
   onPick(command: SlashCommand): void;
 }) {
   const t = useT();
+  const showOutcomeHints = useOutcomeHints().rows;
   const list = useRef<HTMLDivElement>(null);
   // Above the composer's box, or past the window's edge when the pane has no room there (cx-6k6cg).
   // The list draws out of the box (backdropLayer.tsx): the box is what it stands beside.
@@ -156,6 +161,7 @@ export function SlashMenu({
         // The harness's /fast reads as ChatGPT's Fast row: bolt, name, current mode.
         const fastRow = isFastCommand(match.command);
         const highlighted = index === active;
+        const picks = returnPicks(match, query);
         const fastName = t("picker.tierFast");
         return (
           <>
@@ -192,6 +198,18 @@ export function SlashMenu({
             {describe(match) && (
               <span className="acpmux-slash-description" data-popup-detail>
                 {describe(match)}
+              </span>
+            )}
+            {showOutcomeHints && highlighted && (
+              <span className="acpmux-slash-actions" data-popup-skip>
+                <kbd className="acpmux-slash-keycap">↩</kbd>
+                {t(picks ? "composer.actionInsert" : "newTabPage.row.command")}
+                {!picks && (
+                  <>
+                    <kbd className="acpmux-slash-keycap">⇥</kbd>
+                    {t("composer.actionComplete")}
+                  </>
+                )}
               </span>
             )}
           </>
