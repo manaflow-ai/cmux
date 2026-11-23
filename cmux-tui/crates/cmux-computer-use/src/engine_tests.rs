@@ -1519,6 +1519,38 @@ fn a_batch_step_settles_only_when_its_outcome_is_required() {
     assert_eq!(slept.0.lock().unwrap().first(), Some(&Duration::from_millis(120)));
 }
 
+/// A batch's `settle: "anthropic"` (on the call or a step) keeps the
+/// reference mode's fixed delay on every step, not the default's no wait.
+#[test]
+fn a_batch_step_keeps_an_asked_for_anthropic_settle() {
+    let d = Arc::new(FakeDesktop::standard());
+    let (e, slept) = default_settling_engine(d);
+    let out = e.call(
+        &ctx(Some("b1")),
+        "batch",
+        &json!({"window_id": "1", "settle": "anthropic", "actions": [
+            {"action": "click", "element_id": "e1"},
+            {"action": "press_key", "keys": "Return"}
+        ]}),
+    );
+    assert!(!out.is_error, "{:?}", out.body);
+    let delays =
+        slept.0.lock().unwrap().iter().filter(|d| **d == ANTHROPIC_SCREENSHOT_DELAY).count();
+    // One a step, and the batch's end state keeps the reference delay too.
+    assert_eq!(delays, 3, "{:?}", slept.0.lock().unwrap());
+    slept.0.lock().unwrap().clear();
+    let out = e.call(
+        &ctx(Some("b2")),
+        "batch",
+        &json!({"window_id": "1", "actions": [
+            {"action": "click", "element_id": "e1", "settle": "anthropic"},
+            {"action": "press_key", "keys": "Return"}
+        ]}),
+    );
+    assert!(!out.is_error, "{:?}", out.body);
+    assert_eq!(*slept.0.lock().unwrap(), vec![ANTHROPIC_SCREENSHOT_DELAY]);
+}
+
 /// Before/after for the default acting call, one harness: 50 calls on the
 /// fake desktop with a virtual clock (time moves only when the engine
 /// sleeps), a no-op action (nothing repaints: the old path pays the 1 s

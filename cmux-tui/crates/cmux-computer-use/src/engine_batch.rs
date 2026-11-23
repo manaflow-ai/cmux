@@ -637,13 +637,13 @@ impl Engine {
             let had_pixels = pixel.step.is_some();
             // Only a step whose outcome needs a real settle waits for one: a
             // required confirmed or not_no_effect (read back and compared after
-            // the settle), or a settle asked for (the call's `settle` or the setting).
-            let mode =
-                if require != Require::NoError || self.settle_mode(&step) == SettleMode::Adaptive {
-                    SettleMode::Adaptive
-                } else {
-                    SettleMode::Openai
-                };
+            // the settle); else the mode asked for (the step's or the call's
+            // `settle`, or the setting), so `anthropic` keeps its delay.
+            let mode = if require != Require::NoError {
+                SettleMode::Adaptive
+            } else {
+                self.settle_mode(&step)
+            };
             pixel.before_settle(self);
             let settled = self.attach_state(
                 ctx,
