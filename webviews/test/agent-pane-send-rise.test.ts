@@ -4,7 +4,7 @@
 // aware of another situation, which is that the chat transcript above doesn't quite smoothly account
 // for things." Each variant of the gallery's agent-pane.send-rise turns the pop on, sends with one rise
 // arm (composerStates.css SEND-RISE) and samples every frame. With the pop's rise, the rows above move
-// no more than a line in any frame and come to rest with the bubble; `none` (before) still jumps the
+// no more than 15% of their travel in any frame and come to rest with the bubble; `none` (before) still jumps the
 // whole room in one frame, which shows the probe sees the jump it fixes.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -53,6 +53,7 @@ await requireBrowserLane("agent-pane-send-rise.test.ts", async () => {
 
   /// The chat's line (px) in the mock pane: no frame of a smooth rise moves the rows above more than it.
   const LINE = 24;
+  const STEP = 0.15;
   for (const arm of ["pop", "settle", "quick", "none"])
     for (const shape of ["1-line-idle", "3-lines-idle", "5-lines-idle"]) {
       const variant = `${arm}-${shape}`;
@@ -78,9 +79,12 @@ await requireBrowserLane("agent-pane-send-rise.test.ts", async () => {
             `${variant}: rows above travel ${result.travel}px, largest frame ${result.jump}px, rest ${result.prevRest} ms (bubble ${result.sentRest} ms)`,
           );
           expect(result.travel).toBeGreaterThan(LINE);
-          if (arm === "none") expect(result.jump).toBeGreaterThan(LINE);
+          // A send now takes the sent prompt to the top (#47801), so the rows above travel most of a
+          // viewport: a smooth rise spreads it, at most STEP of it in any frame; `none` moves it whole.
+          const smooth = result.jump <= result.travel * STEP;
+          if (arm === "none") expect(result.jump).toBeGreaterThan(result.travel * 0.5);
           else {
-            expect({ variant, jump: result.jump <= LINE, frames: result.jump <= LINE ? "" : result.frames }).toEqual({
+            expect({ variant, jump: smooth, frames: smooth ? "" : result.frames }).toEqual({
               variant,
               jump: true,
               frames: "",
