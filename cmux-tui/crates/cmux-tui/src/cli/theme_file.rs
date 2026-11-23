@@ -75,12 +75,17 @@ pub(super) enum Request {
 }
 
 /// Whether `file` is a cmux theme file rather than a 16-color scheme: a
-/// JSON object whose keys are all theme file keys or look settings.
+/// JSON object whose keys are all theme file keys or look settings. A VS
+/// Code color theme (`name` and `colors` too, but `colors` holds dotted
+/// keys such as `editor.background`) is a scheme.
 pub(super) fn is_theme_file(file: &Path) -> bool {
     if !file.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("json")) {
         return false;
     }
     let Ok(text) = std::fs::read_to_string(file) else { return false };
+    if is_vscode_colors(&text) {
+        return false;
+    }
     let Ok(Value::Object(members)) = cmux_config::jsonc::parse(&text) else { return false };
     let schema = Schema::embedded();
     !members.is_empty()
@@ -89,6 +94,18 @@ pub(super) fn is_theme_file(file: &Path) -> bool {
                 || schema.row(key).is_some_and(theme_file::is_look)
                 || theme_file::look_rows(schema).any(|row| row.path.first() == Some(key))
         })
+}
+
+/// Whether `text` is a VS Code color theme: its `colors` has a dotted key
+/// (`terminal.ansiRed`), or it has `tokenColors`. A cmux theme file's
+/// `colors` keys are token names (`background`, `0`...`15`).
+fn is_vscode_colors(text: &str) -> bool {
+    let Ok(Value::Object(members)) = cmux_config::jsonc::parse(text) else { return false };
+    members.contains_key("tokenColors")
+        || members
+            .get("colors")
+            .and_then(Value::as_object)
+            .is_some_and(|colors| colors.keys().any(|key| key.contains('.')))
 }
 
 /// A command-line value: JSON when it parses (`true`, `0.8`, `"x"`, `{..}`), else the text.

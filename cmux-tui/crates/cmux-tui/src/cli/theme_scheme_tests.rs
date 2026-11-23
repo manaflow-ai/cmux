@@ -58,3 +58,28 @@ fn a_png_decodes_to_rgb() {
     }
     assert_eq!(decode_png(&bytes).unwrap(), (2, 1, 3, vec![1, 2, 3, 4, 5, 6]));
 }
+
+#[test]
+fn new_takes_a_canvas_and_an_accent() {
+    assert_eq!(
+        parse(&args(&["new", "--canvas", "#1e1e2e", "--accent", "#89b4fa", "--name", "Mine"]))
+            .unwrap(),
+        Request::New {
+            canvas: 0x1e1e2e,
+            accent: 0x89b4fa,
+            name: Some("Mine".into()),
+            format: SchemeFormat::Ghostty,
+            output: None,
+            replace: false,
+        }
+    );
+    assert!(matches!(
+        parse(&args(&["new", "--canvas", "white", "--accent", "#f00", "--format", "vscode"]))
+            .unwrap(),
+        Request::New { canvas: 0xffffff, accent: 0xff0000, format: SchemeFormat::VsCode, .. }
+    ));
+    assert!(parse(&args(&["new", "--canvas", "#1e1e2e"])).is_err(), "new needs --accent");
+    assert!(parse(&args(&["new", "--accent", "#1e1e2e"])).is_err(), "new needs --canvas");
+    assert!(parse(&args(&["new", "--canvas", "#zzz", "--accent", "#fff"])).is_err());
+    assert!(parse(&args(&["import", "x.json", "--canvas", "#000"])).is_err());
+}

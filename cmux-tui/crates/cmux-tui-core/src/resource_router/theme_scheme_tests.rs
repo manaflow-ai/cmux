@@ -58,3 +58,19 @@ fn from_image_gives_a_readable_scheme() {
     })));
     assert!(too_big.is_err());
 }
+
+#[test]
+fn convert_reads_a_vscode_theme_with_comments_and_trailing_commas() {
+    let text = "{\n  // a comment\n  \"name\": \"V\",\n  \"colors\": {\n    \"terminal.background\": \"#101010\",\n    \"terminal.foreground\": \"#e0e0e0\",\n    \"terminal.ansiBlue\": \"#3b8eea\",\n  },\n}\n";
+    let out = convert(&fields(json!({ "text": text, "file": "v-color-theme.json" }))).unwrap();
+    assert_eq!(out["from"], "vscode");
+    assert_eq!(out["scheme"]["background"], "#101010");
+    assert_eq!(out["scheme"]["palette"][4], "#3b8eea");
+    let back =
+        convert(&fields(json!({ "text": BASE16, "file": "t.yaml", "to": "vscode" }))).unwrap();
+    assert_eq!(back["format"], "vscode");
+    assert!(
+        back["text"].as_str().unwrap().contains("\"terminal.ansiBlue\": \"#81a2be\""),
+        "{back}"
+    );
+}

@@ -13,6 +13,13 @@
 //! - **Windows Terminal** scheme JSON (`black` ... `brightWhite`,
 //!   `background`, `foreground`, `cursorColor`, `selectionBackground`), the
 //!   same shape VS Code's `terminal.ansi*` exports reduce to.
+//! - **VS Code** color themes (`*-color-theme.json`): the `colors` map's
+//!   `terminal.ansi*`, `terminal.background`/`foreground` (else
+//!   `editor.*`), `terminalCursor.*`, the selection and `focusBorder` as the
+//!   accent. JSONC as VS Code reads it: comments and trailing commas are
+//!   fine, `#rgba`/`#rrggbbaa` colors are drawn over the background, and an
+//!   ANSI color the theme leaves out is VS Code's own default.
+//!   `tokenColors` (syntax colors) is not a terminal's and is ignored.
 //! - **Ghostty** theme files, the format cmux's theme files are.
 //!
 //! Every color is read as opaque 8-bit sRGB, so a scheme written and read
@@ -54,15 +61,17 @@ pub enum SchemeFormat {
     Iterm2,
     WindowsTerminal,
     Ghostty,
+    VsCode,
 }
 
 impl SchemeFormat {
     /// Every format, in the order `cmux theme` lists them.
-    pub const ALL: [SchemeFormat; 4] = [
+    pub const ALL: [SchemeFormat; 5] = [
         SchemeFormat::Ghostty,
         SchemeFormat::Base16,
         SchemeFormat::Iterm2,
         SchemeFormat::WindowsTerminal,
+        SchemeFormat::VsCode,
     ];
 
     /// The format's name on the CLI and the wire.
@@ -72,6 +81,7 @@ impl SchemeFormat {
             SchemeFormat::Iterm2 => "iterm2",
             SchemeFormat::WindowsTerminal => "windows-terminal",
             SchemeFormat::Ghostty => "ghostty",
+            SchemeFormat::VsCode => "vscode",
         }
     }
 
@@ -84,6 +94,9 @@ impl SchemeFormat {
                 Some(SchemeFormat::WindowsTerminal)
             }
             "ghostty" | "conf" => Some(SchemeFormat::Ghostty),
+            "vscode" | "vs-code" | "code" | "vscode-theme" | "color-theme" => {
+                Some(SchemeFormat::VsCode)
+            }
             _ => None,
         }
     }
@@ -95,26 +108,31 @@ impl SchemeFormat {
             SchemeFormat::Iterm2 => "itermcolors",
             SchemeFormat::WindowsTerminal => "json",
             SchemeFormat::Ghostty => "",
+            SchemeFormat::VsCode => "json",
         }
     }
 
     /// The format of `text`, from `file`'s extension and then the text: an
-    /// XML plist is iTerm2, a JSON object Windows Terminal, `baseXX:` lines
-    /// base16, anything else a Ghostty theme.
+    /// XML plist is iTerm2, a JSON object VS Code when it has a `colors` map
+    /// or `tokenColors` (else Windows Terminal), `baseXX:` lines base16,
+    /// anything else a Ghostty theme.
     pub fn detect(file: &str, text: &str) -> SchemeFormat {
         let extension = file.rsplit_once('.').map(|(_, ext)| ext.to_ascii_lowercase());
+        let json_object = || {
+            if is_vscode_theme(text) { SchemeFormat::VsCode } else { SchemeFormat::WindowsTerminal }
+        };
         match extension.as_deref() {
             Some("yaml" | "yml") => return SchemeFormat::Base16,
             Some("itermcolors") => return SchemeFormat::Iterm2,
-            Some("json") => return SchemeFormat::WindowsTerminal,
+            Some("json" | "jsonc") => return json_object(),
             _ => {}
         }
         let body = text.trim_start_matches('\u{FEFF}').trim_start();
         if body.starts_with("<?xml") || body.starts_with("<plist") || body.starts_with("<!DOCTYPE")
         {
             SchemeFormat::Iterm2
-        } else if body.starts_with('{') {
-            SchemeFormat::WindowsTerminal
+        } else if body.starts_with('{') || body.starts_with("//") || body.starts_with("/*") {
+            json_object()
         } else if text.lines().any(|line| base16_slot(line.trim()).is_some()) {
             SchemeFormat::Base16
         } else {
@@ -183,6 +201,41 @@ const WT_NAMES: [&str; 16] = [
     "brightWhite",
 ];
 
+/// The `colors` keys of ANSI 0...15 in a VS Code color theme.
+const VSCODE_ANSI: [&str; 16] = [
+    "terminal.ansiBlack",
+    "terminal.ansiRed",
+    "terminal.ansiGreen",
+    "terminal.ansiYellow",
+    "terminal.ansiBlue",
+    "terminal.ansiMagenta",
+    "terminal.ansiCyan",
+    "terminal.ansiWhite",
+    "terminal.ansiBrightBlack",
+    "terminal.ansiBrightRed",
+    "terminal.ansiBrightGreen",
+    "terminal.ansiBrightYellow",
+    "terminal.ansiBrightBlue",
+    "terminal.ansiBrightMagenta",
+    "terminal.ansiBrightCyan",
+    "terminal.ansiBrightWhite",
+];
+
+/// VS Code's own ANSI colors (`terminalColorRegistry`), dark themes then
+/// light, for the slots a theme leaves out.
+const VSCODE_DEFAULT_DARK: [u32; 16] = [
+    0x000000, 0xcd3131, 0x0dbc79, 0xe5e510, 0x2472c8, 0xbc3fbc, 0x11a8cd, 0xe5e5e5, 0x666666,
+    0xf14c4c, 0x23d18b, 0xf5f543, 0x3b8eea, 0xd670d6, 0x29b8db, 0xe5e5e5,
+];
+const VSCODE_DEFAULT_LIGHT: [u32; 16] = [
+    0x000000, 0xcd3131, 0x107c10, 0x949800, 0x0451a5, 0xbc05bc, 0x0598bc, 0x555555, 0x666666,
+    0xcd3131, 0x14ce14, 0xb5ba00, 0x0451a5, 0xbc05bc, 0x0598bc, 0xa5a5a5,
+];
+
+/// The chrome accent of a VS Code theme: the first of these it sets.
+const VSCODE_ACCENT_KEYS: [&str; 4] =
+    ["focusBorder", "button.background", "activityBarBadge.background", "textLink.foreground"];
+
 /// Most bytes a scheme file may have (the largest shipped themes are a few KB).
 pub const MAX_SCHEME_BYTES: usize = 256 * 1024;
 
@@ -235,6 +288,7 @@ impl Scheme {
             SchemeFormat::Iterm2 => parse_iterm2(text, file),
             SchemeFormat::WindowsTerminal => parse_windows_terminal(text, file),
             SchemeFormat::Ghostty => parse_ghostty(text, file),
+            SchemeFormat::VsCode => parse_vscode(text, file),
         }
     }
 
@@ -245,6 +299,7 @@ impl Scheme {
             SchemeFormat::Iterm2 => self.to_iterm2(),
             SchemeFormat::WindowsTerminal => self.to_windows_terminal(),
             SchemeFormat::Ghostty => self.to_ghostty(),
+            SchemeFormat::VsCode => self.to_vscode(),
         }
     }
 
@@ -342,6 +397,39 @@ impl Scheme {
         let body: Vec<String> =
             fields.iter().map(|(key, value)| format!("    \"{key}\": {value}")).collect();
         format!("{{\n{}\n}}\n", body.join(",\n"))
+    }
+
+    fn to_vscode(&self) -> String {
+        let dark = self.background.relative_luminance() < self.foreground.relative_luminance();
+        let mut colors: Vec<(String, Rgb)> = Vec::new();
+        let mut color = |key: &str, color: Option<Rgb>| {
+            if let Some(color) = color {
+                colors.push((key.to_owned(), color));
+            }
+        };
+        color("editor.background", Some(self.background));
+        color("editor.foreground", Some(self.foreground));
+        color("terminal.background", Some(self.background));
+        color("terminal.foreground", Some(self.foreground));
+        color("terminalCursor.foreground", self.cursor);
+        color("terminalCursor.background", self.cursor_text);
+        color("editor.selectionBackground", self.selection_background);
+        color("terminal.selectionBackground", self.selection_background);
+        color("terminal.selectionForeground", self.selection_foreground);
+        color("focusBorder", self.accent);
+        for (key, ansi) in VSCODE_ANSI.iter().zip(self.palette) {
+            color(key, Some(ansi));
+        }
+        let body: Vec<String> = colors
+            .iter()
+            .map(|(key, color)| format!("        \"{key}\": \"#{}\"", hex6(*color)))
+            .collect();
+        format!(
+            "{{\n    \"$schema\": \"vscode://schemas/color-theme\",\n    \"name\": {},\n    \"type\": \"{}\",\n    \"colors\": {{\n{}\n    }}\n}}\n",
+            json_string(self.name.as_deref().unwrap_or("Untitled")),
+            if dark { "dark" } else { "light" },
+            body.join(",\n")
+        )
     }
 
     fn to_iterm2(&self) -> String {
@@ -565,14 +653,99 @@ fn line_of_key(text: &str, key: &str) -> usize {
     text.find(&quoted).map_or(1, |at| line_of(text, at))
 }
 
-fn parse_windows_terminal(text: &str, file: &str) -> Result<Scheme, SchemeError> {
-    let doc = json::parse(text).map_err(|message| {
+/// JSONC as plain JSON of the same length: `//` and `/* */` comments and
+/// trailing commas (before `}` or `]`) become spaces, newlines are kept, so
+/// byte offsets and lines still point into the file. Strings are untouched.
+pub(crate) fn strip_jsonc(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut out = bytes.to_vec();
+    let blank = |out: &mut Vec<u8>, at: usize| {
+        if let Some(b) = out.get_mut(at)
+            && *b != b'\n'
+        {
+            *b = b' ';
+        }
+    };
+    // Comments.
+    let (mut i, mut in_string) = (0usize, false);
+    while let Some(&b) = bytes.get(i) {
+        if in_string {
+            match b {
+                b'\\' => i = i.saturating_add(1),
+                b'"' => in_string = false,
+                _ => {}
+            }
+            i = i.saturating_add(1);
+            continue;
+        }
+        match (b, bytes.get(i.saturating_add(1))) {
+            (b'"', _) => in_string = true,
+            (b'/', Some(b'/')) => {
+                while bytes.get(i).is_some_and(|b| *b != b'\n') {
+                    blank(&mut out, i);
+                    i = i.saturating_add(1);
+                }
+                continue;
+            }
+            (b'/', Some(b'*')) => {
+                blank(&mut out, i);
+                blank(&mut out, i.saturating_add(1));
+                i = i.saturating_add(2);
+                while i < bytes.len() && !bytes.get(i..).is_some_and(|r| r.starts_with(b"*/")) {
+                    blank(&mut out, i);
+                    i = i.saturating_add(1);
+                }
+                blank(&mut out, i);
+                blank(&mut out, i.saturating_add(1));
+                i = i.saturating_add(2);
+                continue;
+            }
+            _ => {}
+        }
+        i = i.saturating_add(1);
+    }
+    // Trailing commas, on the comment-free text.
+    let (mut i, mut in_string) = (0usize, false);
+    let mut pending_comma: Option<usize> = None;
+    while let Some(&b) = out.get(i) {
+        if in_string {
+            match b {
+                b'\\' => i = i.saturating_add(1),
+                b'"' => in_string = false,
+                _ => {}
+            }
+        } else if !b.is_ascii_whitespace() {
+            if let Some(comma) = pending_comma.take()
+                && (b == b'}' || b == b']')
+            {
+                blank(&mut out, comma);
+            }
+            match b {
+                b'"' => in_string = true,
+                b',' => pending_comma = Some(i),
+                _ => {}
+            }
+        }
+        i = i.saturating_add(1);
+    }
+    // Only ASCII bytes were replaced, and only whole comments (which start
+    // and end on ASCII), so the text is still UTF-8.
+    String::from_utf8(out).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned())
+}
+
+/// `text` (JSONC) as JSON, an error naming the line it stops on.
+fn parse_json(text: &str, file: &str) -> Result<json::Value, SchemeError> {
+    json::parse(&strip_jsonc(text)).map_err(|message| {
         let at = message
             .rsplit_once("at byte ")
             .and_then(|(_, n)| n.trim().parse::<usize>().ok())
             .unwrap_or(0);
         error(file, line_of(text, at), message)
-    })?;
+    })
+}
+
+fn parse_windows_terminal(text: &str, file: &str) -> Result<Scheme, SchemeError> {
+    let doc = parse_json(text, file)?;
     // A `schemes` array (a whole settings.json) gives its first scheme.
     let scheme = match doc.get("schemes") {
         Some(json::Value::Array(items)) => items.first().cloned().unwrap_or(json::Value::Null),
@@ -610,6 +783,138 @@ fn parse_windows_terminal(text: &str, file: &str) -> Result<Scheme, SchemeError>
         selection_foreground: None,
         palette,
         accent: None,
+        base16: None,
+    })
+}
+
+// MARK: VS Code
+
+/// Whether `text` is a VS Code color theme: a JSON(C) object with a
+/// `colors` object, `tokenColors`, or the color-theme `$schema`.
+pub fn is_vscode_theme(text: &str) -> bool {
+    if text.len() > MAX_SCHEME_BYTES {
+        return false;
+    }
+    let Ok(doc) = json::parse(&strip_jsonc(text.trim_start_matches('\u{FEFF}'))) else {
+        return false;
+    };
+    matches!(doc.get("colors"), Some(json::Value::Object(_)))
+        || doc.get("tokenColors").is_some()
+        || doc
+            .get("$schema")
+            .and_then(json::Value::as_str)
+            .is_some_and(|schema| schema.starts_with("vscode://schemas/color-theme"))
+}
+
+/// A VS Code color: `#rgb`, `#rgba`, `#rrggbb` or `#rrggbbaa`, with its alpha (0...1).
+fn vscode_color(value: &str) -> Option<(Rgb, f64)> {
+    let digits = value.trim().strip_prefix('#')?;
+    if !digits.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    let n = u32::from_str_radix(digits, 16).ok()?;
+    let short = |v: u32| (v & 0xf) * 17;
+    let (rgb, alpha) = match digits.len() {
+        3 => ((short(n >> 8) << 16) | (short(n >> 4) << 8) | short(n), 255),
+        4 => ((short(n >> 12) << 16) | (short(n >> 8) << 8) | short(n >> 4), short(n)),
+        6 => (n, 255),
+        8 => (n >> 8, n & 0xff),
+        _ => return None,
+    };
+    Some((Rgb::hex(rgb), f64::from(alpha) / 255.0))
+}
+
+fn parse_vscode(text: &str, file: &str) -> Result<Scheme, SchemeError> {
+    let doc = parse_json(text, file)?;
+    if !matches!(doc, json::Value::Object(_)) {
+        return Err(error(file, 1, "not a JSON object"));
+    }
+    let Some(colors @ json::Value::Object(_)) = doc.get("colors") else {
+        let why = if doc.get("include").is_some() {
+            "no \"colors\" map (this theme only includes another file; import that one)"
+        } else {
+            "no \"colors\" map (a VS Code color theme's terminal and editor colors)"
+        };
+        return Err(error(file, 1, why));
+    };
+    // Each color with its alpha; a malformed one is an error on its line.
+    let raw = |key: &str| -> Result<Option<(Rgb, f64)>, SchemeError> {
+        match colors.get(key) {
+            None | Some(json::Value::Null) => Ok(None),
+            Some(json::Value::String(s)) => vscode_color(s).map(Some).ok_or_else(|| {
+                error(file, line_of_key(text, key), format!("{key} is not a #rrggbb color: {s:?}"))
+            }),
+            Some(_) => Err(error(file, line_of_key(text, key), format!("{key} is not a string"))),
+        }
+    };
+    let first = |keys: &[&str]| -> Result<Option<(Rgb, f64)>, SchemeError> {
+        for key in keys {
+            if let Some(found) = raw(key)? {
+                return Ok(Some(found));
+            }
+        }
+        Ok(None)
+    };
+    let background_raw = first(&["terminal.background", "editor.background"])?;
+    let foreground_raw = first(&["terminal.foreground", "editor.foreground", "foreground"])?;
+    let any_ansi = VSCODE_ANSI.iter().any(|key| colors.get(key).is_some());
+    if background_raw.is_none() && foreground_raw.is_none() && !any_ansi {
+        return Err(error(
+            file,
+            line_of_key(text, "colors"),
+            "no terminal or editor colors (terminal.background, editor.background, terminal.ansi*)",
+        ));
+    }
+    // `type` (dark, light, hcDark, hcLight), else the background decides.
+    let kind = doc.get("type").and_then(json::Value::as_str).unwrap_or("");
+    let dark = match kind {
+        "light" | "vs" | "hcLight" | "hc-light" => false,
+        "dark" | "vs-dark" | "hc" | "hcDark" | "hc-black" => true,
+        _ => background_raw.is_none_or(|(c, _)| c.relative_luminance() < 0.18),
+    };
+    let opaque = |found: Option<(Rgb, f64)>, under: Rgb| {
+        found.map(|(color, alpha)| quantized(color.with_alpha(alpha).composited(under)))
+    };
+    let base = if dark { Rgb::hex(0x1e1e1e) } else { Rgb::WHITE };
+    let background = opaque(background_raw, base).unwrap_or(base);
+    let foreground = opaque(foreground_raw, background)
+        .unwrap_or_else(|| Rgb::hex(if dark { 0xcccccc } else { 0x333333 }));
+    let defaults = if dark { VSCODE_DEFAULT_DARK } else { VSCODE_DEFAULT_LIGHT };
+    let mut palette = [Rgb::BLACK; 16];
+    for ((slot, key), fallback) in palette.iter_mut().zip(VSCODE_ANSI).zip(defaults) {
+        *slot = opaque(raw(key)?, background).unwrap_or_else(|| Rgb::hex(fallback));
+    }
+    let mut accent = None;
+    for key in VSCODE_ACCENT_KEYS {
+        // A fully transparent color (a theme hiding the border) is no accent.
+        if let Some(found) = raw(key)?.filter(|(_, alpha)| *alpha > 0.0) {
+            accent = opaque(Some(found), background);
+            break;
+        }
+    }
+    Ok(Scheme {
+        name: doc.get("name").and_then(json::Value::as_str).map(str::to_owned),
+        author: doc.get("author").and_then(json::Value::as_str).map(str::to_owned),
+        background,
+        foreground,
+        cursor: opaque(
+            first(&["terminalCursor.foreground", "editorCursor.foreground"])?,
+            background,
+        ),
+        cursor_text: opaque(
+            first(&["terminalCursor.background", "editorCursor.background"])?,
+            background,
+        ),
+        selection_background: opaque(
+            first(&["terminal.selectionBackground", "editor.selectionBackground"])?,
+            background,
+        ),
+        selection_foreground: opaque(
+            first(&["terminal.selectionForeground", "editor.selectionForeground"])?,
+            background,
+        ),
+        palette,
+        accent,
         base16: None,
     })
 }
