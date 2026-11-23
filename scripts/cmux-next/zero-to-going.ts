@@ -13,6 +13,7 @@
  *
  *   bun scripts/cmux-next/zero-to-going.ts --documented                    # the counted steps only, no network
  *   bun scripts/cmux-next/zero-to-going.ts --backend staging --out DIR      # counted, and the Cloud part timed
+ *   bun scripts/cmux-next/zero-to-going.ts --backend staging --model real   # the reply from a real Claude login
  *   bun scripts/cmux-next/zero-to-going.ts --backend staging --cleanup-tag zg-…  # a workflow's always() step
  *
  * A step is one of the kinds vm-hassle.ts counts: a command (typed by the person, or by the agent or Chief working
@@ -32,15 +33,38 @@
  * counted, not timed, and says so. The level's seconds are the sum of its timed steps, so they are the Cloud part
  * only, without a person's think time; the table says which steps are not in it.
  *
+ * The model: a fresh account's machine has no model route until the person connects Claude for Cloud by hand. The
+ * harness does that step for them (the login as the agent's launch credential, as the app gives it), and every row
+ * names which model replied: `stubbed model` (the default, the Cloud journey's stub on the machine, so the time is
+ * the Cloud part without model latency) or a real Claude login with --model real (CLAUDE_CODE_OAUTH_TOKEN).
+ *
  * Output: lines on stdout, and with --out DIR, zero-to-going.json ({meta, rows, steps, levels}) and summary.md (the
  * table and each level's steps). The machine this run made is deleted at the end, pass, fail or SIGTERM, by its
  * id; --cleanup-tag TAG deletes what a killed run with that tag left (machines named `zero to going auto TAG`).
  */
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Api, type Exec, STACK, directExec, http, listAllMachines, passwordSignIn, readEnvFile, resolveBackend, runPreclaimChat, scrub, sleep, waitMachine } from "./cloud-journey.ts";
+import {
+  Api,
+  type Exec,
+  JOURNEY_STUB_SCRIPT,
+  MODEL_STUB_PY,
+  STACK,
+  directExec,
+  failedTurnWhy,
+  http,
+  launchCredentialStartProgram,
+  listAllMachines,
+  passwordSignIn,
+  readEnvFile,
+  resolveBackend,
+  scrub,
+  sleep,
+  validLogin,
+  waitMachine,
+} from "./cloud-journey.ts";
 import type { StepKind } from "./vm-hassle.ts";
 
 export type Level = "agent" | "app" | "cli" | "chief" | "phone";
@@ -242,15 +266,50 @@ const MACHINE_SIZE = { cpu: 2, memory_mb: 4096, disk_mb: 16384 };
 export const PROMPT = "Say hello in one sentence.";
 export const SECOND_PROMPT = "Say it once more, shorter.";
 const REPLY_BUDGET_MS = 180_000;
+const GUEST = 'export HOME="${HOME:-/home/cmux}"; cd "$HOME" 2>/dev/null || cd /; c=cmux-tui; [ -x "$HOME/.cmux/bin/cmux-tui" ] && c="$HOME/.cmux/bin/cmux-tui"; ';
+const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+const STUB_DIR = "/home/cmux/.cmux";
+const STUB_LOG = `${STUB_DIR}/zero-to-going-model-stub.log`;
 
-type Ctx = { api: Api; tag: string; secrets: string[]; name: string; machine: string | null; exec: Exec | null };
+/**
+ * Where the first reply's model comes from. A fresh account's Cloud machine has no model route of its own: the
+ * person connects Claude for Cloud first (the refusal "This Cloud machine's Claude has no model route", run
+ * 45087298817), and the app then gives that login to the chat's agent when it starts (cmux#40159). The harness
+ * does that hand step for the person, the Cloud journey's way (launchCredentialStartProgram):
+ *   stub  the Cloud journey's model stub on the machine (`--model stub`, cloud-journey-pr.yml) and a made-up
+ *         setup-token shape as the login. The time is the Cloud part without model latency. The default.
+ *   real  CLAUDE_CODE_OAUTH_TOKEN (a `claude setup-token` login), as cloud-journey-prod.yml passes it.
+ */
+export type ModelRoute = "stub" | "real";
+export const MODEL_LABEL: Record<ModelRoute, string> = {
+  stub: "stubbed model",
+  real: "real Claude login, delivered by the harness (a newcomer connects it by hand first)",
+};
 
-async function timeOp(ops: OpTiming["ops"], timings: OpTiming[], log: (s: string) => void, secrets: string[], run: () => Promise<string>): Promise<boolean> {
+type Ctx = {
+  api: Api;
+  tag: string;
+  secrets: string[];
+  name: string;
+  machine: string | null;
+  exec: Exec | null;
+  model: ModelRoute;
+  login: string;
+  nonce: string;
+  session: string;
+};
+
+/** A timed route's answer: what it saw, and harness-only time (the stub's own start) left out of its ms. */
+type OpResult = { detail: string; harnessMs?: number };
+
+async function timeOp(ops: OpTiming["ops"], timings: OpTiming[], log: (s: string) => void, secrets: string[], run: () => Promise<OpResult>): Promise<boolean> {
   const t0 = Date.now();
   try {
-    const detail = scrub(await run(), secrets);
-    timings.push({ ops, ms: Date.now() - t0, status: "pass", detail });
-    log(`pass ${ops} ${Date.now() - t0} ms :: ${detail}`);
+    const r = await run();
+    const ms = Date.now() - t0 - (r.harnessMs ?? 0);
+    const detail = scrub(r.detail, secrets);
+    timings.push({ ops, ms, status: "pass", detail });
+    log(`pass ${ops} ${ms} ms :: ${detail}`);
     return true;
   } catch (e) {
     const detail = scrub(String((e as Error).message ?? e), secrets).slice(0, 600);
@@ -260,8 +319,58 @@ async function timeOp(ops: OpTiming["ops"], timings: OpTiming[], log: (s: string
   }
 }
 
-/** `cmux chat --on vm ... --wait`: a machine, running with a first exec, a Claude agent session there, the first reply. */
-async function chatOp(ctx: Ctx): Promise<string> {
+/** The Cloud journey's model stub on the machine's loopback, with Claude Code's settings pointed at it. */
+async function startStub(ctx: Ctx): Promise<string> {
+  const file = `${STUB_DIR}/zero-to-going-model-stub.py`;
+  const script = `${STUB_DIR}/zero-to-going-model-stub.json`;
+  const ready = `${STUB_DIR}/zero-to-going-model-stub.ready`;
+  for (const [p, data] of [[file, readFileSync(MODEL_STUB_PY)], [script, Buffer.from(JSON.stringify(JOURNEY_STUB_SCRIPT))]] as const) {
+    const w = await ctx.api.raw("POST", `/v1/cloud/machines/${ctx.machine}/fs/write`, { path: p, dataBase64: data.toString("base64"), mode: 0o644 });
+    if (w.status < 200 || w.status >= 300 || w.body?.ok === false) throw new Error(`fs/write ${p}: HTTP ${w.status} ${String(w.body?.error?.code ?? "").slice(0, 80)}`);
+  }
+  const r = await ctx.exec!(
+    `mkdir -p ${STUB_DIR}; rm -f ${shq(STUB_LOG)} ${shq(ready)}; (nohup python3 ${shq(file)} --port 0 --script ${shq(script)} --nonce ${shq(ctx.nonce)} --log ${shq(STUB_LOG)} --ready-file ${shq(ready)} >${shq(STUB_LOG)}.out 2>&1 &); ` +
+      `for i in $(seq 50); do [ -s ${shq(ready)} ] && break; sleep 0.2; done; ` +
+      `port=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' ${shq(ready)} 2>/dev/null); ` +
+      `[ -n "$port" ] && curl -fsS -m 2 "http://127.0.0.1:$port/__stub/info" | grep -q ${shq(ctx.nonce)} || { echo stub-down; tail -5 ${shq(STUB_LOG)}.out; exit 1; }; ` +
+      `echo "@@port $port"; python3 - "$port" <<'PY'\nimport json, pathlib, sys\np = pathlib.Path('/home/cmux/.claude/settings.json')\np.parent.mkdir(parents=True, exist_ok=True)\nc = json.loads(p.read_text()) if p.exists() else {}\nc.setdefault('env', {})['ANTHROPIC_BASE_URL'] = 'http://127.0.0.1:' + sys.argv[1]\np.write_text(json.dumps(c))\nprint('stub-ready')\nPY`,
+    60_000,
+  );
+  if (!r.stdout.includes("stub-ready")) throw new Error(`model stub: exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
+  return /@@port (\d+)/.exec(r.stdout)?.[1] ?? "?";
+}
+
+/** One turn's reply: the session's last message once `acp wait` says the turn ended. */
+async function awaitReply(ctx: Ctx): Promise<string> {
+  const t0 = Date.now();
+  let last = "";
+  while (Date.now() - t0 < REPLY_BUDGET_MS) {
+    const r = await ctx.exec!(`${GUEST}"$c" acp wait ${shq(ctx.session)} --timeout 20 >/dev/null 2>&1; echo "@@wait $?"; "$c" acp last ${shq(ctx.session)} 2>&1`, 45_000);
+    const wait = /@@wait (\d+)/.exec(r.stdout)?.[1];
+    last = r.stdout.replace(/@@wait \d+\n?/, "").trim();
+    if (wait === "0" && last) return last;
+    if (wait && wait !== "0" && wait !== "3") throw new Error(`acp wait exit ${wait}: ${await failedTurnWhy(ctx.exec!, ctx.session, last)}`);
+  }
+  throw new Error(`no reply within ${REPLY_BUDGET_MS / 1000} s; last: ${last.slice(-200)}`);
+}
+
+async function send(ctx: Ctx, text: string): Promise<void> {
+  const r = await ctx.exec!(`${GUEST}printf '%s' ${shq(text)} | "$c" acp send --no-wait ${shq(ctx.session)} - 2>&1; echo "@@exit $?"`, 60_000);
+  if (!/@@exit 0/.test(r.stdout)) throw new Error(`send refused: ${(r.stdout || r.stderr).slice(-300)}`);
+}
+
+/** With the stub, the reply must carry its nonce: the stub answered, not some other model. */
+function checkStubReply(ctx: Ctx, last: string, tool: boolean): void {
+  if (ctx.model !== "stub") return;
+  const want = tool ? `Stub reply ${ctx.nonce}. The tool printed ${ctx.nonce}-tool` : `Stub reply ${ctx.nonce}.`;
+  if (!last.includes(want)) throw new Error(`the reply does not carry the stub's nonce: ${last.slice(-200)}`);
+}
+
+/**
+ * `cmux chat --on vm ... --wait`: a machine, running with a first exec, a Claude agent session there with the
+ * person's model connection as its launch credential, the first reply. The stub's own start is harness time, left out.
+ */
+async function chatOp(ctx: Ctx): Promise<OpResult> {
   const t0 = Date.now();
   const v = await ctx.api.op("cloud.machine.create", { name: ctx.name, size: MACHINE_SIZE }, `${ctx.tag}-create-${randomUUID().slice(0, 8)}`);
   ctx.machine = String(v.machine.id);
@@ -281,17 +390,54 @@ async function chatOp(ctx: Ctx): Promise<string> {
   }
   if (!execOk) throw new Error(`running on ${m.host} but no exec within 120 s: ${lastError}`);
   const execMs = Date.now() - t0;
-  const chat = await runPreclaimChat(ctx.exec, `zg-${ctx.tag}`, PROMPT, REPLY_BUDGET_MS);
-  if (chat.replyMs === null) throw new Error(`no first reply (${chat.replyNotJudged}); running ${runningMs} ms, exec ${execMs} ms, agent start ${chat.chatMs} ms`);
-  return `${ctx.machine}: running ${runningMs} ms, first exec ${execMs} ms, agent start ${chat.chatMs} ms, first reply ${chat.replyMs} ms after the send`;
+  let harnessMs = 0;
+  let stubNote = "";
+  if (ctx.model === "stub") {
+    const s0 = Date.now();
+    const port = await startStub(ctx);
+    harnessMs = Date.now() - s0;
+    stubNote = `; the stub's start (${harnessMs} ms, 127.0.0.1:${port}) is harness time, left out`;
+  }
+  const a0 = Date.now();
+  const started = await ctx.exec(`${GUEST}${launchCredentialStartProgram(ctx.session, "claude", "CLAUDE_CODE_OAUTH_TOKEN", ctx.login)}`, 120_000);
+  if (started.code !== 0 || !/@@session \S+/.test(started.stdout)) throw new Error(`agent start refused: ${scrub(started.stdout.slice(-300) || started.stderr.slice(-300), [ctx.login])}`);
+  const agentMs = Date.now() - a0;
+  const s1 = Date.now();
+  await send(ctx, PROMPT);
+  const last = await awaitReply(ctx);
+  checkStubReply(ctx, last, true);
+  const replyMs = Date.now() - s1;
+  return {
+    detail: `${ctx.machine}: running ${runningMs} ms, first exec ${execMs} ms, agent start ${agentMs} ms, first reply ${replyMs} ms after the send (${MODEL_LABEL[ctx.model]})${stubNote}: ${last.slice(0, 100)}`,
+    harnessMs,
+  };
 }
 
-/** `cmux chat send SESSION_ID '...' --wait` on the same session. */
-async function sendOp(ctx: Ctx): Promise<string> {
+/**
+ * `cmux chat send SESSION_ID '...' --wait` on the same session. `send --no-wait` returns once the prompt is queued,
+ * so `acp wait` right after it can still read the session idle with the first turn's reply: the turn's prompt carries
+ * a marker, and its reply is read only once `acp history` lists it (the Cloud journey's laterTurn).
+ */
+async function sendOp(ctx: Ctx): Promise<OpResult> {
   if (!ctx.exec) throw new Error("no machine (the chat step did not run)");
-  const chat = await runPreclaimChat(ctx.exec, `zg-${ctx.tag}`, SECOND_PROMPT, REPLY_BUDGET_MS);
-  if (chat.replyMs === null) throw new Error(`no reply (${chat.replyNotJudged})`);
-  return `reply ${chat.replyMs} ms after the send`;
+  const marker = `[zg ${ctx.tag}-2]`;
+  const t0 = Date.now();
+  await send(ctx, `${marker} ${SECOND_PROMPT}`);
+  for (;;) {
+    if (Date.now() - t0 > REPLY_BUDGET_MS) throw new Error(`the turn's prompt did not reach the session within ${REPLY_BUDGET_MS / 1000} s`);
+    const r = await ctx.exec(`${GUEST}"$c" acp --json history ${shq(ctx.session)} --limit 5 2>&1`, 45_000);
+    let listed: any[] = [];
+    try {
+      listed = JSON.parse(r.stdout.slice(r.stdout.indexOf("{"))).turns ?? [];
+    } catch {
+      /* not yet readable */
+    }
+    if (listed.some((t: any) => typeof t?.prompt === "string" && t.prompt.startsWith(marker))) break;
+    await sleep(1000);
+  }
+  const last = await awaitReply(ctx);
+  checkStubReply(ctx, last, false);
+  return { detail: `reply ${Date.now() - t0} ms after the send (${MODEL_LABEL[ctx.model]}): ${last.slice(0, 100)}` };
 }
 
 async function cleanupMachine(ctx: Ctx, log: (s: string) => void): Promise<string[]> {
@@ -328,7 +474,7 @@ function argValue(flag: string, argv: string[]): string | undefined {
 }
 
 function write(outDir: string | null, timings: OpTiming[] | null, meta: Record<string, string>): string {
-  const rows = rowsFor(timings, meta.backend ?? null);
+  const rows = rowsFor(timings, meta.backend ? `${meta.backend}, ${meta.model}` : null);
   const md = [
     `## Zero to going${meta.backend ? ` on \`${meta.backend}\`` : " (counted from the Start page)"}`,
     "",
@@ -336,7 +482,7 @@ function write(outDir: string | null, timings: OpTiming[] | null, meta: Record<s
     "",
     summaryTable(rows, timings),
     "",
-    `steps: every step of the level as the Start page gives it (${START_PAGE}), the conditional ones included. by the person: the steps only the person can do or that the person types; the rest the agent or Chief runs. fewest steps: the app installed and running, already signed in, nothing refused. Cloud part: the level's timed steps (sign-in, then the routes behind \`cmux chat --on vm ... --wait\`, then Chief's second turn) on the backend as the agent test account, without a person's think time; never the Mac or phone steps.`,
+    `steps: every step of the level as the Start page gives it (${START_PAGE}), the conditional ones included. by the person: the steps only the person can do or that the person types; the rest the agent or Chief runs. fewest steps: the app installed and running, already signed in, nothing refused. Cloud part: the level's timed steps (sign-in, then the routes behind \`cmux chat --on vm ... --wait\`, then Chief's second turn) on the backend as the agent test account, without a person's think time; never the Mac or phone steps. source names the model that replied: with the stubbed model the time has no model latency; either way the harness gave the agent its Claude login, a step a fresh account does by hand first (connect Claude for Cloud).`,
     "",
     "<details><summary>The steps of each level</summary>",
     "",
@@ -386,11 +532,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
 
   const tag = argValue("--tag", argv) ?? `zg-${Date.now().toString(36)}`;
+  // --model real needs a `claude setup-token` login; the default is the stub, which every PR run can reach.
+  const model: ModelRoute = argValue("--model", argv) === "real" ? "real" : "stub";
+  const login = model === "stub" ? `sk-ant-oat01-zerotogoingstub-${randomBytes(24).toString("hex")}` : (process.env.CLAUDE_CODE_OAUTH_TOKEN ?? creds.CLAUDE_CODE_OAUTH_TOKEN ?? "").trim();
+  if (model === "real" && !validLogin("claude", login)) throw new Error("--model real: CLAUDE_CODE_OAUTH_TOKEN is not a `claude setup-token` login");
+  secrets.push(login);
   const health = await http("GET", `${backend.api}/v1/health`, undefined, {}).catch(() => null);
-  const meta = { backend: backend.name, api: backend.api, tag, commit: String(health?.body?.commit ?? health?.body?.version ?? "?"), team: team ?? "(personal)" };
-  log(`zero to going on ${backend.name} (${backend.api}), tag ${tag}`);
+  const meta = { backend: backend.name, api: backend.api, tag, commit: String(health?.body?.commit ?? health?.body?.version ?? "?"), team: team ?? "(personal)", model: MODEL_LABEL[model] };
+  log(`zero to going on ${backend.name} (${backend.api}), tag ${tag}, ${MODEL_LABEL[model]}`);
   const timings: OpTiming[] = [];
-  const ctx: Ctx = { api, tag, secrets, name: `zero to going auto ${tag}`, machine: null, exec: null };
+  const ctx: Ctx = { api, tag, secrets, name: `zero to going auto ${tag}`, machine: null, exec: null, model, login, nonce: randomBytes(6).toString("hex"), session: `zg-${tag}` };
   let cleaned: Promise<string[]> | null = null;
   const cleanup = () => (cleaned ??= cleanupMachine(ctx, log));
   const onSignal = (signal: string) => {
@@ -409,7 +560,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       secrets.push(signed.access, signed.refresh);
       api.bearer = signed.access;
       await api.op("user.ensure", {}, `${tag}-ensure-${randomUUID().slice(0, 8)}`);
-      return "password sign-in (the stand-in for the browser sign-in) and user.ensure";
+      return { detail: "password sign-in (the stand-in for the browser sign-in) and user.ensure" };
     });
     if (signedIn && (await timeOp("chat", timings, log, secrets, () => chatOp(ctx)))) await timeOp("send", timings, log, secrets, () => sendOp(ctx));
   } finally {
