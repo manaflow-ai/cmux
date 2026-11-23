@@ -160,8 +160,9 @@ extension AgentTabStore {
         let located = if let paneKey { locatePaneScoped(resolvedKey(scoped), paneKey) } else { locateScoped(resolvedKey(scoped)) }
         guard let (pane, daemon) = located else { return false }
         let inSplit = split ? SplitDirection(splitFirst: direction, served: daemon.supports(DaemonCapability.conversationTabSplit.rawValue)) : nil
-        guard let pending = try? open(pane, daemon, inSplit) else { return false }
-        if inSplit != nil { return openInSplit(pending, beside: resolvedKey(scoped), origin: origin, created: created, finished: finished) }
+        let sizing = inSplit.flatMap { holdSplitSizing(pane, daemon, $0) } // its chain's even sizing in this frame, as Cmd-D's: never a half that moves again
+        guard let pending = try? open(pane, daemon, inSplit) else { sizing?(false); return false }
+        if inSplit != nil { return openInSplit(pending, beside: resolvedKey(scoped), origin: origin, sizing: sizing, created: created, finished: finished) }
         guard split || created != nil else { return true }
         if !split, paneKey != nil || origin == .user { selectInPaneScoped(AgentTabKey(machine: daemon.machineID, key: pending.key)); if origin == .user { _ = showSplitScoped(resolvedKey(scoped), pending.key, true) } }
         // task-owner: one tab creation, then one move (or, not `split`, one focus) of that tab
@@ -175,11 +176,12 @@ extension AgentTabStore {
     }
 
     /// `pending`'s tab in its new split, shown in this turn (``showSplit``) as a link's is; the turn ends once the store lists it, with no move.
-    private func openInSplit(_ pending: AgentTabPending, beside chat: AgentTabKey, origin: ActionOrigin, created: (@MainActor (String) -> Void)?,
-                             finished: (@MainActor (_ moved: Bool) -> Void)?) -> Bool {
+    private func openInSplit(_ pending: AgentTabPending, beside chat: AgentTabKey, origin: ActionOrigin, sizing: (@MainActor (Bool) -> Void)? = nil,
+                             created: (@MainActor (String) -> Void)?, finished: (@MainActor (_ moved: Bool) -> Void)?) -> Bool {
         let landed = showSplitScoped(chat, pending.key, origin == .user) // an unfocused (script) open leaves focus where it is
         Task { [weak self] in // task-owner: one tab creation in its split
-            guard let tab = try? await pending.value(), let self, await TabMirror.reaches(tab.key, in: { self.locateScoped(AgentTabKey(machine: chat.machine, key: $0)) }) else { finished?(false); return }
+            let tab = try? await pending.value(); sizing?(tab != nil) // the store made the split (or refused it): its sizing is sent (or dropped)
+            guard let tab, let self, await TabMirror.reaches(tab.key, in: { self.locateScoped(AgentTabKey(machine: chat.machine, key: $0)) }) else { finished?(false); return }
             landed(tab.surface)
             created?(tab.key)
             finished?(true)

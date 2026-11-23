@@ -76,14 +76,23 @@ fn eligible(opts: &PromptOptions, blocks: &[Value]) -> Option<String> {
 }
 
 impl Hub {
-    /// Store a triage pass together with its current number of actionable topics.
+    /// Store a triage record together with its current number of actionable topics. The held
+    /// messages it decides (its `items`: digested, owner-bound or dropped as noise or a repeat)
+    /// are held no longer, so the row's held count goes down by them.
     pub(crate) fn persist_surge_triage(
         &self,
         session: &Session,
         batch: Value,
         actionable_topics: u64,
     ) -> Result<(), RpcError> {
-        self.persist_surge_event(session, "inbox_triaged", batch, Some(actionable_topics))
+        let released =
+            u64::try_from(crate::surge_triage::triaged_ids(&batch).count()).unwrap_or(u64::MAX);
+        self.persist_surge_event(
+            session,
+            "inbox_triaged",
+            batch,
+            Some((actionable_topics, released)),
+        )
     }
 
     fn persist_surge_event(
@@ -91,13 +100,16 @@ impl Hub {
         session: &Session,
         kind: &str,
         mut msg: Value,
-        actionable_topics: Option<u64>,
+        triaged: Option<(u64, u64)>,
     ) -> Result<(), RpcError> {
         let state = session.inbox().surge_counts.clone();
         let mut counts = state.lock().unwrap_or_else(|e| e.into_inner());
         let mut next = *counts;
-        match actionable_topics {
-            Some(n) => next.need_you = n,
+        match triaged {
+            Some((topics, released)) => {
+                next.need_you = topics;
+                next.held = next.held.saturating_sub(released);
+            }
             None => next.held = next.held.saturating_add(1),
         }
         crate::surge_triage::set_key(&mut msg, "surge", next.json());
@@ -142,6 +154,65 @@ impl Hub {
         Ok(json!({"sessionId":session.id,"hits":hits,"next":next}))
     }
 
+    /// `_acpmux/inbox_thread` whole: [`Self::inbox_thread`], plus the thread's surge-held
+    /// messages that left memory (`trim` lets them go first) read back from the log. The surge
+    /// notice links to `acpmux session inbox ID --thread T`; without this, a busy chat's link
+    /// answered "no messages" while only `--search` found them (2026-11-23).
+    pub(crate) fn inbox_thread_whole(
+        &self,
+        session: &Session,
+        thread: &str,
+        mark_read: bool,
+    ) -> Result<Value, RpcError> {
+        let mut reply = self.inbox_thread(session, thread, mark_read);
+        if !session.inbox().held_evicted.contains(thread) {
+            return Ok(reply);
+        }
+        let mut messages = match reply.get_mut("messages").map(Value::take) {
+            Some(Value::Array(list)) => list,
+            _ => Vec::new(),
+        };
+        let shown: std::collections::HashSet<String> =
+            messages.iter().filter_map(|m| m["promptId"].as_str().map(str::to_owned)).collect();
+        self.scan_for_rebuild(session, &["inbox"], &mut |record| {
+            let msg = &record.msg;
+            let id = msg["promptId"].as_str().unwrap_or_default();
+            if msg["surgeHeld"].as_bool() == Some(true)
+                && msg["threadId"].as_str() == Some(thread)
+                && !shown.contains(id)
+            {
+                let from = msg["from"].as_str().unwrap_or_default();
+                let sender = &msg["sender"];
+                messages.push(json!({
+                    "promptId": id, "from": display_sender(sender, from),
+                    "fromName": shown_sender(sender, from), "fromSession": msg["fromSession"],
+                    "sender": sender, "class": msg["class"], "kind": msg["kind"],
+                    "at": record.at, "text": msg["text"], "read": false,
+                    "details": msg.pointer("/_meta/provenance/details").cloned(),
+                    "notice": Value::Null, "surgeHeld": true,
+                }));
+            }
+            true
+        })
+        .map_err(|e| RpcError::internal(format!("read held inbox: {e}")))?;
+        // Newest first, as the thread reads in memory.
+        messages.sort_by_key(|m| std::cmp::Reverse(m["at"].as_u64().unwrap_or(0)));
+        reply["messages"] = Value::Array(messages);
+        Ok(reply)
+    }
+
+    /// Surge admission is a preview: Settings > Experimental > Labs > Show Preview Features
+    /// (`labs.previewFeatures`), off by default, read at each eligible message so the switch
+    /// applies to the next one. Off, every message takes the path it took before the surge inbox.
+    pub(super) fn surge_inbox_on(&self) -> bool {
+        if let Some(on) = *self.surge_inbox.lock().unwrap_or_else(|e| e.into_inner()) {
+            return on;
+        }
+        use crate::user_settings::{self, Settings};
+        matches!(user_settings::read(), Settings::Parsed(doc)
+            if user_settings::value(&doc, "labs.previewFeatures") == Some(Value::Bool(true)))
+    }
+
     /// A surge receipt means the receiver journal already holds the entire original prompt.
     /// No turn, steer, ordinary inbox notice, or caller waiting on a nonexistent turn is created.
     pub(in crate::hub) fn hold_surge_message(
@@ -153,6 +224,9 @@ impl Hub {
         opts: &PromptOptions,
     ) -> Result<Option<Value>, RpcError> {
         let Some(from) = eligible(opts, blocks) else { return Ok(None) };
+        if !self.surge_inbox_on() {
+            return Ok(None);
+        }
         let now = now_ms();
         let period =
             session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner()).reply_period_ms(now);
@@ -205,9 +279,12 @@ impl Hub {
             sender,
             class,
             report: is_report(provenance),
+            // A surge hold is the inbox's own pacing: it stands whether or not the message waited.
+            waited: false,
             at: now,
             text,
             details: provenance.and_then(|p| p.get("details")).cloned(),
+            fire: fire_notice(notice.as_ref()),
             tool_notice: notice,
             surge_held: true,
             noticed: true,

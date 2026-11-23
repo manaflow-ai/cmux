@@ -7,7 +7,7 @@ public struct BrowserDesignModeHomePicks: Sendable, Equatable {
     /// No card has added anything yet.
     public init() {}
 
-    /// Records that card `id` added the attachments `hashes` (content hashes) to the draft.
+    /// Records that card `id` added the attachments `hashes` (their chip ids) to the draft.
     public mutating func record(_ id: String, added hashes: [String]) {
         added[id] = hashes
     }
@@ -19,7 +19,7 @@ public struct BrowserDesignModeHomePicks: Sendable, Equatable {
     }
 
     /// Forgets the cards none of whose attachments is still in the draft, which now holds `draft`.
-    /// - Parameter draft: The content hashes of the draft's attachments.
+    /// - Parameter draft: The chip ids of the draft's attachments.
     /// - Returns: Their ids, sorted, to take their picks off the page.
     public mutating func released(keeping draft: [String]) -> [String] {
         let kept = Set(draft)
