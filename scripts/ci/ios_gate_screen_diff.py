@@ -27,6 +27,7 @@ import re
 import struct
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
@@ -420,11 +421,50 @@ def _request(url: str, token: str) -> urllib.request.Request:
     return request
 
 
+API_RETRIES = 2
+API_RETRY_CAP_S = 20.0
+
+
+def _refusal(error: urllib.error.HTTPError) -> str:
+    """GitHub's own words for a refused call: a 403 is a rate limit, a missing scope or a blocked token."""
+    try:
+        message = json.loads(error.read().decode("utf-8", "replace")).get("message") or ""
+    except Exception:  # noqa: BLE001 - the body is only a hint
+        message = ""
+    return f"HTTP Error {error.code}: {error.reason}" + (f" ({message[:160]})" if message else "")
+
+
+def _retry_wait(error: urllib.error.HTTPError) -> float | None:
+    """Seconds to wait before one more try of a rate-limited or flaky listing, or None when a retry cannot help."""
+    headers = error.headers or {}
+    if error.code in (403, 429):
+        retry_after = headers.get("retry-after")
+        if retry_after and retry_after.isdigit():
+            return min(float(retry_after), API_RETRY_CAP_S)
+        if headers.get("x-ratelimit-remaining") == "0" and (headers.get("x-ratelimit-reset") or "").isdigit():
+            return min(max(float(headers["x-ratelimit-reset"]) - time.time(), 1.0), API_RETRY_CAP_S)
+        return 5.0  # a secondary limit often names no wait; a missing scope costs two short retries
+    return 2.0 if error.code >= 500 else None
+
+
 def _api(url: str, token: str, deadline: "deadline_http.Deadline") -> bytes:
-    """A JSON listing. Every call ends by DEADLINE as a whole (deadline_http), shared by all listings."""
-    _, body, _ = deadline_http.request(_request(url, token), deadline=deadline, max_bytes=64 << 20,
-                                       raise_errors=True)
-    return body
+    """A JSON listing. Every call ends by DEADLINE as a whole (deadline_http), shared by all listings.
+
+    A refusal is retried up to API_RETRIES times when it is a rate limit or a server error, and its
+    reason is kept: the first live runs lost the baseline to a bare "HTTP Error 403: Forbidden" in 8 of 28 runs."""
+    for attempt in range(API_RETRIES + 1):
+        try:
+            _, body, _ = deadline_http.request(_request(url, token), deadline=deadline, max_bytes=64 << 20,
+                                               raise_errors=True)
+            return body
+        except urllib.error.HTTPError as error:
+            wait = _retry_wait(error)
+            reason = _refusal(error)
+            if wait is None or attempt == API_RETRIES:
+                raise RuntimeError(reason) from error
+            deadline.left(f"retrying after {reason}")
+            time.sleep(wait)
+    raise AssertionError("unreachable")
 
 
 def _download(url: str, token: str, deadline: "deadline_http.Deadline", path: Path) -> Path:
