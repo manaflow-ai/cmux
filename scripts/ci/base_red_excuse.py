@@ -4909,8 +4909,9 @@ def derived_status_line(repo: str, name: str, sha: str, parts: list[Part], audit
 # at the head it is a ' / '-part of, either way: the check run's name ends in ' / NAME', or NAME ends in ' / ' and the
 # check run's name. A name as written still comes first (a check run, then a status, as before), and a partial part
 # ('tests (2/4)') matches nothing. A name more than one check run at the head carries -- as written or as a part --
-# is resolved by the workflow its 'WORKFLOW / JOB' prefix names, then by its one red; anything still ambiguous is
-# refused naming every candidate, never picked silently (named_check).
+# is resolved by the workflow its 'WORKFLOW / JOB' prefix names, then by its one failure; with no failure among them
+# a name as written keeps the newest attempt (reruns and concurrency-cancelled attempts of one workflow, which the
+# superseding logic judges), and a name spelled another way is refused naming every candidate (named_check).
 # A head named by a short or upper-case sha is the same commit: GitHub answers its reads, and every job's head_sha is
 # the full lower-case one, so each "is this job at the exact head" compare refused (exact_sha).
 FULL_SHA = re.compile(r"[0-9a-f]{40}")
@@ -4928,8 +4929,7 @@ def head_check_runs(repo: str, sha: str, github, seen: dict | None = None) -> li
                           if (check.get("app") or {}).get("slug") == "github-actions"]
     newest: dict[tuple[str, int | None], dict] = {}
     for check in seen["checks"]:
-        link = re.search(r"/actions/runs/(\d+)/job/\d+", str(check.get("details_url") or ""))
-        key = (str(check.get("name")), int(link[1]) if link else None)
+        key = (str(check.get("name")), check_run_link(check))
         if check.get("id", -1) > newest.get(key, {}).get("id", -1):
             newest[key] = check
     return list(newest.values())
@@ -4942,43 +4942,87 @@ def spelled_candidates(checks: list[dict], name: str) -> list[dict]:
             or name.endswith(f" / {check.get('name')}")]
 
 
+def check_run_link(check: dict) -> int | None:
+    """The Actions run CHECK links in its details URL, or None: the one id that tells two check runs of one job name
+    apart with no read at all."""
+    link = re.search(r"/actions/runs/(\d+)/job/\d+", str(check.get("details_url") or ""))
+    return int(link[1]) if link else None
+
+
 def check_workflow(repo: str, check: dict, github, seen: dict) -> str:
     """The name of the workflow run CHECK belongs to: the 'WORKFLOW / ' prefix the checks page writes before a check
     run's own name, and the part of 'WORKFLOW / JOB' that tells two check runs of one job name apart. '' when the
     check run links no run, or GitHub names none."""
-    link = re.search(r"/actions/runs/(\d+)/job/\d+", str(check.get("details_url") or ""))
-    if not link:
+    if (run_id := check_run_link(check)) is None:
         return ""
-    run = rest_run(repo, int(link[1]), github, seen)
+    run = rest_run(repo, run_id, github, seen)
     return str((run or {}).get("name") or "") if isinstance(run, dict) else ""
 
 
-def named_check(repo: str, sha: str, name: str, found: list[dict], github, seen: dict) -> tuple[dict, str | None]:
-    """The one check run of FOUND that NAME means, and why it was read that way (None when FOUND holds one alone, for
-    the caller's own line). More than one check run can carry one job name at one head: three 'tests' at
-    cmuxterm-hq eb73df0c, two of them success and the red one the caller was asking about (2026-11-22). The name's
-    own 'WORKFLOW / JOB' prefix is what tells them apart, so it is read as the workflow of the run each check run
-    belongs to; with no prefix, or none that names one of them, the red ones are what the caller asking why a head
-    is red can mean, and one red alone is it. Whatever is still more than one is refused naming every candidate: a
-    silent pick answers about a check run nobody asked about ('tests' is success: re-run it, of a check run that
-    passed, while the red one was never read)."""
+def named_check(repo: str, sha: str, name: str, found: list[dict], github, seen: dict, *,
+                newest: bool = False) -> tuple[dict, str | None]:
+    """The one check run of FOUND that NAME means, and why it was read that way (None when FOUND holds one alone, or
+    when the rule that picked it is one the caller's own tools already state, for the caller's audit line). More than
+    one check run can carry one job name at one head: three 'tests' at cmuxterm-hq eb73df0c, two of them success and
+    the red one the caller was asking about (2026-11-22). The name's own 'WORKFLOW / JOB' prefix is what tells them
+    apart, so it is read as the workflow of the run each check run belongs to; with no prefix, or none that names one
+    of them, a single failure is what a caller asking why a head is red can mean.
+
+    Attempts of ONE workflow are not that question at all: a rerun, or an attempt concurrency cancelled, is answered
+    by recency (the newest attempt of a name is its verdict: a cancelled 'risk evidence' superseded by the newer run
+    that passed it, cmux#36965 at 004465b3), and picking an older failure over a rerun that passed would publish a
+    red the head no longer has. So the candidates are first collapsed per workflow -- its path, never a display name
+    two workflows can share, from the head's one run list -- keeping each workflow's newest, and only what is left
+    across workflows is the ambiguity above. A run whose workflow the head's list does not name is its own candidate:
+    nothing proves it shares another's workflow.
+
+    With nothing failed among them, NEWEST (what the exact-name caller passes, latest_checks' own rule before this)
+    keeps the newest check run and the superseding logic downstream judges it; the spelled-another-way caller has no
+    such rule and is refused naming every candidate. A silent pick there answers about a check run nobody asked about
+    ('tests' is success: re-run it, of a check run that passed, while the red one was never read).
+
+    The refusal names only what the candidates themselves carry. Reading each one's workflow would be a REST read
+    per candidate on a path that is already refusing, so the ones resolved for the prefix above are named and the
+    rest are named by their run, which their details URL already gives."""
     if len(found) == 1:
         return found[0], None
     prefixed = []
+    workflows: dict[int, str] = {}
     for check in found:
         part = str(check.get("name") or "")
         prefix = name[:-len(f" / {part}")] if part and name.endswith(f" / {part}") else ""
-        if prefix and prefix == check_workflow(repo, check, github, seen):
-            prefixed.append((check, f"the check run of that name in workflow {prefix!r}"))
+        if prefix:
+            workflows[check.get("id")] = check_workflow(repo, check, github, seen)
+            if prefix == workflows[check.get("id")]:
+                prefixed.append((check, f"the check run of that name in workflow {prefix!r}"))
     if len(prefixed) == 1:
         return prefixed[0][0], prefixed[0][1]
     left = [check for check, _ in prefixed] or found
-    red = [check for check in left if check.get("conclusion") not in GREEN]
+    attempts = head_runs(repo, sha, github, seen)
+    per_workflow: dict[object, dict] = {}
+    for check in left:
+        link = check_run_link(check)
+        run = attempts.get(link) or {}
+        # One job's attempts share its name AND its workflow: two check runs named differently (one caller's job
+        # prefix and another's, both answering the spelling asked) are two jobs, never attempts of each other, so
+        # the name is part of the key. A check run that links no run can only stand alone.
+        key = (str(check.get("name")),
+               run.get("path") or run.get("workflow_id") or (("run", link) if link else ("check", check.get("id"))))
+        if check.get("id", -1) > per_workflow.get(key, {}).get("id", -1):
+            per_workflow[key] = check
+    left = list(per_workflow.values())
+    if len(left) == 1:
+        return left[0], None
+    red = [check for check in left if check.get("conclusion") in PR_ONLY_RED]
     if len(red) == 1:
-        return red[0], f"the only one of {len(found)} check runs of that name at the head that is not green"
-    listed = ", ".join(f"{check.get('name')!r} ({check.get('conclusion')}, check run {check.get('id')}, workflow "
-                       f"{check_workflow(repo, check, github, seen)!r})"
-                       for check in sorted(found, key=lambda check: check.get("id", 0)))
+        return red[0], (f"the only one of {len(found)} check runs of that name at the head that failed (one per "
+                        "workflow, its newest attempt)")
+    if newest and not red:
+        return max(found, key=lambda check: check.get("id", 0)), None
+    listed = ", ".join(f"{check.get('name')!r} ({check.get('conclusion')}, check run {check.get('id')}, "
+                       + (f"workflow {workflows[check.get('id')]!r})" if workflows.get(check.get("id"))
+                          else f"run {check_run_link(check) or '?'})")
+                       for check in sorted(found, key=lambda check: (str(check.get("name")), check.get("id", 0))))
     raise Refused(f"{name}: names {len(found)} check runs at exact head {sha} ({listed[:600]}); which one is meant is "
                   "unknown, so none is judged: name it as 'WORKFLOW / JOB', the checks page's own spelling")
 
@@ -5073,7 +5117,7 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
         for name in checks:
             check = None
             if exact := [found for found in at_head if found.get("name") == name]:
-                check, why = named_check(repo, sha, name, exact, github, seen)
+                check, why = named_check(repo, sha, name, exact, github, seen, newest=True)
                 if why is not None and excused is not None:
                     excused.append(f"read '{name}' as check run '{check['name']}' (job {check.get('id')}) on {sha}: "
                                    f"{why}")

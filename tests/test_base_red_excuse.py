@@ -16744,7 +16744,7 @@ class OneJobNameAtThreeCheckRuns(unittest.TestCase):
 
     def found(self, name, conclusions=None):
         self.conclusions = conclusions or {}
-        gh = self.Fake(self, self.conclusions)
+        self.gh = gh = self.Fake(self, self.conclusions)
         audit: list[str] = []
         return excuse.head_jobs(REPO, self.SHA, [], [name], gh, excused=audit), audit
 
@@ -16754,24 +16754,29 @@ class OneJobNameAtThreeCheckRuns(unittest.TestCase):
         self.assertTrue(any("'fleet-reconcilers tests'" in line and "137452467640" in line for line in audit), audit)
 
     def test_the_workflow_prefix_names_a_green_check_run_too(self):
-        # The prefix is read before the reds: it names one check run, whatever its conclusion.
-        with self.assertRaisesRegex(excuse.Refused, "is success"):
-            self.found("lane-gh-broker tests / tests")
+        # The prefix is read before the reds: it names one check run, whatever its conclusion. head_jobs hands that
+        # job back; judging it as a green check with no base verdict ("'tests' is success: re-run it") is downstream.
+        jobs, audit = self.found("lane-gh-broker tests / tests")
+        self.assertEqual([job["id"] for job in jobs], [137452469910])
+        self.assertTrue(any("'lane-gh-broker tests'" in line and "137452469910" in line for line in audit), audit)
 
-    def test_the_bare_name_is_the_one_check_run_of_it_that_is_not_green(self):
+    def test_the_bare_name_is_the_one_check_run_of_it_that_failed(self):
         jobs, audit = self.found("tests")
         self.assertEqual([job["id"] for job in jobs], [137452467640])
-        self.assertTrue(any("not green" in line and "137452467640" in line for line in audit), audit)
+        self.assertTrue(any("that failed" in line and "137452467640" in line for line in audit), audit)
 
     def test_two_reds_of_one_name_are_refused_naming_every_candidate(self):
         with self.assertRaises(excuse.Refused) as caught:
             self.found("tests", conclusions={137452469910: "failure"})
+        gh = self.gh
         said = str(caught.exception)
         self.assertIn("names 3 check runs at exact head", said)
-        for check_id in self.CHECKS:
+        for check_id, (run, _) in self.CHECKS.items():
             self.assertIn(str(check_id), said)
-        for workflow in self.RUNS.values():
-            self.assertIn(workflow, said)
+            # The run each candidate links, from its details URL: naming the workflow instead would be a REST read
+            # per candidate on a path that is already refusing (the bare name resolved no prefix, so none was read).
+            self.assertIn(str(run), said)
+        self.assertEqual([route for route in gh.routes if "/actions/runs/4510" in route], [], gh.routes)
 
     def test_a_prefix_no_workflow_answers_to_falls_back_to_the_red(self):
         jobs, _ = self.found("some other workflow / tests")
