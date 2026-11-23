@@ -21,6 +21,8 @@ pub mod peers;
 pub mod reap;
 #[cfg(unix)]
 pub mod state;
+pub mod store_fetch;
+pub mod upload;
 #[cfg(target_os = "linux")]
 pub mod upper;
 pub mod way_back;

@@ -188,6 +188,27 @@ impl Link {
         }
     }
 
+    /// Which files the Mac has put in the store, from the `since`-th it put on: its upload's
+    /// epoch (a new one starts again from 0) and `(entry, blob id)` pairs, in the order it put
+    /// them. Asked only of a Mac whose store is configured (an older Mac ends a stream on an ask it
+    /// does not know).
+    pub fn stored(&self, since: u32) -> Result<(u64, Vec<(u32, String)>), FetchError> {
+        let parts = self.ask(&|ask| Ask::Stored { ask, since })?;
+        let mut parts = parts.into_iter();
+        let Some(epoch) = parts.next() else { return Ok((0, Vec::new())) };
+        let epoch = <[u8; 8]>::try_from(epoch.bytes.as_slice())
+            .map(u64::from_le_bytes)
+            .map_err(|_| FetchError::Failed)?;
+        let files = parts
+            .filter_map(|part| {
+                let (entry, oid) = part.bytes.split_at_checked(4)?;
+                let entry = u32::from_le_bytes(entry.try_into().ok()?);
+                Some((entry, String::from_utf8(oid.to_vec()).ok()?))
+            })
+            .collect();
+        Ok((epoch, files))
+    }
+
     /// Asks the Mac whether it is there; true on an answer.
     pub fn ping(&self) -> bool {
         self.ask(&|ask| Ask::Ping { ask }).is_ok()
@@ -235,6 +256,7 @@ pub fn answer_asks(
                 entries.iter().map(|entry| source.whole(*entry)).collect()
             }
             Ask::Ping { .. } => Vec::new(),
+            Ask::Stored { since, .. } => source.stored(*since),
         };
         wire::write_answer(&mut writer, ask.number(), &parts)?;
         writer.flush()?;
@@ -248,6 +270,13 @@ pub trait Source {
     fn read(&self, entry: u32, offset: u64, len: u32) -> Part;
     /// All of file `entry` (a batch asks only for small files).
     fn whole(&self, entry: u32) -> Part;
+    /// The answer to [`Ask::Stored`]: an epoch part (`u64`) and one part per file put in the store
+    /// from the `since`-th on (`entry u32` and its blob id). None when this Mac puts nothing in a
+    /// store ([`crate::upload::Uploader`] does).
+    fn stored(&self, since: u32) -> Vec<Part> {
+        let _ = since;
+        Vec::new()
+    }
 }
 
 #[cfg(test)]
