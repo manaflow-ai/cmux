@@ -64,6 +64,9 @@ pub(in crate::cli) enum Request {
     Refresh {
         if_app_changed: bool,
     },
+    /// `refresh --wait`: waits in the background for the rebuilds refresh
+    /// asked CI for (rebuild.rs), bounded; refresh starts it.
+    RefreshWait,
     /// Every layer past its bound off: a PR merged or closed, a code layer
     /// on longer than 24 hours, a hand-installed overlay as old (the app
     /// runs it at launch).
@@ -81,10 +84,11 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
     let Some((verb, rest)) = words.split_first() else { return Ok(Request::List) };
     match verb.as_str() {
         "list" | "ls" if rest.is_empty() => Ok(Request::List),
+        "refresh" if rest == ["--wait"] => Ok(Request::RefreshWait),
         "refresh" => match rest {
             [] => Ok(Request::Refresh { if_app_changed: false }),
             [flag] if flag == "--if-app-changed" => Ok(Request::Refresh { if_app_changed: true }),
-            _ => Err("customize library refresh takes only --if-app-changed".to_owned()),
+            _ => Err("customize library refresh takes only --if-app-changed or --wait".to_owned()),
         },
         "expire" if rest.is_empty() => Ok(Request::Expire),
         "status" if rest.is_empty() => Ok(Request::Status),
@@ -203,6 +207,7 @@ pub(super) fn execute(
             human.push_str(&expired_lines(&customize.expired(now_ms), expiring.as_ref()));
             Answer::Library { json: json!({ "library": listing }), human }
         }
+        Request::RefreshWait => super::rebuild::wait(customize, origin, super::now_ms)?,
         Request::Refresh { if_app_changed } => {
             let app = super::pr::App::find().commit;
             refresh_when(customize, app.as_deref(), if_app_changed, || {
@@ -261,6 +266,13 @@ pub(super) fn execute(
                 }
                 human.push('\n');
             }
+            let entries = customize.library().map(|listing| listing.entries).unwrap_or_default();
+            let still_off =
+                |name: &str| entries.iter().any(|entry| entry.name == name && !entry.on);
+            human.push_str(&super::rebuild::off_lines(
+                &super::rebuild::Rebuilds::load(customize),
+                still_off,
+            ));
             if let Some(overlay) = &layers.overlay {
                 human.push_str(&format!("  web-dev.json overlay: {overlay}\n"));
             }

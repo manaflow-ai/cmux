@@ -36,6 +36,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::Failure;
+use super::rebuild::{self, Rebuild, Rebuilds, Verdict};
 use super::render::Answer;
 use super::source::{Source, ref_slug};
 
@@ -285,6 +286,11 @@ impl Published {
             Published::Ref { name, .. } => Some(format!("ref/{}", ref_slug(name))),
             Published::Fork { .. } => None,
         }
+    }
+
+    /// Where CI publishes this source's layer of `head` built on `base`.
+    fn exact_pointer(&self, head: &str, base: &str) -> Option<String> {
+        Some(format!("{}/{}/{head}-{base}.json", base_url(), self.ours()?))
     }
 
     /// A fork's release download folder.
@@ -552,17 +558,31 @@ pub(super) fn write_manifest(
     std::fs::write(part.join(code::LAYER_MANIFEST), format!("{manifest}\n"))
 }
 
+/// What asking CI for a layer did.
+pub(super) struct Asked {
+    /// The one line that says so.
+    pub line: String,
+    /// CI took the request.
+    pub asked: bool,
+    /// The run it started, when gh named it.
+    pub run: Option<u64>,
+}
+
 /// Asks our CI to publish `source`'s layer on `commit`, when `gh` is here; a
 /// fork's is the fork's to publish, so it says how.
-fn request_publish(source: &Published, commit: Option<&str>) -> Option<String> {
+fn ask_publish(source: &Published, commit: Option<&str>) -> Option<Asked> {
     let field = match source {
         Published::Pr(pr) => format!("pr={pr}"),
         Published::Ref { name, .. } => format!("ref={name}"),
         Published::Fork { repo, reference } => {
             let base = commit.map(|commit| format!(" -f base={commit}")).unwrap_or_default();
-            return Some(format!(
-                "the fork publishes its own layer (our CI never builds fork code): in {repo}, run `gh workflow run cmux-web-layer-fork.yml -R {repo} --ref {reference}{base}`, or use `dir:` on a clone of it"
-            ));
+            return Some(Asked {
+                line: format!(
+                    "the fork publishes its own layer (our CI never builds fork code): in {repo}, run `gh workflow run cmux-web-layer-fork.yml -R {repo} --ref {reference}{base}`, or use `dir:` on a clone of it"
+                ),
+                asked: false,
+                run: None,
+            });
         }
     };
     let mut args = vec![
@@ -580,45 +600,59 @@ fn request_publish(source: &Published, commit: Option<&str>) -> Option<String> {
         args.extend(["-f".to_owned(), format!("base={commit}")]);
     }
     let shown = format!("gh {}", args.join(" "));
-    Some(match dispatch(&args) {
-        Ok(()) => format!("asked CI to publish it ({shown})"),
-        Err(why) => format!("could not ask CI ({why}); run `{shown}`"),
+    Some(match rebuild::gh(&args, DISPATCH_TIMEOUT) {
+        Ok(printed) => Asked {
+            line: format!("asked CI to publish it ({shown})"),
+            asked: true,
+            run: rebuild::run_id(&printed),
+        },
+        Err(why) => Asked {
+            line: format!("could not ask CI ({why}); run `{shown}`"),
+            asked: false,
+            run: None,
+        },
     })
+}
+
+fn request_publish(source: &Published, commit: Option<&str>) -> Option<String> {
+    ask_publish(source, commit).map(|asked| asked.line)
 }
 
 /// How long `use` and `refresh` wait for `gh workflow run`: it only queues.
 const DISPATCH_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Runs `gh` with `args`, bounded: why it failed, in gh's own last line.
-fn dispatch(args: &[String]) -> Result<(), String> {
-    let mut child = cmux_process::Command::new("gh")
-        .args(args)
-        .stdin(cmux_process::Stdio::null())
-        .stdout(cmux_process::Stdio::null())
-        .stderr(cmux_process::Stdio::piped())
-        .spawn()
-        .map_err(|error| format!("gh: {error}"))?;
-    let status = match child.wait_timeout(DISPATCH_TIMEOUT) {
-        Ok(Some(status)) => status,
-        _ => {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(format!("gh did not answer in {}s", DISPATCH_TIMEOUT.as_secs()));
-        }
-    };
-    if status.success() {
-        return Ok(());
-    }
-    let mut said = String::new();
-    if let Some(mut stderr) = child.stderr.take() {
-        let _ = stderr.read_to_string(&mut said);
-    }
-    Err(said
-        .lines()
-        .map(str::trim)
-        .rfind(|line| !line.is_empty())
-        .map(|line| line.chars().take(200).collect())
-        .unwrap_or_else(|| format!("gh exited {status}")))
+/// Keeps the rebuild `asked` started of `head` on `app` for entry `name`, so
+/// refresh follows it instead of asking again, and starts the waiter that
+/// picks it up (rebuild.rs). `off_by_rebuild`: the entry is off because an
+/// earlier rebuild failed, so a working one turns it back on.
+fn keep_rebuild(
+    rebuilds: &mut Rebuilds,
+    name: &str,
+    published: &Published,
+    asked: &Asked,
+    head: &str,
+    app: &str,
+    now_ms: u64,
+) {
+    let before = rebuilds.by_name.get(name);
+    let off_by_rebuild = before.is_some_and(|r| r.off_by_rebuild);
+    // Asked again for the same head on the same app: one more try.
+    let tries = before
+        .filter(|r| r.head == head && r.base == app)
+        .map_or(1, |r| r.tries.max(1).saturating_add(1));
+    rebuilds.by_name.insert(
+        name.to_owned(),
+        Rebuild {
+            head: head.to_owned(),
+            base: app.to_owned(),
+            asked_ms: now_ms,
+            run: asked.run,
+            pointer: published.exact_pointer(head, app).unwrap_or_default(),
+            failed: None,
+            off_by_rebuild,
+            tries,
+        },
+    );
 }
 
 /// `cmux customize use SOURCE` for every source but a folder.
@@ -689,19 +723,37 @@ pub(super) fn use_code(
             request_publish(&published, app.commit.as_deref()).unwrap_or_default()
         ));
     }
+    let mut rebuilding = None;
     if let Some(commit) = &app.commit
         && layer.has_web()
         && &layer.base != commit
     {
+        let asked = ask_publish(&published, Some(commit));
+        let line = asked.as_ref().map(|asked| asked.line.clone()).unwrap_or_default();
+        let what = if asked.as_ref().is_some_and(|asked| asked.asked) {
+            "rebuilding it there, this one stays on until it is ready"
+        } else {
+            "other web changes since may be missing"
+        };
         lines.push(format!(
-            "built on {}, not this app's {}: other web changes since may be missing; {}",
+            "built on {}, not this app's {}: {what}; {line}",
             short(&layer.base),
-            short(commit),
-            request_publish(&published, Some(commit)).unwrap_or_default()
+            short(commit)
         ));
+        rebuilding = asked.filter(|asked| asked.asked).map(|asked| (asked, commit.clone()));
     }
     install(customize, &http, &layer)?;
+    let (name, head) = (layer.name(), layer.head.clone());
     let answer = put_on(customize, layer, lines, origin, now_ms)?;
+    if let Some((asked, commit)) = rebuilding {
+        let mut rebuilds = Rebuilds::load(customize);
+        // `use` turned it on: a failed rebuild before it no longer counts.
+        rebuilds.by_name.remove(&name);
+        keep_rebuild(&mut rebuilds, &name, &published, &asked, &head, &commit, now_ms);
+        if rebuilds.save().is_ok() {
+            rebuild::start_waiter();
+        }
+    }
     Ok(answer)
 }
 
@@ -900,9 +952,85 @@ fn refresh_step(
     }
 }
 
+/// What [`rebuild_on_app`] did.
+struct Rebuilt {
+    note: String,
+    on: Option<bool>,
+    /// Refresh keeps following this rebuild.
+    kept: bool,
+    /// CI is building it: the waiter picks it up.
+    building: bool,
+}
+
+/// An entry whose newest layer is built on another commit than the app's
+/// (`Step::Behind`): CI is asked to build it on the app's commit once, the
+/// current bundle stays on while it builds, and a build that fails turns the
+/// entry off with the reason (rebuild.rs). One the person turned off is only
+/// named.
+fn rebuild_on_app(
+    rebuilds: &mut Rebuilds,
+    name: &str,
+    on: bool,
+    published: &Published,
+    layer: &CodeLayer,
+    app: &str,
+    now_ms: u64,
+) -> Rebuilt {
+    let behind = format!("built on {}, not this app's {}", short(&layer.base), short(app));
+    let record = rebuilds.by_name.get(name);
+    let quiet = |note: String| Rebuilt { note, on: None, kept: false, building: false };
+    if !rebuild::follows(on, record) {
+        return quiet(format!("{behind}: web changes since are missing"));
+    }
+    match rebuild::verdict(record, &layer.head, app, now_ms, rebuild::ask_run) {
+        Verdict::Ask => {
+            let Some(asked) = ask_publish(published, Some(app)) else {
+                return quiet(format!("{behind}: web changes since are missing"));
+            };
+            if !asked.asked {
+                return quiet(format!("{behind}: web changes since are missing; {}", asked.line));
+            }
+            keep_rebuild(rebuilds, name, published, &asked, &layer.head, app, now_ms);
+            Rebuilt {
+                note: format!(
+                    "{behind}: rebuilding it there, your current one stays on until it is ready; {}",
+                    asked.line
+                ),
+                on: None,
+                kept: true,
+                building: true,
+            }
+        }
+        Verdict::Wait(note) => Rebuilt { note, on: None, kept: true, building: true },
+        Verdict::Off(note) => {
+            if let Some(record) = rebuilds.by_name.get_mut(name) {
+                record.failed = Some(note.clone());
+                record.off_by_rebuild = true;
+            }
+            Rebuilt { note, on: Some(false), kept: true, building: false }
+        }
+        Verdict::Failed(note) => Rebuilt { note, on: None, kept: true, building: false },
+    }
+}
+
 /// `cmux customize library refresh`: every code entry against what is
 /// published (a folder: built again) and what this app is.
 pub(super) fn refresh(customize: &Customize, origin: &str, now_ms: u64) -> Result<Answer, Failure> {
+    refresh_with(customize, origin, now_ms, true)
+}
+
+/// [`refresh`]; `waiter`: start the waiter when a rebuild is building (the
+/// waiter's own refreshes do not).
+pub(super) fn refresh_with(
+    customize: &Customize,
+    origin: &str,
+    now_ms: u64,
+    waiter: bool,
+) -> Result<Answer, Failure> {
+    let mut rebuilds = Rebuilds::load(customize);
+    let asked_before = rebuilds.by_name.clone();
+    let mut kept = std::collections::BTreeSet::new();
+    let mut building = false;
     let mut app = App::find();
     let http = Http::new()?;
     app.full_commit(&http);
@@ -974,18 +1102,28 @@ pub(super) fn refresh(customize: &Customize, origin: &str, now_ms: u64) -> Resul
                 Step::Take => {
                     install(customize, &http, &layer)?;
                     customize.library_update_code(layer.clone(), origin, now_ms)?;
-                    (format!("now at {} on {}", short(&layer.head), short(&layer.base)), None)
+                    // A rebuild that failed turned it off; this one works.
+                    let back_on = rebuilds.by_name.get(&name).is_some_and(|r| r.off_by_rebuild);
+                    (
+                        format!("now at {} on {}", short(&layer.head), short(&layer.base)),
+                        back_on.then_some(true),
+                    )
                 }
                 Step::Behind(app) => {
-                    let asked = request_publish(&published, Some(&app)).unwrap_or_default();
-                    (
-                        format!(
-                            "built on {}, not this app's {}: web changes since are missing; {asked}",
-                            short(&layer.base),
-                            short(&app)
-                        ),
-                        None,
-                    )
+                    let did = rebuild_on_app(
+                        &mut rebuilds,
+                        &name,
+                        entry.on,
+                        &published,
+                        &layer,
+                        &app,
+                        now_ms,
+                    );
+                    if did.kept {
+                        kept.insert(name.clone());
+                    }
+                    building |= did.building;
+                    (did.note, did.on)
                 }
                 Step::Same => (String::new(), None),
             }
@@ -998,6 +1136,17 @@ pub(super) fn refresh(customize: &Customize, origin: &str, now_ms: u64) -> Resul
             if note.is_empty() { "up to date" } else { note.as_str() }
         ));
         results.push(json!({ "name": name, "note": note, "turned_off": on == Some(false) }));
+    }
+    // A rebuild of an entry that is no longer behind (taken, in the build,
+    // gone) is done.
+    rebuilds.by_name.retain(|name, _| kept.contains(name));
+    if rebuilds.by_name != asked_before {
+        rebuilds
+            .save()
+            .map_err(|error| failure(format!("could not keep the rebuilds asked for: {error}")))?;
+    }
+    if building && waiter {
+        rebuild::start_waiter();
     }
     if results.is_empty() {
         human.push_str("no code entries; `cmux customize use pr:N|branch:NAME|sha:SHA|dir:PATH|OWNER/REPO@REF` adds one\n");
