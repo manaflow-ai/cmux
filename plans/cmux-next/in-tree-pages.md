@@ -25,8 +25,13 @@ headless and its compositor is stopped. So:
    no `takeEventFromBelow`. A modal overlay takes the window's first responder through the window's gate; Tab cycles in
    it (`ShellWindow.selectNextKeyView`), its key equivalents go only to it (`ShellWindow.performKeyEquivalent`), Escape
    goes to it (`routeInWindowModalEscape`).
-3. **Dividers.** `WindowOverlayLayer` stays `.inWindow` and the catchers stay inactive. A scroll on a divider's grab
-   strip goes to the pane on the pointer's side of the line (`DividerHandleView+Scroll.swift`).
+3. **Dividers.** `WindowOverlayLayer`'s placement follows the real windows: with no page child window on screen it is
+   `.inWindow` and the catchers stay inactive. A page window that still shows (a page the fork refused twice) is
+   served as with the mode off: the planes and the presented overlays go to the panel above it
+   (`WindowOverlayHost.servesPageWindows` turns `usesWindowBackend` off for that window), the catchers turn on, and
+   the window is counted once (`in_tree_guards.divider_catchers`) and named in `debug.layers`
+   `retired_page_windows`. A scroll on a divider's grab strip goes to the pane on the pointer's side of the line
+   (`DividerHandleView+Scroll.swift`).
 4. **Focus.** The cmux window is always key. `ShellWindow.makeFirstResponder` adds one rule
    (`ShellWindow+InTreePages.swift`, `InTreePageFocus`). A view that is, or is inside, an `InTreePageContainer` may
    become first responder only:
@@ -84,7 +89,7 @@ divider catchers and cross-window guards run as before.
 | `OverlayHostPanel` ordering, `reassertOrder`, `overlayWindow` placement | not used; overlays are views on the window |
 | `takeEventFromBelow`, the overlay mouse monitor, `ignoresMouseEvents` routing | bypassed (counted if reached) |
 | Modal `makeKey` of the panel, escape monitor | the window keeps key; first responder moves through the gate |
-| `DividerMouseCatchers` panels | inactive (counted if a placement would have wanted them) |
+| `DividerMouseCatchers` panels | inactive while no page window shows; a page window that shows is served and counted |
 | `ChildPageFocus` (page window key switching) | not called for `.inTree` pages (counted if reached) |
 | `CrossWindowInputGuard` | bypassed; would-drop counted |
 | `UnseenKeyboardGuard` page-window branch | never expected; counted if it fires for a view in a child window |
@@ -95,7 +100,11 @@ The code of every row is kept for the switch off.
 
 - `debug.cef`: `in_tree` (`off`, `pending`, `on`, `unsupported_fork: <why>`), `tracker.in_tree_attaches`,
   `tracker.in_tree_refused`.
-- `debug.layers` per window: `in_tree`, `page_views` (pane, frame, `rwhv_in_window`, `widget_drawing`),
+- `debug.layers` per window: `in_tree`, `page_views` (pane, `parked`, `parking`, frame, `rwhv_in_window`,
+  `widget_drawing`; a view in no shown pane is parked by design and `parking` says where: `offscreen_parking` (the New
+  Tab spare and other prewarmed or retiring pages, 100 000 pt off the content), `reserved_workspace` (the next Cmd-N's
+  workspace, prewarmed off the content), `parked_workspace` (a recent workspace kept mounted, hidden), `hidden` (a
+  background tab); `unplaced` is a defect), `retired_page_windows` (page child windows that showed; must stay empty),
   `widget_drawing` (pages whose headless widget still draws; must be 0); per browser `presentation: "in_tree"`,
   `rwhv_in_window`, `widget_drawing`. With the mode on `reorders` and `divider_catcher_updates` stay flat and
   `child_window_violations` stays empty.

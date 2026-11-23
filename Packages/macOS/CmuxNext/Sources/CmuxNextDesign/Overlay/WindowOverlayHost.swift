@@ -202,6 +202,12 @@ public final class WindowOverlayHost {
     }
     public var presentedHandles: [OverlayHandle] { handles }
 
+    /// A page child window shows over the window (`WindowOverlayLayer`'s placement): the overlays use the panel above
+    /// it even with in-tree pages on (``usesWindowBackend``). Set by the window's overlay layer only.
+    public var servesPageWindows = false {
+        didSet { if servesPageWindows != oldValue { syncPanel() } }
+    }
+
     /// The window's layout planes need the panel while pages show (`WindowOverlayLayer`).
     public func setPlanesWantPanel(_ wanted: Bool) {
         guard planesWantPanel != wanted else { return }
@@ -244,7 +250,9 @@ public final class WindowOverlayHost {
         guard let window, !isTearingDown else { return }
         let wanted = planesWantPanel || !handles.isEmpty || fadingOut > 0
         if usesWindowBackend {
-            // In-tree pages: the overlays are views on top of the window's content (WindowOverlayHost+InWindow).
+            // In-tree pages: the overlays are views on top of the window's content (WindowOverlayHost+InWindow). A panel
+            // left from a page window that showed (``servesPageWindows``) leaves first: its root comes off it below.
+            if panel.parent === window, !detachPending { detachAfterEmptyFrame() }
             syncInWindowRoot(wanted: wanted)
             placeAgentCursor()
             updateMouseRouting()

@@ -3,6 +3,7 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextLayout
+import CmuxNextPages
 import CmuxNextSettings
 
 /// `debug.layers`: per window, the child window order (bottom to top) with
@@ -161,15 +162,23 @@ enum DebugLayers {
             // In-tree pages (InTreePages): the mode ("off", "pending", "on", "unsupported_fork: why"), the page views in
             // this window's tree, and how many of them still have a drawing headless widget (must be 0).
             "in_tree": .string(InTreePages.shared.status),
+            // A view with no pane is parked, never shown: `parking` says where (`pageParking`); "unplaced" is a page view
+            // nothing accounts for, which a check fails on.
             "page_views": .array(pageViews.map { view in
                 let census = view.inTreeCensus
+                let pane = controller.inTreePagePane(of: view)
+                let parking = pane == nil ? pageParking(of: view, controller: controller) : nil
                 return .object([
-                    "pane": controller.inTreePagePane(of: view).map(JSONValue.string) ?? .null,
+                    "pane": pane.map(JSONValue.string) ?? .null,
+                    "parked": .bool(pane == nil),
+                    "parking": parking.map(JSONValue.string) ?? .null,
                     "frame_in_window": rect(view.convert(view.bounds, to: nil)),
                     "rwhv_in_window": .bool(census.contentInWindow),
                     "widget_drawing": .number(Double(census.widgetDrawing)),
                 ])
             }),
+            // In-tree pages: page child windows that showed over this window (`WindowOverlayLayer`); must stay empty.
+            "retired_page_windows": .array(layer.retiredPageWindowSightings.map(JSONValue.string)),
             "widget_drawing": .number(Double(pageViews.filter { $0.inTreeCensus.widgetDrawing == 1 }.count)),
             "overlay_panel": layer.overlayPanel.map { .number(Double($0.windowNumber)) } ?? .null,
             "overlay_panel_frame": layer.overlayPanel.map { rect($0.frame) } ?? .null,
@@ -299,6 +308,24 @@ enum DebugLayers {
                         "highlight_in_window": layout.dropHighlightFrameInWindow.map(rect) ?? .null])
     }
     #endif
+
+    /// Where an in-tree page view that is in no shown pane waits, by design: `offscreen_parking` (a prewarmed or retiring
+    /// page in a ``PageOffscreenParking``, 100 000 pt outside the content: the New Tab spare, a pane's paint parking,
+    /// the agent page retirer; its identifier follows a colon when it has one), `reserved_workspace` (the next Cmd-N's
+    /// workspace, prewarmed off the content), `parked_workspace` (a recently shown workspace kept mounted and hidden),
+    /// `hidden` (in a hidden subtree of the shown workspace, a background tab). "unplaced": none of these.
+    static func pageParking(of view: NSView, controller: WindowController) -> String {
+        var current: NSView? = view
+        while let next = current {
+            if let parking = next as? PageOffscreenParking {
+                return parking.identifier.map { "offscreen_parking:\($0.rawValue)" } ?? "offscreen_parking"
+            }
+            if next === controller.reservedContent.ready?.contentView { return "reserved_workspace" }
+            if controller.parked.values.contains(where: { $0.contentView === next }) { return "parked_workspace" }
+            current = next.superview
+        }
+        return view.isHiddenOrHasHiddenAncestor ? "hidden" : "unplaced"
+    }
 
     private static func role(of child: NSWindow, layer: WindowOverlayLayer) -> String {
         if child === layer.overlayPanel { return "overlay" }

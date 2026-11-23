@@ -10,8 +10,10 @@ public import AppKit
 /// stays key: a modal overlay takes the window's first responder (through the window's gate), Tab cycles inside it
 /// (`ShellWindow.selectNextKeyView`), and its key equivalents go only to it (`ShellWindow.performKeyEquivalent`).
 extension WindowOverlayHost {
-    /// Whether this host puts its overlays on the window itself (in-tree pages on, never the app host).
-    public var usesWindowBackend: Bool { !isAppHost && InTreePages.shared.isActive }
+    /// Whether this host puts its overlays on the window itself (in-tree pages on, never the app host), unless a page
+    /// window is on screen over the window (``servesPageWindows``): views on the window would draw and take the mouse
+    /// under it, so the overlays go back to the panel above it.
+    public var usesWindowBackend: Bool { !isAppHost && InTreePages.shared.isActive && !servesPageWindows }
 
     /// Whether the overlay root is on the window's content view now.
     public var isRootInWindow: Bool {
