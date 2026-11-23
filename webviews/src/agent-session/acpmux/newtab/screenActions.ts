@@ -69,6 +69,9 @@ export function newTabScreenActions(deps: {
           settleFailed(isStartCancelled(error) || !current() ? startCancelled() : error);
         const start = (folder?: string) => {
           if (!current()) return reject(startCancelled());
+          // Asked again when the chat starts: a folder question or a new worktree can take long enough for
+          // Computer Use to change, so the page keeps the prompt and says why (CMUX-682).
+          if (text && deps.holdsSend?.(text, !peer && deps.startsHere?.() !== false)) return reject(startCancelled());
           // In the folder the chat starts in, which the next New Tab there reads; a chat on another
           // machine names that machine's agents, so this Mac's new chats keep theirs.
           if (!peer) remember(harness, model, folder);

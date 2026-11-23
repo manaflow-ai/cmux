@@ -58,7 +58,7 @@ export function toolWords(text: string): { start: number; end: number; href: str
   if (!text.includes("@")) return [];
   const out: { start: number; end: number; href: string }[] = [];
   for (const match of text.matchAll(
-    /(^|[\s\uFFFC])@(computer-use|browser-use)(?=[\s\uFFFC]|$|[,;:!?)]|\.(?:\s|$))/gi,
+    /(^|[\s\uFFFC(["'])@(computer-use|browser-use)(?=[\s\uFFFC]|$|[,;:!?)\]"']|\.(?:\s|$))/gi,
   )) {
     const start = match.index! + match[1]!.length;
     out.push({ start, end: start + 1 + match[2]!.length, href: TOOL_HREF_PREFIX + match[2]!.toLowerCase() });
@@ -96,22 +96,26 @@ export function toolMentionsIn(text: string): readonly ToolMentionId[] {
   const found = new Set<string>();
   // Markdown's emphasis around it (`**@computer-use**`) is no part of the word, the badge drew it the
   // same; emphasis then more letters (`@computer-use_notes`) is another word.
+  // A bracket or quote before it (`(@computer-use)`) is punctuation, not part of another word. The same
+  // rule as acpmux's tool_mentions.rs, which writes the agent's note: tool_mention_cases.json holds both.
   for (const match of prose.matchAll(
-    /(^|[\s\uFFFC])[*_~]*[@$](computer-use|browser-use)(?=[*_~]*(?:[\s\uFFFC]|$|[,;:!?)]|\.(?:\s|$)))/gi,
+    /(^|[\s\uFFFC(["'])[*_~]*[@$](computer-use|browser-use)(?=[*_~]*(?:[\s\uFFFC]|$|[,;:!?)\]"']|\.(?:\s|$)))/gi,
   ))
     found.add(match[2]!.toLowerCase());
   return TOOL_MENTIONS.filter((tool) => found.has(tool.id)).map((tool) => tool.id);
 }
 
 /// `text` with its code blanked (line breaks kept), as CommonMark reads it: fenced blocks (a line of 3+
-/// backticks or tildes, closed by a line of the same mark at least as long, or the end), then inline
-/// code spans (slashCommands.ts codeSpans, `` ` `` runs too). One pass each, whatever the draft's size.
+/// backticks or tildes, also inside a blockquote or a list item, closed by a line of the same mark at
+/// least as long, or the end), then inline code spans (slashCommands.ts codeSpans, `` ` `` runs too).
+/// One pass each, whatever the draft's size.
 function withoutCode(text: string): string {
   const lines = text.split("\n");
   let fence: { mark: string; length: number } | undefined;
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index]!;
-    const run = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+    // A blockquote's `>` marks and a list item's indent come before the fence's own mark.
+    const run = /^(?:[ \t]*>)*[ \t]*(`{3,}|~{3,})/.exec(line);
     if (fence) {
       lines[index] = " ".repeat(line.length);
       if (run && run[1]![0] === fence.mark && run[1]!.length >= fence.length && !line.slice(run[0].length).trim())

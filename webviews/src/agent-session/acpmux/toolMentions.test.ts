@@ -1,7 +1,9 @@
 // The composer's built-in @ tools (CMUX-682): which tools a sent message names, and the note the
 // agent gets for them.
 import { expect, test } from "bun:test";
+import sharedCases from "../../../../cmux-tui/crates/acpmux/src/tool_mention_cases.json";
 import { returnPicks, slashMatches, slashTrigger, type SlashCommand } from "./slashCommands";
+import { withToolCommands } from "./composer/extensionCommands";
 import {
   toolMentionContext,
   toolMentionsFor,
@@ -106,4 +108,23 @@ test("Return picks a $ row only once the arrows chose it: a price or a shell var
   // A `/word` keeps its rule: the typed start of a name picks it.
   const slash = first("open it with /comp");
   expect(returnPicks(slash.match, slash.trigger.query, false, slash.trigger.mark)).toBe(true);
+});
+
+// The cases acpmux's tool_mentions.rs reads too (tool_mention_cases.json): one list, so the gate, the
+// badges and the agent's note agree on what names a tool.
+
+test("every shared case names the tools acpmux's note names", () => {
+  for (const { text, tools } of sharedCases as { text: string; tools: string[] }[])
+    expect(`${text} -> ${toolMentionsIn(text).join(",")}`).toBe(`${text} -> ${tools.join(",")}`);
+});
+
+test("an agent command named like a tool keeps both rows: the tool row writes its @ word", () => {
+  const tools = toolSlashCommands((key) => key);
+  const agent: SlashCommand = { name: "computer-use", description: "", source: "agent" };
+  const merged = withToolCommands([agent], tools);
+  expect(merged.map((command) => [command.name, command.source, command.insert])).toEqual([
+    ["computer-use", "agent", undefined],
+    ["computer-use", "extension", "@computer-use "],
+    ["browser-use", "extension", "@browser-use "],
+  ]);
 });

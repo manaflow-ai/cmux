@@ -135,7 +135,7 @@ import { focusRoute } from "../../../ui/focusRoute";
 import { HelpSheet } from "../HelpSheet";
 import { SlashMenu } from "../SlashMenu";
 import { ComposerListAnchor, ComposerListLayer } from "../backdropLayer";
-import { mentionQuery } from "../mentionMenuModel";
+import { markdownOffset, mentionQuery } from "../mentionMenuModel";
 import { toolMentionsIn } from "../toolMentions";
 import {
   applyCommand,
@@ -161,6 +161,7 @@ import { elementBox, reportToastAvoidance } from "../toastAvoidance";
 import { githubIssueLink } from "../../../githubReferences";
 import { reportInputReadyWhenFocused } from "./inputReady";
 import { rememberNewChatPlace } from "../lastNewChatPlace";
+import type { ComputerUsePlace } from "../computerUse/computerUseState";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 /// Where a browser pick of the page opens: by default it navigates the page's own tab; `beside` asks for a
@@ -202,6 +203,12 @@ export type NewTabScreenActions = NewTabCommandActions & {
   onSearch(text: string, how?: NewTabOpenHow): void;
   /// Enter in shell mode (`!` first): the page becomes a chat in its folder that runs `command`.
   onShell(command: string): void;
+  /// True: `text` may not start a chat in `place` now (`@computer-use` while Computer Use is not ready
+  /// on this Mac, or a chat off this Mac: App.tsx `holdsForComputerUseSetup`); the pane opened setup or
+  /// said why. Asked on the Return, Cmd-Return or Ask row's own key press or click, before anything
+  /// waits (files being read, the handshake) or makes something (a project, a worktree), so that
+  /// gesture still opens the setup window and the prompt stays (CMUX-682).
+  holdsSend?(text: string, place: ComputerUsePlace): boolean;
   /// `here`: an Open Tabs pick, moved into this page's pane (cx-jfo7).
   onJump(target: "tab" | "workspace" | "here" | "closed", id: string): void;
   /// A Commands palette action row (Cmd-Shift-P's actions, `omnibar.actions`): the host runs it as
@@ -461,6 +468,8 @@ export function NewTabScreen(props: Props) {
   const [commandDismissed, setCommandDismissed] = useState<string>();
   /// The `/word` the field's caret ends (MarkdownField `onSlash`), as in the chat composer.
   const [commandTrigger, setCommandTrigger] = useState<SlashTrigger>();
+  /// Where the field's caret is (its last `onChange` or `onCaret`), for the `@word` it ends.
+  const [fieldCaret, setFieldCaret] = useState<number>();
   const requestedCommands = useRef<string | undefined>(undefined);
   // The location stays a suggestion until edited: no rows for it.
   const [touched, setTouched] = useState(Boolean(carried?.text));
@@ -857,6 +866,8 @@ export function NewTabScreen(props: Props) {
   };
   /// False only when a Sandboxed send started nothing, so the caller's one-shot guards stay open.
   const askChat = (agent: string, prompt: string, cwd?: string, model?: string): boolean | void => {
+    // Held for Computer Use before anything starts (an Ask row's click too): the prompt stays.
+    if (prompt && holdsSend(prompt)) return false;
     // A Codex skill typed or picked as `/name` goes as `/$name` (slashCommands.ts withSkillDollars),
     // read against the list of the harness that asks: an Ask row for another harness has none.
     const listed = snapshot.summary?.sessionId ? snapshot.summary.harness : harness;
@@ -974,6 +985,15 @@ export function NewTabScreen(props: Props) {
       : undefined
     : machine?.peer;
   const remoteTarget = environment ? environment.kind === "ssh" : Boolean(machine?.peer);
+  /// Where a chat this page starts runs, for `@computer-use` (`holdsSend`): only one on this Mac has
+  /// cmux's Computer Use tools.
+  const computerUsePlace = (): ComputerUsePlace =>
+    props.runMode?.mode === "cloud" && props.onCloud
+      ? "cloud"
+      : (props.runMode?.mode === "sandboxed" && props.onSandbox) || remoteTarget || elsewhere.current
+        ? "machine"
+        : "here";
+  const holdsSend = (prompt: string) => props.holdsSend?.(prompt, computerUsePlace()) === true;
   // Match screenActions: an inherited tab folder is not the host's chat start folder.
   const localChatCwd = none ? undefined : project && project !== props.cwd ? project : props.startCwd;
   const environmentCwd = environment?.kind === "local" ? (environment.folder ?? props.startCwd) : environment?.folder;
@@ -1025,7 +1045,10 @@ export function NewTabScreen(props: Props) {
   // An `@word` the text ends in lists the plugins, as Codex's @ does (Lucas 2026-11-21: "@ is for
   // plugins"): computer use, browser use (toolMentions.ts) and extension commands, every row that
   // writes its own text. In the same menu as `/`, never in the address rows below the field.
-  const atWord = shell || commandAt || profilePick ? undefined : mentionQuery(text, text.length);
+  // The `@word` the caret ends (not the draft's end): `@comp please` with the caret after `@comp` lists
+  // Computer Use too (`fieldCaret`, the field's last report; none yet: the end).
+  const atCaret = fieldCaret === undefined ? text.length : Math.min(markdownOffset(text, fieldCaret), text.length);
+  const atWord = shell || commandAt || profilePick ? undefined : mentionQuery(text, atCaret);
   const atMatches = atWord ? matchCommands((snapshot.commands ?? []).filter(insertsText), atWord.query, false) : [];
   const atOpen = !slashOpen && atWord !== undefined && commandDismissed !== text && atMatches.length > 0;
   const commandsOpen = slashOpen || atOpen;
@@ -1046,9 +1069,14 @@ export function NewTabScreen(props: Props) {
     setCommandActive(0);
     // From the @ menu: its text over the `@word` the draft ends in.
     if (atOpen && atWord && insertsText(command)) {
-      setText(text.slice(0, atWord.start) + command.insert);
+      // Over the `@word` the caret ends; the text after it stays (one space between them).
+      const insert = command.insert ?? "";
+      const after = text.slice(atCaret).replace(/^ /, "");
+      setText(text.slice(0, atWord.start) + insert + after);
       // The field keeps focus while the menu is open (a row's press never takes it): only the caret moves.
-      requestAnimationFrame(() => field.current?.setCaret(field.current.plainText().length));
+      const caretAt = atWord.start + insert.length;
+      setFieldCaret(after ? caretAt : undefined);
+      requestAnimationFrame(() => field.current?.setCaret(after ? caretAt : field.current.plainText().length));
       return;
     }
     // A picked Codex skill goes as `/$name` even where a command shares its name (withSkillDollars).
@@ -1518,6 +1546,8 @@ export function NewTabScreen(props: Props) {
     }
     const prompt = typed.trim();
     if (command.intercept(prompt, harness, attachments.length, true)) return;
+    // Held for Computer Use before anything waits or spends the gesture: the prompt stays.
+    if (!shell && holdsSend(prompt)) return;
     // A pairing link (its room secret) is never searched, asked or opened: the host refuses it
     // with the address bar's word, and the page keeps the text.
     if (!shell && pairingLinkRefused(typed)) return props.onOpen(typed.trim());
@@ -1567,6 +1597,7 @@ export function NewTabScreen(props: Props) {
     const prompt = typed.trim();
     if (!prompt && attachments.length === 0) return;
     if (command.intercept(prompt, harness, attachments.length, true)) return;
+    if (holdsSend(prompt)) return;
     if (pairingLinkRefused(typed)) return props.onOpen(prompt);
     if (holdForAttachments(() => askNow.current())) return;
     if (command.intercept(prompt, harness, attachments.length)) return;
@@ -2525,7 +2556,9 @@ export function NewTabScreen(props: Props) {
                 onBeforeInput={(data, state) =>
                   !shell && state.paste && !state.composing ? pastedChips.take(data) : false
                 }
-                onChange={(value) => {
+                onCaret={setFieldCaret}
+                onChange={(value, caret) => {
+                  setFieldCaret(caret);
                   // The editor canonicalizes escaping while mounting; that is still the untouched
                   // location, not a typed draft or a reason to show suggestions or hold a web swap.
                   if (!fieldReady && field.current?.agentText(value) === originalLocation.current) {

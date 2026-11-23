@@ -87,7 +87,7 @@ import { newWorktree } from "../startFolderModel";
 import { LiveChatChoice } from "../LiveChatChoice";
 import { WatchBanner } from "../WatchBanner";
 import { HandoffReviewMessage } from "../handoff/ReviewMessage";
-import { withExtensionCommands } from "../composer/extensionCommands";
+import { withExtensionCommands, withToolCommands } from "../composer/extensionCommands";
 import { ReplayScreen } from "../replay/ReplayScreen";
 import { recordSteer, type SteerAct } from "../steerQueue/log";
 import { SteerQueue, type SteerActions } from "../steerQueue/SteerQueue";
@@ -826,6 +826,8 @@ export function drawPaneBody({
               {/* Setup keeps this page's draft and project, while its hidden input effects stop. */}
               <Activity mode={harnessesOpen ? "hidden" : "visible"}>
                 <NewTabScreen
+                  // `@computer-use` held on the send's own gesture, before the page waits or starts anything (CMUX-682).
+                  holdsSend={(text, place) => holdsForComputerUseSetup(text, true, place)}
                   onSetup={(resume) => {
                     setupContinuation.current = resume;
                     setHarnessesOpen(true);
@@ -986,7 +988,7 @@ export function drawPaneBody({
                       ? {
                           ...newTabSnapshot,
                           commands: withExtensionCommands(
-                            withExtensionCommands(pendingCommands ?? [], toolCommands),
+                            withToolCommands(pendingCommands ?? [], toolCommands),
                             extensionCommands,
                           ),
                         }
@@ -1128,7 +1130,13 @@ export function drawPaneBody({
               chips={registryChips ?? NewTabComposerChips}
               {...(newTab.lastAgent ? { lastAgent: newTab.lastAgent } : {})}
               // A terminal or browser tab opens at once; a chat waits for acpmux (cx-hnpxh).
-              onSubmit={newTabPageSubmit({ callNative, whenHandshaken, startChat: chatFromNewTab })}
+              onSubmit={newTabPageSubmit({
+                callNative,
+                whenHandshaken,
+                startChat: chatFromNewTab,
+                holdsSend: (text) =>
+                  holdsForComputerUseSetup(text, true, directClient.current?.startsOnSend ? "machine" : "here"),
+              })}
               onJump={(target, id) => void callNative("tab.jump", { target, id })}
               onOpenSession={selectSession}
               onShowAll={showAllChats}

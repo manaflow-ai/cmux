@@ -288,8 +288,24 @@ export function mentionItems({
       const indexes = text ? fuzzyIndices(text, entry.path) : undefined;
       return { kind: "folder", key: `folder:${entry.path}`, path: entry.path, ...matchRuns(entry.path, indexes) };
     });
+  // A short word lists only a file or folder it names exactly (`@go`, a root file `go`): specific
+  // enough, while a short word's partial matches would bury the plugins.
+  const exactly = (path: string) =>
+    (path.replace(/\/$/, "").split("/").pop() ?? "").toLowerCase() === text.toLowerCase();
   const paths = !wantsFiles
-    ? []
+    ? text
+      ? [
+          ...[...searchedFolders, ...recentFolders].filter((item) => item.kind === "folder" && exactly(item.path)),
+          ...allFiles
+            .filter((file) => exactly(file.path))
+            .map((file): MentionItem => ({
+              kind: "file",
+              key: `file:${file.path}`,
+              path: file.path,
+              ...matchRuns(file.path, file.matches),
+            })),
+        ]
+      : []
     : [
         ...(text ? [...searchedFolders, ...recentFolders] : [...recentFolders, ...searchedFolders]),
         ...allFiles.map((file): MentionItem => ({

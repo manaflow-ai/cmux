@@ -537,8 +537,14 @@ import { useWorktreeSetupStart } from "./worktreeSetup";
 import { NewTabFolderAsk } from "./NewTabFolderAsk";
 import { chiefOf, isTakenOver, managedBy, managerDrivingUntil, takeOverManaged } from "./managedBy";
 import { handoffStrings } from "./handoff/strings";
-import { useExtensionCommands, withExtensionCommands } from "./composer/extensionCommands";
-import { continueTargets, mergedCommands, type CmuxCommand, type CmuxCommandResult } from "./cmuxCommands";
+import { useExtensionCommands, withExtensionCommands, withToolCommands } from "./composer/extensionCommands";
+import {
+  CmuxCommandRefused,
+  continueTargets,
+  mergedCommands,
+  type CmuxCommand,
+  type CmuxCommandResult,
+} from "./cmuxCommands";
 import { handleCmuxCommand as runCmuxCommand } from "./pane/cmuxCommands";
 import { chatMenuItems } from "./pane/chatMenu";
 import { newChatRunsElsewhere } from "./customizeCommand";
@@ -3425,6 +3431,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ? ((owner: string, target: NonNullable<typeof shownSubagentTarget>) => (message: string) => {
           if (!restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession))
             return Promise.reject(new Error(translate("error.notOpen")));
+          // `@computer-use` relayed to a subagent is held as the chat's own send is (CMUX-682): the
+          // composer keeps the message, and setup opens on this key press when that helps.
+          const summary = snapshotRef.current?.summary;
+          const place: ComputerUsePlace =
+            summary?.hostKind === "cloud" ? "cloud" : summary?.host || summary?.peer ? "machine" : "here";
+          const gate = computerUseGate(message, computerUseState(), place);
+          if (gate !== "free" && holdsForComputerUseSetup(message, false, place))
+            return Promise.reject(new CmuxCommandRefused(translate(computerUseHoldText(gate).title)));
           // A steer only into a running turn (subagentRelaySteers), else a prompt of its own. A refusal
           // the chat keeps as a row of its own (Retry, Edit) stays there, never also back in this composer.
           // It settles once the chat took the message (`accepted`), not when the turn ends: from then the
@@ -6587,7 +6601,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const withCommands = {
       ...snapshot,
       commands: withExtensionCommands(
-        withExtensionCommands(mergedCommands(snapshot.commands, enabledCmuxActions), toolCommands),
+        withToolCommands(mergedCommands(snapshot.commands, enabledCmuxActions), toolCommands),
         extensionCommands,
       ),
       ...(keptStopping && { stopping: true as const }),
@@ -7196,6 +7210,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// gesture, with `start` handed to the tab it opens under a one-time token (commandPlace.ts). That
   /// tab's first Send is its own Cloud start. A tab that did not open drops the hand-off.
   const openCloudChatWith = (start: { prompt?: string; cwd?: string }): Promise<unknown> => {
+    // A Cloud chat has no Computer Use tools (#48541): `/side --on cloud @computer-use …` opens nothing,
+    // and the composer keeps the command with the reason (CMUX-682).
+    if (start.prompt && holdsForComputerUseSetup(start.prompt, false, "cloud"))
+      return Promise.reject(new CmuxCommandRefused(translate(computerUseHoldText("cloud").title)));
     const store = handoffStore();
     const handoff = handCloudStart(store, start, Date.now());
     return callNative("action.run", { id: "palette.newCloudChat", ...(handoff ? { handoff } : {}) }).catch(

@@ -1419,6 +1419,11 @@ export class AcpmuxDirectClient {
   }
   /// A prompt that was not sent, by its row: what Retry sends again.
   private failedPrompts = new Map<string, { input: string; attachments: ComposerAttachment[]; promptId?: string }>();
+  /// Asked at dispatch, after a send's files uploaded: a reason it may not go now (`@computer-use` while
+  /// Computer Use is not ready, CMUX-682), else undefined. The composer asked at the key press; the
+  /// state can change while files upload, so it is asked again here. Held, the prompt goes back to its
+  /// sender, as a refusal before acpmux took it does.
+  sendHold?: (text: string) => string | undefined;
   /// The host's store of prompts no agent has taken yet (unsentPrompts.ts), and what this page put
   /// there, by promptId. Never cleared by a chat switch: only an agent taking the prompt, Remove or
   /// Edit takes one out, so a relaunch draws every one again as its Not sent row.
@@ -10945,6 +10950,12 @@ export class AcpmuxDirectClient {
     return this.failedPrompts.size ? "composer.send-failed" : null;
   }
 
+  /// The text a failed row's Retry would send again, or undefined: read, not taken, so the Retry
+  /// can be held first (`@computer-use` while Computer Use is not ready, CMUX-682).
+  failedPromptText(rowId: string): string | undefined {
+    return this.failedPrompts.get(rowId)?.input;
+  }
+
   private async sendNow(
     input: string,
     attachments: ComposerAttachment[],
@@ -11303,6 +11314,10 @@ export class AcpmuxDirectClient {
     // row keeps its clock and says "Sending when ready"; only past the deadline does it fail below.
     try {
       if (emptyContinuation && !emptyContinuation()) throw staleContinuation();
+      const hold = this.sendHold?.(text);
+      // Its own code, not `transport.*`: the bubble says this reason (not refused or disabled, not set
+      // up, a chat off this Mac), which no transport code's fixed words could.
+      if (hold) throw Object.assign(new Error(hold), { code: COMPUTER_USE_HELD });
       const answer = await untilHostAnswers(
         () => {
           if (heldForHost) heldUntil = Date.now();
@@ -11392,7 +11407,8 @@ export class AcpmuxDirectClient {
             ...(inline ? { inlineParts: inline.parts } : {}),
           });
       }
-      const refused = typeof code === "string" && code.startsWith("transport.");
+      // A dispatch hold (`sendHold`) never reached the wire either.
+      const refused = (typeof code === "string" && code.startsWith("transport.")) || code === COMPUTER_USE_HELD;
       // acpmux holds every prompt while the folder's trust question is open (`trust_gate.rs`), and
       // a sender that holds its prompt (`accepted`) keeps every refused one: the prompt never
       // went, so it leaves no bubble, and the pane keeps it in (or puts it back in) the composer.
@@ -15791,6 +15807,9 @@ export class AcpmuxDirectClient {
 /// The newest chat-bound send tickets a client remembers (`boundSendTickets`); a send takes its own.
 /// A local dispatch fence proves this frame never reached the wire; held-send cleanup may
 /// therefore release its Cloud turn claim, unlike an ambiguous connection failure.
+/// A send `sendHold` kept back at dispatch (`@computer-use` while Computer Use is not ready, CMUX-682).
+const COMPUTER_USE_HELD = "computer_use_held";
+
 function staleContinuation(): Error & { code: string } {
   return Object.assign(new Error(translate("error.notOpen")), { code: "transport.continuation_changed" });
 }

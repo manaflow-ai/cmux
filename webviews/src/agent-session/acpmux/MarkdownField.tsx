@@ -37,7 +37,7 @@ import { mentionChipsPlugin } from "./composer/mentionChips";
 import { CMUX_LINK_ICONS, knownCmuxLink, subscribeCmuxLinks } from "./chips/cmuxLinkResolve";
 import { iconMaskUrl } from "./icons/iconMask";
 import { toolOfHref } from "./toolMentions";
-import { translate } from "./i18n";
+import { subscribeLanguage, translate } from "./i18n";
 import { subscribeIconFamily } from "./icons/iconPack";
 import { cmuxLinkLook } from "./chips/cmuxLinkLook.experiment";
 import { experimentArm } from "../../experiments/experiment";
@@ -86,9 +86,12 @@ function draftLinkTitles(): DeeplinkTitles {
     subscribe: (listener) => {
       const offLinks = subscribeCmuxLinks(listener);
       const offFamily = subscribeIconFamily(listener);
+      // A tool badge's name is in the page's language: a language change draws it again.
+      const offLanguage = subscribeLanguage(listener);
       return () => {
         offLinks();
         offFamily();
+        offLanguage();
       };
     },
     label: (info) => (look === "icon-title-host" && info.host ? `${info.title} · ${info.host}` : info.title),

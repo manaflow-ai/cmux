@@ -563,10 +563,11 @@ export function drawPaneComposer({
   // Where the composer's send runs, for `@computer-use` (CMUX-682): a chat off this Mac (a Cloud VM, a
   // Sandboxed run, a peer, an SSH host) has no Computer Use tools (acpmux gives a remote session no cmux
   // tools, #48541), so its send is held too, and the chat says so.
+  // A fresh chat on another machine has no summary yet: `startsElsewhere` (its connection's origin) says so.
   const computerUsePlace: ComputerUsePlace =
-    cloudPicked || sandboxing || snapshot.summary?.hostKind === "cloud"
+    cloudPicked || sandboxing || snapshot.summary?.hostKind === "cloud" || snapshot.startsOnCloud
       ? "cloud"
-      : snapshot.summary?.host || machinePeer || snapshot.summary?.peer
+      : snapshot.summary?.host || machinePeer || snapshot.summary?.peer || startsElsewhere
         ? "machine"
         : "here";
   return readOnlySubagent ? (
@@ -1282,6 +1283,10 @@ export function drawPaneComposer({
               return removed;
             }}
             onQueueChange={(promptId, edit) => {
+              // An edit that adds `@computer-use` while Computer Use is not ready is refused as a send is: the
+              // queued prompt keeps its old text and the editor keeps the edit (CMUX-682).
+              if (edit.op === "update" && holdsForComputerUseSetup(edit.text, false, computerUsePlace))
+                return Promise.resolve(false);
               // A held prompt's text and images change in the pane; nothing else applies to it.
               if (trustHeld.has(promptId)) {
                 trustHeld.edit(promptId, edit);

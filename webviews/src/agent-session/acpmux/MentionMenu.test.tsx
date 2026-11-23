@@ -312,3 +312,16 @@ test("a plugin leads a guest harness the same word names: `@c` is Computer Use f
   expect(keys).toEqual(["tool:computer-use", "harness:codex"]);
   expect(mentionSelection(mentionItems({ query: "c", files: [], harnesses: catalog }), undefined, false)).toBe(0);
 });
+
+test("a short word lists only a file or folder it names exactly, after the plugins it names", () => {
+  const files = [
+    { path: "go", matches: [0, 1] },
+    { path: "golang/notes.md", matches: [0, 1] },
+    { path: "src/gopher.ts", matches: [4, 5] },
+  ];
+  const keys = mentionItems({ query: "go", files }).map((item) => item.key);
+  expect(keys).toEqual(["file:go"]);
+  // A word that names nothing exactly lists no files (the picker stays for the plugins only).
+  expect(mentionItems({ query: "gol", files }).map((item) => item.key)).toEqual([]);
+  expect(mentionItems({ query: "bu", files }).map((item) => item.key)).toEqual(["tool:browser-use"]);
+});

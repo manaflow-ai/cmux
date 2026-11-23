@@ -1446,8 +1446,9 @@ function ComposerFrame({
   const mentionTyped = !open && !recalling && !facts.mentionDismissed ? facts.mention : undefined;
   const mentionWord = mentionTyped?.query;
   const extensionMentions = useExtensionMentions(mentionWord, mentionPrefixes);
-  // Only a specific word asks for files (mentionItems.ts mentionWantsFiles): `@b` lists the plugins.
-  const fileWord = mentionWord !== undefined && mentionWantsFiles(mentionWord) ? mentionWord : undefined;
+  // Any typed word asks for files; a short one lists only a file it names exactly (mentionItems.ts):
+  // `@b` lists the plugins, `@go` a root file `go`.
+  const fileWord = mentionWord?.trim() ? mentionWord : undefined;
   const mentionSearch = useMentionSearch(searchFiles, fileWord);
   const mentionFiles = mentionResults(mentionSearch);
   // Recent @ picks belong to this chat's folder on its machine, and only where its files are searched.
@@ -1473,7 +1474,12 @@ function ComposerFrame({
   );
   // A chat whose folder cannot be searched (a remote chat) opens the picker only on a matching
   // row; it never hints at a file search.
-  const mentionAt = searchFiles || mentions.length > 0 ? mentionTyped : undefined;
+  // A short word with no row opens nothing, so Return still sends: only a specific word holds the
+  // picker open while its files are on their way.
+  const mentionAt =
+    mentions.length > 0 || (searchFiles && mentionWord !== undefined && mentionWantsFiles(mentionWord))
+      ? mentionTyped
+      : undefined;
   // The word's files are still on their way: asked, or about to be once typing settles.
   const mentionPending =
     !!searchFiles && !!fileWord?.trim() && (mentionSearch.kind === "idle" || mentionSearch.kind === "searching");
@@ -2678,6 +2684,8 @@ function ComposerFrame({
       // earlier screenshot is still being read. Ordinary prompts retain Return's attachment wait.
       const owned =
         composerCommand(typedWords().trim(), snapshot.summary?.harness, attachments.length)?.kind === "cmux";
+      // Held for Computer Use on this key press, before a wait for files reserves its gesture (CMUX-682).
+      if (holdsSend?.(withoutDeadTokens(unwrapped()))) return;
       if (!owned && holdForAttachments(sendAndOpen)) return;
       sendAndOpen();
       return;

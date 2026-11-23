@@ -95,3 +95,17 @@ test("the send's own key press opens the setup page when setup or a build that c
   expect(holdOpensSetup("unavailable")).toBe(true);
   for (const hold of ["disabled", "cloud", "machine"] as const) expect(holdOpensSetup(hold)).toBe(false);
 });
+
+test("the pane's own WebKit host's script hook sets the state, as the page host's event does", async () => {
+  // This file runs with no DOM: the hook installs on a page's `window`, so load a fresh copy under one.
+  const scope = globalThis as { window?: Window };
+  const had = "window" in scope;
+  scope.window = {} as Window;
+  try {
+    const fresh = await import(`./computerUseState?hook=${Date.now()}`);
+    scope.window.cmuxAcpmuxComputerUseState?.("needs_setup");
+    expect(fresh.computerUseState()).toBe("needs_setup");
+  } finally {
+    if (!had) delete scope.window;
+  }
+});

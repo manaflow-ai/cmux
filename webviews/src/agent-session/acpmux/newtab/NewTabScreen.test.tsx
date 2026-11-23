@@ -889,8 +889,43 @@ test("a prompt that names a plugin lists only its Ask rows: no web search for it
   await typePrompt("open the settings app");
   expect(types()).toContain("search");
   await typePrompt("open the settings app with @computer-use ");
-  expect(types()).not.toContain("search");
-  expect(types().every((type) => type === "ask")).toBe(true);
+  // No web search row is left: the chip's own agent is no row (Return asks it), so the list is empty.
+  expect(types()).toEqual([]);
+});
+
+// CMUX-682: the hold runs on the Return or the Ask row's own key press or click, before the page
+// waits or starts anything, so that gesture can open the setup window; the prompt stays.
+test("Return or Cmd-Return on a prompt that names @computer-use is held on its own gesture and starts nothing", async () => {
+  const asks: unknown[][] = [];
+  const held: string[] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        onAsk={(...args) => void asks.push(args)}
+        holdsSend={(text, place) => {
+          held.push(`${place}: ${text}`);
+          return text.includes("@computer-use");
+        }}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+      />,
+    );
+  });
+  const field = await typePrompt("open Notes with @computer-use ");
+  await press(field, "Enter");
+  expect(held).toEqual(["here: open Notes with @computer-use"]);
+  expect(asks).toEqual([]);
+  expect(promptValue()).toContain("@computer-use");
+  // Cmd-Return asks whatever leads: held the same way.
+  await press(field, "Enter", { metaKey: true });
+  expect(held).toHaveLength(2);
+  expect(asks).toEqual([]);
+  expect(promptValue()).toContain("@computer-use");
 });
 
 test("Escape then Return on a plugin prompt never runs it as a command or a search", async () => {

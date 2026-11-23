@@ -881,6 +881,13 @@ export function paneSnapshotEffect({
   const heldRowPrompt = heldPrompts((intent) =>
     postNative<{ ticket?: string }>("transport.gesture", { intent }).then((reply) => reply?.ticket),
   );
+  /// Where `client`'s chat runs, for `@computer-use` (CMUX-682): only a chat on this Mac has cmux's
+  /// Computer Use tools. A chat on another machine that has not answered yet starts on its first send.
+  const chatPlace = (client: AcpmuxDirectClient): ComputerUsePlace => {
+    const shown = trustRouteSnapshot.current?.summary;
+    if (shown?.hostKind === "cloud") return "cloud";
+    return shown?.host || shown?.peer || client.startsOnSend ? "machine" : "here";
+  };
   const restorePrompt = (text: string, attachments: ComposerAttachment[]) => {
     if (composerHandle.current) composerHandle.current.restore(text, attachments);
     else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
@@ -2007,6 +2014,15 @@ export function paneSnapshotEffect({
         // A failure card acts on its run of prompts (`rowIds`, in order; sendFailure.ts), else on `rowId`.
         // Retry sends the run again as one prompt: one click is one gesture (direct.ts `retryPrompts`).
         "chat.retryPrompt": ({ rowId, rowIds }) => {
+          // Retry sends the text again: one that names `@computer-use` is held as a send is, now, whatever
+          // the state was when it first failed; the failure card stays (CMUX-682).
+          const retried = failedRowIds(rowId, rowIds)
+            .map((id) => client.failedPromptText(id) ?? "")
+            .join("\n\n");
+          const retryPlace = chatPlace(client);
+          const retryGate = computerUseGate(retried, computerUseState(), retryPlace);
+          if (retryGate !== "free" && holdsForComputerUseSetupRef.current(retried, false, retryPlace))
+            throw new CmuxCommandRefused(translate(computerUseHoldText(retryGate).title));
           // The retry belongs to the chat it was clicked in: a trust refusal goes to that chat's
           // question, whose Trust sends the run again (no second manual Retry).
           const owner: TrustOwner = {
@@ -2660,6 +2676,13 @@ export function paneSnapshotEffect({
       flushHeldModePick();
       // A pending chat's access chip asks this client the mode acpmux starts it in.
       setStartModeSource((harness, cwd) => client.startMode(harness, cwd));
+      // Asked again at dispatch, after a send's uploads (direct.ts `sendHold`, CMUX-682).
+      client.sendHold = (text) => {
+        const place = chatPlace(client);
+        const gate = computerUseGate(text, computerUseState(), place);
+        if (gate === "free" || !holdsForComputerUseSetupRef.current(text, false, place)) return undefined;
+        return translate(computerUseHoldText(gate).title);
+      };
       acpmuxPerf.markAgent("composerReady");
       client.snapshot();
       void client.warmRecentProjects();
@@ -2675,7 +2698,14 @@ export function paneSnapshotEffect({
       // the prompt waits in the composer instead of vanishing.
       const prompt = pendingPrompt;
       const attachments = pendingAttachments ?? [];
-      const hasPrompt = Boolean(prompt || attachments.length);
+      // A seeded prompt that names `@computer-use` while Computer Use is not ready on this Mac (or for a
+      // chat on another machine, which has none) goes nowhere: it waits in the composer, and the chat says
+      // why (CMUX-682). The native New Tab and a palette prompt seed one that would go by itself.
+      const heldForComputerUse =
+        !!prompt &&
+        holdsForComputerUseSetupRef.current(prompt, false, host.peer || client.startsOnSend ? "machine" : "here");
+      if (heldForComputerUse) restorePrompt(prompt, attachments);
+      const hasPrompt = !heldForComputerUse && Boolean(prompt || attachments.length);
       const harness = pendingHarness;
       const model = pendingModel;
       // The picker's effort with its model (a Cloud start), held under its kind's id (heldOptions.ts).
