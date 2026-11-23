@@ -587,6 +587,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         guard workspaceTab(id) != nil else { return }
         // verify/e2e: the touch that switches tabs (the rig's tab_switch t0).
         ConnectTimeline.shared.event("tab_activate", detail: id)
+        if id != activeTabID { snapshotPage(activeTabID) }
         selectedTabID = id
         store.noteOpened(tabID: id, in: workspaceID)
         if heldTranscriptTab != nil { holdActiveTranscript(true) }
@@ -1286,9 +1287,18 @@ public final class WorkspaceTabsSource: TabsDataSource {
         let inactive = (workspace?.tabs ?? []).filter { $0.kind == .terminal && $0.id != activeTabID }
         if !inactive.isEmpty { terminal.overviewWillAppear(inactive: inactive) }
         guard let id = activeTabID else { return }
-        if let tab = workspaceTab(id), tab.kind == .browser { browser(tab).takeSnapshot() }
-        if let tab = workspaceTab(id), tab.kind == .simulator { simulator(tab)?.takeSnapshot() }
+        snapshotPage(id)
         if let tab = workspaceTab(id), tab.kind == .terminal { terminal.overviewWillAppear(active: tab) }
+    }
+
+    /// A browser or simulator page takes the picture its card shows while it is still on screen:
+    /// when the grid opens on it, and when a swipe or tap leaves it for another tab. Taken only at
+    /// the grid's opening, a page left by a swipe kept the blank globe (or the picture of an
+    /// older visit) on its card, since an off-screen web view takes no snapshot.
+    func snapshotPage(_ id: String?) {
+        guard let id, let tab = workspaceTab(id) else { return }
+        if tab.kind == .browser { browser(tab).takeSnapshot() }
+        if tab.kind == .simulator { simulator(tab)?.takeSnapshot() }
     }
 
     public func overviewVisibilityChanged(_ visible: Bool) {
