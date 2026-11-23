@@ -270,6 +270,7 @@ pub fn registry() -> Vec<MethodDecl> {
         keyed::<params::BookmarkSetParams>(method::MUX_BOOKMARK_SET, Request),
         keyed::<params::MemoryResolveParams>(method::MUX_MEMORY_RESOLVE, Request),
         keyed::<params::PromptCoachParams>(method::MUX_PROMPT_COACH, Request),
+        keyed::<params::StatusLineParams>(method::MUX_STATUS_LINE, Request),
         untyped(method::MUX_PROMPT_WITHDRAW, Request),
         untyped(method::MUX_INBOX_DIGEST, Request),
         untyped(method::MUX_SEND_QUEUE, Request),

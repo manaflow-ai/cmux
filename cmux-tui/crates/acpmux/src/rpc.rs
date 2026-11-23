@@ -706,6 +706,9 @@ pub mod method {
     pub const MUX_MEMORY_RESOLVE: &str = "_acpmux/memory_resolve";
     /// The rewrite of a chat's prompt coach offer, made once (`server/prompt_coach.rs`).
     pub const MUX_PROMPT_COACH: &str = "_acpmux/prompt_coach";
+    /// The person's own status line under a chat's prompt, from the command the settings name
+    /// (`server/status_line.rs`, `status_line.rs`).
+    pub const MUX_STATUS_LINE: &str = "_acpmux/status_line";
     pub const MUX_ASK: &str = "_acpmux/ask";
     /// A side session about a chat (`/btw`, `hub/btw.rs`): read-only, on a
     /// cheap model, sent the question; answers with its session id at once.

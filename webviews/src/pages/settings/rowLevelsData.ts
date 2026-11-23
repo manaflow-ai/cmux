@@ -316,6 +316,7 @@ export const ROW_LEVELS: {
     "agentPane.display.harnessPlacement": "hidden",
     "agentPane.dictationSource": "more",
     "agentPane.dictationShortcut": "more",
+    "agentPane.statusLine.command": "more",
     "agentPane.attachmentView": "more",
     "agentPane.scrollToBottomOnSend": "more",
     "agentPane.editedFiles.maxRows": "hidden",

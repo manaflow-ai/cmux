@@ -17,6 +17,9 @@ extension AgentPaneComposerSetting {
     /// `agentPane.dictationShortcut`: The chord the mic sends for an app source, such as ctrl+opt+space, when the person bound the app to one other than its default; empty uses the app's. AgentPaneDictationShortcut parses it.
     public nonisolated static let dictationShortcutPath = ["agentPane", "dictationShortcut"]
     public nonisolated static let dictationShortcutDefault = ""
+    /// `agentPane.statusLine.command`: A shell command acpmux runs for a chat's own status line, as Claude Code's statusLine: the chat's session JSON (session_id, cwd, model, workspace, mode, ...) on its stdin; the first line of its stdout shows under the prompt (ComposerStatusLine.tsx), within 2 s and 200 characters (cmux-tui acpmux status_line.rs). Empty runs nothing and shows nothing. Read by acpmux from this file, never sent by the page.
+    public nonisolated static let commandPath = ["agentPane", "statusLine", "command"]
+    public nonisolated static let commandDefault = ""
     /// `agentPane.spellChecking`.
     public nonisolated static let spellCheckingPath = ["agentPane", "spellChecking"]
     public nonisolated static let spellCheckingDefault = false
@@ -108,6 +111,16 @@ nonisolated enum AgentPaneComposerSettingsSchema {
                 kind: .text,
                 default: .string(AgentPaneComposerSetting.dictationShortcutDefault),
                 keywords: ["dictation", "shortcut", "hotkey", "key", "chatgpt", "claude", "gemini", "wispr", "flow", "superwhisper"]
+            ),
+            SettingDescriptor(
+                AgentPaneComposerSetting.commandPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.statusLine.command", "Status Line Command"),
+                help: SettingsText.keyed("settings.agentPane.statusLine.command.help", "A command whose first line of output shows under the message box. It gets the chat's details as JSON on stdin. Empty shows nothing."),
+                kind: .text,
+                default: .string(AgentPaneComposerSetting.commandDefault),
+                keywords: ["status line", "statusline", "status bar", "command", "script", "prompt", "composer", "footer", "claude code"]
             ),
             SettingDescriptor(
                 AgentPaneComposerSetting.spellCheckingPath,

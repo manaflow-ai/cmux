@@ -235,6 +235,10 @@ nonisolated enum AcpmuxPaneMethods {
         // small-model call that rewrites a chat in the pane's scope's own prompt into a `coach`
         // record. It sends the chat nothing and runs no turn, so no gesture.
         "_acpmux/prompt_coach",
+        // The person's own status line under the prompt (ComposerStatusLine.tsx; acpmux
+        // server/status_line.rs): acpmux runs the command the person's settings file names, never
+        // one the page sends, for a chat in the pane's scope. It sends the chat nothing, so no gesture.
+        "_acpmux/status_line",
     ]
 
     /// Notifications (no `id`).
@@ -340,7 +344,7 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/plan/build", "_acpmux/plan/compare", "_acpmux/plan/keep",
         "_acpmux/race/start", "_acpmux/race/get", "_acpmux/race/list", "_acpmux/race/cancel", "_acpmux/race/stats",
         "_acpmux/run_elsewhere/plan", "_acpmux/run_elsewhere/start", "_acpmux/bg/output", "_acpmux/bg/stop",
-        "_acpmux/cold_archive", "_acpmux/prompt_coach",
+        "_acpmux/cold_archive", "_acpmux/prompt_coach", "_acpmux/status_line",
     ]
 
     /// Params beside `sessionId` that name a session, which must be in the pane's scope too: New

@@ -14,6 +14,8 @@ extension SettingsSchema {
         "cloud.newWorkspacesInCloud": .privacy, "cloud.newWorkspaceFolder": .privacy,
         // The key chord the dictation mic posts to another app: only the person picks what cmux types into other apps.
         "agentPane.dictationShortcut": .userOnly,
+        // The status line command runs in the daemon for every chat the person opens: only the person picks what runs there, as with a terminal's URL command.
+        "agentPane.statusLine.command": .userOnly,
         // Whether an agent starts Cloud machines and sessions with no Start card: only the person delegates it.
         "cloud.agentsStartWithoutAsking": .userOnly,
         // Turn checkpoints save the person's whole Cloud machine to their snapshot storage after every turn: only the person turns that on.
