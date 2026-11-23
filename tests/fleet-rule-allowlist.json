@@ -41,6 +41,7 @@
     "cmux-tui/vendor/smoltcp/README.md": {"count": 1, "reason": "safe: vendored upstream smoltcp README; its TAP setup example for a person's own machine runs nowhere here"},
     ".github/workflows/cmux-next-frame-pacing.yml": {"count": 1, "reason": "safe: the pattern is this job's own RUNNER_TEMP/frame-pacing path"},
     "scripts/measure/launch-ready.sh": {"count": 1, "reason": "safe: the PIDs are processes whose command line is under this run's own output folder ($out/, the app copies it made), so it cannot match another run's or person's process"},
+    "scripts/measure/firstexec-study.sh": {"count": 4, "reason": "safe: the PIDs are processes whose command line is under this run's own output folder ($out/, and each arm's app copy $OUT/copy-TAG/ that it made), so it cannot match another run's or person's process"},
     ".github/workflows/ios-e2e.yml": {"count": 1, "reason": "safe: the pattern is this run's own tagged or per-run app path, so it cannot match another run's or person's process"},
     "Native/OptChat/chief-kernel/src/prompt.rs": {"count": 6, "reason": "safe: prompt text telling the agent never to use pkill or killall (moved from optchat-chief/src/prompt.rs)"},
     "Native/OptChat/chief-kernel/tests/golden/cli-everything.txt": {"count": 3, "reason": "safe: golden rendered Chief prompt text telling the agent never to use pkill or killall"},

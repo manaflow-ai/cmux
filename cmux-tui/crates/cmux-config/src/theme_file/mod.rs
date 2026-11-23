@@ -46,8 +46,8 @@ pub const SETTING_KEY: &str = "appearance.themeFile";
 pub const SCHEMA_FILE_NAME: &str = ".schema.json";
 
 /// Keys a theme file reads that are not settings.
-pub const RESERVED_KEYS: [&str; 6] =
-    ["name", "description", "$schema", "colors", "ghostty", "density"];
+pub const RESERVED_KEYS: [&str; 7] =
+    ["name", "description", "$schema", "colors", "ghostty", "density", "slots"];
 /// Look keys that are no part of a look: the theme file itself, the star
 /// list and its rotation, per-machine and per-display maps, the sun location
 /// (where this Mac is), what each background mode last showed, the saved
@@ -91,9 +91,11 @@ const LOOK_PREFIXES: [&str; 8] = [
 /// Look keys outside those prefixes: the terminal font and the chat code font;
 /// the sidebar's shape, edges, text, group headers and buttons, and the sidebar
 /// look (`sidebar_look`); the tab strip's and titlebar's buttons and inactive
-/// tabs; pane corners; and the agent chat's text sizes, sender marks and Session
-/// Info. Keep in step with Swift `ThemeFileOverlay.lookKeys`.
-const LOOK_KEYS: [&str; 37] = [
+/// tabs; pane corners; the agent chat's text sizes, sender marks and Session
+/// Info; and the transcript look and its tokens
+/// (docs/cmux-next/transcript-customization.md). Keep in step with Swift
+/// `ThemeFileOverlay.lookKeys`.
+const LOOK_KEYS: [&str; 39] = [
     "terminal.fontFamily",
     "agentPane.display.code.family",
     "terminal.fontSize",
@@ -101,6 +103,8 @@ const LOOK_KEYS: [&str; 37] = [
     "sidebar.border",
     "sidebar.borderWidth",
     "sidebar.sectionLook",
+    "agentPane.display.transcriptLook",
+    "agentPane.display.transcriptTokens",
     "sidebar.look",
     "sidebar.density",
     "sidebar.textSize",

@@ -149,6 +149,30 @@ import Testing
                 "the shown pointer never reaches the real one")
     }
 
+    @Test func aResumeEasesTheClockUpFromStillInsteadOfJumpingToFullSpeed() {
+        let h = make(.shader(.field))
+        defer { h.close() }
+        let view = h.shader
+        view.resumed()
+        let start = view.currentUniforms.time
+        view.advance(by: 1 / 30)
+        let first = view.currentUniforms.time - start
+        #expect(first > 0 && first < Float(1.0 / 30) * 0.01, "a resume starts the clock at full speed")
+        var steps: [Float] = []
+        for _ in 0..<Int(BackdropShaderView.resumeRampSeconds * 30) {
+            let before = view.currentUniforms.time
+            view.advance(by: 1 / 30)
+            steps.append(view.currentUniforms.time - before)
+        }
+        #expect(zip(steps, steps.dropFirst()).allSatisfy { $1 >= $0 - 1e-5 }, "the clock slows down during a resume")
+        let before = view.currentUniforms.time
+        view.advance(by: 1 / 30)
+        #expect(abs(view.currentUniforms.time - before - Float(1.0 / 30)) < 1e-4, "the clock never reaches full speed")
+        let total = view.currentUniforms.time - start
+        let ramp = Float(BackdropShaderView.resumeRampSeconds)
+        #expect(abs(total - (ramp / 2 + Float(2.0 / 30))) < 0.02, "the eased clock does not resume where it held")
+    }
+
     @Test func clicksSendRingsAndTheOldestIsReplaced() {
         let h = make(.shader(.ripples))
         defer { h.close() }

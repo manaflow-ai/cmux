@@ -109,9 +109,16 @@ impl Hub {
 
     /// The harness is gone and its background subagents with it.
     pub(super) fn end_background_subagents(&self, session: &Session) {
-        session.subagents.lock().unwrap_or_else(|e| e.into_inner()).end_background();
+        let ended = {
+            let mut tree = session.subagents.lock().unwrap_or_else(|e| e.into_inner());
+            tree.end_background();
+            tree.take_orphans()
+        };
         // Each one it took down can be resumed from its transcript (`subagent_resume.rs`).
-        self.subagents_lost(session);
+        let lost: HashSet<String> = self.subagents_lost(session).into_iter().collect();
+        // Every other one that ran ends in the log too, or a client reads it running forever
+        // (`subagents::expiry`, `harness_exit`).
+        self.end_subagents(session, ended.into_iter().filter(|e| !lost.contains(&e.id)).collect());
         self.refresh_work_below(session);
         // Reports left for its subagents go to it now (`lane_report_subagents.rs`).
         self.subagent_notices_sweep(session);
@@ -137,6 +144,11 @@ impl Hub {
         if running_after != running_before {
             self.subagents_running(session, running_after);
         }
+        // What the log left running past a harness exit, or quiet past the bound, ends now
+        // (`subagents::expiry`).
+        let orphans = session.subagents.lock().unwrap_or_else(|e| e.into_inner()).take_orphans();
+        self.end_subagents(session, orphans);
+        self.sweep_aged_subagents(session, true);
         self.refresh_work_below(session);
     }
 
