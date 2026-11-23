@@ -66,15 +66,9 @@ impl Args {
 }
 
 fn write_lines(pack: &Pack, range: std::ops::Range<u64>) -> Result<()> {
-    let lines = pack.read_lines(range.clone())?;
     let mut out = std::io::stdout().lock();
-    for (i, l) in lines.iter().enumerate() {
-        out.write_all(l)?;
-        if pack.manifest.final_newline || range.start + (i as u64) + 1 < pack.manifest.lines {
-            out.write_all(b"\n")?;
-        }
-    }
-    Ok(())
+    pack.write_range(range, &mut out)?;
+    Ok(out.flush()?)
 }
 
 fn run() -> Result<()> {

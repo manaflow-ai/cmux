@@ -161,6 +161,45 @@ impl Pack {
         Ok(out)
     }
 
+    /// Writes the lines of `range` (cut to the log's end) to `out`, a newline after each but a
+    /// last line the log left unended. Segments are read, decompressed and put back together
+    /// side by side, so the whole log comes back in about the time of its largest segment.
+    pub fn write_range(&self, range: Range<u64>, out: &mut dyn std::io::Write) -> Result<()> {
+        let range = range.start..range.end.min(self.manifest.lines);
+        let segs: Vec<&Segment> = self.covering(&range).iter().collect();
+        // A few segments a core at a time: the whole log is never held decoded at once.
+        let group = std::thread::available_parallelism().map_or(1, usize::from).max(4);
+        for segs in segs.chunks(group) {
+            let events = par_map(segs, |s| self.events(s))?;
+            let parts: Vec<(&Segment, Events)> = segs.iter().copied().zip(events).collect();
+            self.load_blobs(&parts, &range)?;
+            let texts = par_map(&parts, |(s, e)| {
+                // The blob chunks this segment names, held here so no lock is taken a blob.
+                let mut held: HashMap<usize, Arc<Blobs>> = HashMap::new();
+                let mut blob = |n: u64, o: &mut Vec<u8>| {
+                    let seg = self.blob_segment(n)?;
+                    let b = match held.get(&seg) {
+                        Some(b) => b,
+                        None => held.entry(seg).or_insert(self.segment_blobs(seg)?),
+                    };
+                    b.get((n - self.manifest.segments[seg].blob) as usize, o)
+                };
+                let mut text = Vec::with_capacity(s.raw as usize);
+                for l in range.start.max(s.line)..range.end.min(s.line + s.lines) {
+                    e.line((l - s.line) as usize, &mut blob, &mut text)?;
+                    if self.manifest.final_newline || l + 1 < self.manifest.lines {
+                        text.push(b'\n');
+                    }
+                }
+                Ok(text)
+            })?;
+            for t in texts {
+                out.write_all(&t)?;
+            }
+        }
+        Ok(())
+    }
+
     /// The lines numbered in `lines` (ascending), each with its long strings left empty, so
     /// only the events chunks are read.
     pub fn skim_lines(&self, lines: &[u64]) -> Result<Vec<Vec<u8>>> {

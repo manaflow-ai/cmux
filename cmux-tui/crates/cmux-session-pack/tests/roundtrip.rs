@@ -65,6 +65,14 @@ fn every_byte_reads_back_and_ranges_match() {
         for (i, l) in got.iter().enumerate() {
             assert!(l == lines[a as usize + i], "line {}", a as usize + i);
         }
+        let mut text = Vec::new();
+        p.write_range(a..b, &mut text).unwrap();
+        let mut want = lines[a as usize..b as usize].join(&b'\n');
+        // The log's last line is torn: no newline ends it.
+        if (b as usize) < lines.len() {
+            want.push(b'\n');
+        }
+        assert!(text == want, "write_range {a}..{b}");
     }
     let (line, rec) = p.by_seq(901).unwrap().unwrap();
     assert_eq!(line, 901);
