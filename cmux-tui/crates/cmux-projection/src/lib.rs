@@ -10,6 +10,7 @@
 //! commit's tree and the bytes from the host's own git object store, so a checkout costs one tree
 //! listing and writes no files.
 
+pub mod away;
 pub mod git;
 #[cfg(unix)]
 pub mod git_swap;
@@ -24,6 +25,8 @@ pub mod reap;
 pub mod revision;
 #[cfg(unix)]
 pub mod state;
+pub mod store_fetch;
+pub mod upload;
 #[cfg(target_os = "linux")]
 pub mod upper;
 pub mod way_back;

@@ -20,6 +20,7 @@ import { AppIcon, Badge, Switch } from "./parts";
 import { SourceLink } from "./SourceLink";
 import type { AppsStore } from "./store";
 import type { AppContribution, AppDetail, CatalogApp, ScopeRequest } from "./types";
+import { UseAsNewTab } from "./UseAsNewTab";
 
 type ItemProps = { app: CatalogApp; store: AppsStore; strings: Strings };
 
@@ -161,6 +162,7 @@ export function ItemCard({
           {app.categories[0] && <Badge text={categoryLabel(app.categories[0], t)} />}
           <StateBadge app={app} strings={strings} />
           <span className="apps-card-actions">
+            {app.installed && <UseAsNewTab app={app} strings={strings} />}
             <ItemAction app={app} store={store} strings={strings} />
           </span>
         </footer>

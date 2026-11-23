@@ -57,6 +57,8 @@ export interface WireListing extends WireGitSource {
   categories: string[];
   keywords?: string[];
   hide_only: boolean;
+  /** `cmux.newtab/1`: the app draws on the New Tab page; absent from an older owner. */
+  new_tab?: boolean;
   /** Absent from an owner older than shelves. */
   shelf?: AppShelf;
   install: WireInstallState | null;
@@ -87,6 +89,7 @@ export interface WireInstalledApp extends WireGitSource {
   name: string;
   tier: AppTier;
   hide_only: boolean;
+  new_tab?: boolean;
   state: WireInstallState;
   grants: unknown[];
   /** The deployed instance; null or absent for an app with none. */
@@ -137,6 +140,7 @@ export function fromListing(listing: WireListing): CatalogApp {
     hidden: listing.install?.hidden,
     hide_only: listing.hide_only,
     ...gitSourceFrom(listing),
+    new_tab: listing.new_tab === true,
     shelf: listing.shelf ?? "store",
     failed: typeof listing.install?.failure === "string" && listing.install.failure.trim() !== "",
   };
@@ -217,6 +221,7 @@ export function fromInstalled(row: WireInstalledApp): InstalledApp {
     source: row.state.source,
     tier: row.tier,
     hide_only: row.hide_only,
+    new_tab: row.new_tab === true,
     update: row.state.update ?? undefined,
     failure: row.state.failure ?? undefined,
     instance: instanceFrom(row.instance),
