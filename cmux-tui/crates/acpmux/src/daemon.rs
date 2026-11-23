@@ -261,6 +261,10 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // Opt-in usage patterns (cmux-usage-patterns): counts nothing until the person turns on
     // `diagnostics.usagePatterns`. Counts and kinds only, never prompt or tool text.
     let _ = cmux_usage_patterns::install("acpmux");
+    // Opt-in team usage sharing (cmux-usage-share): records nothing and sends nothing until the
+    // person turns on `diagnostics.usageSharing`. One record per turn: counts, times and hashed
+    // ids, never prompt, tool or file text.
+    let _ = cmux_usage_share::install(&home(), Some(crate::hand::pair::hostname()));
     // Before the store, the sockets and any agent: launchd's soft limit is 256.
     #[cfg(unix)]
     open_file_limit::raise();
@@ -346,6 +350,22 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     let startup_home_gone =
         tokio::spawn(home_watch::watch(owned_home.clone(), None, &home(), &socket_path()));
     let _startup_home_watch = AbortOnDrop(startup_home_gone.abort_handle());
+    // Forwards a dead acpmux process left open (killed before its drop ran): ended by their
+    // recorded owner, never found by name (`ssh_forward_owners.rs`). One pass, off the workers.
+    {
+        let ledger = crate::ssh_forward_owners::ledger_dir(&home());
+        tokio::task::spawn_blocking(move || {
+            let reaped =
+                crate::ssh_forward_owners::reap_recorded(std::ffi::OsStr::new("ssh"), &ledger);
+            if reaped.ended > 0 {
+                tracing::info!(
+                    ended = reaped.ended,
+                    kept = reaped.kept,
+                    "ended leftover ssh forwards"
+                );
+            }
+        });
+    }
     // Gone already (removed between taking the lock and here): stop before the startup makes
     // anything there. A relative home is never watched (it reads as missing from the home cwd),
     // and there is no watch off Unix (`Owned::now` is always `None` there).
@@ -758,6 +778,9 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     hub.start_harness_checks();
     // Uploads past their age cap (`hub/file_uploads.rs`).
     hub.start_upload_sweep();
+    // Idle chats off this machine while it stays over budget: only with `autoEvacuate.enabled`
+    // (off by default); off runs no timer (`hub/auto_evacuate.rs`).
+    hub.start_auto_evacuate().await;
     // The host's sender token, which our own tools present to be named verified
     // (`sender_token.rs`): made once, kept across restarts. Without it no send is verified by it,
     // as before, so a failure is only logged.
@@ -1088,6 +1111,9 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     });
     #[cfg(target_os = "linux")]
     tokio::spawn(cloud_handoff::handoff_loop(hub.clone()));
+    // Opt-in team usage sharing's uploads (`server/chats/team_audit.rs`); idle while it is off.
+    let _usage_upload =
+        hub.scope.spawn_until_cancelled("usage-share-upload", crate::server::usage_upload_loop());
     #[cfg(target_os = "linux")]
     tokio::spawn(cloud_activity::activity_loop(hub.clone()));
     // An update that moves this executable away swaps to the installed build, make-before-break
