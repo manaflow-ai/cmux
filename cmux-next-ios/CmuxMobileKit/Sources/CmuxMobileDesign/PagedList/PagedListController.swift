@@ -739,14 +739,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     private func restore(_ anchor: Anchor, shiftedBy shift: CGFloat = 0, deliberate: Bool = false) -> Anchor.Row? {
         let survivors = anchor.rows.dropFirst(anchor.straddles ? 1 : 0).compactMap { row in dataSource.indexPath(for: row.id).map { (row, $0.item) } }
         guard !survivors.isEmpty else { return nil }
-        func stable(_ i: Int) -> Bool {
-            guard survivors.count > 1 else { return true }
-            let j = i + 1 < survivors.count ? i + 1 : i - 1
-            let oldGap = survivors[j].0.index - survivors[i].0.index
-            let newGap = survivors[j].1 - survivors[i].1
-            return oldGap.signum() == newGap.signum() && abs(newGap - oldGap) <= max(2, abs(oldGap))
-        }
-        guard let pick = survivors.indices.first(where: stable).map({ survivors[$0].0 }),
+        guard let pick = PagedListAnchorPick.pick(survivors.map { PagedListAnchorPick.Row(oldIndex: $0.0.index, newIndex: $0.1) }).map({ survivors[$0].0 }),
               let now = windowY(of: pick.id, bottom: anchor.fromBottom) else { return nil }
         let delta = now - (pick.windowY + shift)
         note(pick.id == anchor.rows.first?.id ? "r" : "r'", delta)
