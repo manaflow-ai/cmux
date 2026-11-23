@@ -159,6 +159,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::GitWorktreeApply
         | ResourceOperation::GitWorktreeRemove
         | ResourceOperation::GitWorktreeSetup
+        | ResourceOperation::ProjectActionsList
         | ResourceOperation::GitStatus
         | ResourceOperation::DiffCommentsList
         | ResourceOperation::DiffCommentsSave
