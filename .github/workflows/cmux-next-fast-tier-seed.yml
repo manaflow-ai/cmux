@@ -87,6 +87,66 @@ jobs:
             --endpoint-url "$CI_CACHE_R2_ENDPOINT" --bucket "$CI_CACHE_R2_BUCKET" \
             --pools "$SEED_POOLS" --inputs "$inputs" | tee -a "$GITHUB_OUTPUT"
 
+  # The ghostty-next git directory every init-submodule.sh caller restores before
+  # fetching. Freestyle runners read github.com at about 0.3-1 MB/s and the ~33 MB
+  # depth-1 pack outran the 120 s bound on all three attempts of 27 of 104 cargo
+  # fast tier jobs on 2026-11-23 (job 137511000146); with the pin cached they fetch
+  # nothing. A pin the bucket holds exits after one HEAD request.
+  ghostty-next-gitdir:
+    if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' }}
+    name: Seed the ghostty-next submodule cache
+    concurrency:
+      group: cmux-next-ghostty-next-gitdir-${{ github.ref }}
+      cancel-in-progress: false
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 20
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            .gitmodules
+            scripts/ci/init-submodule.sh
+            scripts/ci/r2-cache.sh
+            scripts/ci/lan_cache_fetch.py
+            scripts/ci/zig-tarball-r2.sh
+            scripts/ci/zig-tarballs.sha256
+            scripts/install-zig-ci.sh
+            scripts/ghostty-zig-version.sh
+            cmux-tui/build-support/notices/toolchains/toolchains.json
+            cmux-tui/bindings/zig/build.zig.zon
+          sparse-checkout-cone-mode: false
+
+      - name: Save the ghostty-next git directory at its pin
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+          INIT_SUBMODULE_CACHE_URL: ${{ env.CI_CACHE_R2_PUBLIC_URL }}
+          INIT_SUBMODULE_ATTEMPT_TIMEOUT: "600"
+        run: bash scripts/ci/init-submodule.sh --seed ghostty-next
+
+      # The verified Zig tarball, for runners with no Zig installed (Freestyle): the owned fleet reuses its
+      # installed Zig and never fills the actions/cache entry, so the daemon tests job restores this copy
+      # (scripts/ci/zig-tarball-r2.sh). A key the bucket holds exits after one HEAD request. The Zig version
+      # is ghostty-next's, so its work tree comes first (from the git directory saved just above).
+      - name: Save the verified Zig tarball
+        # A failed seed is only a miss for the readers; it never reds this workflow.
+        continue-on-error: true
+        timeout-minutes: 12
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+        run: |
+          set -euo pipefail
+          bash scripts/ci/init-submodule.sh ghostty-next
+          bash scripts/ci/zig-tarball-r2.sh seed "$RUNNER_TEMP/cmux-zig-tarballs"
+
   seed:
     needs: due
     if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && needs.due.outputs.pools != '' && needs.due.outputs.pools != '[]' }}
