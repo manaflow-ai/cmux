@@ -163,10 +163,10 @@ impl Hub {
     }
 }
 
-/// Whether `host` is this machine's name (never the "host" stand-in for an unusable one).
+/// Whether `host` is this machine's name on the mesh or its host name (never the "host"
+/// stand-in for an unusable one).
 pub(super) fn is_own_host(host: &str) -> bool {
-    let own = crate::pairing::machine_name();
-    own != "host" && host.eq_ignore_ascii_case(&own)
+    crate::pairing::is_this_machine(host)
 }
 
 #[cfg(test)]

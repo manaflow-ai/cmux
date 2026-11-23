@@ -918,8 +918,8 @@ impl Hub {
                 drop(guard);
                 return Err(e);
             }
-            let origin = std::env::var("CMUX_PLATFORM_ORIGIN")
-                .map_err(|_| RpcError::invalid_params("Cloud platform is not configured"))?;
+            let origin = cmux_cloud_client::backend::platform_origin_env()
+                .ok_or_else(|| RpcError::invalid_params("Cloud platform is not configured"))?;
             let scope = envelope.scope();
             let auth = Arc::new(
                 crate::cloud_rewind::EphemeralCapability::new(envelope.capability.clone())
