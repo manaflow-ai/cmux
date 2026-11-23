@@ -665,7 +665,7 @@ fn attach(
     let state = state_of(&line.name)?;
     let projected = mount(&line.name, manifest, &state, &at, digest)?;
     if let (Some(dir), Some(home)) = (state.parent(), std::env::var_os("HOME"))
-        && let Err(error) = git_stat::keep(dir, Path::new(&home), &at)
+        && let Err(error) = git_stat::keep(dir, Path::new(&home), &at, &state)
     {
         eprintln!("cmux-tui: projection {}: git settings: {error}", line.name);
     }
@@ -752,8 +752,27 @@ fn mount(
     )
     .map_err(|error| io("opening the projection", &format!("{error:#}")))?;
     let overlay = Arc::new(overlay);
+    // git's fsmonitor hook asks this socket what changed (`git_stat::fsmonitor`).
+    let socket = state.join(git_stat::SOCKET);
+    let serving = socket.as_os_str().len() < git_stat::SOCKET_MAX
+        && overlay
+            .serve_fsmonitor(&socket)
+            .inspect_err(|error| {
+                eprintln!("cmux-tui: projection {name}: fsmonitor socket: {error}");
+            })
+            .is_ok();
     let mounted = cmux_projection::mount::mount(overlay.clone(), at)
         .map_err(|error| ("projection.mount_failed", format!("{error:#}")))?;
+    // While the agent's first model turn runs: every repo's git metadata and `.gitignore` files
+    // fetched in a few batched asks, then each index primed so the first `git status` asks the
+    // hook instead of checking every file.
+    if serving {
+        let (warming, at) = (overlay.clone(), at.to_path_buf());
+        let _ = std::thread::Builder::new().name("projection-git".into()).spawn(move || {
+            warming.warm_git();
+            warming.prime_git(&at);
+        });
+    }
     // Pinned folders an earlier mount recorded are fetched whole in the background, so they read
     // with the Mac away again (a new manifest starts a fresh cache). Mac away: it stops at the
     // first absence, and the next mount tries again.
@@ -803,25 +822,46 @@ fn mount(
 /// from the Mac (cmuxterm-hq: 1.1 GB and minutes before an agent's first answer, against 3 s).
 /// Only this machine's git settings change, never the folder: `~/.gitconfig` includes
 /// [`MOUNTS`], which holds one `includeIf "gitdir:<mount>/"` per mount, naming [`STAT`].
+///
+/// A mount serving git's fsmonitor hook (its [`SOCKET`] there) also gets a second `includeIf`,
+/// naming its own [`FSMONITOR`]: `core.fsmonitor` runs `cmux __projection-fsmonitor`, which asks the
+/// mount what changed since git's last token, so a `git status` stats only what was written
+/// (RFD 0007, hard case 2). A mount that is gone answers nothing and git checks every file.
 mod git_stat {
     use std::io::Write as _;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     pub(super) const STAT: &str = "git-stat.config";
     pub(super) const MOUNTS: &str = "git-mounts.config";
+    /// In a projection's own state folder.
+    pub(super) const SOCKET: &str = "fsmonitor.sock";
+    pub(super) const FSMONITOR: &str = "git-fsmonitor.config";
+    /// A Unix socket's path fits in 108 bytes, its NUL included.
+    pub(super) const SOCKET_MAX: usize = 104;
     const STAT_TEXT: &str = "[core]\n\tcheckStat = minimal\n\ttrustctime = false\n";
 
-    /// Makes `at` (and every repository below it) use [`STAT`]; `dir` is the projections'
-    /// state folder, `home` the work user's home.
-    pub(super) fn keep(dir: &Path, home: &Path, at: &Path) -> std::io::Result<()> {
+    /// Makes `at` (and every repository below it) use [`STAT`], and the fsmonitor hook when
+    /// `state` (the projection's own state folder) serves it; `dir` is the projections' state
+    /// folder, `home` the work user's home.
+    pub(super) fn keep(dir: &Path, home: &Path, at: &Path, state: &Path) -> std::io::Result<()> {
         let stat = dir.join(STAT);
         if std::fs::read_to_string(&stat).ok().as_deref() != Some(STAT_TEXT) {
             std::fs::write(&stat, STAT_TEXT)?;
         }
         let mounts = dir.join(MOUNTS);
-        let section = section(at, &stat);
+        let mut sections = vec![section(at, &stat)];
+        let socket = state.join(SOCKET);
+        if let (true, Some(text)) =
+            (socket.exists(), hook_exe().and_then(|exe| fsmonitor(&exe, &socket, at)))
+        {
+            let config = state.join(FSMONITOR);
+            if std::fs::read_to_string(&config).ok().as_deref() != Some(text.as_str()) {
+                std::fs::write(&config, &text)?;
+            }
+            sections.push(section(at, &config));
+        }
         let known = std::fs::read_to_string(&mounts).unwrap_or_default();
-        if !known.contains(&section) {
+        for section in sections.iter().filter(|section| !known.contains(section.as_str())) {
             std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
@@ -849,6 +889,28 @@ mod git_stat {
 
     pub(super) fn include(mounts: &Path) -> String {
         format!("[include]\n\tpath = {}\n", mounts.display())
+    }
+
+    /// This binary, as git runs it: a daemon whose file an update replaced still names the path
+    /// (Linux shows it as `PATH (deleted)`), and the binary there now has the hook too.
+    fn hook_exe() -> Option<PathBuf> {
+        let exe = std::env::current_exe().ok()?;
+        let text = exe.to_str()?;
+        Some(PathBuf::from(text.strip_suffix(" (deleted)").unwrap_or(text)))
+    }
+
+    /// The [`FSMONITOR`] config for a mount at `at` whose hook asks `socket`: `None` when a path
+    /// would need quoting beyond the shell's single quotes inside git's double ones.
+    pub(super) fn fsmonitor(exe: &Path, socket: &Path, at: &Path) -> Option<String> {
+        let quoted = |path: &Path| {
+            let text = path.to_str()?;
+            (!text.contains(['\'', '"', '\\', '\n'])).then(|| format!("'{text}'"))
+        };
+        let (exe, socket, at) = (quoted(exe)?, quoted(socket)?, quoted(at)?);
+        // FUSE is a remote filesystem to git, which turns fsmonitor off there unless told.
+        Some(format!(
+            "[core]\n\tfsmonitor = \"{exe} __projection-fsmonitor {socket} {at}\"\n[fsmonitor]\n\tallowRemote = true\n"
+        ))
     }
 }
 

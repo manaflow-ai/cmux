@@ -1987,6 +1987,20 @@ static CLOUD_TEMPLATE_ENV: std::sync::OnceLock<CloudTemplateEnv> = std::sync::On
 
 /// Routes argv to a private mode, the CLI, or the interactive or headless mux.
 fn run_main() {
+    // git's fsmonitor hook in a projected folder (projection.rs `git_stat`): git runs it on every
+    // `git status`, so it answers before anything else starts.
+    #[cfg(unix)]
+    {
+        let mut args = std::env::args_os().skip(1);
+        if args.next().is_some_and(|first| first == "__projection-fsmonitor") {
+            let args = args.map(|arg| arg.to_string_lossy().into_owned()).collect::<Vec<_>>();
+            if let Err(error) = cmux_projection::fsmonitor::run_hook(&args) {
+                eprintln!("cmux: fsmonitor hook: {error}");
+                client_log::exit(1);
+            }
+            client_log::exit(0);
+        }
+    }
     // A help read for a Tab (`cmux completion`) prints a help or exits, before any scope runs.
     if let Some(code) = cli::refuse_in_help_reader() {
         client_log::exit(code);

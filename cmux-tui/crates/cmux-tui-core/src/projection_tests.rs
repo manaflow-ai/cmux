@@ -185,7 +185,7 @@ fn a_mount_makes_git_check_only_size_and_mtime_there_and_keeps_it_once() {
     std::fs::create_dir_all(&home).unwrap();
     std::fs::write(home.join(".gitconfig"), "[user]\n\tname = t").unwrap();
     for at in ["/w/a", "/w/b", "/w/a"] {
-        git_stat::keep(&state, &home, Path::new(at)).unwrap();
+        git_stat::keep(&state, &home, Path::new(at), &state.join("a")).unwrap();
     }
     let global = std::fs::read_to_string(home.join(".gitconfig")).unwrap();
     assert!(global.starts_with("[user]\n\tname = t\n[include]"), "{global}");
@@ -208,8 +208,20 @@ fn git_takes_the_settings_in_a_mount_and_below_it_only() {
     for folder in [&state, &home, &at.join("repo"), &other] {
         std::fs::create_dir_all(folder).unwrap();
     }
-    git_stat::keep(&state, &home, &at).unwrap();
-    let check = |repo: &Path| {
+    // This projection serves the fsmonitor hook: its socket is there.
+    let own = state.join("mine");
+    std::fs::create_dir_all(&own).unwrap();
+    std::fs::write(own.join(git_stat::SOCKET), "").unwrap();
+    git_stat::keep(&state, &home, &at, &own).unwrap();
+    git_stat::keep(&state, &home, &at, &own).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(state.join(git_stat::MOUNTS))
+            .unwrap()
+            .matches(git_stat::FSMONITOR)
+            .count(),
+        1
+    );
+    let config = |repo: &Path, key: &str| {
         let git = |args: &[&str]| {
             std::process::Command::new("git")
                 .env("HOME", &home)
@@ -224,10 +236,31 @@ fn git_takes_the_settings_in_a_mount_and_below_it_only() {
                 .unwrap()
         };
         assert!(git(&["init", "-q"]).status.success());
-        String::from_utf8_lossy(&git(&["config", "core.checkStat"]).stdout).trim().to_owned()
+        String::from_utf8_lossy(&git(&["config", key]).stdout).trim().to_owned()
     };
-    assert_eq!(check(&at.join("repo")), "minimal");
-    assert_eq!(check(&other), "");
+    assert_eq!(config(&at.join("repo"), "core.checkStat"), "minimal");
+    assert_eq!(config(&other, "core.checkStat"), "");
+    let hook = config(&at.join("repo"), "core.fsmonitor");
+    let socket = own.join(git_stat::SOCKET);
+    assert!(
+        hook.ends_with(&format!(
+            "' __projection-fsmonitor '{}' '{}'",
+            socket.display(),
+            at.display()
+        )),
+        "{hook}"
+    );
+    assert_eq!(config(&at.join("repo"), "fsmonitor.allowRemote"), "true");
+    assert_eq!(config(&other, "core.fsmonitor"), "");
+}
+
+#[test]
+fn a_path_the_hook_command_cannot_quote_gets_no_hook() {
+    let (exe, socket) = (Path::new("/bin/cmux"), Path::new("/s/fsmonitor.sock"));
+    assert!(git_stat::fsmonitor(exe, socket, Path::new("/w/a")).is_some());
+    for at in ["/w/it's", "/w/a\"b", "/w/a\\b", "/w/a\nb"] {
+        assert_eq!(git_stat::fsmonitor(exe, socket, Path::new(at)), None, "{at}");
+    }
 }
 
 #[test]
