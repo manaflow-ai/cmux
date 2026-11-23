@@ -297,10 +297,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// sub-session its agent started, the session that started it, with `sender` the chat that sent
     /// it a message): its tab, else one beside this chat, focused (``AgentPaneOfferOpen``).
     case offerOpen(String, sender: Bool)
-    /// `chat.asks.open {sessionId, where?}`: Needs you went to another chat's ask: on this chat's
-    /// right by default, else the workspace whose tab shows it or a new workspace, as the person
-    /// picked; never this chat replaced in place (``AgentPaneAskOpen``).
-    case asksOpen(String, AgentPaneAskPlace)
+    /// `chat.asks.open {sessionId, where?, turnId?, ask?}`: Needs you went to another chat's ask: on
+    /// this chat's right by default, else the workspace whose tab shows it or a new workspace, as the
+    /// person picked; never this chat replaced in place. The pane that shows it scrolls to `turnId`
+    /// and starts Ask about this with `ask` (``AgentPaneAskThere``, ``AgentPaneAskOpen``).
+    case asksOpen(String, AgentPaneAskPlace, AgentPaneAskThere)
     /// `chat.attention.open {tabId}`: Needs you went to a marked tab.
     case attentionOpen(String)
     /// `chat.asks.answer {sessionId, permissionId, optionId}`: the home's inbox answered another
