@@ -387,7 +387,7 @@ async fn sign_in(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
         Pending { agent, account: account.clone(), route, add, busy: false },
     );
     // An add nobody finished or cancelled: its home goes with the sign-in's expiry.
-    tokio::spawn(async move {
+    let _expiry = hub.scope.spawn_until_cancelled("account-sign-in-expiry", async move {
         tokio::time::sleep(login::EXPIRY.saturating_add(std::time::Duration::from_secs(5))).await;
         let stale = {
             let mut table = lock_pending();

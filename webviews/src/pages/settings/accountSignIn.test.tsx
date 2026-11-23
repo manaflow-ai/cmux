@@ -83,6 +83,7 @@ test("a code that runs out shows New code, which starts a fresh sign-in", async 
   // The code runs out 30 ms after the start answers, whenever that is on a busy machine: wait for
   // the card to say so (2 s at most), never a fixed time measured from the click.
   for (const deadline = Date.now() + 2000; card()?.dataset.state !== "expired" && Date.now() < deadline;) {
+    // fixed-wait: one 20 ms poll step of the bounded wait above, not the wait itself.
     await act(async () => await new Promise((resolve) => setTimeout(resolve, 20)));
     await settle();
   }

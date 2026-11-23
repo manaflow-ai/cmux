@@ -3,7 +3,7 @@
 import { act } from "react";
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { installDom } from "../../settings/testDom";
-import type { AccountFamily, SignInView } from "./accountSignIn";
+import type { SignInView } from "./accountSignIn";
 
 const restore = installDom();
 afterAll(() => restore());

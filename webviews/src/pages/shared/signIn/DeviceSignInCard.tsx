@@ -247,7 +247,7 @@ export function DeviceSignInCard(props: DeviceSignInCardProps) {
 
   if (look === "strip") {
     return (
-      <div className="signin" data-look="strip" data-state={view.state} role="group" aria-labelledby={titleId}>
+      <section className="signin" data-look="strip" data-state={view.state} aria-labelledby={titleId}>
         <ProviderMark family={family} size={14} />
         <span className="signin-strip-title" id={titleId}>
           {view.state === "starting" || view.state === "waiting"
@@ -266,7 +266,7 @@ export function DeviceSignInCard(props: DeviceSignInCardProps) {
         )}
         {paste}
         {actions}
-      </div>
+      </section>
     );
   }
 
@@ -311,16 +311,16 @@ export function DeviceSignInCard(props: DeviceSignInCardProps) {
         }}
         className="ui-glass ui-glass-floats signin-sheet"
       >
-        <div className="signin" data-look="sheet" data-state={view.state} role="group" aria-labelledby={titleId}>
+        <section className="signin" data-look="sheet" data-state={view.state} aria-labelledby={titleId}>
           {body}
-        </div>
+        </section>
       </Dialog>
     );
   }
 
   return (
-    <div className="signin" data-look="inline" data-state={view.state} role="group" aria-labelledby={titleId}>
+    <section className="signin" data-look="inline" data-state={view.state} aria-labelledby={titleId}>
       {body}
-    </div>
+    </section>
   );
 }
