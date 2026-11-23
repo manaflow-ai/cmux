@@ -167,6 +167,7 @@
         "rust-notices-tree": "47 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 79 job-minutes",
         "ci-guard-group": "33 runs on 52 merged pull requests, 12 with a red, 1 of them the pull request's own (#46253): Tier B, fixed forward on the push; 814 job-minutes",
         "own-change-checks": "46 runs on 52 merged pull requests, 1 with a red, 1 of them the pull request's own (#46652): Tier B, fixed forward on the push; 253 job-minutes; the miss is #46652: 28 untranslated strings it added",
+        "generated-merge-audit": "46 runs on 52 merged pull requests, as steps of own-change-checks before #48993 split them out; that job's one own red (#46652) was untranslated strings, not these steps: Tier B, fixed forward on the push",
         "pinned-asset-store": "45 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 43 job-minutes",
         "signing-runner-variables": "43 runs on 52 merged pull requests, 2 with a red, 0 of them the pull request's own; 3 job-minutes"
       },
