@@ -157,8 +157,17 @@ export const MARK_OPENS_TURN = 64;
 /// (`workedHeadGap`), not none. Toward the rows after it, it is its own
 /// mark.
 export const MARK_HEADS_TURN = 128;
-/// A mark without its MARK_OPENS_TURN and MARK_HEADS_TURN bits.
-export const baseMark = (mark: number): number => mark & ~(MARK_OPENS_TURN | MARK_HEADS_TURN);
+/// Added to the top row of a turn another agent's line opened (model.ts `topsIncomingTurn`): that notice or
+/// message, or the turn's "Working for" / "Worked for" line over it, right under the turn before's last reply
+/// when that turn draws no footer (a turn the agent ran on its own, one whose footer folded). It stands the
+/// block gap, as it does under a footer (transcriptSpacing.ts footer-to-received), not the 16 a status line
+/// has under prose of its own turn: there the new turn read as the reply's tail (Leo, 2026-11-21: "it is
+/// noticeably bad when you start a new working for whatever and there is no space before"; found by
+/// replaying recorded chats through the chat simulator, sim/README.md). Toward the rows after it, it is
+/// its own mark. (Bit 32: every mark fits the layout's Uint8Array.)
+export const MARK_TOPS_TURN = 32;
+/// A mark without its MARK_OPENS_TURN, MARK_HEADS_TURN and MARK_TOPS_TURN bits.
+export const baseMark = (mark: number): number => mark & ~(MARK_OPENS_TURN | MARK_HEADS_TURN | MARK_TOPS_TURN);
 
 type MarkedRow = {
   kind: string;
@@ -246,6 +255,8 @@ export function transcriptGap(previous: number, next: number): number {
     if (gap > 0) return gap;
     next = baseMark(next);
   }
+  // A turn another agent's line opened, under the turn before's last reply (MARK_TOPS_TURN).
+  if ((next & MARK_TOPS_TURN) !== 0 && previous === MARK_MESSAGE) return TRANSCRIPT_BLOCK_GAP;
   // The live line under the notice or message that opened its turn, or that notice right under the turn
   // before's "Worked for" (it sat flush): the same gap as the "Worked for" rule below.
   if ((next & MARK_HEADS_TURN) !== 0) return workedHeadGap();

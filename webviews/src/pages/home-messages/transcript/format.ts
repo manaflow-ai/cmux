@@ -2,6 +2,7 @@
 // the day is Today, Yesterday, the weekday within a week, "MMM d" within 300 days, else "MMM d, yyyy";
 // the time is "h:mm a" in the app's language. Formatters are made once per language.
 import type { Strings } from "../../shared/i18n";
+import { intl } from "../../../ui/intl";
 
 const formatters = new Map<
   string,
@@ -12,10 +13,10 @@ function formattersFor(language: string) {
   let entry = formatters.get(language);
   if (!entry) {
     entry = {
-      time: new Intl.DateTimeFormat(language, { hour: "numeric", minute: "2-digit" }),
-      weekday: new Intl.DateTimeFormat(language, { weekday: "long" }),
-      monthDay: new Intl.DateTimeFormat(language, { month: "short", day: "numeric" }),
-      full: new Intl.DateTimeFormat(language, { month: "short", day: "numeric", year: "numeric" }),
+      time: intl.DateTimeFormat(language, { hour: "numeric", minute: "2-digit" }),
+      weekday: intl.DateTimeFormat(language, { weekday: "long" }),
+      monthDay: intl.DateTimeFormat(language, { month: "short", day: "numeric" }),
+      full: intl.DateTimeFormat(language, { month: "short", day: "numeric", year: "numeric" }),
     };
     formatters.set(language, entry);
   }

@@ -34,6 +34,7 @@ import fnmatch
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -717,15 +718,30 @@ def gh_json(*args: str):
     return json.loads(out) if out.strip() else None
 
 
+# What GitHub answers when this run's API budget is gone, in gh's own words (`gh api` prints the message on
+# stderr and exits 1). A rate limit is not a verdict on the pull request, and no amount of retrying inside this
+# job outlasts an hourly reset, so the retry stops at once and the reason goes on the log: on 2026-11-22 the
+# "risk evidence" job on #50881 printed nothing but "CalledProcessError ... returned non-zero exit status 1"
+# because gh's stderr was captured and dropped, so neither a reader nor base_red_excuse.py could tell that red
+# apart from a graded one (the budget line later in the same log read used=5000).
+GH_RATE_LIMITED = re.compile(r"rate limit|secondary rate|abuse detection", re.I)
+
+
 def gh_run(args: list[str], attempts: int = 3) -> str:
-    """stdout of a gh call, retried so one transient API error doesn't turn the check red."""
+    """stdout of a gh call, retried so one transient API error doesn't turn the check red. A failure that ends
+    the retries names itself on stderr: the exception alone says only "exit status 1"."""
     for attempt in range(attempts):
-        try:
-            return subprocess.run(args, check=True, capture_output=True, text=True).stdout
-        except subprocess.CalledProcessError:
-            if attempt == attempts - 1:
-                raise
-            time.sleep(2 * (attempt + 1))
+        done = subprocess.run(args, capture_output=True, text=True)
+        if done.returncode == 0:
+            return done.stdout
+        why = (done.stderr or done.stdout or "").strip()
+        limited = bool(GH_RATE_LIMITED.search(why))
+        if limited or attempt == attempts - 1:
+            print(f"{shlex.join(args)} exited {done.returncode}"
+                  f"{' (GitHub rate limit: not a verdict on this pull request)' if limited else ''}"
+                  f"{chr(10) + why if why else ''}", file=sys.stderr, flush=True)
+            raise subprocess.CalledProcessError(done.returncode, args, output=done.stdout, stderr=done.stderr)
+        time.sleep(2 * (attempt + 1))
     return ""
 
 
@@ -849,6 +865,30 @@ def undoes(pr_patch: str, commit_patch: str, added_elsewhere: frozenset[str] = f
     return len(commit_removed & back) / len(commit_removed) >= 0.5
 
 
+def prefetch_blobs(repo_dir: str, base_sha: str, paths: list[str], timeout: float) -> None:
+    """In a blobless history (risk-tier.yml fetches the base with --filter=blob:none: 16 MB in 5 s instead of
+    681 MB in 115 s, 11-21), fetch every version of `paths` the blame and `git show` below read, in one round
+    trip. Without it each version is its own lazy fetch: 52 s to blame 40 lines of cmux-next.yml, against 2 s
+    with it. Best effort: in a full history, or when the fetch fails, the blame falls back to lazy fetches."""
+    try:
+        promisors = subprocess.run(["git", "-C", repo_dir, "config", "--get-regexp", r"^remote\..*\.promisor$"],
+                                   capture_output=True, text=True, timeout=10).stdout.split()
+        remote = next((key[len("remote."):-len(".promisor")] for key in promisors[::2]), None)
+        if not remote or not paths:
+            return
+        env = {**os.environ, "GIT_NO_LAZY_FETCH": "1"}
+        raw = subprocess.run(["git", "-C", repo_dir, "log", "--format=", "--raw", "--no-abbrev", "--no-renames",
+                              base_sha, "--", *paths], capture_output=True, text=True, env=env, timeout=timeout).stdout
+        oids = {field for line in raw.splitlines() if line.startswith(":") for field in line.split()[2:4]}
+        oids.discard("0" * 40)
+        if oids:
+            subprocess.run(["git", "-C", repo_dir, "-c", "fetch.negotiationAlgorithm=noop", "fetch", "-q", "--no-tags",
+                            "--no-write-fetch-head", "--recurse-submodules=no", "--filter=blob:none", "--stdin", remote],
+                           input="\n".join(sorted(oids)) + "\n", capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
 def recent_reverts(entries: list[dict], repo_dir: str, base_sha: str, own: int,
                    now: float | None = None, unread: list[str] | None = None,
                    budget: float = REVERT_BUDGET_SECONDS) -> dict[int, list[str]]:
@@ -862,6 +902,11 @@ def recent_reverts(entries: list[dict], repo_dir: str, base_sha: str, own: int,
     found: dict[int, list[str]] = {}
     added_anywhere = frozenset(line for e in entries for line in diff_lines(e.get("patch") or "")[1])
     deadline = time.monotonic() + budget
+    blamed = [entry.get("previous_filename") or entry["filename"] for entry in entries[:MAX_BLAME_FILES]
+              if deleted_ranges(entry.get("patch") or "") and entry.get("status") != "added"
+              and not any(matches(entry.get("previous_filename") or entry["filename"], g) for g in GENERATED)]
+    if budget > 0:
+        prefetch_blobs(repo_dir, base_sha, blamed, timeout=max(1, budget / 3))
     for entry in entries[:MAX_BLAME_FILES]:
         path = entry.get("previous_filename") or entry["filename"]
         remaining = deadline - time.monotonic()
@@ -1033,6 +1078,9 @@ def pr_mode(args: argparse.Namespace) -> int:
         with Path(args.github_output).open("a") as out:
             out.write(f"tier={grade.tier}\nlabel={LABELS[grade.tier]}\n")
             out.write(f"ready={'false' if missing else 'true'}\n")
+            # risk-tier.yml grades again on GITHUB_TOKEN only when this is true: a refused sign-off read is the one
+            # held verdict another token can change (tests/test_risk_tier.py).
+            out.write(f"signoff_unread={'true' if unread else 'false'}\n")
             # Only an unowned takeback keeps the check red (risk-tier.yml): it is a stale-base squash
             # quietly reverting a merged change. A BLOCK on the head is the lander's to refuse.
             unowned = unowned_takebacks(pr.get("body") or "", list(undone))

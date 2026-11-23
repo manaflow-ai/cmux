@@ -56,6 +56,7 @@ struct Hot {
     session_id: Option<Box<str>>,
     name: Option<Box<str>>,
     handle: Option<Box<str>>,
+    alias: Option<Box<str>>,
     /// Its `formerNames`; None (no allocation) for a row never renamed.
     former_names: Option<Box<[Box<str>]>>,
     status: Option<Box<str>>,
@@ -70,6 +71,9 @@ struct Hot {
     stale: bool,
     /// Its `(mux.parent, mux.handle)` tags.
     pair: Option<(Box<str>, Box<str>)>,
+    /// Its `usageStats` as JSON text, when it carries any: what `_acpmux/usage` sends of the row
+    /// (`usage_answer.rs`), read with no parse of the rest.
+    usage_stats: Option<Box<str>>,
 }
 
 impl Hot {
@@ -80,6 +84,13 @@ impl Hot {
             session_id: text("sessionId"),
             name: text("name"),
             handle: text("handle"),
+            alias: summary
+                .get("tags")
+                .and_then(|tags| tags.get("session.alias"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|alias| !alias.is_empty())
+                .map(Box::from),
             former_names: summary
                 .get("formerNames")
                 .and_then(Value::as_array)
@@ -98,6 +109,10 @@ impl Hot {
             last_seen: number("lastSeen"),
             stale: summary.get("stale") == Some(&Value::Bool(true)),
             pair: pair_of(summary),
+            usage_stats: summary
+                .get("usageStats")
+                .filter(|stats| !stats.is_null())
+                .map(|stats| json_text(stats).into()),
         }
     }
 }
@@ -295,12 +310,21 @@ impl PeerRow {
         self.hot.session_id.as_deref()
     }
 
+    /// Its `usageStats` as JSON text, when it carries any.
+    pub fn usage_stats_text(&self) -> Option<&str> {
+        self.hot.usage_stats.as_deref()
+    }
+
     pub fn name(&self) -> Option<&str> {
         self.hot.name.as_deref()
     }
 
     pub fn handle(&self) -> Option<&str> {
         self.hot.handle.as_deref()
+    }
+
+    pub fn alias(&self) -> Option<&str> {
+        self.hot.alias.as_deref()
     }
 
     /// Whether `name` is one of its former names (`formerNames`, `hub/former_names.rs`).

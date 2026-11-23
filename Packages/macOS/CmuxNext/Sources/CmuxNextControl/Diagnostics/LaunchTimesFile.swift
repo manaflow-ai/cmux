@@ -248,7 +248,8 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
 /// you havent already to properly measure each part of startup times." The launch harnesses compute the same stages
 /// from the same marks (scripts/ci/launch_stages.py, scripts/measure/launch-ready.swift); a test keeps the three
 /// tables equal.
-public nonisolated enum LaunchStages {
+public nonisolated struct LaunchStages {
+    public nonisolated init() {}
     /// (stage, its marks), in launch order. A stage is the earliest of its marks that came.
     public static let table: [(stage: String, marks: [String])] = [
         ("premain", ["main_start"]), // exec, dyld, static initializers

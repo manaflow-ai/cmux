@@ -21,7 +21,7 @@ public enum UserFacingError {
             case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed:
                 return "You're offline. Connect to the internet and try again."
             case .timedOut:
-                return "The connection timed out. Try again."
+                return "The connection is slow right now. Try again."
             case .cancelled:
                 return fallback
             default:

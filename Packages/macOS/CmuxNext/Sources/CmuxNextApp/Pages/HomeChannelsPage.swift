@@ -206,17 +206,17 @@ final class DaemonCredentialPageProvider: PageProvider {
     }
 
     static var restarting: String {
-        String(localized: "homeChannels.daemon.restarting", defaultValue: "Restarting the cmux daemon…", table: "Handlers", bundle: .module)
+        String(localized: "homeChannels.daemon.restarting", defaultValue: "Restarting the cmux daemon…", table: "Handlers", bundle: .module.inAppLanguage)
     }
 
     static var chiefStarting: String {
-        String(localized: "homeChannels.chief.starting", defaultValue: "Starting this build's Chief…", table: "Handlers", bundle: .module)
+        String(localized: "homeChannels.chief.starting", defaultValue: "Starting this build's Chief…", table: "Handlers", bundle: .module.inAppLanguage)
     }
 
     static var tooOld: String {
         String(localized: "homeChannels.daemon.tooOld",
                defaultValue: "This page needs a newer cmux background service, and cmux can't restart it. Update cmux, then open this tab again.",
-               table: "Handlers", bundle: .module)
+               table: "Handlers", bundle: .module.inAppLanguage)
     }
 
     /// The listener's credential file (`PageListenerCredentialFile`): this user's, 0600, a live daemon.

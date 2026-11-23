@@ -4,6 +4,7 @@
 // the same thing the same way.
 import type { PaneLanguage, Translate } from "../i18n";
 import type { Subagent } from "./subagentFold";
+import { intl } from "../../../ui/intl";
 
 /// The progress parts that apply, in order; none until the harness reports any.
 /// `usage: false` leaves out its tokens and tool uses: the tray's and transcript's subagent rows
@@ -25,7 +26,7 @@ export function subagentProgress(
     parts.push(
       t("subagents.tokens", {
         n: agent.tokens,
-        tokens: new Intl.NumberFormat(language, { notation: "compact", maximumFractionDigits: 1 }).format(agent.tokens),
+        tokens: intl.NumberFormat(language, { notation: "compact", maximumFractionDigits: 1 }).format(agent.tokens),
       }),
     );
   if (usage && agent.toolUses) parts.push(t("subagents.toolUses", { n: agent.toolUses }));

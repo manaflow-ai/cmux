@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// What the pane's transport does when its page falls a full queue behind the daemon
@@ -17,14 +18,36 @@ nonisolated enum AcpmuxPaneShedding {
         #"{"jsonrpc":"2.0","method":"_acpmux/lagged","params":{"dropped":\#(dropped),"reason":"host_queue_full","watch":true}}"#
     }
 
+    /// The notices a frozen page hears nothing of (``AcpmuxPaneSocket/setAsleep(_:)``): other chats'
+    /// rows and machines, which the page reads again from its list cursor once it wakes. Never its own
+    /// chat's stream, a reply, a request or a notice a host observer reads.
+    static let listNotices: Set<String> = ["_acpmux/session_changed", "_acpmux/peer_state_changed"]
+
+    /// The notice a page that slept gets when it wakes, after list notices were left out: the list
+    /// and machines are read again (`watch`), its own chat is not (`sessionIds` names none: its stream
+    /// was never left out). direct.ts `resyncAfterLag`.
+    static func wakeMarker(dropped: Int) -> String {
+        #"{"jsonrpc":"2.0","method":"_acpmux/lagged","params":{"dropped":\#(dropped),"reason":"page_asleep","watch":true,"sessionIds":[]}}"#
+    }
+
+    /// Whether `text` is a list notice a frozen page is spared (``listNotices``).
+    static func sparedWhileAsleep(_ text: String) -> Bool {
+        notificationMethod(text).map(listNotices.contains) ?? false
+    }
+
     /// Whether `text` is a notification the page can read again after a lag: a top-level `method`
     /// and no top-level `id` (not a reply, not a request that waits on an answer), and not one a host
     /// observer reads (a permission, a prompt's acceptance), which ``AcpmuxRequestIds`` must see.
     /// Anything it cannot read plainly (an escaped key or method) is kept.
     static func sheddable(_ text: String) -> Bool {
-        guard let method = notificationMethod(text) else { return false }
+        sheddable(text, method: notificationMethod(text))
+    }
+
+    /// ``sheddable(_:)`` with the frame's ``notificationMethod(_:)`` already read.
+    static func sheddable(_ text: String, method: String?) -> Bool {
+        guard let method else { return false }
         if method == "_acpmux/event" {
-            return !AcpmuxRequestIds.eventObserverMarkers.contains(where: text.contains)
+            return !text.utf8ContainsAny(AcpmuxRequestIds.eventObserverMarkers)
         }
         return !AcpmuxRequestIds.observedNotificationMethods.contains(method)
     }

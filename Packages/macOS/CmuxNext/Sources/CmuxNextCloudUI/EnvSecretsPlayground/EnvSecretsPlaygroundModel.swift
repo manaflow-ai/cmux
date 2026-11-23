@@ -1,6 +1,5 @@
 #if DEBUG
 import Observation
-import SwiftUI
 
 /// DEBUG ONLY (Environment Secrets Playground): which direction and which state the window shows, and
 /// the live choices the person makes inside a direction (a review row's type, the open row).

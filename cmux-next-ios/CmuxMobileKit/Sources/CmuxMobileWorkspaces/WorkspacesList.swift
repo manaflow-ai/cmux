@@ -49,6 +49,9 @@ public struct WorkspacesList: View {
     @State private var unfolded: Set<String> = []
     /// A refresh has taken long enough to say so.
     @State private var showsUpdating = false
+    /// The page's placeholder rows showed in this load: the list's own (below Mac lines) take
+    /// over from them at once.
+    @State private var placeholdersShown = false
     /// The offline workspace whose tap is being explained.
     @State private var unavailable: Workspace?
     @State private var renaming: Workspace?
@@ -357,10 +360,46 @@ public struct WorkspacesList: View {
         open(ws)
     }
 
-    @ViewBuilder private var content: some View {
+    /// The placeholder rows show while the team loads (`firstLoad`) and then while the Macs'
+    /// lists load (`listShowsPlaceholder`). Both phases draw this one view in one place, so the
+    /// hand-off between them keeps it: two copies were two views, and the second started
+    /// hidden for its show delay, so the rows blinked out for a quarter second mid-load.
+    /// The skeleton is its own view (`WorkspacesSkeletonHost`): whether it shows reads the
+    /// inbox, and the page reads no workspace.
+    private var content: some View {
+        ZStack {
+            launchContent
+            WorkspacesSkeletonHost(host: self)
+        }
+    }
+
+    /// Whether the page's skeleton shows (`WorkspacesSkeletonHost`'s body).
+    func showsSkeleton(_ inbox: WorkspaceInbox?) -> Bool {
         switch launchState {
-        case .firstLoad(let offline):
-            skeleton(offline ? "Waiting for a connection…" : "Loading workspaces…")
+        case .firstLoad: true
+        case .noMacs, .content: !macs.isEmpty && listShowsPlaceholder(inbox)
+        case .failed: false
+        }
+    }
+
+    /// The skeleton and the load flag the list's own placeholder rows read: set when the page's
+    /// placeholders show, kept while this load lasts, so the list's rows that replace them (a
+    /// Mac line arrived) skip their show delay.
+    func skeletonHost() -> some View {
+        let inbox: WorkspaceInbox? = if case .firstLoad = launchState { nil } else { self.inbox }
+        let shows = showsSkeleton(inbox)
+        return Group {
+            if shows { skeleton(store.isOffline ? "Waiting for a connection…" : "Loading workspaces…") }
+        }
+        .onChange(of: shows || inbox?.isLoading == true, initial: true) { _, loading in
+            placeholdersShown = loading && (placeholdersShown || shows)
+        }
+    }
+
+    @ViewBuilder private var launchContent: some View {
+        switch launchState {
+        case .firstLoad:
+            Color.clear
                 .navigationSubtitle(subtitle(nil))
         case .failed(let offline):
             EmptyState(symbol: offline ? "wifi.slash" : "cloud", title: "Couldn't load workspaces",
@@ -423,9 +462,8 @@ public struct WorkspacesList: View {
             .ignoresSafeArea(.container, edges: .vertical)
             .overlay(alignment: .topLeading) { closeAnchor }
             .overlay {
-                if inbox.isLoading {
-                    if inbox.folds.isEmpty { skeleton(store.isOffline ? "Waiting for a connection…" : "Loading workspaces…") }
-                } else if inbox.isEmpty {
+                // Loading with no Mac line yet: the page's one skeleton (`content`) covers the list.
+                if !inbox.isLoading, inbox.isEmpty {
                     emptyState
                 }
             }
@@ -654,7 +692,10 @@ public struct WorkspacesList: View {
             // The line's "Last seen 4m ago" reads the minute clock in its own view: a tick redraws this line only.
             AnyView(OnMinute { now in foldLine(line.fold, now: now) })
         case .loading:
-            AnyView(SkeletonList(rows: 4, leadingSquare: nil)
+            // Its show delay keeps a quick load from flashing rows. Taking over from the page's
+            // rows, already on screen, it waited with nothing shown: the rows blinked out.
+            AnyView(SkeletonList(rows: 4, leadingSquare: nil,
+                                 delay: placeholdersShown ? .zero : theme.motion.skeletonDelay)
                 .allowsHitTesting(false)
                 .accessibilityIdentifier("workspaces.loading"))
         }
@@ -1104,6 +1145,13 @@ struct WorkspacesListRows: View {
 
 /// The toolbar's model (its New Workspace menu lists recent folders by the Mac's activity): its
 /// own view, so reading the workspaces for it does not re-run the page.
+/// The page's one skeleton: whether it shows reads the inbox, so it is its own view.
+struct WorkspacesSkeletonHost: View {
+    let host: WorkspacesList
+
+    var body: some View { host.skeletonHost() }
+}
+
 struct WorkspacesToolbarHost: View {
     let host: WorkspacesList
 

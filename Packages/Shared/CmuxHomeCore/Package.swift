@@ -41,6 +41,8 @@ let package = Package(
             name: "CmuxHomeCoreTests",
             dependencies: ["CmuxHomeCore", "CmuxHomeCoreTestSupport", .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                            .product(name: "CMUXAuthCore", package: "CMUXAuthCore")],
+            // MessagePreviewTests reads it by path, as the Rust port's tests do: not a bundle resource.
+            exclude: ["MessagePreviewCases.json"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
     ]
