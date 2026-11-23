@@ -34,7 +34,7 @@ use std::os::fd::AsRawFd as _;
 use std::os::unix::fs::{FileExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, RwLock};
 use std::time::{Duration, UNIX_EPOCH};
 
 use crate::manifest::{Kind, Manifest, ROOT};
@@ -306,6 +306,9 @@ struct Inner {
     /// file, and must never see a new file under an old number).
     dead: HashSet<u64>,
     next: u64,
+    /// Lower folders a swap put a link in place of ([`Overlay::swap_to_link`]), by their old
+    /// number: a process that already holds one goes on reading the manifest's tree below it.
+    retired: HashMap<u64, u32>,
 }
 
 /// An open file: its number, and the upper file's descriptor when it has one (a lower file
@@ -349,6 +352,10 @@ pub struct Overlay {
     pins_file: PathBuf,
     /// The free disk a pin leaves untouched ([`pin::DEFAULT_PIN_RESERVE`]).
     pin_reserve: u64,
+    /// Held for reading while a top-level name is looked up, and for writing while a swap
+    /// replaces one ([`Overlay::swap_to_link`]), so no lookup pairs the old kind with the new
+    /// number.
+    swap: RwLock<()>,
 }
 
 /// Keys this thread is fetching; dropping it lets others waiting on them go on.
@@ -555,6 +562,7 @@ impl Overlay {
             pins: Mutex::new(BTreeSet::new()),
             pins_file,
             pin_reserve: pin::DEFAULT_PIN_RESERVE,
+            swap: RwLock::new(()),
         };
         // Pins an earlier daemon recorded hold before anything is evicted (their paths are
         // resolved in this manifest; one it no longer has pins nothing).
@@ -936,7 +944,12 @@ impl Overlay {
     // MARK: Reads
 
     pub fn lookup(&self, parent: u64, name: &str) -> Result<Attr, i32> {
+        if let Some(found) = self.lookup_retired(parent, name) {
+            return found;
+        }
         let (_, child) = self.child(parent, name)?;
+        let _swap = (!child.contains('/'))
+            .then(|| self.swap.read().unwrap_or_else(PoisonError::into_inner));
         let node = self.node(&child).ok_or(ENOENT)?;
         Ok(self.attr(&child, &node))
     }
@@ -966,6 +979,9 @@ impl Overlay {
         if let Some((path, node)) = self.named(ino) {
             return Ok(self.attr(&path, &node));
         }
+        if let Some(index) = self.retired_index(ino) {
+            return Ok(self.attr_of(ino, &Node::Lower(index)));
+        }
         if let Some(file) = self.open_file_of(ino) {
             return Ok(Self::upper_attr(ino, &Upper::fstat(&file)?));
         }
@@ -977,6 +993,9 @@ impl Overlay {
 
     /// The merged listing of folder `ino`: upper names, then lower names not hidden or shadowed.
     pub fn readdir(&self, ino: u64) -> Result<Vec<(u64, Type, String)>, i32> {
+        if let Some(index) = self.retired_index(ino) {
+            return Ok(self.readdir_retired(index));
+        }
         let path = self.path_of(ino)?;
         let node = self.node(&path).ok_or(ENOENT)?;
         if Self::kind(&node, &self.manifest) != Type::Dir {
@@ -1372,6 +1391,12 @@ impl Overlay {
     /// Opens `ino` with open(2) `flags`. A write open copies a lower file up first; the handle
     /// then reads and writes the upper file's own descriptor.
     pub fn open_handle(&self, ino: u64, flags: i32) -> Result<u64, i32> {
+        if let Some(index) = self.retired_index(ino) {
+            if flags & libc::O_ACCMODE != libc::O_RDONLY {
+                return Err(EISDIR);
+            }
+            return Ok(self.add_handle(Handle { ino, file: None, lower: Some(index) }));
+        }
         let path = self.path_of(ino)?;
         let write = flags & libc::O_ACCMODE != libc::O_RDONLY || flags & libc::O_TRUNC != 0;
         if write {
@@ -1910,6 +1935,9 @@ impl Overlay {
 
 #[path = "pin.rs"]
 pub mod pin;
+
+#[path = "overlay_swap.rs"]
+mod swap;
 
 #[cfg(test)]
 #[path = "overlay_tests.rs"]
