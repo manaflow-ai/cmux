@@ -31,8 +31,9 @@ const WINDOW_DEFAULT: usize = 8 << 20;
 pub fn hex(id: &Id) -> String {
     let mut s = String::with_capacity(64);
     for b in id {
-        s.push(char::from(b"0123456789abcdef"[usize::from(b >> 4)]));
-        s.push(char::from(b"0123456789abcdef"[usize::from(b & 15)]));
+        // A digit under 16 always has a char.
+        s.extend(char::from_digit(u32::from(b >> 4), 16));
+        s.extend(char::from_digit(u32::from(b & 15), 16));
     }
     s
 }
@@ -44,13 +45,13 @@ pub fn unhex(s: &str) -> Result<Id> {
         return Err(format!("chunk id {s:?} is not 64 hex digits").into());
     }
     let mut id = [0u8; 32];
-    for (i, pair) in b.chunks_exact(2).enumerate() {
+    for (slot, [hi, lo]) in id.iter_mut().zip(b.as_chunks::<2>().0) {
         let digit = |c: u8| match c {
             b'0'..=b'9' => Ok(c - b'0'),
             b'a'..=b'f' => Ok(c - b'a' + 10),
             _ => Err(format!("chunk id {s:?} is not 64 hex digits")),
         };
-        id[i] = digit(pair[0])? << 4 | digit(pair[1])?;
+        *slot = digit(*hi)? << 4 | digit(*lo)?;
     }
     Ok(id)
 }
@@ -87,12 +88,10 @@ pub fn encode_chunk(kind: u8, payload: &[u8], level: i32) -> Result<Vec<u8>> {
 
 /// A chunk file's kind and its bytes before compression.
 pub fn decode_chunk(file: &[u8]) -> Result<(u8, Vec<u8>)> {
-    if file.len() < HEADER {
+    let &[codec, kind, a, b, c, d, ref body @ ..] = file else {
         return Err("a chunk file is shorter than its header".into());
-    }
-    let (codec, kind) = (file[0], file[1]);
-    let len = u32::from_le_bytes([file[2], file[3], file[4], file[5]]) as usize;
-    let body = &file[HEADER..];
+    };
+    let len = u32::from_le_bytes([a, b, c, d]) as usize;
     let payload = match codec {
         CODEC_RAW => body.to_vec(),
         CODEC_ZSTD => zstd::bulk::Decompressor::new()?.decompress(body, len)?,
@@ -130,7 +129,8 @@ impl Store {
 
     fn chunk_path(&self, id: &Id) -> PathBuf {
         let h = hex(id);
-        self.root.join("chunks").join(&h[..2]).join(h)
+        let dir: String = h.chars().take(2).collect();
+        self.root.join("chunks").join(dir).join(h)
     }
 
     /// Where `name`'s manifest is.

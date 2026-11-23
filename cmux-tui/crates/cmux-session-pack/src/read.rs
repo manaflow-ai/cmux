@@ -27,8 +27,10 @@ pub(crate) fn par_map<T: Sync, R: Send>(
                     let i = next.fetch_add(1, Ordering::Relaxed);
                     let Some(item) = items.get(i) else { break };
                     let r = f(item);
-                    if let Ok(mut o) = out.lock() {
-                        o[i] = Some(r);
+                    if let Ok(mut o) = out.lock()
+                        && let Some(slot) = o.get_mut(i)
+                    {
+                        *slot = Some(r);
                     }
                 }
             });
@@ -69,7 +71,7 @@ impl Pack {
             return Ok(b);
         }
         let (blobs, table) =
-            self.manifest.segments[seg].blob_chunks.as_ref().ok_or("a segment with no blobs")?;
+            self.segment(seg)?.blob_chunks.as_ref().ok_or("a segment with no blobs")?;
         let b = Arc::new(Blobs::decode(
             self.store.get(&unhex(blobs)?)?,
             &self.store.get(&unhex(table)?)?,
@@ -78,6 +80,10 @@ impl Pack {
             cache.insert(seg, b.clone());
         }
         Ok(b)
+    }
+
+    fn segment(&self, seg: usize) -> Result<&Segment> {
+        Ok(self.manifest.segments.get(seg).ok_or_else(|| format!("no segment {seg}"))?)
     }
 
     /// The segment that was the first to hold blob `n`.
@@ -92,7 +98,7 @@ impl Pack {
 
     fn push_blob(&self, n: u64, out: &mut Vec<u8>) -> Result<()> {
         let seg = self.blob_segment(n)?;
-        self.segment_blobs(seg)?.get((n - self.manifest.segments[seg].blob) as usize, out)
+        self.segment_blobs(seg)?.get((n - self.segment(seg)?.blob) as usize, out)
     }
 
     /// Blob `n`: the string, as the log has it between its quotes.
@@ -121,7 +127,7 @@ impl Pack {
         let segs = &self.manifest.segments;
         let first = segs.partition_point(|s| s.line + s.lines <= range.start);
         let last = segs.partition_point(|s| s.line < range.end);
-        &segs[first.min(last)..last]
+        segs.get(first.min(last)..last).unwrap_or_default()
     }
 
     /// Reads, at once, every blob chunk the lines `range` of `events` name and the cache lacks.
@@ -184,7 +190,7 @@ impl Pack {
             blob_segs.insert(self.blob_segment(n)?);
         }
         for seg in blob_segs {
-            if let Some((blobs, table)) = &self.manifest.segments[seg].blob_chunks {
+            if let Some((blobs, table)) = &self.segment(seg)?.blob_chunks {
                 ids.push(unhex(blobs)?);
                 ids.push(unhex(table)?);
             }
@@ -233,7 +239,7 @@ impl Pack {
                         Some(b) => b,
                         None => held.entry(seg).or_insert(self.segment_blobs(seg)?),
                     };
-                    b.get((n - self.manifest.segments[seg].blob) as usize, o)
+                    b.get((n - self.segment(seg)?.blob) as usize, o)
                 };
                 let mut text = Vec::with_capacity(s.raw as usize);
                 for l in range.start.max(s.line)..range.end.min(s.line + s.lines) {

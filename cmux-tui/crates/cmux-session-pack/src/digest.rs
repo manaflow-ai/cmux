@@ -33,11 +33,14 @@ fn cut(s: &str, max: usize) -> (&str, usize) {
     if s.len() <= max {
         return (s, 0);
     }
+    // `s.get` is `Some` at a char boundary, and 0 is one.
     let mut end = max;
-    while !s.is_char_boundary(end) {
+    loop {
+        if let Some(head) = s.get(..end) {
+            return (head, s.len() - end);
+        }
         end -= 1;
     }
-    (&s[..end], s.len() - end)
 }
 
 fn flush(out: &mut String, say: &mut String, thought: &mut usize) {
@@ -173,7 +176,8 @@ pub fn outline(pack: &Pack) -> Result<String> {
     let all = pack.skim_lines(&starts)?;
     for (i, first) in starts.iter().enumerate() {
         let last = starts.get(i + 1).copied().unwrap_or(m.lines) - 1;
-        let v: Value = serde_json::from_slice(&all[i]).unwrap_or(Value::Null);
+        let line = all.get(i).ok_or("a turn's first line is missing")?;
+        let v: Value = serde_json::from_slice(line).unwrap_or(Value::Null);
         let prompt = v
             .pointer("/msg/promptLine")
             .or_else(|| v.pointer("/msg/prompt"))

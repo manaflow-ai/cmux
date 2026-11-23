@@ -41,8 +41,7 @@ impl BlobIndex {
         }
         let mut n = first;
         for e in table.chunks_exact(ENTRY) {
-            let mut h = [0u8; 16];
-            h.copy_from_slice(&e[5..]);
+            let h = *e.last_chunk::<16>().ok_or("a blob table entry is short")?;
             self.map.insert(h, n);
             n += 1;
         }
@@ -85,29 +84,27 @@ struct Head<'a> {
 }
 
 fn number(b: &[u8], i: &mut usize) -> Option<u64> {
-    let start = *i;
-    while *i < b.len() && b[*i].is_ascii_digit() {
-        *i += 1;
-    }
-    let d = &b[start..*i];
-    if d.is_empty() || d.len() > 19 || (d.len() > 1 && d[0] == b'0') {
+    let tail = b.get(*i..)?;
+    let d = tail.get(..tail.iter().take_while(|c| c.is_ascii_digit()).count())?;
+    *i += d.len();
+    if d.is_empty() || d.len() > 19 || (d.len() > 1 && d.first() == Some(&b'0')) {
         return None;
     }
     std::str::from_utf8(d).ok()?.parse().ok()
 }
 
 fn token<'a>(b: &'a [u8], i: &mut usize) -> Option<&'a [u8]> {
-    let start = *i;
-    while *i < b.len()
-        && (b[*i].is_ascii_alphanumeric() || matches!(b[*i], b'_' | b'.' | b'/' | b'-'))
-    {
-        *i += 1;
-    }
-    (*i > start).then(|| &b[start..*i])
+    let tail = b.get(*i..)?;
+    let n = tail
+        .iter()
+        .take_while(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'.' | b'/' | b'-'))
+        .count();
+    *i += n;
+    tail.get(..n).filter(|t| !t.is_empty())
 }
 
 fn eat(b: &[u8], i: &mut usize, lit: &[u8]) -> Option<()> {
-    b[*i..].starts_with(lit).then(|| *i += lit.len())
+    b.get(*i..)?.starts_with(lit).then(|| *i += lit.len())
 }
 
 fn parse_head(line: &[u8]) -> Option<Head<'_>> {
@@ -125,10 +122,12 @@ fn parse_head(line: &[u8]) -> Option<Head<'_>> {
 }
 
 fn push_escaped(out: &mut Vec<u8>, mut span: &[u8]) {
-    while let Some(p) = memchr::memchr(ESC, span) {
-        out.extend_from_slice(&span[..=p]);
+    while let Some(p) = memchr::memchr(ESC, span)
+        && let Some((text, tail)) = span.split_at_checked(p + 1)
+    {
+        out.extend_from_slice(text);
         out.push(ESC);
-        span = &span[p + 1..];
+        span = tail;
     }
     out.extend_from_slice(span);
 }
@@ -143,31 +142,33 @@ fn slim(
 ) -> Vec<u8> {
     let mut out = Vec::with_capacity(rest.len().min(1 << 16));
     let (mut copied, mut i) = (0, 0);
-    while let Some(q) = memchr::memchr(b'"', &rest[i..]) {
+    while let Some(q) = rest.get(i..).and_then(|r| memchr::memchr(b'"', r)) {
         let start = i + q + 1;
         let mut j = start;
         let end = loop {
-            if j >= rest.len() {
-                break None;
-            }
-            match memchr::memchr2(b'"', b'\\', &rest[j..]) {
+            let Some(tail) = rest.get(j..) else { break None };
+            match memchr::memchr2(b'"', b'\\', tail) {
                 None => break None,
-                Some(p) if rest[j + p] == b'"' => break Some(j + p),
+                Some(p) if tail.get(p) == Some(&b'"') => break Some(j + p),
                 Some(p) => j += p + 2,
             }
         };
         let Some(end) = end else { break };
         if end - start >= min
-            && let Some(n) = index.intern(&rest[start..end], blobs, table)
+            && let Some(before) = rest.get(copied..start)
+            && let Some(s) = rest.get(start..end)
+            && let Some(n) = index.intern(s, blobs, table)
         {
-            push_escaped(&mut out, &rest[copied..start]);
+            push_escaped(&mut out, before);
             out.push(ESC);
             let _ = write!(out, "{n};");
             copied = end;
         }
         i = end + 1;
     }
-    push_escaped(&mut out, &rest[copied..]);
+    if let Some(tail) = rest.get(copied..) {
+        push_escaped(&mut out, tail);
+    }
     out
 }
 
@@ -188,16 +189,16 @@ pub fn encode_segment(
     index: &mut BlobIndex,
 ) -> Encoded {
     let mut head = Vec::new();
-    let mut kinds: Vec<&[u8]> = Vec::with_capacity(lines.len());
-    let mut slims = Vec::with_capacity(lines.len());
+    // Each line's kind and remainder, in line order.
+    let mut rows: Vec<(&[u8], Vec<u8>)> = Vec::with_capacity(lines.len());
     let (mut blobs, mut table) = (Vec::new(), Vec::new());
     let (mut prev_seq, mut prev_at) = (0u64, 0u64);
     let mut seq: Option<(u64, u64)> = None;
     let mut marks = Vec::new();
     let min = params.blob_min as usize;
     for (i, line) in lines.iter().enumerate() {
-        let rest = match parse_head(line) {
-            Some(h) => {
+        let (kind, rest) = match parse_head(line).and_then(|h| Some((line.get(h.rest..)?, h))) {
+            Some((rest, h)) => {
                 let (ds, da) = (
                     i128::from(h.seq) - i128::from(prev_seq),
                     i128::from(h.at) - i128::from(prev_at),
@@ -212,25 +213,23 @@ pub fn encode_segment(
                 if params.marks.iter().any(|m| m.as_bytes() == h.kind) {
                     marks.push(first_line + i as u64);
                 }
-                kinds.push(h.kind);
-                &line[h.rest..]
+                (h.kind, rest)
             }
             None => {
                 head.extend_from_slice(b"!\n");
-                kinds.push(b"");
-                &line[..]
+                (&b""[..], *line)
             }
         };
-        slims.push(slim(rest, min, index, &mut blobs, &mut table));
+        rows.push((kind, slim(rest, min, index, &mut blobs, &mut table)));
     }
-    let mut order: Vec<usize> = (0..lines.len()).collect();
-    order.sort_by(|a, b| kinds[*a].cmp(kinds[*b]));
-    let body: usize = slims.iter().map(|s| s.len() + 1).sum();
+    // A stable sort: by kind, then by line.
+    rows.sort_by(|a, b| a.0.cmp(b.0));
+    let body: usize = rows.iter().map(|(_, s)| s.len() + 1).sum();
     let mut events = Vec::with_capacity(4 + head.len() + body);
     events.extend_from_slice(&(head.len() as u32).to_le_bytes());
     events.extend_from_slice(&head);
-    for i in order {
-        events.extend_from_slice(&slims[i]);
+    for (_, s) in &rows {
+        events.extend_from_slice(s);
         events.push(b'\n');
     }
     Encoded { events, blobs, table, seq, marks }
@@ -249,11 +248,7 @@ impl Events {
     /// Reads an events chunk's bytes.
     pub fn decode(payload: Vec<u8>) -> Result<Self> {
         let bad = || "an events chunk is damaged";
-        if payload.len() < 4 {
-            return Err(bad().into());
-        }
-        let head_len =
-            u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]) as usize;
+        let head_len = u32::from_le_bytes(*payload.first_chunk::<4>().ok_or_else(bad)?) as usize;
         let head = payload.get(4..4 + head_len).ok_or_else(bad)?;
         let (mut prefixes, mut kinds, mut seqs) = (Vec::new(), Vec::new(), Vec::new());
         let (mut prev_seq, mut prev_at) = (0i128, 0i128);
@@ -282,12 +277,13 @@ impl Events {
             seqs.push(u64::try_from(prev_seq).ok());
         }
         let mut order: Vec<usize> = (0..kinds.len()).collect();
-        order.sort_by(|a, b| kinds[*a].cmp(kinds[*b]));
+        order.sort_by_key(|i| kinds.get(*i));
         let mut rests = vec![(0, 0); order.len()];
         let mut at = 4 + head_len;
         for i in order {
-            let end = at + memchr::memchr(b'\n', &payload[at..]).ok_or_else(bad)?;
-            rests[i] = (at, end);
+            let end =
+                at + payload.get(at..).and_then(|t| memchr::memchr(b'\n', t)).ok_or_else(bad)?;
+            *rests.get_mut(i).ok_or_else(bad)? = (at, end);
             at = end + 1;
         }
         if at != payload.len() {
@@ -302,20 +298,29 @@ impl Events {
     }
 
     /// The numbers of the blobs line `i` names, appended to `out`.
+    /// A line past the chunk names none.
     pub fn blob_refs(&self, i: usize, out: &mut Vec<u64>) {
-        let (s, e) = self.rests[i];
-        let mut span = &self.payload[s..e];
-        while let Some(p) = memchr::memchr(ESC, span) {
-            span = &span[p + 1..];
-            if span.first() == Some(&ESC) {
-                span = &span[1..];
+        let Some(mut span) = self.rest(i) else { return };
+        while let Some(p) = memchr::memchr(ESC, span)
+            && let Some(tail) = span.get(p + 1..)
+        {
+            span = tail;
+            if let [ESC, after @ ..] = span {
+                span = after;
             } else if let Some(end) = memchr::memchr(b';', span)
-                && let Some(n) = std::str::from_utf8(&span[..end]).ok().and_then(|d| d.parse().ok())
+                && let Some((d, after)) = span.split_at_checked(end)
+                && let Some(n) = std::str::from_utf8(d).ok().and_then(|d| d.parse().ok())
             {
                 out.push(n);
-                span = &span[end + 1..];
+                span = after.get(1..).unwrap_or_default();
             }
         }
+    }
+
+    /// Line `i`'s remainder, as the chunk holds it.
+    fn rest(&self, i: usize) -> Option<&[u8]> {
+        let (s, e) = *self.rests.get(i)?;
+        self.payload.get(s..e)
     }
 
     /// Appends line `i` (without a newline) to `out`; `blob` appends a blob by its number.
@@ -325,20 +330,23 @@ impl Events {
         blob: &mut dyn FnMut(u64, &mut Vec<u8>) -> Result<()>,
         out: &mut Vec<u8>,
     ) -> Result<()> {
-        out.extend_from_slice(&self.prefixes[i]);
-        let (s, e) = self.rests[i];
-        let mut span = &self.payload[s..e];
+        let past = "a line number past its events chunk";
+        out.extend_from_slice(self.prefixes.get(i).ok_or(past)?);
+        let mut span = self.rest(i).ok_or(past)?;
+        let damaged = "a blob reference is damaged";
         while let Some(p) = memchr::memchr(ESC, span) {
-            out.extend_from_slice(&span[..p]);
-            span = &span[p + 1..];
-            if span.first() == Some(&ESC) {
+            let (text, tail) = span.split_at_checked(p).ok_or(damaged)?;
+            out.extend_from_slice(text);
+            span = tail.get(1..).ok_or(damaged)?;
+            if let [ESC, after @ ..] = span {
                 out.push(ESC);
-                span = &span[1..];
+                span = after;
                 continue;
             }
-            let end = memchr::memchr(b';', span).ok_or("a blob reference is damaged")?;
-            blob(std::str::from_utf8(&span[..end])?.parse()?, out)?;
-            span = &span[end + 1..];
+            let end = memchr::memchr(b';', span).ok_or(damaged)?;
+            let (d, after) = span.split_at_checked(end).ok_or(damaged)?;
+            blob(std::str::from_utf8(d)?.parse()?, out)?;
+            span = after.get(1..).ok_or(damaged)?;
         }
         out.extend_from_slice(span);
         Ok(())
@@ -360,8 +368,11 @@ impl Blobs {
         let mut at = 0usize;
         let mut entries = Vec::with_capacity(table.len() / ENTRY);
         for e in table.chunks_exact(ENTRY) {
-            let len = u32::from_le_bytes([e[0], e[1], e[2], e[3]]);
-            entries.push((at, len, e[4]));
+            let &[a, b, c, d, enc, ..] = e else {
+                return Err("a blob table entry is short".into());
+            };
+            let len = u32::from_le_bytes([a, b, c, d]);
+            entries.push((at, len, enc));
             at += len as usize;
         }
         if at != bytes.len() {
@@ -374,7 +385,8 @@ impl Blobs {
     pub fn get(&self, i: usize, out: &mut Vec<u8>) -> Result<()> {
         let (at, len, enc) =
             *self.entries.get(i).ok_or("a blob number past its segment's blobs")?;
-        let body = &self.bytes[at..at + len as usize];
+        let body =
+            self.bytes.get(at..at + len as usize).ok_or("a blob past its blobs chunk's end")?;
         match enc {
             ENC_RAW => out.extend_from_slice(body),
             ENC_B64 => out.extend_from_slice(STANDARD.encode(body).as_bytes()),

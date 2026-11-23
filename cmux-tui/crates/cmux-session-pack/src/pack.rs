@@ -120,17 +120,18 @@ pub fn pack(
         let mut lines: Vec<&[u8]> = Vec::new();
         let (start, mut sealed) = (at, false);
         while at < data.len() {
-            match memchr::memchr(b'\n', &data[at..]) {
-                Some(p) => {
-                    lines.push(&data[at..at + p]);
-                    at += p + 1;
+            let Some(tail) = data.get(at..) else { break };
+            match memchr::memchr(b'\n', tail).and_then(|p| tail.get(..p)) {
+                Some(line) => {
+                    lines.push(line);
+                    at += line.len() + 1;
                     if (at - start) as u64 >= params.segment_bytes {
                         sealed = true;
                         break;
                     }
                 }
                 None => {
-                    lines.push(&data[at..]);
+                    lines.push(tail);
                     at = data.len();
                 }
             }
@@ -143,7 +144,9 @@ pub fn pack(
             line: line_no,
             lines: lines.len() as u64,
             raw: (at - start) as u64,
-            raw_hash: blake3::hash(&data[start..at]).to_hex().to_string(),
+            raw_hash: blake3::hash(data.get(start..at).ok_or("a segment past the log's end")?)
+                .to_hex()
+                .to_string(),
             seq: enc.seq,
             blob,
             blobs: index.next - blob,
@@ -185,8 +188,10 @@ pub fn pack(
                         Ok((hex(&id), file.len() as u64, true))
                     };
                     let r = one();
-                    if let Ok(mut d) = done.lock() {
-                        d[i] = Some(r);
+                    if let Ok(mut d) = done.lock()
+                        && let Some(slot) = d.get_mut(i)
+                    {
+                        *slot = Some(r);
                     }
                 }
             });
@@ -205,7 +210,7 @@ pub fn pack(
             stats.new_chunks += 1;
             stats.new_bytes += len;
         }
-        let s = &mut segments[seg];
+        let s = segments.get_mut(seg).ok_or("a chunk for no segment")?;
         s.stored += len;
         match (kind, &mut s.blob_chunks) {
             (KIND_EVENTS, _) => s.events = id,

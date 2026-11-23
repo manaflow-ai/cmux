@@ -98,7 +98,8 @@ fn run() -> Result<()> {
             if let Some(n) = args.num("--level")? {
                 params.level = n;
             }
-            let files: Vec<PathBuf> = args.pos[2..].iter().map(PathBuf::from).collect();
+            let files: Vec<PathBuf> =
+                args.pos.get(2..).unwrap_or_default().iter().map(PathBuf::from).collect();
             if files.is_empty() {
                 return Err(USAGE.into());
             }
