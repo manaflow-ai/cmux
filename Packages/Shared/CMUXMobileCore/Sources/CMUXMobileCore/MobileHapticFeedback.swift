@@ -6,9 +6,9 @@ import UIKit
 
 /// App-wide policy and emission entry points for cmux-owned mobile haptics.
 ///
-/// The preference defaults to disabled without writing to `UserDefaults`, which
-/// preserves existing behavior for current installs. Every cmux haptic must go
-/// through this type so the Settings toggle applies across package boundaries.
+/// The preference defaults to disabled without writing to `UserDefaults`.
+/// Every cmux haptic must go through this type so the Settings toggle applies
+/// across package boundaries.
 public struct MobileHapticFeedback {
     /// UserDefaults key for the app-wide haptic preference.
     public static let enabledDefaultsKey = "cmux.mobile.hapticFeedbackEnabled"

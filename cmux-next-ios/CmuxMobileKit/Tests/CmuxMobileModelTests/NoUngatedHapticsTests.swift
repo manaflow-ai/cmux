@@ -16,8 +16,11 @@ import Testing
         "CHHapticEngine(",
     ]
 
-    private static let allowedFileNames: Set<String> = [
-        "Theme.swift", "ConversationHaptics.swift", "ScreenKitHaptics.swift",
+    private static let allowedGatePaths = [
+        "/CmuxMobileDesign/Theme.swift",
+        "/CmuxConversationUI/ConversationHaptics.swift",
+        "/CmuxScreenKitUI/ScreenKitHaptics.swift",
+        "/CmuxMobileTerminal/KeyBar/TerminalKeyBar.swift",
     ]
 
     private static var kitRoot: URL {
@@ -41,9 +44,7 @@ import Testing
     }
 
     private static func isAllowed(_ file: URL) -> Bool {
-        if allowedFileNames.contains(file.lastPathComponent) { return true }
-        // TerminalKeyBar.swift and Joystick.swift remain in the owner-controlled KeyBar area.
-        return file.pathComponents.contains("KeyBar")
+        allowedGatePaths.contains { file.path.hasSuffix($0) }
     }
 
     @Test func noRawHapticEmissionOutsideGates() throws {
