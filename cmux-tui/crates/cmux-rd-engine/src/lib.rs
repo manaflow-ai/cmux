@@ -41,6 +41,9 @@ const ACK_RTT_SAMPLES: usize = 64;
 pub const MAX_RESENDS_PER_FEEDBACK: usize = 64;
 /// Shortest time between two forced keyframes.
 pub const MIN_FORCED_IDR_INTERVAL_US: u64 = 250_000;
+/// Longest a keyframe's time on the wire holds a recovery ask back (beyond
+/// [`MIN_FORCED_IDR_INTERVAL_US`]): the viewer waits at most 1.5 s for a frame.
+pub const KEYFRAME_WAIT_MAX_US: u64 = 1_500_000;
 /// How long a stream's newest frame may go unacknowledged before the host
 /// resends it (a tail-loss probe). On a datagram path a frame whose every
 /// datagram was lost leaves the viewer nothing to NACK and the gate nothing
@@ -362,6 +365,10 @@ struct StreamState {
     sent_at_us: BTreeMap<u32, u64>,
     /// Bytes of the stream's last keyframe: what starting over costs (D12).
     last_keyframe_bytes: usize,
+    /// The last keyframe while it may still be arriving: its frame, when it was sent and
+    /// how long it takes on the wire at the target. A recovery ask that comes in meanwhile
+    /// is answered by it.
+    keyframe_in_flight: Option<(u32, u64, u64)>,
     /// The resolution ladder (main stream only, when the session asks for one).
     ladder: Option<ResolutionLadder>,
     /// Ultra: when a refinement frame is due if no damage arrives first (one frame interval
@@ -387,6 +394,7 @@ impl StreamState {
             probes: 0,
             sent_at_us: BTreeMap::new(),
             last_keyframe_bytes: 0,
+            keyframe_in_flight: None,
             refine_due_us: None,
             refine_pending: false,
             ladder: None,
@@ -853,6 +861,9 @@ impl MediaEngine {
         }
         if enc.idr && !tile {
             state.last_keyframe_bytes = packets.datagrams.iter().map(Vec::len).sum();
+            let wire_us = (frame_bytes.saturating_mul(8_000_000) / target_bps.max(1))
+                .min(KEYFRAME_WAIT_MAX_US);
+            state.keyframe_in_flight = Some((req.frame, now_us, wire_us));
         }
         state.history.insert(req.frame, packets.datagrams.clone());
         state.sent_at_us.insert(req.frame, now_us);
@@ -987,9 +998,20 @@ impl MediaEngine {
                 }
             }
         }
-        let idr_allowed = state
-            .last_forced_idr_us
-            .is_none_or(|t| now_us.saturating_sub(t) >= MIN_FORCED_IDR_INTERVAL_US);
+        // A keyframe still on its way answers the ask: the viewer asks until a frame it
+        // can decode arrives, and a 1080p motion keyframe is hundreds of datagrams that
+        // take longer than the forced interval to arrive on a slow path. Starting over
+        // every 250 ms queued keyframes behind keyframes, and none was shown (hq#19915).
+        if state.keyframe_in_flight.is_some_and(|(frame, sent_us, wire_us)| {
+            fb.acked_frame >= frame
+                || now_us.saturating_sub(sent_us) >= wire_us + MIN_FORCED_IDR_INTERVAL_US
+        }) {
+            state.keyframe_in_flight = None;
+        }
+        let idr_allowed = state.keyframe_in_flight.is_none()
+            && state
+                .last_forced_idr_us
+                .is_none_or(|t| now_us.saturating_sub(t) >= MIN_FORCED_IDR_INTERVAL_US);
         // While the path is away (D12) a keyframe would only join the hold; the viewer
         // keeps asking until a frame it can decode arrives, so the ask waits for the path.
         if fb.need_recovery && idr_allowed && !self.cc.frozen() {
