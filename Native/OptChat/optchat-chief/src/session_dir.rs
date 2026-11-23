@@ -658,14 +658,16 @@ pub fn isolation_env(_paths: &Paths) -> BTreeMap<String, String> {
 
 /// Writes the directory; a file is rewritten only when its bytes differ.
 /// The instructions go to CLAUDE.md for a Claude Code harness (the old
-/// layout; the cached layout puts them in the turn preset's system prompt
-/// and removes the file, `set_claude_md`), to AGENTS.md for any other.
+/// layout; the cached layout puts them in the turn preset's system prompt),
+/// and to AGENTS.md for any other harness. The cached layout keeps the short
+/// Claude-owned pointer so acpmux does not copy AGENTS.md into the preset's
+/// first message.
 pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
     std::fs::create_dir_all(paths.session.join(".claude"))?;
     std::fs::create_dir_all(&paths.bin)?;
     // AGENTS.md always (a turn may swap to codex or another harness between
-    // turns, engine.rs); Claude Code reads only CLAUDE.md, which only the
-    // old layout of a Claude harness keeps.
+    // turns, engine.rs); Claude Code reads its own short pointer while the
+    // preset carries the full instructions in the cached layout.
     let chief = paths.bin.join("chief").display().to_string();
     let agents = chief_system_text(
         setup.instructions.as_deref(),
@@ -674,7 +676,10 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
         setup.chiefs_tool,
     );
     write_if_changed(&paths.session.join("AGENTS.md"), agents.as_bytes())?;
-    own_claude_md(&paths.session, matches!(setup.tools, Tools::Cli(_)))?;
+    own_claude_md(
+        &paths.session,
+        matches!(setup.tools, Tools::Cli(_) | Tools::Mcp),
+    )?;
     // The Mac host never runs the Cloud mode; it would take Claude's files.
     match setup.tools {
         Tools::Mcp | Tools::Cloud(_) => {
