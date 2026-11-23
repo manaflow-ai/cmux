@@ -1,4 +1,4 @@
-// The hybrid controls on the app's real state (RFD 0075). They draw `pane.tabState`'s `place` and
+// The hybrid controls on the app's real state (RFD 0078). They draw `pane.tabState`'s `place` and
 // write only through the place lane's `chatPlace.set` (place/usePlace.ts): Hybrid is its mode
 // `auto`, Only in Cloud `cloud`, Only on This Mac `local`. High priority (the lit Hybrid, Keep
 // Running) has no wire yet, so neither mount offers it: no light, no switch, no slot count.

@@ -1,7 +1,7 @@
 // The cloud button (RFD 0078, Leo 2026-11-23: "a toggleable cloud button, maybe a rainbow cloud
 // symbol..... that is dull when not toggled on, and when you toggle it on it becomes a rainbow or
 // some hilariously satisfying toggle-on"). One per chat. Off, the chat is Auto: it runs on this Mac
-// and pauses when the Mac goes away. On, it is high priority: it holds one of the plan's slots and
+// and moves to Cloud on sleep only if a slot is free. On, it is high priority: it holds one of the plan's slots and
 // keeps running in Cloud. The turn-on plays once, on the person's own click, never when a chat
 // that is already on is drawn; reduced motion shows the lit cloud at once.
 import { useId, useState } from "react";
@@ -85,7 +85,9 @@ export function CloudToggle({
             />
           </svg>
         </span>
-        {form === "chip" && <span className="acpmux-hybrid-label">{t("hybrid.keepRunning")}</span>}
+        {form === "chip" && (
+          <span className="acpmux-hybrid-label">{t(view.waiting ? "hybrid.waiting.label" : "hybrid.keepRunning")}</span>
+        )}
       </button>
     </Tooltip>
   );

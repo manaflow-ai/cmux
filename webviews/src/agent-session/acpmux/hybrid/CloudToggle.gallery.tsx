@@ -42,6 +42,7 @@ function Stage({ page, spot, look, state, form, tri, pin = "auto" }: Props) {
       form={tri}
       named={spot === "above" || tri === "cycle"}
       lit={view.lit}
+      waiting={view.waiting}
       onChange={setMode}
       onLitChange={(lit) => setView((now) => ({ ...now, lit }))}
     />
@@ -136,6 +137,10 @@ for (const page of ["chat", "newtab"] as const) {
     lead[`${where}-three-state-lit`] = {
       note: `${SPOT_NOTES[where]} The three-state control on Hybrid with its light on: this chat is high priority (Keep Running). Click Hybrid again to put it out.`,
       props: { page, spot, look: "rainbow", state: "on", tri: "segments" },
+    };
+    lead[`${where}-three-state-waiting`] = {
+      note: `${SPOT_NOTES[where]} The three-state control when Keep Running was asked for and every slot is taken: the name says it waits, and the tooltip names the slots.`,
+      props: { page, spot, look: "rainbow", state: "waiting", tri: "segments" },
     };
     lead[`${where}-three-state-cloud`] = {
       note: `${SPOT_NOTES[where]} The three-state control on Only in Cloud, Sky look.`,

@@ -272,3 +272,6 @@
 @media (prefers-reduced-motion: reduce) {
   .acpmux-hybrid-tri__glyph { animation: none; }
 }
+
+/* Three-state, Hybrid waiting for a slot: the cloud half dashed, no color, as the on/off cloud. */
+.acpmux-hybrid-tri__segment[data-waiting] .acpmux-hybrid-tri__cloud { stroke-dasharray: 2 2; }

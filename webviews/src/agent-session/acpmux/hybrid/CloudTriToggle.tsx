@@ -11,7 +11,11 @@ import "./cloudToggle.css";
 
 const ORDER = ["auto", "cloud", "local"] as const;
 const NAMES = { auto: "hybrid.mode.hybrid", cloud: "hybrid.pin.cloud", local: "hybrid.pin.local" } as const;
-const HELP = { auto: "hybrid.mode.hybrid.help", cloud: "hybrid.keepRunning.help", local: "hybrid.auto.help" } as const;
+const HELP = {
+  auto: "hybrid.mode.hybrid.help",
+  cloud: "hybrid.pin.cloud.help",
+  local: "hybrid.pin.local.help",
+} as const;
 
 const CLOUD = "M4.6 12.5h7a2.6 2.6 0 0 0 .4-5.17A3.6 3.6 0 0 0 5.1 6.2 3.15 3.15 0 0 0 4.6 12.5Z";
 const LAPTOP = "M3.5 4.5h9a1 1 0 0 1 1 1v5.5h-11V5.5a1 1 0 0 1 1-1ZM1.5 12.5h13";
@@ -66,6 +70,7 @@ export function CloudTriToggle({
   form = "segments",
   named = true,
   lit = false,
+  waiting = false,
   onChange,
   onLitChange,
 }: {
@@ -77,6 +82,9 @@ export function CloudTriToggle({
   /// Hybrid only: the chat is high priority (Keep Running), so the split glyph's cloud half is lit.
   /// Only in Cloud is always lit; Only on This Mac never is.
   lit?: boolean;
+  /// Hybrid only: the person asked for Keep Running and every slot is taken. The name says so,
+  /// because a tooltip alone is invisible (first-run finding, 2026-11-23).
+  waiting?: boolean;
   onChange(pin: HybridPin): void;
   /// Choosing Hybrid again while it is chosen turns its light on or off.
   onLitChange?(lit: boolean): void;
@@ -144,6 +152,7 @@ export function CloudTriToggle({
             data-on={mode === pin ? "" : undefined}
             data-lit={mode === pin && glows(mode) ? "" : undefined}
             data-fresh={fresh && mode === pin ? "" : undefined}
+            data-waiting={mode === pin && mode === "auto" && waiting ? "" : undefined}
             onClick={() => pick(mode)}
             onKeyDown={(event) => {
               const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
@@ -159,7 +168,11 @@ export function CloudTriToggle({
       ))}
       {named && (
         <span className="acpmux-hybrid-label acpmux-hybrid-tri__name">
-          {pin === "auto" && lit ? t("hybrid.keepRunning") : t(NAMES[pin])}
+          {pin === "auto" && waiting
+            ? t("hybrid.waiting.label")
+            : pin === "auto" && lit
+              ? t("hybrid.keepRunning")
+              : t(NAMES[pin])}
         </span>
       )}
     </span>
