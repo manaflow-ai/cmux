@@ -1,0 +1,26 @@
+{
+  "manifestVersion": 2,
+  "id": "acme/help-desk",
+  "name": "Help Desk",
+  "version": "1.0.0",
+  "description": "Publishes the open help desk tickets as a signal other extensions watch.",
+  "engines": { "cmux": "^2.0" },
+  "repository": "https://github.com/acme/help-desk",
+  "runtime": { "main": "dist/main.js" },
+  "implements": {
+    "cmux.signal.source/1": {
+      "title": "Open tickets",
+      "options": {
+        "sources": {
+          "open": {
+            "docs": "The open tickets, newest first.",
+            "value": { "type": "object", "required": ["count"], "properties": { "count": { "type": "integer", "minimum": 0 } } },
+            "pollFloorSeconds": 10,
+            "staleAfterSeconds": 600
+          }
+        }
+      }
+    }
+  },
+  "files": ["dist/"]
+}

@@ -214,6 +214,11 @@ impl Shared {
             FromHost::Unsubscribe { sub } => {
                 lock(&self.subs).remove(&sub);
             }
+            // A script session has no daemon signals cache: the runtime reads the source itself.
+            FromHost::Watch { watch, .. } => {
+                self.send(&ToHost::Watch { watch, state: json!({ "fallback": true }) });
+            }
+            FromHost::Unwatch { .. } => {}
             FromHost::Log { level, message } => (self.log)(&level, &message),
             FromHost::Done { cb, ok, body } => {
                 if let Some(waiter) = lock(&self.waiters).remove(&cb) {
