@@ -3,8 +3,8 @@
 Each script installs its pinned tool (sha256-checked release binary), runs it over the
 repository, writes the full report to `${FAST_CHECKS_OUT:-${TMPDIR:-/tmp}/static-analysis-out}/`
 and ends with one line, `SA_SUMMARY tool=<tool> findings=<N> seconds=<S>`. A script exits 0
-whenever its tool ran, whatever it found; nonzero only when the tool could not be installed or
-crashed. Run them yourself on the fleet, never on a person's Mac. Two also run in CI
+when its tool completed the requested scan, whatever it found; nonzero when the tool could not
+be installed, crashed, or could not complete the scan. Run them yourself on the fleet, never on a person's Mac. Two also run in CI
 (below: they fail a change only on a security hole it adds); the rest run only by hand.
 
 ```bash
@@ -48,6 +48,11 @@ failures back into warnings.
 - `ratchet.py gitleaks`: this change's commits only (`-m --first-parent base..head`), values redacted. Every
   finding is a secret the change commits, so every one fails. A known non-secret goes in
   `gitleaks/gitleaks.toml`'s allowlist; a real one is rotated.
+  An empty report proves nothing when Git could not read the history. The wrapper returns nonzero with
+  `scan_status=incomplete` and `findings=unknown` for Git/scanner error diagnostics, an absent or invalid JSON
+  report, or a full-history scan of a shallow checkout. Restore the requested objects/history and rerun;
+  a zero-match completed scan still covers only its requested refs, range, configuration and file-size limits.
+  `tests/test_static_analysis_gitleaks.py` exercises these cases without real credentials.
 - `--base SHA --head REV` judges any pair of commits (how the 100-PR backtest in cmux#50013 ran).
 
 Widening `ZIZMOR_HOLES` is a separate decision; `tests/test_static_analysis_ratchet.py` pins the set.
