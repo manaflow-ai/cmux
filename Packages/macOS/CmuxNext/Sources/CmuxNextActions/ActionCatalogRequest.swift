@@ -33,6 +33,8 @@ public nonisolated struct ActionCatalogRequest: Sendable, Hashable {
         /// export's `target: "terminal"`): a tab action whose request names its terminal.
         case terminal
         case constant(Constant)
+        /// A fresh CLI-format idempotency key for each invocation.
+        case idempotencyKey
     }
 
     public struct Param: Sendable, Hashable {
@@ -50,7 +52,7 @@ public nonisolated struct ActionCatalogRequest: Sendable, Hashable {
         self.params = params
     }
 
-    /// The export's `request` member (`{lane, operation, params: [{name, argument|target|constant}]}`),
+    /// The export's `request` member (`{lane, operation, params: [{name, argument|target|constant|idempotencyKey}]}`),
     /// nil when it does not decode: a row that does not decode gets no binding, so the conformance
     /// test names it as unbound.
     static func decode(_ wire: Any?) -> ActionCatalogRequest? {
@@ -66,6 +68,8 @@ public nonisolated struct ActionCatalogRequest: Sendable, Hashable {
                 params.append(Param(name: name, source: .terminal))
             } else if let kind = (row["target"] as? String).flatMap(ActionTargetKind.init(rawValue:)) {
                 params.append(Param(name: name, source: .target(kind)))
+            } else if row["idempotencyKey"] as? Bool == true {
+                params.append(Param(name: name, source: .idempotencyKey))
             } else if let constant = constant(row["constant"]) {
                 params.append(Param(name: name, source: .constant(constant)))
             } else {
@@ -149,6 +153,8 @@ extension ActionCatalogRequest {
             case .terminal:
                 guard let id = terminal() else { return .failure(MissingTarget(kind: .tab)) }
                 values[param.name] = .string(id)
+            case .idempotencyKey:
+                values[param.name] = .string("cli-" + UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased())
             case .argument(let name):
                 let multiple = arguments.first { $0.name == name }?.suggestions?.allowsMultiple ?? false
                 switch invocation[name] {

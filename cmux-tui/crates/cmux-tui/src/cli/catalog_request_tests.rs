@@ -87,6 +87,7 @@ fn sent_by_catalog(action: &Action, values: &[(&str, Value)]) -> (RequestLane, S
         ParamSource::Argument(name) => value(format!("argument:{name}")),
         ParamSource::Target(kind) => value(format!("target:{kind}")),
         ParamSource::Constant(_) => None,
+        ParamSource::IdempotencyKey => None,
     });
     if request.lane == RequestLane::Session {
         params.entry("machine").or_insert_with(|| json!("current"));
@@ -101,8 +102,72 @@ fn drift(action: &Action, case: &Case) -> Option<String> {
         Err(error) => return Some(format!("{}: {error}", action.id)),
     };
     let palette = sent_by_catalog(action, &case.values);
-    (cli != palette)
+    (cli != palette && !same_except_fresh_idempotency_key(&cli, &palette))
         .then(|| format!("{}: the CLI sends {cli:?}, the palette {palette:?}", action.id))
+}
+
+fn same_except_fresh_idempotency_key(
+    cli: &(RequestLane, String, Value),
+    palette: &(RequestLane, String, Value),
+) -> bool {
+    if cli.0 != palette.0 || cli.1 != palette.1 {
+        return false;
+    }
+    let (Value::Object(mut cli_params), Value::Object(mut palette_params)) =
+        (cli.2.clone(), palette.2.clone())
+    else {
+        return false;
+    };
+    let Some(cli_key) =
+        cli_params.remove("idempotency_key").and_then(|value| value.as_str().map(str::to_owned))
+    else {
+        return false;
+    };
+    let Some(palette_key) = palette_params
+        .remove("idempotency_key")
+        .and_then(|value| value.as_str().map(str::to_owned))
+    else {
+        return false;
+    };
+    cli_params == palette_params
+        && is_fresh_idempotency_key(&cli_key)
+        && is_fresh_idempotency_key(&palette_key)
+}
+
+fn is_fresh_idempotency_key(key: &str) -> bool {
+    key.strip_prefix("cli-").is_some_and(|suffix| {
+        suffix.len() == 32
+            && suffix
+                .chars()
+                .all(|character| character.is_ascii_digit() || ('a'..='f').contains(&character))
+    })
+}
+
+#[test]
+fn fresh_idempotency_keys_do_not_drift() {
+    let cli = (
+        RequestLane::App,
+        "cloud.machine.keep".to_owned(),
+        json!({"machine": "vm_1", "idempotency_key": "cli-0123456789abcdef0123456789abcdef"}),
+    );
+    let palette = (
+        RequestLane::App,
+        "cloud.machine.keep".to_owned(),
+        json!({"machine": "vm_1", "idempotency_key": "cli-fedcba9876543210fedcba9876543210"}),
+    );
+    assert!(same_except_fresh_idempotency_key(&cli, &palette));
+    let changed = (
+        RequestLane::App,
+        "cloud.machine.keep".to_owned(),
+        json!({"machine": "vm_2", "idempotency_key": "cli-fedcba9876543210fedcba9876543210"}),
+    );
+    assert!(!same_except_fresh_idempotency_key(&cli, &changed));
+    let invalid = (
+        RequestLane::App,
+        "cloud.machine.keep".to_owned(),
+        json!({"machine": "vm_1", "idempotency_key": "cli-0123456789ABCDEF0123456789abcdef"}),
+    );
+    assert!(!same_except_fresh_idempotency_key(&cli, &invalid));
 }
 
 #[test]

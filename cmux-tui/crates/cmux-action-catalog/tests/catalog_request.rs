@@ -142,6 +142,7 @@ const DELETE: Action = Action {
             RequestParam { name: "closed", source: ParamSource::Argument("closed") },
             RequestParam { name: "workspace", source: ParamSource::Target("workspace") },
             RequestParam { name: "all", source: ParamSource::Constant(BindingValue::Bool(false)) },
+            RequestParam { name: "idempotency_key", source: ParamSource::IdempotencyKey },
         ],
     }),
     ..Action::DEFAULT
@@ -159,6 +160,7 @@ fn the_app_export_carries_the_request_and_list_whole() {
                 {"name": "closed", "argument": "closed"},
                 {"name": "workspace", "target": "workspace"},
                 {"name": "all", "constant": false},
+                {"name": "idempotency_key", "idempotencyKey": true},
             ],
         }),
         "a false constant is data, not a default"
@@ -215,5 +217,19 @@ fn params_take_each_source_and_leave_out_omitted_ones() {
         ParamSource::Argument("closed") => Some(json!("cl_1")),
         _ => None,
     });
-    assert_eq!(Value::Object(sent), json!({"closed": "cl_1", "all": false}));
+    let first = Value::Object(sent);
+    let second = Value::Object(params(request, |source| match source {
+        ParamSource::Argument("closed") => Some(json!("cl_1")),
+        _ => None,
+    }));
+    assert_eq!(first["closed"], "cl_1");
+    assert_eq!(first["all"], false);
+    assert_eq!(first["idempotency_key"].as_str().map(|key| key.len()), Some(36));
+    assert!(first["idempotency_key"].as_str().is_some_and(|key| {
+        key.starts_with("cli-")
+            && key[4..]
+                .chars()
+                .all(|character| character.is_ascii_digit() || ('a'..='f').contains(&character))
+    }));
+    assert_ne!(first["idempotency_key"], second["idempotency_key"]);
 }
