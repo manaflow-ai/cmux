@@ -9,7 +9,8 @@
 //! Each install starts two take-overs: the replaced daemon's own swap starts one
 //! (`daemon/exe_swap.rs`) and the installer starts the other. Before, the start that lost the race
 //! asked only the first holder and then waited forever on the one that won: the fourth install of
-//! a fleet run hung here with three daemons up (2026-11-20).
+//! a fleet run hung here with three daemons up (2026-11-20). Then the loser asked the winner to
+//! hand over as well, a second dark socket per install; now it yields to a winner of its own build.
 //!
 //! Leo: "BRO CANT YOU JUST LIKE SUSPEND SHIT AFTER A TOOL CALL/TURN THEN JUST GO AND AUTOUPDATE".
 
@@ -316,6 +317,19 @@ async fn nightly_take_overs_mid_tool_call_keep_agents_and_run_each_queued_prompt
     let prompts = read.iter().filter(|l| l["method"] == "session/prompt").count();
     assert_eq!(prompts, CHATS * (1 + INSTALLS), "the agents read {prompts} prompts");
 
+    // Each install handed the home over once: of its two take-over starts, the one that lost the
+    // race found a daemon of its own build serving and yielded (`daemon/take_over_yield.rs`). It
+    // asked that new daemon to hand over too before, and every chat went dark twice per install
+    // (Leo's NIGHTLY, 2026-11-22 21:38Z: 20 s).
+    let stops = std::fs::read_to_string(daemon.home.join("daemon.stops.json")).unwrap();
+    let stops: Value = serde_json::from_str(&stops).unwrap();
+    let handovers = stops["recent"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|s| s["cause"]["detail"] == "handover: another daemon of this home starts")
+        .count();
+    assert_eq!(handovers, INSTALLS, "handovers per install: {stops:#}");
     // The daemon that serves now may be one the replaced daemon's own swap started, not the
     // test's child: end it as the harness ends its own.
     let holder = std::fs::read_to_string(daemon.home.join("daemon.lock"))
