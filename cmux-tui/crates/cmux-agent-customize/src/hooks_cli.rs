@@ -44,7 +44,9 @@ pub fn run(args: &[String]) -> anyhow::Result<Value> {
             let claude = listing.count(Agent::Claude);
             let codex = listing.count(Agent::Codex);
             let mut value = serde_json::to_value(&listing)?;
-            value["counts"] = json!({ "claude": claude, "codex": codex });
+            if let Some(map) = value.as_object_mut() {
+                map.insert("counts".to_owned(), json!({ "claude": claude, "codex": codex }));
+            }
             value
         }
         "enable" | "disable" => {
