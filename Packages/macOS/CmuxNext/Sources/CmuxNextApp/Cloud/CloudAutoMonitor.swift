@@ -22,7 +22,7 @@ final class CloudAutoMonitor {
     /// The next re-read while an Auto chat exists; none is scheduled when no chat is on Auto.
     private let tick = DemandTimer(owner: "CloudAutoMonitor.tick")
     /// What the system callbacks report, delivered in order to the one loop that owns them (``loop``).
-    private enum Event: Sendable { case sleep(Bool), memory(String), power, turnEnded(String) }
+    private enum Event: Sendable { case asleep(Bool), memory(String), power, turnEnded(String) }
     nonisolated private let events: AsyncStream<Event>.Continuation
     private let stream: AsyncStream<Event>
     private var loop: Task<Void, Never>?
@@ -37,11 +37,12 @@ final class CloudAutoMonitor {
         (stream, events) = AsyncStream<Event>.makeStream(bufferingPolicy: .bufferingNewest(64))
     }
 
-    deinit { events.finish(); loop?.cancel() }
+    /// Finishing the stream ends ``loop``.
+    nonisolated deinit { events.finish() }
 
     private func handle(_ event: Event) {
         switch event {
-        case .sleep(let asleep): sleeping = asleep
+        case .asleep(let asleep): sleeping = asleep
         case .memory(let level): memory = level
         case .power: break
         case .turnEnded(let session): turnEnded[session] = services.cloud.place.nowMs; return
@@ -61,10 +62,10 @@ final class CloudAutoMonitor {
         let events = events
         let center = NSWorkspace.shared.notificationCenter
         observers.append(center.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { _ in
-            events.yield(.sleep(true))
+            events.yield(.asleep(true))
         })
         observers.append(center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { _ in
-            events.yield(.sleep(false))
+            events.yield(.asleep(false))
         })
         let source = DispatchSource.makeMemoryPressureSource(eventMask: [.normal, .warning, .critical], queue: .main)
         source.setEventHandler { [weak source] in
