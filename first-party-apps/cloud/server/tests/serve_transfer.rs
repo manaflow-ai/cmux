@@ -50,7 +50,7 @@ fn a_push_answers_before_the_copy_ends_and_its_end_is_an_event() {
     let mut host = host(&transfer);
     host.send(&json!({ "type": "op", "id": "1", "op": "cloud.file.push", "origin": "user",
         "idempotency_key": "p-1",
-        "args": { "machine": "vm-alpha01", "localPath": local_file(), "path": "/home/cmux/upload.txt" } }));
+        "args": { "machine": "vm_alpha01", "localPath": local_file(), "path": "/home/cmux/upload.txt" } }));
     let started = result_of(&mut host, "1");
     assert_eq!(
         started.as_ref().map(|r| (r["ok"].clone(), r["result"]["state"].clone())),
@@ -75,7 +75,7 @@ fn a_push_answers_before_the_copy_ends_and_its_end_is_an_event() {
     let changed = &changed["data"];
     assert_eq!(changed["transfer"], id);
     assert_eq!(changed["state"], "done", "{changed}");
-    assert_eq!(changed["machine"], "vm-alpha01");
+    assert_eq!(changed["machine"], "vm_alpha01");
     assert_eq!(changed["direction"], "push");
     assert_eq!(changed["bytes"], 42);
     assert_eq!(transfer.log().jobs.len(), 1);
@@ -87,7 +87,7 @@ fn a_push_needs_no_carrier_it_dials_the_daemon_itself() {
     let mut host = host(&transfer);
     host.send(&json!({ "type": "op", "id": "1", "op": "cloud.file.push", "origin": "user",
         "idempotency_key": "p-1",
-        "args": { "machine": "vm-alpha01", "localPath": local_file(), "path": "/home/cmux/upload.txt" } }));
+        "args": { "machine": "vm_alpha01", "localPath": local_file(), "path": "/home/cmux/upload.txt" } }));
     let pushed = result_of(&mut host, "1");
     assert_eq!(
         pushed.as_ref().map(|r| r["result"]["state"].clone()),
@@ -110,7 +110,7 @@ fn a_fifth_transfer_while_four_run_is_busy_and_starts_nothing() {
     let push = |host: &Host, id: &str| {
         host.send(&json!({ "type": "op", "id": id, "op": "cloud.file.push", "origin": "user",
             "idempotency_key": format!("p-{id}"),
-            "args": { "machine": "vm-alpha01", "localPath": local_file(), "path": "/home/cmux/upload.txt" } }));
+            "args": { "machine": "vm_alpha01", "localPath": local_file(), "path": "/home/cmux/upload.txt" } }));
     };
     // The daemon capability gate: one connect_info read, then cached.
     let endpoints = |host: &Host| {

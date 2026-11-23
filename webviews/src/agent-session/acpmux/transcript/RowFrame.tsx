@@ -2,6 +2,7 @@ import React, { useLayoutEffect, useRef, useState, useEffectEvent, useCallback }
 import { LOAD_FADE_CLASS } from "../../shared/loadFade";
 import { sendPopEnabled } from "../chatDisplay";
 import { holdEntranceForFirstFrame } from "../conversation/entranceClock";
+import { markRecapEntrance } from "../conversation/turnEndFold";
 import { type AcpmuxRow, type StatusEdge, rowFrameKey, isLineRow, SINCE_DIVIDER } from "../model";
 import { acpmuxPerf } from "../perf";
 import { useLiveToolRow } from "../liveToolOutput";
@@ -231,6 +232,7 @@ export const RowFrame = React.memo(function RowFrame({
       return row.kind === "user" && sendPopEnabled()
         ? holdEntranceForFirstFrame(ref.current, undefined, true)
         : undefined;
+    markRecapEntrance(ref.current);
     return holdEntranceForFirstFrame(ref.current);
   });
   useLayoutEffect(() => holdEntranceOnMount(), []);
@@ -262,6 +264,11 @@ export const RowFrame = React.memo(function RowFrame({
   });
   // Only this mount: the ref holds the length, so a changed one re-runs nothing here.
   useLayoutEffect(() => writeSetSizeOnMount(), []);
+  // The row as of this commit, for its open state (`queueDrawn` below), written before it reads it.
+  const drawnRow = useRef(row);
+  useLayoutEffect(() => {
+    drawnRow.current = row;
+  });
   useLayoutEffect(() => {
     const node = ref.current;
     if (!node) return;
@@ -284,7 +291,9 @@ export const RowFrame = React.memo(function RowFrame({
     ];
     queuedFor.current = now;
     const versionOnly = was !== undefined && now.every((value, at) => value === was[at]);
-    return queueDrawn(node, row.id, row.version, replyActions, status, versionOnly);
+    // The row is read for its open state; its id and version say when that changed, so a new object
+    // with the same version queues nothing again (a toggle inside it is its observer's report).
+    return queueDrawn(node, row.id, row.version, replyActions, status, versionOnly, drawnRow.current);
   }, [
     row.id,
     row.version,
