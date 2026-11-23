@@ -1,0 +1,22 @@
+/* Cell's chat: text on the page, set on the cell. Nothing is a card with a shadow: tool output,
+   edits and plans sit in a one-pixel outline on a fill 2% off the page; your prompt is a faint
+   band with a 2 px corner, not a bubble. Three ink levels do the work that size does elsewhere:
+   body at full ink, secondary (tool rows, labels) at 72%, quietest (timings, thoughts) at 64%, both
+   mixed into the page so they are solid colors that hold 4.5:1 over it. Links are the terminal's
+   blue, pulled a fifth toward the ink.
+   Only cmux.agentPane.style/1 tokens (schemas/agent-pane/style-tokens.json), on :root: paint, so
+   nothing in the transcript moves when this applies or reloads. Every color is made from the
+   theme's own (--agent-text, --agent-accent, --agent-page-bg), so one file reads over Cell,
+   Cell Light and any terminal theme you put under it. */
+:root {
+  --cv-text: var(--agent-text);
+  --cv-text-muted: color-mix(in srgb, var(--agent-text) 72%, var(--agent-page-bg));
+  --cv-text-dim: color-mix(in srgb, var(--agent-text) 64%, var(--agent-page-bg));
+  --cv-link: color-mix(in srgb, var(--agent-accent) 80%, var(--agent-text));
+  --agent-link: color-mix(in srgb, var(--agent-accent) 80%, var(--agent-text));
+  --cv-card-fill: color-mix(in srgb, var(--agent-text) 2%, transparent);
+  --cv-card-ring: color-mix(in srgb, var(--agent-text) 14%, transparent);
+  --cv-user-bubble-tint: color-mix(in srgb, var(--agent-text) 7%, transparent);
+  --cv-user-bubble-edge: color-mix(in srgb, var(--agent-text) 14%, transparent);
+  --cv-user-bubble-radius: 2px;
+}

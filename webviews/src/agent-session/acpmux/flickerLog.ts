@@ -21,12 +21,21 @@
 //   followed view did not paint it (conversation/replyPainted.ts): `why` and the row's height `h`.
 // - `focus-lost`: a text input lost the keyboard with no key or click in the last half second
 //   (focusLossWatch.ts): `cause`, `what`, `to`; the app also writes it to its focus log.
+// - `layout-undeclared`: in a dev build, a box moved on no event the layout-motion contract declares for
+//   its surface (layout/motionAudit.ts): `surface`, `px` (its largest change) and `during` (what was open).
 // - `first-load`: how a chat page loaded shown, judged frame by frame as the first-load bench judges
 //   it (firstLoadWatch.ts): `copy` (a drawn copy showed first), `first` and `settled` (ms from
 //   navigation), `shifts` (frames that moved the composer or the bottom row), `blank`, `why`.
 //
 // Frames are timed only while the page changes: a DOM mutation arms a frame watch that stops a
-// second after the last one, never a loop that runs while the page is still.
+// second after the last one, never a loop that runs while the page is still. That watch (the
+// document-wide MutationObserver and its display frames: the `frames` event and, where the engine has
+// no `long-animation-frame` entries, `long-frame`) runs only while its debug flag is on:
+// `localStorage["cmux.diag.frameWatch"] = "on"` in any page of the origin, or `setFrameWatch(true)`.
+// Off, a page asks for no frame for it at all (CMUX-672: a chat renderer at 96 to 157% CPU with its
+// chats mostly still, where each minute label or presence row that changed armed frames). The other
+// events record things that happened, with no loop, and stay on. Pages follow the flag as it changes
+// (the `storage` event) and read it again when they are shown.
 //
 // No text of the chat goes out: kinds, numbers and short words. Events are sent in batches at
 // most once a second, fire and forget: on the shared page host as the `cmux.agent.diag.flicker` op
@@ -37,6 +46,8 @@
 import { watchFirstLoad } from "./firstLoadWatch";
 import { watchFocusLoss } from "./focusLossWatch";
 import { postNative } from "./native";
+import { acpmuxPerf } from "./perf";
+import { perfReporter } from "./perfReporter";
 
 export type FlickerEvent = { kind: string; at: number } & Record<string, string | number | boolean>;
 /// Hands one batch to the app; it may return the host's (ignored) answer.
@@ -238,14 +249,44 @@ export class FrameWatch {
 
 let log: FlickerLog | undefined;
 
+/// The debug flag that turns the frame watch on (the top of this file); any other value is off.
+export const FRAME_WATCH_KEY = "cmux.diag.frameWatch";
+
+/// Whether the frame watch's flag is on in `win`'s storage (off where storage is missing or refused).
+export function frameWatchFlag(win: Window = window): boolean {
+  try {
+    return win.localStorage?.getItem(FRAME_WATCH_KEY) === "on";
+  } catch {
+    return false;
+  }
+}
+
+/// The installed detector's switch for its frame watch; none before startFlickerLog.
+let applyFrameWatch: ((on: boolean) => void) | undefined;
+
+/// Turns the frame watch on or off: in this page at once, in the origin's other pages through their
+/// `storage` event, and in pages loaded later.
+export function setFrameWatch(on: boolean, win: Window = window): void {
+  try {
+    if (on) win.localStorage?.setItem(FRAME_WATCH_KEY, "on");
+    else win.localStorage?.removeItem(FRAME_WATCH_KEY);
+  } catch {
+    // No storage: this page still follows the call.
+  }
+  applyFrameWatch?.(on);
+}
+
 /// The transcript's root mounted (App.tsx VirtualTranscript); nothing before startFlickerLog.
 export function noteTranscriptMount(): void {
   log?.transcriptMounted();
+  // The perf watch's page-load span (perfReporter.ts): the first mount, once per page.
+  acpmuxPerf.markLaunch("transcriptMount");
 }
 
 /// The chat on screen was replaced whole (direct.ts `noteReplace`); nothing before startFlickerLog.
 export function noteTranscriptReplace(cause: string, blank: boolean, n: number): void {
   log?.record("transcript-replace", { cause, blank, n });
+  perfReporter.transcriptReplaced();
 }
 
 /// The ended turn's final reply is not painted where the reader follows (conversation/replyPainted.ts):
@@ -313,6 +354,8 @@ export function startFlickerLog(win: Window = window, send?: FlickerSend): void 
 
 /// Tests: the page starts again with no detector.
 export function resetFlickerLogForTests(): void {
+  applyFrameWatch?.(false);
+  applyFrameWatch = undefined;
   log?.flush();
   log = undefined;
 }
@@ -349,7 +392,10 @@ function install(win: Window, pageHostSend: FlickerSend | undefined): void {
   flicker.record("page-load", { type: navigation?.type ?? "unknown" });
   watchFirstLoad(win, (fields) => flicker.record("first-load", fields));
 
-  const longFrame = (ms: number) => flicker.record("long-frame", { ms });
+  const longFrame = (ms: number) => {
+    flicker.record("long-frame", { ms });
+    perfReporter.longFrame(ms);
+  };
   const types = (globalThis as { PerformanceObserver?: typeof PerformanceObserver }).PerformanceObserver
     ?.supportedEntryTypes;
   // With the engine's long frames, the watch's own would be the same frames twice.
@@ -362,18 +408,43 @@ function install(win: Window, pageHostSend: FlickerSend | undefined): void {
     (stats) => flicker.record("frames", stats),
     engineLongFrames,
   );
-  new (win as Window & typeof globalThis).MutationObserver(() => watch.arm()).observe(doc.documentElement, {
-    childList: true,
-    subtree: true,
-    characterData: true,
+  // The frame watch's DOM observer, only while the debug flag is on. Stop condition: the flag going off
+  // disconnects it; a watch already running stops by itself WATCH_MS after the last change.
+  let observer: MutationObserver | undefined;
+  const follow = (on: boolean) => {
+    if (on === (observer !== undefined)) return;
+    if (!on) {
+      observer!.disconnect();
+      observer = undefined;
+      watch.reset();
+      return;
+    }
+    observer = new (win as Window & typeof globalThis).MutationObserver(() => watch.arm());
+    observer.observe(doc.documentElement, { childList: true, subtree: true, characterData: true });
+  };
+  applyFrameWatch = follow;
+  follow(frameWatchFlag(win));
+  win.addEventListener("storage", (event) => {
+    if (event.key === FRAME_WATCH_KEY || event.key === null) follow(frameWatchFlag(win));
   });
 
   doc.addEventListener("visibilitychange", () => {
     flicker.record("visibility", { state: doc.visibilityState });
+    // The perf watch times a switch back to this page to its settled transcript (perfReporter.ts).
+    perfReporter.visibilityChanged(doc.visibilityState === "visible");
     watch.reset();
-    if (doc.visibilityState === "visible") watch.arm();
+    if (doc.visibilityState !== "visible") return;
+    // A flag set in this page's own console fires no `storage` event here: it is read again on show.
+    follow(frameWatchFlag(win));
+    if (observer) watch.arm();
   });
   win.addEventListener("pagehide", () => flicker.flush());
   // A text input that loses the keyboard with no key or click: the app's focus log (focusLossWatch.ts).
   watchFocusLoss(win, (fields) => flicker.record("focus-lost", fields));
+}
+
+/// A layout move the layout-motion contract does not declare (layout/motionAudit.ts, dev builds): the surface,
+/// how far the box went (`px`, its largest change) and the events open then. No chat text, no row id.
+export function noteUndeclaredMove(surface: string, px: number, during: string): void {
+  log?.record("layout-undeclared", { surface, px, during });
 }

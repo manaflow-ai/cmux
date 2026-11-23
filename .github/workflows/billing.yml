@@ -16,10 +16,9 @@ name: Billing
 # - ios-billing (macOS): `swift test` for every Packages/iOS/*Billing* package
 #   when one changed, and the StoreKit Testing SLOT for the rewritten iOS
 #   billing client (SKTestSession + a .storekit file) on an iOS simulator. The
-#   slot runs on any iOS billing change once a target named
-#   BillingStoreKitTests exists under cmux-next-ios (a SwiftPM test directory,
-#   or an xcodegen target in cmux-next-ios/project.yml); until then
-#   billing_lane.py finds none and its steps skip.
+#   slot runs on any iOS billing change: billing_lane.py finds the target
+#   BillingStoreKitTests (Packages/iOS/CmuxMobileBilling/StoreKitTests, or one
+#   under cmux-next-ios); with none its steps skip.
 #
 # Both names are stable, so they can be made required later. Before that, drop
 # the pull_request path filter (tests/test_ci_required_checks_have_no_path_filters.py):
@@ -177,10 +176,14 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
   billing:
     name: billing
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -256,15 +259,23 @@ jobs:
           esac
           echo "label=$label" >> "$GITHUB_OUTPUT"
 
+      # no-cache: setup-bun's binary cache is keyed by the bun version only, and
+      # actions/cache stores the path relative to the workspace. An entry saved
+      # where the workspace is /home/runner/work/cmux/cmux restores, on an owned
+      # GCP runner (workspace /home/runner/actions-runner/_work/cmux/cmux), to
+      # /home/runner/actions-runner/.bun/bin/bun, and the step then fails with
+      # "Unable to locate executable file: /home/runner/.bun/bin/bun" (push run
+      # 44618497833). The download is one ~50 MB file.
       - name: Setup Bun
         if: ${{ steps.route.outputs.web == 'true' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: true
 
       - name: Cache Bun package cache
         if: ${{ steps.route.outputs.web == 'true' }}
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
@@ -342,8 +353,9 @@ jobs:
     name: ios-billing
     needs: billing
     # Runs even when a web billing step failed, from the routing billing wrote.
+    # With Blacksmith macOS off (vars.CI_BLACKSMITH_MACOS not `on`) it takes the owned side lane (note-350).
     if: ${{ !cancelled() && (needs.billing.outputs.ios == 'true' || needs.billing.outputs.storekit_kind != '') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || github.run_attempt == 1 && needs.billing.outputs.mac_label || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || github.run_attempt == 1 && needs.billing.outputs.mac_label || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 30
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
@@ -385,42 +397,54 @@ jobs:
           fi
 
       # -----------------------------------------------------------------------
-      # SLOT: StoreKit Testing for the rewritten iOS billing client.
-      # Contract for the rewrite: add a test target named BillingStoreKitTests
-      # that drives SKTestSession against a checked-in .storekit file, either as
-      # cmux-next-ios/<Package>/Tests/BillingStoreKitTests (run through the
-      # package's `<name>-Package` scheme) or as a BillingStoreKitTests target
-      # and scheme in cmux-next-ios/project.yml. Nothing else changes here.
-      # In a SwiftPM test bundle (no app host) load the .storekit file with
-      # SKTestSession(contentsOf: Bundle.module.url(...)), not
+      # StoreKit Testing for the iOS billing client: the test target
+      # BillingStoreKitTests drives SKTestSession against a checked-in
+      # .storekit file. It is the app-hosted xcodegen project
+      # Packages/iOS/CmuxMobileBilling/StoreKitTests (storekitd serves a
+      # StoreKit configuration only to an app installed for development, not
+      # to SwiftPM's xctest runner); billing_lane.py also finds a target under
+      # cmux-next-ios/<Package>/Tests (`<name>-Package` scheme) or in
+      # cmux-next-ios/project.yml.
+      # Load the .storekit file from the test bundle with
+      # SKTestSession(contentsOf: Bundle(for:).url(...)), not
       # SKTestSession(configurationFileNamed:), which searches the main bundle.
       # -----------------------------------------------------------------------
       # CmuxMobileKit, and the app project that depends on it, cannot load
       # without its gitignored FFI xcframework (cmux-next-ios-kit.yml builds it
-      # the same way, with the same cargo cache).
+      # the same way, with the same cargo cache). A Packages/iOS billing
+      # package does not link it, so these steps skip for one.
       - name: Set up pinned Rust
-        if: ${{ !cancelled() && env.STOREKIT_KIND != '' }}
+        if: ${{ !cancelled() && env.STOREKIT_KIND != '' && startsWith(env.STOREKIT_PATH, 'cmux-next-ios') }}
         uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Cache cargo
-        if: ${{ !cancelled() && env.STOREKIT_KIND != '' }}
+        if: ${{ !cancelled() && env.STOREKIT_KIND != '' && startsWith(env.STOREKIT_PATH, 'cmux-next-ios') }}
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-next-ios/rust
           key: cmux-next-ios-kit
 
       - name: Build CmuxMobileLinkFFI.xcframework
-        if: ${{ !cancelled() && env.STOREKIT_KIND != '' }}
+        if: ${{ !cancelled() && env.STOREKIT_KIND != '' && startsWith(env.STOREKIT_PATH, 'cmux-next-ios') }}
         env:
           JOBS: "8"
         run: bash cmux-next-ios/rust/scripts/build-xcframework.sh
 
       - name: StoreKit Testing (iOS simulator)
         if: ${{ !cancelled() && env.STOREKIT_KIND != '' }}
+        # A side-lane Mac (vars.CI_SIDE_LANE_RUNNER, note-350) is not a
+        # glaeda-ios-sim host and has no ready-made iPhone simulator (push run
+        # 44618497833 on ultra2 found none). An existing iOS 26 iPhone is used;
+        # else this step makes one from an iOS 26 runtime (ios_sim_runtime.py
+        # picks the runtime, honoring CMUX_CI_IOS_SIM_RUNTIME, and the iPhone
+        # type) and deletes it when the step ends. No iOS 26 runtime fails the
+        # step, naming the runtimes the host has: the slot never passes skipped.
         run: |
           set -euo pipefail
-          udid="$(xcrun simctl list devices available -j | python3 -c '
+          udid="$(xcrun simctl list devices available -j | python3 -I -c '
           import json, sys
           devices = json.load(sys.stdin)["devices"]
           found = sorted(
@@ -433,23 +457,68 @@ jobs:
           print(found[-1][1] if found else "")
           ')"
           if [[ -z "$udid" ]]; then
-            echo "::error::no available iOS 26 iPhone simulator on this runner"
-            exit 1
+            listing="$(xcrun simctl list -j runtimes devicetypes)"
+            # Only iOS 26 runtimes: the selected Xcode is 26 (CMUX_CI_XCODE_APP).
+            if ! choice="$(printf '%s' "$listing" | python3 -I -c '
+          import json, sys
+          listing = json.load(sys.stdin)
+          listing["runtimes"] = [r for r in listing.get("runtimes", []) if str(r.get("version", "")).split(".")[0] == "26"]
+          json.dump(listing, sys.stdout)
+          ' | python3 -I scripts/ci/ios_sim_runtime.py)"; then
+              have="$(printf '%s' "$listing" | python3 -I -c '
+          import json, sys
+          runtimes = json.load(sys.stdin).get("runtimes", [])
+          print(", ".join("%s (%s)" % (r.get("name"), r.get("buildversion")) for r in runtimes if r.get("platform") == "iOS" and r.get("isAvailable")) or "none")
+          ')"
+              echo "::error::no usable iOS 26 simulator runtime on this runner (see above; iOS runtimes: $have)"
+              exit 1
+            fi
+            read -r runtime device_type <<< "$choice"
+            # A step killed past its EXIT trap leaves its simulator: delete those first.
+            for stale in $(xcrun simctl list devices -j | python3 -I -c '
+          import json, sys
+          for items in json.load(sys.stdin)["devices"].values():
+              for device in items:
+                  if device["name"].startswith("billing-storekit-"):
+                      print(device["udid"])
+          '); do
+              xcrun simctl shutdown "$stale" >/dev/null 2>&1 || true
+              xcrun simctl delete "$stale" || true
+            done
+            udid="$(xcrun simctl create "billing-storekit-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" "$device_type" "$runtime")"
+            trap 'xcrun simctl shutdown "$udid" >/dev/null 2>&1 || true; xcrun simctl delete "$udid" || true' EXIT
+            # A cancelled step gets SIGTERM: exit, so the EXIT trap cleans up.
+            trap 'exit 143' TERM
+            trap 'exit 130' INT
+            echo "Made simulator $udid ($device_type, $runtime) for this step."
+          else
+            echo "Using simulator $udid."
           fi
           log_path="$RUNNER_TEMP/storekit-tests.log"
           common=(-destination "id=$udid,arch=arm64" -enableCodeCoverage NO
-                  -derivedDataPath "$RUNNER_TEMP/dd-storekit" CODE_SIGNING_ALLOWED=NO
+                  -derivedDataPath "${CMUX_DERIVED_DATA_SLOT:-$RUNNER_TEMP/dd-storekit}"
                   -resultBundlePath "$RUNNER_TEMP/storekit.xcresult")
           cd "$STOREKIT_PATH"
           case "$STOREKIT_KIND" in
             package)
               package="$(swift package dump-package | python3 -c 'import json, sys; print(json.load(sys.stdin)["name"])')"
-              xcodebuild test -scheme "$package-Package" -only-testing:BillingStoreKitTests "${common[@]}" 2>&1 | tee "$log_path"
+              xcodebuild test -scheme "$package-Package" -only-testing:BillingStoreKitTests "${common[@]}" CODE_SIGNING_ALLOWED=NO 2>&1 | tee "$log_path"
               ;;
             project)
               command -v xcodegen >/dev/null || brew install xcodegen
               xcodegen generate -q
-              xcodebuild test -project CmuxMobileApp.xcodeproj -scheme BillingStoreKitTests "${common[@]}" 2>&1 | tee "$log_path"
+              if [[ "$STOREKIT_PATH" == cmux-next-ios ]]; then
+                xcodebuild test -project CmuxMobileApp.xcodeproj -scheme BillingStoreKitTests "${common[@]}" CODE_SIGNING_ALLOWED=NO 2>&1 | tee "$log_path"
+              else
+                # A billing package's own project (Packages/iOS/*Billing*/
+                # StoreKitTests), named in its project.yml. Its project.yml
+                # signs the host app ad hoc, not unsigned: storekitd serves
+                # the StoreKit configuration only to an app whose signature
+                # carries get-task-allow ("installed for development"); with
+                # CODE_SIGNING_ALLOWED=NO every product load comes back empty.
+                project="$(sed -n 's/^name:[[:space:]]*//p' project.yml | head -n 1).xcodeproj"
+                xcodebuild test -project "$project" -scheme BillingStoreKitTests "${common[@]}" 2>&1 | tee "$log_path"
+              fi
               ;;
             *)
               echo "::error::unknown StoreKit target kind: $STOREKIT_KIND"

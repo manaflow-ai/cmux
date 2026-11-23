@@ -15,6 +15,12 @@ import { fireAlarm } from "./setup/alarm.ts"
  * ledger, revocation (route and install revoke) and the team audit record. GitHub is faked.
  */
 
+/** The X-Hub-Signature-256 digest GitHub sends with a webhook. */
+const hmacHex = async (secret: string, msg: string) => {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"])
+  return [...new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(msg)))].map((b) => b.toString(16).padStart(2, "0")).join("")
+}
+
 describe("GitHub token endpoint", { timeout: 60_000 }, () => {
   it.each(["provider", "register"] as const)("refuses a machine token whose requested TTL elapses during %s work and retries revocation until provider expiry", async (delay) => {
     const a = await signedInWithInstall(`gh-token-expiry-${delay}`, "cli")
@@ -577,6 +583,48 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     expect((await token(a.installToken, { team: a.team, repo: "acme/web", permissions: { contents: "read" } })).body.error.code).toBe("needs_reauth")
   })
 
+  it("App webhooks: suspend marks the connection at once and unsuspend restores it; new permissions sync; a removed repository leaves; an uninstalled one stays unlinked", async () => {
+    const a = await signedInWithInstall("gh-token-hooks-1", "cli")
+    await linkGitHub(a.session, a.team)
+    const hook = async (event: string, payload: Record<string, unknown>) => {
+      const body = JSON.stringify({ installation: { id: 99, account: { login: "acme" } }, ...payload })
+      const res = await worker.fetch("https://api.test/v1/hooks/github", { method: "POST", headers: { "x-hub-signature-256": `sha256=${await hmacHex(testEnv.GITHUB_WEBHOOK_SECRET, body)}`, "x-github-delivery": crypto.randomUUID(), "x-github-event": event }, body })
+      expect(res.status).toBe(200)
+    }
+    const github = async () => (await read(a.session, "integration.list")).body.value.connections.find((c: any) => c.provider === "github")
+    const mint = (repo: string) => token(a.installToken, { team: a.team, repo, permissions: { contents: "read" } })
+    expect((await mint("acme/web")).status).toBe(200)
+
+    // Suspended on GitHub: the connection says so before any mint, and a mint names who can lift it.
+    await hook("installation", { action: "suspend", installation: { id: 99, account: { login: "acme" }, suspended_at: "2026-11-19T10:00:00Z" } })
+    expect(await github()).toMatchObject({ status: "needs_reauth", status_detail: "the GitHub App installation is suspended" })
+    const refused = await mint("acme/web")
+    expect([refused.status, refused.body.error.code]).toEqual([409, "needs_reauth"])
+    expect(refused.body.error.message).toContain("is suspended; an owner of acme can unsuspend it")
+
+    // Unsuspended: active again (no relink), with the permissions the installation now grants.
+    await hook("installation", { action: "unsuspend", installation: { id: 99, account: { login: "acme" }, suspended_at: null, permissions: { contents: "write", issues: "write", metadata: "read" } } })
+    const restored = await github()
+    expect([restored.status, restored.status_detail, restored.scopes_granted]).toEqual(["active", undefined, ["contents:write", "issues:write", "metadata:read"]])
+    expect((await mint("acme/web")).status).toBe(200)
+
+    // An owner accepted new permissions: the connection's scopes follow.
+    await hook("installation", { action: "new_permissions_accepted", installation: { id: 99, account: { login: "acme" }, suspended_at: null, permissions: { contents: "write", issues: "write", metadata: "read", pull_requests: "write" } } })
+    expect((await github()).scopes_granted).toEqual(["contents:write", "issues:write", "metadata:read", "pull_requests:write"])
+
+    // A repository removed from the installation leaves the recorded list; an added one is not joined (only the linking user's sign-in can tell).
+    await hook("installation_repositories", { action: "removed", repository_selection: "selected", repositories_removed: [{ full_name: "acme/API" }], repositories_added: [] })
+    await hook("installation_repositories", { action: "added", repository_selection: "selected", repositories_added: [{ full_name: "acme/new" }], repositories_removed: [] })
+    expect([(await github()).resources.repos, (await github()).status]).toEqual([["acme/web"], "active"])
+    expect((await mint("acme/api")).status).toBe(403)
+    expect((await mint("acme/web")).status).toBe(200)
+
+    // Uninstalled, then a stray unsuspend: a connection needing a relink for another reason keeps needing it.
+    await hook("installation", { action: "deleted" })
+    await hook("installation", { action: "unsuspend", installation: { id: 99, account: { login: "acme" }, suspended_at: null } })
+    expect(await github()).toMatchObject({ status: "needs_reauth", status_detail: "the GitHub App was uninstalled" })
+  })
+
   it("revoke deletes each ledger token at GitHub; an install revoke does too; another install's tokens need a team admin", async () => {
     const a = await signedInWithInstall("gh-token-4", "cli")
     const { gh } = await linkGitHub(a.session, a.team)
@@ -631,6 +679,20 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     expect((await list(a.session, `team=${a.team}&query=${"x".repeat(257)}`)).status).toBe(400)
     const seam = await worker.fetch("https://api.test/v1/integrations/github/machine-token", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${a.installToken}` }, body: JSON.stringify({ team: a.team, repo: "acme/web", permissions: { contents: "read" } }) })
     expect(seam.status).toBe(404)
+    // Staging answers the seam as development does (cmux-platform's environment builds mint through it); production stays 404.
+    // A token's issuer names its environment, so the same install's bearer is minted for each one asked.
+    const claims = JSON.parse(atob(a.installToken.split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/"))) as { sub: string; team: string; inst: string; grant: string }
+    const seamIn = async (environment: string) => {
+      const envIn = { ...testEnv, ENVIRONMENT: environment } as any
+      const bearer = (await mintAccessToken(envIn, { user: claims.sub, team: claims.team, install: claims.inst, grant: claims.grant })).token
+      return handleGithubToken(new Request("https://api.test/v1/integrations/github/machine-token", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${bearer}` }, body: JSON.stringify({ team: a.team, repo: "acme/web", permissions: { contents: "read" } }) }), envIn, "machine-token")
+    }
+    for (const environment of ["development", "staging"]) {
+      const answer = await seamIn(environment)
+      // The person's cli install reaches the route's own gate, which wants a machine install.
+      expect([environment, answer.status, ((await answer.json()) as any).error.message]).toEqual([environment, 403, "a machine install is required"])
+    }
+    expect((await seamIn("production")).status).toBe(404)
   })
 
   it("GET /repos answers a Cloud machine in every environment for its own team only, under the token route's machine gate", async () => {
@@ -666,6 +728,16 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     // Every repository listed is one the same VM can mint a token for; the left-out one is refused on both.
     const mint = (repo: string) => handleGithubToken(new Request("https://api.test/v1/integrations/github/token", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${vm.bearer}` }, body: JSON.stringify({ team: a.team, repo, permissions: { contents: "read" } }) }), env as any, "token").then((r) => r.status)
     expect([await mint("acme/web"), await mint("acme/api"), await mint("acme/unlinked")]).toEqual([200, 200, 403])
+    // The machine-only seam mints for the same VM on staging (cmux-platform's environment build); production answers 404.
+    // A token's issuer names its environment: the VM's bearer is minted for the environment asked.
+    const seam = async (environment: string) => {
+      const envIn = { ...env, ENVIRONMENT: environment } as any
+      const bearer = (await mintAccessToken(envIn, { user: a.user, team: a.team, install: vm.id, grant: vm.grant, vm: true })).token
+      return handleGithubToken(new Request("https://api.test/v1/integrations/github/machine-token", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${bearer}` }, body: JSON.stringify({ team: a.team, repo: "acme/web", permissions: { contents: "read" } }) }), envIn, "machine-token")
+    }
+    const staged = await seam("staging")
+    expect([staged.status, typeof ((await staged.json()) as any).token]).toEqual([200, "string"])
+    expect((await seam("production")).status).toBe(404)
 
     // Another team's repositories: a VM names only its machine's team.
     const other = await signedInWithInstall("gh-repos-vm-2", "cli")

@@ -81,7 +81,10 @@ where
     loop {
         let may_launch = launched < max_attempts && running.len() < max_in_flight;
         if may_launch && (running.is_empty() || Instant::now() >= next_launch) {
-            let target = targets[launched % targets.len()].clone();
+            // `targets` is not empty (checked above), so `get` always finds the slot.
+            let Some(target) = targets.get(launched % targets.len()).cloned() else {
+                return Err(io::Error::new(io::ErrorKind::NotFound, "no addresses to connect to"));
+            };
             let attempt = connect(target);
             // The last attempt may connect slowly: only the caller's budget ends it.
             let timeout = (launched + 1 < max_attempts).then_some(policy.attempt_timeout);

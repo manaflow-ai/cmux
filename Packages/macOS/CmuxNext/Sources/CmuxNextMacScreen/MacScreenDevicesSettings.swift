@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextDevices
+import CmuxNextWakeups
 import CmuxScreenKit
 import Foundation
 public import Observation
@@ -19,6 +20,12 @@ public final class MacScreenDevicesSettings {
     private var checks: [String: State.Check] = [:]
     private var checking: Set<String> = []
     private var error: String?
+    /// Bumped when the hub link's redial hold ends: the card's state reads it and says "Connecting…".
+    private var linkRevealed = 0
+    /// Holds the hub link's "Connecting…" back (``quietStatus(_:)``); tests give it a manual clock.
+    @ObservationIgnored var linkHold = QuietHold(owner: "devices-settings-link", delay: ScreenSession.reconnectNoticeDelay)
+    /// The last status shown that was not a redial: it stays while a redial is held.
+    @ObservationIgnored private var settledStatus: State.Status?
 
     @ObservationIgnored let box: MacScreenHubBox
     @ObservationIgnored let hubHost: MacScreenHubHost
@@ -144,6 +151,8 @@ public final class MacScreenDevicesSettings {
             var on: Bool
             var busy: Bool
             var permissions: [Permission]
+            /// The account's "My agents can turn screen sharing and control on my machines" (the hub's).
+            var agentsMayShare: Bool
         }
 
         public struct Check: Encodable, Equatable, Sendable {
@@ -227,7 +236,7 @@ public final class MacScreenDevicesSettings {
     }
 
     public var state: State {
-        let labels = Labels.current
+        var labels = Labels.current
         guard box.configured else {
             return State(available: false, status: .init(text: L.t("devices.status.invalidHubAddress", "The Device Hub Address in Settings › Development is not a valid web address. Fix it, or clear it to use the built-in hub."), tone: "neutral"),
                          signIn: nil, error: nil, labels: labels, thisDevice: nil, others: [], sharing: nil, relays: [], history: [])
@@ -249,26 +258,61 @@ public final class MacScreenDevicesSettings {
                          thisDevice: nil, others: [], sharing: nil, relays: [], history: [])
         }
         let me = hub.identity.id
+        // Other Devices with no row: "sign in on your other Macs" only after a list read succeeded (ask-6a79af928f).
+        switch DeviceDiscovery.of(hub, shown: hub.otherDevices.count) {
+        case .list, .noDevices: break
+        case .finding: labels.noOthers = L.t("macScreen.home.devicesLoading", "Loading your devices…")
+        case let .failed(reason, detail): labels.noOthers = reason.words(detail: detail)
+        }
         let names = store.deviceNames.merging(hub.devices.map { ($0.id, $0.name) }) { _, listed in listed }
         let this = hub.thisDevice.map { device(for: $0, hub: hub, me: me) }
         let sharing = hub.thisDevice.map { _ in
             State.Sharing(on: hubHost.isSharing, busy: hubHost.busy, permissions: [
                 .init(id: "screenRecording", title: L.t("macScreen.home.screenRecording", "Screen Recording"),
-                      detail: MacScreenGrantCopy.screenRecordingDetail(share.grantHolderName),
+                      detail: L.t("macScreen.home.screenRecordingDetail", "Lets cmux send this screen. macOS may ask you to quit and reopen cmux."),
                       granted: share.screenRecordingGranted),
                 .init(id: "accessibility", title: L.t("macScreen.home.accessibility", "Accessibility"),
                       detail: L.t("macScreen.home.accessibilityDetail", "Lets the other Mac click and type here. Without it, it can only watch."),
                       granted: share.accessibilityGranted),
-            ])
+            ], agentsMayShare: hub.agentsMayShare)
         }
         let relays = hub.relays.sorted { ($0.priority, $0.name) < ($1.priority, $1.name) }.map { relay in
             State.Relay(id: relay.id, name: relay.name, urls: relay.urls, mode: relay.authMode.rawValue, modeText: Self.modeText(relay.authMode),
                         enabled: relay.enabled, priority: relay.priority, hasSecret: hub.relaySecret(relay.id) != nil,
                         checking: checking.contains(relay.id), check: checks[relay.id])
         }
-        return State(available: true, status: Self.status(hub), signIn: nil, error: error ?? hubHost.lastError, labels: labels,
+        return State(available: true, status: quietStatus(hub), signIn: nil, error: error ?? hubHost.lastError, labels: labels,
                      thisDevice: this, others: hub.otherDevices.map { device(for: $0, hub: hub, me: me) }, sharing: sharing,
                      relays: relays, history: hub.audit.map { Self.historyRow($0, names: names, me: me) })
+    }
+
+    /// ``status(_:)`` with the hub link's redial held back (Leo, 2026-11-14: "i also want all our
+    /// connectivity stuff to shut the f*** up"): the socket redials on its own, so "Connecting…" says
+    /// nothing for ``ScreenSession/reconnectNoticeDelay`` (10 s, the sidebar's and every reconnect
+    /// label's wait). Under it the last status that was not a redial stays (none on a first connect).
+    /// A link that will not redial (removed, replaced, signed out) is never held.
+    private func quietStatus(_ hub: DeviceHub) -> State.Status {
+        let redialing: Bool = if case .ready = hub.status { Self.redials(hub.connection) } else { false }
+        return quiet(Self.status(hub), redialing: redialing)
+    }
+
+    /// `status` as the card shows it now: while `redialing` is younger than its hold, the last settled one.
+    func quiet(_ status: State.Status, redialing: Bool) -> State.Status {
+        _ = linkRevealed
+        linkHold.update(redialing) { [weak self] in self?.linkRevealed &+= 1 }
+        guard redialing else {
+            settledStatus = status
+            return status
+        }
+        return linkHold.held ? settledStatus ?? State.Status(text: "", tone: "neutral") : status
+    }
+
+    /// A hub link state that ends without anyone acting: not up yet, coming up, or backing off to redial.
+    nonisolated static func redials(_ connection: DeviceHubSocket.State) -> Bool {
+        switch connection {
+        case .disconnected, .connecting, .reconnecting: true
+        case .connected, .replaced, .removed, .signedOut: false
+        }
     }
 
     static func status(_ hub: DeviceHub) -> State.Status {
@@ -320,6 +364,7 @@ public final class MacScreenDevicesSettings {
         switch platform {
         case .ios: L.t("devices.platform.ios", "iPhone")
         case .linux: L.t("devices.platform.linux", "Linux")
+        case .windows: L.t("devices.platform.windows", "Windows")
         case .macos, nil: L.t("devices.platform.mac", "Mac")
         }
     }
@@ -370,6 +415,8 @@ public final class MacScreenDevicesSettings {
         case "permission_changed": L.t("devices.event.permission", "Access changed")
         case "device_added": L.t("devices.event.added", "Device added")
         case "device_removed": L.t("devices.event.removed", "Device removed")
+        case "agents_allowed": CmuxRemoteAgentStrings.historyAllowed
+        case "agents_disallowed": CmuxRemoteAgentStrings.historyDisallowed
         default: event
         }
     }
@@ -446,6 +493,7 @@ public final class MacScreenDevicesSettings {
         case .expired: L.t("devices.history.expired", "No answer in time")
         case .consentRequired: String(format: L.t("devices.history.consentRequired", "%@ hasn’t allowed screen sharing"), host)
         case .approveFailed: L.t("devices.history.approveFailed", "Approved, but the session couldn’t start")
+        case .moved: L.t("devices.history.moved", "Moved to another device")
         case .other: L.t("devices.history.other", "Ended")
         }
     }
@@ -535,6 +583,9 @@ public final class MacScreenDevicesSettings {
             case "setSharing":
                 if run.on == true { shareThisMac() }
                 else { try await hubHost.setSharing(false) }
+            case "setAgentsMayShare":
+                // The person's click on this switch is the consent; the hub audits it, the notice says it.
+                _ = try await CmuxRemoteActionEnvironment.setAgentsMayShare(run.on ?? false, hub: hub, window: nil)
             case "openPermission":
                 share.openSettings(screenRecording: run.id == "screenRecording")
             case "saveRelay":
@@ -665,6 +716,7 @@ extension MacScreenDevicesSettings {
         var access: String
         var accessOptions: [Option]
         var sharingSection, sharingToggle, sharingDetail, openSettings, allowed: String
+        var agentsToggle, agentsDetail: String
         var relaysSection, relaysEmpty, relaysHelp, addRelay, editRelay, deleteRelay: String
         var deleteRelayTitle, deleteRelayBody, checkRelay, relayOff: String
         var relayName, relayURLs, relayURLsHelp, relayMode: String
@@ -696,6 +748,8 @@ extension MacScreenDevicesSettings {
                 sharingDetail: L.t("macScreen.home.allowDetail", "Your other devices signed in to this cmux account can ask to see or control this Mac. You approve each device, or choose its access in Settings › Devices."),
                 openSettings: L.t("macScreen.home.openSettings", "Open System Settings"),
                 allowed: L.t("macScreen.home.granted", "Allowed"),
+                agentsToggle: CmuxRemoteAgentStrings.settingsToggle,
+                agentsDetail: CmuxRemoteAgentStrings.settingsDetail,
                 relaysSection: L.t("devices.section.relays", "Relays"),
                 relaysEmpty: L.t("devices.relays.empty", "No relays. Sessions connect directly when they can."),
                 relaysHelp: L.t("devices.relays.help", "Your own TURN relays for when your Macs can’t reach each other directly. Their secrets are sealed to each of your devices; the device hub never sees them."),

@@ -33,7 +33,7 @@ Honesty rules (`selfcheck` proves them on the host):
     whose display went away, is "not run". `--allow-locked-screen` keeps its numbers for a look, with status
     "invalid": they are never table numbers.
 
-It is a bench tool, never a CI gate, job, step or perf-gate row. Python 3.9 standard library only; the installed
+It is a bench tool, not a CI gate, job, step or perf-gate row. Python 3.9 standard library only; the installed
 Google Chrome stable only; no flag that changes rendering, vsync or throttling. It creates no display, changes no
 setting and stops only the Chrome it started (Browser.close, then that exact pid).
 

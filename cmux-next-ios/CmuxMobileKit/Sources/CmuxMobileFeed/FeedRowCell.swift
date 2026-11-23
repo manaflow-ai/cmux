@@ -263,7 +263,6 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
         FeedRowCell.drawAsync(contentView)
         registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (cell: FeedRowCell, _: UITraitCollection) in
             cell.unread.layer.borderColor = UIColor.cmuxMobileBackground.resolvedColor(with: cell.traitCollection).cgColor
-            if cell.made.contains("quote") { cell.quote.updateColors() }
         }
     }
 
@@ -353,6 +352,11 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
         applyErrorAndReplies(layout)
         applyComposer(layout)
         applyFooter(layout)
+    }
+
+    /// The row is its stack's newest event (`FeedStacks`): its fold line follows with no divider between them.
+    var leadsStack = false {
+        didSet { if leadsStack != oldValue { divider.isHidden = leadsStack } }
     }
 
     /// The minute changed: only the time label moves.
@@ -795,6 +799,11 @@ final class FeedQuoteView: UIView {
         addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped)))
         isAccessibilityElement = true
         accessibilityTraits = .button
+        // The bubble's fill is a CGColor resolved from this view's own traits, so this view follows
+        // its own appearance changes. The cell's handler ran before this view's traits caught up:
+        // backgrounding flips the app to light and back to dark for the switcher's snapshots, and
+        // the return to dark resolved the light fill, leaving white bubbles until the row was rebuilt.
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: FeedQuoteView, _: UITraitCollection) in view.updateColors() }
     }
 
     @available(*, unavailable)
@@ -806,10 +815,16 @@ final class FeedQuoteView: UIView {
         frame = part.frame
         let shift = CGPoint(x: -part.frame.minX, y: -part.frame.minY)
         caption.attributedText = part.caption
-        // A little wider than measured: an attachment's rounding must never truncate "You".
+        // A little wider than measured, the room on the side away from the bubble's edge: an
+        // attachment's rounding must never truncate "You". The text keeps to the measured edge it
+        // lines up with (the bubble text's trailing edge for your message, its leading edge for an
+        // agent's), so it is aligned to that edge, not drawn from the widened frame's other side.
         caption.lineBreakMode = .byClipping
-        caption.frame = part.captionFrame.offsetBy(dx: shift.x, dy: shift.y).insetBy(dx: -3, dy: 0)
-            .offsetBy(dx: part.outgoing ? -3 : 3, dy: 0)
+        caption.textAlignment = part.outgoing ? .right : .left
+        let measured = part.captionFrame.offsetBy(dx: shift.x, dy: shift.y)
+        caption.frame = part.outgoing
+            ? CGRect(x: measured.minX - 6, y: measured.minY, width: measured.width + 6, height: measured.height)
+            : CGRect(x: measured.minX, y: measured.minY, width: measured.width + 6, height: measured.height)
         text.attributedText = part.text
         text.numberOfLines = part.maxLines
         text.frame = part.textFrame.offsetBy(dx: shift.x, dy: shift.y)

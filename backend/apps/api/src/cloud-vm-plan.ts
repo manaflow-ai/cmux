@@ -86,7 +86,8 @@ const paidPlanForCarry = async (s: StackServer, stackUser: string): Promise<stri
   if (!s.getUserPlans) return s.getUserPlan(stackUser)
   const p = await s.getUserPlans(stackUser)
   if (p === "user_gone") return p
-  if (p.next_plan === null) return p.plan
+  // An entry plan (next_intro, next_taste: grantRank 0) is no paid plan: a person holding one and a real plan has the real plan.
+  if (p.next_plan === null || grantRank(p.next_plan) === 0) return p.plan
   if (p.plan === null) return p.next_plan
   return grantRank(p.plan) > grantRank(p.next_plan) ? p.plan : p.next_plan
 }
@@ -186,10 +187,13 @@ export const storedVmPlan = (sql: SqlStorage): string | null | undefined => {
 
 /**
  * Paid grants by their machine limits (domains/cloud-plan.ts PAID_PLAN_LIMITS): Plus, then Pro, Founders and Team, then
- * Max; a cmux NEXT grant ranks with its classic peer (next_pro with Pro, next_max with Max).
+ * Max; a cmux NEXT grant ranks with its classic peer (next_plus with Plus, next_pro with Pro, next_max with Max).
  */
-const RANK: Readonly<Record<string, number>> = { go: 1, pro: 2, founders: 2, team: 2, next_pro: 2, max: 3, next_max: 3 }
-/** A grant's rank; 0 for anything that grants no paid limits (blank, "free", unknown: a restriction when set). */
+const RANK: Readonly<Record<string, number>> = { go: 1, next_plus: 1, pro: 2, founders: 2, team: 2, next_pro: 2, max: 3, next_max: 3 }
+/**
+ * A grant's rank; 0 for anything that grants no paid limits (blank, "free", unknown: a restriction when set). The cmux
+ * NEXT entry plans (next_intro, next_taste; RFD 0052) are not in RANK: they rank 0, below every paid and NEXT plan.
+ */
 export const grantRank = (vmPlan: string): number => RANK[vmPlan.trim().toLowerCase()] ?? 0
 
 /**

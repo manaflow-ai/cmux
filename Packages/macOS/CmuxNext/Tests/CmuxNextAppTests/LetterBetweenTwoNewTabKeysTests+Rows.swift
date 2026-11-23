@@ -344,6 +344,9 @@ extension LetterBetweenTwoNewTabKeysTests {
             let page1 = try #require(scene.pane.existingContent(for: tab1)?.inputReadiness,
                                      "setup: the first new tab has no page with a field after one frame of the app")
             try #require(!page1.isReady, "setup: the field of the first page is ready after one frame; the row needs a page that is not ready at the second New Tab key")
+            // The person used the first page (the host's mark, as of a click in it): the view of an untouched New Tab page
+            // goes to the tab that the pane shows next (`NewTabHoldMovesItsPageTests`), and this row needs 2 page views.
+            if case .agent(let view)? = scene.pane.existingContent(for: tab1) { view.model.hostTouch.mark("the test's click") }
             let tab2 = try scene.newTab()
             let start = ContinuousClock.now
             await Self.frame(scene.services)

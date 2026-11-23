@@ -306,6 +306,41 @@ fn appends_past_the_pending_cap_fail_without_waiting() {
     assert_eq!(journal.append(1, Class::Ack, &too_large), Err(AppendError::TooLarge));
 }
 
+/// A reservation holds its room until its append: appends that reserved room are never refused
+/// for the queue's size, however many threads reserved before any of them appended, and the
+/// rest are refused once the reserved room fills the queue (acpmux's journal store reserves,
+/// writes a chat's log, then appends, with no lock across chats).
+#[test]
+fn a_reserved_append_is_never_refused_for_the_queue() {
+    let storage = SimStorage::new(37);
+    let config = Config { max_pending_bytes: 4096, ..quick() };
+    let (journal, _, _) = open_at(&storage, config, 0).unwrap_or_else(|e| panic!("{e}"));
+    storage.set_sync_delay(Duration::from_millis(500));
+    let big = vec![b'a'; 1000];
+    // The writer may take the first record at once: fill the queue past its cap with reserves.
+    let mut held = Vec::new();
+    let refused = loop {
+        match journal.reserve(big.len()) {
+            Ok(room) => held.push(room),
+            Err(error) => break error,
+        }
+        assert!(held.len() < 50, "the reserved room never filled the queue");
+    };
+    assert_eq!(refused, AppendError::Backlog);
+    assert_eq!(journal.check_append(big.len()), Err(AppendError::Backlog));
+    assert_eq!(journal.append(1, Class::Ack, &big), Err(AppendError::Backlog));
+    for room in held.drain(..) {
+        room.append(1, Class::Ack, &big).unwrap_or_else(|e| panic!("a reserved append: {e}"));
+    }
+    // A reservation that drops unused gives its room back.
+    storage.set_sync_delay(Duration::ZERO);
+    let lsn = journal.last_lsn();
+    journal.wait_durable(lsn, Duration::from_secs(10)).unwrap_or_else(|e| panic!("{e}"));
+    let room = journal.reserve(big.len()).unwrap_or_else(|e| panic!("{e}"));
+    drop(room);
+    assert_eq!(journal.check_append(big.len()), Ok(()));
+}
+
 /// `check_append` says what `append` would do: a caller that checks under its own lock, writes
 /// elsewhere, then appends, is never refused after it wrote (acpmux's journal store).
 #[test]
@@ -720,6 +755,34 @@ fn a_panic_on_the_writer_thread_closes_the_journal() {
     assert_eq!(journal.append(1, Class::Ack, b"c"), Err(AppendError::Closed));
     assert_eq!(receiver.recv_timeout(Duration::from_secs(2)), Err(RecvTimeoutError::Disconnected));
     assert!(journal.stats().failing.is_some(), "{:?}", journal.stats());
+}
+
+/// A full disk: appends fail with `StorageFull`, the space listener hears it once however often
+/// the writer retries, and when space returns the record becomes durable and the state clears.
+#[test]
+fn a_full_disk_tells_the_space_listener_once_and_clears_when_a_write_lands() {
+    let storage = SimStorage::new(58);
+    let (journal, _, _) = open(&storage);
+    let (sender, receiver) = std::sync::mpsc::channel();
+    journal.on_out_of_space(move || {
+        let _ = sender.send(());
+    });
+    storage.fail_all_appends(Some(std::io::ErrorKind::StorageFull));
+    assert_eq!(journal.append(1, Class::Ack, b"a"), Ok(1));
+    assert_eq!(receiver.recv_timeout(WAIT), Ok(()));
+    assert!(eventually(|| journal.stats().failures >= 3), "{:?}", journal.stats());
+    assert_eq!(receiver.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty));
+    assert!(journal.stats().out_of_space, "{:?}", journal.stats());
+    storage.fail_all_appends(None);
+    journal.wait_durable(1, WAIT).unwrap_or_else(|e| panic!("{e}"));
+    let stats = journal.stats();
+    assert!(!stats.out_of_space && stats.failing.is_none(), "{stats:?}");
+    // Another kind of failure is not a full disk.
+    storage.fail_all_syncs(Some(std::io::ErrorKind::Other));
+    assert_eq!(journal.append(1, Class::Ack, b"b"), Ok(2));
+    assert!(eventually(|| journal.stats().failing.is_some()), "{:?}", journal.stats());
+    assert!(!journal.stats().out_of_space, "{:?}", journal.stats());
+    assert_eq!(receiver.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty));
 }
 
 /// F4: a sync fails, so its pages never reach the disk, though a later sync on another descriptor

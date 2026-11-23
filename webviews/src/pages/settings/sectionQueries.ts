@@ -4,9 +4,10 @@
 // options) finds them in the cache: no card mounts empty and fills in a frame later.
 import { queryOptions, type QueryClient } from "@tanstack/react-query";
 import { categoryById, homes, categoryOf } from "./categories";
-import { personalizationPartOf } from "./personalizationParts";
+import { legacyPart } from "./legacyLinks";
 import type { AgentsState, ChannelsState, KeysState, SharesState, TailnetState, LibraryListing } from "./ops";
 import { settingsKeys } from "./queries";
+import { loadCards } from "./components/cardModules";
 import type { SettingsStore } from "./store";
 
 /** How long a section's host read counts as fresh: long enough that the read a hover started is
@@ -75,10 +76,10 @@ export function sharesQuery(store: SettingsStore) {
   });
 }
 
-/** Personalization > Customization Library's key; a change the card makes writes the library it answers here. */
+/** Appearance > Customization Library's key; a change the card makes writes the library it answers here. */
 export const LIBRARY_KEY = [...settingsKeys.all, "customize-library"] as const;
 
-/** Personalization > Customization Library: everything the person applied, top first (null: no CLI). */
+/** Appearance > Customization Library: everything the person applied, top first (null: no CLI). */
 export function libraryQuery(store: SettingsStore) {
   return queryOptions<LibraryRead>({
     queryKey: LIBRARY_KEY,
@@ -107,11 +108,9 @@ export function keysQuery(store: SettingsStore) {
 
 /** The section a route shows: the focused key's home, else the path's category or schema section. */
 export function routeSection(section: string | undefined, focus: string | undefined | null): string {
-  // Personalization is the one page that draws the theme, background, density, Chief pet and sounds
-  // rows: a link to one of them (a search result, the CLI, the palette, MCP) opens it there, and a
-  // link to Personalization with any key stays on it.
-  if ((focus && personalizationPartOf(focus)) || (section && categoryOf(section) === "personalization"))
-    return "personalization";
+  // An old Personalization part link opens the page that draws that part now (legacyLinks.ts).
+  const legacy = legacyPart(section, focus);
+  if (legacy) return legacy.section;
   const home = focus ? homes.get(focus) : undefined;
   return home?.category ?? categoryOf(section);
 }
@@ -127,15 +126,15 @@ export function sectionReads(store: SettingsStore, section: string): SectionRead
   // The store's own keys (theme colors, accounts, harnesses) read through its query defaults and
   // stay fresh until the host pushes a change; the per-section host reads refresh when stale.
   for (const id of category.actions) reads.push({ options: sectionActionsQuery(store, id), revalidate: true });
-  if (cards.has("themeStudio") || cards.has("personalization"))
-    reads.push({ options: { queryKey: settingsKeys.themeColors }, revalidate: false });
+  if (cards.has("themeStudio")) reads.push({ options: { queryKey: settingsKeys.themeColors }, revalidate: false });
   if (cards.has("accounts")) reads.push({ options: { queryKey: settingsKeys.accounts }, revalidate: false });
   if (cards.has("harnesses")) reads.push({ options: { queryKey: settingsKeys.harnesses }, revalidate: false });
   if (cards.has("models") || cards.has("cloudModels"))
     reads.push({ options: { queryKey: settingsKeys.models }, revalidate: false });
   if (cards.has("agentHarnesses")) reads.push({ options: agentsQuery(store), revalidate: true });
   if (cards.has("sharedLinks")) reads.push({ options: sharesQuery(store), revalidate: true });
-  if (cards.has("customizeLibrary")) reads.push({ options: libraryQuery(store), revalidate: true });
+  if (cards.has("customizeLibrary") || cards.has("customizeChecklist"))
+    reads.push({ options: libraryQuery(store), revalidate: true });
   if (cards.has("keys")) reads.push({ options: keysQuery(store), revalidate: true });
   if (cards.has("tailnet")) reads.push({ options: tailnetQuery(store), revalidate: true });
   if (cards.has("channels")) {
@@ -146,14 +145,17 @@ export function sectionReads(store: SettingsStore, section: string): SectionRead
 }
 
 /**
- * Ensures every read `section` draws from is in the cache: cached data answers at once (a stale
+ * Ensures `section`'s cards' code is loaded and every read it draws from is in the cache: cached data answers at once (a stale
  * one refreshes in the background), a missing one is read. Never rejects: a failed read shows as
  * its card's own empty state, never as a route error.
  */
 export async function ensureSection(queryClient: QueryClient, store: SettingsStore, section: string): Promise<void> {
-  await Promise.all(
-    sectionReads(store, section).map(({ options, revalidate }) =>
+  const category = categoryById(section);
+  await Promise.all([
+    // The section's cards' code: each card is its own chunk (components/cardModules.tsx).
+    loadCards([...category.lead, ...category.trail]),
+    ...sectionReads(store, section).map(({ options, revalidate }) =>
       queryClient.ensureQueryData({ ...options, revalidateIfStale: revalidate }).catch(() => undefined),
     ),
-  );
+  ]);
 }

@@ -65,7 +65,7 @@ import Testing
     /// native checkout; a classic plan keeps the native one.
     @Test func aNextPlanOpensItsWebCheckoutPage() async {
         let web = URL(string: "https://cmux.com")!
-        for plan in ["next_pro", "next_max"] {
+        for plan in ["next_plus", "next_pro", "next_max"] {
             let calls = Calls()
             var next = upgrade(calls) { plan, scheme in calls.asked.append((plan, scheme)); return StaticURL.pricing.url }
             next.web = web
@@ -76,6 +76,7 @@ import Testing
         #expect(PaidPlanUpgrade.plan("next_pro") == "next_pro" && PaidPlanUpgrade.plan("next_max") == "next_max")
         #expect(PaidPlanUpgrade.plan("max") == "max" && PaidPlanUpgrade.plan("team") == "pro" && PaidPlanUpgrade.plan(nil) == "pro")
         #expect(BillingStrings.planName("next_pro") == "cmux NEXT Pro" && BillingStrings.planName("next_max") == "cmux NEXT Max")
+        #expect(PaidPlanUpgrade.plan("next_plus") == "next_plus" && BillingStrings.planName("next_plus") == "cmux NEXT Plus")
     }
 
     @Test func aLiveModeCheckoutIsNeverOpened() async {

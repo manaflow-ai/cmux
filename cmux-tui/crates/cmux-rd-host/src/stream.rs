@@ -4,7 +4,7 @@
 //! packetize with FEC, NACK history, recovery, exactly-once input) is the shared engine,
 //! cmux-rd-engine (rd change C7 step 2).
 
-use crate::carrier::{Carrier, Incoming};
+use crate::carrier::{Carrier, DatagramDeparture, Incoming};
 use crate::clock::now_ns;
 use crate::cursor::CursorChannel;
 use crate::desktop::{Desktop, FrameSource};
@@ -15,17 +15,29 @@ use crate::wire::Control;
 use crate::Res;
 use cmux_rd_core::cc::PathKind;
 use cmux_rd_core::flow::Rect;
-use cmux_rd_core::pacer::Pacer;
+use cmux_rd_core::pacer::{Pacer, StrictWireBudget};
 use cmux_rd_core::policy::Principal;
+use cmux_rd_core::profile::EncodeProfile;
+use cmux_rd_core::resolution::{LadderConfig, Picture};
 use cmux_rd_core::session::{SessionId, SessionTable};
-use cmux_rd_engine::{Encoded, EngineConfig, MediaEngine, Output};
-use cmux_rd_proto::{DatagramHeader, DatagramKind};
+use cmux_rd_engine::{EncodeRequest, Encoded, EngineConfig, MediaEngine, Output};
+use cmux_rd_proto::{flags, DatagramHeader, DatagramKind, FrameTimes};
+use paced::{PacedFrame, PacedFrames};
 use std::collections::VecDeque;
+
+#[path = "stream_paced.rs"]
+mod paced;
 
 #[derive(Clone)]
 pub struct SessionCfg {
     pub display: String,
+    /// Linux X11: the viewer's display pick, an index into the host's display list (`main`
+    /// or none is the whole X screen). macOS picks through `display` itself.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    pub display_pick: Option<String>,
     pub max_fps: u32,
+    /// `--encode-profile`: standard (default) or ultra (the engine marks every frame with it).
+    pub encode_profile: cmux_rd_core::profile::EncodeProfile,
     pub start_kbps: u32,
     pub max_kbps: u32,
     #[cfg_attr(target_os = "macos", allow(dead_code))] // software encoders only
@@ -56,10 +68,23 @@ pub struct SessionCfg {
     /// After injected input, frames skip the frame-rate cap for a short window
     /// (`--input-frame-now 1`; the engine's `input_frame_now`).
     pub input_frame_now: bool,
+    /// Tail-loss probes wait a round trip, not a fixed 250 ms (`--rtt-tail-probe 1`;
+    /// the engine's `rtt_tail_probe`, design D6). Off by default.
+    pub rtt_tail_probe: bool,
+    /// The resolution ladder (design D5, `--resolution-ladder 1`; off by default): below the
+    /// bits-per-pixel floor the encoded picture gets smaller, not blurrier.
+    pub resolution_ladder: bool,
+    /// The ladder's QP ceiling (`--max-qp N`, default
+    /// `cmux_rd_core::resolution::DEFAULT_MAX_QP`); unused without the ladder.
+    pub max_qp: u8,
     /// macOS: stream at most this many pixels wide (`--max-width`; the display's aspect is
     /// kept). Encode time grows with the pixel count (remote-desktop-mac-host.md section 6).
     #[cfg_attr(target_os = "linux", allow(dead_code))]
     pub max_width: Option<u32>,
+    /// macOS: false leaves the cursor out of the stream altogether (the viewer's
+    /// `a=cmux-rd-cursor:0`): out of the pictures and no cursor metadata.
+    #[cfg_attr(target_os = "linux", allow(dead_code))]
+    pub show_cursor: bool,
     /// Linux: how the screen is captured (X11, or the portal on a Wayland session).
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub capture: crate::capture_backend::CaptureBackend,
@@ -75,6 +100,15 @@ pub struct MediaSession {
     /// Upstream media the viewer opened (rd change C4).
     upstreams: Upstreams<Box<dyn UpstreamSink>>,
     stats_frames_sent: u64,
+    /// The profile the last encoded frame ran with, as the encoder applied it (None until one
+    /// is encoded, and always from an encoder without an ultra mode): the stats line's
+    /// `encode_profile`.
+    encoded_profile: Option<cmux_rd_core::profile::EncodeProfile>,
+    /// Departure receipts drained from the carrier each pump (a reused buffer) and their
+    /// running totals for the stats line: what left the socket, not what was queued.
+    departures: Vec<DatagramDeparture>,
+    departed_datagrams: u64,
+    departed_bytes: u64,
     encode_ms: VecDeque<f64>,
     next_stats_ns: u64,
     stats_every_ns: u64,
@@ -85,18 +119,34 @@ pub struct MediaSession {
     /// The cursor as metadata, when the viewer draws it (cap `cursor`) and the desktop
     /// reports it: the pictures leave it out.
     cursor: Option<CursorChannel>,
+    /// Clipboard text both ways (cap `clipboard.text`), only while the viewer holds control.
+    clipboard: Option<crate::clipboard::ClipboardChannel>,
     /// Spreads each frame's datagrams over part of its frame interval (`None` with
     /// `CMUX_RD_PACE=0`, for comparison): a keyframe written as one burst of hundreds of
     /// datagrams is queued or dropped by a Wi-Fi radio or the kernel.
     pacer: Option<Pacer>,
     frame_interval_us: u64,
-    /// Timing lines of frames still in the pacer: datagrams left, the line without `sent_us`.
-    paced_logs: VecDeque<PacedLog>,
+    /// Frames still in the pacer that a timing line or the ledger waits on.
+    paced: PacedFrames,
+    /// The viewer offered cap `ledger`: each frame's host times follow its last shard
+    /// (a `FrameTimes` datagram).
+    ledger: bool,
 }
 
 /// Whether frames are paced (`CMUX_RD_PACE=0` turns it off, for A/B measurement).
 fn pacing_enabled() -> bool {
     std::env::var_os("CMUX_RD_PACE").is_none_or(|v| v != "0")
+}
+
+/// Original video and FEC shards are one replaceable frame. Key, recovery,
+/// tile, repair, and unknown datagrams must stay protected.
+fn frame_is_droppable(datagrams: &[Vec<u8>]) -> bool {
+    !datagrams.is_empty()
+        && datagrams.iter().all(|datagram| {
+            let Ok((header, _)) = DatagramHeader::decode(datagram) else { return false };
+            matches!(header.kind, DatagramKind::Video | DatagramKind::Fec)
+                && header.flags & (flags::KEYFRAME | flags::RECOVERY | flags::TILE) == 0
+        })
 }
 
 /// A frame shard or parity datagram: what the engine resends on a NACK or a tail-loss
@@ -107,12 +157,37 @@ fn is_media_datagram(datagram: &[u8]) -> bool {
         .is_ok_and(|(header, _)| matches!(header.kind, DatagramKind::Video | DatagramKind::Fec))
 }
 
+/// An ultra capacity probe: it leaves at once (the train's dispersion is the measurement),
+/// the engine is told when, and its bytes are charged to the pacer's budget.
+fn is_probe(datagram: &[u8]) -> bool {
+    DatagramHeader::decode(datagram).is_ok_and(|(header, _)| header.kind == DatagramKind::Probe)
+}
+
+/// Ultra charges every budgeted byte it sends (media, FEC, repairs, probes) to one strict
+/// wire budget (D10), released at the engine's pacing rate (the probed capacity, over the
+/// held rate the encoder targets); standard keeps the balanced pacer, which paces at a
+/// multiple of the target.
+fn new_pacer(profile: EncodeProfile, wire_bps: u64) -> Pacer {
+    if profile.is_ultra() {
+        Pacer::strict(StrictWireBudget::new(wire_bps))
+    } else {
+        Pacer::new()
+    }
+}
+
 /// Where each encoded frame's time went, one JSON line a frame (measurement only; the eval's
 /// `scripts/measure/screen-stream-eval` reads it): `input_us`, the last viewer input injected before
-/// this frame, once; `shown_us`, when the display showed the frame (ScreenCaptureKit's display time);
+/// this frame, once; `shown_us`, the vsync the window server composited the frame for
+/// (ScreenCaptureKit's display time, usually a few ms after `arrived_us`);
 /// `arrived_us`, when the capture handed it over; `damage_us`, when the session first saw damage
-/// since the last frame; `release_us`, when the gate let the encode start; `encoded_us`, when the
-/// encode ended; `sent_us`, when its last datagram was handed to the carrier. Every injected
+/// since the last frame; `release_us`, when the engine's gate released the frame's request;
+/// `capture_start_us`, when the encode thread began the capture (Linux: the XShm readback and
+/// I420 conversion run from here to `capture_us`; macOS: taking the newest ScreenCaptureKit
+/// frame); `capture_us`, the frame's `t_capture_us` (the capture ended; also on the viewer's
+/// frame);
+/// `encode_start_us`, when the encoder was handed the picture; `encoded_us`, when the encode
+/// ended; `first_sent_us` and `sent_us`, when the pacer handed its first and last datagram to the
+/// carrier (the times a `ledger` viewer gets in the frame's `FrameTimes`). Every injected
 /// input also gets a line of its own, `{"inject_us", "recv_us"}` (`recv_us`: when the datagram
 /// that carried it was read), so a remote viewer's key press can be matched to its injection
 /// (`scripts/screen-share-vs.py`). All on the protocol clock in µs.
@@ -122,6 +197,19 @@ struct Timing {
     damage_us: Option<u64>,
     /// When the datagram being handled now was read.
     recv_us: Option<u64>,
+}
+
+/// What [`Timing::frame`] logs besides the frame's [`FrameTimes`].
+struct FrameLog {
+    shown: Option<(u64, u64)>,
+    capture_start_us: u64,
+    capture_us: u64,
+    release_us: u64,
+    encoded_bytes: usize,
+    /// Why the frame is an IDR, or `None` for a delta frame.
+    idr_reason: Option<&'static str>,
+    /// With a resolution ladder: the picture this frame was encoded at.
+    picture: Option<Picture>,
 }
 
 impl Timing {
@@ -136,32 +224,37 @@ impl Timing {
         }
     }
 
-    /// One frame's line, without `sent_us` (added when its last datagram leaves).
-    fn frame(
-        &mut self,
-        shown: Option<(u64, u64)>,
-        release_us: u64,
-        encoded_us: u64,
-        encoded_bytes: usize,
-        idr_reason: Option<&'static str>,
-    ) -> serde_json::Value {
-        serde_json::json!({
+    /// One frame's line, without the send times (added when its last datagram leaves).
+    fn frame(&mut self, log: FrameLog, times: &FrameTimes) -> serde_json::Value {
+        let mut line = serde_json::json!({
             "input_us": self.input_us.take(),
-            "shown_us": shown.map(|t| t.0),
-            "arrived_us": shown.map(|t| t.1),
+            "shown_us": log.shown.map(|t| t.0),
+            "arrived_us": log.shown.map(|t| t.1),
             "damage_us": self.damage_us.take(),
-            "release_us": release_us,
-            "encoded_us": encoded_us,
-            "encoded_bytes": encoded_bytes,
-            "idr": idr_reason.is_some(),
-            "idr_reason": idr_reason,
-        })
+            "release_us": log.release_us,
+            "capture_start_us": log.capture_start_us,
+            "capture_us": log.capture_us,
+            "encode_start_us": times.encode_start_us,
+            "encoded_us": times.encoded_us,
+            "encoded_bytes": log.encoded_bytes,
+            "idr": log.idr_reason.is_some(),
+            "idr_reason": log.idr_reason,
+        });
+        // With a resolution ladder: the picture this frame was encoded at.
+        if let (Some(p), Some(fields)) = (log.picture, line.as_object_mut()) {
+            fields.insert("width".into(), p.width.into());
+            fields.insert("height".into(), p.height.into());
+            fields.insert("eighths".into(), p.eighths.into());
+            fields.insert("max_qp".into(), p.max_qp.into());
+        }
+        line
     }
 
-    /// Writes a frame's line once its last datagram was handed to the carrier at `sent_us`.
-    fn frame_sent(&mut self, mut line: serde_json::Value, sent_us: u64) {
+    /// Writes a frame's line once its last datagram was handed to the carrier.
+    fn frame_sent(&mut self, mut line: serde_json::Value, times: &FrameTimes) {
         use std::io::Write;
-        line["sent_us"] = serde_json::json!(sent_us);
+        line["first_sent_us"] = serde_json::json!(times.first_sent_us);
+        line["sent_us"] = serde_json::json!(times.last_sent_us);
         let _ = writeln!(self.out, "{line}");
     }
 
@@ -192,9 +285,38 @@ fn viewer_silent_too_long(silent_us: u64) -> bool {
 
 /// Whether the session sends the cursor as metadata: the viewer draws it (cap `cursor`) and
 /// this OS's desktop can report it.
-fn wants_cursor(negotiated_caps: &[String]) -> bool {
+/// Whether this host offers cap `h264.baseline`: an H.264 encoder that can switch to
+/// Constrained Baseline for one session (every H.264 encoder here; VP9 and AV1 have no
+/// H.264 profile).
+pub fn offers_h264_baseline(codec: &str) -> bool {
+    !matches!(codec, "vp9" | "av1")
+}
+
+/// The session's settings with the viewer's caps applied: a viewer that negotiated
+/// `h264.baseline` (OpenH264, which shows a High-profile stream as wrong pictures with no
+/// error, cmux#50591) gets Constrained Baseline whatever `--profile` says.
+fn session_cfg<'a>(
+    cfg: &'a SessionCfg,
+    negotiated_caps: &[String],
+) -> std::borrow::Cow<'a, SessionCfg> {
+    let baseline = negotiated_caps.iter().any(|c| c == cmux_rd_core::service::caps::H264_BASELINE);
+    if baseline && cfg.profile != "baseline" {
+        std::borrow::Cow::Owned(SessionCfg { profile: "baseline".into(), ..cfg.clone() })
+    } else {
+        std::borrow::Cow::Borrowed(cfg)
+    }
+}
+
+pub(crate) fn wants_cursor(negotiated_caps: &[String]) -> bool {
     crate::desktop::reports_cursor()
         && negotiated_caps.iter().any(|c| c == cmux_rd_core::service::caps::CURSOR)
+}
+
+/// Whether the session runs the resolution ladder: the host asked for it and the viewer scales
+/// a smaller picture to the stream's size (cap `video.scaled`). A viewer without the cap maps
+/// input from the decoded picture's size, so a smaller picture would move its clicks.
+fn wants_ladder(asked: bool, negotiated_caps: &[String]) -> bool {
+    asked && negotiated_caps.iter().any(|c| c == cmux_rd_core::service::caps::VIDEO_SCALED)
 }
 
 fn now_us() -> u64 {
@@ -218,12 +340,34 @@ fn process_cpu_s() -> f64 {
     tv(ru.ru_utime) + tv(ru.ru_stime)
 }
 
-/// A paced frame's timing line, written when its last datagram leaves.
-struct PacedLog {
-    /// (stream, frame)
-    frame: (u16, u32),
-    remaining: usize,
-    line: serde_json::Value,
+/// A desktop and its frame source (capture and encoder) opened ahead of the session: `cmux-rd
+/// serve` opens them while its answer crosses the hub and the link shakes hands, so the first
+/// frame is captured by the time the viewer starts. `cursor` is the cursor choice it opened for,
+/// asked at `open_us` and ready at `ready_us`.
+pub struct OpenedDesktop {
+    desktop: Box<dyn Desktop>,
+    frames: Box<dyn FrameSource>,
+    cursor: bool,
+    /// The H.264 profile it was opened for (a `h264.baseline` viewer needs Constrained Baseline).
+    profile: String,
+    open_us: u64,
+    ready_us: u64,
+}
+
+impl OpenedDesktop {
+    /// Opens this OS's desktop; `cursor`: the viewer draws the cursor (cap `cursor`).
+    pub fn open(cfg: &SessionCfg, cursor: bool) -> Res<Self> {
+        let open_us = now_us();
+        let (desktop, frames) = crate::desktop::open(cfg, cursor)?;
+        Ok(Self {
+            desktop,
+            frames,
+            cursor,
+            profile: cfg.profile.clone(),
+            open_us,
+            ready_us: now_us(),
+        })
+    }
 }
 
 impl MediaSession {
@@ -233,9 +377,37 @@ impl MediaSession {
         negotiated_caps: &[String],
         sink: Box<dyn UpstreamSink>,
     ) -> Res<Self> {
-        let open_us = now_us();
-        let (desktop, frames) = crate::desktop::open(cfg, wants_cursor(negotiated_caps))?;
-        let ready_us = now_us();
+        let session = &*session_cfg(cfg, negotiated_caps);
+        Self::on_desktop(
+            OpenedDesktop::open(session, wants_cursor(negotiated_caps))?,
+            cfg,
+            max_datagram,
+            negotiated_caps,
+            sink,
+        )
+    }
+
+    /// A session on a desktop opened earlier (`cmux-rd serve` opens it during the handshake).
+    /// One opened for the other cursor choice or H.264 profile than the viewer negotiated is
+    /// closed and opened again. `cfg.start_kbps` still sets the first frame's bitrate: the
+    /// encoder takes the engine's target before every frame.
+    pub fn on_desktop(
+        opened: OpenedDesktop,
+        cfg: &SessionCfg,
+        max_datagram: usize,
+        negotiated_caps: &[String],
+        sink: Box<dyn UpstreamSink>,
+    ) -> Res<Self> {
+        let cfg = &*session_cfg(cfg, negotiated_caps);
+        let cursor = wants_cursor(negotiated_caps);
+        let opened = if opened.cursor == cursor && opened.profile == cfg.profile {
+            opened
+        } else {
+            // The capture closes before it opens again.
+            drop(opened);
+            OpenedDesktop::open(cfg, cursor)?
+        };
+        let OpenedDesktop { desktop, frames, open_us, ready_us, .. } = opened;
         let mut session =
             Self::with_desktop(desktop, frames, cfg, max_datagram, negotiated_caps, sink)?;
         if let Some(timing) = session.timing.as_mut() {
@@ -255,7 +427,7 @@ impl MediaSession {
     ) -> Res<Self> {
         let (w, h) = desktop.size();
         // Phase 1 has no path events from the link yet; the VPC path is the deployed case.
-        let engine = MediaEngine::new(
+        let mut engine = MediaEngine::new(
             EngineConfig {
                 width: w,
                 height: h,
@@ -266,10 +438,18 @@ impl MediaSession {
                 path: PathKind::ViaCloudRegion,
                 frames_in_flight: cfg.frames_in_flight,
                 input_frame_now: cfg.input_frame_now,
+                rtt_tail_probe: cfg.rtt_tail_probe,
+                resolution_ladder: wants_ladder(cfg.resolution_ladder, negotiated_caps)
+                    .then(|| LadderConfig { max_qp: Some(cfg.max_qp), ..LadderConfig::default() }),
                 ..EngineConfig::default()
             },
             now_us(),
         );
+        engine.set_fec_blocks(
+            negotiated_caps.iter().any(|c| c == cmux_rd_core::service::caps::FEC_BLOCKS),
+        );
+        engine.set_profile(cfg.encode_profile);
+        let pacer = pacing_enabled().then(|| new_pacer(cfg.encode_profile, engine.pacing_bps()));
         Ok(Self {
             desktop,
             encoder: EncodeThread::spawn(frames)?,
@@ -277,6 +457,10 @@ impl MediaSession {
             engine,
             upstreams: Upstreams::new(sink, negotiated_caps),
             stats_frames_sent: 0,
+            encoded_profile: None,
+            departures: Vec::new(),
+            departed_datagrams: 0,
+            departed_bytes: 0,
             encode_ms: VecDeque::new(),
             next_stats_ns: now_ns(),
             stats_every_ns: cfg.stats_every_ms * 1_000_000,
@@ -284,9 +468,11 @@ impl MediaSession {
             settle_ns: cfg.settle_us * 1000,
             timing: Timing::from_env(),
             cursor: wants_cursor(negotiated_caps).then(CursorChannel::new),
-            pacer: pacing_enabled().then(Pacer::new),
+            clipboard: crate::clipboard::open(negotiated_caps, now_us()),
+            pacer,
             frame_interval_us: 1_000_000 / u64::from(cfg.max_fps.max(1)),
-            paced_logs: VecDeque::new(),
+            paced: PacedFrames::default(),
+            ledger: negotiated_caps.iter().any(|c| c == cmux_rd_core::service::caps::LEDGER),
         })
     }
 
@@ -299,8 +485,32 @@ impl MediaSession {
         self.encoder.encoder_name()
     }
 
-    /// Runs until the viewer stops, the host stops the session, or the carrier fails.
+    /// Runs until the viewer stops, the host stops the session, or the carrier fails, then logs
+    /// what the clipboard channel refused. Returns why the session ended.
     pub fn run(
+        &mut self,
+        carrier: &mut dyn Carrier,
+        table: &mut SessionTable,
+        session: SessionId,
+        viewer: &Principal,
+    ) -> String {
+        // Measurement only: CMUX_RD_TEST_LOSS_PCT loses media datagrams (off unless set).
+        let mut lossy;
+        let carrier: &mut dyn Carrier = match crate::test_loss::TestLoss::from_env() {
+            Some(loss) => {
+                lossy = crate::test_loss::LossyCarrier { inner: carrier, loss };
+                &mut lossy
+            }
+            None => carrier,
+        };
+        let reason = self.run_until_end(carrier, table, session, viewer);
+        if let Some(line) = self.clipboard.as_ref().and_then(|c| c.counters().log_line()) {
+            eprintln!("{line}");
+        }
+        reason
+    }
+
+    fn run_until_end(
         &mut self,
         carrier: &mut dyn Carrier,
         table: &mut SessionTable,
@@ -346,6 +556,13 @@ impl MediaSession {
             let timeout = self.cursor.as_ref().map_or(timeout, |c| {
                 timeout.min(c.next_deadline_us().saturating_sub(now_us()).saturating_mul(1000))
             });
+            // The next clipboard check or part (only while the viewer holds control).
+            let may_control = table.may_inject_input(session, viewer);
+            let timeout =
+                match self.clipboard.as_ref().and_then(|c| c.next_deadline_us(may_control)) {
+                    Some(due) => timeout.min(due.saturating_sub(now_us()).saturating_mul(1000)),
+                    None => timeout,
+                };
             // Timed input work: a press waiting behind the agent's held button, the person
             // master going idle.
             let wake = if table.may_inject_input(session, viewer) {
@@ -372,17 +589,32 @@ impl MediaSession {
             self.engine.update_frames_in_flight_from_rtt(carrier.path_rtt_us());
             for item in incoming.drain(..) {
                 match item {
-                    Incoming::Control(Control::Stop) => return "stopped by viewer".into(),
-                    Incoming::Control(control) => {
-                        let may_control = table.may_inject_input(session, viewer);
-                        if let Some(answer) =
-                            self.upstreams.on_control(&mut self.engine, &control, may_control)
-                        {
-                            if let Err(e) = carrier.send_control(&answer) {
-                                return format!("control write failed: {e}");
+                    Incoming::Control(control) => match *control {
+                        Control::Stop => return "stopped by viewer".into(),
+                        Control::Clipboard { seq, text, offset, total } => {
+                            // Applied only in a control session; without the cap, ignored.
+                            let may_control = table.may_inject_input(session, viewer);
+                            if let Some(clipboard) = self.clipboard.as_mut() {
+                                let part = cmux_rd_proto::clipboard::ClipboardPart {
+                                    seq,
+                                    text,
+                                    offset,
+                                    total,
+                                };
+                                clipboard.on_part(part, may_control);
                             }
                         }
-                    }
+                        control => {
+                            let may_control = table.may_inject_input(session, viewer);
+                            if let Some(answer) =
+                                self.upstreams.on_control(&mut self.engine, &control, may_control)
+                            {
+                                if let Err(e) = carrier.send_control(&answer) {
+                                    return format!("control write failed: {e}");
+                                }
+                            }
+                        }
+                    },
                     Incoming::Datagram(datagram) => {
                         self.on_datagram(carrier, &datagram, table, session, viewer)
                     }
@@ -441,6 +673,13 @@ impl MediaSession {
             if let Err(e) = self.send_cursor(carrier) {
                 return format!("control write failed: {e}");
             }
+            if let Some(clipboard) = self.clipboard.as_mut() {
+                if let Some(part) = clipboard.poll(now_us(), may_inject) {
+                    if let Err(e) = carrier.send_control(&part) {
+                        return format!("control write failed: {e}");
+                    }
+                }
+            }
             if now_ns() >= self.next_stats_ns {
                 self.send_stats(carrier);
             }
@@ -491,16 +730,45 @@ impl MediaSession {
 
     /// Hands the engine the frame the encode thread finished, if there is one, and sends its
     /// datagrams.
+    /// Drains the carrier's bounded departure receipts so they never overflow while a session
+    /// runs; the totals go out with the stats line.
+    fn take_departures(&mut self, carrier: &mut dyn Carrier) {
+        carrier.drain_departures(&mut self.departures);
+        self.departed_datagrams += self.departures.len() as u64;
+        self.departed_bytes += self.departures.iter().map(|d| d.wire_bytes as u64).sum::<u64>();
+        self.departures.clear();
+    }
+
     fn send_encoded(&mut self, carrier: &mut dyn Carrier) -> Res<()> {
+        self.take_departures(carrier);
         let Some(Done { req, result }) = self.encoder.take_done()? else { return Ok(()) };
         let frame = result?;
-        // Logged after the send, with the send time (`sent_us`).
-        let logged = self.timing.is_some().then(|| {
-            let len = frame.access_unit.len();
-            // An IDR the engine did not ask for is the encoder's own choice.
-            let idr = frame.idr.then(|| req.idr_reason.map_or("encoder", |r| r.as_str()));
-            (frame.picked_times, frame.t_capture_us, frame.encoded_us, len, idr)
+        let idr = frame.idr.then(|| idr_reason(&req, frame.idr_cause));
+        if let Some(reason) = idr {
+            // Every keyframe says why, timing log or not: one costs many delta frames' bytes.
+            eprintln!(
+                "cmux-rd host: idr stream={} frame={} reason={reason} bytes={}",
+                req.stream,
+                req.frame,
+                frame.access_unit.len()
+            );
+        }
+        let times = FrameTimes {
+            display_us: frame.picked_times.map_or(0, |(shown, _)| shown),
+            encode_start_us: frame.encode_start_us,
+            encoded_us: frame.encoded_us,
+            ..FrameTimes::default()
+        };
+        let logged = self.timing.is_some().then_some(FrameLog {
+            shown: frame.picked_times,
+            capture_start_us: frame.capture_start_us,
+            capture_us: frame.t_capture_us,
+            release_us: frame.released_us,
+            encoded_bytes: frame.access_unit.len(),
+            idr_reason: idr,
+            picture: req.picture,
         });
+        self.encoded_profile = frame.profile;
         self.encode_ms.push_back(frame.encode_ms);
         if self.encode_ms.len() > 120 {
             self.encode_ms.pop_front();
@@ -517,54 +785,95 @@ impl MediaSession {
             self.encoder.halve_bitrate();
         }
         let line = match (self.timing.as_mut(), logged) {
-            (Some(timing), Some((shown, t_capture_us, encoded_us, len, idr))) => {
-                Some(timing.frame(shown, t_capture_us, encoded_us, len, idr))
-            }
+            (Some(timing), Some(log)) => Some(timing.frame(log, &times)),
             _ => None,
         };
-        let Some(pacer) = self.pacer.as_mut() else {
-            for datagram in &out.datagrams {
-                carrier.send_datagram(datagram)?;
-            }
-            if let (Some(timing), Some(line)) = (self.timing.as_mut(), line) {
-                timing.frame_sent(line, now_us());
-            }
-            return Ok(());
-        };
+
+        // LinkCarrier owns the bounded whole-frame queue. Do not put a second
+        // pacer queue in front of it: hand over the complete frame and let the
+        // link drain/replacement policy decide what can wait.
+        if carrier.media_queue_stats().is_some() || self.pacer.is_none() {
+            return Ok(self.send_whole_frame(carrier, out.datagrams, times, &req, line)?);
+        }
+        let Some(pacer) = self.pacer.as_mut() else { return Ok(()) };
         if out.datagrams.is_empty() {
             return Ok(());
         }
-        if let Some(line) = line {
-            let frame = DatagramHeader::decode(&out.datagrams[0]).map(|(h, _)| (h.stream, h.frame));
-            let frame = frame.unwrap_or_default();
-            self.paced_logs.push_back(PacedLog { frame, remaining: out.datagrams.len(), line });
+        if line.is_some() || self.ledger {
+            self.paced.push(PacedFrame {
+                remaining: out.datagrams.len(),
+                stream: req.stream,
+                frame: req.frame,
+                times,
+                line,
+            });
         }
         pacer.push_frame(out.datagrams, self.engine.target_bps(), self.frame_interval_us, now_us());
+        // Ultra's strict queue keeps its bound by dropping whole older unstarted frames
+        // (D2, newest wins): retire them, so a datagram never sent is not read as loss.
+        let dropped = pacer.take_dropped();
+        if !dropped.is_empty() {
+            let frames: std::collections::BTreeSet<(u16, u32)> = dropped
+                .iter()
+                .filter_map(|d| DatagramHeader::decode(d).ok().map(|(h, _)| (h.stream, h.frame)))
+                .collect();
+            trace(&format!(
+                "strict queue full: dropped {} unstarted frames ({} in all)",
+                frames.len(),
+                pacer.frames_dropped()
+            ));
+            self.paced.forget(|stream, frame| frames.contains(&(stream, frame)));
+            self.engine.forget_unsent(&dropped);
+        }
         Ok(self.send_paced(carrier)?)
+    }
+
+    /// Hands a whole frame to the carrier at once (no pacer in front of it), then
+    /// sends its ledger times and finishes its timing line.
+    fn send_whole_frame(
+        &mut self,
+        carrier: &mut dyn Carrier,
+        datagrams: Vec<Vec<u8>>,
+        mut times: FrameTimes,
+        req: &EncodeRequest,
+        line: Option<serde_json::Value>,
+    ) -> std::io::Result<()> {
+        let sent_any = !datagrams.is_empty();
+        let droppable = frame_is_droppable(&datagrams);
+        times.first_sent_us = now_us();
+        carrier.send_datagram_frame(datagrams, droppable)?;
+        times.last_sent_us = now_us();
+        if self.ledger && sent_any {
+            // Measurement only: a lost one leaves the viewer's row without host times.
+            let _ = carrier.send_datagram(&times.datagram(req.stream, req.frame));
+        }
+        if let (Some(timing), Some(line)) = (self.timing.as_mut(), line) {
+            timing.frame_sent(line, &times);
+        }
+        Ok(())
     }
 
     /// Sends the paced datagrams that are due, telling the engine when each left.
     fn send_paced(&mut self, carrier: &mut dyn Carrier) -> std::io::Result<()> {
         let Some(pacer) = self.pacer.as_mut() else { return Ok(()) };
+        // Ultra: the strict budget follows the engine's pacing rate (a probe result, a
+        // standing-queue cut). Balanced pacing ignores it.
+        pacer.set_rate_bps(self.engine.pacing_bps());
         let now = now_us();
         let due = pacer.due(now);
         // Repairs left first; only the frame datagrams count toward a frame's send time.
-        let mut left = pacer.take_frame_datagrams_sent();
+        let left = pacer.take_frame_datagrams_sent();
         for datagram in &due {
             carrier.send_datagram(datagram)?;
             self.engine.datagram_sent(datagram, now);
         }
-        while left > 0 {
-            let Some(log) = self.paced_logs.front_mut() else { break };
-            let take = left.min(log.remaining);
-            log.remaining -= take;
-            left -= take;
-            if log.remaining == 0 {
-                if let (Some(log), Some(timing)) =
-                    (self.paced_logs.pop_front(), self.timing.as_mut())
-                {
-                    timing.frame_sent(log.line, now_us());
-                }
+        for done in self.paced.sent(left, now, now_us()) {
+            if self.ledger {
+                // Measurement only: a lost one leaves the viewer's row without host times.
+                let _ = carrier.send_datagram(&done.times.datagram(done.stream, done.frame));
+            }
+            if let (Some(timing), Some(line)) = (self.timing.as_mut(), done.line) {
+                timing.frame_sent(line, &done.times);
             }
         }
         Ok(())
@@ -589,7 +898,7 @@ impl MediaSession {
             })
         };
         let stale = pacer.take_where(is_dropped);
-        self.paced_logs.retain(|log| !drop.contains(&log.frame));
+        self.paced.forget(|stream, frame| drop.contains(&(stream, frame)));
         trace(&format!(
             "outage ended: dropped {} queued datagrams of {} unstarted frames",
             stale.len(),
@@ -626,11 +935,16 @@ impl MediaSession {
 
     /// Sends an engine output's datagrams: resent frame shards (NACK answers, tail-loss
     /// probes) through the pacer, ahead of queued frames, so a recovery never leaves as an
-    /// unpaced burst; everything else at once.
+    /// unpaced burst; everything else at once. An ultra probe train leaves at once too (its
+    /// dispersion is the measurement): the engine's probe planner is told when each probe
+    /// left, and the strict pacer is charged its bytes.
     fn send_output(&mut self, carrier: &mut dyn Carrier, datagrams: Vec<Vec<u8>>) {
         let Some(pacer) = self.pacer.as_mut() else {
             for datagram in &datagrams {
                 let _ = carrier.send_datagram(datagram);
+                if is_probe(datagram) {
+                    self.engine.datagram_sent(datagram, now_us());
+                }
             }
             return;
         };
@@ -638,6 +952,12 @@ impl MediaSession {
             datagrams.into_iter().partition(|d| is_media_datagram(d));
         for datagram in &direct {
             let _ = carrier.send_datagram(datagram);
+            if is_probe(datagram) {
+                let now = now_us();
+                self.engine.datagram_sent(datagram, now);
+                pacer.set_rate_bps(self.engine.pacing_bps());
+                pacer.charge(datagram.len(), now);
+            }
         }
         if !repairs.is_empty() {
             pacer.push_repair(repairs, self.engine.target_bps(), now_us());
@@ -701,6 +1021,7 @@ impl MediaSession {
     }
 
     fn send_stats(&mut self, carrier: &mut dyn Carrier) {
+        self.take_departures(carrier);
         let now = now_ns();
         self.next_stats_ns = now + self.stats_every_ns.max(100_000_000);
         // Stats only while frames flow: an idle session sends nothing.
@@ -716,6 +1037,7 @@ impl MediaSession {
         let mut sorted: Vec<f64> = self.encode_ms.iter().copied().collect();
         sorted.sort_by(f64::total_cmp);
         let encode_ms_p50 = sorted.get(sorted.len() / 2).copied().unwrap_or(0.0);
+        let queue = carrier.media_queue_stats();
         let stats = Control::Stats {
             kbps: self.encoder.kbps(),
             frames: stats.frames,
@@ -723,231 +1045,79 @@ impl MediaSession {
             cpu_pct,
             encode_ms_p50,
             loss_pct: stats.loss * 100.0,
+            queue_frames: queue.map(|stats| stats.queue_frames),
+            queue_datagrams: queue.map(|stats| stats.queue_datagrams),
+            queue_dropped_frames: queue.map(|stats| stats.dropped_frames),
+            queue_dropped_datagrams: queue.map(|stats| stats.dropped_datagrams),
+            queue_dropped_replaced_frames: queue.map(|stats| stats.dropped_replaced_frames),
+            queue_dropped_replaced_datagrams: queue.map(|stats| stats.dropped_replaced_datagrams),
+            queue_dropped_evicted_for_protected_frames: queue
+                .map(|stats| stats.dropped_evicted_for_protected_frames),
+            queue_dropped_evicted_for_protected_datagrams: queue
+                .map(|stats| stats.dropped_evicted_for_protected_datagrams),
+            queue_dropped_rejected_protected_frames: queue
+                .map(|stats| stats.dropped_rejected_protected_frames),
+            queue_dropped_rejected_protected_datagrams: queue
+                .map(|stats| stats.dropped_rejected_protected_datagrams),
+            departed_datagrams: Some(self.departed_datagrams),
+            departed_bytes: Some(self.departed_bytes),
+            departure_overflows: Some(carrier.departure_overflows()),
+            encode_profile: self.encoded_profile.map(|profile| profile.as_str().to_owned()),
         };
         let _ = carrier.send_control(&stats);
     }
 }
 
+/// Why an encoded IDR is one: the engine's ask, else the encoder's own cause, else
+/// `encoder` for an encoder that cannot say.
+fn idr_reason(req: &EncodeRequest, cause: Option<&'static str>) -> &'static str {
+    req.idr_reason.map(|r| r.as_str()).or(cause).unwrap_or("encoder")
+}
+
 #[cfg(test)]
 mod tests {
-    use super::viewer_silent_too_long;
+    use super::{idr_reason, viewer_silent_too_long, wants_ladder};
+    use cmux_rd_core::flow::Rect;
+    use cmux_rd_engine::{EncodeRequest, IdrReason};
 
     #[test]
     fn viewer_silence_allows_the_ninety_second_reattach_window() {
         assert!(!viewer_silent_too_long(90_000_000));
         assert!(viewer_silent_too_long(90_000_001));
     }
-}
 
-#[cfg(test)]
-mod encode_off_loop_tests {
-    use super::*;
-    use crate::carrier::{Carrier, Incoming};
-    use cmux_rd_core::policy::{ConsentRule, HostPolicy, Mode, PrincipalClass};
-    use cmux_rd_core::session::StartRequest;
-    use cmux_rd_proto::{InputEvent, InputPacket};
-    use std::os::fd::{AsRawFd, RawFd};
-    use std::os::unix::net::UnixStream;
-    use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
-    use std::sync::mpsc;
-    use std::sync::Arc;
-    use std::time::Duration;
-
-    #[derive(Default)]
-    struct Seen {
-        encode_started: AtomicBool,
-        injected: AtomicBool,
-        encode_returned: AtomicBool,
-        injected_before_encode_returned: AtomicBool,
-    }
-
-    struct FakeDesktop {
-        seen: Arc<Seen>,
-        /// Never readable: this desktop reports no damage.
-        quiet: (UnixStream, UnixStream),
-    }
-
-    impl Desktop for FakeDesktop {
-        fn size(&self) -> (u32, u32) {
-            (64, 64)
-        }
-        fn fd(&self) -> RawFd {
-            self.quiet.1.as_raw_fd()
-        }
-        fn drain(&mut self, _out: &mut Vec<Rect>) -> Res<()> {
-            Ok(())
-        }
-        fn inject(&mut self, _event: &InputEvent) -> Res<()> {
-            self.seen.injected.store(true, SeqCst);
-            Ok(())
-        }
-        fn release_all(&mut self) -> Res<()> {
-            Ok(())
-        }
-    }
-
-    /// Its first encode blocks until the test releases it (at most 5 s), like a slow 4K encode.
-    struct BlockingEncoder {
-        seen: Arc<Seen>,
-        release: mpsc::Receiver<()>,
-        first: bool,
-    }
-
-    impl FrameSource for BlockingEncoder {
-        fn capture(&mut self, _damage: Rect) -> Res<()> {
-            Ok(())
-        }
-        fn encode(&mut self, _force_idr: bool, _pts_us: i64, out: &mut Vec<u8>) -> Res<bool> {
-            if std::mem::take(&mut self.first) {
-                self.seen.encode_started.store(true, SeqCst);
-                let _ = self.release.recv_timeout(Duration::from_secs(5));
-                let injected = self.seen.injected.load(SeqCst);
-                self.seen.injected_before_encode_returned.store(injected, SeqCst);
-                self.seen.encode_returned.store(true, SeqCst);
-            }
-            out.extend_from_slice(&[0, 0, 0, 1, 0x65, 0x88, 0x84, 0x00]);
-            Ok(true)
-        }
-        fn set_bitrate(&mut self, _kbps: u32) {}
-        fn kbps(&self) -> u32 {
-            1000
-        }
-        fn encoder_name(&self) -> String {
-            "blocking test encoder".into()
-        }
-    }
-
-    /// Sends one key press once the encode started, releases the encode once the press was
-    /// injected, and stops the session once the encode returned.
-    struct FakeCarrier {
-        seen: Arc<Seen>,
-        release: Option<mpsc::Sender<()>>,
-        sent_input: bool,
-        /// Always readable, so the loop keeps reading.
-        ready: (UnixStream, UnixStream),
-    }
-
-    impl Carrier for FakeCarrier {
-        fn fds(&self) -> Vec<RawFd> {
-            vec![self.ready.1.as_raw_fd()]
-        }
-        fn receive(&mut self, out: &mut Vec<Incoming>) -> Result<(), String> {
-            if self.seen.encode_started.load(SeqCst) && !self.sent_input {
-                self.sent_input = true;
-                let mut d = DatagramHeader {
-                    flags: 0,
-                    kind: DatagramKind::Input,
-                    stream: 0,
-                    frame: 0,
-                    index: 0,
-                    count: 0,
-                    fec_count: 0,
-                    transport_seq: 0,
-                }
-                .encode()
-                .to_vec();
-                let packet = InputPacket {
-                    first_seq: 1,
-                    events: vec![InputEvent::Key { usage: 4, down: true }],
-                };
-                d.extend_from_slice(&packet.encode());
-                out.push(Incoming::Datagram(d));
-            }
-            if self.seen.injected.load(SeqCst) {
-                if let Some(release) = self.release.take() {
-                    let _ = release.send(());
-                }
-            }
-            if self.seen.encode_returned.load(SeqCst) {
-                out.push(Incoming::Control(Control::Stop));
-            }
-            Ok(())
-        }
-        fn send_datagram(&mut self, _datagram: &[u8]) -> std::io::Result<()> {
-            Ok(())
-        }
-        fn send_control(&mut self, _control: &Control) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-
-    fn cfg() -> SessionCfg {
-        SessionCfg {
-            display: String::new(),
-            max_fps: 60,
-            start_kbps: 1000,
-            max_kbps: 2000,
-            preset: String::new(),
-            profile: String::new(),
-            codec: String::new(),
-            openh264_lib: None,
-            content: "screen".into(),
-            threads: 1,
-            stats_every_ms: 1000,
-            settle_us: 0,
-            upstream_record: None,
-            upstream_record_max_bytes: 0,
-            frames_in_flight: 2,
-            input_frame_now: false,
-            max_width: None,
-            capture: crate::capture_backend::CaptureBackend::default(),
-        }
+    #[test]
+    fn the_ladder_runs_only_for_a_viewer_that_scales_a_smaller_picture() {
+        let scaled = vec!["cursor".to_string(), "video.scaled".to_string()];
+        let old = vec!["cursor".to_string()];
+        assert!(wants_ladder(true, &scaled));
+        assert!(!wants_ladder(true, &old), "an old viewer's clicks would move");
+        assert!(!wants_ladder(false, &scaled), "off unless the host asks for it");
     }
 
     #[test]
-    fn viewer_input_is_injected_while_a_frame_encodes() {
-        let seen = Arc::new(Seen::default());
-        let (release_tx, release_rx) = mpsc::channel();
-        let desktop =
-            FakeDesktop { seen: seen.clone(), quiet: UnixStream::pair().expect("socket pair") };
-        let encoder = BlockingEncoder { seen: seen.clone(), release: release_rx, first: true };
-        let mut session = MediaSession::with_desktop(
-            Box::new(desktop),
-            Box::new(encoder),
-            &cfg(),
-            1200,
-            &[],
-            Box::new(crate::upstream::NoSink),
-        )
-        .expect("session");
-        let ready = UnixStream::pair().expect("socket pair");
-        use std::io::Write;
-        (&ready.0).write_all(&[1]).expect("make the carrier readable");
-        let mut carrier =
-            FakeCarrier { seen: seen.clone(), release: Some(release_tx), sent_input: false, ready };
-        let viewer = Principal {
-            user: "owner".into(),
-            install: "test".into(),
-            class: PrincipalClass::User,
-            interactive: true,
+    fn an_idr_names_the_engines_ask_then_the_encoders_cause() {
+        let req = |reason: Option<IdrReason>| EncodeRequest {
+            stream: 0,
+            frame: 9,
+            damage: Rect { x: 0, y: 0, width: 16, height: 16 },
+            force_idr: reason.is_some(),
+            idr_reason: reason,
+            target_kbps: 8_000,
+            picture: None,
+            profile: Default::default(),
+            refine: false,
         };
-        let mut table = SessionTable::new(HostPolicy {
-            enabled: true,
-            owner_user: viewer.user.clone(),
-            grants: Vec::new(),
-            consent: ConsentRule::AskOthers,
-            unattended_allowed: true,
-        });
-        let id = table
-            .start(StartRequest {
-                key: "k",
-                caller: Some(&viewer),
-                for_client: None,
-                mode: Mode::Control,
-                console_user: None,
-                now_ms: 0,
-            })
-            .expect("session starts");
-        assert!(table.may_inject_input(id, &viewer));
-        let reason = session.run(&mut carrier, &mut table, id, &viewer);
-        assert_eq!(reason, "stopped by viewer");
-        assert!(seen.injected.load(SeqCst), "the key press was never injected");
-        assert!(
-            seen.injected_before_encode_returned.load(SeqCst),
-            "the key press waited for the encode to finish"
-        );
+        assert_eq!(idr_reason(&req(Some(IdrReason::Recovery)), None), "recovery");
+        assert_eq!(idr_reason(&req(Some(IdrReason::Start)), Some("resize")), "start");
+        assert_eq!(idr_reason(&req(None), Some("scene_change")), "scene_change");
+        assert_eq!(idr_reason(&req(None), None), "encoder");
     }
 }
+
+#[cfg(test)]
+#[path = "stream_encode_tests.rs"]
+mod encode_off_loop_tests;
 
 /// D12 detector, host half: when an outage ends, what queued in the pacer during it never
 /// goes out, its missing receipts are not loss, and the newest frame goes out next as a
@@ -955,3 +1125,9 @@ mod encode_off_loop_tests {
 #[cfg(test)]
 #[path = "stream_outage_tests.rs"]
 mod outage_drop_tests;
+
+/// D10 ultra on the host: the strict one-budget pacer at the engine's held rate, and a
+/// probe train that leaves at once, is timed for the planner and raises the held rate.
+#[cfg(test)]
+#[path = "stream_ultra_tests.rs"]
+mod ultra_tests;
