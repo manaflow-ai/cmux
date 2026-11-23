@@ -238,14 +238,20 @@ mod linux {
 
     /// `text` matches `glob`, where `*` and `?` never match a `/`.
     fn glob_matches(glob: &[u8], text: &[u8]) -> bool {
-        match (glob.first(), text.first()) {
+        match (glob.split_first(), text.split_first()) {
             (None, None) => true,
-            (Some(b'*'), _) => {
-                glob_matches(&glob[1..], text)
-                    || (text.first().is_some_and(|&c| c != b'/') && glob_matches(glob, &text[1..]))
+            (Some((b'*', glob_rest)), _) => {
+                glob_matches(glob_rest, text)
+                    || text
+                        .split_first()
+                        .is_some_and(|(&c, text_rest)| c != b'/' && glob_matches(glob, text_rest))
             }
-            (Some(b'?'), Some(&c)) => c != b'/' && glob_matches(&glob[1..], &text[1..]),
-            (Some(g), Some(c)) => g == c && glob_matches(&glob[1..], &text[1..]),
+            (Some((b'?', glob_rest)), Some((&c, text_rest))) => {
+                c != b'/' && glob_matches(glob_rest, text_rest)
+            }
+            (Some((g, glob_rest)), Some((c, text_rest))) => {
+                g == c && glob_matches(glob_rest, text_rest)
+            }
             _ => false,
         }
     }
