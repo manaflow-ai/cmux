@@ -381,7 +381,7 @@ test("inline effort picks a different model and its level together; model names 
           },
           families: {
             current: "claude",
-            onPick: (row) => picks.push(row),
+            onPick: (row) => void picks.push(row),
             list: [
               {
                 id: "claude",
@@ -489,7 +489,7 @@ test.each([
           fast: { checked: false, onChange: (value) => fastPicks.push(value) },
           families: {
             current: "claude",
-            onPick: (model) => combos.push(model),
+            onPick: (model) => void combos.push(model),
             list: [
               {
                 id: "claude",
@@ -954,7 +954,7 @@ test("another tab whose models honor Fast mode draws the Fast row and lands its 
           fast: { checked: false, onChange() {} },
           families: {
             current: "claude",
-            onPick: (model) => picks.push(model),
+            onPick: (model) => void picks.push(model),
             list: [
               {
                 id: "claude",

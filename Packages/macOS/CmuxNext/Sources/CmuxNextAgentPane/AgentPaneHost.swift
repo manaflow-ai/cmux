@@ -340,6 +340,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         if environment == nil { environment = resolveEnvironment() }
         guard let environment, !environment.isAttached, owner.socketPath == environment.socketPath else { return false }
         prewarmed.drop()
+        daemons.noteStoppedByPerson(home: environment.home)
         return await AcpmuxSocketOwner.takeOver(environment: environment, owner: owner, daemons: daemons)
     }
 
@@ -352,6 +353,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         if environment == nil { environment = resolveEnvironment() }
         guard let environment, !environment.isAttached else { return false }
         prewarmed.drop()
+        daemons.noteStoppedByPerson(home: environment.home)
         return await daemonStop.restart(environment)
     }
 
@@ -368,6 +370,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         let pid = daemon.pid
         prewarmed.drop()
         Self.logger.info("acpmux \(pid, privacy: .public) lacks a request the app made; restarting it on the app's build")
+        daemons.noteStoppedByPerson(home: environment.home)
         // Gone already (it exited on its own meanwhile) counts as stopped: the bundled one starts below.
         let stopped = daemonStop.terminate(daemon) ? await AgentPaneProcessExit(pid: pid).event(within: .seconds(15)) : !agentPaneProcessIsRunning(pid)
         daemons.endStop(pid)
@@ -682,7 +685,17 @@ public actor AcpmuxHost: AgentPaneHostProviding {
                 if !owned, !environment.isAttached, let startOwner, await startOwner() {
                     throw AgentPaneHostError.chiefStarting
                 }
-                throw owned || environment.isAttached ? AgentPaneHostError.daemonStopped : AgentPaneHostError.chiefStopped
+                guard owned || environment.isAttached else { throw AgentPaneHostError.chiefStopped }
+                // A handoff (another host of this home), or a person's restart from any pane, is
+                // stopping it: the start that follows ends this without the person, so the pane
+                // stays quiet meanwhile. An attached daemon is another app's to start, never this
+                // app's Retry: its stop stays quiet too, and the pane finds it when it is back.
+                if daemons.isRestarting(home: environment.home) || daemons.stoppedByPerson(home: environment.home)
+                    || environment.isAttached {
+                    throw AgentPaneHostError.daemonRestarting
+                }
+                // Stopped, and no reconnect starts it again (cx-6bgzj): only the line's Retry does.
+                throw AgentPaneHostError.daemonStopped
             }
         } catch AcpmuxStatusClient.Failure.noWebSocket {
             logger.error("acpmux status returned no websocket socket=\(environment.socketPath, privacy: .public)")

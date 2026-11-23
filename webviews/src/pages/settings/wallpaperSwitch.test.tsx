@@ -4,7 +4,6 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { installDom } from "./testDom";
 import {
-  forgetWallpaperMemory,
   formatWhen,
   modeOf,
   nextWhen,
@@ -12,6 +11,7 @@ import {
   renameWhen,
   writesFor,
   type WallpaperValues,
+  readMemory,
 } from "./wallpaperSwitch";
 import type { Rendered } from "./testing";
 
@@ -27,11 +27,10 @@ let page: Rendered | null = null;
 afterEach(() => {
   page?.unmount();
   page = null;
-  forgetWallpaperMemory();
 });
 
 async function card(values: Record<string, unknown> = { "appearance.background": "friedrich-forest-moonlight" }) {
-  page = await renderPage({ path: "/settings/personalization?part=background", mock: { values } });
+  page = await renderPage({ path: "/settings/appearance", mock: { values } });
   await act(async () =>
     page!.provider.setHost({
       ...page!.provider.host,
@@ -53,7 +52,20 @@ const mode = (title: string) =>
     (input) => input.getAttribute("aria-label") === title,
   )!;
 const value = (key: string) => page!.store.getSnapshot().rows.get(key)?.value ?? null;
-const sets = () => ops(page!.provider, "cmux.settings.set") as Array<{ key: string; value: unknown }>;
+// The settings file as it stands: every row a write customized, which is all a fresh load reads.
+const storedSettings = () =>
+  Object.fromEntries(
+    [...page!.store.getSnapshot().rows].filter(([, row]) => row.customized).map(([key, row]) => [key, row.stored]),
+  );
+// The switch's own writes; the memory the card keeps beside them is tested on its own.
+const sets = () =>
+  (ops(page!.provider, "cmux.settings.set") as Array<{ key: string; value: unknown }>).filter(
+    (write) => write.key !== "appearance.backgroundMemory",
+  );
+const memoryWrites = () =>
+  (ops(page!.provider, "cmux.settings.set") as Array<{ key: string; value: unknown }>).filter(
+    (write) => write.key === "appearance.backgroundMemory",
+  );
 
 describe("the model", () => {
   const off: WallpaperValues = {
@@ -138,9 +150,14 @@ describe("switching modes never loses a mode's folder or picture", () => {
   test("the folder survives leaving Appearance in another mode, and the picker offers it again", async () => {
     await card({ "appearance.background": ART });
     await click(mode("Light & Dark"));
+    const kept = storedSettings();
     page!.unmount();
     page = null;
-    const backdrop = await card({ "appearance.background": "appearance", "appearance.backgroundLight": HARBOR });
+    const backdrop = await card({
+      ...kept,
+      "appearance.background": "appearance",
+      "appearance.backgroundLight": HARBOR,
+    });
     // The grid still has the folder's tile, so one click recovers it.
     const tile = backdrop.querySelector<HTMLButtonElement>('.backdrop-grid [aria-label="Shuffling Art"]');
     expect(tile).not.toBeNull();
@@ -151,11 +168,59 @@ describe("switching modes never loses a mode's folder or picture", () => {
   test("a chosen No Wallpaper is what Off puts back, also after the card remounts", async () => {
     await card({ "appearance.background": "none" });
     await click(mode("Rotate"));
+    const kept = storedSettings();
     page!.unmount();
     page = null;
-    await card({ "appearance.background": "daily", "appearance.backgroundLight": HARBOR });
+    await card({ ...kept, "appearance.background": "daily", "appearance.backgroundLight": HARBOR });
     await click(mode("Off"));
     expect(value("appearance.background")).toBe("none");
+  });
+
+  // A new Settings web view, or cmux after a restart, starts with nothing but the stored settings:
+  // the page's own memory and its web view's storage are empty. What the modes showed must come
+  // back from the settings file.
+  test("the folder comes back after a fresh load that keeps only the stored settings", async () => {
+    await card({ "appearance.background": ART });
+    await click(mode("Light & Dark"));
+    const stored = storedSettings();
+    page!.unmount();
+    page = null;
+    const backdrop = await card(stored);
+    expect(backdrop.querySelector('.backdrop-grid [aria-label="Shuffling Art"]')).not.toBeNull();
+    await click(mode("Rotate"));
+    expect(value("appearance.background")).toBe(ART);
+  });
+
+  test("Off's picture comes back after a fresh load that keeps only the stored settings", async () => {
+    await card({ "appearance.background": "none", "appearance.backgroundLight": HARBOR });
+    await click(mode("Rotate"));
+    const stored = storedSettings();
+    page!.unmount();
+    page = null;
+    await card(stored);
+    await click(mode("Off"));
+    expect(value("appearance.background")).toBe("none");
+  });
+
+  test("the memory is a stored setting: opening writes nothing, leaving a mode keeps its value", async () => {
+    await card({ "appearance.background": ART });
+    expect(memoryWrites()).toEqual([]);
+    await click(mode("Light & Dark"));
+    expect(value("appearance.backgroundMemory")).toEqual({ rotate: ART, folder: ART });
+    // Not an undo step: Undo puts Rotate back, and the memory stays.
+    await run(() => page!.store.undoAppearance());
+    expect(value("appearance.background")).toBe(ART);
+    expect(readMemory(value("appearance.backgroundMemory")).folder).toBe(ART);
+  });
+
+  test("a stored memory of the wrong shape reads as none", () => {
+    expect(readMemory({ rotate: "munch-scream", folder: "daily", off: "daily" })).toEqual({
+      rotate: null,
+      folder: null,
+      off: null,
+    });
+    expect(readMemory("folder:/Users/me/Art")).toEqual({ rotate: null, folder: null, off: null });
+    expect(readMemory({ rotate: ART, folder: ART, off: "none" })).toEqual({ rotate: ART, folder: ART, off: "none" });
   });
 
   test("Off after Rotate keeps the picture on screen before it", async () => {

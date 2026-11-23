@@ -25,6 +25,7 @@ import {
 import { archiving, deleteDate, shownNotice, type DeleteDate } from "./retention";
 import { machineCapNote } from "./spendCap";
 import { format, L } from "./strings";
+import { DiskHealthSummary } from "./DiskHealth";
 
 /** The row's quiet delete line ("Deletes in 12 days"). */
 export function deleteText(date: DeleteDate, t: (key: string) => string): string {
@@ -188,6 +189,11 @@ const MachineItem = memo(function MachineItem({
             ticks={ticks}
             strings={strings}
           />
+          {machine?.disk_health && (
+            <span className="cloud-machine-disk">
+              <DiskHealthSummary health={machine.disk_health} strings={strings} compact />
+            </span>
+          )}
           {leaving && <span className="cloud-machine-deletes">{` · ${t(L.archivingNote)}`}</span>}
           {kept && <span className="cloud-machine-deletes cloud-machine-kept">{` · ${t(L.kept)}`}</span>}
         </span>

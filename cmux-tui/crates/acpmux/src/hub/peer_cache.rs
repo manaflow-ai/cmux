@@ -212,7 +212,12 @@ impl Hub {
         if map.has_peer(&peer.name) {
             return;
         }
-        for mut summary in saved.sessions {
+        // Its closed rows past the bound stay out (`peer_closed_bound.rs`).
+        let past = super::peer_closed_bound::summaries_past_bound(&saved.sessions);
+        for (n, mut summary) in saved.sessions.into_iter().enumerate() {
+            if past.contains(&n) {
+                continue;
+            }
             let Some(receipt) = super::peers::session_receipt(&summary) else { continue };
             mark_stale(&mut summary, saved.last_seen);
             // An older build saved rows with a peer's own display line.

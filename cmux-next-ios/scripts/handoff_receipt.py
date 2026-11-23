@@ -101,7 +101,7 @@ def check(a):
             # The build's own backend: an override review.sh or the app kept from an earlier run (a tag's
             # stack or a preview) must be gone.
             host = (urlparse(have).hostname or "").lower()
-            if host.endswith(".ts.net") or host.startswith("cmux-api-preview-"):
+            if host.endswith(".ts.net") or host.endswith(".wdev.cmux.dev") or host.startswith("cmux-api-preview-"):
                 reject(f"the app still uses the kept Cloud backend {have}")
         elif have.rstrip("/").lower() != a.cloud_backend.rstrip("/").lower():
             reject(f"the app uses the Cloud backend {have}, not {a.cloud_backend}")

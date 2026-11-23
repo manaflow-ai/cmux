@@ -461,7 +461,7 @@ test("external access settings is a side action and Skip never opens feedback", 
     },
   });
   try {
-    expect(card.host.textContent).toContain("cmux needs one-time access to /Users/you/Documents/report.txt");
+    expect(card.host.textContent).toContain("cmux needs access to /Users/you/Documents/report.txt");
     expect(card.host.textContent).toContain("you may need to grant access in System Settings first");
     expect(card.host.textContent?.match(/\/Users\/you\/Documents\/report.txt/g)).toHaveLength(1);
     await card.click("Open Settings");

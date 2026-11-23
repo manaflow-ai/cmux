@@ -18,24 +18,25 @@ on:
       linux_guard_source:
         required: true
         type: string
-      # A label the caller placed workflow-guard-tests on (cmux-next-guards.yml's portable-placement:
-      # fleet Linux or a free mini); empty keeps the runner below.
-      guard_tests_runner:
-        required: false
-        type: string
-        default: ""
 
 permissions:
   contents: read
 
 env:
-  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
-  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+  # zizmor and gitleaks fail a change only on a security hole it adds (scripts/static-analysis/ratchet.py ZIZMOR_HOLES,
+  # any gitleaks secret); every other finding is report-only. "0" makes the holes warnings too.
+  CMUX_STATIC_ANALYSIS_BLOCKING: "1"
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
   workflow-guard-submodule-forward-only:
     name: workflow-guard-submodule-forward-only
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    # A feat-cmux-next pull request runs this job's commands as the ci/steps.toml step `submodule-forward-only`
+    # (pr-pipeline.yml); a push, dispatch, the post-merge batch and a pull request into any other base still run them
+    # here. Guard status counts the skip as fine only on such a pull request.
+    if: ${{ github.event_name != 'pull_request' || !startsWith(github.base_ref, 'feat-cmux-next') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -93,7 +94,7 @@ jobs:
         group: ${{ fromJSON(inputs.linux_guard_test_groups) }}
         exclude:
           - group: ci
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || inputs.guard_tests_runner != '' && inputs.guard_tests_runner || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     # Its three sibling guard jobs are bounded at 15; 65 recent runs peaked at 0.8 min.
     timeout-minutes: 15
     # This job executes scripts from the pull request. It needs only read
@@ -111,7 +112,7 @@ jobs:
         with:
           persist-credentials: false
 
-      # A mini or fleet Linux host (guard_tests_runner) reuses its workspace: drop the submodule checkouts a
+      # A persistent cmux-linux host reuses its workspace: drop the submodule checkouts a
       # previous job left there. Only on a self-hosted runner: never in a checkout run_ci_guards.py runs locally.
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         run: if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then scripts/ci/reset-stale-submodules.sh; fi
@@ -149,6 +150,10 @@ jobs:
       - name: Validate Zig-free fleet step lockfiles
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: python3 tests/test_zig_free_step_lockfiles.py
+
+      - name: No new hard-coded team host in cmux-tui or OptChat product code
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_check_team_hosts.py
 
       - name: Validate CMUX workload profile contract
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -318,6 +323,15 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_classify_failures.py
 
+      # scripts/ci/oops is cmuxterm-hq tools/ci-oops, vendored byte for byte.
+      - name: Validate the vendored ci-oops classifier
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 scripts/ci/oops/test_ci_oops_vendored.py
+
+      - name: Validate in-job ci-oops retry and ledger
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 scripts/ci/oops/test_retry.py
+
       - name: Validate the workflow_run handlers' API budget
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_run_api_budget.py
@@ -446,6 +460,8 @@ jobs:
         run: |
           set -euo pipefail
           python3 tests/test_ci_ios_conventions_diff.py
+          # --files-from grades only files under the lint's own roots: it is the iOS line's lint.
+          python3 tests/test_lint_ios_conventions_scope.py
           # The conventions lint scans the whole repository, so gating a PR on
           # it directly turns every open PR red whenever main carries one
           # unrelated violation (#10409). Judge the change instead: report only
@@ -798,6 +814,22 @@ jobs:
           ./scripts/ci/install-actionlint.sh
           "$RUNNER_TEMP/actionlint"
 
+      # zizmor over the workflows and composite actions this change adds or edits, at its base and its head: a
+      # new finding in ratchet.py's ZIZMOR_HOLES (untrusted input into a run: script, a privileged trigger that
+      # checks out the pull request's head, a poisoned release cache, persisted credentials) fails; any other new
+      # finding, and every finding already on the base, is a warning. Offline, a few seconds. Linux only.
+      - name: Fail on a workflow security hole this change adds (zizmor)
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: |
+          python3 tests/test_static_analysis_ratchet.py
+          python3 scripts/static-analysis/ratchet.py zizmor
+
+      # gitleaks over this change's commits (a merge commit's or push's diff against its first parent or
+      # CMUX_GUARDS_BASE_SHA), values redacted: any secret fails. Linux only (LINUX_ONLY_STEPS).
+      - name: Fail on a secret this change commits (gitleaks)
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 scripts/static-analysis/ratchet.py gitleaks
+
       - name: Validate contributor verification receipts and selection
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: |
@@ -934,10 +966,6 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_published_in_comments.py
 
-      - name: Validate merge receipts
-        if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_merge_receipt.py
-
       - name: Validate the pull request status comment
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_pr_status.py
@@ -981,6 +1009,22 @@ jobs:
       - name: Validate pull request macOS pool choice
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_pr_runner_pool.py
+
+      - name: Validate live runner reads leave the census publisher a reserve
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_route_quota_reserve.py
+
+      - name: Validate a job reads the pool snapshot from the API once
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pool_snapshot_job_cache.py
+
+      - name: Validate the runner census reads large groups from per-label tallies
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_runner_census_tallies.py
+
+      - name: Validate the risk label step reads labels from the event
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_risk_label_from_event.py
 
       - name: Validate simple live macOS pool choice
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1050,14 +1094,12 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_side_lane_placement.py
 
-      - name: Validate portable placement (fleet Linux, then a free mini, then Blacksmith)
+      - name: Validate nightly admission (fleet Linux, the dedicated mini)
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: |
-          python3 tests/test_ci_portable_job_placement.py
           python3 tests/test_nightly_linux_admission.py
           python3 tests/test_nightly_admission_receipt.py
           python3 tests/test_nightly_dedicated_mini.py
-          python3 tests/test_portable_jobs_bring_their_python.py
 
       - name: Validate the rescue's re-runs route alike for both bot identities
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1144,7 +1186,7 @@ jobs:
 
       # Every vars.NAME a runs-on reads should declare its fallback in .github/single-host-fallbacks.json, which the
       # build-fleet runner label policy reads from here (cmux#40221 merged two undeclared names unseen). Advisory
-      # only (no new CI gate, Lawrence 2026-10-23): --advisory warns and exits 0; the pre-push hook enforces it.
+      # only (no new CI gate, Lawrence 2026-10-23, lifted 2026-11-18): --advisory warns and exits 0; the pre-push hook enforces it.
       - name: Validate no runs-on waits on one machine through a variable's value
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: |
@@ -1167,10 +1209,6 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_guards_are_wired.py
 
-      - name: Validate CLA metadata routing
-        if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_cla_guard_metadata_routing.py
-
       - name: Validate required checks are bounded
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_required_checks_are_bounded.py
@@ -1182,6 +1220,10 @@ jobs:
       - name: Validate label events skip CI for labels it does not read
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_label_events_skip_full_ci.py
+
+      - name: Validate the pull request guards list changed files from git
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pr_guards_list_files_from_git.py
 
       - name: Validate edits and comments start no runner
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1199,7 +1241,7 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_pr_size.py
 
-      - name: Validate pr-checks skips advisory jobs only on base-only updates
+      - name: Validate pr-checks skips advisory steps only on base-only updates
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_pr_checks_base_only.py
 
@@ -1210,6 +1252,14 @@ jobs:
       - name: Validate gh-call attribution lines make no extra API call
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_gh_call_log.py
+
+      - name: Validate the API call log names its blind spots and leaves scripts' PATH alone
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_api_call_log_blind_spots.py
+
+      - name: Validate the API call log loads in a sparse checkout and switches off cleanly
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_api_call_log_bootstrap.py
 
       - name: Validate refused routing reads say why and retry once on Retry-After
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1258,6 +1308,14 @@ jobs:
       - name: Validate pull request caches are read-only
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_pull_request_caches_are_read_only.py
+
+      # Fails only on a poisoned cache this change introduces (a cache an untrusted job writes that a
+      # release job trusts), compared with the base; base findings and lower-severity ones only warn.
+      - name: Validate a change adds no cache an untrusted job writes and a release job trusts
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        env:
+          CMUX_RELEASE_CACHE_TRUST_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+        run: python3 tests/test_ci_release_caches_trusted_writers.py
 
       - name: Validate rust-cache keeps self-hosted runners' ~/.cargo/bin
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1497,6 +1555,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_app_review_gate.py
 
+      - name: Validate the iOS workflows' package path filters match the app's manifests
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ios_app_package_paths.py
+
       - name: Validate CmuxMobileLinkFFI.xcframework reuse by input key
         if: ${{ !cancelled() && matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_link_ffi_key.py
@@ -1633,6 +1695,10 @@ jobs:
       - name: Validate superseded cmux-tui pushes skip their builds and daemon tests
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_superseded_push.py
+
+      - name: Validate a pull request head that changes no cmux-tui tree input builds no artifacts
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_tui_branch_inputs.py
 
       - name: Validate the Team-signed tree signs only on nightly-next and holds no merge
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
@@ -2260,7 +2326,7 @@ jobs:
     # The lockfile policy compares the candidate with the exact base parent of
     # GitHub's synthetic PR/merge-group commit. Depth 2 contains HEAD and that
     # parent; the policy does not need the rest of repository history.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -2323,7 +2389,7 @@ jobs:
         group: [tui-resolution, profiling]
     # The two slow CLI contracts are independent; run them beside each other
     # and let the reusable-workflow job aggregate their result.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -2358,7 +2424,7 @@ jobs:
         group: [dispatch-ownership]
     # These source-policy scans are independent and each dominates wall time;
     # run them concurrently and aggregate through the reusable-workflow job.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -2386,48 +2452,9 @@ jobs:
           python3 tests/test_lint_stored_dispatch_work_items.py
           python3 scripts/lint-stored-dispatch-work-items.py
 
-  portable-placement:
-    name: portable light placement
-    needs:
-      - workflow-guard-submodule-forward-only
-      - workflow-guard-tests
-      - workflow-guard-history
-      - workflow-guard-cli-scripts
-      - workflow-guard-source-lints
-    if: ${{ always() && !cancelled() && vars.CI_PORTABLE_LIGHT_JOBS_OFF != '1' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
-    timeout-minutes: 4
-    permissions:
-      contents: read
-    outputs:
-      linux_runner: ${{ steps.place.outputs.linux_runner }}
-      linux_jobs: ${{ steps.place.outputs.linux_jobs }}
-      mini_runner: ${{ steps.place.outputs.mini_runner }}
-      mini_jobs: ${{ steps.place.outputs.mini_jobs }}
-      placed_attempt: ${{ github.run_attempt }}
-    steps:
-      - name: Check out the trusted placement script
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ github.event.pull_request.base.sha || github.sha }}
-          sparse-checkout: scripts/ci
-          persist-credentials: false
-      - name: Place the portable report job
-        id: place
-        continue-on-error: true
-        env:
-          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          JOBS: guard-status
-          FLEET_LINUX: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.LINUX_RUNNER }}
-          REQUIRE_LIVE_CAPACITY: '1'
-          SIDE_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_LIGHT_LANE_RUNNER || vars.CI_SIDE_LANE_RUNNER }}
-        run: python3 scripts/ci/portable_job_placement.py
-
   guard-status:
     name: Guard status
     needs:
-      - portable-placement
       - workflow-guard-submodule-forward-only
       - workflow-guard-tests
       - workflow-guard-history
@@ -2436,14 +2463,15 @@ jobs:
     # Preserve the guard verdict after a failure, but do not start a rollup
     # after GitHub has cancelled the run.
     if: ${{ always() && !cancelled() }}
-    # Refresh portable capacity after the guard jobs finish, immediately before the rollup.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' guard-status ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' guard-status ') && needs.portable-placement.outputs.mini_runner || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
       - name: Check routed guard jobs
         env:
           GUARD_INPUTS: ${{ toJSON(inputs) }}
           GUARD_NEEDS: ${{ toJSON(needs) }}
+          GUARD_EVENT: ${{ github.event_name }}
+          GUARD_BASE_REF: ${{ github.base_ref }}
         run: |
           python3 - <<'PY'
           import json
@@ -2481,6 +2509,9 @@ jobs:
           for route, job in sorted(route_jobs.items()):
               if route == "submodule_forward_only":
                   results[job] = needs[job]["result"]
+                  # A feat-cmux-next pull request runs it as the ci/steps.toml step (pr-pipeline.yml): the job skips.
+                  if os.environ.get("GUARD_EVENT") == "pull_request" and os.environ.get("GUARD_BASE_REF") == "feat-cmux-next":
+                      may_skip.add(job)
                   continue
               value = inputs.get(route)
               result = needs[job]["result"]

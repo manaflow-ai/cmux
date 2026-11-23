@@ -150,6 +150,8 @@ pub struct Owner {
     pub run_steps: Vec<(String, Value, Vec<Value>)>,
     /// When set, every attachment upload is refused with this code.
     pub refuse_uploads: Option<String>,
+    /// Every Send Later the brain queued: (conversation, op, send_at_ms).
+    pub scheduled: Vec<(String, Op, u64)>,
     /// Panics outside the owner lock during an original-file upload.
     pub panic_uploads: bool,
     /// Runs outside the owner lock before an original-file upload reads its bytes.
@@ -496,6 +498,19 @@ impl ConversationPort for FakeDaemon {
         Ok(())
     }
 
+    fn schedule(
+        &mut self,
+        conversation: &str,
+        op: &Op,
+        send_at_ms: u64,
+    ) -> Result<String, OpError> {
+        let mut owner = self.0.lock().unwrap();
+        owner
+            .scheduled
+            .push((conversation.to_owned(), op.clone(), send_at_ms));
+        Ok(format!("sch_{}", owner.scheduled.len()))
+    }
+
     fn draft(
         &mut self,
         conversation: &str,
@@ -597,6 +612,8 @@ pub struct Agents {
     pub killed_processes: Vec<String>,
     /// Queued prompts taken out (`_acpmux/queue_remove`): (session, prompt id).
     pub removed_queued: Vec<(String, String)>,
+    /// Task lists kept (`_acpmux/task_list/set`): (session, items), in order.
+    pub task_lists: Vec<(String, Value)>,
     /// The next prompt's answer (default `{"stopReason": "end_turn"}`), used once.
     pub answer: Option<Value>,
     /// The next prompt fails with this JSON-RPC error message, used once
@@ -1029,6 +1046,16 @@ impl AgentPort for FakeAgents {
         Ok(inner.taken.contains(name).then(|| name.to_owned()))
     }
 
+    fn session_names(&self) -> Result<Vec<String>, String> {
+        let inner = self.inner.lock().unwrap();
+        Ok(inner
+            .taken
+            .iter()
+            .cloned()
+            .chain(inner.specs.iter().map(|s| s.name.clone()))
+            .collect())
+    }
+
     fn probe_models(&self, harness: &str) -> Result<(), String> {
         self.inner.lock().unwrap().probed.push(harness.to_owned());
         Ok(())
@@ -1203,6 +1230,21 @@ impl AgentPort for FakeAgents {
         Ok(inner.withdraws)
     }
 
+    fn task_list_set(&self, session: &str, items: &Value) -> Result<Value, String> {
+        let mut inner = self.inner.lock().unwrap();
+        inner.task_lists.push((session.to_owned(), items.clone()));
+        let steps = items.as_array().cloned().unwrap_or_default();
+        if steps.is_empty() {
+            return Ok(Value::Null);
+        }
+        let done = steps.iter().filter(|i| i["status"] == "completed").count();
+        let current = steps
+            .iter()
+            .find(|i| i["status"] == "in_progress")
+            .map(|i| i["content"].clone());
+        Ok(json!({"source": "chief", "done": done, "total": steps.len(), "current": current}))
+    }
+
     fn remove_queued(&self, session: &str, prompt_id: &str) -> Result<bool, String> {
         let mut inner = self.inner.lock().unwrap();
         inner
@@ -1279,7 +1321,6 @@ pub fn settings(dir: &Path) -> Settings {
         membership: Default::default(),
         keep_turn_session: false,
         chief_inbox: None,
-        screen_share: Some(dir.join("screen")),
     }
 }
 
