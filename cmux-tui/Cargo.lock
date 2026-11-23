@@ -29,6 +29,7 @@ dependencies = [
  "cmux-cloud-api",
  "cmux-cloud-client",
  "cmux-cloud-environment",
+ "cmux-cloud-wire",
  "cmux-coderouter",
  "cmux-codex-acp",
  "cmux-command-class",

@@ -90,7 +90,7 @@ pub(crate) struct Eligibility {
 /// point is an evaded refusal). A revert or refusal takes effect at once; an event after `now`
 /// is not counted.
 pub(crate) fn eligibility(events: &[Event], now: u64) -> Eligibility {
-    let past = || events.iter().filter(|e| e.at <= now);
+    let past = || events.iter().filter(move |e| e.at <= now);
     let reset = past()
         .filter(|e| !matches!(e.kind, EventKind::Landed))
         // The latest one; an evaded refusal wins a tie, the narrower reading.
@@ -139,7 +139,7 @@ mod tests {
 
     fn landed(days_ago: u64, n: usize) -> Vec<Event> {
         (0..n)
-            .map(|i| Event { at: NOW - days_ago * DAY_MS + i as u64, kind: EventKind::Landed })
+            .map(|i| Event { at: NOW - days_ago * DAY_MS - i as u64, kind: EventKind::Landed })
             .collect()
     }
 

@@ -31,7 +31,10 @@ use crate::store::EventRecord;
 pub(crate) fn refusals_from_audit(entries: &[Value], sessions: &HashSet<&str>) -> Vec<Event> {
     entries
         .iter()
-        .filter(|e| e["kind"] == "approval" && e.pointer("/decision/kind") == Some(&"deny".into()))
+        .filter(|e| {
+            e["kind"] == "approval"
+                && e.pointer("/decision/kind").and_then(Value::as_str) == Some("deny")
+        })
         .filter(|e| e["sessionId"].as_str().is_some_and(|s| sessions.contains(s)))
         .filter_map(|e| e["at"].as_u64())
         .map(|at| Event { at, kind: EventKind::Refusal { evaded: false } })
