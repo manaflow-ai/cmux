@@ -681,6 +681,26 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray__kind-text {
   font-variant-numeric: tabular-nums;
 }
+/* The `tally` arm (trayFoldHead.experiment.ts; Leo, 2026-11-23: "just listing the # of each type of
+   ongoing thing would be better"): each kind its mark and its number, a gap apart, no words, no
+   separators. A kind the row has no room for drops whole onto the hidden line (the rule above), and
+   the hover still names it. The same layout at every width. */
+.acpmux-running-tray__kinds[data-tally] {
+  column-gap: var(--ds-space-3, 12px);
+  row-gap: 0;
+}
+.acpmux-running-tray__kinds[data-tally] > .acpmux-running-tray__kind-unit:has(> [data-kind="plan"]) {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.acpmux-running-tray__kinds[data-tally] [data-kind="plan"] {
+  min-width: 0;
+}
+.acpmux-running-tray__kinds[data-tally] [data-kind="plan"] > .acpmux-running-tray__kind-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 /* The separator between kinds (trayKindLine.experiment.ts), quiet, as the counts' was. */
 .acpmux-running-tray__kind-sep {
   flex: none;
