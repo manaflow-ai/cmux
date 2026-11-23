@@ -143,6 +143,11 @@ backdrop picture is:
   theme file there; `cmux theme remove` deletes them.
 - `cmux theme check DIR` on the repository folder reports a missing license, a bad font file and a
   bad face before you publish.
+- A setup repo (`cmux-setup.json`, installed with `cmux setup install`) carries fonts the same way:
+  `fonts/` beside `themes/`, `"fontLicense"` in `cmux-setup.json`, the same license and size rules.
+  Install copies them to `~/.config/cmux/fonts/setup-OWNER-NAME/` and points the setup's theme files
+  there; `cmux setup remove` deletes them. One repo can be both a theme and a setup, as
+  [manaflow-ai/cmux-quillet-look](https://github.com/manaflow-ai/cmux-quillet-look) is.
 
 ## Keep it fast
 

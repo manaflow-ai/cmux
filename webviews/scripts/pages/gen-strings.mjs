@@ -440,6 +440,19 @@ export const PAGES = {
       },
     ],
   },
+  // Settings > Agents > Harnesses draws the agent pane's plan usage card under each account
+  // (ProviderAccounts.tsx, acpmux/PlanUsageCard.tsx), which reads the pane's table; the page installs
+  // only its `planUsage.` keys (settings/paneStrings.ts). Without them the shipped page showed the
+  // raw keys (planUsage.window.session) in every account's usage.
+  "settings-pane": {
+    out: "webviews/src/pages/settings/generated/pane-strings.json",
+    catalogs: [
+      {
+        file: "webviews/src/agent-session/acpmux/Localizable.xcstrings",
+        keys: (all) => all.filter((key) => key.startsWith("planUsage.")),
+      },
+    ],
+  },
   // The icon picker (cmux-page://cmux.icon-picker/) has no Swift page; its table lives next to it.
   "icon-picker": {
     out: "webviews/src/pages/icon-picker/generated/strings.json",

@@ -29,6 +29,7 @@ public nonisolated struct ChromePlacementSetting {
         _ = TitleAreaToneSetting.parse(root, diagnostics: &snapshot.diagnostics) // applied from the root (`applyTitleAreaTone`)
         _ = CornerFlushSetting.parse(root, diagnostics: &snapshot.diagnostics) // applied from the root (`applyCornerFlush`)
         _ = GooeyTabsSetting.parse(root, diagnostics: &snapshot.diagnostics) // applied from the root (`applyGooeyTabs`)
+        _ = TabShapeSetting.parse(root, diagnostics: &snapshot.diagnostics) // applied from the root (`applyTabShape`)
     }
 
     private static func choice<Value: RawRepresentable & CaseIterable>(
@@ -61,5 +62,6 @@ extension SettingsApplier {
         applyTitleAreaTone(snapshot, to: design)
         applyCornerFlush(snapshot, to: design)
         applyGooeyTabs(snapshot, to: design)
+        applyTabShape(snapshot, to: design)
     }
 }

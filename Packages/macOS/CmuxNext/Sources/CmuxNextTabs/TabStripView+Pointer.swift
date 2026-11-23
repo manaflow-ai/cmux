@@ -279,7 +279,7 @@ extension TabStripView {
     public override func menu(for event: NSEvent) -> NSMenu? {
         let menu = contextMenu(for: event)
         if let menu { menuTracking.begin(menu) }
-        return menu
+        return NSMenu.withoutSystemItems(menu)
     }
 
     private func contextMenu(for event: NSEvent) -> NSMenu? {
