@@ -73,7 +73,7 @@ enum FeedDays {
         let count = min(max(pinned, 0), rows.count)
         let days = groups(carrying: rows[count...], calendar: calendar)
         guard count > 0 else { return days }
-        return [FeedDayGroup(section: .pinned, ids: rows[..<count].map(\.id))] + days
+        return [FeedDayGroup(section: .pinned, ids: rows[..<count].map { $0.id })] + days
     }
 
     /// Whether a day section shows its label: every one but today's at the top
