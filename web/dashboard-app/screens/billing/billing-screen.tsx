@@ -10,7 +10,7 @@ import { dashboardBillingQuery } from "../../queries/billing";
 import { BillingPageFrame } from "./billing-frame";
 import { personalPlanCards, type SwitchPlanId } from "./plan-model";
 import { PlanPicker } from "./plan-picker";
-import { CloudIntroWelcome, CloudTasteWelcome, PlanWelcome, welcomePlan } from "./plan-welcome";
+import { CloudIntroStatementNotice, CloudIntroWelcome, CloudTasteWelcome, PlanWelcome, welcomePlan } from "./plan-welcome";
 import { CLOUD_INTRO_CHECKOUT_PLAN } from "@/services/billing/cloudIntro";
 import { CLOUD_TASTE_WELCOME } from "@/services/billing/cloudTaste";
 import { TeamBillingPanel } from "./team-billing-panel";
@@ -19,6 +19,8 @@ export type BillingScreenSearch = {
   readonly team?: string;
   readonly billing?: string;
   readonly welcome?: string;
+  /** A $1 pass statement link: `not-now` or `renew`. */
+  readonly pass?: string;
   /** A checkout or portal redirect asking to move to this plan. */
   readonly change?: "pro" | "max";
 };
@@ -44,6 +46,9 @@ export function BillingScreen({ search }: { search: BillingScreenSearch }) {
       {welcome && data.personal ? <PlanWelcome plan={welcome} /> : null}
       {search.welcome === CLOUD_INTRO_CHECKOUT_PLAN && data.personal?.cloudIntroEnabled ? <CloudIntroWelcome /> : null}
       {search.welcome === CLOUD_TASTE_WELCOME && data.personal?.cloudIntroEnabled ? <CloudTasteWelcome /> : null}
+      {data.personal?.cloudIntroEnabled && data.personal.cloudIntroStatement ? (
+        <CloudIntroStatementNotice notice={data.personal.cloudIntroStatement} pass={search.pass} />
+      ) : null}
       {data.personal ? (
         <PersonalBilling data={data.personal} change={search.change} />
       ) : data.team ? (

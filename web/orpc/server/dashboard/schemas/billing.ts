@@ -39,6 +39,21 @@ export const teamBillingViewSchema = z.discriminatedUnion("status", [
   z.object({ status: z.literal("unavailable"), teamId: z.string() }),
 ]) satisfies z.ZodType<TeamBillingViewJson>;
 
+const cloudIntroStatementNoticeSchema = z.object({
+  day: z.union([z.literal(21), z.literal(27), z.literal(30)]),
+  subject: z.string(),
+  title: z.string(),
+  lines: z.array(z.string()),
+  askTitle: z.string().nullable(),
+  choices: z.array(z.object({
+    key: z.enum(["plus", "pro", "not_now"]),
+    label: z.string(),
+    href: z.string(),
+  })),
+  after: z.string().nullable(),
+  turnOff: z.object({ label: z.string(), href: z.string() }).nullable(),
+});
+
 const personalBillingSchema = z.object({
   planStatus: z.object({
     isPro: z.boolean(),
@@ -59,6 +74,7 @@ const personalBillingSchema = z.object({
   hasPaidManualGrant: z.boolean(),
   vaultEnabled: z.boolean(),
   cloudIntroEnabled: z.boolean().optional(),
+  cloudIntroStatement: cloudIntroStatementNoticeSchema.nullable().optional(),
 }) satisfies z.ZodType<PersonalBillingJson>;
 
 const billingTeamSummarySchema = z.object({

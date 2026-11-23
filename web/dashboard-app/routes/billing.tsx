@@ -9,7 +9,8 @@ import { settingsHubRoute } from "./settings";
 
 /**
  * `?billing=`, `?welcome=`, and `?change=` come from billing redirects; `team`
- * from the shell. `change` opens the switch dialog for that plan.
+ * from the shell. `change` opens the switch dialog for that plan. `?pass=`
+ * comes from a $1 pass statement's links.
  */
 export const billingRoute = createRoute({
   getParentRoute: () => settingsHubRoute,
@@ -18,6 +19,7 @@ export const billingRoute = createRoute({
     billing: z.string().optional(),
     welcome: z.string().optional(),
     interval: z.string().optional(),
+    pass: z.string().optional(),
     change: z.enum(["pro", "max"]).optional().catch(undefined),
   }),
   loaderDeps: ({ search }) => ({ team: search.team }),
