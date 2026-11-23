@@ -15,7 +15,10 @@
 namespace cmux_shim {
 
 // cef_permission_request_types_t bits.
+constexpr uint32_t kPermissionCameraPanTiltZoom = 1u << 1;
+constexpr uint32_t kPermissionCamera = 1u << 2;
 constexpr uint32_t kPermissionGeolocation = 1u << 8;
+constexpr uint32_t kPermissionMicrophone = 1u << 12;
 constexpr uint32_t kPermissionNotifications = 1u << 15;
 
 // The key of the notification entry in a site's CEF_CONTENT_SETTING_TYPE_PERMISSION_AUTOBLOCKER_DATA
@@ -23,8 +26,12 @@ constexpr uint32_t kPermissionNotifications = 1u << 15;
 // site's ignored and dismissed notification prompts, and the start of a block they caused.
 constexpr char kNotificationsAutoblockKey[] = "Notifications";
 
-// The kinds the host asks about in its prompt bar.
-constexpr uint32_t kHostPermissions = kPermissionGeolocation;
+// The kinds the host asks about in its prompt bar. Camera and microphone ask there too: left with
+// Chromium, a video call's getUserMedia() never resolved (meet.google.com waited on a camera it
+// was never given). Chromium groups a page's camera and microphone request into one prompt, and
+// pan-tilt-zoom rides with the camera (a page that asks for PTZ constraints).
+constexpr uint32_t kHostPermissions =
+    kPermissionGeolocation | kPermissionCamera | kPermissionMicrophone | kPermissionCameraPanTiltZoom;
 
 enum class PermissionPromptRoute {
   // Chromium keeps the request (its default for the kind).
