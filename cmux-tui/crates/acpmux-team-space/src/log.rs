@@ -1,6 +1,6 @@
 //! What this machine keeps for a person's digest: their log of digests shown and actions taken,
 //! and one cursor per space. The hosted forum has no endpoint for either yet, so a hosted store
-//! keeps them here (a hosted store, which lands separately, appends to a [`RecordLog`]).
+//! keeps them here ([`crate::hosted::HostedStore`] appends to a [`RecordLog`]).
 //!
 //! [`JsonlLog`] is the file form, the same shape as acpmux's forum log (`forum.rs`): one JSON
 //! record per line, owner-only, replayed when opened; a line that does not parse is skipped, so
