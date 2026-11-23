@@ -62,8 +62,10 @@ type Outcome = Option<Result<String, String>>;
 pub(super) struct Pending {
     pub(super) session_id: String,
     pub(super) prompt_id: String,
+    /// What the chat shows as the prompt: the person's words, without a context block.
     pub(super) text: String,
-    /// The text as the app got it (with the reply hint): what a Codex rollout line shows.
+    /// The text as the app got it (context blocks and the reply hint too): what a Codex rollout
+    /// line shows.
     wire: String,
     /// The watch showed its line (known by its text, which another line may repeat).
     shown: bool,
@@ -202,6 +204,18 @@ fn text_of(blocks: &[Value]) -> Option<String> {
         .filter(|text| !text.trim().is_empty())
 }
 
+/// What the chat shows of an all-text prompt: its text blocks but the context blocks
+/// (`prompt_context::is_context`, a note for the agent such as the `@` tools' or the workspace
+/// one), which the app still gets in [`text_of`]. A transcript never shows a context.
+fn visible_text(blocks: &[Value]) -> String {
+    blocks
+        .iter()
+        .filter(|b| !crate::prompt_context::is_context(b))
+        .filter_map(|b| b.get("text").and_then(Value::as_str))
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
 /// Where a bridged chat's prompt goes: the Claude Code session's inbox, or the Codex thread's
 /// queue.
 enum Target {
@@ -304,11 +318,14 @@ impl Hub {
                     .then(|| Err(unreached_error(&name, why.as_ref())));
             }
         };
-        let Some(text) = text_of(blocks) else {
+        let Some(delivery) = text_of(blocks) else {
             return Some(Err(RpcError::invalid_params(
                 "only text reaches a session another app runs: send it without attachments, or take the chat over",
             )));
         };
+        // The app reads every block, the chat's transcript (`delivered`, `user_message`) only
+        // the person's own.
+        let text = visible_text(blocks);
         let prompt_id = opts.prompt_id.clone().unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
         let uuid = uuid::Uuid::now_v7().to_string();
         // The chat shows the prompt as sent (`delivered`); the app also reads how to answer.
@@ -320,7 +337,7 @@ impl Hub {
         let name = reply_name(opts);
         let routable = name.as_deref().is_some_and(|n| self.reply_routable(n));
         let wire = with_reply_hint(
-            &text,
+            &delivery,
             name.as_deref(),
             harness.as_deref(),
             unverified,

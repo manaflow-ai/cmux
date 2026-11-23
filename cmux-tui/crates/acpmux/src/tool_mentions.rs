@@ -134,27 +134,9 @@ fn trails(after: &str) -> bool {
 /// `text` with its code blanked (line breaks kept): fenced blocks, then inline code spans.
 fn without_code(text: &str) -> String {
     let mut lines: Vec<String> = Vec::new();
-    let mut fence: Option<(char, usize)> = None;
+    let mut scan = Fences::default();
     for line in text.split('\n') {
-        let run = fence_run(line);
-        let blank = match (fence, run) {
-            (Some((mark, length)), run) => {
-                if let Some((ch, n, rest)) = run
-                    && ch == mark
-                    && n >= length
-                    && rest.trim().is_empty()
-                {
-                    fence = None;
-                }
-                true
-            }
-            (None, Some((ch, n, rest))) if !(ch == '`' && rest.contains('`')) => {
-                fence = Some((ch, n));
-                true
-            }
-            (None, _) => false,
-        };
-        lines.push(if blank { blanked(line) } else { line.to_owned() });
+        lines.push(if scan.is_code(line) { blanked(line) } else { line.to_owned() });
     }
     let fenced = lines.join("\n");
     let spans = code_spans(&fenced);
@@ -177,13 +159,198 @@ fn blanked(text: &str) -> String {
     text.chars().map(|c| if c == '\n' { '\n' } else { ' ' }).collect()
 }
 
-/// A line's fence run: after its indentation (spaces, tabs) and blockquote markers, a run of 3+
-/// backticks or tildes, as its mark, its length and the rest of the line.
-fn fence_run(line: &str) -> Option<(char, usize, &str)> {
-    let content = line.trim_start_matches([' ', '\t', '>']);
-    let mark = content.chars().next().filter(|c| *c == '`' || *c == '~')?;
-    let length = content.len() - content.trim_start_matches(mark).len();
-    (length >= 3).then(|| (mark, length, &content[length..]))
+/// The fenced code blocks of a text, line by line, as CommonMark reads them inside its containers
+/// (toolMentions.ts `withoutCode` keeps the same rules). A block quote (`>`) holds a line that
+/// carries its marker; a list item (`-`, `*`, `+`, `1.`, `1)`) holds a blank line and one indented
+/// to its content. A fence opened in a container ends with it: lazy continuation is only for a
+/// paragraph, so `> ~~~` then a line without `>` is prose again. Inside its container, a fence
+/// closes at a line of its mark at least as long, indented at most three spaces. Tabs count to
+/// the next multiple of four columns.
+#[derive(Default)]
+struct Fences {
+    /// The open containers, outermost first: `None` a block quote, `Some(n)` a list item whose
+    /// content starts `n` columns into its parent's.
+    open: Vec<Option<usize>>,
+    /// The open fence's mark and length (it sits in every open container).
+    fence: Option<(u8, usize)>,
+    /// The last line was paragraph text, which a lazy line continues.
+    paragraph: bool,
+}
+
+impl Fences {
+    /// Reads the next line: whether it is a fenced block's (its opening, content or closing).
+    fn is_code(&mut self, line: &str) -> bool {
+        let wide = expand_tabs(line);
+        let (matched, rest) = match_open(&self.open, &wide);
+        if let Some((mark, length)) = self.fence {
+            if matched == self.open.len() {
+                if closes(rest, mark, length) {
+                    self.fence = None;
+                }
+                return true;
+            }
+            // Its container ended, so the fence did too.
+            self.fence = None;
+            self.paragraph = false;
+        }
+        if matched < self.open.len() {
+            if self.paragraph && !blank(rest) && !starts_block(rest) {
+                return false;
+            }
+            self.open.truncate(matched);
+        }
+        let rest = open_new(&mut self.open, rest);
+        if let Some(fence) = opens(rest) {
+            self.fence = Some(fence);
+            self.paragraph = false;
+            return true;
+        }
+        self.paragraph = !blank(rest);
+        false
+    }
+}
+
+/// `line` with each tab as the spaces to the next multiple of four columns.
+fn expand_tabs(line: &str) -> std::borrow::Cow<'_, str> {
+    if !line.contains('\t') {
+        return std::borrow::Cow::Borrowed(line);
+    }
+    let mut out = String::with_capacity(line.len() + 8);
+    let mut column = 0;
+    for ch in line.chars() {
+        if ch == '\t' {
+            let n = 4 - column % 4;
+            out.extend(std::iter::repeat_n(' ', n));
+            column += n;
+        } else {
+            out.push(ch);
+            column += 1;
+        }
+    }
+    std::borrow::Cow::Owned(out)
+}
+
+/// Whether `s` holds only spaces (and a line's `\r`).
+fn blank(s: &str) -> bool {
+    s.bytes().all(|b| b == b' ' || b == b'\r')
+}
+
+fn spaces(s: &str) -> usize {
+    s.len() - s.trim_start_matches(' ').len()
+}
+
+/// How many of `open` `line` continues, and the rest of it after their markers and indents.
+fn match_open<'a>(open: &[Option<usize>], line: &'a str) -> (usize, &'a str) {
+    let mut rest = line;
+    for (i, container) in open.iter().enumerate() {
+        match container {
+            None => {
+                let n = spaces(rest);
+                if n > 3 || !rest[n..].starts_with('>') {
+                    return (i, rest);
+                }
+                rest = &rest[n + 1..];
+                rest = rest.strip_prefix(' ').unwrap_or(rest);
+            }
+            Some(indent) => {
+                if blank(rest) {
+                    continue;
+                }
+                if spaces(rest) < *indent {
+                    return (i, rest);
+                }
+                rest = &rest[*indent..];
+            }
+        }
+    }
+    (open.len(), rest)
+}
+
+/// The length of the list marker `s` starts with (`-`, `*`, `+`, or 1 to 9 digits then `.` or
+/// `)`), when a space or the line's end follows it.
+fn list_marker(s: &str) -> Option<usize> {
+    let bytes = s.as_bytes();
+    let length = match bytes.first()? {
+        b'-' | b'*' | b'+' => 1,
+        b'0'..=b'9' => {
+            let digits = bytes.iter().take_while(|b| b.is_ascii_digit()).count();
+            if digits > 9 || !matches!(bytes.get(digits), Some(b'.' | b')')) {
+                return None;
+            }
+            digits + 1
+        }
+        _ => return None,
+    };
+    (blank(&s[length..]) || s[length..].starts_with(' ')).then_some(length)
+}
+
+/// Opens the block quotes and list items `rest` starts with, and gives what follows them.
+fn open_new<'a>(open: &mut Vec<Option<usize>>, mut rest: &'a str) -> &'a str {
+    loop {
+        let n = spaces(rest);
+        if n > 3 {
+            return rest;
+        }
+        let after = &rest[n..];
+        if let Some(inner) = after.strip_prefix('>') {
+            open.push(None);
+            rest = inner.strip_prefix(' ').unwrap_or(inner);
+            continue;
+        }
+        let Some(marker) = list_marker(after) else { return rest };
+        let content = &after[marker..];
+        if blank(content) {
+            open.push(Some(n + marker + 1));
+            return content;
+        }
+        // Five or more spaces after the marker start indented code: the content is one in.
+        let gap = match spaces(content) {
+            gap if gap >= 5 => 1,
+            gap => gap,
+        };
+        open.push(Some(n + marker + gap));
+        rest = &content[gap..];
+    }
+}
+
+/// The fence `rest` opens: at most three spaces, then 3+ backticks or tildes, as its mark and
+/// length (a backtick fence's info has no backtick).
+fn opens(rest: &str) -> Option<(u8, usize)> {
+    let n = spaces(rest);
+    if n > 3 {
+        return None;
+    }
+    let after = &rest[n..];
+    let mark = *after.as_bytes().first().filter(|b| **b == b'`' || **b == b'~')?;
+    let length = after.bytes().take_while(|b| *b == mark).count();
+    (length >= 3 && !(mark == b'`' && after[length..].contains('`'))).then_some((mark, length))
+}
+
+/// Whether `rest` closes the fence of `mark` and `length`.
+fn closes(rest: &str, mark: u8, length: usize) -> bool {
+    let n = spaces(rest);
+    if n > 3 {
+        return false;
+    }
+    let after = &rest[n..];
+    let run = after.bytes().take_while(|b| *b == mark).count();
+    run >= length && blank(&after[run..])
+}
+
+/// Whether `rest` starts a block, so it is no lazy line of a paragraph: a block quote, a list
+/// item, a fence or a heading.
+fn starts_block(rest: &str) -> bool {
+    let n = spaces(rest);
+    if n > 3 {
+        return false;
+    }
+    let after = &rest[n..];
+    let hashes = after.bytes().take_while(|b| *b == b'#').count();
+    after.starts_with('>')
+        || list_marker(after).is_some()
+        || opens(rest).is_some()
+        || ((1..=6).contains(&hashes)
+            && (blank(&after[hashes..]) || after[hashes..].starts_with(' ')))
 }
 
 /// Whether a line starts a block of its own, which no inline code span crosses: a heading, a
