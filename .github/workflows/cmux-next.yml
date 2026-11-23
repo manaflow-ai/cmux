@@ -1587,6 +1587,7 @@ jobs:
             # The INTERNAL iOS builder's trigger decisions and What to Test notes.
             python3 tests/test_ios_internal_builder.py
             python3 tests/test_ios_internal_notes.py
+            python3 tests/test_ios_internal_yolo.py
             bash scripts/cmux-next/tests/pin-cmux-tui-resolve-newest.test.sh
             bash scripts/cmux-next/tests/pin-cmux-tui-fallback-key.test.sh
             bash scripts/cmux-next/tests/pin-cmux-tui-dispatch.test.sh
@@ -3751,11 +3752,6 @@ jobs:
           path: ${{ steps.r2-cargo-key.outputs.registry }}
           key: ${{ steps.r2-cargo-key.outputs.registry-key }}
           restore-keys: ${{ steps.r2-cargo-key.outputs.registry-prefix }}
-
-      # Why: docs/ci/cmux-next-workflow-notes.md#note-211
-      - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
-        if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}
-        uses: ./.github/actions/ghostty-zig-packages
 
       - name: Run the fast tier (cargo and script entries)
         if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}

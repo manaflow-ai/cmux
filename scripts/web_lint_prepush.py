@@ -302,6 +302,55 @@ def load_push_range(trusted_scripts: Path | None):
     return module
 
 
+# A run by hand in a shallow clone (cmux-ci's fast-checks checkout of a snapshot, depth 2) deepens it this far, one step
+# at a time, until HEAD meets the shared base; each step is one fetch on this limit.
+DEEPEN_STEPS = (200, 2000)
+DEEPEN_FETCH_SECONDS = 120
+
+
+def is_shallow(repo: Path) -> bool:
+    return git(repo, "rev-parse", "--is-shallow-repository", check=False).strip() == "true"
+
+
+def deepen_to_base(repo: Path, push_range, remote: str, head: str) -> list[str]:
+    """In a shallow clone, fetch the shared base (origin/feat-cmux-next) and HEAD's history together, deeper each step
+    (DEEPEN_STEPS), until HEAD meets the base. Only ever run in a clone that is already shallow, so it never cuts a full
+    clone's history (tests/test_ci_no_shallow_dev_fetch.py). Returns why each fetch failed, empty when one worked."""
+    tip = git(repo, "rev-parse", "--verify", "--quiet", f"{head}^{{commit}}", check=False).strip()
+    upstream = push_range.UPSTREAM  # refs/remotes/origin/feat-cmux-next
+    branch = upstream.split("/", 3)[-1]
+    env = push_range._no_prompt_env(repo) if hasattr(push_range, "_no_prompt_env") else {**os.environ,
+                                                                                        "GIT_TERMINAL_PROMPT": "0"}
+    failures = []
+    for depth in DEEPEN_STEPS:
+        if not is_shallow(repo):  # depth flags only in a shallow clone (see above)
+            break
+        argv = ["git", "-C", str(repo), "-c", "credential.interactive=false", "fetch", "--quiet", "--no-tags",
+                f"--depth={depth}", remote, f"+refs/heads/{branch}:{upstream}", *([tip] if tip else [])]
+        try:
+            done = subprocess.run(argv, text=True, capture_output=True, env=env, stdin=subprocess.DEVNULL,
+                                  timeout=DEEPEN_FETCH_SECONDS)
+            why = "" if done.returncode == 0 else ((done.stderr.strip().splitlines() or [f"exit {done.returncode}"])[-1])
+        except subprocess.TimeoutExpired:
+            why = f"no answer in {DEEPEN_FETCH_SECONDS}s"
+        except OSError as error:
+            why = str(error)
+        if why:
+            failures.append(f"depth {depth}: {why}")
+            break  # a remote that refused once refuses deeper too
+        failures = []
+        if tip and git(repo, "merge-base", tip, upstream, check=False).strip():
+            break
+    return failures
+
+
+def shallow_fallback(repo: Path, head: str) -> tuple[str | None, int]:
+    """The oldest first-parent commit this shallow clone has below HEAD, and how many commits down it is; None when
+    HEAD is all the clone has."""
+    chain = git(repo, "rev-list", "--first-parent", head, check=False).split()
+    return (chain[-1], len(chain) - 1) if len(chain) > 1 else (None, 0)
+
+
 def own_files(repo: Path, own, head: str | None) -> list[str]:
     """The files the own range OWN (push_range.OwnRange) changes at HEAD (a commit, or None: the working tree):
     over its base, and for a merge also since the head of every range it does not own (a file only upstream
@@ -2101,6 +2150,37 @@ def main(argv: list[str] | None = None) -> int:
                                   else push_range.own_range(repo, args.head or "HEAD", remote=args.remote)], []
         except ValueError as error:  # a git call failed (a commit gone between two reads)
             ranges, errors = [], [str(error)]
+        fallback = None
+        if errors and not args.pre_push and is_shallow(repo):
+            # A run by hand in a shallow clone: cmux-ci's fast-checks checkout of a snapshot (depth 2) is one nobody
+            # pushes, so "fetch and push again" was no step anyone could take (run 45105207823: refused in 0.08 s,
+            # nothing linted). Deepen the clone to the shared base here, then read the range again.
+            head = args.head or "HEAD"
+            print(f"{mode}: this shallow clone cannot tell which commits are its own yet; fetching "
+                  f"{push_range.UPSTREAM.split('/', 2)[-1]} and deepening HEAD ({', '.join(map(str, DEEPEN_STEPS))} commits "
+                  "at most)", file=sys.stderr)
+            failures = deepen_to_base(repo, push_range, args.remote, head)
+            try:
+                ranges, errors = [push_range.own_range(repo, head, remote=args.remote)], []
+            except ValueError as error:
+                errors = [str(error)] + [f"fetch {failure}" for failure in failures]
+            if errors:
+                # The fetch could not reach the base: lint what this clone has below HEAD instead of nothing.
+                oldest, depth = shallow_fallback(repo, head)
+                for error in errors:
+                    print(f"{mode}: still cannot tell this branch's own commits: {error}", file=sys.stderr)
+                if oldest:
+                    print(f"{mode}: linting every file changed over {head}~{depth} ({oldest[:12]}), the oldest commit "
+                          "this shallow clone has: files that commit's base already had are not linted, and files "
+                          "a base merge brought in count as this branch's", file=sys.stderr)
+                    fallback = changed_files(repo, oldest, args.head)
+                else:
+                    print(f"{mode}: this clone holds HEAD alone: linting every package (as --all)", file=sys.stderr)
+                    args.all = True
+                    fallback = []
+                errors, ranges = [], []
+        if fallback is not None:
+            heads[None if args.fix else args.head] = fallback
         if errors:
             for error in errors:
                 print(f"{mode}: cannot tell which commits are this push's own: {error}", file=sys.stderr)
