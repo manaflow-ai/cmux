@@ -48,7 +48,7 @@
 /* Hover: the big spark turns a quarter and back once (a twinkle). */
 .acpmux-location-button:is(:hover, [data-gallery-hover]) .auto-env-icon[data-look="constellation"] .auto-env-spark,
 .acpmux-menu-item:is(:hover, [data-highlighted]) .auto-env-icon[data-look="constellation"] .auto-env-spark {
-  animation: auto-env-twinkle calc(var(--cmux-motion-large) * 2) var(--agent-ease-out, ease-out) 1;
+  animation: auto-env-twinkle var(--cmux-motion-large) var(--cmux-ease-out) 1;
 }
 @keyframes auto-env-breathe {
   0%, 100% { opacity: 0.45; transform: scale(0.8); }
