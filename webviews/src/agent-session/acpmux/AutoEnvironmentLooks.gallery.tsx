@@ -209,6 +209,7 @@ function Row({ icon, name, hint, checked, highlighted, auto }: RowProps) {
   return (
     <div
       className="acpmux-menu-item"
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- mirrors the live menu row.
       role="option"
       aria-selected={checked}
       data-highlighted={highlighted ? "" : undefined}
@@ -236,6 +237,7 @@ function Menu({ look, pick, hoverAuto }: { look: Look; pick: "auto" | "local"; h
   return (
     <div
       className="acpmux-menu acpmux-location-menu acpmux-folder-popover acpmux-env-popover acpmux-env-searchless auto-env-menu"
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- mirrors the live Where menu.
       role="listbox"
     >
       <div className="acpmux-env-heading">Where should this chat run?</div>

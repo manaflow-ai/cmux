@@ -116,6 +116,7 @@ export function AutoArrival({
       className="acpmux-auto-arrival"
       data-auto-look={look}
       data-went={deciding ? "deciding" : landing.went}
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a flex row in the notices strip; <output> is inline and form-bound.
       role="status"
       title={deciding ? undefined : landing.why}
     >
