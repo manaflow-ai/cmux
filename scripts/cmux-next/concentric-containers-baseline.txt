@@ -29,8 +29,6 @@ webviews/src/agent-session/acpmux/composerAttachments.css: .acpmux-pdf-sheet.is-
 webviews/src/agent-session/acpmux/composerLocation.css: .acpmux-composer-strip { border-radius: var(--acpmux-strip-radius, 18px) var(--acpmux-strip-radius, 18px) 0 0 }
 webviews/src/agent-session/acpmux/composerLocation.css: .acpmux-permission-panel .acpmux-permission-card.acpmux-permission-surface { border-radius: 10px }
 webviews/src/agent-session/acpmux/composerLocation.css: :root[data-top-strip="bump"] .acpmux-composer-strip { border-radius: 10px 10px 5px 5px }
-webviews/src/agent-session/acpmux/composerLocation.css: :root[data-top-strip="bump"] .acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-strip { border-radius: 0 0 5px 5px }
-webviews/src/agent-session/acpmux/composerLocation.css: :root[data-top-strip="tray"] .acpmux-composer-strip, :root[data-top-strip="tray"] .acpmux-composer:h { border-radius: 14px 14px 0 0 }
 webviews/src/agent-session/acpmux/composerLook.css: :where(:root:not([data-top-strip="plain"])) .acpmux-composer[data-composer-look="codex"] > .acpmux-c { border-radius: 14px 14px 0 0 }
 webviews/src/agent-session/acpmux/computerUse/computerUsePreview.css: .acpmux-cu-preview__close { border-radius: 50% }
 webviews/src/agent-session/acpmux/context/context.css: .acpmux-context-screen-close { border-radius: 6px }
@@ -100,7 +98,6 @@ webviews/src/pages/home-channels/chiefWork.css: .hc-chief-work__refresh, .hc-chi
 webviews/src/pages/home-channels/ledger.css: .lg-goal-strip { border-radius: var(--ds-radius-popup) }
 webviews/src/pages/home-channels/ledger.css: .lg-kbd { border-radius: 4px }
 webviews/src/pages/home-channels/ledger.css: .lg-palette.ui-dialog, .lg-palette { border-radius: 12px }
-webviews/src/pages/home-messages/list/list.css: .hm-draft-close { border-radius: 50% }
 webviews/src/pages/keybindings/styles.css: .keys-notice { border-radius: 7px }
 webviews/src/pages/markdown/styles.css: .cmux-comment-card { border-radius: 10px }
 webviews/src/pages/passwords/styles.css: .pw-notice { border-radius: 7px }

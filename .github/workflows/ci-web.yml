@@ -60,7 +60,7 @@ jobs:
     # blacksmith-32vcpu-ubuntu-2404 and this job (124762739841) waited 50 minutes unassigned; on
     # 2026-11-04 the pool's blacksmith-4vcpu-ubuntu-2404 held it (126357110799) 10 minutes before the
     # pool reconciler marked that size dead. Either way every webview shard and the verdict waited.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     # 11: the shard pick and the picked shards' file list (webviews_pr_shards.py, each bounded at 150 s) run here too.
     timeout-minutes: 11
     # actions: read: a pull request's handoff below reads the base's webview test history (an artifact of its newest push).
@@ -73,6 +73,7 @@ jobs:
       instant: ${{ steps.scope.outputs.instant }}
       production_build: ${{ steps.scope.outputs.production_build }}
       react_apps: ${{ steps.scope.outputs.react_apps }}
+      agent_pane: ${{ steps.scope.outputs.agent_pane }}
       react_shards: ${{ steps.react-shards.outputs.matrix }}
       react_class: ${{ steps.react-shards.outputs.class }}
       typecheck: ${{ steps.scope.outputs.typecheck }}
@@ -233,7 +234,7 @@ jobs:
   web-typecheck:
     needs: web-subarea-scope
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.typecheck == 'true' && (inputs.only == '' || inputs.only == 'web-typecheck') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_32 || fromJSON(vars.RUNNER_POOLS).linux_16 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     # Matches the 10-minute siblings in this workflow.
     timeout-minutes: 10
     defaults:
@@ -270,6 +271,15 @@ jobs:
 
       - name: Validate managed relay catalog
         run: bun tools/generate-managed-iroh-relay-catalog.ts --check
+
+      # Next's route types (.next/types, which tsconfig.json includes) exist only after a build or typegen. The
+      # production build below skips type errors (CMUX_CI_TYPECHECK_SEPARATE), so this job generates them: a route
+      # type error (a page's props, a typed link) stays this check's red.
+      # typegen loads next.config.ts, which imports app/env.ts; route types need no secrets, so its check is off here.
+      - name: Generate Next route types
+        env:
+          SKIP_ENV_VALIDATION: "1"
+        run: bun x next typegen
 
       - name: Typecheck
         env:
@@ -315,13 +325,95 @@ jobs:
         with:
           name: ci-oops-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/ci_oops.jsonl
+
+  # The webviews type check, apart from the react-apps-check shards that build and test the same tree. Vite and
+  # bun only transpile, so the bundles, the gallery and the tests run on a tree with a type error, and this job
+  # reports the error as its own red check (Web status still requires it). Until 2026-11-19 it was a step of
+  # react-apps-check (1), whose verdict a type error turned red next to the tests' (Leo, 2026-11-19: "the CI
+  # doesn't necessarily have to fail and like give up. It can just be like, okay, you got to fix this afterwards").
+  # On a feat-cmux-next pull request only errors the merge parent lacks fail (fast_gate_webviews_checks.py).
+  webviews-typecheck:
+    needs: web-subarea-scope
+    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_32 || fromJSON(vars.RUNNER_POOLS).linux_16 }}
+    # The merge's type check, and on a red the base's (a worktree of the merge parent).
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: webviews
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # The merge commit with its parents: a red is compared with the merge parent's.
+          fetch-depth: ${{ github.event_name == 'pull_request' && '2' || '1' }}
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      # Restore only: the react-apps-check shards save this key.
+      - name: Restore the Bun package cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+
+      # `vp check` runs on Node and needs ^22.18 or ^24.11; bun still installs.
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.22.1"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Type check webviews
+        env:
+          CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
+          BASE_REF: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
+          # fixit-compile (ci-oops 0a) runs inside the type check here, since the shards skip it (--skip typecheck)
+          FIXIT_COMPILE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -o pipefail
+          check() {
+            if [ "$CMUX_NEXT_STYLE_GUARDS" = warn ]; then
+              python3 ../scripts/ci/fast_gate_webviews_checks.py --no-install --repo .. --base "$BASE_REF" --only typecheck
+            else
+              bun run typecheck
+            fi
+          }
+          log="$RUNNER_TEMP/webviews-typecheck.log"
+          set +e
+          check 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          set -e
+          # The native TypeScript preview compiler can abort on a healthy runner: retry that crash once (web-typecheck).
+          if [ "$status" -ne 0 ] && grep -Fq 'Aborted (core dumped)' "$log"; then
+            echo "::warning::native tsgo aborted during the webviews type check; retrying once"
+            check
+            exit $?
+          fi
+          exit "$status"
+
+      # A type check whose every error had one safe language-service fix, and passed with them: the patch, for the
+      # cmuxterm-hq fixit-compile reconciler to push onto a lane/* branch as a fixup commit (ci-oops 0a).
+      - name: Upload the fixit-compile patch
+        if: ${{ failure() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fixit-compile-${{ github.job }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/fixit-compile
           if-no-files-found: ignore
           retention-days: 3
 
   web-production-build:
     needs: web-subarea-scope
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.production_build == 'true' && (inputs.only == '' || inputs.only == 'web-production-build') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-32vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_32 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 15
     defaults:
       run:
@@ -366,6 +458,8 @@ jobs:
           DATABASE_URL: postgres://cmux:cmux@127.0.0.1:1/cmux
           DIRECT_DATABASE_URL: postgres://cmux:cmux@127.0.0.1:1/cmux
           CMUX_ANALYTICS_TEST_MODE: "1"
+          # web-typecheck reports type errors; this build proves the app compiles and bundles (web/next.config.ts).
+          CMUX_CI_TYPECHECK_SEPARATE: "1"
         run: bun run vercel-build
 
   web-tests:
@@ -376,7 +470,7 @@ jobs:
       fail-fast: false
       matrix:
         shard: ["1/4", "2/4", "3/4", "4/4"]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_32 || fromJSON(vars.RUNNER_POOLS).linux_16 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     defaults:
       run:
@@ -443,9 +537,9 @@ jobs:
   # CMUX_REAL_ACPMUX=1, which fails a file that cannot run instead of skipping it.
   agent-pane-real-acpmux:
     needs: web-subarea-scope
-    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && (inputs.only == '' || inputs.only == 'agent-pane-real-acpmux') }}
+    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.agent_pane == 'true' && (inputs.only == '' || inputs.only == 'agent-pane-real-acpmux') }}
     name: Agent pane on real acpmux
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -484,6 +578,8 @@ jobs:
       - name: Cache cargo build
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           cache-bin: false
           shared-key: agent-pane-real-acpmux
           save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' || github.base_ref == 'feat-cmux-next' }}
@@ -534,7 +630,7 @@ jobs:
   web-instant-navigation:
     needs: web-subarea-scope
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.instant == 'true' && (inputs.only == '' || inputs.only == 'web-instant-navigation') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_32 || fromJSON(vars.RUNNER_POOLS).linux_16 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     defaults:
       run:
@@ -619,7 +715,7 @@ jobs:
     # runner as a push does. It read linux_4 before: on 2026-11-22 its 12 shards ran 2 files at once on
     # the 4 vCPU pool for 39-71 min of tests each, about 722 runner-minutes a batch run (runs 44990794651 and
     # 44991513044), where a pull request's shards on the owned runner take 13-15 min.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || ((github.event_name == 'push' || github.event.inputs.tick == 'true' || github.event.inputs.mode == 'batch' || github.event.inputs.mode == 'probe') || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     # The 10-minute siblings in this workflow, plus the browser engines and the
     # browser-lane suites they run. The full suite grew to 22 min in one process.
     # Deterministic file shards keep per-file isolation. Each shard warms one
@@ -652,7 +748,7 @@ jobs:
     permissions:
       contents: read
       actions: read
-    timeout-minutes: &webview-shard-minutes ${{ github.repository_owner != 'manaflow-ai' && 90 || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 40 || contains(fromJSON(vars.RUNNER_POOLS).linux_4, '-2vcpu-') && 150 || 90 }}
+    timeout-minutes: &webview-shard-minutes ${{ github.repository_owner != 'manaflow-ai' && 90 || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 90 || contains(fromJSON(vars.RUNNER_POOLS).linux_4, '-2vcpu-') && 150 || 90 }}
     name: react-apps-check (${{ matrix.shard }})
     strategy:
       fail-fast: false
@@ -819,7 +915,11 @@ jobs:
       # runs on its own, and on a pull request only errors the base (the merge parent) lacks
       # fail, per error (file, code, message); the base's errors are warnings. A push charges
       # every red. Elsewhere every piece of `bun run check` (its `check:pieces` list) runs and gates, none stopping the next.
-      - name: Check webviews (Oxlint, Oxfmt, type check)
+      # The type check is not here: it runs in its own job, webviews-typecheck, so a type error is a red check of
+      # its own while these shards still build (Vite and bun transpile, they never type-check) and test the tree
+      # (Leo, 2026-11-19: "the CI doesn't necessarily have to fail and like give up ... just as if it were like a
+      # follow-up").
+      - name: Check webviews (Oxlint, Oxfmt, source rules)
         id: webviews-check
         if: ${{ matrix.shard == 1 && steps.receipt.outputs.hit != 'true' }}
         continue-on-error: true
@@ -831,13 +931,16 @@ jobs:
         run: |
           status=0
           if [ "$CMUX_NEXT_STYLE_GUARDS" != warn ]; then
+            typecheck="$(bun -e 'console.log(require("./package.json").scripts.typecheck ?? "")')"
             pieces="$(bun -e 'for (const p of (require("./package.json").scripts["check:pieces"] ?? require("./package.json").scripts.check).split("&&")) console.log(p.trim())')"
             while IFS= read -r piece; do
+              # webviews-typecheck runs this one.
+              [ -n "$typecheck" ] && [ "$piece" = "$typecheck" ] && continue
               PATH="$PWD/node_modules/.bin:$PATH" sh -c "$piece" || { echo "::error title=webviews check::$piece"; status=1; }
             done <<< "$pieces"
             exit "$status"
           fi
-          python3 ../scripts/ci/fast_gate_webviews_checks.py --no-install --repo .. --base "$BASE_REF" || status=1
+          python3 ../scripts/ci/fast_gate_webviews_checks.py --no-install --repo .. --base "$BASE_REF" --skip typecheck || status=1
           for check in check:design-tokens check:menu-gutters check:transcript-icons check:icon-scale check:layers check:type-scale check:motion-scale check:theme-slots check:surface-roles check:layout-grid check:design-scale check:status-glyphs check:system-blue check:text-focus check:toast-targets check:dialog-keys check:switch-fetches check:session-info-names check:attachment-caps check:pane-selectors check:compiler-bails; do
             bun run "$check" || echo "::warning title=webviews $check (warn-only)::see the step log"
           done
@@ -846,18 +949,8 @@ jobs:
           ./node_modules/.bin/vp lint || echo "::warning title=webviews lint (warn-only)::vp lint found issues; see the step log"
           exit "$status"
 
-      # A type check whose every error had one safe language-service fix, and passed with them: the patch, for the
-      # cmuxterm-hq fixit-compile reconciler to push onto a lane/* branch as a fixup commit (ci-oops 0a).
-      - name: Upload the fixit-compile patch
-        id: fixit-upload
-        if: ${{ steps.webviews-check.outcome == 'failure' }}
-        continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: fixit-compile-${{ github.job }}-${{ matrix.shard }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/fixit-compile
-          if-no-files-found: ignore
-          retention-days: 3
+      # The fixit-compile patch (ci-oops 0a) comes from the type check, which runs in webviews-typecheck now; that job
+      # uploads it.
 
       # The browser-lane suites (test/support/requireBrowserLane.ts) fail in CI
       # without these engines; before, they skipped themselves and passed.
@@ -1156,8 +1249,6 @@ jobs:
           # Warn-only: what the pull request's next head reuses, never this run's verdict.
           PASSED_BEFORE: ${{ steps.passed-before.outcome }}
           PASSED_UPLOAD: ${{ steps.passed-upload.outcome }}
-          # Warn-only: the fixup patch for the hq reconciler; the type check's own red is WEBVIEWS_CHECK.
-          FIXIT_UPLOAD: ${{ steps.fixit-upload.outcome }}
           # The eager JS budget (a size cap) and the React Compiler coverage are
           # structural: for feat-cmux-next they warn (Leo 2026-10-19).
           CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
@@ -1173,9 +1264,6 @@ jobs:
           if [ "$PASSED_BEFORE" = failure ] || [ "$PASSED_UPLOAD" = failure ]; then
             echo "::warning::The files that passed at the previous head were not read, or this head's were not kept: every file runs."
           fi
-          if [ "$FIXIT_UPLOAD" = failure ]; then
-            echo "::warning::The fixit-compile patch did not upload; the hq reconciler has no fixup to push."
-          fi
           for gate in \
             "SOURCE_BUILD|Verify webviews source checks" \
             "BUNDLES|Build the web bundles" \
@@ -1185,7 +1273,7 @@ jobs:
             "POST_EDIT_FORMAT|Post-edit formatting hook" \
             "EAGER_JS_BUDGET|Check diff viewer eager JS budget" \
             "REACT_COMPILER|Verify React Compiler for webviews" \
-            "WEBVIEWS_CHECK|Check webviews (Oxlint, Oxfmt, type check)" \
+            "WEBVIEWS_CHECK|Check webviews (Oxlint, Oxfmt, source rules)" \
             "PR_SCOPED_RULES|Check PR-scoped webview rules"; do
             var="${gate%%|*}"
             if [ "${!var}" = "failure" ]; then
@@ -1242,7 +1330,7 @@ jobs:
   react-apps-base-early:
     needs: web-subarea-scope
     if: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci') && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || ((github.event_name == 'push' || github.event.inputs.tick == 'true') || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     continue-on-error: true
     # A stuck early shard must not hold the base check past what its own replay costs. Over 11-20..21 (24 h feed,
     # 1,507 runs of these two shards) 615 successes had a median of 85 s and a p97 of 200 s; 811 runs ended
@@ -1422,7 +1510,7 @@ jobs:
   react-apps-base-check:
     needs: [web-subarea-scope, react-apps-check-shard]
     if: ${{ github.event_name == 'pull_request' && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || ((github.event_name == 'push' || github.event.inputs.tick == 'true') || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     # 55: the base replay and the head re-run of up to 25 files each (13 files took about 6 minutes alone). The base's
     # replays after the first share what is left of it (the compare step's JOB_TIMEOUT_MINUTES and REPLAY_RESERVE).
     timeout-minutes: 55
@@ -1879,7 +1967,9 @@ jobs:
     # base-red classifier cannot excuse it and every PR that changes a React
     # app waits on a rerun. 30 min is the headroom; the time to cut is in the
     # doctor run, not in this cap.
-    runs-on: ${{ fromJSON(needs.runners.outputs.map).linux_16 }}
+    # A fork head takes CI_FORK_LINUX_RUNNER (GitHub-hosted Ubuntu by default), like every other
+    # Linux job here: fork code never reaches the owned label the map names for manaflow-ai.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || fromJSON(needs.runners.outputs.map).linux_16 }}
     timeout-minutes: 30
     defaults:
       run:
@@ -1922,7 +2012,7 @@ jobs:
   react-apps-check:
     needs: [web-subarea-scope, react-apps-check-shard, react-apps-base-check, react-doctor]
     if: ${{ always() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && inputs.only == '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || ((github.event_name == 'push' || github.event.inputs.tick == 'true') || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
       - name: Check webview test shards
@@ -1978,7 +2068,7 @@ jobs:
   webviews-test-durations:
     needs: [web-subarea-scope, react-apps-check-shard]
     if: ${{ !cancelled() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && needs.react-apps-check-shard.result != 'skipped' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
       - name: Checkout the shard helper
@@ -2031,7 +2121,7 @@ jobs:
   webviews-test-history:
     needs: [web-subarea-scope, react-apps-check-shard]
     if: ${{ !cancelled() && (github.event_name == 'push' || github.event.inputs.tick == 'true' || inputs.sha != '' && inputs.sha == github.sha && inputs.only == '') && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && needs.react-apps-check-shard.result != 'skipped' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -2149,7 +2239,7 @@ jobs:
     # Generated protocol checks and the sidecar tests only run for their owned inputs.
     needs: web-subarea-scope
     if: ${{ (inputs.macos == 'true' || inputs.web == 'true') && needs.web-subarea-scope.outputs.diff_sidecar == 'true' && (inputs.only == '' || inputs.only == 'diff-sidecar-check') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-32vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_32 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -2224,7 +2314,7 @@ jobs:
   web-db-migrations:
     needs: web-subarea-scope
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.db == 'true' && (inputs.only == '' || inputs.only == 'web-db-migrations') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     # Matches web-production-build and diff-sidecar-check, the other 15s here.
     timeout-minutes: 15
     defaults:
@@ -2297,6 +2387,7 @@ jobs:
     needs:
       - web-subarea-scope
       - web-typecheck
+      - webviews-typecheck
       - web-production-build
       - web-tests
       - web-instant-navigation
@@ -2307,7 +2398,7 @@ jobs:
     # Keep the web verdict after a failed dependency, but skip it after run
     # cancellation so a superseded push does not start another runner.
     if: ${{ !cancelled() && inputs.only == '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
       - name: Check routed web jobs
@@ -2349,7 +2440,7 @@ jobs:
 
           scope = needs["web-subarea-scope"]
           scope_required = inputs["web"] == "true" or inputs["macos"] == "true"
-          subarea_names = ("db", "diff_sidecar", "instant", "production_build", "react_apps", "typecheck", "unit_tests")
+          subarea_names = ("db", "diff_sidecar", "instant", "production_build", "react_apps", "agent_pane", "typecheck", "unit_tests")
           if scope_required and scope.get("outputs"):
               subareas = scope["outputs"]
               for name in subarea_names:
@@ -2368,6 +2459,7 @@ jobs:
                   "instant": "false",
                   "production_build": "false",
                   "react_apps": "false",
+                  "agent_pane": "false",
                   "typecheck": "false",
                   "unit_tests": "false",
               }
@@ -2381,7 +2473,8 @@ jobs:
               "web-tests": inputs["web"] == "true" and subareas.get("unit_tests") == "true",
               "web-instant-navigation": inputs["web"] == "true" and subareas.get("instant") == "true",
               "react-apps-check": inputs["web"] == "true" and subareas.get("react_apps") == "true",
-              "agent-pane-real-acpmux": inputs["web"] == "true" and subareas.get("react_apps") == "true",
+              "webviews-typecheck": inputs["web"] == "true" and subareas.get("react_apps") == "true",
+              "agent-pane-real-acpmux": inputs["web"] == "true" and subareas.get("agent_pane") == "true",
               "diff-sidecar-check": scope_required and subareas.get("diff_sidecar") == "true",
               "web-db-migrations": inputs["web"] == "true" and subareas.get("db") == "true",
           }

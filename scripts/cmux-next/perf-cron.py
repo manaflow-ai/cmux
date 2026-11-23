@@ -39,8 +39,8 @@ Subcommands: fetch-state, plan, fleet-check, run-part, part-cleanup, run-linux-p
 replay-results (see each --help). Tests: scripts/cmux-next/tests/test_perf_cron.py (decisions) and test_perf_cron_io.py (GitHub, git, the
 fleet client and multi-tick runs, faked) (run them yourself; no CI job runs them).
 """
-import argparse, collections, datetime, hashlib, importlib.util, io, json, os, random, re, subprocess, sys, tempfile, time, urllib.error
-import urllib.parse, urllib.request, zipfile
+import argparse, collections, datetime, hashlib, importlib.util, io, json, os, random, re, shutil, subprocess, sys, tempfile, time
+import urllib.error, urllib.parse, urllib.request, zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
@@ -99,6 +99,7 @@ STALE_HOURS = 24
 # terminal.throughput.ratio) need one every 24 h. Four hours under that leave room for one queue wait and the part.
 PART_STALE_HOURS = 20
 SUPERSEDE_AFTER_HOURS = 24  # a tip measurement younger than this keeps its Mac parts for an unread part (supersede_for_unread)
+SUPERSEDED_LINUX_HOURS = 2  # a superseded tip's Linux parts get this long to finish (supersede_for_unread)
 ABANDON_HOURS = 12          # of active time: the hours a measurement spent yielding to the fleet do not count
 ABANDON_WALL_HOURS = 48     # the hard cap, yielding included
 # A tip measurement closed at its bound (close_at_bound) has this long to finish before it is abandoned after all.
@@ -317,6 +318,10 @@ PARTS = [
     # a 100k-row chat opened and grown live, one and 20 at once, against empty chats: renderer idle CPU, streaming CPU
     # and PSS, and the worst of those ratios (chat_100k_flat.ratio_max). Its own part, under the 30-minute run cap.
     {"name": "web-ui-flat", "where": "linux", "kind": "webui", "needs": "web-ui-flat"},
+    # Scrolling up a long chat page by page (webviews/bench/transcript-scroll-up-scale.bench.ts) at 1k, 10k and 100k
+    # rows: each older page's ask to its drawn frame (target 50 ms p95), loading and blank frames, the anchor's shift
+    # and the 100k / 1k ratio (transcript_scroll_up_scale.*.older_page_drawn_scale, target 1.2). Its own part.
+    {"name": "web-ui-scroll-up", "where": "linux", "kind": "webui", "needs": "web-ui-scroll-up"},
     # Its 20 chats grown live to 100k rows each, about 28 minutes on its own (chat_100k_flat.grown_many.*).
     {"name": "web-ui-flat-grown", "where": "linux", "kind": "webui", "needs": "web-ui-flat"},
     # Composer typing under load (webviews/bench/composer-typing.bench.ts, CMUX-571): 500 keys in Chromium and WebKit
@@ -331,6 +336,14 @@ PARTS = [
     # chat to 100k rows on simulated time against an empty chat; bytes per simulated hour and their ratio
     # (chat_disk.growth_ratio). About 30 s after the build, which runs first under its own cap.
     {"name": "chat-disk", "where": "linux", "kind": "webui", "needs": "chat-disk"},
+    # cmux Cloud claim-to-ready (scripts/cmux-next/cloud-claim-rows.py): p50 and p95 over the newest 24 production
+    # claims the hourly Cloud journey (cloud-journey-prod.yml) made, read from its probe.json artifacts; no machine is
+    # made here. Its rows are cloud.claim_to_ready*, report-only (REPORT_ONLY_ROW_RE): the number is the deployed
+    # Cloud's, not the measured commit's, so a bisect over cmux commits could not find its culprit. Their targets are
+    # cmuxterm-hq plans/cloud/ARCHITECTURE-2026-11.md T3 "Click to agent ready", shown and marked over target.
+    # Its command took 101 s for 24 claims (2026-11-19, a lane VM); the script stops reading at 240 s (DEADLINE_S).
+    {"name": "cloud-claim", "where": "linux", "kind": "webui", "needs": "cloud-claim", "row_prefix": "cloud.",
+     "run_seconds": 300},
     # Terminal scroll integrity (scripts/measure/terminal-scroll-stress-linux.sh, goal terminal-scroll-integrity in
     # cmuxterm-hq's NOW): blank rows, missing rows and viewport jumps while scrolled back, on a local daemon and over
     # a loopback sshd, in the byte client's own mirror and in the daemon's render viewport. Counts, target 0. Its
@@ -381,10 +394,12 @@ ROW_PARTS = [
     (r"^webui\.million_event_chat\.", "web-ui-million"),
     (r"^webui\.chat_100k_flat\.grown_many\.", "web-ui-flat-grown"),
     (r"^webui\.chat_100k_flat\.", "web-ui-flat"),
+    (r"^webui\.transcript_scroll_up_scale\.", "web-ui-scroll-up"),
     (r"^webui\.composer_typing\.", "web-ui-typing"),
     (r"^webui\.chat_fast_scroll\.", "web-ui-scroll"),
     (r"^webui\.sidebar_chats_fling\.", "web-ui-scroll"),
     (r"^webui\.chat_disk\.", "chat-disk"),
+    (r"^cloud\.claim_to_ready", "cloud-claim"),
     (r"^webui\.daemon_restart\.", "daemon-restart"),
     (r"^webui\.coord_sim\.", "coord-sim"),
     (r"^webui\.chat_search\.", "chat-search"),
@@ -402,7 +417,7 @@ ROW_PARTS = [
 # part's Ghostty idle mW and the app's ratio to it are the terminal row's comparison: shown, not judged (that row has
 # Ghostty's mW as budget). The chat search's fill and the CLI's scan (chat-search) are context for its judged
 # keystroke row: shown, not judged.
-REPORT_ONLY_ROW_RE = re.compile(r"^(terminal\.throughput\.|memory\.app_agents\.breakdown\."
+REPORT_ONLY_ROW_RE = re.compile(r"^(terminal\.throughput\.|memory\.app_agents\.breakdown\.|cloud\.claim_to_ready"
                                 r"|acp\.[^.]+\.typing\.(to_listener|to_work)$|launch\.wake_proxy\.awake_echo_ms$"
                                 r"|webui\.chat_open_paired\.(god\.)?[a-z0-9_]+\.attach_to_latest$"
                                 r"|power\.idle\.terminal\.(ghostty_mw|vs_ghostty)$"
@@ -1060,7 +1075,7 @@ def target_of(name, row, refresh_ms):
         # Scaling rows are judged only by their 1000-vs-baseline ratio. Their absolute
         # latency is intentionally advisory and must not inherit the generic 10 ms target.
         return None
-    if name.startswith(("diff.", "launch.", "webui.", "terminal.key_to_echo.", "cef_resize.")):
+    if name.startswith(("diff.", "launch.", "webui.", "cloud.", "terminal.key_to_echo.", "cef_resize.")):
         return row.get("budget")
     if unit in ("frames", "checks") or name.endswith(".dropped"):
         return 0
@@ -1168,6 +1183,9 @@ def linux_bench_runs(root, part="diff-viewer"):
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", only], os.path.join(root, "webviews"), {})}
     if part == "web-ui-flat":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "chat-100k-flat"], os.path.join(root, "webviews"), {})}
+    if part == "web-ui-scroll-up":
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "transcript-scroll-up-scale"],
+                          os.path.join(root, "webviews"), {})}
     if part == "web-ui-flat-grown":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "chat-100k-flat-grown"],
                           os.path.join(root, "webviews"), {})}
@@ -1184,6 +1202,8 @@ def linux_bench_runs(root, part="diff-viewer"):
     if part == "chat-disk" or part == "terminal-scroll":
         script = os.path.join(root, CHAT_DISK if part == "chat-disk" else TERMINAL_SCROLL)
         return {"build": (["bash", script, "build-only"], root or ".", {}), "suite": (["bash", script], root or ".", {})}
+    if part == "cloud-claim":
+        return {"suite": (["python3", os.path.join(root, CLOUD_CLAIM)], root or ".", {})}
     if part == "daemon-restart":
         script = os.path.join(root, DAEMON_RESTART)
         return {"build": (["bash", script, "build-only"], root or ".", {}), "suite": (["bash", script], root or ".", {})}
@@ -1318,6 +1338,19 @@ def supersede_for_unread(state, t, newest, supported_parts):
     2026-11-22: tip 9a55953f had measured 24 of its 28 parts in 165 h, and chat-size (cmux#48916, merged after it)
     had never run, so NOW's infinite_chat_size_ratio_max read unknown for days."""
     cur = state.get("current")
+    gave = cur.get("superseded") if isinstance(cur, dict) and isinstance(cur.get("superseded"), dict) else None
+    if gave and cur.get("parts_todo"):
+        # Its Linux parts may still run, for SUPERSEDED_LINUX_HOURS: the newer tip measures them again anyway, and
+        # a Linux request the build controller never answers otherwise held the measurement to ABANDON_WALL_HOURS
+        # while the newer tip, with the unread part, waited (tip 12aa19c2, 2026-11-23: Mac parts superseded, then
+        # web-ui-growth unanswered 23 h, so chat-size never ran). A record with no `at` predates this bound: ends now.
+        since = parse_started(gave.get("at"))
+        if since and hours_between(since, t) < SUPERSEDED_LINUX_HOURS:
+            return None
+        for name in list(cur["parts_todo"]):
+            cur["parts"][name] = {"state": "superseded", "reason": gave.get("why") or "superseded"}
+        cur["parts_todo"] = []
+        return gave.get("why") or "superseded"
     missing = unread_missing(state, cur)
     if not missing or not newest:
         return None
@@ -1335,7 +1368,7 @@ def supersede_for_unread(state, t, newest, supported_parts):
         cur["parts_todo"].remove(name)
     cur.pop("host_asked_since", None)
     end_yield(cur, t)
-    cur["superseded"] = {"by": newest, "why": why}
+    cur["superseded"] = {"by": newest, "why": why, "at": iso(t)}
     return why
 
 
@@ -1617,19 +1650,26 @@ def no_host_for_tip(state, t):
     return why
 
 
-def tip_pin_host(state, t):
+def tip_pin_host(state, t, idle_hosts=None):
     """The Mac host a new tip measurement is pinned to (pure): the host of the oldest Mac row waiting for its confirming
     run (state['pending']: only a run there can confirm or clear it, so its run comes first), else of the earliest open regression of a Mac row,
     unless that host is avoided now (offline, or a measurement just gave it up: host_avoided) or gone (host_gone). A
     host's rows are judged only on that host, so a tip measured elsewhere can never confirm or clear them. None: any
-    idle measure host."""
+    idle measure host.
+
+    idle_hosts: the measure hosts the controller called idle this tick (controller_idle_hosts), or None when it was not
+    read. With it, a host not in it is not pinned: the tip goes to any idle measure host. Every Mac row was
+    @cmux20-bench, so every tip pinned there; it refused claims for 3.5 days from 2026-11-18 and was leased about 80 % of
+    2026-11-22, and each time give_up_host waited HOST_WAIT_HOURS before letting go, then supersede_for_unread dropped
+    the parts done (cmuxterm-hq docs/findings/2026-11-22-perf-cron-coverage.md: 2 of 21 Mac parts in 5 days)."""
     pending = state.get("pending") if isinstance(state.get("pending"), dict) else {}
     waiting = sorted((str((v or {}).get("at") or ""), n) for n, v in pending.items() if isinstance(n, str))
     regs = [r for r in state.get("regressions") or [] if isinstance(r, dict) and isinstance(r.get("name"), str)]
     regs.sort(key=lambda r: (str((r.get("first_bad") or {}).get("measured_at") or ""), r["name"]))
     for name in [n for _, n in waiting] + [r["name"] for r in regs]:
         host = mac_host(name)
-        if host and HOST_RE.match(host) and not host_avoided(state, host, t) and not host_gone(state, host, t):
+        if host and HOST_RE.match(host) and not host_avoided(state, host, t) and not host_gone(state, host, t) \
+                and (idle_hosts is None or host in idle_hosts):
             return host
     return None
 
@@ -1674,7 +1714,7 @@ def wait_for_tree(cur, t, tree_ready):
 
 
 def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable=lambda sha: True, mac_disabled=None,
-           controller_route=False, tree_ready=lambda sha: True, newest=None):
+           controller_route=False, tree_ready=lambda sha: True, newest=None, idle_hosts=None):
     """The tick's work: {'action': 'part'|'none'|'finish', 'part': a fleet part or '', 'linux_part': '' or one}.
     May set state['current'] (a new measurement). With both a candidate and a bisect step, the bisect goes first
     unless a tip measurement is due (tip_due): a newer tip always exists, so 'bisect when idle' would never bisect.
@@ -1691,7 +1731,9 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
     (start_yield; record_part ends it), not the measurement's active time. tree_ready(sha): the commit's cmux-tui
     tree is published; a tip whose tree is not runs only its Linux parts until it is (wait_for_tree). newest: the newest
     measurable commit with a published tree, given while the tip in flight lacks a part that never produced a reading
-    (unread_missing); its Mac parts then end so the next tip measures that part first (supersede_for_unread)."""
+    (unread_missing); its Mac parts then end so the next tip measures that part first (supersede_for_unread).
+    idle_hosts: the measure hosts the controller called idle (controller_idle_hosts), or None; a new tip pins only to
+    one of them (tip_pin_host). A bisect step keeps its host: its rows are judged only there."""
     drop_dead_measurement(state, t, measurable)
     no_host = no_host_for_tip(state, t)
     give_up_host(state, t)
@@ -1707,7 +1749,7 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
                 cur["host"] = hosts.pop()  # the regressed rows' host: a bisect step compares only on it
     if not cur and candidate:
         state["current"] = cur = new_measurement(candidate, "tip", with_build(supported_parts(candidate)), t)
-        pin = tip_pin_host(state, t)
+        pin = tip_pin_host(state, t, idle_hosts)
         if pin:
             cur["host"] = pin
     if cur and mac_disabled:
@@ -1824,6 +1866,30 @@ def controller_url():
         except (OSError, ValueError):
             pass
     return "http://100.89.225.106:18765"
+
+
+# The controller's public idle-host feed (cmuxterm-hq#19352: GET /perf-cron/hosts.json, beside results.json):
+# {"at": RFC 3339, "hosts": {"<worker>": {"idle": bool, "why": "leased" | "running a step" | ...}}}. The plan job runs on
+# a runner off the tailnet, so /v1/workers is not readable from it.
+CONTROLLER_HOSTS_URL = "https://gh-events.cmux.com/perf-cron/hosts.json"
+
+
+def idle_hosts_from(raw):
+    """The workers the hosts feed calls idle, or None when the answer has no hosts map (pure)."""
+    hosts = raw.get("hosts") if isinstance(raw, dict) else None
+    if not isinstance(hosts, dict):
+        return None
+    return {name for name, h in hosts.items() if isinstance(name, str) and isinstance(h, dict) and h.get("idle") is True}
+
+
+def controller_idle_hosts(url=None, timeout=10):
+    """The measure hosts the controller calls idle now, or None when the feed was not read (no route yet, a timeout,
+    a bad answer): then nothing changes and tip_pin_host pins as before."""
+    try:
+        return idle_hosts_from(http_json(url or os.environ.get("PERF_CRON_HOSTS_URL") or CONTROLLER_HOSTS_URL, timeout=timeout))
+    except (OSError, ValueError, urllib.error.URLError) as error:
+        print(f"perf-cron: the controller's idle hosts were not read ({error!r}); a tip pins as before")
+        return None
 
 
 def http_json(url, timeout=30):
@@ -2268,90 +2334,105 @@ def tree_published(sha):
     return False
 
 
+# A plan takes about a minute. Each path check is bounded: in a partial clone `cat-file -e` can fetch a missing object
+# from the remote, and a fetch that never answers held the plan step until its 75-minute cap (run 44731310755,
+# 2026-11-20: no output for 74 minutes after fetch-state). No prompt either: the checkout has no credentials.
+PATH_CHECK_TIMEOUT_S = 60
+
+
+def has_path(sha, path):
+    """sha's tree holds path; False when git says no, fails, or takes past PATH_CHECK_TIMEOUT_S (logged)."""
+    try:
+        return subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{path}"], capture_output=True,
+                              timeout=PATH_CHECK_TIMEOUT_S, env={**os.environ, "GIT_TERMINAL_PROMPT": "0"}).returncode == 0
+    except subprocess.TimeoutExpired:
+        print(f"perf-cron: git cat-file {sha[:12]}:{path} took past {PATH_CHECK_TIMEOUT_S} s; counted as absent", flush=True)
+        return False
+
+
 def supported_parts_at(sha):
     names = []
     for p in PARTS:
         need = p.get("needs")
         if need == "stress":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:scripts/cmux-next/perf-stress-session.py"],
-                                capture_output=True).returncode == 0
+            ok = has_path(sha, f"scripts/cmux-next/perf-stress-session.py")
         elif need == "diff-viewer":
-            ok = all(subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{path}"], capture_output=True).returncode == 0
+            ok = all(has_path(sha, f"{path}")
                      for path in ("Native/DiffSidecar/Cargo.toml", "webviews/bench/diff-stream.bench.ts"))
         elif need == "web-ui":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{WEBUI_SUITE}"], capture_output=True).returncode == 0
+            ok = has_path(sha, f"{WEBUI_SUITE}")
         elif need == "web-ui-scale":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{UPDATE_ONE_BENCH}"], capture_output=True).returncode == 0
+            ok = has_path(sha, f"{UPDATE_ONE_BENCH}")
         elif need == "web-ui-god":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{GOD_FIXTURE}"], capture_output=True).returncode == 0
+            ok = has_path(sha, f"{GOD_FIXTURE}")
         elif need == "web-ui-growth":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{STATE_GROWTH_BENCH}"], capture_output=True).returncode == 0
+            ok = has_path(sha, f"{STATE_GROWTH_BENCH}")
         elif need == "web-ui-flat":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{FLAT_100K_BENCH}"], capture_output=True).returncode == 0
+            ok = has_path(sha, f"{FLAT_100K_BENCH}")
+        elif need == "web-ui-scroll-up":
+            ok = has_path(sha, f"{SCROLL_UP_SCALE_BENCH}")
         elif need == "web-ui-scroll":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{CHAT_FAST_SCROLL_BENCH}"], capture_output=True).returncode == 0
+            ok = has_path(sha, f"{CHAT_FAST_SCROLL_BENCH}")
         elif need == "web-ui-typing":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{COMPOSER_TYPING_ROWS}"], capture_output=True).returncode == 0
+            ok = has_path(sha, f"{COMPOSER_TYPING_ROWS}")
         elif need == "web-ui-million":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{MILLION_EVENT_BENCH}"], capture_output=True).returncode == 0
+            ok = has_path(sha, f"{MILLION_EVENT_BENCH}")
         elif need == "infinite-items":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{INFINITE_ITEMS}"], capture_output=True).returncode == 0
+            ok = has_path(sha, f"{INFINITE_ITEMS}")
         elif need == "chat-disk":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{CHAT_DISK}"], capture_output=True).returncode == 0
+            ok = has_path(sha, f"{CHAT_DISK}")
+        elif need == "cloud-claim":
+            ok = has_path(sha, f"{CLOUD_CLAIM}")
         elif need == "typing":
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
-                                  capture_output=True, text=True).stdout
+                                  capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             bench = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/typing-frame-bench.py"],
-                                   capture_output=True, text=True).stdout
+                                   capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             ok = "--suite=typing-frame" in text and '"key_to_frame_values"' in bench
         elif need == "terminal-scroll":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{TERMINAL_SCROLL}"],
-                                capture_output=True).returncode == 0
+            ok = has_path(sha, f"{TERMINAL_SCROLL}")
         elif need == "daemon-restart":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{DAEMON_RESTART}"], capture_output=True).returncode == 0
+            ok = has_path(sha, f"{DAEMON_RESTART}")
         elif need == "coord-sim":
             # The harness, and a driver that is built (the crate landed with stub subcommands first).
-            drive = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:{COORD_SIM_DRIVE}"], capture_output=True, text=True)
-            ok = coord_sim_ready(subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{COORD_SIM}"],
-                                                capture_output=True).returncode == 0,
+            drive = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:{COORD_SIM_DRIVE}"], capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S)
+            ok = coord_sim_ready(has_path(sha, f"{COORD_SIM}"),
                                  drive.stdout if drive.returncode == 0 else None)
         elif need == "chat-search":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{CHAT_SEARCH}"], capture_output=True).returncode == 0
+            ok = has_path(sha, f"{CHAT_SEARCH}")
         elif need == "terminal-throughput":
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
-                                  capture_output=True, text=True).stdout
+                                  capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             ok = "--suite=terminal-throughput" in text
         elif need == "launch-dock":
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
-                                  capture_output=True, text=True).stdout
+                                  capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             bench = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/bench-startup.py"],
-                                   capture_output=True, text=True).stdout
+                                   capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             ok = "--suite=launch" in text and '"--activation"' in bench
         elif need == "launch-cold":
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
-                                  capture_output=True, text=True).stdout
+                                  capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             bench = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/bench-startup.py"],
-                                   capture_output=True, text=True).stdout
+                                   capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             ok = "--suite=launch" in text and '"--fresh-copy"' in bench and '"--ready-mark"' in bench
         elif need in ("perf-gate", "launch", "memory-agents", "relaunch", "wake", "power", "chat-size", "cef-resize"):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
-                                  capture_output=True, text=True).stdout
+                                  capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             ok = f"--suite={need}" in text
         elif need == "tabs":
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/perf-budgets.py"],
-                                  capture_output=True, text=True).stdout
+                                  capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             ok = '"surfaces_scale":' in text
         elif need == "idle-budget":
             # Its report's perf-cron rows (cron_report): an older idle-budget.py writes none.
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/idle-budget.py"],
-                                  capture_output=True, text=True).stdout
+                                  capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             ok = "def cron_report(" in text
         elif need == "workspace-scaling":
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
-                                  capture_output=True, text=True).stdout
-            ok = "--suite=workspace-scaling" in text and subprocess.run(
-                ["git", "-C", ROOT, "cat-file", "-e", f"{sha}:scripts/cmux-next/workspace-scaling-bench.py"],
-                capture_output=True).returncode == 0
+                                  capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
+            ok = "--suite=workspace-scaling" in text and has_path(sha, "scripts/cmux-next/workspace-scaling-bench.py")
         else:
             ok = True
         if ok:
@@ -2384,11 +2465,13 @@ UPDATE_ONE_BENCH = "webviews/bench/update-one.bench.ts"
 STATE_GROWTH_BENCH = "webviews/bench/state-growth.bench.ts"
 MILLION_EVENT_BENCH = "webviews/bench/million-event-chat.bench.ts"
 FLAT_100K_BENCH = "webviews/bench/chat-100k-flat.bench.ts"
+SCROLL_UP_SCALE_BENCH = "webviews/bench/transcript-scroll-up-scale.bench.ts"
 # The web-ui-typing part needs the load modes (composer-load.ts) and their rows (composerTypingRows.ts).
 COMPOSER_TYPING_ROWS = "webviews/bench/composerTypingRows.ts"
 CHAT_FAST_SCROLL_BENCH = "webviews/bench/chat-fast-scroll.bench.ts"
 INFINITE_ITEMS = "scripts/measure/infinite-items-linux.sh"
 CHAT_DISK = "scripts/measure/chat-disk-growth-linux.sh"
+CLOUD_CLAIM = "scripts/cmux-next/cloud-claim-rows.py"
 CHAT_SEARCH = "scripts/measure/chat-search-linux.sh"
 TERMINAL_SCROLL = "scripts/measure/terminal-scroll-stress-linux.sh"
 DAEMON_RESTART = "scripts/measure/daemon-restart-linux.sh"
@@ -2471,7 +2554,7 @@ def measure_version(sha):
     if not blob:
         return None
     if blob not in _versions_by_blob:
-        text = subprocess.run(["git", "-C", ROOT, "cat-file", "blob", blob], capture_output=True, text=True).stdout
+        text = subprocess.run(["git", "-C", ROOT, "cat-file", "blob", blob], capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
         _versions_by_blob[blob] = measure_version_of(blob, text)
     return _versions_by_blob[blob]
 
@@ -2516,7 +2599,7 @@ def commit_on_branch(repo, tip, known=()):
         if not is_sha(sha):
             return False
         if sha not in cache:
-            have = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}^{{commit}}"], capture_output=True).returncode == 0
+            have = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}^{{commit}}"], capture_output=True, timeout=PATH_CHECK_TIMEOUT_S).returncode == 0
             if have and is_ancestor(sha, tip):
                 cache[sha] = True
             else:
@@ -3406,7 +3489,7 @@ def cmd_fetch_state(o):
                 raise
             print(f"perf-cron: GitHub rate limit ({error}); waiting {error.wait} s for its reset to keep this run's result",
                   flush=True)
-            time.sleep(error.wait + LIMIT_WAIT_SLACK_S)
+            time.sleep(error.wait + LIMIT_WAIT_SLACK_S)  # sleep-ok: GitHub's named rate-limit reset time
             fetch_state(o.repo, o.dir)
     except RateLimited as error:
         # No state read: the plan must not start from an empty one. It and the report see the mark and do nothing.
@@ -3549,8 +3632,11 @@ def plan(o):
     busy, busy_known = None, False
     if not no_mac and (candidate or bisect or state.get("current")):
         busy, busy_known = github_busy(o.repo, o.yield_mode), True
+    controller_route = bool(getattr(o, "controller", False)) and not no_mac
+    # Read only when this tick may start a tip that could pin a host (tip_pin_host).
+    idle_hosts = controller_idle_hosts() if controller_route and candidate and not state.get("current") else None
     d = decide(state, t, candidate, bisect, supported_parts_at, busy, lambda sha: fleet_runs(sha, tip_version), no_mac,
-               controller_route=bool(getattr(o, "controller", False)) and not no_mac, tree_ready=tree_ready, newest=newest)
+               controller_route=controller_route, tree_ready=tree_ready, newest=newest, idle_hosts=idle_hosts)
     state["mac_off"] = no_mac  # the issue says why no Mac row is measured
     if state.get("current") and isinstance(tip_version, int):
         # The measurement version its Mac rows carry (fleet_runs measures only commits of the tip's version).
@@ -3912,7 +3998,7 @@ def last_json_object(text):
     return None
 
 
-def webui_summary(report):
+def webui_summary(report, prefix="webui"):
     """The web-ui part's rows as Markdown lines, slowest first relative to their target (rows with no target after,
     by p95), then the benches that failed (pure): what a lane fixes first."""
     rows = [r for r in (report.get("rows") or []) if isinstance(r, dict) and isinstance(r.get("p95"), (int, float))
@@ -3926,12 +4012,47 @@ def webui_summary(report):
     for r in rows:
         unit = r.get("unit") or "ms"
         target = f"{r['target']} {unit}" if ratio(r) >= 0 else "-"
-        lines.append(f"| webui.{r.get('name')} | {r['p95']} {unit} | {target} | "
+        lines.append(f"| {prefix}.{r.get('name')} | {r['p95']} {unit} | {target} | "
                      + (f"{ratio(r) * 100:.0f} %" if ratio(r) >= 0 else "-") + " |")
     for f in report.get("failed") or []:
         if isinstance(f, dict):
             lines.append(f"failed: {f.get('bench')} ({f.get('why')})")
     return lines
+
+
+# Parts whose script builds cmux-tui, whose Zig terminal engine needs the ghostty-next submodule and Zig. The Linux job
+# checks out the measured commit with submodules: false and runs this file from the tip, so the tip prepares both
+# here: a measured commit whose script predates #50961 (which made the script do it) still builds instead of failing
+# every run with "suite: exit 101".
+GHOSTTY_PARTS = {"terminal-scroll"}
+
+
+def prepare_ghostty(root, env, run=run_capped, timeout=900):
+    """(env with CMUX_ZIG set, tail lines) for a GHOSTTY_PARTS part: checks out ghostty-next when it is empty and
+    installs Zig with the checkout's scripts/install-zig-ci.sh when none is on PATH. A step that fails is recorded in
+    the tail and the part runs anyway, so its own error shows too."""
+    tail = []
+    if not os.path.isfile(os.path.join(root, "ghostty-next", "build.zig")) and not env.get("CMUX_GHOSTTY_SRC"):
+        out, err, code = run(["git", "submodule", "update", "--init", "--depth", "1", "ghostty-next"], root, env, timeout)
+        tail += [f"ghostty-next checkout: exit {code if code is not None else f'timeout ({timeout} s)'}"]
+        if code != 0:
+            tail += (err.strip() or out).splitlines()[-5:]
+    installer = os.path.join(root, "scripts", "install-zig-ci.sh")
+    have_zig = env.get("ZIG") or env.get("CMUX_ZIG") or shutil.which("zig", path=env.get("PATH"))
+    if have_zig or not os.path.isfile(installer):
+        return env, tail
+    with tempfile.TemporaryDirectory() as tmp:
+        zig_env = os.path.join(tmp, "zig.env")
+        open(zig_env, "w").close()
+        out, err, code = run(["bash", installer], root, {**env, "GHOSTTY_ZIG_SOURCE": "ghostty-next",
+                                                         "GITHUB_ENV": zig_env, "GITHUB_PATH": os.devnull}, timeout)
+        tail += [f"zig install: exit {code if code is not None else f'timeout ({timeout} s)'}"]
+        if code != 0:
+            tail += (err.strip() or out).splitlines()[-5:]
+        zig = [line.split("=", 1)[1].strip() for line in open(zig_env) if line.startswith("CMUX_ZIG=")]
+    if zig:
+        env = {**env, "CMUX_ZIG": zig[-1]}
+    return env, tail
 
 
 def cmd_run_linux_part(o):
@@ -3946,6 +4067,8 @@ def cmd_run_linux_part(o):
     runs = linux_bench_runs(ROOT, part)
     report, tail, ok = {}, [], True
     load = {}
+    if part in GHOSTTY_PARTS:
+        env, tail = prepare_ghostty(ROOT, env)
     for name, (argv, cwd, extra) in runs.items():
         if name == "paired":
             report["paired"] = run_paired_rounds(argv, cwd, {**env, **extra}, started)
@@ -3975,7 +4098,7 @@ def cmd_run_linux_part(o):
         else:
             report[name] = value
     if PART_BY_NAME[part]["kind"] == "webui":
-        for line in webui_summary(report):
+        for line in webui_summary(report, PART_BY_NAME[part].get("row_prefix", "webui")):
             print(f"perf-cron web-ui: {line}")
     else:
         report["bench_versions"] = diff_bench_versions(ROOT)
@@ -4554,8 +4677,7 @@ def linux_route(cur, part, t, controller, has_script):
 
 def commit_has(sha, path):
     """Whether commit SHA has PATH (the clone the plan runs in)."""
-    return bool(sha) and subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{path}"],
-                                        capture_output=True).returncode == 0
+    return bool(sha) and has_path(sha, path)
 
 
 def linux_step_files(artifact, result):

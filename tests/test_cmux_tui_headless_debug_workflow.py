@@ -16,7 +16,6 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
-from blacksmith_linux_sizes import blacksmith_route  # noqa: E402
 import workflow_jobs  # noqa: E402
 
 
@@ -71,16 +70,12 @@ class HeadlessDebugDaemon(unittest.TestCase):
 
     def test_it_runs_on_the_runner_a_same_repository_pull_request_uses(self) -> None:
         # The key names RUNNER_OS and RUNNER_ARCH only, so the runner type
-        # must be the one conformance picks for a same-repository pull request.
-        trusted = ("!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || "
-                   "vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || "
-                   "fromJSON(vars.RUNNER_POOLS).linux_8 }}")
-        # The two jobs share one Blacksmith size (.github/runners.json linux_sizes).
-        self.assertEqual(blacksmith_route("cmux-tui-sdks.yml", "conformance"),
-                         blacksmith_route("cmux-tui-headless-debug.yml", "build"))
+        # must be the one conformance picks for a same-repository pull request:
+        # both take the one Linux label (scripts/ci/one_linux_label.py).
+        trusted = "'cmux-linux' }}"
         consumer = workflow_jobs.single_runs_on(self.consumer)
         self.assertTrue(consumer.endswith("|| " + trusted), consumer)
-        self.assertEqual(workflow_jobs.single_runs_on(self.producer), "${{ " + trusted)
+        self.assertTrue(workflow_jobs.single_runs_on(self.producer).endswith("|| " + trusted))
 
     def test_a_pull_request_builds_incrementally_from_the_feat_target_dir(self) -> None:
         # The exact-binary key names the whole cmux-tui tree, so a pull request that

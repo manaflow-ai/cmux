@@ -15,3 +15,6 @@ tests/workflow_jobs.py
 scripts/ci/github_release_download.py
 # ...and that fallback imports its HTTP transport from beside itself.
 scripts/ci/deadline_http.py
+# The gate's generated-file check (GENERATED_CHECK) runs the guard, which imports its process helper from beside itself.
+scripts/ci/generated_files_guard.py
+scripts/ci/ci_process_tree.py

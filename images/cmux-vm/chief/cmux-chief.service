@@ -5,6 +5,10 @@
 # Restart=always: the updater asks the host to stop between turns (SIGUSR1, exit 0); systemd then starts
 # the new binary /var/lib/cmux-chief/current points at. Exit 2 is a configuration error (no daemon socket,
 # no install file), so it does not spin.
+#
+# A build on trial (cmux-chief-update moved `current` to it): ExecStartPre stamps each start and ExecStopPost
+# judges each exit, so a new build that crashes 3 times within 120 s of its starts, or exits 2 once, is rolled
+# back to the build before it (cmux-chief-update's header has the rule and why those numbers).
 [Unit]
 Description=cmux Cloud Chief host (optchat-chief host --conversation-source cloud)
 After=network-online.target cmux-host.service
@@ -27,6 +31,13 @@ EnvironmentFile=-/etc/cmux/chief.env
 # First start on a machine whose image carries no build yet: fetch the newest one (root, the `+`).
 ExecStartPre=+/usr/local/sbin/cmux-chief-update --if-missing
 ExecStart=/usr/local/lib/cmux-chief/cmux-chief-host
+# The host's acpmux daemon and the Chief's subagents (its agent hosts) live in this unit's cgroup. KillMode=process:
+# a host that ends (an update's handoff, a crash) takes only its own process down; ExecStop stops the daemon
+# (cmux-chief-host --stop: keeping its agents for the next daemon after a handoff or crash, ending them on a stop).
+KillMode=process
+ExecStop=-/usr/local/lib/cmux-chief/cmux-chief-host --stop
+# The rollback judge (root, the `+`): systemd passes SERVICE_RESULT, EXIT_CODE and EXIT_STATUS.
+ExecStopPost=+/usr/local/sbin/cmux-chief-update --after-exit
 Restart=always
 RestartSec=5
 RestartSteps=5

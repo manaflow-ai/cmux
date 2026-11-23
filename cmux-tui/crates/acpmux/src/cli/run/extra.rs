@@ -194,6 +194,20 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        Command::RouteDeath { facts } => {
+            let text = if facts.as_os_str() == "-" {
+                let mut buf = String::new();
+                std::io::Read::read_to_string(&mut std::io::stdin(), &mut buf)?;
+                buf
+            } else {
+                std::fs::read_to_string(&facts)
+                    .with_context(|| format!("reading {}", facts.display()))?
+            };
+            let f: crate::death_route::Facts =
+                serde_json::from_str(&text).context("facts are not the death-route JSON")?;
+            print_json(&serde_json::to_value(crate::death_route::route(&f))?);
+            Ok(())
+        }
         Command::RestartAgent { session } => {
             let client = connect(true).await?;
             let id = resolve_id(&client, &session).await?;
@@ -375,18 +389,54 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::Rename { session, new_name, handle } => {
+        Command::Icon { session, icon } => {
+            let client = connect(true).await?;
+            let id = crate::cli::resolve::control_id(&client, &session).await?;
+            let Some(icon) = icon else {
+                let v = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
+                if json_out {
+                    print_json(&v.get("icon").cloned().unwrap_or_default());
+                    return Ok(());
+                }
+                match serde_json::from_value::<crate::session_icon::SessionIcon>(
+                    v.get("icon").cloned().unwrap_or_default(),
+                ) {
+                    Ok(icon) => println!("{}", icon.describe()),
+                    Err(_) => println!("none (its harness mark)"),
+                }
+                return Ok(());
+            };
+            let wire = crate::cli::icon_input::wire(&icon).await?;
+            let v = client
+                .request(method::MUX_RENAME, json!({"sessionId": id, "newIcon": wire}))
+                .await?;
+            if json_out {
+                print_json(&v);
+            } else {
+                match serde_json::from_value::<crate::session_icon::SessionIcon>(
+                    v.get("icon").cloned().unwrap_or_default(),
+                ) {
+                    Ok(icon) => println!("{}", icon.describe()),
+                    Err(_) => println!("cleared"),
+                }
+            }
+            Ok(())
+        }
+        Command::Rename { session, new_name, handle, icon } => {
             let client = connect(true).await?;
             let id = if handle {
                 crate::cli::resolve::control_id(&client, &session).await?
             } else {
                 resolve_id(&client, &session).await?
             };
-            let params = if handle {
+            let mut params = if handle {
                 json!({"sessionId": id, "newHandle": new_name})
             } else {
                 json!({"sessionId": id, "newName": new_name})
             };
+            if let (Some(icon), Some(fields)) = (icon, params.as_object_mut()) {
+                fields.insert("newIcon".into(), json!(crate::cli::icon_input::wire(&icon).await?));
+            }
             let v = client.request(method::MUX_RENAME, params).await?;
             if json_out {
                 print_json(&v)
@@ -570,11 +620,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             all_idle,
             interrupt,
             after_turn,
+            timeout,
             leave_dirty,
             carry_changes,
             cwd,
             dry_run,
             from,
+            from_snapshot,
         }) => {
             let args = super::session_move::MoveArgs {
                 sessions,
@@ -582,12 +634,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 all_idle,
                 interrupt,
                 after_turn,
+                turn_timeout: std::time::Duration::from_secs(timeout),
                 leave_dirty,
                 carry_changes,
                 cwd,
                 dry_run,
                 resume_there: false,
                 from,
+                from_snapshot,
             };
             super::session_move::run(args, json_out).await
         }
@@ -785,6 +839,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             crate::cli::shutdown::run(end_agents, keep_agents, restart, json_out).await
         }
         Command::DaemonRestart => crate::cli::shutdown::restart(json_out).await,
+        Command::DaemonStats { by, since, top } => {
+            crate::cli::daemon_stats::run(by, &since, top, json_out).await
+        }
         #[cfg(unix)]
         Command::DaemonPrune { apply } => crate::daemon::prune::run_command(apply, json_out).await,
         #[cfg(not(unix))]
@@ -888,8 +945,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             Ok(())
         }
         // No daemon connection: the update must work while the daemon does not.
-        Command::Host(PeerCmd::SelfUpdate { channel, now }) => {
-            crate::cli::hosts::self_update(&channel, now, json_out).await
+        Command::Host(PeerCmd::SelfUpdate { channel, now, allow_downgrade }) => {
+            crate::cli::hosts::self_update(&channel, now, allow_downgrade, json_out).await
         }
         // A file of this machine's; the daemon, when it runs, only reloads it.
         Command::Host(PeerCmd::Approvals { cmd }) => {
@@ -1272,8 +1329,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 }
                 // Dispatched before the connect (above); kept here so the
                 // match stays total without a panic.
-                PeerCmd::SelfUpdate { channel, now } => {
-                    return crate::cli::hosts::self_update(&channel, now, json_out).await;
+                PeerCmd::SelfUpdate { channel, now, allow_downgrade } => {
+                    return crate::cli::hosts::self_update(
+                        &channel,
+                        now,
+                        allow_downgrade,
+                        json_out,
+                    )
+                    .await;
                 }
                 PeerCmd::Hold { name, reason, until, release } => {
                     return crate::cli::hosts::hold(name, reason, until, release, json_out);
