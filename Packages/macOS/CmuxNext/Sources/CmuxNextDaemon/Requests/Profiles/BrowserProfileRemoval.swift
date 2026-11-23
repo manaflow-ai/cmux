@@ -2,22 +2,6 @@ import Foundation
 
 // Moving and deleting browser profile records (`browser-profiles-v1`).
 
-public struct MoveBrowserProfileRequest: DaemonRequest {
-    public typealias Response = BrowserProfileResult
-    public static let command = "move-browser-profile"
-    public static let requiredCapability: String? = DaemonCapability.browserProfiles.rawValue
-    public var id: String
-    public var index: Int
-    public init(id: String, index: Int) {
-        self.id = id
-        self.index = index
-    }
-    enum CodingKeys: String, CodingKey {
-        case index
-        case id = "browser_profile"
-    }
-}
-
 /// `delete-browser-profile`: clears the workspace and room defaults naming it.
 public struct DeleteBrowserProfileRequest: DaemonRequest {
     public struct Response: Decodable, Sendable, Equatable {

@@ -200,7 +200,9 @@ def main(argv: list[str] | None = None) -> int:
             from .swift_app import generate as swift_app
         page_router_status = page_router.main([f"--{mode}"])
         schema_arguments = [] if arguments.schema == DEFAULT_SCHEMA else ["--schema", str(arguments.schema)]
-        swift_app_status = swift_app.main([f"--{mode}", *schema_arguments])
+        # The Swift files are written at build time (CmuxNextDaemon's DaemonRequestsPlugin); both modes only
+        # check that every binding still renders against the schema.
+        swift_app_status = swift_app.main(["--check", *schema_arguments])
         return page_router_status or swift_app_status
     return 0
 
