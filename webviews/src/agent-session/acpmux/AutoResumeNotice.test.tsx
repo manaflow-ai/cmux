@@ -53,12 +53,12 @@ afterEach(async () => {
   saved.clear();
 });
 
-async function render(container: HTMLElement, state: Parameters<typeof AutoResumeNotice>[0]["state"]) {
+async function render(container: HTMLElement, state: Parameters<typeof AutoResumeNotice>[0]["state"], inQueue = false) {
   root ??= createRoot(container);
   await act(async () => {
     root!.render(
       <NoticeSlot>
-        <AutoResumeNotice state={state} />
+        <AutoResumeNotice state={state} inQueue={inQueue} />
       </NoticeSlot>,
     );
   });
@@ -70,10 +70,16 @@ test("the retry line shows while the daemon waits to retry, and nothing once the
   setLastingGrace(0);
   try {
     await render(container, { retry: { attempt: 2, of: 4, reason: "transport" }, attempt: 1 });
-    expect(container.querySelector('[data-auto-resume="waiting"]')).not.toBeNull();
+    const line = container.querySelector('.acpmux-queue-status[data-state="retrying"]');
+    // Plain words, then the try count: never "Retrying (2/4) after …" (Leo, 2026-11-23: "this looks ass idk").
+    expect(line?.textContent).toContain("Connection to the model dropped");
+    expect(line?.textContent).toContain("2 of 4");
+    // The queue's own status line says it: the slot says nothing, so the state shows once.
+    await render(container, { retry: { attempt: 2, of: 4, reason: "transport" }, attempt: 1 }, true);
+    expect(container.querySelector(".acpmux-queue-status")).toBeNull();
     // The retry ran and the turn went on: the condition is fixed, so the pane says nothing about it.
     await render(container, { attempt: 2 });
-    expect(container.querySelector("[data-auto-resume]")).toBeNull();
+    expect(container.querySelector(".acpmux-queue-status")).toBeNull();
     expect(container.textContent).toBe("");
   } finally {
     setLastingGrace(LASTING_MS);

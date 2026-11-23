@@ -28,7 +28,7 @@ export function AutoResumeNotice({
   const status = retry && queueStatus(t, { retry, paused: false });
   return (
     <Notice id="auto-resume" tier="status" when={lasting && status}>
-      {status && <QueueStatusLine t={t} status={status} as="output" className="acpmux-switch-notice" />}
+      {status && <QueueStatusLine t={t} status={status} as="output" className="acpmux-switch-notice" autoResume />}
     </Notice>
   );
 }

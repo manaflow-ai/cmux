@@ -27,6 +27,7 @@ export function QueueStatusLine({
   onResume,
   open: openProp,
   onOpenChange,
+  autoResume = false,
 }: {
   t: Translate;
   status: QueueStatus;
@@ -38,6 +39,9 @@ export function QueueStatusLine({
   /// Details open, when the host keeps it (the queue sizes its list to it).
   open?: boolean;
   onOpenChange?(open: boolean): void;
+  /// The notice slot's retry line (AutoResumeNotice.tsx), marked as the page's tests and its link-down
+  /// grace find it.
+  autoResume?: boolean;
 }) {
   const [look] = useState(() => experimentArm(queueStatusLook));
   const [openOwn, setOpenOwn] = useState(false);
@@ -60,6 +64,7 @@ export function QueueStatusLine({
       data-look={look}
       data-state={retry ? "retrying" : "paused"}
       data-open={open || undefined}
+      data-auto-resume={autoResume ? "waiting" : undefined}
     >
       <span className="acpmux-queue-status-line">
         <span className="acpmux-queue-status-mark" aria-hidden="true">

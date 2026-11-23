@@ -70,15 +70,22 @@ async function draw(paused: boolean, reason?: string, queue: readonly unknown[] 
   );
 }
 
-test("a paused queue says the turn's error over its prompts and offers one Resume", async () => {
+test("a paused queue says it paused in plain words, keeps the error behind Details, and offers one Resume", async () => {
   await draw(true, "429 rate limited");
   const note = host.querySelector(".acpmux-queue-paused");
-  expect(note?.textContent).toContain("Paused after an error: 429 rate limited");
+  // One plain state; the raw error is no part of the sentence (Leo, 2026-11-23: "this looks ass idk").
+  expect(note?.textContent).toContain("Paused after an error");
+  expect(note?.textContent).not.toContain("429 rate limited");
   expect(host.querySelectorAll(".acpmux-queue-resume").length).toBe(1);
   expect(host.textContent).not.toContain("Sends after this turn");
   expect(host.querySelector(".acpmux-queue-header")).toBeNull();
   // The note comes first, over the prompts it holds.
-  expect(host.querySelector(".acpmux-composer-queue > li")?.className).toBe("acpmux-queue-paused");
+  expect(host.querySelector(".acpmux-composer-queue > li")?.classList.contains("acpmux-queue-paused")).toBe(true);
+  // Details opens the error whole.
+  const details = host.querySelector<HTMLButtonElement>(".acpmux-queue-status-toggle");
+  expect(details?.getAttribute("aria-expanded")).toBe("false");
+  await act(async () => details!.click());
+  expect(host.querySelector(".acpmux-queue-status-error")?.textContent).toBe("429 rate limited");
 });
 
 test("a paused queue with no error to name still says it paused", async () => {
