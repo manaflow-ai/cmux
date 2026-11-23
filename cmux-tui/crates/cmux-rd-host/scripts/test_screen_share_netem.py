@@ -14,6 +14,40 @@ SPEC.loader.exec_module(netem)
 
 
 class ScreenShareNetemCliTests(unittest.TestCase):
+
+    def _args(self, **kw):
+        base = dict(probe=False, drop_seconds=None, blip_at=None, blip_s=2.0, rtt=50.0, loss=0.0,
+                    attempts=netem.DEFAULT_ATTEMPTS, timeout=90.0)
+        base.update(kw)
+        return types.SimpleNamespace(**base)
+
+    def _error(self, msg):
+        raise ValueError(msg)
+
+    def test_probe_runs_a_baseline_then_a_10s_and_a_60s_drop_at_50ms_and_1pct(self):
+        args = self._args(probe=True, rtt=0.0)
+        rows = netem.plan(args, self._error)
+        self.assertEqual(rows, [None, 10.0, 60.0])
+        self.assertEqual((args.rtt, args.loss, args.blip_at, args.attempts), (50, 1, 3, 10))
+        self.assertGreaterEqual(args.timeout, 3 + 60 + 30)
+        self.assertEqual([f"drop-{d:g}s" if d is not None else "baseline" for d in rows],
+                         ["baseline", "drop-10s", "drop-60s"])
+
+    def test_probe_keeps_an_explicit_attempt_count(self):
+        args = self._args(probe=True, attempts=3)
+        netem.plan(args, self._error)
+        self.assertEqual(args.attempts, 3)
+
+    def test_probe_refuses_its_own_rows_overridden(self):
+        with self.assertRaises(ValueError):
+            netem.plan(self._args(probe=True, drop_seconds=[5.0]), self._error)
+
+    def test_plan_without_probe_is_unchanged(self):
+        self.assertEqual(netem.plan(self._args(), self._error), [None])
+        self.assertEqual(netem.plan(self._args(blip_at=5.0), self._error), [2.0])
+        self.assertEqual(netem.plan(self._args(blip_at=5.0, drop_seconds=[10.0, 60.0]), self._error), [10.0, 60.0])
+        with self.assertRaises(ValueError):
+            netem.plan(self._args(drop_seconds=[10.0]), self._error)
     def test_repeated_drop_durations_are_preserved_as_rows(self):
         args = types.SimpleNamespace(drop_seconds=[10.0, 60.0], blip_at=5.0, blip_s=2.0)
         self.assertEqual(args.drop_seconds, [10.0, 60.0])
