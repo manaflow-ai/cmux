@@ -21,6 +21,7 @@ import type { CredentialKeyService } from "../services/coderouter/encryption";
 import { createClaudeMessagesProxy, type ClaudeProxyDependencies } from "../services/coderouter/claudeProxy";
 import { FALLBACK_REFUSAL_MESSAGES } from "../services/coderouter/noAccountMessage";
 import { classifyCoderouterFault } from "../services/coderouter/faultClassification";
+import { DeliveredClaudeUsage } from "../services/coderouter/claudeUsage";
 import { makeAgentAccessHandler } from "../app/api/coderouter/agent-access/route";
 
 const API_KEY = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789";
@@ -425,6 +426,142 @@ describe("house route through the proxy", () => {
       expect(response.headers.get("x-cmux-included-usage-notice")).toBe(notice);
       expect(fetched).toEqual(["https://api.anthropic.com/v1/messages"]);
     }
+  });
+});
+
+describe("house route charges what it delivered", () => {
+  const sse = (events: readonly unknown[]) =>
+    events.map((event) => `event: ${(event as { type: string }).type}\ndata: ${JSON.stringify(event)}\n\n`).join("");
+  const start = { type: "message_start", message: { id: "msg_1", type: "message", model: "claude-sonnet-5", usage: { input_tokens: 1000, cache_read_input_tokens: 5000, output_tokens: 1 } } };
+  const delta = (text: string) => ({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text } });
+  const finalEvents = [{ type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 7 } }, { type: "message_stop" }];
+  const houseUpstream = (fallback: boolean): ClaudeUpstream => ({
+    accountId: "00000000-0000-4000-8000-0000000000aa",
+    teamId: PLATFORM,
+    kind: "anthropic_api_key",
+    label: "",
+    secret: { kind: "anthropic_api_key", apiKey: API_KEY },
+    config: {},
+    updatedAt: T0,
+    ...(fallback ? { fallback: true as const } : {}),
+  });
+
+  /** Upstream sends `head` and then holds the stream open (or breaks it, or ends it with `tail`). */
+  function proxy(options: { fallback: boolean; head: string; end: "hold" | "break" | string; status?: number }) {
+    const notes: number[] = [];
+    let upstreamCancelled = false;
+    const handler = createClaudeMessagesProxy({
+      authenticate: async () => ({ ok: true, identity: { teamId: NEWCOMER, stackUserId: "user-1", vmId: "vm-1", token: "crt_x" } }),
+      select: async () => ({ kind: "selected", upstream: houseUpstream(options.fallback), total: 1, healthy: 1, ...(options.fallback ? { included: { spentCents: 0, capCents: 50 } } : {}) }),
+      cooldown: async () => {},
+      touchUsed: async () => {},
+      fetch: (async () => {
+        const encoder = new TextEncoder();
+        let pulls = 0;
+        const body = new ReadableStream<Uint8Array>({
+          async pull(controller) {
+            pulls += 1;
+            if (pulls === 1) {
+              controller.enqueue(encoder.encode(options.head));
+              return;
+            }
+            if (options.end === "hold") return new Promise<void>(() => {});
+            if (options.end === "break") {
+              controller.error(new Error("upstream reset"));
+              return;
+            }
+            controller.enqueue(encoder.encode(options.end));
+            controller.close();
+          },
+          cancel() {
+            upstreamCancelled = true;
+          },
+        });
+        return new Response(body, { status: options.status ?? 200, headers: { "content-type": "text/event-stream" } });
+      }) as typeof fetch,
+      now: () => T0,
+      capture: () => {},
+      fallbackSpend: { teamCents: async () => 0, todayCents: async () => 0, note: (_team, _account, cents) => notes.push(cents) },
+    }, { now: () => 0, sleep: async () => {}, random: () => 0 });
+    const request = new Request("https://coderouter.dev/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer crt_x" },
+      body: JSON.stringify({ model: "claude-sonnet-5", stream: true, max_tokens: 8, messages: [{ role: "user", content: "hi" }] }),
+    });
+    return { notes, run: () => handler(request), upstreamCancelled: () => upstreamCancelled };
+  }
+
+  async function readSome(response: Response, needle: string): Promise<void> {
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    let text = "";
+    while (!text.includes(needle)) {
+      const next = await reader.read();
+      if (next.done) break;
+      text += decoder.decode(next.value, { stream: true });
+    }
+    await reader.cancel();
+  }
+
+  test("a stream the client cancels before its final usage is still charged", async () => {
+    const text = "x".repeat(3000);
+    const ctx = proxy({ fallback: true, head: sse([start, { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }, delta(text)]), end: "hold" });
+    const response = await ctx.run();
+    expect(response.status).toBe(200);
+    await readSome(response, text);
+    expect(ctx.upstreamCancelled()).toBe(true);
+    expect(ctx.notes).toHaveLength(1);
+    // 1000 input + 5000 cache reads + 1000 estimated output tokens at Sonnet list price: well above zero.
+    expect(ctx.notes[0]).toBeGreaterThan(1);
+  });
+
+  test("a stream that breaks mid-answer is charged too", async () => {
+    const ctx = proxy({ fallback: true, head: sse([start, delta("y".repeat(300))]), end: "break" });
+    const response = await ctx.run();
+    await response.text().catch(() => undefined);
+    expect(ctx.notes).toHaveLength(1);
+    expect(ctx.notes[0]).toBeGreaterThan(0);
+  });
+
+  test("a complete stream is charged its reported usage once", async () => {
+    const ctx = proxy({ fallback: true, head: sse([start, delta("hello")]), end: sse(finalEvents) });
+    await (await ctx.run()).text();
+    expect(ctx.notes).toHaveLength(1);
+    const plain = proxy({ fallback: true, head: sse([start, delta("hello")]), end: sse(finalEvents) });
+    await (await plain.run()).text();
+    expect(plain.notes).toEqual(ctx.notes);
+  });
+
+  test("an account of the team's own keeps today's observer: a cancelled stream records nothing", async () => {
+    const ctx = proxy({ fallback: false, head: sse([start, delta("z".repeat(3000))]), end: "hold" });
+    await readSome(await ctx.run(), "zzz");
+    expect(ctx.notes).toEqual([]);
+  });
+
+  test("the estimate: message_start input, output from delta text or the reported count, nothing for nothing", () => {
+    const encoder = new TextEncoder();
+    const empty = new DeliveredClaudeUsage(400, "claude-sonnet-5");
+    expect(empty.usage()).toBeNull();
+
+    const streamed = new DeliveredClaudeUsage(400, "claude-sonnet-5");
+    const bytes = encoder.encode(sse([start, delta("a".repeat(30)), delta("b".repeat(30))]));
+    // Split mid-event: the parser must carry the partial event.
+    streamed.push(bytes.slice(0, 50));
+    streamed.push(bytes.slice(50));
+    expect(streamed.usage()).toEqual({
+      model: "claude-sonnet-5",
+      inputTokens: 1000,
+      cacheReadInputTokens: 5000,
+      cacheCreationInputTokens: 0,
+      outputTokens: 20,
+      totalTokens: 6020,
+    });
+    streamed.push(encoder.encode(sse([{ type: "message_delta", delta: {}, usage: { output_tokens: 90 } }])));
+    expect(streamed.usage()?.outputTokens).toBe(90);
+
+    const json = new DeliveredClaudeUsage(400, "claude-sonnet-5");
+    json.push(encoder.encode('{"id":"msg_1","content":[{"type":"text","text":"' + "c".repeat(100)));
+    expect(json.usage()).toMatchObject({ inputTokens: 100, outputTokens: Math.ceil(149 / 3) });
   });
 });
 

@@ -45,7 +45,7 @@ import {
   recordUsageEvent,
 } from "./usageLedger";
 import { usageOriginFromHeaders } from "./usageOrigin";
-import { observeClaudeUsage, type ClaudeUsage } from "./claudeUsage";
+import { observeClaudeUsage, observeClaudeUsageCharged, type ClaudeUsage } from "./claudeUsage";
 import {
   currentCoderouterRequestId,
   recordCoderouterOutcome,
@@ -289,7 +289,7 @@ export function createClaudeMessagesProxy(
       upstream,
     });
     const agent = agentFromUserAgent(request.headers.get("user-agent"));
-    const observed = observeClaudeUsage(response.body, (usage) => {
+    const onUsage = (usage: ClaudeUsage | null) => {
       captureModelUsage(dependencies, identity, upstream, usage, {
         requestId: health.requestId,
         agent,
@@ -298,7 +298,13 @@ export function createClaudeMessagesProxy(
         streamed,
         ...usageOriginFromHeaders(request.headers),
       });
-    });
+    };
+    // The house route charges a completion the client cancels (or that
+    // breaks) before its final usage; otherwise that usage is free past the
+    // cap. Every other account keeps today's observer.
+    const observed = upstream.fallback && response.status >= 200 && response.status < 300
+      ? observeClaudeUsageCharged(response.body, { bytes: body.bytes?.byteLength ?? 0, model: requestedModel(body.bytes) }, onUsage)
+      : observeClaudeUsage(response.body, onUsage);
     const notice = includedUsageNotice(routed.included);
     const headers = notice ? new Headers(response.headers) : response.headers;
     if (notice) headers.set(INCLUDED_USAGE_NOTICE_HEADER, notice);
