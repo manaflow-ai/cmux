@@ -46,8 +46,8 @@ use serde_json::{Map, Value, json};
 
 use crate::cloud::github::{TokenAsk, valid_repo};
 use crate::cloud::wire::AGENT_SOCKET;
-use crate::github_link::GithubLink;
 use crate::github_cli_joined::{JoinedMachine, Post, ask_hub, https_post, joined_now};
+use crate::github_link::GithubLink;
 use crate::json::JsonField;
 
 const USAGE: &str = "usage: cmux github credential get|store|erase | gh [--write] [--] ARGS... | gh --auto [--] ARGS... | setup [--unset]";
