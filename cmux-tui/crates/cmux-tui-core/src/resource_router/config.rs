@@ -77,12 +77,14 @@ pub(super) fn dispatch(
             let (folder, key) = (project_folder(fields)?, project_key(fields)?);
             let value = (operation == ResourceOperation::SettingsSet)
                 .then(|| fields.get("value").cloned().unwrap_or(Value::Null));
-            let written = mux
-                .with_settings(|state| cmux_config::project::write(state, &folder, &key, value))
+            let origin = meta(fields, None, &request.actor)?.origin;
+            let revision = mux
+                .with_settings(|state| {
+                    cmux_config::project::write(state, &folder, &key, value, origin)
+                        .map(|_| state.revision())
+                })
                 .map_err(|refusal| refusal_error(operation, &refusal))?;
-            Ok(
-                json!({"keys": [key], "project": {"folder": folder.to_string_lossy(), "file": written.to_string_lossy()}}),
-            )
+            mutation_result(mux, json!({"keys": [key]}), revision, false)
         }
         ResourceOperation::SettingsSet
         | ResourceOperation::SettingsReset

@@ -25,7 +25,7 @@ use crate::keypath::key_path;
 use crate::managed::ManagedSource;
 use crate::refusal::Refusal;
 use crate::schema::{Schema, accepts};
-use crate::store::State;
+use crate::store::{Origin, State};
 use crate::value::{canonical, value_at};
 
 /// The project settings file, relative to the project folder (as `.cmux/worktree.toml` is).
@@ -172,14 +172,24 @@ pub fn get_json(state: &State, key: &str, asked: &Path, layer: Option<&ProjectLa
     reply
 }
 
-/// The checks of a project write of `key`: a per-project catalog key no managed layer sets.
-fn check_key(state: &State, key: &str) -> Result<(), Refusal> {
+/// The checks of a project write of `key`: a per-project catalog key no managed layer sets, that
+/// `origin` may change (a user-only row refuses an agent here as in the user's file).
+fn check_key(state: &State, key: &str, origin: Origin) -> Result<(), Refusal> {
     if !is_project_key(key) {
         return Err(Refusal::InvalidParams {
             message: format!(
                 "{key} does not apply per project; per-project keys: {}",
                 PROJECT_KEYS.join(", ")
             ),
+        });
+    }
+    if let Some(row) = state.schema().row(key)
+        && !origin.is_person()
+        && !row.agent_settable
+    {
+        return Err(Refusal::AgentRefused {
+            key: key.to_string(),
+            reason: row.agent_refusal.clone(),
         });
     }
     if let Some(source) = state.effective().managed_keys.get(key) {
@@ -189,8 +199,14 @@ fn check_key(state: &State, key: &str) -> Result<(), Refusal> {
 }
 
 /// The project file's text with `key` set to `value` (comments and other keys kept).
-pub fn set_text(state: &State, source: &str, key: &str, value: Value) -> Result<String, Refusal> {
-    check_key(state, key)?;
+pub fn set_text(
+    state: &State,
+    source: &str,
+    key: &str,
+    value: Value,
+    origin: Origin,
+) -> Result<String, Refusal> {
+    check_key(state, key, origin)?;
     let row = state
         .schema()
         .row(key)
@@ -203,8 +219,13 @@ pub fn set_text(state: &State, source: &str, key: &str, value: Value) -> Result<
 }
 
 /// The project file's text without `key` (nested or flat).
-pub fn reset_text(state: &State, source: &str, key: &str) -> Result<String, Refusal> {
-    check_key(state, key)?;
+pub fn reset_text(
+    state: &State,
+    source: &str,
+    key: &str,
+    origin: Origin,
+) -> Result<String, Refusal> {
+    check_key(state, key, origin)?;
     if source.trim().is_empty() {
         return Ok(source.to_string());
     }
@@ -212,13 +233,14 @@ pub fn reset_text(state: &State, source: &str, key: &str) -> Result<String, Refu
     jsonc::remove(&text, &key_path(key)).map_err(unreadable)
 }
 
-/// `settings.set` / `settings.reset` with `project`: writes `folder/.cmux/cmux-next.json`
+/// `settings.set` / `settings.reset` with `project` from `origin`: writes `folder/.cmux/cmux-next.json`
 /// (`None` resets). Returns the file written.
 pub fn write(
     state: &State,
     folder: &Path,
     key: &str,
     value: Option<Value>,
+    origin: Origin,
 ) -> Result<PathBuf, Refusal> {
     let path = project_file(folder);
     let source = match std::fs::read_to_string(&path) {
@@ -227,8 +249,8 @@ pub fn write(
         Err(error) => return Err(Refusal::Io { message: format!("{}: {error}", path.display()) }),
     };
     let text = match value {
-        Some(value) => set_text(state, &source, key, value)?,
-        None => reset_text(state, &source, key)?,
+        Some(value) => set_text(state, &source, key, value, origin)?,
+        None => reset_text(state, &source, key, origin)?,
     };
     if text != source {
         crate::fsio::publish(&path, &text)

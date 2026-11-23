@@ -5,6 +5,8 @@ use super::*;
 use crate::managed::{ManagedPreferences, TeamPolicyLayer};
 use crate::{Domains, FileRead};
 
+const USER: Origin = Origin::User;
+
 fn state(user: &str, managed: ManagedPreferences) -> State {
     State::new(
         Schema::embedded(),
@@ -110,27 +112,31 @@ fn get_reports_project_over_user_and_managed_over_project() {
 fn a_project_write_keeps_comments_and_refuses_what_does_not_apply() {
     let plain = state("", ManagedPreferences::default());
     let source = "{\n  // keep me\n  \"agents.promptCache\": \"1h\"\n}\n";
-    let text = set_text(&plain, source, "agents.promptCache", json!("5m")).unwrap();
+    let text = set_text(&plain, source, "agents.promptCache", json!("5m"), USER).unwrap();
     assert!(text.contains("// keep me"), "{text}");
     let layer = ProjectLayer::from_text(Path::new("/p"), &text, Schema::embedded());
     assert_eq!(layer.value("agents.promptCache"), Some(&json!("5m")));
     assert!(!text.contains("\"agents.promptCache\""), "the flat key stays: {text}");
-    let fresh = set_text(&plain, "", "agents.promptCache", json!("5m")).unwrap();
+    let fresh = set_text(&plain, "", "agents.promptCache", json!("5m"), USER).unwrap();
     assert_eq!(jsonc::parse(&fresh).unwrap(), json!({"agents": {"promptCache": "5m"}}));
     assert!(matches!(
-        set_text(&plain, "", "agents.promptCache", json!("2h")),
+        set_text(&plain, "", "agents.promptCache", json!("2h"), USER),
         Err(Refusal::InvalidValue { .. })
     ));
     assert!(matches!(
-        set_text(&plain, "", "appearance.theme", json!("Dracula")),
+        set_text(&plain, "", "appearance.theme", json!("Dracula"), USER),
         Err(Refusal::InvalidParams { .. })
     ));
     let managed = state("", forced("agents.promptCache", json!("1h")));
     assert!(matches!(
-        set_text(&managed, "", "agents.promptCache", json!("5m")),
+        set_text(&managed, "", "agents.promptCache", json!("5m"), USER),
         Err(Refusal::Managed { .. })
     ));
-    let reset = reset_text(&plain, &text, "agents.promptCache").unwrap();
+    assert!(matches!(
+        set_text(&plain, "", "agents.promptCache", json!("5m"), Origin::Mcp),
+        Err(Refusal::AgentRefused { .. })
+    ));
+    let reset = reset_text(&plain, &text, "agents.promptCache", USER).unwrap();
     assert!(ProjectLayer::from_text(Path::new("/p"), &reset, Schema::embedded()).values.is_empty());
 }
 
@@ -138,11 +144,11 @@ fn a_project_write_keeps_comments_and_refuses_what_does_not_apply() {
 fn write_creates_the_project_file() {
     let folder = scratch("write");
     let plain = state("", ManagedPreferences::default());
-    let path = write(&plain, &folder, "agents.promptCache", Some(json!("5m"))).unwrap();
+    let path = write(&plain, &folder, "agents.promptCache", Some(json!("5m")), USER).unwrap();
     assert_eq!(path, project_file(&folder));
     let layer = ProjectLayer::read(&folder, Schema::embedded());
     assert_eq!(layer.value("agents.promptCache"), Some(&json!("5m")));
-    write(&plain, &folder, "agents.promptCache", None).unwrap();
+    write(&plain, &folder, "agents.promptCache", None, USER).unwrap();
     assert!(ProjectLayer::read(&folder, Schema::embedded()).values.is_empty());
     let _ = std::fs::remove_dir_all(&folder);
 }
