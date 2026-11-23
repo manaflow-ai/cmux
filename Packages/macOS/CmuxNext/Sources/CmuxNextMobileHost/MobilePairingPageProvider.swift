@@ -1,9 +1,9 @@
 import CmuxNextCompat
-import CmuxNextMobile
-import CmuxNextMobileHost
-import CmuxNextPages
+import CmuxNextDaemonService
+public import CmuxNextMobile
+public import CmuxNextPages
 import CmuxNextPhoneAccess
-import CmuxNextSettings
+public import CmuxNextSettings
 import Foundation
 
 /// Serves the Mobile Pairing page's `cmux.mobilePairing.*` ops from the iPhone host
@@ -24,60 +24,51 @@ import Foundation
 /// for a phone signed in to this account). The page asks again a minute before the code expires,
 /// so a shown code always has that long left.
 @MainActor
-final class MobilePairingPageProvider: PageProvider {
-    static let statusOp = "cmux.mobilePairing.status"
-    static let setAllowedOp = "cmux.mobilePairing.setAllowed"
-    static let answerPairOp = "cmux.mobilePairing.answerPair"
-    static let changesStream = "cmux.mobilePairing.changes"
+public final class MobilePairingPageProvider: PageProvider {
+    public static let statusOp = "cmux.mobilePairing.status"
+    public static let setAllowedOp = "cmux.mobilePairing.setAllowed"
+    public static let answerPairOp = "cmux.mobilePairing.answerPair"
+    public static let changesStream = "cmux.mobilePairing.changes"
     /// The switch the page reads and writes: the one the iPhone host follows.
-    static let switchPath = MobileSettings.allowIPhoneConnectionsPath
+    public static let switchPath = MobileSettings.allowIPhoneConnectionsPath
 
     /// What the page reads and writes, so a test can stand in for the app.
-    struct Dependencies {
-        var host: IPhoneHostService
-        var signedIn: @MainActor @Sendable () -> Bool
+    public struct Dependencies {
+        public var host: IPhoneHostService
+        public var signedIn: @MainActor @Sendable () -> Bool
         /// The signed-in account's email or name, and its id (a change of account is a change).
-        var account: @MainActor @Sendable () -> (name: String?, id: String)
+        public var account: @MainActor @Sendable () -> (name: String?, id: String)
         /// `mobile.allowIPhoneConnections`, as Settings has it.
-        var allowed: @MainActor @Sendable () -> Bool
-        var macName: @Sendable () async -> String
+        public var allowed: @MainActor @Sendable () -> Bool
+        public var macName: @Sendable () async -> String
         /// Writes one setting as the person's own change.
-        var write: @MainActor @Sendable (_ path: [String], _ value: JSONValue) async throws -> Void
+        public var write: @MainActor @Sendable (_ path: [String], _ value: JSONValue) async throws -> Void
         /// This Mac's pairing link (``IPhoneHostService/pairInvite(macName:now:)``), nil until the
         /// host is online for the account with iPhone connections on.
-        var invite: @MainActor @Sendable (_ macName: String) -> MobileHostPairInvite? = { _ in nil }
+        public var invite: @MainActor @Sendable (_ macName: String) -> MobileHostPairInvite?
+
+        public init(host: IPhoneHostService, signedIn: @escaping @MainActor @Sendable () -> Bool,
+                    account: @escaping @MainActor @Sendable () -> (name: String?, id: String),
+                    allowed: @escaping @MainActor @Sendable () -> Bool, macName: @escaping @Sendable () async -> String,
+                    write: @escaping @MainActor @Sendable (_ path: [String], _ value: JSONValue) async throws -> Void,
+                    invite: @escaping @MainActor @Sendable (_ macName: String) -> MobileHostPairInvite? = { _ in nil }) {
+            self.host = host
+            self.signedIn = signedIn
+            self.account = account
+            self.allowed = allowed
+            self.macName = macName
+            self.write = write
+            self.invite = invite
+        }
     }
 
     private let dependencies: Dependencies
 
-    init(dependencies: Dependencies) {
+    public init(dependencies: Dependencies) {
         self.dependencies = dependencies
     }
 
-    convenience init(services: AppServices) {
-        self.init(dependencies: Self.live(services))
-    }
-
-    static func live(_ services: AppServices) -> Dependencies {
-        Dependencies(
-            host: services.iphone,
-            signedIn: { [weak services] in services?.cloud.isSignedIn ?? false },
-            account: { [weak services] in
-                let user = services?.cloud.auth.user
-                return (user?.primaryEmail ?? user?.displayName, user?.id ?? "")
-            },
-            allowed: { [weak services] in services?.settings?.snapshot.mobile.allowIPhoneConnections ?? false },
-            macName: { await MacName().displayName() },
-            write: { [weak services] path, value in
-                guard let settings = services?.settings else {
-                    throw PageError(code: "cmux.mobilePairing.unavailable", message: MobilePairingStrings.settingsNotLoaded, retryable: true)
-                }
-                try await settings.setSetting(at: path, to: value, by: .user)
-            },
-            invite: { [weak services] macName in services?.iphone.pairInvite(macName: macName) })
-    }
-
-    func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
+    public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         switch op {
         case Self.statusOp:
             return await status()
@@ -104,7 +95,7 @@ final class MobilePairingPageProvider: PageProvider {
         }
     }
 
-    func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
+    public func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
                    onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
         guard stream == Self.changesStream else { throw PageError.unknownOp(stream) }
         let dependencies = dependencies
@@ -168,7 +159,7 @@ final class MobilePairingPageProvider: PageProvider {
 
     /// The page's `qr`: the link, its code as a PNG data URL, and when to ask for a new one (a
     /// minute before the token expires, when the host mints the next).
-    static func qr(_ invite: MobileHostPairInvite, code: PairingQRCode = PairingQRCode()) -> JSONValue? {
+    public static func qr(_ invite: MobileHostPairInvite, code: PairingQRCode = PairingQRCode()) -> JSONValue? {
         let url = invite.url
         guard !url.isEmpty, let image = code.pngDataURL(for: url) else { return nil }
         let refreshAt = invite.expiresAt.addingTimeInterval(-60)
