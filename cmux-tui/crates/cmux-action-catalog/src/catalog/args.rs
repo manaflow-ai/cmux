@@ -111,7 +111,18 @@ pub const OUT: Argument = Argument { name: "out", title: t("Localizable", "argum
 #[rustfmt::skip]
 pub const KEEP_SESSIONS: Argument = Argument { name: "keepSessions", title: t("Localizable", "argument.keepSessions", "Keep Sessions Running"), kind: ArgKind::Bool, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
-pub const END_SESSIONS: Argument = Argument { name: "endSessions", title: t("Localizable", "argument.endSessionsKeepLayout", "End Sessions, Keep Layout"), kind: ArgKind::Bool, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+pub const IF_NEWER: Argument = Argument { name: "ifNewer", title: t("ActionCatalog", "argument.ifNewer", "Only When a Newer Build Is Installed"), kind: ArgKind::Bool, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+pub const END_SESSIONS: Argument = Argument {
+    name: "endSessions",
+    title: t("Localizable", "argument.endSessionsKeepLayout", "End Sessions, Keep Layout"),
+    kind: ArgKind::Bool,
+    required: true,
+    suggestions: None,
+    is_target_name: false,
+    is_target_description: false,
+    is_supplied_by_target: false,
+    asked_in_palette: false,
+};
 #[rustfmt::skip]
 pub const END_EVERYTHING: Argument = Argument { name: "endEverything", title: t("Localizable", "argument.endEverything", "End Everything"), kind: ArgKind::Bool, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
@@ -309,6 +320,11 @@ pub const URL_2: Argument = Argument { name: "url", title: t("Localizable", "arg
 pub const THEME_2: Argument = Argument { name: "theme", title: t("Localizable", "argument.theme", "Theme"), kind: ArgKind::Enumeration(CASES_SYSTEM_LIGHT), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const DEVICE: Argument = Argument { name: "device", title: t("Localizable", "argument.device", "Device"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+/// `macScreen.open`'s `scope`: what an agent's or the CLI's open asks the device for (View Only or Full Control).
+#[rustfmt::skip]
+pub const CASES_SCREEN_VIEW_FULL: &[EnumCase] = &[EnumCase { value: "view", title: t("ActionCatalog", "argument.value.macScreen.scope.view", "View Only") }, EnumCase { value: "full", title: t("ActionCatalog", "argument.value.macScreen.scope.full", "Full Control") }];
+#[rustfmt::skip]
+pub const SCREEN_SCOPE: Argument = Argument { name: "scope", title: t("ActionCatalog", "argument.macScreen.scope", "Access"), kind: ArgKind::Enumeration(CASES_SCREEN_VIEW_FULL), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 /// `macScreen.open --autoconnect`: the opened tab connects to view without its Connect click, from the CLI too
 /// (default off: a non-person open waits at Connect).
 #[rustfmt::skip]

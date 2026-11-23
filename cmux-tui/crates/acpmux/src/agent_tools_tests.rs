@@ -1323,3 +1323,87 @@ fn a_chat_gets_the_saved_mcp_servers_with_its_session() {
     assert!(off.servers.iter().all(|s| s.name != name), "{:?}", off.servers);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// acpmux's own servers' instructions go in Claude Code's appended system prompt, the prefix
+/// every chat shares in the prompt cache, and the servers leave them out of `initialize`, so a
+/// chat reads them once. The text never names the session: two chats in two folders get the same
+/// bytes, or the shared system prompt cache would break for every new chat.
+#[test]
+fn own_server_instructions_move_to_a_system_prompt_every_chat_shares() {
+    let root = std::env::temp_dir().join(format!("acpmux-mcp-prompt-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    let inputs = super::Inputs {
+        acpmux: Some(crate::self_command::SelfCommand::new(
+            std::path::PathBuf::from("/usr/local/lib/cmux/cmux-tui"),
+            vec!["acp".into()],
+        )),
+        secrets: true,
+        offers: true,
+        subsessions: true,
+        ..memory_inputs(&root, None)
+    };
+    let chat = |session: &str, cwd: &std::path::Path| {
+        let mut tools = resolve(&inputs).for_session(session).folded();
+        let prompt = tools.instructions_in_prompt();
+        (tools.via_gateway_on(None, session, cwd), prompt)
+    };
+    let (tools, one) = chat("01a2-chat-one", &root.join("repo-a"));
+    let (_, two) = chat("01a2-chat-two", &root.join("repo-b"));
+    let one = one.expect("no instructions moved");
+    assert_eq!(Some(&one), two.as_ref(), "two chats' appended prompts differ");
+    assert!(!one.contains("01a2-chat") && !one.contains("repo-"), "{one}");
+    assert!(one.starts_with(super::INSTRUCTIONS_HEADING), "{one}");
+    let at = |name: &str| one.find(&format!("## {name}\n")).unwrap_or_else(|| panic!("{one}"));
+    assert!(at("acpmux") < at("cmux-sessions") && at("cmux-sessions") < at("cmux-subsessions"));
+    assert!(one.contains(crate::offer_mcp::INSTRUCTIONS), "{one}");
+    assert!(one.contains(&crate::subsession_mcp::instructions()), "{one}");
+    assert!(one.contains("with bg_start"), "{one}");
+    // The servers with instructions are told they are in the prompt; the rest keep their env.
+    let flag = |name: &str| {
+        let server = tools.servers.iter().find(|s| s.name == name).unwrap();
+        server
+            .env
+            .iter()
+            .any(|(k, v)| k == crate::tools_mcp::INSTRUCTIONS_IN_PROMPT_ENV && v == "1")
+    };
+    assert!(flag("acpmux") && flag("cmux-sessions") && flag("cmux-subsessions"));
+    assert!(!flag(crate::forum_mcp::SERVER_NAME) && !flag(crate::secret_mcp::SERVER_NAME));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Behind the `cmux` server (code mode) acpmux's servers are its upstreams, whose instructions
+/// it relays itself: none move, and nothing is told to leave them out.
+#[test]
+fn folded_servers_keep_their_instructions() {
+    let server = |name: &str, word: &str| super::McpServer {
+        name: name.to_owned(),
+        command: "x".into(),
+        args: vec![word.to_owned()],
+        env: vec![],
+    };
+    let mut tools = super::AgentTools {
+        servers: vec![server("cmux", "mcp"), server(crate::offer_mcp::SERVER_NAME, "offer-mcp")],
+        cmux_for_agents: true,
+        ..Default::default()
+    }
+    .folded();
+    let before = tools.clone();
+    assert_eq!(tools.instructions_in_prompt(), None);
+    assert_eq!(tools, before);
+}
+
+/// The moved text joins the one appended system prompt Claude Code reads (it takes only the
+/// last `--append-system-prompt`), after what is there; a file or `=` form is left alone.
+#[test]
+fn the_moved_instructions_join_the_last_appended_prompt() {
+    let words = |w: &[&str]| w.iter().map(|w| (*w).to_owned()).collect::<Vec<_>>();
+    let mut args = words(&["--append-system-prompt", "rules", "--model", "m"]);
+    super::append_system_prompt(&mut args, "MCP");
+    assert_eq!(args, words(&["--append-system-prompt", "rules\n\nMCP", "--model", "m"]));
+    let mut args = words(&["--model", "m"]);
+    super::append_system_prompt(&mut args, "MCP");
+    assert_eq!(args, words(&["--model", "m", "--append-system-prompt", "MCP"]));
+    assert!(super::takes_appended_prompt(&words(&["--append-system-prompt", "x"])));
+    assert!(!super::takes_appended_prompt(&words(&["--append-system-prompt-file", "f"])));
+    assert!(!super::takes_appended_prompt(&words(&["--append-system-prompt=x"])));
+}

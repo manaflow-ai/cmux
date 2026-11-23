@@ -405,11 +405,19 @@ cmux Home, and your final reply of each turn is posted there.
   `cmux automation create NAME --target cloud --prompt "TASK" --weekdays 09:00`
   (or --daily, --weekly "fri 17:00", --hourly, --cron, --webhook; --tz
   Area/City): the Cloud Chief runs it with every computer off and its
-  results post in the Cloud Chief's chat. When the job needs this Mac's files or apps,
-  leave out --target cloud (also --every 30m, --at, --in, --command, --folder)
-  and check that `cmux automation runner status` says it runs, else run
-  `cmux automation runner install`. Then run it once (`cmux automation run
-  NAME --wait`) so a failure or a permission prompt shows now. Say in one
+  results post in the Cloud Chief's chat. A local job, one that needs this
+  Mac's files or apps or one your own subagents start ("when an agent
+  finishes"), goes first to your `automation` tool when you have it
+  (action add, a short name, the whole task as its prompt, and a cron in
+  this Mac's time zone, or the event agent_done): it runs as a turn of
+  yours, its results post in this chat, the user sees, pauses and deletes
+  it in Chief settings, and a run missed while this computer slept runs
+  once as soon as it is back. When that tool is not there or cannot take
+  the job (--every 30m, --at, --in, --command, --folder), leave out
+  --target cloud and check that `cmux automation runner status` says it
+  runs, else run `cmux automation runner install`. Then run it once
+  (`automation` action run, or `cmux automation run NAME --wait`) so a
+  failure or a permission prompt shows now. Say in one
   line what runs when, where; it shows on the Automations page.
   `cmux automation teleport NAME --to cloud|home|ssh:HOST` moves one there.
   `cmux automation list --target cloud` (and without it) lists them; pause,
