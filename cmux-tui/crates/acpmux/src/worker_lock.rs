@@ -20,6 +20,7 @@ use std::sync::{LockResult, MutexGuard, RwLockReadGuard, RwLockWriteGuard, TryLo
 pub(crate) struct Mutex<T>(std::sync::Mutex<T>);
 
 impl<T> Mutex<T> {
+    #[cfg(test)]
     pub(crate) const fn new(value: T) -> Self {
         Self(std::sync::Mutex::new(value))
     }
@@ -48,6 +49,7 @@ impl<T> Mutex<T> {
 pub(crate) struct RwLock<T>(std::sync::RwLock<T>);
 
 impl<T> RwLock<T> {
+    #[cfg(test)]
     pub(crate) const fn new(value: T) -> Self {
         Self(std::sync::RwLock::new(value))
     }
