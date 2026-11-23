@@ -21,6 +21,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | launch | `launch-ready.sh` | Dock launch: bounce end, first window, main, first frame, every launch mark. |
 | launch-background | `background-ready.sh` | Show from the background (Cmd-H, windows closed to a menu bar app, quit) against a cold relaunch, and each state's idle cost. |
 | launch-premain | `launch-premain.sh` (also launch's mode=premain) | Time to main after a 60 s full run vs a short launch, and what it pays: pageins, residency, the code checkers' CPU, per arm. |
+| launch-matrix | `launch-matrix.sh` (`launch-matrix.swift`, `launch-matrix-summary.py`) | Any .app's launch on one harness: first visible frame, first accepted input, the whole process tree's resources, per scenario (warm, cold-quit, evicted, first-install, update, large-session), the reboot pair and idle growth. |
 | post-update | `update-click-ab.sh` (default), `relaunch-shift.sh` (mode=shift), `nightly-fresh-launch.sh` (mode=fresh-copy) | First launch after an update and its hitches. |
 | screen-share | `screen-stream-eval.sh` (default), `screen-share-vs.py` (mode=vs, once on base) | Screen share kbps, fps under motion, input-to-frame latency. |
 | newtab | `instant-new-surfaces.sh` (default, mode=launch-pairs), `held-new-tab.sh` (mode=held) | New Tab first paint and settled-interactive time. |
@@ -60,6 +61,9 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `launch-premain.sh` | What makes a launch reach `main` 600 to 1170 ms late: arms after a 60 s run, page cache, purge, another app, sampled (launch bench mode=premain). | CMUX-629 | 2026-11-17 | active |
 | `launch-premain.swift` | Probe for launch-premain.sh: open or exec one launch, pageins, CPU and the executable's residency at `main`. | CMUX-629 | 2026-11-17 | active |
 | `launch-reboot.sh` | The first launch after a reboot, with and without a post-login pre-read of the app's binaries (row F, background-ready-copy): one phase per step, before (shutdown -r) and after (noread, read, residency). | row F | 2026-11-18 | active |
+| `launch-matrix.sh` | One launch harness for any .app (cold-start tables against Claude, Codex, T3 Code, Edge, Chrome, Safari, Slack, Helium): scenarios, reboot phases, growth (launch-matrix bench). | ask-37d682a340 | 2026-11-22 | active |
+| `launch-matrix.swift` | Probe for launch-matrix.sh: open, window, first non-blank frame and first accepted key through CuaDriver, tree resources, growth, no-root page cache eviction. | ask-37d682a340 | 2026-11-22 | active |
+| `launch-matrix-summary.py` | launch-matrix.sh's LM-TABLE lines and report.json. | ask-37d682a340 | 2026-11-22 | active |
 | `launch-capture-probe.sh` | Launch image sources with no Screen Recording grant: TCC rows and prompts, the window composite and Chromium page image against the screen, ms and main-thread stall per source. | ask-b2b0f899c1 | 2026-11-17 | active |
 | `launch-capture-probe.py` | Python driver for launch-capture-probe.sh. | ask-b2b0f899c1 | 2026-11-17 | active |
 | `background-ready.sh` | Open request to window on screen from the background (hide, close, quit) against a cold relaunch; idle CPU, wakeups, energy, memory, files and sleep assertions per state. | ask-b2b0f899c1 | 2026-11-17 | active |
