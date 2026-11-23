@@ -113,7 +113,7 @@ test("a day lists its changes under their app area, each with its glyph, name an
   const areas = [...root.querySelectorAll(".cls-area")];
   expect(areas.length).toBeGreaterThan(2);
   for (const area of areas) {
-    expect(area.querySelector(".cls-area-head .cls-icon svg path, .cls-area-head .cls-icon svg rect")).not.toBeNull();
+    expect(area.querySelector(".cls-area-head .cls-icon svg :is(path, rect, circle)")).not.toBeNull();
     expect(area.querySelector(".cls-area-head .cl-count")?.textContent).toBe(
       String(area.querySelectorAll(".cls-row").length),
     );

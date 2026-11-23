@@ -30,7 +30,7 @@ impl Hub {
     /// `_acpmux/team/inbox` of the chat's own agent: its inbox's messages, newest first, every
     /// one or only the unread ones. It marks none read.
     pub fn inbox_team_page(&self, session: &Session, unread_only: bool) -> Value {
-        let inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
+        let inbox = session.inbox();
         let messages: Vec<Value> = inbox
             .items
             .iter()
@@ -45,7 +45,7 @@ impl Hub {
     /// thread's id, the thread's messages joined (newest first) as one body.
     pub fn inbox_team_read(&self, session: &Session, id: &str) -> Result<Value, RpcError> {
         let (message, marked) = {
-            let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
+            let mut inbox = session.inbox();
             if let Some(item) = inbox.items.iter_mut().find(|i| i.prompt_id == id) {
                 let marked = (!item.read).then(|| (item.thread.clone(), vec![id.to_owned()]));
                 item.read = true;
@@ -81,7 +81,7 @@ impl Hub {
     /// `_acpmux/team/ack` of the chat's own agent: message `id` read.
     pub fn inbox_team_ack(&self, session: &Session, id: &str) -> Result<Value, RpcError> {
         let marked = {
-            let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
+            let mut inbox = session.inbox();
             let Some(item) = inbox.items.iter_mut().find(|i| i.prompt_id == id) else {
                 return Err(not_in_inbox(id));
             };

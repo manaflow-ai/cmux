@@ -15,6 +15,17 @@ public nonisolated enum HomeChiefName {
         CreateConversationRequest(idempotencyKey: createKey, title: HomeStrings.chiefName, participants: [user, mux])
     }
 
+    /// The name of another Chief: the Chief's own name while no Chief has it, else the first free
+    /// "Chief 2", "Chief 3", … (`taken`: the names Chiefs have now). Two Chiefs never share a name:
+    /// their rows could not be told apart, and `cmux chief` could not pick one of them by name.
+    public static func next(taken: some Collection<String>) -> String {
+        let base = HomeStrings.chiefName
+        guard taken.contains(base) else { return base }
+        var number = 2
+        while taken.contains("\(base) \(number)") { number += 1 }
+        return "\(base) \(number)"
+    }
+
     /// The rename of `summary` to the chief name, or nil when none is due.
     /// Only the old default titles ("Home", localized or not, or none) are
     /// renamed; a title the user chose stays.
@@ -33,6 +44,33 @@ public nonisolated enum HomeChiefName {
             let (da, db) = (HomeCoreMapping.date(a.createdAt) ?? .distantFuture, HomeCoreMapping.date(b.createdAt) ?? .distantFuture)
             return da != db ? da < db : a.id < b.id
         }
+    }
+
+    /// The chief conversation on `client`'s owner: the one ``select(from:)`` picks in `listed` (the
+    /// owner's list the caller just read; a second read held a fresh launch's Home a round trip
+    /// longer), else one created under ``createKey``. Its one-time rename (``migration(for:)``) runs
+    /// beside it, never waited for: the Chief tab and the page need only the id (CMUX-571); a failed
+    /// one keeps the old title (`renameFailed`). Off the caller's actor, so `mark`, the launch marks
+    /// `chief_found`, `chief_renamed`, `chief_create_sent` and `chief_create_replied`, time the owner's
+    /// replies and not the caller's wait to resume.
+    @concurrent public static func conversation(_ client: ConversationClient, listed: [CmuxNextDaemon.ConversationSummary],
+                                                user: ConversationParticipant, mux: ConversationParticipant,
+                                                mark: @escaping @Sendable (String) -> Void,
+                                                renameFailed: @escaping @Sendable (any Error) -> Void) async throws -> String {
+        if let existing = select(from: listed) {
+            if let rename = migration(for: existing) {
+                // task-owner: one rename op; ends with its reply
+                Task {
+                    do { _ = try await client.op(rename); mark("chief_renamed") } catch { renameFailed(error) }
+                }
+            }
+            mark("chief_found")
+            return existing.id
+        }
+        mark("chief_create_sent")
+        let id = try await client.create(createRequest(user: user, mux: mux)).conversation.id
+        mark("chief_create_replied")
+        return id
     }
 
     /// The local user's name in the chief create request; the mux host gets

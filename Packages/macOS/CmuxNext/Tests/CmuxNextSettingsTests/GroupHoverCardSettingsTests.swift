@@ -14,19 +14,19 @@ struct GroupHoverCardSettingsTests {
         HoverCardSettings.groupsSectionPortsPath,
     ]
 
-    @Test func defaultsShowEveryPartOnBothKindsAfterALongerDelay() throws {
+    @Test func defaultsShowEveryPartOnBothKindsAfterTheSharedDelay() throws {
         let snapshot = CmuxConfigSnapshot.parse(.object([:]), validDensities: [], validMetrics: [])
         let options = snapshot.hoverCards.groupCardOptions
         #expect(options == GroupHoverCardOptions())
         #expect(options.workspaceGroups && options.tabGroups)
-        #expect(options.delay == .milliseconds(1500))
+        #expect(options.delay == HoverIntentTiming.cardDelay)
         #expect(options.sections == [.status, .members, .activity, .git, .ports])
         for path in Self.paths {
             let row = try #require(SettingsSchema.descriptor(for: path), "no Settings row for \(path)")
             #expect(row.kind == .toggle)
             #expect(row.defaultValue == .bool(true))
         }
-        #expect(SettingsSchema.descriptor(for: HoverCardSettings.groupsDelayPath)?.defaultValue == .number(1500))
+        #expect(SettingsSchema.descriptor(for: HoverCardSettings.groupsDelayPath)?.defaultValue == .number(1300))
         #expect(SettingsSchema.descriptor(for: HoverCardSettings.groupsOrderPath)?.defaultValue == .string("status"))
         #expect(SettingsSchema.descriptor(for: HoverCardSettings.groupsMaxMembersPath)?.defaultValue == .number(8))
     }

@@ -1,6 +1,6 @@
 // A sent prompt's way to the agent (plans/cmux-next/composer-delivery-DESIGN.md). One state per row,
 // said in one place: while the prompt is on its way (after a second, so a fast send shows nothing)
-// its footer's time slot says so ("Sending", "Queued, sends when the current turn ends", "Sending
+// its footer's time slot says so ("Sending" or "Sending
 // when ready") with a clock, and the footer stays shown; once acpmux took it the slot is its time
 // again and the bubble's read check (UserBubble.tsx) says how far it got. Nothing else on the row
 // speaks to delivery meanwhile: before, a "Still sending" label beside a bubble whose footer already
@@ -10,7 +10,7 @@
 // (sendFailure.ts), under the last of them: one plain sentence, the fix when there is one (Trust
 // folder), Retry, Edit, Remove and Details: the hop it stopped at, the refuser's own words and
 // code, each hop's time and the ids, and Copy debug info.
-import { useContext, useEffect, useState } from "react";
+import { useContext, useEffect, useId, useState } from "react";
 import { PROMPT_PENDING_AFTER_MS, type AcpmuxRow, type PromptDelivery } from "../model";
 import { useT, type StringKey } from "../i18n";
 import { isTrustCause, retryHelps, sendCause } from "../sendFailure";
@@ -26,16 +26,18 @@ const HOP_LABEL = {
   agent: "prompt.delivery.hop.agent",
 } as const satisfies Record<NonNullable<PromptDelivery["hop"]>, StringKey>;
 
-/// What a prompt still on its way says: the one sentence its footer shows. `queued`: it waits
-/// behind the running turn (a steer, or a prompt acpmux holds for the turn's end).
-export function pendingLabel(delivery: PromptDelivery, queued: boolean): StringKey {
-  if (delivery.waitingForHost) return "prompt.delivery.whenReady";
-  return queued ? "prompt.delivery.queued" : "prompt.delivery.sending";
+/// What a prompt still on its way says: the one sentence its footer shows.
+export function pendingLabel(delivery: PromptDelivery): StringKey {
+  return delivery.waitingForHost ? "prompt.delivery.whenReady" : "prompt.delivery.sending";
 }
 
 /// Whether `delivery` shows as pending now: on its way, and either past its first second or held
-/// for the host (whose words show at once). Re-renders once when the second passes.
-export function usePendingShown(delivery: PromptDelivery | undefined): boolean {
+/// for the host (whose words show at once). Re-renders once when the second passes. A prompt that
+/// waits behind the running turn (`queued`: a steer, or one acpmux holds for the turn's end) says
+/// nothing of it: its bubble and its Send now already do, and the slot keeps its time (Leo,
+/// 2026-11-17: "Queued, sends when the turn ends" / "it's not really useful to see ever"). Held for
+/// the host, it still says "Sending when ready".
+export function usePendingShown(delivery: PromptDelivery | undefined, queued = false): boolean {
   const sending = delivery?.state === "sending";
   const sentAt = delivery?.sentAt ?? 0;
   const [late, setLate] = useState(() => Date.now() - sentAt >= PENDING_AFTER_MS);
@@ -44,14 +46,15 @@ export function usePendingShown(delivery: PromptDelivery | undefined): boolean {
     const timer = setTimeout(() => setLate(true), Math.max(0, PENDING_AFTER_MS - (Date.now() - sentAt)));
     return () => clearTimeout(timer);
   }, [sending, late, sentAt]);
-  return sending && (late || delivery?.waitingForHost === true);
+  if (delivery?.waitingForHost === true) return sending;
+  return sending && late && !queued;
 }
 
 /// The footer's time slot while the prompt is on its way: a clock and its one sentence, in the
 /// slot the age takes once it lands, so the row moves nothing when it does.
-export function PendingDelivery({ delivery, queued }: { delivery: PromptDelivery; queued: boolean }) {
+export function PendingDelivery({ delivery }: { delivery: PromptDelivery }) {
   const t = useT();
-  const label = t(pendingLabel(delivery, queued));
+  const label = t(pendingLabel(delivery));
   return (
     <output className="cv-user__time cv-user__pending-state" data-delivery={delivery.state} aria-label={label}>
       <Clock size={12} />
@@ -67,6 +70,7 @@ export function DeliveryFailure({ row }: { row: AcpmuxRow }) {
   const sends = useContext(FailedSendsContext);
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const retryWhy = useId();
   const readOnly = useTranscriptReadOnly();
   const delivery = row.delivery;
   if (!row.failed || readOnly) return null;
@@ -97,12 +101,18 @@ export function DeliveryFailure({ row }: { row: AcpmuxRow }) {
           </button>
         )}
         {/* A prompt too large to send is refused the same way again: Edit takes an attachment out. */}
+        {/* A disabled Retry gets no hover, so why it waits is text beside it (Chief, 2026-11-21). */}
+        {retryHelps(cause) && retryWaits && (
+          <span className="cv-user__retry-wait" id={retryWhy}>
+            {t(retryWaits)}
+          </span>
+        )}
         {retryHelps(cause) && (
           <button
             type="button"
             className="cv-user__cancel"
             disabled={retryWaits !== undefined}
-            title={retryWaits && t(retryWaits)}
+            aria-describedby={retryWaits ? retryWhy : undefined}
             onClick={() => act("chat.retryPrompt")}
           >
             {t("turn.retry")}

@@ -121,7 +121,7 @@ export const MessageRow = memo(function MessageRow({
         ) : (
           <>
             {message.parts.map((part, index) => (
-              <Part key={index} part={part} strings={strings} />
+              <Part key={index} part={part} strings={strings} messageAt={message.createdAt} />
             ))}
             {message.parts.some((part) => part.type === "attachment") && (
               <MessageAttachments
@@ -246,10 +246,22 @@ function Head({
 
 /** One part's view. The return type leaves out `undefined`, so a part type with no case is a type
  * error, not a part that silently draws nothing. */
-function Part({ part, strings }: { part: HomePart; strings: Strings }): ReactElement | null {
+function Part({
+  part,
+  strings,
+  messageAt,
+}: {
+  part: HomePart;
+  strings: Strings;
+  messageAt: number;
+}): ReactElement | null {
   switch (part.type) {
     case "text":
-      return <Markdown className="hc-md">{part.text}</Markdown>;
+      return (
+        <Markdown className="hc-md" messageAt={messageAt}>
+          {part.text}
+        </Markdown>
+      );
     case "work":
       return (
         <div className={`hc-chip work ${part.status}`}>

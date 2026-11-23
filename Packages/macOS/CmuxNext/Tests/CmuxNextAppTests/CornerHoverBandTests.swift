@@ -38,7 +38,7 @@ import Testing
         // The middle of the open band's extent, past the traffic lights: the strip's first tab
         // sits there while the band is collapsed.
         let lights = try #require(WindowTitlebar.trafficLightsFrame(in: window))
-        let firstTab = CGPoint(x: root.convert(lights, from: nil).maxX + Metrics.space3 + root.toolbarBand.slots.width / 2, y: top)
+        let firstTab = CGPoint(x: root.convert(lights, from: nil).maxX + Metrics.space3 + root.toolbarBand.slots().width / 2, y: top)
         #expect(region.contains(firstTab))
         // The rest of the strip does not reveal.
         #expect(!region.contains(CGPoint(x: root.bounds.midX, y: top)))
@@ -59,7 +59,8 @@ import Testing
         let forward = try CollapsedTitlebarZoneGalleryTests.openForwardFrame(root)
         // The open band does not move the zone (no flicker at its edge).
         #expect(root.titlebarRevealRegion.frame == zone)
-        #expect(abs(zone.maxX - forward.maxX) < 0.5)
+        // The zone is never drawn, so it ends exactly at Forward, not at the band's pixel-aligned edge.
+        #expect(abs(zone.maxX - forward.maxX) < 0.001)
         let y = forward.midY
         #expect(!zone.contains(CGPoint(x: forward.maxX + 1, y: y)))
         #expect(zone.contains(CGPoint(x: forward.maxX - 1, y: y)))

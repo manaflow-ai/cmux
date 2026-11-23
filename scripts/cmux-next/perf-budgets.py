@@ -14,10 +14,19 @@ bench launches and quits the app itself), and maps their reports to budget rows 
   sidebar-stress-bench.py        400 workspaces, 15 ticking: scroll, ticks (frames, CPU, main ms/s), row drag, and the
                                  workspace switch matrix (click, Cmd-1..4, Ctrl-Cmd-]/[ x terminal, Chromium)
   home-perf.py                   Home: typing key dispatch, chat scroll frames
-  agent-engine-bench.py          ACP chat composer: keydown to next frame (the page's typingStats)
+  agent-engine-bench.py          ACP chat composer: keydown to next frame (the page's typingStats), and its stages:
+                                 to_listener (the key reaches the page) and to_work (its edit and render done),
+                                 stored for the breakdown, never judged (STAGE_ROW_RE)
   bench_idle.py                  idle CPU of the app with terminals open
   tab-churn-bench.py             terminal_burst: 30 Ctrl-` terminals in a row (first and last ten, growth), closing them,
                                  and Cmd-T / Cmd-W in a pane of 1 tab and of 31 (ask-8a0837950b)
+
+  Tabs and terminals as they grow (Leo 2026-11-10: "opening up a lot of terminals isn't super fast? opening/closing
+  tabs was p important to lawrence ... we defo need to encode and warn sometimes if those get slow"); each row's cost
+  must stay what it is with one tab or workspace:
+  tab_scale       tab-switch-matrix.py   terminal tab switch with 2 and 30 tabs in the pane (10 is tab_switch's)
+  tab_close       burst-bench.py         20 Cmd-W at 40 ms on terminal tabs and on chat tabs: key to the next commit
+  surfaces_scale  instant-new-surfaces   Cmd-T and Ctrl-` with 10 and 30 workspaces open (one is new_surfaces')
 
   A bench that fails to run (older build without its debug method, no display) leaves its rows "n/a"; the
   suite goes on, but the gate reports an incomplete result when an expected row is absent. Output: --json
@@ -44,9 +53,13 @@ REGRESSION = 0.10
 
 BENCHES = ["new_surfaces", "panes", "tab_switch", "palette", "sidebar", "home", "acp", "idle", "anim"]
 # Benches that run only when --only names them: the default (all of BENCHES) is what stable-next's --gate step runs, and
-# a bench added here is a perf cron row that warns, never a new gate row (CLAUDE.md: no new CI gates).
-OPT_IN_BENCHES = ["terminal_burst"]
+# a bench added here is a perf cron row that warns, never a new gate row (the 2026-10-23 no-new-CI rule, since lifted).
+# tab_scale, tab_close and surfaces_scale: the tabs-and-terminals-at-scale groups the perf cron's `tabs` part names.
+OPT_IN_BENCHES = ["terminal_burst", "tab_scale", "tab_close", "surfaces_scale"]
 PERF_BENCH = os.path.join(HERE, "..", "perf-bench")
+# Stage rows: where a judged row's time goes (the chat composer's typing: key to page, key to edit and render done).
+# Stored and shown, never gated, budgeted or written to a baseline: measurement only (the 2026-10-23 no-new-CI rule, since lifted).
+STAGE_ROW_RE = re.compile(r"^acp\.[^.@]+\.typing\.(to_listener|to_work)(@|$)")
 
 
 # ---------- pure helpers (tests/test_perf_budgets.py) ----------
@@ -191,16 +204,19 @@ def load(path):
         return None
 
 
-def find_stage(table, stage):
-    """tab-switch tables nest {kind: {stage: stat}} or {stage: stat}."""
+def find_stage(table, stage, kind):
+    """A tab-switch table's `stage` for switches that showed `kind`: {kind: {stage: stat}}, or a flat {stage: stat}.
+    Only the scenario's own kind counts. `debug.tab_switch` files a switch under the content it showed, so a scenario
+    holds other buckets too: `cold` (a tab whose surface was not alive: the pane empties now and the surface comes a
+    frame later) or `?` (untagged). Reading the first bucket with the stage read `cold` as the terminal row from
+    2026-11-15 (cmux#24569): the time to an empty pane, not to the terminal. A missing bucket is no value, so the
+    row is incomplete rather than another bucket's number."""
     if not isinstance(table, dict):
         return None
     if stage in table:
         return table[stage]
-    for v in table.values():
-        if isinstance(v, dict) and stage in v:
-            return v[stage]
-    return None
+    own = table.get(kind)
+    return own.get(stage) if isinstance(own, dict) else None
 
 
 def rows_new_surfaces(rep):
@@ -214,6 +230,24 @@ def rows_new_surfaces(rep):
     return out
 
 
+def rows_surfaces_scale(rep):
+    """new_surfaces rows at each grown workspace count only (`idle@10ws` -> cmd_t.idle_10ws.key_to_visible): the
+    count without a suffix is new_surfaces' own row, and `@` is the perf cron's host separator."""
+    return {name.replace("@", "_"): v for name, v in rows_new_surfaces(rep).items() if "@" in name}
+
+
+def rows_tab_close(rep):
+    """burst-bench.py's light phase: N Cmd-W on N tabs of one kind, each closing press's input to the next commit.
+    A row the bench marked invalid (its burst never ran, the stream lost records) is not measured."""
+    out = {}
+    for row in ((rep or {}).get("phases") or {}).get("light") or []:
+        scenario = str(row.get("scenario") or "")
+        if not scenario.startswith("cmdw-") or row.get("invalid"):
+            continue
+        out[f"tab_close.{scenario[len('cmdw-'):]}.burst.input_to_commit"] = p50_p95(row.get("input_to_next_commit_ms"))
+    return out
+
+
 def rows_panes(rep):
     out = {}
     for s in (rep or {}).get("summary") or []:
@@ -224,7 +258,7 @@ def rows_panes(rep):
 def rows_tab_switch(rep):
     out = {}
     for sc in (rep or {}).get("scenarios") or []:
-        stat = find_stage((sc.get("ctrl_tab") or {}).get("table"), "e2e")
+        stat = find_stage((sc.get("ctrl_tab") or {}).get("table"), "e2e", sc.get("kind"))
         out[f"tab_switch.{sc.get('kind')}.{sc.get('count')}.e2e"] = p50_p95(stat)
     return out
 
@@ -251,6 +285,9 @@ def rows_sidebar(rep, size):
         out[f"sidebar.{size}.ticking.cpu_pct"] = (cpu, cpu)
     if isinstance(ticks.get("main_ms_per_s"), (int, float)):
         out[f"sidebar.{size}.ticking.main_ms_per_s"] = (ticks["main_ms_per_s"], ticks["main_ms_per_s"])
+    maps = (ticks.get("per_tick") or {}).get("row_maps")
+    if isinstance(maps, (int, float)):
+        out[f"sidebar.{size}.ticking.row_maps_per_tick"] = (maps, maps)
     for key, m in (s.get("switch_matrix") or {}).items():
         if isinstance(m, dict) and "input_to_idle_ms" in m:
             out[f"workspace_switch.{key}.input_to_idle"] = p50_p95(m["input_to_idle_ms"])
@@ -272,6 +309,13 @@ def rows_acp(rep):
         summ = r.get("summary", r) if isinstance(r, dict) else {}
         out[f"acp.{mode}.typing.to_frame"] = p50_p95(summ.get("typing_to_frame"))
         out[f"acp.{mode}.typing.to_paint"] = p50_p95(summ.get("typing_to_paint"))
+        for stage in ("to_listener", "to_work"):
+            stats = summ.get(f"typing_{stage}")
+            # typingSummary gives zeros for a stage with no samples (a build before the stage marks): no row.
+            if isinstance(stats, dict) and stats.get("max_ms") == 0:
+                stats = None
+            if stats is not None:
+                out[f"acp.{mode}.typing.{stage}"] = p50_p95(stats)
     return out
 
 
@@ -481,6 +525,15 @@ def main():
         "tab_switch": ([py, S("tab-switch-matrix.py"), *common, "--kinds", "terminal,chromium", "--counts", "10",
                         "--switches", "30", "--out", o("tab_switch"), "--json", o("tab_switch.json")],
                        "tab_switch.json", rows_tab_switch),
+        "tab_scale": ([py, S("tab-switch-matrix.py"), *common, "--kinds", "terminal", "--counts", "2,30",
+                       "--switches", "30", "--out", o("tab_scale"), "--json", o("tab_scale.json")],
+                      "tab_scale.json", rows_tab_switch),
+        "tab_close": ([py, S("burst-bench.py"), "--app", opts.app, "--no-stress", "--scenarios", "cmdw-terminal,cmdw-chat",
+                       "--presses", "20", "--out", o("tab_close")], os.path.join("tab_close", "report.json"), rows_tab_close),
+        "surfaces_scale": ([py, S("instant-new-surfaces-bench.py"), *common, "--commands", "new_tab,new_terminal",
+                            "--phases", "idle", "--arms", "warm", "--workspaces", "10,30", "--runs", "10",
+                            "--out", o("surfaces_scale"), "--json", o("surfaces_scale.json")],
+                           "surfaces_scale.json", rows_surfaces_scale),
         "palette": ([py, S("palette-open-stages.py"), *common, "--rounds", str(opts.palette_rounds), "--no-gate",
                      "--out", o("palette"), "--json", o("palette.json")], "palette.json", rows_palette),
         "sidebar": ([py, S("sidebar-stress-bench.py"), *common, "--sizes", str(opts.sidebar_size), "--stop",
@@ -568,7 +621,7 @@ def finish(opts, budgets, only, runs, values):
 
     rows = []
     for name, (p50, p95) in sorted(values.items()):
-        spec = budget_for(name, budgets)
+        spec = {} if STAGE_ROW_RE.match(name) else budget_for(name, budgets)
         rows.append({"name": name, "p50": None if p50 is None else round(p50, 2),
                      "p95": None if p95 is None else round(p95, 2), "budget": spec.get("p95"),
                      "unit": spec.get("unit", "ms"), "floor": spec.get("floor", 1.0), "interaction": spec.get("what")})
@@ -576,7 +629,7 @@ def finish(opts, budgets, only, runs, values):
     cls = host_class()
     base_path = opts.baseline or os.path.join(BASELINE_DIR, f"{cls}.json")
     baseline = (load(base_path) or {}).get("p95", {})
-    regressed = compare(rows, baseline)
+    regressed = compare([r for r in rows if not STAGE_ROW_RE.match(r["name"])], baseline)
     over = over_budget(rows)
     incomplete = []
     if opts.gate and not baseline:
@@ -612,7 +665,8 @@ def finish(opts, budgets, only, runs, values):
     if opts.write_baseline and incomplete:
         print("PERF-BUDGETS-BASELINE refused: the run is incomplete; provide measured rows for every expected entry")
     elif opts.write_baseline:
-        json.dump({"host_class": cls, "p95": {r["name"]: r["p95"] for r in rows if r["p95"] is not None}},
+        json.dump({"host_class": cls, "p95": {r["name"]: r["p95"] for r in rows
+                                                if r["p95"] is not None and not STAGE_ROW_RE.match(r["name"])}},
                   open(opts.write_baseline, "w"), indent=1, sort_keys=True)
     if opts.gate and not baseline:
         print(f"PERF-BUDGETS-GATE no baseline at {base_path}: incomplete")

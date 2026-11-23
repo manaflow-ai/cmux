@@ -7,7 +7,7 @@ import Testing
 /// A session of a ``SessionFixtureSize`` as a store fixture in a whole window. `large` (the default) is the session of
 /// plans/cmux-next/main-thread-scheduling.md 1.5: 60 workspaces x 6 tabs = 360 tabs; each workspace has one screen with
 /// one pane of 3 terminals, 1 agent chat, 1 Chromium page and 1 WebKit page; the 5 agent terminals are the first
-/// terminal of workspaces 1, 13, 25, 37 and 49. `real` is the person's session: 826 workspaces, 858 panes, 1600 tabs,
+/// terminal of workspaces 1, 13, 25, 37 and 49. `real` is a session of real use: 826 workspaces, 858 panes, 1600 tabs,
 /// 798 terminals, 170 agent terminals (the mix rule is ``SessionFixtureSize/shape(_:)``). The window holds every
 /// workspace and shows the last one, so every agent terminal is hidden.
 ///
@@ -113,11 +113,20 @@ enum LargeSessionWindowFixture {
     }
 
     /// `withWindow(_:_:)` for a test that acts on the window: `body` also gets its controller (and so its `services`).
-    static func withController<T>(_ size: SessionFixtureSize, _ body: @MainActor (DaemonStore, WindowController) async throws -> T) async throws -> T {
+    /// `agentPaneEnvironment`: the environment the agent pages read (a test that opens many gives them an inert address).
+    static func withController<T>(_ size: SessionFixtureSize, agentPaneEnvironment: [String: String]? = nil,
+                                  _ body: @MainActor (DaemonStore, WindowController) async throws -> T) async throws -> T {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]), agentPaneEnvironment: agentPaneEnvironment)
+        return try await withController(size, services: services, body)
+    }
+
+    /// `withController(_:agentPaneEnvironment:_:)` on the services that a test made (one with a value that the test
+    /// passes to their `init`); the test makes them after `NSApplication.shared`.
+    static func withController<T>(_ size: SessionFixtureSize, services: AppServices,
+                                  _ body: @MainActor (DaemonStore, WindowController) async throws -> T) async throws -> T {
         try #require(size.mixFaults.isEmpty, "fixture: the \(size.rawValue) mix is wrong: \(size.mixFaults)")
         let workspaces = size.workspaces
-        _ = NSApplication.shared
-        let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
         services.windows.ordersWindowsIn = false
         let store = services.machines.local.store

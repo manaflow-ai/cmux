@@ -16,7 +16,7 @@ fn initial_window(mss: usize) -> usize {
     (10 * mss).min((2 * mss).max(14600))
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Cubic {
     w_max: usize, // window size prior to loss

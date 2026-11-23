@@ -56,6 +56,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// Called after the page's effective visibility changes. Owners use this to revoke native
     /// page proofs on hide/detach and rebind them after the Chromium document is visible again.
     public var onVisibilityChanged: (@MainActor (Bool) -> Void)?
+    /// The host keeps the page drawn while no pane shows it (``setDrawnAway(_:)``): to the page and to
+    /// its owner it is hidden, though its engine still draws it, off screen.
+    public internal(set) var isDrawnAway = false
     /// The Chromium host this page started in: told when its Chromium page attached
     /// (``PageChromiumHosting/focusViewChanged(_:)``).
     weak var chromiumFocusHost: (any PageChromiumHosting)?
@@ -185,6 +188,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// reloads or restarts such a page by itself: a reload would read the file again and drop them.
     /// They stay in the recovery draft and the quit hook; the person closes or saves the tab.
     public var holdsUnsavedEdits: () -> Bool = { false }
+    /// The daemon tab the page shows (the agent chat's), nil for a page in no tab: app health names a stuck
+    /// page by that tab's title and workspace (`AppHealthPlaces`).
+    public var healthTabKey: @MainActor () -> String? = { nil }
     /// The page's own last word on unsaved edits (its heartbeat's `edits`: an editor that marked
     /// itself `[data-cmux-unsaved-edits]`, the Cloud page's file editor), kept until the next beat.
     public internal(set) var reportsUnsavedEdits = false
@@ -268,6 +274,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The crash clock (tests set it).
     var now: () -> Date = { Date() }
     var crashReloads = PageCrashReloads()
+    /// Whether the document an overlay served started (PageWebView+OverlayStart.swift), and the bound
+    /// on its first word.
+    var overlayStart = OverlayStartCheck()
+    let overlayStartTimer = DemandTimer(owner: "page.overlay.start")
     /// Chromium ended under a host that shows the crash notice: the page reopens in WebKit only on
     /// the notice's Reload (``reloadAfterCrashes()``).
     var webKitLoadsOnReload = false
@@ -455,10 +465,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         router.contextMenu = { [weak self] params in await self?.contextMenu(params) ?? .object(["picked": .null]) }
         router.userGestureEvent = { [weak self] in self?.recentUserGestureEvent() }
         healthFeed = chromium?.healthFeed
-        router.heartbeat = { [weak self] handled, edits in
-            guard let self else { return }
+        router.heartbeat = { [weak self] handled, edits, rest in
+            guard let self else { return true }
             reportsUnsavedEdits = edits
-            healthFeed?.pageBeat(self, handled: handled)
+            healthFeed?.pageBeat(self, handled: handled, resting: rest)
+            return healthFeed?.takesRestBeats ?? true
         }
         #if DEBUG || CMUX_BENCH_HOOKS
         // Automation launches (no activation, a GUI host whose windows macOS reports occluded):
@@ -471,7 +482,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         PagePaintProbe.install(in: webView.configuration.userContentController) { [weak self] in
             self?.notePainted()
         }
-        PageTitleRowPress.install(in: webView.configuration.userContentController) { [weak self] in self?.titleRowPressed($0) }
+        // A page the router serves no host ops (an app page) gets no title row press either: its report
+        // would move, zoom or minimize the window, a host op outside its namespace.
+        if descriptor.servesHostOps {
+            PageTitleRowPress.install(in: webView.configuration.userContentController) { [weak self] in self?.titleRowPressed($0) }
+        }
         // A VoiceOver press sends the view no event; its trusted click in the page counts instead (manaflow-ai/cmux#37809).
         PageAccessibilityPress.install(on: webView) { [weak self] in self?.webView.noteAccessibilityPress() }
         bridge.install { [weak self] message in
@@ -543,7 +558,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         uiScaleObservation?.cancel()
         let chatZoom = followsChatZoom
         uiScaleObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.pageScale, Typography.pageDensityScale, Typography.pageDensityTextScale, chatZoom ? DesignSettings.shared.agentPaneZoom : 1) }) {
+            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.pageScale, Typography.pageDensityScale, Typography.pageDensityTextScale, Typography.pageRowTextScale, chatZoom ? DesignSettings.shared.agentPaneZoom : 1) }) {
                 guard let self else { return }
                 self.applyUIScale()
             }
@@ -621,7 +636,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// `reset`) on the page's command stream. False when no page code listens.
     @discardableResult
     public func send(command: String, arguments: [String: JSONValue] = [:]) -> Bool {
-        router.publishCommand(command, arguments: arguments)
+        let sent = router.publishCommand(command, arguments: arguments)
+        // The page focuses its find field in its own turn: keys typed until then wait for that field.
+        if sent, command == EditorPageCommand.find { inputReadiness.awaitFocus(on: "find") }
+        inputReadiness.trace("command \(command) sent=\(sent)")
+        return sent
     }
 
     /// The page's owner link (the daemon) went up or down; the page shows its disconnected state.
@@ -645,7 +664,21 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     /// When the current document painted its first frame (``PagePaintProbe``), in
     /// `ProcessInfo.systemUptime` seconds; nil until it has.
-    public internal(set) var paintedUptime: TimeInterval?
+    public internal(set) var paintedUptime: TimeInterval? {
+        didSet {
+            guard (oldValue == nil) != (paintedUptime == nil) else { return }
+            // A new document draws again wherever it is; a page out of sight hides once it drew (AwayDrawing).
+            if paintedUptime == nil { awayDrawing.drawnSize = nil }
+            setChromiumVisibility(true)
+        }
+    }
+    /// What lets the page draw while it lies out of sight (`PageWebView+AwayDrawing`).
+    let awayDrawing = PageAwayDrawing()
+    /// Its owner holds it outside the window until it drew where it will show (a moved chat,
+    /// `AgentPaneView.holdsPageAway`): out of sight, it keeps drawing until then.
+    public var drawsWhileAway = false {
+        didSet { if drawsWhileAway != oldValue { setChromiumVisibility(true) } }
+    }
     /// It shows what must never leave the screen (a revealed password): page probes (`debug.page` query,
     /// snapshot, call and list) never reach it, as screen capture never does, and no Web Inspector attaches
     /// to it (one reads the DOM and calls the page's bridge).
@@ -664,9 +697,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
             logger.error("page \(self.descriptor.id, privacy: .public) message from an untrusted frame refused: main=\(message.isMainFrame, privacy: .public) url=\(message.frameURL?.absoluteString ?? "-", privacy: .public)")
             return nil
         }
-        // The message conversion stays here: `handle` must start in the order the page posted, and
-        // `message.body` is a non-Sendable WebKit object graph (page messages are small calls).
-        guard let body = JSONValue(foundation: message.body) else { return nil }
+        // A Chromium envelope arrives converted off the main actor. A WebKit one is converted here: `handle` must
+        // start in the order the page posted, and `message.body` is a non-Sendable WebKit object graph.
+        guard let body = message.json ?? JSONValue(foundation: message.body) else { return nil }
+        overlayStartSpoke()
         let started = ProcessInfo.processInfo.systemUptime
         let reply = await router.handle(body)
         let handled = ProcessInfo.processInfo.systemUptime
@@ -710,7 +744,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         // Its tab or window closed: the page's popup ends with it.
         if window == nil { popupHost?.dismiss() }
         setChromiumVisibility(true)
-        let visible = window != nil && !isHiddenOrHasHiddenAncestor
+        let visible = window != nil && !isHiddenOrHasHiddenAncestor && !isDrawnAway
         if !visible { chromiumSession?.questionKeys?.invalidate() }
         onVisibilityChanged?(visible)
         healthFeed?.pageVisibilityChanged(self)
@@ -739,7 +773,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     public override func viewDidUnhide() {
         super.viewDidUnhide()
-        let visible = window != nil && !isHiddenOrHasHiddenAncestor
+        let visible = window != nil && !isHiddenOrHasHiddenAncestor && !isDrawnAway
         setChromiumVisibility(true)
         onVisibilityChanged?(visible)
         healthFeed?.pageVisibilityChanged(self)
@@ -753,7 +787,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
         themeFollower.rebind()
-        let visible = superview != nil && window != nil && !isHiddenOrHasHiddenAncestor
+        let visible = superview != nil && window != nil && !isHiddenOrHasHiddenAncestor && !isDrawnAway
         if !visible { chromiumSession?.questionKeys?.invalidate() }
         onVisibilityChanged?(visible)
         healthFeed?.pageVisibilityChanged(self)

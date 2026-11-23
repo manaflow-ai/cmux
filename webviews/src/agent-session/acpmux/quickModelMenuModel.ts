@@ -6,6 +6,7 @@ import type { ChatAccountList, ChatAccounts } from "./chatAccounts";
 import { type Choice } from "./composerPickerModel";
 import { type ReasoningSliderStyle, type HarnessPlacement } from "./composerSettings";
 import { harnessIcon } from "../shared/harnessIcons";
+import type { ClaudeConnectRowProps } from "./claudeConnect";
 
 /// What the model button's menu lists (Leo 2026-10-20: every composer's one model control): the
 /// harness's top models, numbered, then Effort, More models and Account submenus, then Fast mode.
@@ -71,7 +72,9 @@ export type QuickMenu = {
   /// the effort and fast mode the query named. Without it typing opens the full picker.
   search?: {
     find(query: string): QuickModel[];
-    pick(model: QuickModel): void;
+    /// Lands `model`; true when the pick instead sets its harness up (installs it or signs it in), whose
+    /// progress the columns menu shows, so it stays open (QuickModelColumns.tsx).
+    pick(model: QuickModel): boolean | void;
   };
   /// When the search field shows (gallery versions): `always` (the default), `typed` (only once
   /// a key is typed), or `long` (when the list holds more than LONG_LIST models, or once typed).
@@ -172,6 +175,9 @@ export type QuickFamily = {
   logIn?(): void;
   /// Sets up a harness this machine does not have (its Install… row).
   setUp?(): void;
+  /// The Claude Connect row that leads the tab (ClaudeConnectRow.tsx), while no Claude connection
+  /// serves Cloud.
+  connect?: ClaudeConnectRowProps;
   /// A distinctly named launch configuration; choosing it changes the harness.
   launch?: boolean;
   /// The harness's probe failed (its catalog entry is unavailable): its catalog rows are stale, so
@@ -239,7 +245,8 @@ export type QuickFamilies = {
   list: QuickFamily[];
   /// The chat's harness: its tab opens first, and only it shows Effort and Account.
   current?: string;
-  onPick(model: QuickModel): void;
+  /// Lands `model`; true when the pick instead sets its harness up, as `search.pick`.
+  onPick(model: QuickModel): boolean | void;
   /// Add harness…, the last item in the harness strip.
   onAddHarness?(): void;
   onLaunch?(id: string): void;

@@ -46,7 +46,9 @@ counts only when it is of that launch (not_of_launch); another is kept under
 arm asks the app when its watch ends: a daemon failure, or a daemon that is not connected then and
 DAEMON_REREAD_SECONDS later, fails the launch (report.json's `daemon_down`). The daemon's socket is the account's,
 by session, not the home's (DaemonLauncher.swift runtimeBase): "connected" counts only with a daemon of this
-launch's app copy (app_daemons), else the read is not judged and is no pass.
+launch's app copy (app_daemons), else the read is not judged and is no pass. With its own daemon connected,
+the bundled CLI reads Computer Use status. An off mode or a reason that points to cmux Remote fails that arm.
+A worker that lacks a macOS permission can answer from a fresh home.
 
 --dmg copies the app out of the DMG (mounted read-only, detached at once);
 --app copies it too. Every process the run starts runs from its private root
@@ -73,6 +75,7 @@ import json
 import os
 import plistlib
 import re
+import select
 import shutil
 import signal
 import socket
@@ -289,14 +292,22 @@ def detach(mount: Path) -> None:
     log(f"warning: could not detach {mount}")
 
 
-def fresh_env(root: Path, socket_path: Path, marks_fd: int) -> dict[str, str]:
-    """No runner variable reaches the app (no token, no key, no CMUX_* routing): only these."""
+# The app's updater stays off in every copy a harness starts (ManagedUpdatePolicy.environmentKey, a forced
+# DisableAutoUpdate for that one process). A copy of an older build otherwise sees a newer one, downloads it, and
+# Sparkle's installer asks the unattended Mac for an administrator password (launch_tti_check's cold_install round,
+# 2026-11-22). A harness that measures a real Sparkle update passes updater=True.
+UPDATER_OFF_VARIABLE = "CMUX_DISABLE_AUTO_UPDATE"
+
+
+def fresh_env(root: Path, socket_path: Path, marks_fd: int, updater: bool = False) -> dict[str, str]:
+    """No runner variable reaches the app (no token, no key, no CMUX_* routing): only these. The app's updater is
+    off (UPDATER_OFF_VARIABLE) unless UPDATER."""
     home = root / "h"
     for sub in ("Library/Preferences", "Library/Application Support", "Library/Caches", "Library/Logs"):
         (home / sub).mkdir(parents=True, exist_ok=True)
     (root / "t").mkdir(exist_ok=True)
     user = os.environ.get("USER") or os.environ.get("LOGNAME") or ""
-    return {
+    env = {
         "HOME": str(home),
         "CFFIXED_USER_HOME": str(home),
         "TMPDIR": str(root / "t") + "/",
@@ -310,6 +321,38 @@ def fresh_env(root: Path, socket_path: Path, marks_fd: int) -> dict[str, str]:
         "CMUX_NEXT_NO_ACTIVATE": "1",
         "CMUX_NEXT_LAUNCH_MARKS_FD": str(marks_fd),
     }
+    if not updater:
+        env[UPDATER_OFF_VARIABLE] = "1"
+    return env
+
+
+def login_keychain(env: dict) -> None:
+    """A login keychain in ENV's fresh home, as a real install has.
+
+    Without one, a Release or nightly bundle's Chromium creates "cmux Safe Storage" through a Keychain dialog
+    nobody answers: "Keychain Not Found" over the window (runs 41419773317, 41582798853), and every quit of
+    post-update-hitches.py held in CefShutdown behind a worker in SecItemAdd -> AuthorizationCopyRights (12 of
+    12 hang files, cmuxterm-hq#11994). CMUX_MOCK_KEYCHAIN=1 is no way out here: the app drops an inherited
+    CMUX_MOCK_KEYCHAIN at launch (LaunchIdentity.inheritedKeys strips every inherited CMUX* variable but the
+    CMUX_NEXT_* knobs), so only a copy's own LSEnvironment can set it. Every `security` call runs with the
+    home's own HOME and CFFIXED_USER_HOME, so the keychain, its search list and the default are the fresh
+    home's: the runner account's own keychain settings are untouched (checked on cmux11s: default and search
+    list unchanged). A home that already has the keychain keeps it."""
+    home = Path(env["HOME"])
+    keychain = home / "Library" / "Keychains" / "login.keychain-db"
+    keychain.parent.mkdir(parents=True, exist_ok=True)
+    scoped = {"HOME": env["HOME"], "CFFIXED_USER_HOME": env["CFFIXED_USER_HOME"], "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+              "USER": env.get("USER", "")}
+    steps = [] if keychain.exists() else [["create-keychain", "-p", "", str(keychain)]]
+    steps += [["list-keychains", "-d", "user", "-s", str(keychain)],
+              ["default-keychain", "-d", "user", "-s", str(keychain)],
+              ["set-keychain-settings", str(keychain)]]
+    for args in steps:
+        done = subprocess.run(["security", *args], env=scoped, capture_output=True, text=True, timeout=30,
+                              start_new_session=True)
+        if done.returncode != 0:
+            raise CannotRun(f"security {args[0]} in the fresh home failed: {done.stderr.strip()[:300]}")
+    log(f"fresh home login keychain: {keychain}")
 
 
 class DefaultsAside:
@@ -411,6 +454,35 @@ class DefaultsAside:
         return False
 
 
+# The default the app keeps its last launch snapshot's path in, per session (LaunchSnapshotLocation.key).
+LAUNCH_SNAPSHOT_KEY_PREFIX = "cmuxNext.launchSnapshotPath."
+
+
+def defaults_before(bundle_id: str) -> dict:
+    """What the bundle's defaults domain holds just before a launch: its key names, sorted, and the value of
+    every `cmuxNext.launchSnapshotPath.*` key (no other key's value). A HOME of its own does not give a launch
+    its own defaults: cfprefsd keeps the domain in the account's real preferences, so a key here was written by
+    an earlier launch of the bundle. `error` (and no keys) when the domain could not be read; {} with no tool."""
+    tool = os.environ.get("CMUX_FRESH_SMOKE_DEFAULTS_TOOL") or shutil.which("defaults")
+    if not tool:
+        return {}
+    try:
+        done = subprocess.run([tool, "export", bundle_id, "-"], capture_output=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as error:
+        return {"error": f"defaults export: {error}"}
+    if done.returncode != 0:
+        return {"error": f"defaults export exited {done.returncode}: {done.stderr.decode(errors='replace')[:200]}"}
+    try:
+        domain = plistlib.loads(done.stdout)
+    except Exception as error:  # noqa: BLE001 - any unreadable export is "cannot tell"
+        return {"error": f"defaults export unreadable: {error}"}
+    if not isinstance(domain, dict):
+        return {"error": f"defaults export is a {type(domain).__name__}, not a dictionary"}
+    keys = sorted(str(key) for key in domain)
+    return {"keys": keys,
+            "launch_snapshot_paths": {key: domain[key] for key in keys if key.startswith(LAUNCH_SNAPSHOT_KEY_PREFIX)}}
+
+
 def snapshot(socket_path: Path, timeout: float = 5.0, request: int = 1) -> dict | None:
     """snapshot.get over the release control socket (newline-delimited JSON), None while it does not answer."""
     if not socket_path.exists():
@@ -467,6 +539,43 @@ def daemon_at_end(socket_path: Path, app: Path) -> list[dict]:
             break
         time.sleep(float(os.environ.get("CMUX_FRESH_SMOKE_DAEMON_REREAD_SECONDS", DAEMON_REREAD_SECONDS)))
     return reads
+
+
+def computer_use_at_end(app: Path, env: dict[str, str]) -> dict:
+    """The bundled CLI reaches its own daemon by bundle identity. Keep only its status fields in the report."""
+    cli = app / "Contents" / "Resources" / "bin" / "cmux"
+    try:
+        # Its caller retries for 30 s and a final worker endpoint request can take another 10 s.
+        done = subprocess.run([str(cli), "computer-use", "status", "--json"], env=env, cwd=env["HOME"],
+                              stdin=subprocess.DEVNULL, capture_output=True, timeout=45)
+        reply = json.loads(done.stderr if done.returncode else done.stdout)
+    except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+        return {"state": "error", "reason": str(error)}
+    if done.returncode and isinstance(reply, dict):
+        reason = reply.get("message")
+        code = reply.get("code")
+        if isinstance(reason, str) and reason:
+            if code == "computer_use_off":
+                return {"state": "off", "reason": reason}
+            # The worker reports permission_missing directly. An unavailable endpoint wraps the grant in its reason.
+            grant = reason.lower().replace("_", " ").replace("-", " ")
+            if code == "permission_missing" or (code == "computer_use_unavailable" and
+                    any(name in grant for name in ("accessibility", "screen recording", "permission missing", "tcc"))):
+                return {"state": "unavailable", "reason": reason}
+            return {"state": "error", "reason": reason}
+    elif isinstance(reply, dict):
+        mode, reason = reply.get("mode"), reply.get("reason")
+        if isinstance(mode, str) and mode and (reason is None or isinstance(reason, str)):
+            return {"state": "off" if mode == "off" else "ready", "mode": mode, "reason": reason}
+    return {"state": "error", "reason": "unrecognized Computer Use status reply"}
+
+
+def computer_use_failure(status: dict | None) -> str | None:
+    if status:
+        reason = status.get("reason") or ""
+        if status["state"] in ("off", "error") or "cmux remote" in reason.lower():
+            return f"Computer Use: {reason or status['state']}"
+    return None
 
 
 def daemon_down(reads: list[dict] | None, app: Path) -> str | None:
@@ -845,9 +954,27 @@ def screenshot(out: Path) -> str | None:
     return str(path) if ok and path.exists() else None
 
 
+# The longest the watch waits between its looks at the app (its socket, the cookie sync, the app's exit).
+WATCH_TICK = 0.25
+
+
+def wait_for_marks(marks_fd: int | None, seconds: float) -> None:
+    """Until the app writes a launch mark to MARKS_FD, at most SECONDS. Each step of the launch writes a mark (the
+    first frame, Home's first page), so the watch looks for Home as a step ends instead of up to a tick later:
+    a fixed 0.25 s sleep put up to 250 ms of the harness's own wait into each launch's time to Home. With no
+    pipe (None: it reached its end, or Home is already in) it is a plain wait."""
+    if marks_fd is None:
+        time.sleep(seconds)
+        return
+    try:
+        select.select([marks_fd], [], [], seconds)
+    except (OSError, ValueError):
+        time.sleep(seconds)
+
+
 def watch(process: subprocess.Popen, marks_fd: int, marks_path: Path, socket_path: Path,
           seconds: float, startup_timeout: float, seed: dict | None = None, scan_wait: float = 0.0,
-          daemon: bool = False) -> dict:
+          daemon: bool = False, env: dict[str, str] | None = None) -> dict:
     """Until SECONDS have passed with Home rendered (or STARTUP_TIMEOUT without it), or the app exits.
 
     SEED (the seeded arm): the callers' READY does not apply, and once Home rendered the watch also goes on until
@@ -862,15 +989,21 @@ def watch(process: subprocess.Popen, marks_fd: int, marks_path: Path, socket_pat
     host = {"cpus": os.cpu_count(), "load_at_launch": host_load(), "load_at_home": None}
     snap, rendered_at, status, scan, scanned_at = None, None, None, None, None
     ready = READY if seed is None else None
+    marks_ended = False
     with open(marks_path, "ab") as marks:
         while True:
-            try:
-                chunk = os.read(marks_fd, 1 << 16)
-                if chunk:
-                    marks.write(chunk)
-                    marks.flush()
-            except (BlockingIOError, OSError):
-                pass
+            if not marks_ended:
+                try:
+                    chunk = os.read(marks_fd, 1 << 16)
+                    if chunk:
+                        marks.write(chunk)
+                        marks.flush()
+                    else:
+                        marks_ended = True  # every writer closed it: a select on it would answer at once
+                except BlockingIOError:
+                    pass
+                except OSError:
+                    marks_ended = True
             elapsed = time.monotonic() - started
             status = process.poll()
             if status is not None:
@@ -892,13 +1025,18 @@ def watch(process: subprocess.Popen, marks_fd: int, marks_path: Path, socket_pat
                 # A seeded arm with Home up waits for the scan; without Home it ends as the first arm does.
                 if seed is None or scan is not None or rendered_at is None or elapsed >= scan_wait:
                     break
-            time.sleep(0.25)
+            # Until Home: a new mark ends the wait at once. After it the marks are only kept.
+            wait_for_marks(None if marks_ended or rendered_at is not None else marks_fd, WATCH_TICK)
     reads, app = None, Path(process.args[0]).parents[2]  # the launch's app copy
+    computer_use = None
     if daemon and status is None and rendered_at is not None and ready is None:
         reads = daemon_at_end(socket_path, app)
+        if env is not None and reads[-1]["state"] == "connected" and reads[-1].get("of_launch", True):
+            computer_use = computer_use_at_end(app, env)
         status = process.poll()
     seen = {"snapshot": snap, "rendered_at": rendered_at, "exit": status, "daemon": reads,
-            "daemon_down": daemon_down(reads, app), "seconds_up": round(time.monotonic() - started, 1), "host": host}
+            "daemon_down": daemon_down(reads, app), "computer_use": computer_use,
+            "seconds_up": round(time.monotonic() - started, 1), "host": host}
     if seed is not None:
         seen["cookie_sync"] = {**seed, "scanned_at": scanned_at, "scanned_hosts": (scan or {}).get("hosts")}
     return seen
@@ -1043,7 +1181,7 @@ def launch_seeded(args: argparse.Namespace, root: Path, launch: dict, arm: dict,
                 startup = min(max(args.seeded_seconds, args.startup_timeout), SEEDED_STARTUP_LIMIT)
                 scan_wait = float(os.environ.get("CMUX_FRESH_SMOKE_SEEDED_SCAN_WAIT_SECONDS", SEEDED_SCAN_WAIT))
                 seen.update(watch(process, marks_read, marks_path, socket_path, args.seeded_seconds, startup,
-                                  seed=seed, scan_wait=max(args.seeded_seconds, scan_wait), daemon=args.daemon))
+                                  seed=seed, scan_wait=max(args.seeded_seconds, scan_wait), daemon=args.daemon, env=env))
             finally:
                 stop_child(process)
                 stop(own_pids(root))
@@ -1080,8 +1218,10 @@ def launch_seeded(args: argparse.Namespace, root: Path, launch: dict, arm: dict,
                         f"{RENDER_MARK} {'seen' if RENDER_MARK in seen['marks'] else 'missing'})")
     if seen["daemon_down"]:
         failures.append(seen["daemon_down"])
+    if problem := computer_use_failure(seen["computer_use"]):
+        failures.append(problem)
     arm.update({key: seen[key] for key in ("exit", "seconds_up", "rendered_at", "crash_reports", "run_exceptions",
-                                           "cookie_sync", "daemon", "daemon_down", "host", "marks")})
+                                           "cookie_sync", "daemon", "daemon_down", "computer_use", "host", "marks")})
     arm["crash_reports_late"] = seen["crash_reports_late"] = []
     if failures:
         seen["failures"] = [f"seeded home: {failure}" for failure in failures]
@@ -1122,7 +1262,7 @@ def run_seeded(args: argparse.Namespace, root: Path, report: dict, launch: dict,
     exited or never rendered Home from the seeded home (the report then describes that launch, `arm` says so, and
     the first arm's stays in `arms`); otherwise STATUS, whatever this arm could or could not do."""
     arm: dict = {"verdict": NOT_RUN}
-    first = {key: report[key] for key in ("verdict", "exit", "seconds_up", "rendered_at", "failures", "host")
+    first = {key: report[key] for key in ("verdict", "exit", "seconds_up", "rendered_at", "failures", "computer_use", "host")
              if key in report}
     report["arm"], report["arms"] = EMPTY, {EMPTY: first, SEEDED: arm}
     if status != PASS:
@@ -1138,7 +1278,7 @@ def run_seeded(args: argparse.Namespace, root: Path, report: dict, launch: dict,
         """The report describes the seeded launch: at its verdict, so that a run cut in the evidence has it."""
         for key in ("exit", "seconds_up", "rendered_at", "snapshot", "marks", "home_tab", "crash_reports",
                     "crash_reports_late", "run_exceptions", "failures", "system_log_errors", "cookie_sync",
-                    "daemon", "daemon_down", "host"):
+                    "daemon", "daemon_down", "computer_use", "host"):
             report.pop(key, None)
             if key in seen:
                 report[key] = seen[key]
@@ -1161,6 +1301,58 @@ def run_seeded(args: argparse.Namespace, root: Path, report: dict, launch: dict,
         return status
     failed()  # again: with what the evidence added
     return FAIL
+
+
+def warm_launches(args: argparse.Namespace, root: Path, app: Path, executable: str) -> list[dict]:
+    """--warm N: once the first launch filled the home (and stopped), launches the same app copy N times more from
+    that same HOME and TMPDIR, inside the same set-aside defaults: the next launches of a person's app, whose
+    caches (Home's among them) are there from the first frame. Each runs WARM-SECONDS and is stopped as the first
+    was; its marks, its time to Home and its exit go in report.json's `warm`. A warm launch that exits or never
+    renders Home ends the series (and fails the run)."""
+    runs: list[dict] = []
+    for i in range(1, args.warm + 1):
+        socket_path, marks_path = root / f"w{i}.sock", root / f"marks-warm{i}"
+        marks_read, marks_write = os.pipe()
+        try:
+            try:
+                env = fresh_env(root, socket_path, marks_write)
+                log(f"==> warm launch {i} of {args.warm}: the same HOME={env['HOME']}, {args.warm_seconds:.0f}s")
+                with open(root / f"app-warm{i}.log", "wb") as app_log:
+                    process = subprocess.Popen([str(app / "Contents" / "MacOS" / executable),
+                                                "-ApplePersistenceIgnoreState", "YES"],
+                                               env=env, cwd=env["HOME"], stdin=subprocess.DEVNULL, stdout=app_log,
+                                               stderr=subprocess.STDOUT, pass_fds=(marks_write,),
+                                               start_new_session=True)
+            finally:
+                os.close(marks_write)
+            try:
+                seen = watch(process, marks_read, marks_path, socket_path, args.warm_seconds,
+                             max(args.warm_seconds, args.startup_timeout))
+            finally:
+                stop_child(process)
+                stop(own_pids(root))
+        finally:
+            os.close(marks_read)
+        runs.append({"pid": process.pid, "exit": seen["exit"], "seconds_up": seen["seconds_up"],
+                     "rendered_at": seen["rendered_at"], "host": seen["host"], "marks": read_marks(marks_path),
+                     "home_tab": home_tab(seen["snapshot"])})
+        if seen["exit"] is not None or seen["rendered_at"] is None:
+            break
+        log(f"ok: warm launch {i}: Home at {seen['rendered_at']:.1f}s")
+    return runs
+
+
+def tmpdir_left(root: Path) -> list[str]:
+    """What the app's own TMPDIR (ROOT/t) holds once every launch of the run has stopped: files the app made there
+    and did not remove, which a person's per-user TMPDIR keeps. Logged and kept in report.json's `tmpdir_left`
+    (the first 50 names); the run's root, and so this folder, is removed afterwards either way."""
+    try:
+        names = sorted(path.name for path in (root / "t").iterdir())
+    except OSError:
+        return []
+    if names:
+        log(f"FRESH-HOME app-tmp: the app left {len(names)} entries in its TMPDIR: {' '.join(names[:50])}")
+    return names[:50]
 
 
 def run(args: argparse.Namespace, root: Path, report: dict, launch: dict | None = None) -> int:
@@ -1200,7 +1392,7 @@ def run(args: argparse.Namespace, root: Path, report: dict, launch: dict | None 
         os.close(marks_write)
         try:
             seen = watch(process, marks_read, marks_path, socket_path, args.seconds,
-                         max(args.seconds, args.startup_timeout), daemon=args.daemon)
+                         max(args.seconds, args.startup_timeout), daemon=args.daemon, env=env)
         finally:
             os.close(marks_read)
         report.update(seen)
@@ -1213,6 +1405,9 @@ def run(args: argparse.Namespace, root: Path, report: dict, launch: dict | None 
             journey_failures = list(AFTER_RENDER(process, socket_path, env, app, out, report) or [])
         stop_child(process)
         stop(own_pids(root))
+        if args.warm and seen["exit"] is None and seen["rendered_at"] is not None and not journey_failures:
+            report["warm"] = warm_launches(args, root, app, executable)
+        report["tmpdir_left"] = tmpdir_left(root)
     # Only this launch's crash reports count. The name and the file's time also match a crash of ANOTHER launch
     # on this host in the same seconds: every fleet build's executable has one name, so another tagged build that
     # crashed there made a healthy launch a crash. The report says whose it is (not_of_launch).
@@ -1249,6 +1444,13 @@ def run(args: argparse.Namespace, root: Path, report: dict, launch: dict | None 
                         f"{FIRST_RUN_MARK} {'seen' if FIRST_RUN_MARK in report['marks'] else 'missing'})")
     if seen["daemon_down"]:
         failures.append(seen["daemon_down"])
+    if problem := computer_use_failure(seen["computer_use"]):
+        failures.append(problem)
+    for i, warm in enumerate(report.get("warm") or [], 1):
+        if warm["exit"] is not None:
+            failures.append(f"warm launch {i}: the app exited (status {warm['exit']}) {warm['seconds_up']:.1f}s after launch")
+        elif warm["rendered_at"] is None:
+            failures.append(f"warm launch {i}: Home did not render within {warm['seconds_up']:.0f}s")
     if not failures:
         report["verdict"] = "pass"
         log(f"==> fresh-home launch smoke OK: up {elapsed:.0f}s, Home at {seen['rendered_at']:.1f}s, no crash")
@@ -1289,6 +1491,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="how long the app must stay up in the seeded arm")
     parser.add_argument("--daemon", action="store_true",
                         help="also fail a launch whose daemon is not connected when the watch ends")
+    parser.add_argument("--warm", type=int, default=0, choices=range(0, 11), metavar="N",
+                        help="after the first launch, launch the app N more times from the same HOME (warm launches)")
+    parser.add_argument("--warm-seconds", type=float, default=15.0, help="how long each warm launch stays up")
     args = parser.parse_args(argv)
     # Evidence stays readable by the runner account when this runs as the console user (a sudo hop).
     os.umask(0o022)

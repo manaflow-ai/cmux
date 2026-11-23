@@ -117,3 +117,15 @@ pub fn local_date(iso: &str) -> String {
         Err(_) => iso.to_string(),
     }
 }
+
+/// A stored `date` as the local weekday, date and time, for `recall`
+/// (`Thu 2026-11-19 15:02`); a date in another format as stored.
+pub fn local_day_time(iso: &str) -> String {
+    match DateTime::parse_from_rfc3339(iso) {
+        Ok(t) => t
+            .with_timezone(&Local)
+            .format("%a %Y-%m-%d %H:%M")
+            .to_string(),
+        Err(_) => iso.to_string(),
+    }
+}

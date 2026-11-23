@@ -19,16 +19,18 @@ import { namesCheckpointFile, outsideRepository, turnCounts } from "../changes/t
 import { usePaneLanguage, useT, type Translate } from "../i18n";
 import { pathKey, plainEditLabels, type AcpmuxRow } from "../model";
 import { turnChanges, type EditedFile, type UndoStatus } from "../turnChanges/model";
-import { SessionEditsContext } from "../turnChanges/sessionRows";
+import { SessionCwdContext, SessionEditsContext } from "../turnChanges/sessionRows";
 import { useEditedFilesSettings } from "../turnChanges/settings";
 import { applyUndo, cancelUndo, checkUndo, useUndoState, type UndoState } from "../turnChanges/undoStore";
 import { setCardOpen, useCardOpen } from "../turnChanges/openStore";
+import { TurnShots } from "../turnChanges/TurnShotsPair";
 import { HEADER_TOGGLE_ATTRIBUTE, headerToggleClick } from "./headerToggle";
 import { DiffFile, Undo } from "./icons";
 import { Icon } from "../icons/Icon";
 import { ToolRows } from "./TurnRows";
 import { useTranscriptReadOnly } from "./readOnly";
 import "./EditedFilesCard.css";
+import { intl } from "../../../ui/intl";
 
 /// `onOpenDiff` opens the turn's changes, at `path` when given; focus returns to `opener`.
 export function EditedFilesCard({
@@ -49,9 +51,8 @@ export function EditedFilesCard({
   if (settings.show === "never" || (settings.scope === "session" && sessionEdits && latest !== row.id))
     return <ToolRows row={row} sessionId={sessionId} />;
   const rows = settings.scope === "session" && sessionEdits ? sessionEdits : own;
-  // Only the chat's latest card shows its buttons at rest; an earlier one shows them on hover or
-  // keyboard focus, as an earlier reply's footer does (Leo, 2026-11-11: "holy fuck it's so shitty to
-  // look at the transcript right now"). With no session rows (a lone card) it is the latest.
+  // `earlier`: not the chat's latest card (a lone card, with no session rows, is the latest). Every
+  // card shows its Undo and View changes at rest, as the Codex app does (Lucas, 2026-11-14).
   return <Card row={row} rows={rows} earlier={Boolean(latest) && latest !== row.id} onOpenDiff={onOpenDiff} />;
 }
 
@@ -88,6 +89,10 @@ function Card({
     [countsFor, row.id, rows.length, toolFiles, pathsOnly],
   );
   const files = counts.files;
+  // A path reads from the turn's repository (the checkpoint's root), else from the chat's folder, as
+  // the Codex app lists them: a watched or checkpointless chat no longer shows /Users/... paths.
+  const cwd = useContext(SessionCwdContext);
+  const fromRoot = (path: string) => shownPath(path, [counts.root, cwd]);
   // Undo works from the tool calls' full texts, by the paths the agent wrote.
   const changes = useMemo(() => turnChanges(row.id, rows, toolFiles), [row.id, rows, toolFiles]);
   const undoState = useUndoState(row.id);
@@ -156,7 +161,6 @@ function Card({
     <div
       className="acpmux-edited"
       data-earlier={earlier ? "" : undefined}
-      // An Undo under way, or its result, stays in sight on an earlier card too.
       data-undo={undoState.phase === "idle" ? undefined : undoState.phase}
     >
       {/* Header padding shares its pointer action; child controls keep their own clicks. */}
@@ -238,13 +242,14 @@ function Card({
         if (!entry.file) {
           // An edit with no diff: its path (dimmed folder, then the name), or "Unknown file".
           const path = entry.path;
-          const cut = path ? path.replace(/\/+$/, "").lastIndexOf("/") : -1;
+          const display = path ? fromRoot(path) : "";
+          const cut = display.replace(/\/+$/, "").lastIndexOf("/");
           return (
             <div className="acpmux-edited-file" key={entry.key}>
               {path ? (
                 <span className="acpmux-edited-path" data-path={path}>
-                  <DirPart dir={path.slice(0, cut + 1)} />
-                  <span className="acpmux-edited-base">{path.slice(cut + 1)}</span>
+                  <DirPart dir={display.slice(0, cut + 1)} />
+                  <span className="acpmux-edited-base">{display.slice(cut + 1)}</span>
                 </span>
               ) : (
                 <span className="acpmux-edited-path">{t("edited.unknownFile")}</span>
@@ -254,8 +259,7 @@ function Card({
           );
         }
         const file = entry.file;
-        const root = counts.root?.replace(/\/+$/, "");
-        const displayPath = root && file.path.startsWith(`${root}/`) ? file.path.slice(root.length + 1) : file.path;
+        const displayPath = fromRoot(file.path);
         const slash = displayPath.lastIndexOf("/");
         const label = (
           <>
@@ -284,6 +288,8 @@ function Card({
           </div>
         );
       })}
+      {/* The turn's page pictures show with the card's contents: collapsed, they wait until it opens. */}
+      {row.ended === true && open && <TurnShots rowId={row.id} />}
       {open && (more > 0 || showAll) && !single && total > limit && (
         <button
           type="button"
@@ -388,7 +394,7 @@ function UndoConfirm({
             {names.length === 1
               ? t("edited.undoSkip.unknown.one", { file: names[0]! })
               : t("edited.undoSkip.unknown.other", {
-                  files: new Intl.ListFormat(language, { type: "conjunction" }).format(names),
+                  files: intl.ListFormat(language, { type: "conjunction" }).format(names),
                 })}
           </div>
         )}
@@ -442,9 +448,20 @@ function FileStatus({
 
 /// The directory part of a row's path. Too long for the row, it drops its middle: the first segment
 /// stays, and the rest shows its end ("src/…/net/").
+/// `path` from the first of `roots` it lies inside, else as given.
+function shownPath(path: string, roots: readonly (string | undefined)[]): string {
+  for (const root of roots) {
+    const base = root?.replace(/\/+$/, "");
+    if (base && path.startsWith(`${base}/`)) return path.slice(base.length + 1);
+  }
+  return path;
+}
+
 function DirPart({ dir }: { dir: string }) {
   if (!dir) return null;
-  const cut = dir.indexOf("/") + 1;
+  // The first folder stays whole and the rest ends in an ellipsis on its left; an absolute path's
+  // first folder is its first name (`/Users/`), not the bare root slash.
+  const cut = dir.indexOf("/", dir.startsWith("/") ? 1 : 0) + 1;
   const head = dir.slice(0, cut);
   const tail = dir.slice(cut);
   return (

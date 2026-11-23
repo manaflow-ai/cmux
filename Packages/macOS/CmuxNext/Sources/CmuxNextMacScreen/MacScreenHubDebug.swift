@@ -1,7 +1,7 @@
 public import CmuxNextControl
-#if DEBUG
 import CmuxNextDevices
 import CmuxNextSettings
+#if DEBUG
 import Foundation
 
 /// `debug.device_hub` (development builds): the device hub as Mac Screen and
@@ -26,11 +26,18 @@ import Foundation
 /// - `set_shared` {shared}: Allow Mac Screen on this Mac.
 /// - `rename` {device, name}, `remove` {device}.
 /// - `end` {session, reason?}; `stop_sharing`; `revoke_viewer`.
+/// - `capture_prepare`/`capture_cleanup` {lease_id, bundle_id}: the exact
+///   lease-bound keychain namespace used by protected captures. Prepare must
+///   run before credentials; cleanup runs after sign-out. Neither returns
+///   service names, accounts, identity values or secrets.
 /// - `relay_add` {name, urls, mode, secret_file, enabled?, priority?, id?}:
 ///   `secret_file` holds `{"secret":…}` or `{"username":…,"password":…}`.
 /// - `relay_delete` {id}; `relay_check` {id}.
 /// - `refresh`: devices, permissions, relays and the audit log again.
 /// - `audit` {limit?}: the newest entries as History shows them.
+/// - `preview_approval` {name?, scope?}: shows the approval prompt for a
+///   fixture request (no hub needed), for screenshots; its answers reach
+///   no device. `preview_approval_clear` takes it away.
 extension MacScreenPages {
     public func registerDeviceHubDebug(on router: ControlRouter?, settings: MacScreenDevicesSettings?,
                                 openTab: @escaping @MainActor (MacScreenRecord, String?) -> String?) {
@@ -46,6 +53,40 @@ extension MacScreenPages {
                         openTab: @MainActor (MacScreenRecord, String?) -> String?) async -> JSONValue {
         let action = params["action"]?.stringValue ?? "state"
         if action == "state" { return hubState }
+        if action == "capture_prepare" || action == "capture_cleanup" {
+            guard let leaseID = params["lease_id"]?.stringValue,
+                  let bundleID = params["bundle_id"]?.stringValue else {
+                return ["ok": .bool(false), "code": .string(DeviceHubCaptureCleanupResult.Code.bundleMismatch.rawValue),
+                        "identity_removed": .number(0), "relays_removed": .number(0), "verified_absent": .bool(false),
+                        "hub_quiescent": .bool(false)]
+            }
+            guard let captureCleanup else {
+                return ["ok": .bool(false), "code": .string("capture_cleanup_unavailable"),
+                        "identity_removed": .number(0), "relays_removed": .number(0), "verified_absent": .bool(false),
+                        "hub_quiescent": .bool(false)]
+            }
+            let phase: DeviceHubCaptureCleanupPhase = action == "capture_prepare" ? .prepare : .cleanup
+            let result = await captureCleanup(phase, leaseID, bundleID)
+            return ["ok": .bool(result.ok), "code": .string(result.code.rawValue),
+                    "identity_removed": .number(Double(result.identityRemoved)),
+                    "relays_removed": .number(Double(result.relaysRemoved)),
+                    "verified_absent": .bool(result.verifiedAbsent),
+                    "hub_quiescent": .bool(result.hubQuiescent)]
+        }
+        #if DEBUG
+        // Captures of the device-control prompt with no device hub: a fixture request, and none again.
+        if action == "preview_approval" {
+            approval.update([SessionRequest(
+                id: "debug-preview", viewerId: "debug-preview", viewerName: params["name"]?.stringValue ?? "iPhone",
+                viewerKeyFingerprint: "78be18e0c08c9c4d7443d95e2db68074a1b2c3d4e5f60718293a4b5c6d7e8f90",
+                scope: params["scope"]?.stringValue.flatMap(SessionScope.init(rawValue:)) ?? .full)])
+            return ["previewing": true]
+        }
+        if action == "preview_approval_clear" {
+            approval.update([])
+            return ["previewing": false]
+        }
+        #endif
         guard let hub else { return ["error": "not signed in to a device hub"] }
         func scope(_ key: String) -> SessionScope? { params[key]?.stringValue.flatMap(SessionScope.init(rawValue:)) }
         func fail(_ error: any Error) -> JSONValue { ["error": .string((error as? DeviceHubError)?.description ?? "\(error)")] }
@@ -155,7 +196,8 @@ extension MacScreenPages {
                     "view_only": .bool(pane.model.viewOnly), "card": pane.model.card.map { .string("\($0)") } ?? .null]
         }
         guard let hub else {
-            return ["configured": .bool(hubConfigured), "signed_in": .bool(false), "tabs": .array(tabsRows)]
+            return ["configured": .bool(hubConfigured), "restoring": .bool(hubRestoring), "signed_in": .bool(false), "tabs": .array(tabsRows),
+                    "last_error": hubStartupError.map(JSONValue.string) ?? .null]
         }
         let me = hub.identity.id
         let devices: [JSONValue] = hub.devices.map { device in

@@ -1,5 +1,6 @@
 // The todo list from before the person's last message (turns.ts earlierTurnPlan, withEarlierPlan):
-// The earlier list stays in sight until the agent writes a new one.
+// The earlier list stays in sight until the agent writes a new one, for one message only: a list no
+// turn touched since the one before the person's message has expired.
 import { expect, test } from "bun:test";
 import type { AcpmuxPlanEntry, AcpmuxRow } from "../model";
 import { earlierTurnPlan, withEarlierPlan } from "./turns";
@@ -50,6 +51,25 @@ test("another session's turn after the person's gets no carry-over", () => {
   expect(
     earlierTurnPlan([row("user"), stopped(), row("user"), row("assistant"), incoming, row("assistant")]),
   ).toBeUndefined();
+});
+
+test("a list a whole turn went by without has expired", () => {
+  expect(
+    earlierTurnPlan([row("user"), stopped(), row("assistant"), row("user"), row("assistant"), row("user")]),
+  ).toBeUndefined();
+});
+
+test("a coordinator's list under other sessions' messages has expired when the person writes", () => {
+  const incoming = () => row("user", { incoming: { kind: "message" } as AcpmuxRow["incoming"] });
+  expect(
+    earlierTurnPlan([row("user"), stopped(), incoming(), row("assistant"), incoming(), row("assistant"), row("user")]),
+  ).toBeUndefined();
+});
+
+test("a list another session's turn wrote carries over to the person's next message", () => {
+  const incoming = row("user", { incoming: { kind: "message" } as AcpmuxRow["incoming"] });
+  const plan = stopped();
+  expect(earlierTurnPlan([row("user"), row("assistant"), incoming, plan, row("user")])).toBe(plan);
 });
 
 test("another session's message is not the person's", () => {

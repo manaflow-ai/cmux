@@ -131,7 +131,7 @@ impl PtySurface {
 
     pub(super) fn broadcast_attach_output(&self, bytes: &[u8]) -> bool {
         cmux_flow_trace::hop_on_traced("daemon.output.attach", self.flow_terminal_id());
-        self.snapshot_position.add_output(bytes.len());
+        self.snapshot_position.add_output(bytes);
         let mut taps = self.taps.lock().unwrap();
         if taps.is_empty() {
             return false;
@@ -168,8 +168,70 @@ impl PtySurface {
     }
 
     /// Send `frame` to replay viewers only; snapshot viewers are untouched.
-    pub(super) fn broadcast_attach_frame_to_replay_taps(&self, frame: AttachFrame) {
-        self.taps.lock().unwrap().retain(|tap| tap.is_snapshot() || tap.try_send(frame.clone()));
+    pub(super) fn broadcast_attach_frame_to_replay_taps(
+        &self,
+        frame: AttachFrame,
+        windows: &TapWindowReplays,
+    ) {
+        self.taps
+            .lock()
+            .unwrap()
+            .retain(|tap| tap.is_snapshot() || tap.try_send(windows.frame_for(tap, &frame)));
+    }
+
+    /// A replacement replay (`ResizedWithColors`) for each history window the
+    /// byte viewers hold (`history_window`), built from `term` under its
+    /// lock: a viewer that attached with `replay_history_rows` gets its own
+    /// window of the reflowed terminal, not `frame`'s whole history. One
+    /// replay per distinct window; none when no viewer holds one.
+    pub(super) fn tap_window_replays_locked(
+        &self,
+        term: &mut Terminal,
+        frame: &AttachFrame,
+    ) -> TapWindowReplays {
+        let AttachFrame::ResizedWithColors { cols, rows, colors, .. } = frame else {
+            return TapWindowReplays::default();
+        };
+        let mut windows = Vec::<HistoryWindow>::new();
+        for tap in self.taps.lock().recover_poison().iter() {
+            if let Some(window) = tap.history
+                && !windows.contains(&window)
+                && !tap.is_snapshot()
+            {
+                windows.push(window);
+            }
+        }
+        let replays = windows
+            .into_iter()
+            .map(|window| {
+                // A replay that cannot be built leaves this viewer `frame`'s.
+                let replay = window_replay_locked(term, Some(window)).ok().map(
+                    |(replay, history_rows_omitted, _)| AttachFrame::ResizedWithColors {
+                        cols: *cols,
+                        rows: *rows,
+                        replay: replay.bytes.into(),
+                        kitty_image_aliases: replay.kitty_image_aliases,
+                        kitty_state: replay.kitty_state,
+                        colors: colors.clone(),
+                        pending_sequence: replay.pending_sequence.into(),
+                        history_rows_omitted,
+                    },
+                );
+                (window, replay)
+            })
+            .collect();
+        TapWindowReplays(replays)
+    }
+
+    /// Send a replacement replay to every byte viewer, each its own history
+    /// window (`tap_window_replays_locked`), under the terminal lock.
+    pub(super) fn broadcast_resized_locked(&self, term: &mut Terminal, frame: AttachFrame) {
+        let windows = self.tap_window_replays_locked(term, &frame);
+        self.snapshot_position.observe_frame(&frame);
+        self.taps
+            .lock()
+            .recover_poison()
+            .retain(|tap| tap.try_send(windows.frame_for(tap, &frame)));
     }
 
     /// Disconnect replay viewers (they reattach from fresh state); snapshot
@@ -235,7 +297,7 @@ impl PtySurface {
         if !replay.pending_sequence.is_empty() {
             self.cancel_taps_without_pending_support();
         }
-        self.broadcast_attach_frame(AttachFrame::ResizedWithColors {
+        let frame = AttachFrame::ResizedWithColors {
             cols: term.cols(),
             rows: term.rows(),
             replay: replay.bytes.into(),
@@ -243,7 +305,9 @@ impl PtySurface {
             kitty_state: replay.kitty_state,
             colors,
             pending_sequence: replay.pending_sequence.into(),
-        });
+            history_rows_omitted: None,
+        };
+        self.broadcast_resized_locked(term, frame);
     }
 
     /// Emit at most one latest effective palette snapshot per frame cadence.
@@ -742,16 +806,18 @@ impl PtySurface {
                 kitty_state: replay.kitty_state,
                 colors,
                 pending_sequence: replay.pending_sequence.into(),
+                history_rows_omitted: None,
             };
+            let windows = self.tap_window_replays_locked(&mut term, &frame);
             if grid_changed {
-                self.publish_resize_locked(&term, Some(frame));
+                self.publish_resize_locked(&term, Some(frame), &windows);
             } else {
                 // A cell-pixel-only change reflows nothing: snapshot viewers
                 // keep their grid and generation.
-                self.broadcast_attach_frame_to_replay_taps(frame);
+                self.broadcast_attach_frame_to_replay_taps(frame, &windows);
             }
         } else if grid_changed {
-            self.publish_resize_locked(&term, None);
+            self.publish_resize_locked(&term, None, &TapWindowReplays::default());
         }
         // Geometry changes are terminal-stream transitions too. Publish the
         // revision before releasing the parser lock so screen snapshots have
@@ -790,4 +856,19 @@ fn send_to_each(taps: &mut Vec<AttachTap>, frame: AttachFrame) {
         index = index.saturating_add(1);
         send.is_some_and(|send| tap.try_send(send))
     });
+}
+
+/// The replacement replays of a resize or resync for the byte viewers that
+/// hold a history window ([`PtySurface::tap_window_replays_locked`]).
+#[derive(Default)]
+pub(super) struct TapWindowReplays(Vec<(HistoryWindow, Option<AttachFrame>)>);
+
+impl TapWindowReplays {
+    /// What `tap` gets in place of `frame`: its window's replay, else `frame`.
+    pub(super) fn frame_for(&self, tap: &AttachTap, frame: &AttachFrame) -> AttachFrame {
+        tap.history
+            .and_then(|window| self.0.iter().find(|(held, _)| *held == window))
+            .and_then(|(_, replay)| replay.clone())
+            .unwrap_or_else(|| frame.clone())
+    }
 }

@@ -7,7 +7,7 @@ to Lawrence until every P0 journey passes on that exact build, the earlier dogfo
 all in it, and an independent QA agent says ship (`dogfood-gate.py`).
 
 The lead runs journeys at the moments that matter (a dogfood build, a fix for a journey's bug,
-before a handoff). They are not a CI job, step or gate, and must not become one.
+before a handoff). They are not a CI job, step or gate (written under the 2026-10-23 no-new-CI rule, since lifted).
 
 ## Run
 

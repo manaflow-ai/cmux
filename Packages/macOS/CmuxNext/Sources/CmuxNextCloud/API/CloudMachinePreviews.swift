@@ -62,7 +62,7 @@ public struct CloudPreviewShareLinkRevocation: Decodable, Sendable, Equatable {
 extension CloudAPIClient {
     /// Preview ingress lives at cmux-platform, while the existing guest API keeps its Worker.
     public func previewClient(baseURL: URL) -> CloudAPIClient {
-        CloudAPIClient(baseURL: baseURL, tokens: tokens, teamID: teamID, session: session, appVersion: appVersion)
+        CloudAPIClient(baseURL: baseURL, tokens: tokens, teamID: teamID, session: session, appVersion: appVersion, buildSpace: buildSpace)
     }
 
     /// New Cloud only: discovers current listeners and reconciles their private preview routes.

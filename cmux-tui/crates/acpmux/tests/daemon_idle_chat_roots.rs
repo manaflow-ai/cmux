@@ -20,7 +20,7 @@ use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
 /// Writes per second into files no chat is read from.
@@ -378,8 +378,12 @@ fn measure(pick: fn(Noise) -> Vec<PathBuf>) -> Measured {
     private_dir(&acpmux);
     let home = daemon_env::home(&scratch);
     let noisy = pick(chat_home(&home));
-    // A socket path stays short (SUN_LEN): not under the long scratch path.
-    let short = PathBuf::from(format!("/tmp/amx-ir-{}", std::process::id()));
+    // A socket path stays short (SUN_LEN): not under the long scratch path. Each daemon of this
+    // process gets its own folder: the tests run at once, and a shared socket path left one
+    // daemon never ready.
+    static DAEMONS: AtomicUsize = AtomicUsize::new(0);
+    let n = DAEMONS.fetch_add(1, Ordering::Relaxed);
+    let short = PathBuf::from(format!("/tmp/amx-ir-{}-{n}", std::process::id()));
     private_dir(&short);
     let socket = short.join("s.sock");
     let mut child = daemon_env::command(&scratch, daemon_env::Agents::StandIn, &[])

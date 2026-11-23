@@ -145,7 +145,7 @@ enum DebugWindowSnapshot {
                 childrenIncluded += pageChildren
             }
             var failed = 0
-            for webView in webViews where base.method == .appkit {
+            for webView in webViews where base.method == .appkit && !webView.cmuxIsSuspended { // WebKit raises on a frozen page's snapshot
                 do {
                     let image = try await webView.takeSnapshot(configuration: nil)
                     var proposedRect = NSRect.zero
@@ -158,7 +158,7 @@ enum DebugWindowSnapshot {
                     failed += 1
                 }
             }
-            let pages = await AppWindowImage.pageLayers(in: window, services: services)
+            let pages = await AppWindowImage.pageLayers(in: window, services: services, skip: base.method == .composited && params["chromium_pages"]?.boolValue == false)
             layers += pages.layers
             let pagesFailed = pages.failed
             var floatingCount = together?.floating ?? 0

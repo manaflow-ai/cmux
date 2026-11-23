@@ -102,8 +102,11 @@ public final class HomeChiefSettingsView: NSView {
     /// Makes this Chief the account's primary one (texts to the cmux line reach it); nil when it
     /// is primary now, else why not. The app sets it for a cloud Chief.
     public var onMakePrimary: @MainActor () async -> String? = { nil }
-    /// The Primary Chief checkbox and its note; hidden for a Chief with no account record (``setPrimary(_:)``).
-    let primaryBox = NSButton(checkboxWithTitle: HomeEngineStrings.primaryRow, target: nil, action: nil)
+    /// The Primary Chief switch and its note; hidden for a Chief with no account record (``setPrimary(_:)``).
+    /// A switch, as the card's other on/off rows (Leo: "a toggle is nicer than a checkbox").
+    let primaryBox = NSSwitch()
+    /// The Primary Chief row: its title at the leading edge, ``primaryBox`` at the trailing edge.
+    lazy var primaryRowView: NSView = Self.row(HomeEngineStrings.primaryRow, primaryBox)
     let primaryNote = HomeChiefSettingsView.footnote(HomeEngineStrings.primaryNote)
     /// Runs On: where this Mac's Chief runs, whose chip opens the Teleport menu (``showTeleport(_:)``); hidden for other Chiefs.
     let teleportRow = NSStackView()

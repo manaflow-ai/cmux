@@ -68,6 +68,8 @@ export type SchemaRow = {
    * menu mutes a workspace). Still valid through settings.set. */
   page_hidden: boolean;
   validation: string;
+  /** domain:app_id: the app manifest's id pattern (cmux-app.schema.json `properties.id.pattern`). */
+  pattern?: string;
   accepts: unknown[];
   refuses: unknown[];
 };
@@ -96,7 +98,8 @@ export type PageCategory = {
 
 /** A titled run of categories in the page's sidebar (Swift `SettingsPageLayout.SidebarSection`);
  * the lead run (General, Updates) has a null title. */
-export type PageSidebarSection = { id: string; title: LocalizedText | null; categories: string[] };
+/** A sidebar section of the export; `collapsed` (More) is drawn closed until opened. */
+export type PageSidebarSection = { id: string; title: LocalizedText | null; collapsed?: boolean; categories: string[] };
 
 export type PageLayout = {
   default_category: string;

@@ -8,13 +8,15 @@
       "components": {
         "Contents/Frameworks/Chromium Embedded Framework.framework": 350000000,
         "Contents/Resources/bin": 104000000,
-        "Contents/MacOS/cmux": 104000000,
+        "Contents/Frameworks/CmuxNextApp.framework": 104000000,
+        "Contents/MacOS/cmux": 1000000,
         "Contents/Resources/markdown-viewer": 28200000,
         "Contents/Resources/Extensions": 16500000,
         "Contents/Library/cmux Computer Use.app": 15000000,
         "Contents/Resources/CmuxNext_CmuxNextPages.bundle": 14500000,
         "Contents/Resources/CmuxNext_CmuxNextAgentPane.bundle": 10500000,
-        "Contents/Frameworks/Sentry.framework": 3400000
+        "Contents/Frameworks/Sentry.framework": 3400000,
+        "Contents/Frameworks/libcmux_app_ffi.dylib": 17000000
       },
       "forbidden": [
         "Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A/Resources/v8_context_snapshot.x86_64.bin",
@@ -32,13 +34,15 @@
       "pack_max_bytes": 115000000,
       "components": {
         "Contents/Resources/bin": 104000000,
-        "Contents/MacOS/cmux": 104000000,
+        "Contents/Frameworks/CmuxNextApp.framework": 104000000,
+        "Contents/MacOS/cmux": 1000000,
         "Contents/Resources/markdown-viewer": 28200000,
         "Contents/Resources/Extensions": 16500000,
         "Contents/Library/cmux Computer Use.app": 15000000,
         "Contents/Resources/CmuxNext_CmuxNextPages.bundle": 14500000,
         "Contents/Resources/CmuxNext_CmuxNextAgentPane.bundle": 10500000,
-        "Contents/Frameworks/Sentry.framework": 3400000
+        "Contents/Frameworks/Sentry.framework": 3400000,
+        "Contents/Frameworks/libcmux_app_ffi.dylib": 17000000
       },
       "forbidden": [
         "Contents/Frameworks/Chromium Embedded Framework.framework",
@@ -90,6 +94,12 @@
         "lockfile": "cmux-tui/crates/cmux-remote-browser-host/Cargo.lock",
         "roots": [
           "cmux-remote-browser-host"
+        ]
+      },
+      {
+        "lockfile": "cmux-tui/crates/cmux-rd-host/Cargo.lock",
+        "roots": [
+          "cmux-rd-host"
         ]
       },
       {

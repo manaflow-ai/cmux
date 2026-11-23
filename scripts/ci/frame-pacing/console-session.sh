@@ -7,9 +7,10 @@
 # the console user's GUI session. A runner agent outside it (a root or daemon
 # context) hops in with `sudo -n launchctl asuser`, as main's
 # scripts/ci/run-in-console-session.sh does for app-host tests (cmux-next
-# deleted that one with the legacy app in #15659). With no console user or no
-# passwordless sudo it runs the command where it is, which is right for a
-# runner that is already the console user's LaunchAgent.
+# deleted that one with the legacy app in #15659). Already in Aqua, with no
+# console user, or with no passwordless sudo for launchctl it runs the command
+# where it is, which is right for a runner that is already the console user's
+# LaunchAgent.
 #
 # Only these variables cross, and only when set: PATH DEVELOPER_DIR
 # GITHUB_WORKSPACE RUNNER_TEMP CI GITHUB_ACTIONS CMUX_TAG. HOME is the console
@@ -22,8 +23,11 @@ if [ "$#" -eq 0 ]; then
 fi
 
 console_user="$(stat -f %Su /dev/console 2>/dev/null || true)"
-if [ -n "$console_user" ] && [ "$console_user" != root ] && [ "$console_user" != loginwindow ] \
-  && console_uid="$(id -u "$console_user" 2>/dev/null)" && sudo -n true 2>/dev/null; then
+manager="$(launchctl managername 2>/dev/null || true)"
+# A runner already in Aqua needs no hop, and a hop needs launchctl itself under sudo: a Mac whose sudoers
+# grants other commands (purge, fs_usage) but not launchctl runs the command where it is.
+if [ "$manager" != Aqua ] && [ -n "$console_user" ] && [ "$console_user" != root ] && [ "$console_user" != loginwindow ] \
+  && console_uid="$(id -u "$console_user" 2>/dev/null)" && sudo -n -l launchctl >/dev/null 2>&1; then
   console_home="$( (dscl . -read "/Users/$console_user" NFSHomeDirectory 2>/dev/null || true) | awk '{print $2}')"
   [ -n "$console_home" ] || console_home="$HOME"
   env_pairs=()
@@ -39,7 +43,7 @@ if [ -n "$console_user" ] && [ "$console_user" != root ] && [ "$console_user" !=
 fi
 
 # A LaunchAgent already runs in Aqua without sudo; anything else draws nothing.
-if [ "$(launchctl managername 2>/dev/null || true)" != Aqua ]; then
+if [ "$manager" != Aqua ]; then
   echo "::warning::Not in a console user's Aqua session (console user '${console_user:-none}', no passwordless sudo hop); the bench's windows may not draw." >&2
 fi
 exec "$@"

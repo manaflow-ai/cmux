@@ -30,13 +30,36 @@ pub(super) fn spawn_attach_notification_stream(
     lifecycle: AttachLifecycle,
     outbound_stream: OutboundStream,
 ) -> std::io::Result<()> {
-    spawn_attach_notification_stream_gated(
+    spawn_attach_notification_stream_coalesced(
         mux,
         surface_id,
         writer,
         lifecycle,
         outbound_stream,
         None,
+    )
+}
+
+/// ``spawn_attach_notification_stream`` for a byte attach with
+/// `attach-output-coalesce-v1`: `scroll-changed` goes out at most once per
+/// `scroll_interval` (the newest position; the first one after an idle
+/// interval at once), like its `output`. Notifications are never held.
+pub(super) fn spawn_attach_notification_stream_coalesced(
+    mux: Arc<Mux>,
+    surface_id: SurfaceId,
+    writer: MessageWriter,
+    lifecycle: AttachLifecycle,
+    outbound_stream: OutboundStream,
+    scroll_interval: Option<std::time::Duration>,
+) -> std::io::Result<()> {
+    spawn_notification_stream(
+        mux,
+        surface_id,
+        writer,
+        lifecycle,
+        outbound_stream,
+        None,
+        scroll_interval,
     )
 }
 
@@ -50,6 +73,18 @@ pub(super) fn spawn_attach_notification_stream_gated(
     lifecycle: AttachLifecycle,
     outbound_stream: OutboundStream,
     gate: Option<crate::surface::snapshot_attach::SnapshotRequestGate>,
+) -> std::io::Result<()> {
+    spawn_notification_stream(mux, surface_id, writer, lifecycle, outbound_stream, gate, None)
+}
+
+fn spawn_notification_stream(
+    mux: Arc<Mux>,
+    surface_id: SurfaceId,
+    writer: MessageWriter,
+    lifecycle: AttachLifecycle,
+    outbound_stream: OutboundStream,
+    gate: Option<crate::surface::snapshot_attach::SnapshotRequestGate>,
+    scroll_interval: Option<std::time::Duration>,
 ) -> std::io::Result<()> {
     let events = mux.subscribe_attached_surface(surface_id);
     if let Some(gate) = &gate {
@@ -65,16 +100,34 @@ pub(super) fn spawn_attach_notification_stream_gated(
             events.wake_on(&interrupt);
             // The newest scroll position held while the viewer is hidden.
             let mut held_scroll: Option<Value> = None;
+            // `attach-output-coalesce-v1`: when the last `scroll-changed`
+            // went out; a newer one waits for `scroll_interval` after it.
+            let mut scroll_sent_at: Option<std::time::Instant> = None;
             while writer.is_open() && outbound_stream.is_open() && !lifecycle.is_canceled() {
                 let hidden = gate.as_ref().is_some_and(|gate| gate.is_hidden());
-                if !hidden
-                    && let Some(value) = held_scroll.take()
-                    && let Err(error) = writer.send_stream_backpressured(&value, &outbound_stream)
-                {
-                    handle_attach_send_error(&lifecycle, &error);
-                    break;
+                let now = std::time::Instant::now();
+                let scroll_due = match (scroll_interval, scroll_sent_at) {
+                    (Some(interval), Some(sent)) => now >= sent + interval,
+                    _ => true,
+                };
+                if !hidden && scroll_due && held_scroll.is_some() {
+                    if let Some(value) = held_scroll.take()
+                        && let Err(error) =
+                            writer.send_stream_backpressured(&value, &outbound_stream)
+                    {
+                        handle_attach_send_error(&lifecycle, &error);
+                        break;
+                    }
+                    if scroll_interval.is_some() {
+                        scroll_sent_at = Some(now);
+                    }
                 }
-                let event = match events.recv_until_interrupted(&interrupt) {
+                // Only a coalesced scroll waits on a clock; otherwise block.
+                let deadline = match (scroll_interval, scroll_sent_at, &held_scroll) {
+                    (Some(interval), Some(sent), Some(_)) if !hidden => Some(sent + interval),
+                    _ => None,
+                };
+                let event = match events.recv_until_interrupted_or(&interrupt, deadline) {
                     Ok(event) => event,
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                     Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
@@ -104,6 +157,18 @@ pub(super) fn spawn_attach_notification_stream_gated(
                         if gate.as_ref().is_some_and(|gate| gate.is_hidden()) {
                             held_scroll = Some(value);
                             continue;
+                        }
+                        if let Some(interval) = scroll_interval {
+                            let now = std::time::Instant::now();
+                            let idle = scroll_sent_at.is_none_or(|sent| now >= sent + interval);
+                            if held_scroll.is_some() || !idle {
+                                // Within an interval of the last one: the
+                                // newest position waits for its end.
+                                held_scroll = Some(value);
+                                continue;
+                            }
+                            // Leading edge: the first after an idle interval.
+                            scroll_sent_at = Some(now);
                         }
                         held_scroll = None;
                         value

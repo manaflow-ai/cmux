@@ -303,26 +303,30 @@ extension WindowController {
         let view = chiefPanelView ?? makeChiefPanelView()
         if view.floating != (state.chiefPanel.dockedEdge == nil) { view.setFloating(state.chiefPanel.dockedEdge == nil) }
         view.mount(in: root.contentHost)
-        view.hold(chief)
+        giveBackToHome(view.hold(chief))
         return state.chiefPanel
     }
 
     /// Takes the panel off screen; Home's pane that shows the Chief tab takes its view back.
     func removeChiefPanel() {
         guard let view = chiefPanelView, view.superview != nil else { return }
-        let hadKeys = view.hasKeys
-        let homeContent = content?.workspace.id == frameHome ? content : frameHome.flatMap { parked[$0] }
-        let panes = homeContent.map { Array($0.panes.values) } ?? []
-        if let chief = view.release() { for pane in panes where pane.view.content === chief { _ = pane.view.show(chief) } }
+        let hadKeys = view.hasKeys, homeContent = giveBackToHome(view.release())
         view.unmount()
         if hadKeys, homeContent !== content { frameFocusStage(toward: nil) }
+    }
+
+    /// Home's pane that shows `chief` (a view the panel let go) takes it back; Home's content.
+    @discardableResult private func giveBackToHome(_ chief: NSView?) -> WorkspaceContentController? {
+        let home = content?.workspace.id == frameHome ? content : frameHome.flatMap { parked[$0] }
+        if let chief { for pane in home.map({ Array($0.panes.values) }) ?? [] where pane.view.content === chief { _ = pane.view.show(chief) } }
+        return home
     }
 
     /// The stage's pane nearest the panel (`direction` says where from), else its focused pane, takes the keys.
     func focusStagePane(toward direction: LayoutDirection?) {
         guard let content, let window else { return }
         let focused = content.focus.state.pane.flatMap(content.paneController(key:))
-        let order = focused.flatMap { content.layoutModel.screen(containing: $0.layoutPaneID)?.layout.visualPanes } ?? []
+        let order = focused.flatMap { content.layoutModel.screen(containing: $0.layoutPaneID)?.visualPanes } ?? []
         let nearest = direction.flatMap { $0 == .right || $0 == .down ? order.first : order.last }.flatMap { content.panes[$0] }
         guard let pane = nearest ?? focused else { return }
         content.layoutModel.focus(pane.layoutPaneID, notify: false, source: .keyMove(byPerson: true))
@@ -338,12 +342,11 @@ extension WindowController {
     }
 
     private func makeChiefPanelView() -> ChiefPanelView {
-        let settings = services.settings, look = ChiefPanelScreenLook(share: { [weak services] in services?.chiefScreenShare }, settings: { settings })
+        let settings = services.settings
         let view = ChiefPanelView(title: HomeStrings.chiefName, launcher: ChiefLauncherPanel(frames: FloatingChatFrames(defaults: .standard, storageKey: ChiefLauncherPanel.framesKey)), actions: .init(
             toggleDock: { [weak self] in self.map { $0.toggleChiefPanelDock(edge: $0.services.chiefDockEdge) } }, hide: { [weak self] in self?.hideChiefPanel() },
-            moved: { [weak self] in self?.state.chiefPanel.floatingFrame = $0; self?.frameChiefPanelDidChange() }, stop: { [weak self] in _ = self?.services.registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user)) },
-            toggleSeesScreen: look.toggle, opened: { [weak self] in look.panelOpened(window: self?.window?.title) }))
-        view.follow({ ChiefPanelStyle(rawValue: settings?.snapshot.chiefPanelStyle ?? "") ?? .default }, seesScreen: { look.seesScreen })
+            moved: { [weak self] in self?.state.chiefPanel.floatingFrame = $0; self?.frameChiefPanelDidChange() }, stop: { [weak self] in _ = self?.services.registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user)) }))
+        view.follow({ ChiefPanelStyle(rawValue: settings?.snapshot.chiefPanelStyle ?? "") ?? .default })
         chiefPanelView = view
         return view
     }

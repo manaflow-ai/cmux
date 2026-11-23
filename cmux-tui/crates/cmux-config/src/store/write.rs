@@ -13,7 +13,10 @@ use crate::guard::{managed_key_for_path, managed_key_for_removal};
 use crate::jsonc::{self, JsoncError};
 use crate::keypath::{RESERVED_SHORTCUT_KEYS, dotted};
 use crate::refusal::Refusal;
-use crate::schema::{Row, accepts, retired_reason};
+use crate::schema::{
+    Row, accepts, normalize_backdrop, recents_of, record_recent, replaced_by_row, retired_keys,
+    retired_reason,
+};
 use crate::value::{canonical, is_empty_object, value_at};
 
 fn not_a_write() -> Refusal {
@@ -56,7 +59,7 @@ pub(super) fn apply_write(state: &State, op: Op) -> Result<Applied, Refusal> {
     let source = state.source.as_str();
     let (text, applied_edits) = match op {
         Op::Set { target, value, meta } => {
-            (set_text(state, source, &target, canonical(value), &meta)?, Vec::new())
+            (set_text(state, source, &target, canonical(value), &meta, true)?, Vec::new())
         }
         Op::Reset { target, meta } => (reset_text(state, source, &target, &meta)?, Vec::new()),
         Op::ResetAll { meta } => (reset_all_text(state, &meta)?, Vec::new()),
@@ -78,6 +81,15 @@ pub(super) fn apply_write(state: &State, op: Op) -> Result<Applied, Refusal> {
             return Err(Refusal::FileUnreadable { message: problem.clone() });
         }
         next.recompute();
+        // Once per write, so an edit batch records the background it started from.
+        let text = match record_background(state, &next, text)? {
+            Recorded::Same(text) => text,
+            Recorded::Changed(text) => {
+                next.read_file(super::FileRead::Text(text.clone()));
+                next.recompute();
+                text
+            }
+        };
         next.revision = state.revision + 1;
         // Every applied write bumps the revision once, even when no value changed.
         let keys = diff::changed_keys(&state.effective, &next.effective);
@@ -154,7 +166,7 @@ fn edit_text(
     let mut applied = Vec::new();
     for (index, edit) in edits.iter().enumerate() {
         let holds = match &edit.kind {
-            EditKind::Set(_) | EditKind::Reset => true,
+            EditKind::Set(_) | EditKind::SetExact(_) | EditKind::Reset => true,
             EditKind::SetUnset(_) => file_value(&text, &edit.target)?.is_none(),
             EditKind::ResetUnchanged(expected) => {
                 file_value(&text, &edit.target)?.map(canonical) == Some(canonical(expected.clone()))
@@ -165,7 +177,10 @@ fn edit_text(
         }
         text = match &edit.kind {
             EditKind::Set(value) | EditKind::SetUnset(value) => {
-                set_text(state, &text, &edit.target, canonical(value.clone()), meta)?
+                set_text(state, &text, &edit.target, canonical(value.clone()), meta, true)?
+            }
+            EditKind::SetExact(value) => {
+                set_text(state, &text, &edit.target, canonical(value.clone()), meta, false)?
             }
             EditKind::Reset | EditKind::ResetUnchanged(_) => {
                 reset_text(state, &text, &edit.target, meta)?
@@ -182,12 +197,15 @@ fn file_value(text: &str, target: &Target) -> Result<Option<Value>, Refusal> {
     Ok(value_at(&root, &target.path()).cloned())
 }
 
+/// `remove_default`: a schema row set to its default loses its key
+/// (`settings.set`); `set_exact` passes false and keeps it.
 fn set_text(
     state: &State,
     source: &str,
     target: &Target,
     value: Value,
     meta: &WriteMeta,
+    remove_default: bool,
 ) -> Result<String, Refusal> {
     let path = writable_path(state, target)?;
     if let Some(reason) = retired_reason(&path) {
@@ -196,28 +214,84 @@ fn set_text(
     let row = state.schema.row_at(&path);
     check_agent(row, &path, meta)?;
     check_managed(state, &path)?;
+    // A pasted YouTube address in a background row is stored as its `youtube:` id.
+    let value = match row {
+        Some(row) => normalize_backdrop(row, value),
+        None => value,
+    };
     if let Some(row) = row {
         accepts(row, &value, &state.domains)?;
         // The default's own value removes the key, so it keeps following the default when a later
         // release changes it (Swift `isUnsetValue`); not when a layer below the file fills the key.
         let below = state.managed.recommended.contains_key(&row.key)
-            || state.team.defaults.contains_key(&row.key)
-            || UNSET_IS_NOT_DEFAULT.contains(&row.key.as_str());
-        if row.default.clone().map(canonical).as_ref() == Some(&value) && !below {
-            return remove_pruning(source.to_string(), &path);
+            || state.team.defaults.contains_key(&row.key);
+        if remove_default && !below && row.default.clone().map(canonical).as_ref() == Some(&value) {
+            let text = remove_pruning(without_replaced(source.to_string(), &path)?, &path)?;
+            return Ok(text);
         }
     }
     if row.is_none() {
         check_row_overlap(state, &path)?;
     }
-    jsonc::set(source, &path, &value).map_err(unreadable)
+    let text = without_replaced(source.to_string(), &path)?;
+    jsonc::set(&text, &path, &value).map_err(unreadable)
 }
 
-/// Keys whose reader fills an unset key with something other than the row's default, so a written
-/// default is the person's own answer and stays (Swift `SettingsSchema.unsetIsNotDefaultKeys`): the
-/// login consents, which a DEV or NIGHTLY start reads as yes when unset (cmux#41072 review).
-const UNSET_IS_NOT_DEFAULT: &[&str] =
-    &["cloud.useMyClaudeLoginOnMyCloudMachines", "cloud.useMyCodexLoginOnMyCloudMachines"];
+const BACKGROUND: [&str; 2] = ["appearance", "background"];
+const BACKGROUND_RECENTS: [&str; 2] = ["appearance", "backgroundRecents"];
+
+enum Recorded {
+    Same(String),
+    Changed(String),
+}
+
+/// The background cmux shows: the effective value (theme, file, team defaults, recommended), else
+/// the schema default.
+fn shown_background(state: &State) -> Option<String> {
+    let path = parts(&BACKGROUND);
+    value_at(&state.effective.root, &path)
+        .cloned()
+        .or_else(|| state.schema.row_at(&path).and_then(|row| row.default.clone()))
+        .and_then(|value| value.as_str().map(str::to_string))
+}
+
+/// After a write that changes the background shown, from any surface, the background it replaced
+/// goes first in `appearance.backgroundRecents` (Leo, 2026-11-22: "it was cumbersome back then to
+/// switch back"), and the new one leaves the list. Nothing is recorded when the shown value did
+/// not change or a policy manages the recents.
+fn record_background(state: &State, next: &State, text: String) -> Result<Recorded, Refusal> {
+    let recents_path = parts(&BACKGROUND_RECENTS);
+    if check_managed(state, &recents_path).is_err() {
+        return Ok(Recorded::Same(text));
+    }
+    let (Some(previous), now) = (shown_background(state), shown_background(next)) else {
+        return Ok(Recorded::Same(text));
+    };
+    if now.as_deref() == Some(previous.as_str()) {
+        return Ok(Recorded::Same(text));
+    }
+    let root = jsonc::parse(&text).map_err(unreadable)?;
+    let old = recents_of(value_at(&root, &recents_path));
+    // The background now shown is not a recent one: the list is what one click goes back to.
+    let mut recents = record_recent(&old, &previous);
+    recents.retain(|recent| Some(recent) != now.as_ref());
+    if recents == old {
+        return Ok(Recorded::Same(text));
+    }
+    let value = Value::Array(recents.into_iter().map(Value::String).collect());
+    Ok(Recorded::Changed(jsonc::set(&text, &recents_path, &value).map_err(unreadable)?))
+}
+
+/// `text` without the retired key the row at `path` replaced, so the old key
+/// never applies behind a write or reset of the row (`schema::retired`).
+fn without_replaced(text: String, path: &[String]) -> Result<String, Refusal> {
+    let Some(replaced) = replaced_by_row(path) else { return Ok(text) };
+    let root = jsonc::parse(&text).map_err(unreadable)?;
+    if value_at(&root, &replaced.old).is_none() {
+        return Ok(text);
+    }
+    remove_pruning(text, &replaced.old)
+}
 
 /// A non-row path may not hold or sit inside a row: writing an ancestor
 /// object would replace rows without validating them, and writing below a
@@ -251,11 +325,13 @@ fn reset_text(
     check_agent(row, &path, meta)?;
     check_managed(state, &path)?;
     // A retired key may be removed from an old file (pruning like a row).
-    if row.is_some() || retired_reason(&path).is_some() {
-        remove_pruning(source.to_string(), &path)
+    let text = without_replaced(source.to_string(), &path)?;
+    let text = if row.is_some() || retired_reason(&path).is_some() {
+        remove_pruning(text, &path)?
     } else {
-        jsonc::remove(source, &path).map_err(unreadable)
-    }
+        jsonc::remove(&text, &path).map_err(unreadable)?
+    };
+    Ok(text)
 }
 
 /// Removes every schema key and every shortcut override. Custom actions,
@@ -280,6 +356,14 @@ fn reset_all_text(state: &State, meta: &WriteMeta) -> Result<String, Refusal> {
             continue;
         }
         text = remove_pruning(text, &row.path)?;
+    }
+    // Retired keys go too, as in Swift `resetAllSettings`: an old key a row
+    // replaced would apply again behind the reset.
+    for (key, _) in retired_keys() {
+        let path: Vec<String> = key.split('.').map(str::to_string).collect();
+        if removable(path.as_slice()) && !managed.contains_key(key) {
+            text = remove_pruning(text, &path)?;
+        }
     }
     let bindings = parts(&["shortcuts", "bindings"]);
     if removable(bindings.as_slice()) {

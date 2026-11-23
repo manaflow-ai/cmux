@@ -123,3 +123,27 @@ const deleteTeam = async (env: Env, caller: Caller, teamId: string, fetcher: typ
     return false
   }
 }
+
+/** The caller's primary email and whether Stack verified it, in the caller's own project. */
+export interface UserEmail {
+  readonly email: string | null
+  readonly verified: boolean
+}
+
+/**
+ * The caller's primary email from Stack (never from the client), for the connectivity alerts' team check.
+ * Throws when Stack cannot answer, so a Stack outage is a retry for the phone, not a silent refusal.
+ */
+export const userEmail = async (env: Env, caller: Caller, fetcher: typeof fetch = fetch): Promise<UserEmail> => {
+  if (env.ENVIRONMENT === "test") {
+    const emails = JSON.parse(env.STACK_TEST_EMAILS ?? "{}") as Record<string, { email: string | null; verified: boolean }>
+    const key = caller.projectId === primaryProject(env).id ? caller.userId : `${caller.projectId}:${caller.userId}`
+    return emails[key] ?? { email: null, verified: false }
+  }
+  const who = usesServerKey(env, caller) ? encodeURIComponent(caller.userId) : "me"
+  const res = await fetcher(`${API}/users/${who}`, { headers: headers(env, caller), signal: AbortSignal.timeout(10_000) })
+  // Never echo Stack's body: it can carry user data.
+  if (!res.ok) throw new Error(`stack GET user returned ${res.status}`)
+  const body = (await res.json()) as { primary_email?: unknown; primary_email_verified?: unknown }
+  return { email: typeof body.primary_email === "string" ? body.primary_email : null, verified: body.primary_email_verified === true }
+}

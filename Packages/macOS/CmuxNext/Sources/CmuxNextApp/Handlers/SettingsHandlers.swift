@@ -17,8 +17,6 @@ enum SettingsHandlers {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.actions")
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        let previewTitle = SettingsSchema.descriptor(for: CmuxConfigSnapshot.previewFeaturesPath)?.title
-            ?? CmuxConfigSnapshot.previewFeaturesPath.joined(separator: ".")
         registry.bind("palette.openCmuxSettingsFile", run: { _ in try openCmuxConfig(context) })
         registry.bind("palette.openGhosttySettings", run: { _ in try openGhosttyConfig(context) })
         // Showing the Settings tab is local and immediate: the effect is done on this turn.
@@ -68,17 +66,6 @@ enum SettingsHandlers {
             }
         })
         OnboardingHandlers.bind(into: registry, context: context)
-        // Keep the App Store out of menus and the palette while Labs is off (What's New is not
-        // behind Labs). Compose this with the browser import gate installed above so unrelated
-        // settings remain intact.
-        let previousSettingOffReason = registry.settingOffReason
-        registry.settingOffReason = { [weak services = context.services] id in
-            if services?.settings?.snapshot.previewFeatures != true,
-               id == "appStore.show" || id == "appStore.showInstalled" {
-                return previewTitle
-            }
-            return previousSettingOffReason(id)
-        }
         SessionMoveFromBuild.bind(into: registry, context: context)
         CLIInstallHandlers.bind(into: registry, context: context)
         LiveWebHandlers.bind(into: registry, context: context)

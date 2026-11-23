@@ -1,5 +1,6 @@
 // l10n-allow-file: experiment descriptions are gallery (developer tool) text, never shown in the pane.
 import { defineExperiment } from "../../../experiments/experiment";
+import { MOTION_MS } from "../../../motion/scale.generated";
 
 /// How the followed transcript moves when the reader sends and while a reply streams (followChase.ts).
 /// Leo, 2026-11-07: "When it comes to sending messages, I feel like the jump, the jolt is a bit too
@@ -20,8 +21,7 @@ export const followMotion = defineExperiment({
     },
     spring: {
       label: "Spring chase",
-      description:
-        "Every move of the rows in view (a line, the prompt and live line arriving, the composer clearing) is drawn back and chased home on one critically damped spring (the 180 ms standard step), at most 450 px/s near home and faster as it nears two lines behind, and a new move keeps the speed it has. It never trails by more than two lines: what lands past that moves at once. New text lies at most a line under the composer; past that it moves at once.",
+      description: `Every move of the rows in view (a line, the prompt and live line arriving, the composer clearing) is drawn back and chased home on one critically damped spring (the ${MOTION_MS.standard} ms standard step), at most 450 px/s near home and faster as it nears two lines behind, and a new move keeps the speed it has. It never trails by more than two lines: what lands past that moves at once. New text lies at most a line under the composer; past that it moves at once.`,
     },
     blocks: {
       label: "Spring, passes under the composer",
@@ -30,12 +30,11 @@ export const followMotion = defineExperiment({
     },
     eased: {
       label: "Eased glide (before)",
-      description:
-        "The view before: a rise with the same rows eases over 180 ms, restarted at each line and capped at the live line's room; rows that arrive and the composer's change move at once.",
+      description: `The view before: a rise with the same rows eases over ${MOTION_MS.standard} ms, restarted at each line and capped at the live line's room; rows that arrive and the composer's change move at once.`,
     },
     chunk: {
       label: "Eased per chunk",
-      description: "Every move of the rows in view restarts a fixed 180 ms ease-out from where they are drawn.",
+      description: `Every move of the rows in view restarts a fixed ${MOTION_MS.standard} ms ease-out from where they are drawn.`,
     },
     linear: {
       label: "Steady chase",

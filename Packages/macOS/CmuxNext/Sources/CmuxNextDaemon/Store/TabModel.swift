@@ -54,6 +54,9 @@ public final class TabModel: Identifiable {
     public internal(set) var isFrontendOwned: Bool
     public internal(set) var tabGroup: TabGroupID?
     public internal(set) var agent: AgentStatus?
+    /// ``agent``'s state alone, written only when it changes: a reader that needs only the state
+    /// (the backdrop's agent glow) is not told of every hook report's time or prompt.
+    public private(set) var agentState: AgentState?
     /// What the tab's agent is touching now; nil when it is not acting (`agent-presence-v1`).
     public internal(set) var presence: AgentPresence?
     /// Browser page zoom or terminal font scale saved on the tab record;
@@ -344,7 +347,8 @@ public final class TabModel: Identifiable {
         #if DEBUG || CMUX_BENCH_HOOKS
         // A traced new terminal's tab reached the store (its `tab-added`, or a resync's snapshot).
         if NewTerminalTrace.shared.isArmed, let terminal = s.terminalID {
-            NewTerminalTrace.shared.tabAdded(terminal: terminal.rawValue, surface: s.surface.rawValue)
+            NewTerminalTrace.shared.tabAdded(terminal: terminal.rawValue, surface: s.surface.rawValue,
+                                             terminalResourceID: s.terminalResourceID?.rawValue)
         }
         #endif
     }
@@ -385,6 +389,14 @@ public final class TabModel: Identifiable {
         if remote != s.remote { remote = s.remote }
         if conversation != s.conversation { conversation = s.conversation }
         if app != s.app { app = s.app }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // A provisional tab is patched in place when the daemon's real surface
+        // and resource id arrive. Keep the trace's identity aliases current.
+        if NewTerminalTrace.shared.isArmed, let terminal = s.terminalID {
+            NewTerminalTrace.shared.tabAdded(terminal: terminal.rawValue, surface: s.surface.rawValue,
+                                             terminalResourceID: s.terminalResourceID?.rawValue)
+        }
+        #endif
     }
 
     /// Lays the daemon's tab record and terminal progress over the record.
@@ -451,6 +463,7 @@ public final class TabModel: Identifiable {
 
     func setAgent(_ value: AgentStatus?) {
         if agent != value { agent = value }
+        if agentState != value?.state { agentState = value?.state }
     }
 
     func setPresence(_ value: AgentPresence?) {

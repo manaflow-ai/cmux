@@ -317,8 +317,7 @@ pub fn task_result(from: &str, from_name: &str, to: &str, task_id: &str, state: 
     json!({"kind": "task_result", "from": from, "fromName": from_name, "to": to, "taskId": task_id, "state": state})
 }
 
-/// What `from` says in [`named_sender`]: the sender named itself and is no address here.
-pub const NAMED_SENDER: &str = "fromAgent";
+pub use crate::provenance_keys::{NAMED_SENDER, NOTICE_KIND, VERIFIED};
 
 /// The provenance of a prompt whose sender named itself (`_meta.acpmux.fromAgent`) with no
 /// provenance and no caller proof here: `acpmux send --from NAME`, `ACPMUX_FROM`, a peer daemon
@@ -329,11 +328,6 @@ pub fn named_sender(name: &str, to: &str) -> Value {
     json!({"kind": "agent_message", "from": NAMED_SENDER, "fromName": name, "to": to, VERIFIED: false})
 }
 
-/// Whether the daemon itself bound the sender's identity (`true`: a caller-proven session, the
-/// hub's own prompt), or the sender only claimed it (`false`: a name, a peer's label, a
-/// provenance a client sent). Set by the daemon only: a client's own `verified` is never read
-/// ([`of`] keeps only its listed fields), and the person's prompt carries none (see [`ORIGIN`]).
-pub const VERIFIED: &str = "verified";
 /// How the prompt reached this daemon, as the daemon saw it: `unix` (the socket, any local
 /// process of the user), `app` (the app's own connection), `web`, `peer`, `carrier`, `trigger`.
 pub const TRANSPORT: &str = "transport";
@@ -439,8 +433,6 @@ pub fn forwarded_by_peer(mut provenance: Value, via: Option<&str>) -> Value {
 /// unverified, never as the person.
 pub const ORIGIN: &str = "origin";
 
-/// The provenance kind of a tool's notice ([`notice`]).
-pub const NOTICE_KIND: &str = "notice";
 /// A peer-carried proof that the originating connection was a verified person.
 pub const PERSON_VERIFIED: &str = "personVerified";
 /// Longest notice title, in characters.
@@ -856,6 +848,32 @@ pub fn relayed_label(name: &str) -> String {
 /// The relay record a prompt's provenance carries ([`FROM_RELAY`]).
 pub fn relay_of(provenance: Option<&Value>) -> Option<RelaySender> {
     RelaySender::of(provenance?.get(FROM_RELAY)?)
+}
+
+/// The `--relay` name an outbox's ssh carry (`server/ssh_carry.rs`) gives the far daemon. A
+/// carry goes only to a peer whose link was down on an earlier attempt, so its message waited.
+pub const SSH_CARRY_RELAY: &str = "acpmux-ssh";
+
+/// On a prompt's provenance: `true` when the message waited for its receiver's machine (a peer
+/// daemon's outbox sent it again, `_meta.acpmux.resend`, after an attempt that did not take it).
+pub const WAITED: &str = "waited";
+
+/// `provenance` marked [`WAITED`].
+pub fn mark_waited(mut provenance: Value) -> Value {
+    if let Some(fields) = provenance.as_object_mut() {
+        fields.insert(WAITED.to_owned(), Value::Bool(true));
+    }
+    provenance
+}
+
+/// Whether a message waited for its receiver's machine to come back: a peer's outbox sent it
+/// again ([`WAITED`]), or that outbox's ssh carry brought it while the link was down
+/// ([`SSH_CARRY_RELAY`]). A wait that long is the sender's to know about: the receiver's inbox
+/// wakes the chat for it rather than holding it to a flush that a parked machine never reaches
+/// (cmuxterm-hq#17784).
+pub fn waited(provenance: Option<&Value>) -> bool {
+    provenance.and_then(|p| p.get(WAITED)) == Some(&Value::Bool(true))
+        || relay_of(provenance).is_some_and(|r| r.by == SSH_CARRY_RELAY)
 }
 
 /// A caller-supplied sender label kept beside authenticated provenance.  It is deliberately
@@ -1290,6 +1308,19 @@ mod sender_tests {
         let proven = sender_record_with_auth(Some(&person), None, None, true);
         assert_eq!(proven["actorKind"], "authenticated_human");
         assert_eq!(proven["actorId"], "user-1");
+    }
+
+    /// A message waited for its machine (cmuxterm-hq#17784): marked by a peer's resend, or carried
+    /// by an outbox's ssh carry. Another relay's message, or one with no mark, did not.
+    #[test]
+    fn a_resent_or_ssh_carried_message_waited_and_no_other_did() {
+        let relayed = |by: &str| json!({FROM_RELAY: {"by": by, "machine": "vm-1", "session": "s"}});
+        assert!(waited(Some(&relayed(SSH_CARRY_RELAY))));
+        assert!(!waited(Some(&relayed("lane-gh"))));
+        assert!(waited(Some(&mark_waited(json!({"kind": "agent_message"})))));
+        assert!(!waited(Some(&json!({"kind": "agent_message", WAITED: "yes"}))));
+        assert!(!waited(Some(&json!({"kind": "agent_message"}))));
+        assert!(!waited(None));
     }
 
     /// A relay's MACHINE/SESSION past `fromAgent`'s length (review of #37652, F1): the record

@@ -59,7 +59,7 @@ enum QuitUnsavedStep {
         let lines = participants.map { participant in
             failures[participant.quitParticipantID].map { QuitStrings.unsavedFailed(participant.quitTitle, $0) } ?? participant.quitTitle
         }
-        return CmuxDialogSpec(
+        return CmuxDialogSpec(usesTransientMaterial: true,
             title: QuitStrings.unsavedTitle, lines: lines,
             buttons: [CmuxDialogButton(id: dontSaveID, title: QuitStrings.unsavedDontSave, role: .destructive, key: "d"),
                       .cancel(ConfirmationStrings.cancel),
@@ -71,7 +71,7 @@ enum QuitUnsavedStep {
     /// cancelled (the quit stops; a write in progress finishes on its own).
     static func saveShowingProgress(_ registry: QuitUnsavedRegistry, _ participants: [any QuitUnsavedParticipant],
                                     scope: CmuxDialogScope, center: CmuxDialogCenter) async -> [QuitFlushOutcome]? {
-        let progress = CmuxDialogSpec(title: QuitStrings.unsavedTitle,
+        let progress = CmuxDialogSpec(usesTransientMaterial: true, title: QuitStrings.unsavedTitle,
                                       lines: participants.map { QuitStrings.unsavedSaving($0.quitTitle) },
                                       buttons: [.cancel(ConfirmationStrings.cancel)], identifier: "cmux.dialog.quitUnsavedSaving")
         return await withCheckedContinuation { (continuation: CheckedContinuation<[QuitFlushOutcome]?, Never>) in

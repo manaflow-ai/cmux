@@ -98,6 +98,9 @@ final class AllUIStatesShellCaptureUITests: UIStateCaptureCase {
             Scene(group: g, id: "sidebar-add-team-menu", args: ["-cmux-mobile-tab", "workspaces", "-cmux-mobile-sidebar-open"]) { app in
                 C.tap(app.buttons["Add team"].firstMatch, "Add team")
             },
+            Scene(group: g, id: "sidebar-invite-tapped", args: ["-cmux-mobile-tab", "workspaces", "-cmux-mobile-sidebar-open"]) { app in
+                C.tap(app.buttons["sidebar.invite"], "drawer Invite")
+            },
             Scene(group: g, id: "alert-create-team", args: ["-cmux-mobile-tab", "workspaces", "-cmux-mobile-sidebar-open"]) { app in
                 C.steps([
                     { C.tap(app.buttons["Add team"].firstMatch, "Add team") },

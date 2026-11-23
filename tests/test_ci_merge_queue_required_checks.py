@@ -58,7 +58,7 @@ def expected_bridge() -> dict:
         "jobs": {
             job_id: {
                 "name": name,
-                "runs-on": "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}",
+                "runs-on": "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}",
                 "timeout-minutes": 5,
                 "steps": [{"run": 'echo "Passed on every pull request in this merge group."'}],
             }
@@ -103,6 +103,19 @@ def merge_group_check_names() -> dict[str, list[str]]:
                 except (AssertionError, KeyError, TypeError):
                     continue
                 name = REQUIRED_CHECK
+            elif "${{" in name:
+                # A name that differs only on a title or body edit (pattern pr-edit-fans-out-ci) is
+                # its merge-group name with the event's own context. An unknown expression stays as
+                # written, so it matches nothing.
+                from test_ci_pr_runs_cancel_superseded import ExpressionError, pr_context, resolve
+
+                context = pr_context(document, "pull_request", 101, 1)
+                context["github"]["event_name"] = "merge_group"
+                context["github"]["event"] = {"merge_group": {"head_sha": "a" * 40, "base_sha": "b" * 40}}
+                try:
+                    name = str(resolve(name, context))
+                except (ExpressionError, KeyError, IndexError, TypeError, ValueError):
+                    pass
             names.setdefault(name, []).append(path.name)
     return names
 

@@ -52,6 +52,8 @@ pub(super) struct Pending {
 
 impl Store {
     /// The session's store, or `no_state_directory` for an in-memory session.
+    /// It makes no folder: [`Store::make_folders`] makes them, for a
+    /// repository that is opened.
     pub(super) fn open(mux: &Mux, operation: &'static str) -> Result<Self, ResourceError> {
         let Some(session) = mux.session_state_directory() else {
             return Err(refused(
@@ -61,11 +63,19 @@ impl Store {
                 Value::Null,
             ));
         };
-        let store = Self { root: session.join(DIRECTORY) };
-        for directory in [store.root.clone(), store.hooks(), store.root.join("journal")] {
-            private_directory(&directory).map_err(|error| io_failed(operation, &error))?;
+        Ok(Self { root: session.join(DIRECTORY) })
+    }
+
+    /// Makes the folders of the store that each operation reads or writes:
+    /// the store's own folder, the empty hooks folder and the journal. An
+    /// operation calls it after its repository is opened and before its
+    /// first read or write of the store, so a request for a folder that is
+    /// not opened leaves nothing in the session's state.
+    pub(super) fn make_folders(&self) -> io::Result<()> {
+        for directory in [self.root.clone(), self.hooks(), self.root.join("journal")] {
+            private_directory(&directory)?;
         }
-        Ok(store)
+        Ok(())
     }
 
     /// An empty directory git takes as its hooks directory, so no hook runs.

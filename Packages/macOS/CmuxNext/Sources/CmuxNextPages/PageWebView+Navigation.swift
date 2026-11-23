@@ -3,6 +3,11 @@ import CmuxNextWakeups
 
 @MainActor
 extension PageWebView {
+    // crash-allow: WebKit delegate signature uses nullable navigation handles.
+    public func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation?) {
+        documentStarted()
+    }
+
     public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation?) {
         documentCommitted()
     }
@@ -11,6 +16,15 @@ extension PageWebView {
         let pid = PageTermination.webContentPid(of: webView)
         if pid != 0 { knownWebContentPid = pid }
         documentFinished()
+    }
+
+    /// A main-frame document started loading (either engine): a reload the host started (``reloadPage()``,
+    /// ``WebDevOverrideWatcher``'s reload of every served view, crash recovery, an app health repair) or any
+    /// load WebKit began. App health reads the page as loading, not hung, until the document loads: a web source
+    /// change reloaded every chat at once on a loaded Mac, the documents took 44 s and 72 s, and health reloaded
+    /// them 8 s in and then restarted their renderer (cosmic-gray, 2026-11-22 06:41:33Z).
+    func documentStarted() {
+        healthFeed?.pageNavigationStarted(self)
     }
 
     /// A new main-frame document committed (either engine).
@@ -27,6 +41,7 @@ extension PageWebView {
         repaintsAtNextLayout = false
         let scripts = scripts
         router.send = { envelope in scripts.send(envelope) }
+        watchOverlayStart()
     }
 
     /// The document finished loading (either engine).
@@ -36,6 +51,7 @@ extension PageWebView {
         rendererRestartPending = false
         applyUIScale()
         applyTheme(force: true)
+        applyLanguage()
         applyLiveDocumentAttributes()
         resumeLoadWaiters()
         onDocumentLoaded?()

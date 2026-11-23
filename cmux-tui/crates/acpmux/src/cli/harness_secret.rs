@@ -20,15 +20,10 @@ use crate::config::folder_profiles;
 use crate::config::profiles;
 use crate::config::{Config, ProfileSource};
 
-/// The secret store service every harness secret uses.
-pub const SERVICE: &str = "cmux-harness";
+pub use crate::harness_secret_ref::{SERVICE, reference};
+
 /// Largest value read from stdin, in bytes.
 pub const MAX_SECRET_BYTES: usize = 64 * 1024;
-
-/// The reference a profile writes for the secret of `id`/`key`.
-pub fn reference(id: &str, key: &str) -> String {
-    format!("{SERVICE}/{id}/{key}")
-}
 
 /// The TOML line that points `key` at its Keychain item.
 pub fn reference_line(id: &str, key: &str) -> String {

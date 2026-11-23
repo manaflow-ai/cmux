@@ -87,12 +87,27 @@ pub struct AppLine {
     /// The index in `displays` of the display the session shows first.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current: Option<usize>,
+    /// `serve` only, macOS: each display's CGDirectDisplayID, in `displays` order, so a viewer
+    /// opened from a run's screen link can tell whether that run's display is still there.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_ids: Option<Vec<u32>>,
     /// Why the displays could not be read (with an empty `displays`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     /// An eligible carrier failure before streaming; the original approval still applies.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fallback: Option<CarrierFallback>,
+    /// Where the capture setup is before the first picture (Linux portal capture), for the app
+    /// to show; `{"status":{"state":"waiting_for_consent","message":".."}}`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<LineStatus>,
+}
+
+/// One capture setup state: a stable `state` code and a sentence for the person.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LineStatus {
+    pub state: String,
+    pub message: String,
 }
 
 // serde's `skip_serializing_if` passes a reference.
@@ -192,6 +207,13 @@ mod tests {
                 ..AppLine::default()
             },
             AppLine { ended: Some("the viewer left".into()), ..AppLine::default() },
+            AppLine {
+                status: Some(LineStatus {
+                    state: "waiting_for_consent".into(),
+                    message: "waiting for the person at the screen to allow sharing".into(),
+                }),
+                ..AppLine::default()
+            },
         ];
         for line in lines {
             assert_eq!(

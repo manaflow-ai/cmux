@@ -1,0 +1,268 @@
+{
+  "title": "Extension hot reload, edit-repaint.py's section: why its saves showed no pixel change",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 4,
+      "shot": false
+    },
+    {
+      "title": "A workspace whose terminal edits the extension",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Hot reload"
+      ],
+      "wait": 3,
+      "shot": false
+    },
+    {
+      "title": "Shell helpers: edit-repaint.py's script and manifest (defaultRegion as given)",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Hot reload",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D\"; js() { printf 'function renderSection() {\\n  return VStack({ spacing: 2 }, [Text(\"%s\").font(\"headline\"),\\n    Row({ title: \"%s row\", symbol: \"bolt.horizontal\" })])\\n}\\nglobalThis.__cmuxAppExports = { renderSection }\\n' \"$1\" \"$1\"; }; mf() { printf '{\"manifestVersion\": 2, \"id\": \"local/customize\", \"name\": \"Edit repaint\", \"version\": \"1.0.0\", \"description\": \"A section whose headline the bench rewrites.\", \"engines\": {\"cmux\": \"^2.0\"}, \"runtime\": {\"main\": \"main.js\"}, \"implements\": {\"cmux.section/1\": {\"export\": \"renderSection\", \"title\": \"Edit repaint\", \"symbol\": \"bolt.horizontal\", \"options\": {\"defaultRegion\": \"%s\"}}}}\\n' \"$1\"; }; echo \"customize folder: $D\"\r"
+      ],
+      "wait": 3,
+      "shot": false
+    },
+    {
+      "title": "Install edit-repaint.py's section in the bottom region",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Hot reload",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "js 'edit repaint ready' > \"$D/main.js\"; mf bottom > \"$D/cmux-app.json\"; clear\r"
+      ],
+      "wait": 8,
+      "shot": true
+    },
+    {
+      "title": "Read back: a bottom-region section is open and shows the installed script",
+      "rpc": {
+        "method": "apps.views",
+        "params": {
+          "app": "local/customize"
+        }
+      },
+      "wait": 0.2,
+      "shot": true,
+      "record": true,
+      "optional": "an observation: edit-repaint.py's section (defaultRegion bottom) read back, to find why its saves showed no pixel change",
+      "readback": {
+        "at": "views.*.texts",
+        "contains": [
+          "edit repaint ready row"
+        ],
+        "within": 30
+      }
+    },
+    {
+      "title": "Save 1 (edit-repaint round 0): WWWWWWWW 0000",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Hot reload",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "js 'WWWWWWWW 0000' > \"$D/main.js\"; clear\r"
+      ],
+      "wait": 3,
+      "shot": true
+    },
+    {
+      "title": "Read back save 1",
+      "rpc": {
+        "method": "apps.views",
+        "params": {
+          "app": "local/customize"
+        }
+      },
+      "wait": 0.2,
+      "shot": false,
+      "record": true,
+      "optional": "an observation: edit-repaint.py's section (defaultRegion bottom) read back, to find why its saves showed no pixel change",
+      "readback": {
+        "at": "views.*.texts",
+        "contains": [
+          "WWWWWWWW 0000 row"
+        ],
+        "within": 20
+      }
+    },
+    {
+      "title": "Save 2 (edit-repaint round 1): iiiiiiii 1111",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Hot reload",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "js 'iiiiiiii 1111' > \"$D/main.js\"; clear\r"
+      ],
+      "wait": 3,
+      "shot": true
+    },
+    {
+      "title": "Read back save 2",
+      "rpc": {
+        "method": "apps.views",
+        "params": {
+          "app": "local/customize"
+        }
+      },
+      "wait": 0.2,
+      "shot": false,
+      "record": true,
+      "optional": "an observation: edit-repaint.py's section (defaultRegion bottom) read back, to find why its saves showed no pixel change",
+      "readback": {
+        "at": "views.*.texts",
+        "contains": [
+          "iiiiiiii 1111 row"
+        ],
+        "within": 20
+      }
+    },
+    {
+      "title": "The same section with defaultRegion top in its manifest",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Hot reload",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "mf top > \"$D/cmux-app.json\"; clear\r"
+      ],
+      "wait": 3,
+      "shot": true
+    },
+    {
+      "title": "Read back after the manifest names the top region",
+      "rpc": {
+        "method": "apps.views",
+        "params": {
+          "app": "local/customize"
+        }
+      },
+      "wait": 0.2,
+      "shot": true,
+      "record": true,
+      "optional": "an observation: edit-repaint.py's section (defaultRegion bottom) read back, to find why its saves showed no pixel change",
+      "readback": {
+        "at": "views.*.texts",
+        "contains": [
+          "iiiiiiii 1111 row"
+        ],
+        "within": 20
+      }
+    },
+    {
+      "title": "Save 3: WWWWWWWW 0000 again",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Hot reload",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "js 'WWWWWWWW 0000' > \"$D/main.js\"; clear\r"
+      ],
+      "wait": 3,
+      "shot": true
+    },
+    {
+      "title": "Read back save 3",
+      "rpc": {
+        "method": "apps.views",
+        "params": {
+          "app": "local/customize"
+        }
+      },
+      "wait": 0.2,
+      "shot": false,
+      "record": true,
+      "optional": "an observation: edit-repaint.py's section (defaultRegion bottom) read back, to find why its saves showed no pixel change",
+      "readback": {
+        "at": "views.*.texts",
+        "contains": [
+          "WWWWWWWW 0000 row"
+        ],
+        "within": 20
+      }
+    },
+    {
+      "title": "Clean up",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Hot reload",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "rm -f \"$D/main.js\" \"$D/cmux-app.json\"; clear\r"
+      ],
+      "wait": 1,
+      "shot": false
+    }
+  ]
+}

@@ -130,7 +130,11 @@ await requireBrowserLane("agent-pane-wheel-glide.test.ts", async () => {
             node.dispatchEvent(new WheelEvent("wheel", { deltaY: -20, deltaMode: 1, cancelable: true }));
             await window.cmuxPaintFrame();
             // The wheel glide read its 1s step at the wheel; the send's ride reads the standard step.
-            node.style.setProperty("--agent-motion-move", "180ms");
+            node.style.setProperty("--agent-motion-move", "180ms"); // motion-allow: a fixture pin in the page's context
+            // The product's send step is currently 0ms, so pin the fixture to a visible ride clock.
+            // This checks that an unfinished wheel never pulls the send ride back, independent of the
+            // chosen product duration (the wheel clock above is pinned for the same reason).
+            node.style.setProperty("--agent-motion-send", "180ms"); // motion-allow: a fixture pin in the page's context
             await window.cmuxAcpmuxActions!["chat.send"]!({ text: "Wheel ownership" });
             const gaps: number[] = [];
             for (let i = 0; i < 60; i++) {
@@ -167,7 +171,7 @@ await requireBrowserLane("agent-pane-wheel-glide.test.ts", async () => {
           await shot.screenshot({ path: `${dir}/0-wheel-glide-under-way.png` });
           await shot.evaluate(async () => {
             const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-            node.style.setProperty("--agent-motion-move", "180ms");
+            node.style.setProperty("--agent-motion-move", "180ms"); // motion-allow: a fixture pin in the page's context
             await window.cmuxAcpmuxActions!["chat.send"]!({ text: "Wheel ownership" });
           });
           for (let frame = 1; frame <= 40; frame += 1) {

@@ -5,13 +5,21 @@
 use serde_json::{Value, json};
 
 use crate::prompt::{
-    CLOUD_WORKSPACE_DESCRIPTION, CONTROL_DESCRIPTION, DATE_DESCRIPTION, ESCALATE_AUTH_DESCRIPTION,
-    MCP_DESCRIPTION, PEER_TELL_DESCRIPTION, PEERS_DESCRIPTION, REACT_DESCRIPTION,
-    REMEMBER_DESCRIPTION, REPLY_DESCRIPTION, SEND_DESCRIPTION, SLEEP_DESCRIPTION,
-    SPAWN_CWD_DESCRIPTION, SPAWN_DESCRIPTION, SPAWN_HARNESS_DESCRIPTION, SPAWN_MODEL_DESCRIPTION,
+    ASK_DESCRIPTION, CHECK_INS_DESCRIPTION, CLOUD_WORKSPACE_DESCRIPTION, CONTROL_DESCRIPTION,
+    DATE_DESCRIPTION, ESCALATE_AUTH_DESCRIPTION, FOLLOW_UP_DESCRIPTION, FOLLOW_UPS_DESCRIPTION,
+    MCP_DESCRIPTION, MEMORY_FORGET_DESCRIPTION, MEMORY_PATH_HELP, MEMORY_READ_DESCRIPTION,
+    MEMORY_WRITE_DESCRIPTION, NOTHING_DESCRIPTION, PEER_TELL_DESCRIPTION, PEERS_DESCRIPTION,
+    REACT_DESCRIPTION, RECALL_DESCRIPTION, REMEMBER_DESCRIPTION, REPLY_DESCRIPTION,
+    SEND_DESCRIPTION, SEND_LATER_DESCRIPTION, SLEEP_DESCRIPTION, SPAWN_CWD_DESCRIPTION,
+    SPAWN_DESCRIPTION, SPAWN_HARNESS_DESCRIPTION, SPAWN_MODEL_DESCRIPTION,
     SPAWN_SIDEBAR_DESCRIPTION, STOP_DESCRIPTION, TELL_DESCRIPTION, TRANSCRIPT_DESCRIPTION,
     VERSION_DESCRIPTION, WATCH_DESCRIPTION, ZOOM_AGENT_DESCRIPTION, ZOOM_DESCRIPTION,
 };
+
+/// Shortest and longest Send Later delay of `send` (the owner's horizon is a
+/// little over a year).
+pub const SEND_DELAY_MIN_SECONDS: u64 = 60;
+pub const SEND_DELAY_MAX_SECONDS: u64 = 365 * 86_400;
 
 /// Shortest `sleep` (a turn costs more than a shorter wait saves).
 pub const SLEEP_MIN_SECONDS: u64 = 30;
@@ -49,7 +57,7 @@ pub const PLACES: [&str; 7] = [
 ];
 
 /// The `control` tool's actions.
-pub const CONTROL_ACTIONS: [&str; 12] = [
+pub const CONTROL_ACTIONS: [&str; 13] = [
     "status",
     "interrupt",
     "answer",
@@ -58,6 +66,7 @@ pub const CONTROL_ACTIONS: [&str; 12] = [
     "cancel",
     "restart",
     "priority",
+    "tasks",
     "show",
     "hide",
     "cap",
@@ -69,6 +78,9 @@ pub const SIZES: [&str; 4] = ["small", "medium", "large", "xlarge"];
 
 /// The most messages one `transcript` call returns.
 pub const TRANSCRIPT_MAX: u32 = 100;
+
+/// The most hits one `recall` returns.
+pub const RECALL_MAX: u64 = 30;
 
 /// The longest preference `remember` keeps, in characters.
 pub const REMEMBER_MAX: usize = 400;
@@ -124,6 +136,12 @@ pub fn tool_list(subagent: bool, allows: &dyn Fn(&str) -> bool) -> Value {
          "inputSchema": {"type": "object", "properties": {"id": {"type": ["integer", "string"]}, "n": int, "at": int}, "required": ["id"], "additionalProperties": false}}),
         json!({"name": "date", "description": DATE_DESCRIPTION,
          "inputSchema": {"type": "object", "properties": {"id": int}, "required": ["id"], "additionalProperties": false}}),
+        json!({"name": "recall", "description": RECALL_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {
+            "query": {"type": "string", "minLength": 1, "description": "The words to find: names, numbers, rare words, or a question."},
+            "limit": {"type": "integer", "minimum": 1, "maximum": RECALL_MAX, "description": "How many matches (default 8)."},
+            "all": {"type": "boolean", "description": "Also search tool calls and their results."}},
+          "required": ["query"], "additionalProperties": false}}),
     ];
     // A subagent asks its Chief to drive a sign-in, lists the other
     // subagents and tells one (acp-chief-issues.md #11).
@@ -154,6 +172,10 @@ pub fn tool_list(subagent: bool, allows: &dyn Fn(&str) -> bool) -> Value {
             "message": {"type": "string", "minLength": 1, "description": "interrupt/restart/resume: the prompt sent once it has stopped."},
             "option": {"type": "string", "minLength": 1, "description": "answer: deny (only the user can allow, in the app)."},
             "n": {"type": "integer", "minimum": 0, "description": "cap: subagents at work at once; 0 is no cap."},
+            "items": {"type": "array", "description": "tasks: the subagent chat's whole task list, in order; [] clears it.", "items": {"type": "object", "properties": {
+                "content": {"type": "string", "minLength": 1},
+                "status": {"type": "string", "enum": ["pending", "in_progress", "completed"]}},
+              "required": ["content", "status"], "additionalProperties": false}},
             "peer": {"type": "string", "minLength": 1, "description": "cloud: the acpmux peers (acpmux host ls, comma-separated) new subagents run on by default, each on the least busy, or off; without it, shows the setting."}},
           "required": ["action"], "additionalProperties": false}}));
     }
@@ -211,12 +233,13 @@ pub fn tool_list(subagent: bool, allows: &dyn Fn(&str) -> bool) -> Value {
          "inputSchema": {"type": "object", "properties": {"id": int, "reaction": {"type": "string", "description": crate::prompt::REACT_REACTION_DESCRIPTION}}, "required": ["id", "reaction"], "additionalProperties": false}}));
         list.push(json!({"name": "reply", "description": REPLY_DESCRIPTION,
          "inputSchema": {"type": "object", "properties": {"id": int, "text": text}, "required": ["id", "text"], "additionalProperties": false}}));
-        list.push(json!({"name": "send", "description": SEND_DESCRIPTION,
+        list.push(json!({"name": "send", "description": format!("{SEND_DESCRIPTION}{SEND_LATER_DESCRIPTION}"),
          "inputSchema": {"type": "object", "properties": {
             "text": {"type": "string", "description": "The message, in Markdown."},
             "attachments": {"type": "array", "items": text, "description": "Files to attach: local paths (/abs, ~/rel, file://; images and videos show inline, any other file as a file) or http(s) URLs (a link card)."},
             "reply_to": {"type": "integer", "minimum": 0, "description": "A user message's line id: the message goes into its thread. Without it: the top level."},
-            "long": {"type": "boolean", "description": "true when the person asked for a long answer (a full list, a report): it posts on the first send instead of coming back to be cut."}},
+            "long": {"type": "boolean", "description": "true when the person asked for a long answer (a full list, a report): it posts on the first send instead of coming back to be cut."},
+            "delay_seconds": {"type": "integer", "minimum": SEND_DELAY_MIN_SECONDS, "maximum": SEND_DELAY_MAX_SECONDS, "description": "Send Later: post it this many seconds from now (60 to one year), text and URLs only. The app sends it then, even if you are not running; the user sees it waiting."}},
           "additionalProperties": false}}));
         list.push(json!({"name": "transcript", "description": TRANSCRIPT_DESCRIPTION,
          "inputSchema": {"type": "object", "properties": {
@@ -239,6 +262,39 @@ pub fn tool_list(subagent: bool, allows: &dyn Fn(&str) -> bool) -> Value {
             "note": {"type": "string", "description": "What to do when it fires: shown to you in the watch message."},
             "cancel": {"type": "string", "minLength": 1, "description": "A watch id (w<N>) or all: cancels instead of starting one. With no command and no cancel, lists the pending watches."}},
           "additionalProperties": false}}));
+        let path = json!({"type": "string", "minLength": 1, "maxLength": 80, "description": MEMORY_PATH_HELP});
+        list.push(json!({"name": "memory_read", "description": MEMORY_READ_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {"path": path}, "required": ["path"], "additionalProperties": false}}));
+        list.push(json!({"name": "memory_write", "description": MEMORY_WRITE_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {
+            "path": path,
+            "description": {"type": "string", "maxLength": 300, "description": "One line for index.md: what the file is about (\"Leo's machines\", \"renew the cmux.dev domain before Fri 2026-11-20\")."},
+            "body": {"type": "string", "minLength": 1, "description": "The file's whole text, in Markdown. Date facts (YYYY-MM-DD)."}},
+          "required": ["path", "description", "body"], "additionalProperties": false}}));
+        list.push(json!({"name": "memory_forget", "description": MEMORY_FORGET_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {"path": path}, "required": ["path"], "additionalProperties": false}}));
+        list.push(json!({"name": "follow_up", "description": FOLLOW_UP_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {
+            "note": {"type": "string", "minLength": 1, "maxLength": 2000},
+            "at": {"type": "string", "maxLength": 40, "description": "Local YYYY-MM-DDTHH:MM, or ISO with an offset."},
+            "in": {"type": "string", "maxLength": 20, "description": "30m, 2h or 1d."},
+            "loop": {"type": "string", "maxLength": 80, "description": "loops/<task>.md it belongs to."},
+            "for_person": {"type": "boolean"}},
+          "required": ["note"], "additionalProperties": false}}));
+        list.push(json!({"name": "follow_ups", "description": FOLLOW_UPS_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {"cancel": {"type": "string", "maxLength": 40}}, "additionalProperties": false}}));
+        list.push(
+            json!({"name": "check_ins", "description": CHECK_INS_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {
+            "mode": {"type": "string", "enum": ["auto", "mornings", "off"]},
+            "quiet": {"type": "string", "maxLength": 20},
+            "cost_limit_usd": {"type": "number", "minimum": 0}},
+          "additionalProperties": false}}),
+        );
+        list.push(json!({"name": "nothing", "description": NOTHING_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {"reason": {"type": "string", "minLength": 1, "maxLength": 300}}, "required": ["reason"], "additionalProperties": false}}));
+        list.push(json!({"name": "ask", "description": ASK_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {"question": {"type": "string", "minLength": 1, "maxLength": 2000}}, "required": ["question"], "additionalProperties": false}}));
         list.push(json!({"name": "remember", "description": REMEMBER_DESCRIPTION,
          "inputSchema": {"type": "object", "properties": {
             "text": {"type": "string", "minLength": 1, "maxLength": REMEMBER_MAX, "description": "The preference as one short rule in the person's own terms, e.g. \"Reply in one short bullet list.\""}},
@@ -266,7 +322,21 @@ const ONCE: &[&str] = &[
 /// Tools only a host on the person's machine can do: the Mac's app
 /// (`version`), moving the Chief's home (`move`), running a command off
 /// the turn (`watch`) and the MCP hub with its servers and secrets (`mcp`).
-const HOST_ONLY: &[&str] = &["version", "move", "watch", "mcp"];
+const HOST_ONLY: &[&str] = &[
+    "version",
+    "move",
+    "watch",
+    "mcp",
+    "recall",
+    "memory_read",
+    "memory_write",
+    "memory_forget",
+    "follow_up",
+    "follow_ups",
+    "check_ins",
+    "nothing",
+    "ask",
+];
 
 /// The engines that take specs; a cloud engine drops the host-only tools.
 const SPEC_ENGINES: &[(&str, bool)] = &[
@@ -294,7 +364,7 @@ pub fn specs(engine: &str, grant_json: &str) -> Result<Value, String> {
             .collect()
     });
     let allows = |tool: &str| match &granted {
-        _ if matches!(tool, "zoom" | "date" | "version") => true,
+        _ if matches!(tool, "zoom" | "date" | "recall" | "version") => true,
         None => !matches!(tool, "profile" | "chiefs"),
         Some(set) => set.iter().any(|t| t == tool),
     };
@@ -306,10 +376,20 @@ pub fn specs(engine: &str, grant_json: &str) -> Result<Value, String> {
         .filter(|t| !(cloud && HOST_ONLY.contains(&t["name"].as_str().unwrap_or(""))))
         .map(|t| {
             let name = t["name"].as_str().unwrap_or("");
+            let mut description = t["description"].clone();
+            let mut schema = t["inputSchema"].clone();
+            // Send Later is the local conversation owner's
+            // (`conversation-scheduled-v1`); a cloud engine posts now only.
+            if cloud && name == "send" {
+                description = json!(SEND_DESCRIPTION);
+                if let Some(props) = schema["properties"].as_object_mut() {
+                    props.remove("delay_seconds");
+                }
+            }
             json!({
                 "name": name,
-                "description": t["description"],
-                "json_schema": t["inputSchema"],
+                "description": description,
+                "json_schema": schema,
                 "replay": if ONCE.contains(&name) { "once" } else { "safe" },
             })
         })
