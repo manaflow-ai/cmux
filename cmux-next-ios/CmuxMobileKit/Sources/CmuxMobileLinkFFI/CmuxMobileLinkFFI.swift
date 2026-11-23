@@ -3689,8 +3689,8 @@ public struct PaneFilterResult: Equatable, Hashable {
      */
     public var shown: [UInt32]
     /**
-     * Panes hidden, by what hid them, for the header's "3 of 7" and the
-     * empty state's way back.
+     * Panes hidden, by what hid them, for the control's count and the
+     * header's "3 of 7": a hidden browser never looks lost.
      */
     public var hiddenTerminals: UInt32
     public var hiddenBrowsers: UInt32
@@ -3706,8 +3706,8 @@ public struct PaneFilterResult: Equatable, Hashable {
          * Indices into the panes, in their order, of the panes shown.
          */shown: [UInt32], 
         /**
-         * Panes hidden, by what hid them, for the header's "3 of 7" and the
-         * empty state's way back.
+         * Panes hidden, by what hid them, for the control's count and the
+         * header's "3 of 7": a hidden browser never looks lost.
          */hiddenTerminals: UInt32, hiddenBrowsers: UInt32, 
         /**
          * The filter hides something: the control shows as on.
@@ -6604,7 +6604,8 @@ public func paneFilterDecode(saved: String) -> PaneFilter  {
 })
 }
 /**
- * The filter that shows every pane (today's overview).
+ * The overview's filter until the person picks another: agent sessions and
+ * terminals, browsers behind their toggle.
  */
 public func paneFilterDefault() -> PaneFilter  {
     return try!  FfiConverterTypePaneFilter_lift(try! rustCall() {
@@ -6822,7 +6823,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_pane_filter_decode() != 25789) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_pane_filter_default() != 12894) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_pane_filter_default() != 6491) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_pane_filter_encode() != 63147) {
