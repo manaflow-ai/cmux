@@ -232,7 +232,16 @@ def main(argv=None):
         except RuntimeError as error:
             seed.row["error"], code = str(error), 1
         finally:
-            time.sleep(1)  # measurement script: the session's save after the last change, before the quit
+            # The session's save after the last change, before the quit: the app's model (topology and front) reads the
+            # same for 1 s (5 reads 0.25 s apart), so the last change has landed; 15 s at most, then the quit goes on.
+            last, same, deadline = None, 0, time.monotonic() + 15
+            while same < 5 and time.monotonic() < deadline:
+                now = (seed.topology(), seed.front())
+                same, last = (same + 1 if now == last else 1), now
+                if same < 5:
+                    time.sleep(0.25)  # measurement script: the poll interval of the model
+            if same < 5:
+                print("LR-SEED-WAIT the app's model kept changing for 15 s before the quit", file=sys.stderr, flush=True)
             # The seed quits the app itself, so the probe reads no front at its quit; this one is what run1 must reopen.
             if args.front_out:
                 try:

@@ -83,7 +83,15 @@ echo "  ${APP_PATH}"
 refuse_if_stable_running "$APP_PATH"
 
 pkill -f "${APP_PATH}/Contents/MacOS/cmux" || true
-sleep 0.2
+# Until the old instance has exited, so `open` starts a new one instead of activating it.
+for _ in $(seq 1 100); do
+  pgrep -f "${APP_PATH}/Contents/MacOS/cmux" >/dev/null || break
+  sleep 0.1
+done
+if pgrep -f "${APP_PATH}/Contents/MacOS/cmux" >/dev/null; then
+  echo "the old ${APP_PATH} did not exit within 10s of pkill" >&2
+  exit 1
+fi
 
 # Dev shells (including CI/Codex) often force-disable paging by exporting these.
 # Don't leak that into cmux, otherwise `git diff` won't page even with PAGER=less.
