@@ -797,6 +797,13 @@ impl Bench {
             seed,
         );
         emit(profile, phase, scale, "gap_total_ms", Some(ms(fresh - dropped)), run, seed);
+        // The path-change gap split: the app's fixed settle before its redial, then the rest.
+        if phase == "path-change" {
+            let settle = ms(NETWORK_SETTLE);
+            let after = ms(fresh.saturating_duration_since(back));
+            emit(profile, phase, scale, "settle_ms", Some(settle), run, seed);
+            emit(profile, phase, scale, "gap_after_settle_ms", Some(after - settle), run, seed);
+        }
         if let Some(redial) = redial_at {
             emit(
                 profile,

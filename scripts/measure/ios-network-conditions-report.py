@@ -24,6 +24,8 @@ METRIC_ORDER = [
     "interactive_ms",
     "gap_after_link_back_ms",
     "gap_total_ms",
+    "settle_ms",
+    "gap_after_settle_ms",
     "redial_after_drop_ms",
     "dial_from_link_back_ms",
     "dial_open_ms",
@@ -33,7 +35,7 @@ METRIC_ORDER = [
 ]
 # path-change is the app's redial on a blackout (the row targets read); harness-dark-dial is the
 # harness's own dial from the dark riding the shaper's SYN backoff, kept for comparison.
-PHASE_ORDER = ["cold", "warm", "warm-full", "streaming", "reconnect", "path-change", "harness-dark-dial"]
+PHASE_ORDER = ["cold", "warm", "warm-again", "warm-full", "streaming", "reconnect", "path-change", "harness-dark-dial"]
 
 
 def first_content_summary(rows: list[dict]) -> list[str]:
