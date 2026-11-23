@@ -139,7 +139,7 @@ struct AgentIncomingCard: View {
             } label: {
                 headerLine(chevron: allOpen).contentShape(.rect)
             }
-            .buttonStyle(.cmuxPressFill)
+            .buttonStyle(.cmuxPressLine)
             .accessibilityHint(allOpen ? "Closes every message" : "Opens every message")
         } else {
             // One message starts closed: its sender's line and its first line, muted; a tap opens the
@@ -163,7 +163,7 @@ struct AgentIncomingCard: View {
                 }
                 .contentShape(.rect)
             }
-            .buttonStyle(.cmuxPressFill)
+            .buttonStyle(.cmuxPressLine)
             .accessibilityValue(singleOpen ? "Expanded" : "Collapsed")
             .accessibilityHint(singleOpen ? "Closes the message" : "Opens the message")
             .accessibilityIdentifier("agent-chat.incoming-line")
