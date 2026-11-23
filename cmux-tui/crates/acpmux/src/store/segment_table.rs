@@ -152,6 +152,8 @@ impl SegmentTable {
                 out.push((index, entry.path()));
             } else if let Some(index) = super::cold_segments::idx_index(&name) {
                 cold.push(index);
+            } else if let Some(plain) = sealed_segments::plain_name(&name) {
+                sealed.push(plain.to_owned());
             }
         }
         // A sealed segment that went cold (`store/cold_segments.rs`) reads from its archive once
@@ -163,8 +165,6 @@ impl SegmentTable {
                 if !out.iter().any(|(i, _)| *i == index) {
                     out.push((index, super::cold_segments::zst_path(session, index)));
                 }
-            } else if let Some(plain) = sealed_segments::plain_name(&name) {
-                sealed.push(plain.to_owned());
             }
         }
         out.sort();
