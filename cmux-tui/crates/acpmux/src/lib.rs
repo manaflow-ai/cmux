@@ -97,6 +97,8 @@ mod fork_tests;
 pub mod forum;
 pub mod forum_mcp;
 pub mod frame_compress;
+/// The always-on frame tally of the visible chat (`_acpmux/perf {op:"frames"}`).
+pub mod frame_tally;
 pub mod gauges;
 pub mod generic_goal;
 pub mod git_state;
