@@ -574,7 +574,7 @@ impl Session {
         let port = socket.local_addr().map(|addr| addr.port()).unwrap_or_default();
         let stun = self.stun_servers().await;
         let asked = stun.len();
-        let (reflexive_tx, mut reflexive_rx) = mpsc::unbounded_channel();
+        let (reflexive_tx, reflexive_rx) = mpsc::unbounded_channel();
         let rebind = Control::Rebind { socket, stun, reflexive: reflexive_tx, timeline: timeline.clone() };
         if self.control.send(rebind).is_err() {
             return timeline;
@@ -585,8 +585,53 @@ impl Session {
         }
         timeline.mark("roam_reasserted");
         self.path_epoch.send_modify(|epoch| *epoch += 1);
-        let mut endpoints = host_endpoints(port, &self.options);
+        let endpoints = host_endpoints(port, &self.options);
         self.announce(offered(endpoints.iter().copied(), &self.options), Vec::new(), Vec::new());
+        let mode = roam_proceed();
+        // Relay only (no host endpoint): the first usable candidate is a later one.
+        let mode = if mode == ROAM_PROCEED_FIRST_CANDIDATE && endpoints.is_empty() {
+            ROAM_PROCEED_FIRST_REFLEXIVE
+        } else {
+            mode
+        };
+        if mode == ROAM_PROCEED_GATHERED {
+            self.roam_gather(net, endpoints, asked, reflexive_rx, timeline.clone(), None, None).await;
+        } else {
+            // Measurement only (`set_roam_proceed`): the gather goes on after the roam returns.
+            let (first_tx, first_rx) = oneshot::channel();
+            let roams = self.roams.load(Ordering::Relaxed);
+            let session = Arc::clone(self);
+            let tail = timeline.clone();
+            tokio::spawn(async move {
+                session
+                    .roam_gather(net, endpoints, asked, reflexive_rx, tail, Some(first_tx), Some(roams))
+                    .await;
+            });
+            if mode == ROAM_PROCEED_FIRST_REFLEXIVE {
+                // The first reflexive answer, or the gather's end without one.
+                let _ = first_rx.await;
+            }
+            timeline.mark("roam_proceeded");
+        }
+        tracing::info!(session = self.session_id, timings = %timeline.summary(), "WireGuard roamed");
+        timeline
+    }
+
+    /// The roam's STUN gather (and TURN allocation) on the new socket, then
+    /// the announcement of what it found. `first` hears the first reflexive
+    /// answer; `background`: the roam returned already (the roam count it
+    /// started at), so this takes the roam lock itself before it applies.
+    #[allow(clippy::too_many_arguments)]
+    async fn roam_gather(
+        self: &Arc<Self>,
+        net: Arc<WgNet>,
+        mut endpoints: Vec<SocketAddr>,
+        asked: usize,
+        mut reflexive_rx: mpsc::UnboundedReceiver<SocketAddr>,
+        timeline: Timeline,
+        mut first: Option<oneshot::Sender<()>>,
+        background: Option<u64>,
+    ) {
         // On the transport the new network allows: UDP, else TLS.
         let mut keeps_turn = self.keeps_turn.load(Ordering::Relaxed);
         let turn = async { if keeps_turn { TurnCarrier::allocate(&self.options).await } else { None } };
@@ -597,6 +642,9 @@ impl Session {
                 match tokio::time::timeout_at(deadline, reflexive_rx.recv()).await {
                     Ok(Some(address)) => {
                         found.push(address);
+                        if let Some(first) = first.take() {
+                            let _ = first.send(());
+                        }
                         // One answered: a silent server (port 53 on a cellular
                         // network) gets only a short grace (STUN_GRACE).
                         deadline = deadline.min(Instant::now() + STUN_GRACE);
@@ -607,6 +655,19 @@ impl Session {
             found
         };
         let (mut turn, reflexive) = tokio::join!(turn, reflexive);
+        // A roam that returned early applies its gather only while no later
+        // roam started (that one gathers on its own socket).
+        let _one_at_a_time = match background {
+            Some(roams) => {
+                let guard = self.roaming.lock().await;
+                if self.roams.load(Ordering::Relaxed) != roams || self.closed.load(Ordering::Relaxed) {
+                    timeline.mark("roam_superseded");
+                    return;
+                }
+                Some(guard)
+            }
+            None => None,
+        };
         if turn.is_none() && !keeps_turn && asked > 0 && reflexive.is_empty() {
             // A Mac roamed onto a network that answers no STUN (it drops
             // UDP): from now on it keeps a TURN allocation, and keeps asking
@@ -644,11 +705,10 @@ impl Session {
             }
         }
         if endpoints.len() != known {
+            timeline.mark("roam_late_announced");
             self.announce(offered(endpoints, &self.options), relayed, relayed_tls);
         }
         timeline.mark("roam_gathered");
-        tracing::info!(session = self.session_id, timings = %timeline.summary(), "WireGuard roamed");
-        timeline
     }
 
     fn rehome_onto(&self, client: &SignalingClient) {
@@ -903,6 +963,18 @@ pub fn roam_timeline(session_id: &str) -> Option<Timeline> {
 pub async fn roam_session(session_id: &str, dialer: bool) -> Option<Timeline> {
     let session = find(session_id, dialer)?;
     Some(session.roam().await)
+}
+
+/// Test support: where one side of `session_id` sends its plain UDP now.
+#[doc(hidden)]
+pub fn session_route(session_id: &str, dialer: bool) -> Option<SocketAddr> {
+    find(session_id, dialer).and_then(|session| *session.route_to.borrow())
+}
+
+/// Test support: the marks of one side of `session_id`'s latest roam.
+#[doc(hidden)]
+pub fn session_roam_timeline(session_id: &str, dialer: bool) -> Option<Timeline> {
+    find(session_id, dialer).and_then(|session| lock(&session.last_roam).clone())
 }
 
 /// Test support: the endpoints one side of `session_id` last told its peer.

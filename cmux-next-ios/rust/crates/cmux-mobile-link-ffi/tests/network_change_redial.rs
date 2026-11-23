@@ -23,6 +23,10 @@
 //!
 //! `cargo test --release -p cmux-mobile-link-ffi --test network_change_redial -- --ignored --nocapture --test-threads=1`
 //! `REDIAL_PROFILES=lte,lossy-3,lossy-10` picks profiles, `REDIAL_SAMPLES=20` the samples.
+//! `REDIAL_ROAM_PROCEED=gathered,first,reflexive` (measurement only, `wireguard::set_roam_proceed`;
+//! default `gathered`, today's roam) runs each profile once per mode: `first` returns the roam on
+//! its first usable candidate (a host endpoint, at once), `reflexive` on the first STUN answer;
+//! both leave the gather running and announcing after.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -287,7 +291,30 @@ fn shaped_options(stun: &str) -> DialOptions {
 async fn network_change_to_redial() {
     let samples: usize = std::env::var("REDIAL_SAMPLES").ok().and_then(|n| n.parse().ok()).unwrap_or(20);
     let names = std::env::var("REDIAL_PROFILES").unwrap_or_else(|_| "lte,lossy-3,lossy-10".into());
-    for name in names.split(',').map(str::trim).filter(|name| !name.is_empty()) {
+    let modes = std::env::var("REDIAL_ROAM_PROCEED").unwrap_or_else(|_| "gathered".into());
+    let modes: Vec<(String, u8)> = modes
+        .split(',')
+        .map(str::trim)
+        .filter(|mode| !mode.is_empty())
+        .map(|mode| {
+            let value = match mode {
+                "gathered" => wireguard::ROAM_PROCEED_GATHERED,
+                "first" => wireguard::ROAM_PROCEED_FIRST_CANDIDATE,
+                "reflexive" => wireguard::ROAM_PROCEED_FIRST_REFLEXIVE,
+                other => panic!("REDIAL_ROAM_PROCEED: no mode {other}"),
+            };
+            (mode.to_owned(), value)
+        })
+        .collect();
+    let runs: Vec<(String, String, u8)> = names
+        .split(',')
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .flat_map(|name| modes.iter().map(move |(mode, value)| (name.to_owned(), mode.clone(), *value)))
+        .collect();
+    for (name, mode, mode_value) in runs {
+        let name = name.as_str();
+        wireguard::set_roam_proceed(mode_value);
         let profile = LinkProfile::named(name);
         set_link_profile(Some(profile.clone()), 0x6e65_7463);
         let stun = stun_server(shared(profile.clone()), 0x5455).await;
@@ -329,6 +356,11 @@ async fn network_change_to_redial() {
         let (mut calls, mut opens, mut roams, mut roams_alone, mut failed) =
             (Vec::new(), Vec::new(), Vec::new(), Vec::new(), 0);
         let (mut readies, mut got_old, mut redial_opened) = (Vec::new(), 0, 0);
+        // The gather after the call: its end on the slowest side, how many samples waited out
+        // STUN_WAIT (a side's gather ended at 1490 ms or later), late announcements, and whether
+        // both sides' routes settled on an endpoint the peer announced.
+        let (mut gathers, mut wait_hits, mut late_announces, mut superseded) = (Vec::new(), 0, 0, 0);
+        let (mut converged, mut switched_after_return, mut sample_datagrams) = (0, 0, Vec::new());
         let mut ran = 0;
         while calls.len() < samples && ran < samples * 3 {
             ran += 1;
@@ -355,6 +387,7 @@ async fn network_change_to_redial() {
                 .await
                 .expect("the pooled socket");
             path.cut();
+            let (delivered_before, dropped_before) = shaped_counts();
             let started = Instant::now();
             let marks = pool
                 .network_changed(path.url.clone(), "user:alice".into(), "team".into(), pool_id.clone())
@@ -373,6 +406,65 @@ async fn network_change_to_redial() {
                 redial_opened += 1;
             }
             readies.push(ready);
+            let sides = [true, false];
+            let routes_at_return =
+                sides.map(|dialer| wireguard::session_route(&connected.session_id, dialer));
+            // The gather may go on after the call (REDIAL_ROAM_PROCEED): wait for its end on both
+            // sides (at most STUN_WAIT and change) before the next roam.
+            let gather_deadline = Instant::now() + Duration::from_millis(3000);
+            let timelines = loop {
+                let timelines =
+                    sides.map(|dialer| wireguard::session_roam_timeline(&connected.session_id, dialer));
+                let done = timelines.iter().all(|timeline| {
+                    timeline.as_ref().is_none_or(|timeline| {
+                        timeline.get("roam_gathered").is_some() || timeline.get("roam_superseded").is_some()
+                    })
+                });
+                if done || Instant::now() > gather_deadline {
+                    break timelines;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            };
+            // Let the late announcements land and the routes settle.
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            let gathered = timelines
+                .iter()
+                .flatten()
+                .filter_map(|timeline| timeline.get("roam_gathered"))
+                .map(ms)
+                .reduce(f64::max);
+            if let Some(gathered) = gathered {
+                gathers.push(gathered);
+                if gathered >= 1490.0 {
+                    wait_hits += 1;
+                }
+            }
+            let late = timelines
+                .iter()
+                .flatten()
+                .filter(|timeline| timeline.get("roam_late_announced").is_some())
+                .count();
+            late_announces += late;
+            superseded += timelines
+                .iter()
+                .flatten()
+                .filter(|timeline| timeline.get("roam_superseded").is_some())
+                .count();
+            let routes_final = sides.map(|dialer| wireguard::session_route(&connected.session_id, dialer));
+            let peer_endpoints =
+                sides.map(|dialer| wireguard::session_endpoints(&connected.session_id, !dialer));
+            let settled = routes_final.iter().zip(&peer_endpoints).all(|(route, endpoints)| {
+                matches!((route, endpoints), (Some(route), Some(endpoints)) if endpoints.contains(&route.to_string()))
+            });
+            if settled {
+                converged += 1;
+            }
+            if routes_at_return != routes_final {
+                switched_after_return += 1;
+            }
+            let (delivered_after, dropped_after) = shaped_counts();
+            let datagrams = (delivered_after - delivered_before) + (dropped_after - dropped_before);
+            sample_datagrams.push(datagrams as f64);
             let open =
                 marks.iter().find(|mark| mark.name == "signaling:signaling_open").map(|mark| mark.millis);
             // The phone's roam on its own (a second one on the same session).
@@ -381,8 +473,17 @@ async fn network_change_to_redial() {
             assert!(roamed.is_some(), "the phone's session is not live");
             let alone = ms(started.elapsed());
             println!(
-                "REDIAL_SAMPLE profile={name} call_ms={call:.1} redial_ready_ms={ready:.1} redial_reused={redial_reused} redial_old_socket={} signaling_open_ms={open:?} roam_alone_ms={alone:.1} marks={:?} redial_marks={:?}",
+                "REDIAL_SAMPLE profile={name} mode={mode} call_ms={call:.1} redial_ready_ms={ready:.1} redial_reused={redial_reused} redial_old_socket={} signaling_open_ms={open:?} roam_alone_ms={alone:.1} gathered_ms={gathered:?} late_announced={late} routes_at_return={routes_at_return:?} routes_final={routes_final:?} converged={settled} tunnel_datagrams={datagrams} side_marks={:?} marks={:?} redial_marks={:?}",
                 socket == old,
+                timelines
+                    .iter()
+                    .flatten()
+                    .map(|timeline| timeline
+                        .marks()
+                        .iter()
+                        .map(|(name, at)| format!("{name}={:.0}", ms(*at)))
+                        .collect::<Vec<_>>())
+                    .collect::<Vec<_>>(),
                 marks.iter().map(|mark| format!("{}={:.0}", mark.name, mark.millis)).collect::<Vec<_>>(),
                 redial_marks
                     .iter()
@@ -394,11 +495,15 @@ async fn network_change_to_redial() {
                 opens.push(open);
             }
             roams_alone.push(alone);
-            // The roam inside the call: when `roam()` returned (`roam_gathered`) on the slowest session.
-            if let Some(roam) = marks
+            // The roam inside the call: when `roam()` returned (`roam_proceeded` when it returned
+            // before its gather, else `roam_gathered`) on the slowest side.
+            if let Some(roam) = timelines
                 .iter()
-                .filter(|mark| mark.name == "roam_gathered")
-                .map(|mark| mark.millis)
+                .flatten()
+                .filter_map(|timeline| {
+                    timeline.get("roam_proceeded").or_else(|| timeline.get("roam_gathered"))
+                })
+                .map(ms)
                 .reduce(f64::max)
             {
                 roams.push(roam);
@@ -431,12 +536,14 @@ async fn network_change_to_redial() {
             format!("{label}: n={} p50={p50:.0} p95={p95:.0}", values.len())
         };
         println!(
-            "REDIAL_SUMMARY profile={name} n={} setup_failed={failed} settle_ms={SETTLE_MS} | rust_call p50={call50:.0} p95={call95:.0} | {} | redial_got_old_socket={got_old} redial_opened_own={redial_opened} | {} | {} | {} | total(settle+call) p50={:.0} p95={:.0} | send=assumed<1ms | steady: {:.0} ms, tcp_connects={steady_connects} mac_sessions={steady_sessions} dial_reused={steady_reused} | udp delivered={delivered} dropped={dropped}",
+            "REDIAL_SUMMARY profile={name} mode={mode} n={} setup_failed={failed} settle_ms={SETTLE_MS} | rust_call p50={call50:.0} p95={call95:.0} | {} | redial_got_old_socket={got_old} redial_opened_own={redial_opened} | {} | {} | {} | stun_wait_hit={wait_hits} late_announced={late_announces} superseded={superseded} converged={converged} route_switched_after_return={switched_after_return} | {} | {} | total(settle+call) p50={:.0} p95={:.0} | send=assumed<1ms | steady: {:.0} ms, tcp_connects={steady_connects} mac_sessions={steady_sessions} dial_reused={steady_reused} | udp delivered={delivered} dropped={dropped}",
             calls.len(),
             line("redial_ready(call start to redial socket)", &readies),
             line("signaling_open", &opens),
-            line("roam_in_call(roam_gathered, slowest session)", &roams),
+            line("roam_in_call(roam returned, slowest side)", &roams),
             line("roam_alone", &roams_alone),
+            line("gather_end(slowest side)", &gathers),
+            line("tunnel_datagrams_per_sample(call to settled)", &sample_datagrams),
             call50 + SETTLE_MS,
             call95 + SETTLE_MS,
             readies.iter().sum::<f64>(),

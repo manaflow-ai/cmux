@@ -56,7 +56,8 @@ pub use paths::{app_backgrounded, set_app_backgrounded};
 pub use roam::{network_changed, rehome, roam_timeline, route_destinations};
 #[doc(hidden)]
 pub use roam::{
-    roam_session, session_endpoints, simulate_blackout, simulate_network_loss, simulate_turn_loss,
+    roam_session, session_endpoints, session_roam_timeline, session_route, simulate_blackout,
+    simulate_network_loss, simulate_turn_loss,
 };
 
 /// The link's TCP port inside the tunnel (PROTOCOL.md).
@@ -141,6 +142,29 @@ static ANSWER_AFTER_GATHER: AtomicBool = AtomicBool::new(false);
 /// Measurement only (see [`ANSWER_AFTER_GATHER`]).
 pub fn set_answer_after_gather(on: bool) {
     ANSWER_AFTER_GATHER.store(on, Ordering::Relaxed);
+}
+
+/// Measurement only: when a roam returns ([`ROAM_PROCEED_GATHERED`], the
+/// default: once its STUN gather ends, as before). The other modes return
+/// earlier and leave the gather (and any TURN allocation) running in the
+/// background, announcing what it finds after, as the answer's trickle does.
+static ROAM_PROCEED: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(ROAM_PROCEED_GATHERED);
+/// The roam returns once the gather ends (today's behavior, the default).
+pub const ROAM_PROCEED_GATHERED: u8 = 0;
+/// The roam returns on its first usable candidate: at once when it has a
+/// host endpoint, else on the first reflexive answer.
+pub const ROAM_PROCEED_FIRST_CANDIDATE: u8 = 1;
+/// The roam returns on the first reflexive answer (no grace), as on a
+/// network whose host address the peer cannot reach (cellular CGNAT).
+pub const ROAM_PROCEED_FIRST_REFLEXIVE: u8 = 2;
+
+/// Measurement only (see [`ROAM_PROCEED`]); off ([`ROAM_PROCEED_GATHERED`]) by default.
+pub fn set_roam_proceed(mode: u8) {
+    ROAM_PROCEED.store(mode, Ordering::Relaxed);
+}
+
+pub(super) fn roam_proceed() -> u8 {
+    ROAM_PROCEED.load(Ordering::Relaxed)
 }
 
 /// Whether an answer sends `wg-resp` with its host endpoints at once and
