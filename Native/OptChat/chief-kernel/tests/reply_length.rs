@@ -1,11 +1,10 @@
 //! The reply length gate (Lawrence: "currently i think the responses are
 //! generally too long"). A prompt rule alone did not move the median reply
-//! (two runs each, Oct 29), so the send tool checks the length: the first
-//! send of a turn over the limit is refused with its word count, and Chief
-//! cuts it itself (so no fact is changed by another model); a second send
-//! posts as is, so a long answer the user asked for still goes out.
+//! (two runs each, Oct 29), so the send tool keeps replies short by splitting
+//! them at safe boundaries. An answer the user asked to be long still goes
+//! out as one message with `long: true`.
 
-use chief_kernel::replies::{REPLY_MAX_WORDS, length_check, reply_words};
+use chief_kernel::replies::{REPLY_MAX_WORDS, length_check, reply_words, split_reply};
 
 #[test]
 fn a_link_counts_as_its_text_not_its_url() {
@@ -45,6 +44,46 @@ fn the_first_long_reply_of_a_turn_is_refused_with_its_count_then_the_second_post
 #[test]
 fn a_limit_of_zero_turns_the_gate_off() {
     assert_eq!(length_check(&"word ".repeat(500), 0, false), None);
+}
+
+#[test]
+fn an_over_limit_reply_splits_at_sentences() {
+    let text = "First point is complete. Second point is complete. Third point is complete.";
+    let parts = split_reply(text, 5);
+    assert_eq!(
+        parts,
+        vec![
+            "First point is complete.",
+            "Second point is complete.",
+            "Third point is complete."
+        ]
+    );
+    assert!(parts.iter().all(|part| reply_words(part) <= 5));
+}
+
+#[test]
+fn a_split_never_breaks_links_or_fenced_code() {
+    let text = "The [release note v1.2](https://example.com/a.b) is ready. ```\nfirst line\nsecond line\n``` The follow-up is ready.";
+    let parts = split_reply(text, 8);
+    assert!(
+        parts
+            .iter()
+            .all(|part| !part.contains("https://example.com/a.b")
+                || part.contains("[release note](https://example.com/a.b)"))
+    );
+    assert!(
+        parts
+            .iter()
+            .any(|part| part.contains("```\nfirst line\nsecond line\n```"))
+    );
+}
+
+#[test]
+fn a_split_keeps_list_items_together() {
+    let text = "- first task is done.\n- second task is done.\n- third task is done.";
+    let parts = split_reply(text, 6);
+    assert_eq!(parts, vec![text]);
+    assert!(parts[0].lines().all(|line| !line.trim().is_empty()));
 }
 
 // Nov 12-19 on Lawrence's Chief: 112 sends refused, most of them a status

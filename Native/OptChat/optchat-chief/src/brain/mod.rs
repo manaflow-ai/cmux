@@ -921,8 +921,6 @@ pub struct Brain {
     stop_wanted: bool,
     /// The owner stopped the running turn (chief.stop): its end posts nothing.
     owner_stopped: bool,
-    /// This turn's send was refused for length once; its next send posts.
-    length_refused: bool,
     /// Subagents whose landed report this turn saw, with what landed
     /// (landed_told.rs): `sleep` and `stop` are refused once until a post
     /// of the turn names them.
@@ -1277,7 +1275,6 @@ impl Brain {
             last_agent_send: None,
             fatal: None,
             stop_wanted: false,
-            length_refused: false,
             turn_landed: Vec::new(),
             turn_posts: String::new(),
             landed_refused: false,
