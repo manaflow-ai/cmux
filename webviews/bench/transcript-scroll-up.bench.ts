@@ -107,6 +107,7 @@ async function run(name: string, engine: BrowserType) {
     turns: chatTurns,
     running: false,
     lead,
+    ready: FLAT ? ".acpmux-row" : undefined,
     attachPage: 160,
     session: { turnCount: prompts },
     eventsLatencyMs: LATENCY,
