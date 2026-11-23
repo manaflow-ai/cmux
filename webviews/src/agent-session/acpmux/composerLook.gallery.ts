@@ -5,7 +5,7 @@ import { agentPaneEntry } from "../../gallery/format";
 import type { PlayContext } from "../../gallery/play";
 import { activity, assistant, chat, CWD, manySessions, noChat, tool, user } from "../../gallery/fixtures/acpmux";
 import wallpaper from "../../gallery/fixtures/assets/liquid-glass-wallpaper.jpg?inline";
-import { setPreviewComposerLook, type ComposerLook } from "./composerLook";
+import { type ComposerLook, setPreviewComposerLook } from "./composerLook";
 
 /// A started Claude Code chat in a project: the transcript over the composer. It reports its modes,
 /// as a running Claude Code session does, so the mode chip (the permission capsule) draws in both looks.
@@ -159,12 +159,13 @@ async function glassLevel(ctx: PlayContext, which: ComposerLook, level: Composer
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer-box"));
 }
 
-type MaterialStage = "plain" | "lens" | "reduce";
+type MaterialStage = "plain" | "lens" | "reduce" | "off";
 /// The shared glass material (glass.css, "GLASS MATERIAL"; Leo 2026-11-05 on the Dock beside our
 /// composer: "the glass is a pretty big deal"), on a see-through window over the colorful wallpaper
 /// fixture, as a window over art draws it: the picture and a light window wash behind a clear page,
 /// and the same still sent to the glass lens. Plain is what ships; Lens is the opt-in Debug choice
-/// that bends the picture at the rim; Reduce Transparency is the solid fallback. A capture's "before"
+/// that bends the picture at the rim; Reduce Transparency is the solid fallback, and Liquid Glass off
+/// (appearance.liquidGlass) draws the same solid card. A capture's "before"
 /// removes .ui-glass-material from the card (scripts/agent-pane/capture-composer-material.mjs).
 async function materialStage(ctx: PlayContext, mode: MaterialStage) {
   await look(ctx, "claude");
@@ -526,7 +527,7 @@ export default agentPaneEntry({
     },
     "composer-material-plain": {
       composerLook: "claude",
-      note: "The shared glass material (Plain, what ships) over the colorful wallpaper on a see-through window: the specular rim lit from above-left, the sheen under the top edge, the soft shadow, and a frost that keeps the colors vivid.",
+      note: "The shared glass material (Plain, with Liquid Glass on) over the colorful wallpaper on a see-through window: the specular rim lit from above-left, the sheen under the top edge, the soft shadow, and a frost that keeps the colors vivid.",
       snapshot: startedChat(),
       play: (ctx) => materialStage(ctx, "plain"),
     },
@@ -583,6 +584,12 @@ export default agentPaneEntry({
       note: "The same card in the opt-in Lens (Debug choice glass.lens): the lens bends the wallpaper at the rim and draws its own specular light; the material adds the depth.",
       snapshot: startedChat(),
       play: (ctx) => materialStage(ctx, "lens"),
+    },
+    "composer-material-liquid-glass-off": {
+      composerLook: "claude",
+      note: 'Settings > Appearance > Liquid Glass off (appearance.liquidGlass, data-glass="off") over the same wallpaper: the solid card with its hairline ring, no frost, no specular band and no depth, as Reduce Transparency draws it.',
+      snapshot: startedChat(),
+      play: (ctx) => materialStage(ctx, "off"),
     },
     "composer-material-reduce-transparency": {
       composerLook: "claude",

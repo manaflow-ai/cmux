@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextAgentActivity
 import CmuxNextAgentPane
 import CmuxNextCompat
@@ -27,6 +28,12 @@ final class QuitCoordinator {
     private(set) var isQuitting = false
     /// Runs once when the next quit is refused (an update's relaunch behind waits on that quit).
     var onQuitRefused: (() -> Void)?
+    /// Cmd-Q's guard against an accidental quit (`app.warnBeforeQuitShortcut`, https://github.com/manaflow-ai/cmux/issues/48621).
+    let shortcutGuard = QuitShortcutGuard()
+    /// The "Quit cmux?" question's dialog id, while it shows.
+    private var shortcutQuestion: Int?
+    /// Which question the open one is: its answer after it was ended counts for nothing.
+    private var shortcutAsk: UUID?
     private unowned let services: AppServices
     /// The quit hook's participants (`AppServices.quitUnsaved`; tests replace it).
     var unsaved: QuitUnsavedRegistry
@@ -62,6 +69,49 @@ final class QuitCoordinator {
         self.services = services
         unsaved = services.quitUnsaved
         deadline = QuitDeadline(reason: "its quit deadline was armed (a keep quit decided, or an End quit's engines began to stop)", end: services.quitDeadlineEnd())
+        shortcutGuard.onDisarm = { [weak self] in self?.endShortcutQuestion() }
+        shortcutGuard.onHeldQuit = { [weak self] in self?.requestQuit(.interactive) }
+    }
+
+    /// Whether this run of Quit waits instead (`QuitShortcutGuard.holds`): the shortcut's first press
+    /// asks "Quit cmux?" in the active window (Quit, Cancel, "Don't ask again").
+    func holdsShortcutQuit(_ invocation: ActionInvocation) -> Bool {
+        let enabled = !isQuitting && (services.settings?.snapshot.warnBeforeQuitShortcut ?? CmuxConfigSnapshot.warnBeforeQuitShortcutDefault)
+        return shortcutGuard.holds(invocation, event: services.inputDispatch.event, enabled: enabled) { [weak self] in self?.askShortcutQuit($0) ?? false }
+    }
+
+    /// The question; its "Don't ask again" with Quit turns `app.warnBeforeQuitShortcut` off.
+    private func askShortcutQuit(_ shortcut: String) -> Bool {
+        guard let window = sheetWindow() ?? services.windows.active?.window, window.isVisible else { return false }
+        let prompt = Self.shortcutPrompt(shortcut)
+        let asked = UUID()
+        shortcutAsk = asked
+        // A dialog the window already shows would queue the question out of sight: it opens in the app's own panel then.
+        let busy = CmuxDialogCenter.shared.dialogBlockingKeys(in: window) != nil
+        shortcutQuestion = DestructiveConfirmation.present(prompt, in: window, settings: services.settings, scope: busy ? .app : nil) { [weak self] quit in
+            // A question ended by a second press or a held shortcut (`endShortcutQuestion`) has nothing left to do.
+            guard let self, shortcutAsk == asked else { return }
+            shortcutAsk = nil
+            shortcutQuestion = nil
+            shortcutGuard.disarm()
+            if quit { requestQuit(.interactive) }
+        }
+        return true
+    }
+
+    /// "Quit cmux?": Cancel, Quit (Return), and "Don't ask again" for `app.warnBeforeQuitShortcut`.
+    static func shortcutPrompt(_ shortcut: String) -> DestructiveConfirmation.Prompt {
+        DestructiveConfirmation.Prompt(title: QuitStrings.shortcutQuestionTitle, body: QuitStrings.shortcutQuestionBody(shortcut),
+                                       button: QuitStrings.shortcutQuestionQuit, suppresses: CmuxConfigSnapshot.warnBeforeQuitShortcutPath)
+    }
+
+    /// The guard disarmed while asking: only a quit does that (a second or held Cmd-Q, a quit the guard
+    /// lets through), so the question ends as Quit and a checked "Don't ask again" still counts.
+    private func endShortcutQuestion() {
+        let id = shortcutQuestion
+        shortcutAsk = nil
+        shortcutQuestion = nil
+        if let id { CmuxDialogCenter.shared.press(id, button: DestructiveConfirmation.confirmID) }
     }
 
     /// Records the origin, then starts AppKit's termination. A quit already
@@ -128,6 +178,7 @@ final class QuitCoordinator {
         logger.notice("quit choice=\(choice.rawValue, privacy: .public)")
         DebugTimings.markLaunch("quit.decided")
         let services = services
+        await services.updater.afterimage?.untilShown(limit: .milliseconds(600)) // a relaunch's pictures are up before any step takes a window off screen (RelaunchAfterimage)
         // A keep quit ends within `keepQuitLimit` from here, whatever any step
         // below does (slow quit, 2026-10-20). An End quit arms its deadline
         // once its sessions ended (the end steps show their failures).
