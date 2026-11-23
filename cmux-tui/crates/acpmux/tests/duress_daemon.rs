@@ -95,7 +95,14 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     // How `systemd-run --user` reaches the user's manager, for the bigchat leg's memory ceiling.
     "XDG_RUNTIME_DIR",
     "DBUS_SESSION_BUS_ADDRESS",
+    "ACPMUX_DURESS_BIG_OFF",
+    "ACPMUX_DURESS_PERF",
 ]);
+
+/// EXPERIMENT: a part of the bigchat leg's load left out (`ACPMUX_DURESS_BIG_OFF=readers,fork,...`).
+fn big_off(part: &str) -> bool {
+    std::env::var("ACPMUX_DURESS_BIG_OFF").is_ok_and(|v| v.split(',').any(|p| p.trim() == part))
+}
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::god_fixture;
@@ -1565,7 +1572,7 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
     let watchdog = Watchdog::arm(k.cap);
     let mut stressors: Vec<Stressor> = vec![];
     let mut stress_json = std::mem::take(&mut stress_json_early);
-    if stress.cpu {
+    if stress.cpu && !big_off("cpu") {
         let count = k.cpu_x * cores();
         match Stressor::spawn("cpu", &cpu_script(count), k.cap) {
             Ok(s) => stressors.push(s),
@@ -1650,8 +1657,18 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
     // sessions stay unsettled in the outbox, and the drivers until the window ends.
     let mut readers: Vec<Rpc> = vec![];
     let mut drivers = vec![];
+    if std::env::var("ACPMUX_DURESS_PERF").is_ok()
+        && let Ok(mut r) = Rpc::connect(&daemon.socket)
+    {
+        let on = r.call("_acpmux/perf", json!({"op": "on"}), CALL_LIMIT);
+        eprintln!("DURESS-PERF on: {on:?}");
+    }
     if stress.bigchat {
-        let (held, failed) = slow_readers(&daemon.socket, &big);
+        let (held, failed) = if big_off("readers") {
+            (vec![], BTreeMap::new())
+        } else {
+            slow_readers(&daemon.socket, &big)
+        };
         stress_json.insert("slowReaders".into(), json!({"attached": held.len(), "failed": failed}));
         readers = held;
         // The first peer (`peers` names it `peer00`) held down.
@@ -1791,6 +1808,9 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
     }
     let readers_held = readers.len();
     drop(readers);
+    if std::env::var("ACPMUX_DURESS_PERF").is_ok() {
+        perf_summary(&home);
+    }
     let hub_requests = hub.requests.load(Ordering::SeqCst) - hub_requests_before;
     let hub_paths: BTreeMap<String, u64> = hub
         .paths
@@ -2023,79 +2043,86 @@ fn bigchat_drivers(
         std::thread::spawn(move || (name, f()))
     };
     let (sock, b, c) = (socket.to_owned(), big.to_vec(), cwd.display().to_string());
-    threads.push(spawn(
-        "fork",
-        Box::new(move || {
-            let (mut rpc, mut s, mut j) = (None, Samples::default(), 0usize);
-            while Instant::now() < until && !b.is_empty() {
-                let id = &b[j % b.len()];
-                timed_call(
-                    &mut rpc,
-                    &sock,
-                    &mut s,
-                    "session/fork",
-                    json!({"sessionId": id, "cwd": c,
+    if !big_off("fork") {
+        threads.push(spawn(
+            "fork",
+            Box::new(move || {
+                let (mut rpc, mut s, mut j) = (None, Samples::default(), 0usize);
+                while Instant::now() < until && !b.is_empty() {
+                    let id = &b[j % b.len()];
+                    timed_call(
+                        &mut rpc,
+                        &sock,
+                        &mut s,
+                        "session/fork",
+                        json!({"sessionId": id, "cwd": c,
                     "_meta": {"acpmux": {"name": format!("bigfork-{j}")}}}),
-                );
-                j += 1;
-            }
-            s.json()
-        }),
-    ));
+                    );
+                    j += 1;
+                }
+                s.json()
+            }),
+        ));
+    }
     let (sock, b, l) = (socket.to_owned(), big.to_vec(), live.to_vec());
-    threads.push(spawn(
-        "resend",
-        Box::new(move || {
-            let (mut rpc, mut s, mut j) = (None, Samples::default(), 0usize);
-            let targets: Vec<String> = b.iter().chain(l.iter().take(4)).cloned().collect();
-            while Instant::now() < until && !targets.is_empty() {
-                let id = &targets[j % targets.len()];
-                // The same prompt id every time: after the first, each is a resend.
-                timed_call(
-                    &mut rpc,
-                    &sock,
-                    &mut s,
-                    "_acpmux/send_queue",
-                    json!({"request": {
+    if !big_off("resend") {
+        threads.push(spawn(
+            "resend",
+            Box::new(move || {
+                let (mut rpc, mut s, mut j) = (None, Samples::default(), 0usize);
+                let targets: Vec<String> = b.iter().chain(l.iter().take(4)).cloned().collect();
+                while Instant::now() < until && !targets.is_empty() {
+                    let id = &targets[j % targets.len()];
+                    // The same prompt id every time: after the first, each is a resend.
+                    timed_call(
+                        &mut rpc,
+                        &sock,
+                        &mut s,
+                        "_acpmux/send_queue",
+                        json!({"request": {
                     "sessionId": id, "prompt": [{"type": "text", "text": "duress resend"}],
                     "_meta": {"acpmux": {"promptId": format!("duress-resend-{id}")}}}}),
-                );
-                j += 1;
-            }
-            s.json()
-        }),
-    ));
+                    );
+                    j += 1;
+                }
+                s.json()
+            }),
+        ));
+    }
     let (sock, b) = (socket.to_owned(), big.to_vec());
-    threads.push(spawn(
-        "watch+team",
-        Box::new(move || {
-            let (mut rpc, mut watch, mut team, mut j) =
-                (None, Samples::default(), Samples::default(), 0usize);
-            while Instant::now() < until && !b.is_empty() {
-                let id = &b[j % b.len()];
-                timed_call(
-                    &mut rpc,
-                    &sock,
-                    &mut watch,
-                    "_acpmux/watch_add",
-                    json!({"sessions": [id], "once": true}),
-                );
-                timed_call(
-                    &mut rpc,
-                    &sock,
-                    &mut team,
-                    "_acpmux/team/send",
-                    json!({"to": "@duress/agent", "body": format!("duress team {j}"),
+    if !big_off("watch+team") {
+        threads.push(spawn(
+            "watch+team",
+            Box::new(move || {
+                let (mut rpc, mut watch, mut team, mut j) =
+                    (None, Samples::default(), Samples::default(), 0usize);
+                while Instant::now() < until && !b.is_empty() {
+                    let id = &b[j % b.len()];
+                    timed_call(
+                        &mut rpc,
+                        &sock,
+                        &mut watch,
+                        "_acpmux/watch_add",
+                        json!({"sessions": [id], "once": true}),
+                    );
+                    timed_call(
+                        &mut rpc,
+                        &sock,
+                        &mut team,
+                        "_acpmux/team/send",
+                        json!({"to": "@duress/agent", "body": format!("duress team {j}"),
                            "idempotencyKey": format!("duress-team-{}", j % 8)}),
-                );
-                j += 1;
-                std::thread::sleep(Duration::from_millis(250));
-            }
-            json!({"watchAdd": watch.json(), "teamSend": team.json()})
-        }),
-    ));
+                    );
+                    j += 1;
+                    std::thread::sleep(Duration::from_millis(250));
+                }
+                json!({"watchAdd": watch.json(), "teamSend": team.json()})
+            }),
+        ));
+    }
     let (sock, f) = (socket.to_owned(), far.to_vec());
-    threads.push(spawn(
+    if !big_off("outbox") {
+        threads.push(spawn(
         "outbox",
         Box::new(move || {
             let (mut rpc, mut s) = (None, Samples::default());
@@ -2110,32 +2137,74 @@ fn bigchat_drivers(
             s.json()
         }),
     ));
+    }
     let sock = socket.to_owned();
-    threads.push(spawn(
-        "gauges",
-        Box::new(move || {
-            let (mut rpc, mut s) = (None, Samples::default());
-            let (mut last, mut max_ms, mut max_dropped) = (Value::Null, 0f64, 0u64);
-            while Instant::now() < until {
-                if let Some(v) = timed_call(&mut rpc, &sock, &mut s, "_acpmux/status", json!({})) {
-                    let fanout = v["gauges"]["recordWrites"]["fanout"].clone();
-                    max_ms = max_ms.max(fanout["maxMs"].as_f64().unwrap_or(0.0));
-                    max_dropped = max_dropped.max(fanout["dropped"].as_u64().unwrap_or(0));
-                    if !fanout.is_null() {
-                        last = fanout;
+    if !big_off("gauges") {
+        threads.push(spawn(
+            "gauges",
+            Box::new(move || {
+                let (mut rpc, mut s) = (None, Samples::default());
+                let (mut last, mut max_ms, mut max_dropped) = (Value::Null, 0f64, 0u64);
+                while Instant::now() < until {
+                    if let Some(v) =
+                        timed_call(&mut rpc, &sock, &mut s, "_acpmux/status", json!({}))
+                    {
+                        let fanout = v["gauges"]["recordWrites"]["fanout"].clone();
+                        max_ms = max_ms.max(fanout["maxMs"].as_f64().unwrap_or(0.0));
+                        max_dropped = max_dropped.max(fanout["dropped"].as_u64().unwrap_or(0));
+                        if !fanout.is_null() {
+                            last = fanout;
+                        }
                     }
+                    std::thread::sleep(Duration::from_secs(2));
                 }
-                std::thread::sleep(Duration::from_secs(2));
-            }
-            json!({"status": s.json(), "fanoutLast": last, "fanoutMaxMs": max_ms,
+                json!({"status": s.json(), "fanoutLast": last, "fanoutMaxMs": max_ms,
                    "fanoutDroppedMax": max_dropped})
-        }),
-    ));
+            }),
+        ));
+    }
     threads
 }
 
 /// Connections attached to the big chats' event streams from their start that never read: the
 /// daemon's writes to them fill the socket buffers. How many attached, and the failures.
+/// EXPERIMENT: what the daemon's perf watch saw (`perf-watch.jsonl` in its home): request spans
+/// by method (count, p50, max ms) and its notes, deduplicated.
+fn perf_summary(home: &Path) {
+    let text = std::fs::read_to_string(home.join("perf-watch.jsonl")).unwrap_or_default();
+    let mut spans: BTreeMap<String, Vec<f64>> = BTreeMap::new();
+    let mut notes: BTreeMap<String, u64> = BTreeMap::new();
+    for line in text.lines() {
+        let Ok(v) = serde_json::from_str::<Value>(line) else { continue };
+        match v["kind"].as_str() {
+            Some("span") => spans
+                .entry(v["name"].as_str().unwrap_or("?").to_owned())
+                .or_default()
+                .push(v["ms"].as_f64().unwrap_or(0.0)),
+            Some("note") => {
+                let t = v["text"].as_str().unwrap_or("?");
+                let key: String = t.chars().filter(|c| !c.is_ascii_digit()).take(90).collect();
+                *notes.entry(key).or_default() += 1;
+            }
+            _ => {}
+        }
+    }
+    for (name, mut ms) in spans {
+        ms.sort_by(f64::total_cmp);
+        let sum: f64 = ms.iter().sum();
+        eprintln!(
+            "DURESS-PERF span {name}: n {} p50 {:.0} max {:.0} sum {:.0}",
+            ms.len(),
+            ms[ms.len() / 2],
+            ms[ms.len() - 1],
+            sum
+        );
+    }
+    for (t, n) in notes {
+        eprintln!("DURESS-PERF note x{n}: {t}");
+    }
+}
+
 fn slow_readers(socket: &Path, big: &[String]) -> (Vec<Rpc>, BTreeMap<String, u64>) {
     let (mut held, mut failed) = (vec![], BTreeMap::new());
     for i in 0..SLOW_READERS {
