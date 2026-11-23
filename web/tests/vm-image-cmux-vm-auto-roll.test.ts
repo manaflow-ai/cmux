@@ -24,6 +24,7 @@ import {
   settle,
   type BootImage,
   type SettleInput,
+  workerTakesLarge,
 } from "../../images/cmux-vm/auto-roll";
 import { runChild, runChildOk } from "./helpers/run-child";
 
@@ -158,6 +159,95 @@ describe("auto-roll approve", () => {
     const bad = { ...keyed("12"), inputs_sha256: "A".repeat(64) };
     expect(() => replaceList(text, "production", [bad, ...prod])).toThrow(/bad inputs_sha256/);
     expect(() => replaceList(text, "production", [{ ...entry("12"), extra: "x" } as BootImage, ...prod])).toThrow(/fields/);
+  });
+
+  // The large image (bake.ts --large): the same bake at the default Cloud chat start size, which the cmux-vm Worker
+  // boots for a create that asks for exactly that size (workers/cmux-vm README, "Approved service boot images").
+  const LARGE_ID = `sh-${"b".repeat(32)}`;
+  const LARGE = { snapshotId: LARGE_ID, vcpus: 4, memoryMib: 16384, diskMib: 65536 };
+  const largeCandidate = { ...candidate, large: { snapshot: "x-large", snapshot_id: LARGE_ID, size: { vcpu: 4, mem_gib: 16, disk_gib: 64 }, smoke: { result: "PASSED" } } };
+  const withLarge = (run: string): BootImage => rolledImage(largeCandidate, `ci-${run}-1`, tui, run, "1");
+
+  test("the entry carries the candidate's large image only when it passed its smoke and is well formed", () => {
+    expect(withLarge("1").large).toEqual(LARGE);
+    expect(entry("1")).not.toHaveProperty("large");
+    const base = largeCandidate.large;
+    for (const bad of [
+      { ...base, smoke: { result: "FAILED" } },
+      { ...base, smoke: undefined },
+      { ...base, snapshot_id: "x-large" },
+      { ...base, snapshot_id: candidate.snapshot_id },
+      { ...base, size: { vcpu: 4, mem_gib: 16 } },
+      { ...base, size: { vcpu: 4.5, mem_gib: 16, disk_gib: 64 } },
+      "large",
+    ])
+      expect(rolledImage({ ...candidate, large: bad as typeof base }, "ci-1-1", tui, "1", "1")).not.toHaveProperty("large");
+  });
+
+  test("lists the large image on staging's entry only, never production's", () => {
+    const { text, large } = approve(wrangler, withLarge("20"));
+    expect(large).toBe(true);
+    expect(locate(text, "staging").images.at(-1)).toEqual({ ...withLarge("20"), services: ["cloud-platform-dev", "cloud-platform-staging"] });
+    expect(locate(text, "production").images[0]).toEqual({ ...entry("20"), services: ["cloud-platform-production", "ci-product-smoke"] });
+    expect(locate(text, "production").images.some((i) => "large" in i)).toBe(false);
+    expect(approve(wrangler, entry("21")).large).toBe(false);
+  });
+
+  test("an entry that stays listed keeps its large image across later rolls, so a create journaled on it can retry", () => {
+    const first = approve(wrangler, withLarge("30")).text;
+    const id30 = locate(first, "staging").images.at(-1)!.id;
+    // A default roll (no large image baked) must not take the older entry's away.
+    const second = approve(first, entry("31")).text;
+    expect(locate(second, "staging").images.find((i) => i.id === id30)?.large).toEqual(LARGE);
+    const third = locate(approve(second, withLarge("32")).text, "staging").images;
+    expect(third.at(-1)!.large).toEqual(LARGE);
+    expect(third.find((i) => i.id === id30)?.large).toEqual(LARGE);
+    expect(locate(approve(second, withLarge("32")).text, "production").images.some((i) => "large" in i)).toBe(false);
+  });
+
+  test("a large image that would put staging over the text binding limit is left out, and the roll goes on", () => {
+    const staging = locate(wrangler, "staging").images;
+    // Hand-approved entries are added and their names padded (100 characters at most each) until the plain roll fits
+    // with 10 bytes to spare, fewer than the large image needs.
+    const rolled = { ...entry("40"), services: ["cloud-platform-dev", "cloud-platform-staging"] };
+    const spare = (images: BootImage[]) => MAX_BYTES - Buffer.byteLength(JSON.stringify([...images, rolled]));
+    let filled = staging;
+    for (let n = 0; spare([{ ...staging[0]!, id: `hand-pad-${n}`, displayName: "x" }, ...filled]) >= 10; n++)
+      filled = [{ ...staging[0]!, id: `hand-pad-${n}`, displayName: "x" }, ...filled];
+    let pad = spare(filled) - 10;
+    expect(pad).toBeGreaterThanOrEqual(0);
+    const padded = filled.map((i) => {
+      const add = Math.min(pad, 100 - i.displayName.length);
+      pad -= add;
+      return { ...i, displayName: i.displayName + "x".repeat(add) };
+    });
+    expect(pad).toBe(0);
+    const tight = replaceList(wrangler, "staging", padded);
+    const { text, large } = approve(tight, withLarge("40"));
+    expect(large).toBe(false);
+    expect(locate(text, "staging").images.at(-1)).toEqual({ ...entry("40"), services: ["cloud-platform-dev", "cloud-platform-staging"] });
+  });
+
+  test("a large image is listed only beside a Worker source that takes one", () => {
+    // This checkout's Worker does; a copy from before it (cmux-platform's, until its next sync) refuses the whole list.
+    expect(workerTakesLarge(new URL("../../workers/cmux-vm/wrangler.jsonc", import.meta.url).pathname)).toBe(true);
+    const dir = mkdtempSync(path.join(tmpdir(), "auto-roll-old-worker-"));
+    try {
+      expect(workerTakesLarge(path.join(dir, "wrangler.jsonc"))).toBe(false);
+      mkdirSync(path.join(dir, "src/upstream"), { recursive: true });
+      writeFileSync(path.join(dir, "src/upstream/live-images.ts"), "const Entry = Schema.Struct({\n  inputs_sha256: Schema.optional(Schema.Unknown),\n});\n");
+      expect(workerTakesLarge(path.join(dir, "wrangler.jsonc"))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a list with a large image reads back, and a malformed one is refused", () => {
+    const { text } = approve(wrangler, withLarge("50"));
+    const staging = locate(text, "staging").images;
+    expect(staging.at(-1)!.large).toEqual(LARGE);
+    for (const bad of [{ ...LARGE, vcpus: 0 }, { ...LARGE, snapshotId: "bad id" }, { ...LARGE, extra: 1 }, { snapshotId: LARGE_ID }, { ...LARGE, snapshotId: staging.at(-1)!.snapshotId }])
+      expect(() => replaceList(text, "staging", [...staging.slice(0, -1), { ...staging.at(-1)!, large: bad as BootImage["large"] }])).toThrow(/bad large/);
   });
 });
 
@@ -456,6 +546,12 @@ describe("auto-roll workflows", () => {
     expect(roll.jobs.bake.with).not.toHaveProperty("native_receiver");
     const bake = load("cloud-vm-image-bake.yml");
     expect(stepOf(bake.jobs["bake"]!, "roll_candidate").run).toContain('"$OUT_DIR/channel-dev.json"');
+  });
+
+  test("the roll bakes the large image only when its dispatch asks, so a build or push roll never does", () => {
+    const roll = load("cloud-vm-image-roll.yml") as unknown as { on: { workflow_dispatch: { inputs: Record<string, { type?: string; default?: unknown }> } }; jobs: { bake: { with: Record<string, unknown> } } };
+    expect(roll.on.workflow_dispatch.inputs["large_image"]).toMatchObject({ type: "boolean", default: false });
+    expect(roll.jobs.bake.with["large_image"]).toBe("${{ inputs.large_image == true }}");
   });
 
   test("a roll's image id carries the run attempt", () => {
