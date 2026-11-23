@@ -312,7 +312,7 @@
               "note": "OpenAI's reference loop: no wait."
             }
           ],
-          "default": "adaptive",
+          "default": "openai",
           "swift_enum": {
             "name": "ComputerUseSettle"
           },
@@ -496,6 +496,41 @@
             "security"
           ],
           "swift_owner": "SSHLinkHostsSetting"
+        }
+      ]
+    },
+    {
+      "name": "hosts",
+      "section": "machines",
+      "group": {
+        "key": "settings.group.sshLinks",
+        "text": "SSH Links"
+      },
+      "note": "Hosts declared by hand (CMUX-673): a label and the ssh endpoints tried in order, with an optional icon and id. cmux-config hosts.rs owns the rule; `cmux hosts list|check` reads them.",
+      "rows": [
+        {
+          "key": "machines.hosts",
+          "note": "A list of {label, endpoints | endpoint, icon?, id?}; labels are unique ignoring case. Edited in cmux-next.json, so it stays off the Settings page.",
+          "title": {
+            "key": "settings.machines.hosts",
+            "text": "Hosts"
+          },
+          "help": {
+            "key": "settings.machines.hosts.help",
+            "text": "Computers you reach over ssh, each a label and the addresses tried in order. cmux hosts check says which ones answer."
+          },
+          "kind": "text",
+          "swift_owner": "HostsSetting",
+          "default": [],
+          "keywords": [
+            "hosts",
+            "machines",
+            "computers",
+            "ssh",
+            "remote",
+            "endpoints"
+          ],
+          "page_hidden": "a list of host objects, edited in cmux-next.json"
         }
       ]
     },
@@ -877,6 +912,45 @@
       ]
     },
     {
+      "name": "macScreenViewing",
+      "section": "machines",
+      "group": {
+        "key": "settings.group.screenSharing",
+        "text": "Screen Sharing"
+      },
+      "rows": [
+        {
+          "key": "macScreen.onlyPersonStartsViewing",
+          "note": "Read by MacScreenPages.agentMayStartViewing: off (the default), an agent's or the CLI's macScreen.open with a device of the person's own starts viewing at once (MacScreenPages.isOwnDevice); on, it waits at the Connect card for the person's click, as before. Leo 2026-11-17: \"why should it get held only be aperson's click? i dont like that\".",
+          "title": {
+            "key": "settings.macScreen.onlyPersonStartsViewing",
+            "text": "Only Your Click Starts Viewing a Screen"
+          },
+          "help": {
+            "key": "settings.macScreen.onlyPersonStartsViewing.help",
+            "text": "On, a Screen Sharing tab an agent or the cmux CLI opens waits until you choose View Only or Full Control. Off, it starts viewing your own devices at once and says who started it. A device someone else owns always asks first."
+          },
+          "summary": {
+            "key": "settings.macScreen.onlyPersonStartsViewing.summary",
+            "text": "Agents can't start viewing your screens"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "screen sharing",
+            "mac screen",
+            "agents",
+            "automation",
+            "cli",
+            "view",
+            "control",
+            "click",
+            "approve"
+          ]
+        }
+      ]
+    },
+    {
       "name": "macScreenDebug",
       "section": "development",
       "group": {
@@ -943,6 +1017,39 @@
             "quit",
             "background",
             "device hub"
+          ]
+        },
+        {
+          "key": "remote.agentShareIdleMinutes",
+          "note": "Read by the daemon each time an owner's agent turns sharing on under the account's \"My agents can turn screen sharing and control on my machines\" (cmux-tui-util user_settings::agent_share_idle_minutes; cmux-tui-core remote_host/agent_share.rs AutoOff). The person's own sharing never turns itself off.",
+          "title": {
+            "key": "settings.remote.agentShareIdleMinutes",
+            "text": "Agent Sharing Turns Off After"
+          },
+          "help": {
+            "key": "settings.remote.agentShareIdleMinutes.help",
+            "text": "When one of your agents turns sharing on for this Mac, it turns off again after this many minutes with no device viewing or controlling it."
+          },
+          "summary": {
+            "key": "settings.remote.agentShareIdleMinutes.summary",
+            "text": "Minutes with no viewer before an agent's sharing turns off"
+          },
+          "kind": "number",
+          "range": {
+            "min": 1,
+            "max": 240,
+            "step": 1,
+            "unit": "minutes"
+          },
+          "default": 15,
+          "keywords": [
+            "cmux remote",
+            "screen sharing",
+            "mac screen",
+            "agents",
+            "idle",
+            "timeout",
+            "turn off"
           ]
         },
         {
