@@ -2057,6 +2057,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-intent"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-journal"
 version = "0.1.0"
 dependencies = [
