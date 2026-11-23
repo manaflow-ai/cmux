@@ -22,6 +22,12 @@
 // each a new page in the warm renderer, timed from navigation to the newest reply drawn (chat_pages_memory.reopen:
 // first content, p50/p95). With HIDDEN=1, REOPEN of the hidden chats show again the same way, each timed from shown to
 // the newest reply drawn (chat_pages_memory.reshow p50/p95): the same open, of a kept page.
+// PURGE=1 then sends a critical memory-pressure notice through a live page and samples again. With PURGE_EXPERIMENT=1
+// it then waits 30 s, sends the notice again, hides (HIDDEN_MINIMIZE=1: minimizes) every live page, waits 15 s and
+// samples, and sends the notice once more: which of time, the notice and the renderer having no page shown gives
+// back the garbage closed chats leave. On 2026-11-23 (RELEASE=1, 30 chats of 100 turns) only the hide did:
+// 341 -> 252 MB, blink_gc 85 -> 16 MB; the notice with a page shown gave back nothing.
+// MEMDUMP_ALL=1 prints every memory-infra node to depth 3 with MEMDUMP=1.
 // The empty row (count 0) is the renderer holding one about:blank page of the same site, what the app's renderer
 // holds with no chat open: the per-chat target is a chat page costing about nothing beside it.
 //   bun bench/chat-pages-memory.bench.ts [counts=1,10,30] [turns=100]
@@ -228,7 +234,8 @@ try {
         const keep =
           depth === 1 ||
           (name.startsWith("partition_alloc/partitions/") && depth === 3) ||
-          (name.startsWith("v8/main/heap/") && depth === 4);
+          (name.startsWith("v8/main/heap/") && depth === 4) ||
+          (process.env.MEMDUMP_ALL === "1" && depth <= 3);
         const size = dump.attrs?.size?.value;
         if (!keep || size === undefined) continue;
         sizes.set(name, (sizes.get(name) ?? 0) + parseInt(size, 16) / 1048576);
@@ -417,12 +424,39 @@ try {
   }
   if (process.env.PURGE === "1") {
     // What Chromium's own memory-pressure response gives back with every page kept (bench_memory.py --purge-hidden).
-    await pages[0]!.cdp.send("Memory.simulatePressureNotification", { level: "critical" });
+    // RELEASE=1 closed every page but the newest: the notice goes through a live one.
+    const kept = pages.filter(({ page }) => !page.isClosed());
+    await kept[0]!.cdp.send("Memory.simulatePressureNotification", { level: "critical" });
     await new Promise((resolve) => setTimeout(resolve, 3000));
-    const purged = await sample(pages);
+    const purged = await sample(kept);
+    await printDump(pages.length);
     console.log(
       `${pages.length} purged | ${purged.renderers} | ${purged.mb.toFixed(1)} | ${((purged.mb - empty.mb) / pages.length).toFixed(1)} | ${purged.heap.toFixed(1)} | -`,
     );
+    if (process.env.PURGE_EXPERIMENT === "1") {
+      await new Promise((resolve) => setTimeout(resolve, 30000));
+      const settled = await sample(kept);
+      await printDump(pages.length);
+      console.log(`${pages.length} settled30s | ${settled.mb.toFixed(1)} | ${settled.heap.toFixed(1)}`);
+      await kept[0]!.cdp.send("Memory.simulatePressureNotification", { level: "critical" });
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      const late = await sample(kept);
+      await printDump(pages.length);
+      console.log(`${pages.length} visible-purged-late | ${late.mb.toFixed(1)} | ${late.heap.toFixed(1)}`);
+      for (const { page, cdp } of kept) {
+        await setMinimized(cdp, true);
+        await setHidden(page, true);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 15000));
+      const hiddenOnly = await sample(kept);
+      await printDump(pages.length);
+      console.log(`${pages.length} hidden-no-notice | ${hiddenOnly.mb.toFixed(1)} | ${hiddenOnly.heap.toFixed(1)}`);
+      await kept[0]!.cdp.send("Memory.simulatePressureNotification", { level: "critical" });
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      const hidden = await sample(kept);
+      await printDump(pages.length);
+      console.log(`${pages.length} hidden-purged | ${hidden.mb.toFixed(1)} | ${hidden.heap.toFixed(1)}`);
+    }
   }
   const percentile = (values: number[], share: number) => {
     const sorted = [...values].sort((a, b) => a - b);
