@@ -567,6 +567,16 @@ class WorkflowShape(unittest.TestCase):
         self.assertIn("check:fixed-waits", module.CHECKS)
         self.assertIn("check:effect-cleanup", module.CHECKS)
         self.assertIn("typecheck", module.CHECKS)  # #23763's TS2339 hid behind a red base
+        # The type check is its own job (ci-self-heal 0c, Leo 2026-11-19): a type error is a red of its own and
+        # never the test shard's; the same per-error base comparison runs there.
+        self.assertIn("--skip typecheck", steps[0]["run"])
+        typecheck = doc["jobs"]["webviews-typecheck"]
+        run = "\n".join(s.get("run", "") for s in typecheck["steps"])
+        self.assertIn('--base "$BASE_REF" --only typecheck', run)
+        self.assertEqual(typecheck["steps"][0]["with"]["fetch-depth"],
+                         "${{ github.event_name == 'pull_request' && '2' || '1' }}")
+        with self.assertRaises(SystemExit):
+            module.main(["--only", "not-a-check", "--no-install"])
 
     def test_no_web_check_waits_on_an_earlier_red(self):
         # #23763 (2026-10-21): the bundle build was red on the base, so `Build the web bundles` failed and every
