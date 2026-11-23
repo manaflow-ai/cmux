@@ -113,9 +113,10 @@ export function permissionCardHeight(permission: AcpmuxPermission | undefined, w
   return height;
 }
 
-// PermissionCard's frame (styles.css, .acpmux-permission-*): the request block is 16px around its
-// title and description lines 4px apart; the details band adds 12px above the command and scope,
-// 8px apart; the button row is 12px above and 16px below rows of 28px buttons, 8px apart.
+// PermissionCard's frame (styles.css, .acpmux-permission-*): the request block is 16px above and below
+// its title and description lines 4px apart, and the grid's card padding (12) at its sides; the
+// details band adds 12px above the command and scope, 8px apart; the button row is 12px above and
+// 16px below rows of 28px buttons, 8px apart.
 const EDGE = 16;
 const BAND = 12;
 const GAP = 8;
@@ -127,7 +128,7 @@ function estimatePermission(permission: AcpmuxPermission, width: number, scale: 
   // The prompt bubble's padding in the card's unscaled units: drawn at the density text scale (conversation.css).
   if (permission.question)
     return questionHeight(permission.question, width / scale, chatDensityTextScale() / scale) * scale;
-  const room = Math.max(1, width / scale - 2 * EDGE);
+  const room = Math.max(1, width / scale - 2 * padding);
   const external = permission.externalAccess;
   const plan = permission.plan;
   let height = 2 * EDGE + body.lineHeight;
@@ -221,7 +222,8 @@ function questionHeight(question: AgentQuestion, width: number, bubbleScale = 1)
     // The size the chat draws at the density (chatDisplay.ts drawnFontSize), as the card's text is.
     const contentSize = drawnFontSize(chatDisplay());
     const line = contentSize * chatDisplay().lineHeight;
-    const inner = Math.max(1, width - 32);
+    // The prompt card's sides are the grid's card padding (questionCard.css); top and bottom stay 16.
+    const inner = Math.max(1, width - 2 * padding);
     let height = 32 + 24 + 24 + text(item.prompt, inner, line, contentSize);
     height +=
       8 +

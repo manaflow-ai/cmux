@@ -112,7 +112,7 @@
   align-self: stretch;
   align-items: stretch;
   gap: 0;
-  padding: var(--ds-space-4);
+  padding: var(--ds-space-4) var(--grid-cards-padding);
   border: var(--cmux-hairline, 0.5px) solid var(--acpmux-question-edge);
   border-radius: var(--ds-radius-xl);
   background: var(--acpmux-question-bg);

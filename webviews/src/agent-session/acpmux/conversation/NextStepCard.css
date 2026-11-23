@@ -11,7 +11,7 @@
   min-width: 0;
   max-width: 100%;
   margin: 0;
-  padding: var(--ds-space-3, 12px) var(--ds-space-4, 16px);
+  padding: var(--ds-space-3, 12px) var(--grid-cards-padding, 12px);
   border: var(--cmux-hairline, 0.5px) solid var(--acpmux-question-edge);
   border-radius: 12px;
   background: var(--acpmux-question-bg);
@@ -127,7 +127,7 @@
 .acpmux-next-step.acpmux-next-step--answered {
   align-self: stretch;
   width: auto;
-  padding: var(--ds-space-3, 12px) var(--ds-space-4, 16px);
+  padding: var(--ds-space-3, 12px) var(--grid-cards-padding, 12px);
 }
 /* The agent's wrap-up recap (wrapUp.ts): muted at the top of the box, a paragraph's gap above the
    question, as Claude desktop's next-step box. Alone, it is the whole box. */
@@ -146,7 +146,7 @@
 .acpmux-next-step.acpmux-next-step--recap {
   display: block;
   box-sizing: border-box;
-  padding: var(--ds-space-3, 12px) var(--ds-space-4, 16px);
+  padding: var(--ds-space-3, 12px) var(--grid-cards-padding, 12px);
   border: var(--cmux-hairline, 0.5px) solid var(--acpmux-question-edge);
   border-radius: 12px;
   background: var(--acpmux-question-bg);
