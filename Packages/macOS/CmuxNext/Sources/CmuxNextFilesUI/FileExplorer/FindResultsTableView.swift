@@ -1,4 +1,5 @@
 package import AppKit
+import CmuxNextDesign
 
 /// The Find results list: Return opens the selected result (bare keys never
 /// reach the key router's binding table, so the list handles it).
@@ -19,6 +20,6 @@ package final class FindResultsTableView: NSTableView {
         let row = row(at: convert(event.locationInWindow, from: nil))
         guard row >= 0 else { return nil }
         if !selectedRowIndexes.contains(row) { selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false) }
-        return contextMenu?()
+        return NSMenu.withoutSystemItems(contextMenu?())
     }
 }

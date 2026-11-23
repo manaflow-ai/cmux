@@ -42,14 +42,14 @@ use serde_json::Value;
 
 use crate::profile::{Profile, shareable_settings, valid_name};
 use crate::redact::find_secret;
-use crate::store::LibraryMark;
-use crate::store::{Draft, Generation, Kind};
+use crate::store::{Draft, Generation, Kind, LibraryMark};
 use crate::tree::{self, Part, SETTINGS, Tree};
 use crate::{Customize, Error, validate};
 
 pub mod applies;
 pub mod code;
 mod collection;
+pub mod doctor;
 pub mod expire;
 pub mod keys;
 pub mod overlay;
@@ -832,6 +832,13 @@ impl Customize {
         origin: &str,
         now_ms: u64,
     ) -> Result<Imported, Error> {
+        // A collection kept from an older cmux names some keys the old way:
+        // they come in under their new names (`Profile::migrated`).
+        let mut collection = collection.clone();
+        for entry in &mut collection.entries {
+            entry.profile = entry.profile.migrated().0;
+        }
+        let collection = &collection;
         self.check_collection(collection)?;
         let mut added = Vec::new();
         let mut already = Vec::new();

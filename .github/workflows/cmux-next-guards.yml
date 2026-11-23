@@ -93,8 +93,12 @@ env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
+# feat-cmux-next pushes share one group: a started run finishes, and a newer push replaces the one
+# still pending. Per commit, at about 20 landings an hour, 53 of 60 base runs sat unstarted at once
+# (2026-11-18 06:57Z), about 15 Linux jobs each, ahead of every pull request's light jobs. The base-red
+# excuse and the feed watch read the newest base run at or before a commit, not one per commit.
 concurrency:
-  group: cmux-next-guards-${{ github.event.pull_request.number || github.sha }}
+  group: cmux-next-guards-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -193,6 +197,14 @@ jobs:
         if: ${{ !cancelled() }}
         timeout-minutes: 3
         run: python3 scripts/static-analysis/ratchet.py gitleaks --base HEAD^1 --head HEAD
+
+      # The runner-size guards also run in the ci guard group, but a pull request into feat-cmux-next skips that group
+      # unless labeled full-ci (Tier B), so #50338 and #47936 added literal blacksmith-6vcpu-macos-26 pins unseen and
+      # the push's red was never fixed forward. These take about 20 s, so every pull request runs them here.
+      - name: Fail on a job pinned to one runner size (runners.json pools)
+        if: ${{ !cancelled() }}
+        timeout-minutes: 3
+        run: python3 tests/test_ci_linux_single_size.py && python3 tests/test_ci_no_single_size_pins.py
 
   # One run per 30-minute window on the feat-cmux-next tip (base-coalesce.yml): the first push of each window runs
   # every job below, covering every push since the last run (each diffing step reads needs.coalesce.outputs.base
@@ -1467,6 +1479,12 @@ jobs:
         id: tt-console-session-hop
         if: ${{ !cancelled() && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-console-session-hop ')) }}
         run: bash scripts/ci/tests/console-session-hop.test.sh
+
+      # The tour's base app waited 45 min for a cmux-tui tree nothing publishes and recorded no clip.
+      - name: media_build_app.sh builds cmux-tui on the Mac for an unpublished tree
+        id: tt-media-build-app-local-tui
+        if: ${{ !cancelled() && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-media-build-app-local-tui ')) }}
+        run: bash scripts/ci/tests/media-build-app-local-tui.test.sh
 
       # launch-ready.sh judges each restore case against its expectation (the launch reopens exactly where the person
       # was, Home included) and flags an A/B whose arms first showed different surfaces as not like for like.
