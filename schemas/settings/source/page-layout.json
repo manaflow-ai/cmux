@@ -25,6 +25,7 @@
     {"id": "chiefPet"},
     {"id": "density", "note": "The density tiles, preview and custom density editor (plans/cmux-next/density-DESIGN.md)."},
     {"id": "textSize", "note": "General's first card (David Beyer, 2026-11-20: Settings was overwhelming and had no sidebar font size he could find): one Text Size for the sidebar, tabs, menus and chat (appearance.metrics.chromeFontSize) and the density beside it (appearance.density), in the picker the Set Up cmux card draws too (webviews ui/TextSizePicker)."},
+    {"id": "replayIntro", "note": "Settings > General, right under Text Size: Replay the Intro reopens the Make cmux Yours step on the current settings (the palette's home.makeItYours, run through cmux.app.action.run); the first-run flag is untouched (decision d-eedbe6969c, ask-b9fd9d4f9c)."},
     {"id": "importSuggestions", "note": "What this Mac has that cmux can bring over (CmuxNextImportCards), every card found."},
     {"id": "channels", "note": "Every release channel's recent builds, with the one this Mac runs (Settings > Updates)."},
     {"id": "appUpdate", "note": "The app update's status: a check, a download's progress and Cancel, Restart to Update, a failure's Try Again (Settings > Updates; the sidebar shows only the staged update)."},
@@ -82,7 +83,7 @@
             {"group": "settings.group.tasks"},
             {"group": "settings.group.announcements"}
           ],
-          "lead": ["textSize"],
+          "lead": ["textSize", "replayIntro"],
           "actions": ["general"],
           "aliases": ["general"]
         },

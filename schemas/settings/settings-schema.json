@@ -119,7 +119,8 @@
         ],
         "id" : "general",
         "lead" : [
-          "textSize"
+          "textSize",
+          "replayIntro"
         ],
         "symbol" : "gearshape",
         "title" : {

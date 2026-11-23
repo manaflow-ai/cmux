@@ -38,6 +38,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case density
         /// General's first card (David Beyer, 2026-11-20: Settings was overwhelming and had no sidebar font size he could find): one Text Size for the sidebar, tabs, menus and chat (appearance.metrics.chromeFontSize) and the density beside it (appearance.density), in the picker the Set Up cmux card draws too (webviews ui/TextSizePicker).
         case textSize
+        /// Settings > General, right under Text Size: Replay the Intro reopens the Make cmux Yours step on the current settings (the palette's home.makeItYours, run through cmux.app.action.run); the first-run flag is untouched (decision d-eedbe6969c, ask-b9fd9d4f9c).
+        case replayIntro
         /// What this Mac has that cmux can bring over (CmuxNextImportCards), every card found.
         case importSuggestions
         /// Every release channel's recent builds, with the one this Mac runs (Settings > Updates).

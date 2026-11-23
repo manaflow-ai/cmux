@@ -33,7 +33,7 @@ extension SettingsPageLayout {
             GroupSpec(group: "settings.group.tasks"),
             GroupSpec(group: "settings.group.announcements"),
         ],
-        lead: [.textSize], actions: [.general], aliases: [.general]
+        lead: [.textSize, .replayIntro], actions: [.general], aliases: [.general]
     )
 
     /// One click per customization (Leo 2026-11-22, ask-931361017e): only the checklist card, right after General so it is found first.
