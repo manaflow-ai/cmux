@@ -10,6 +10,15 @@ extension ActionRegistry {
         return hidden.isEmpty ? arranged : ContextMenuCatalog.removing(hidden, from: arranged)
     }
 
+    /// `context`'s rows placed in `group` only, in the person's arrangement; a folder keeps only those and goes when
+    /// none is left, and no separator leads, trails or doubles. The sidebar's + button shows `.create` (Leo
+    /// 2026-11-22, ask-890db939a2: "we want to hide? we want to do something? pick a fucking option.").
+    public func contextMenuEntries(for context: ActionMenuContext, only group: MenuGroup) -> [ContextMenuEntry] {
+        ContextMenuCatalog.keeping(contextMenuEntries(for: context)) { id in
+            descriptor(for: id)?.surfacePlan.contextMenus.contains { $0.context == context && $0.group == group } == true
+        }
+    }
+
     /// The cmux rows after an engine's own page menu (``ContextMenuCatalog/browserPageAfterEngineMenu``),
     /// as the person arranged the page menu.
     public var browserPageAfterEngineMenu: [ContextMenuEntry] {
