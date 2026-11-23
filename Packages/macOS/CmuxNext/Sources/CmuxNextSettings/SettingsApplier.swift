@@ -115,6 +115,7 @@ public final class SettingsApplier {
         if design.borders != snapshot.borders { design.borders = snapshot.borders }
         let drawnMenus = SidebarDrawnMenusSetting().value(in: snapshot.root)
         if design.sidebarDrawnMenus != drawnMenus { design.sidebarDrawnMenus = drawnMenus }
+        if design.liquidGlass != snapshot.liquidGlass { design.liquidGlass = snapshot.liquidGlass }
         if design.fontSmoothing != snapshot.fontSmoothing { design.fontSmoothing = snapshot.fontSmoothing }
         if design.focusIndicator != snapshot.focusIndicator { design.focusIndicator = snapshot.focusIndicator }
         if design.inactiveTabStyle != snapshot.inactiveTabStyle { design.inactiveTabStyle = snapshot.inactiveTabStyle }
