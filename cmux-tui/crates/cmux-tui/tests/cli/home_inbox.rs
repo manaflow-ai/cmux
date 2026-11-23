@@ -320,3 +320,63 @@ fn a_deleted_chief_leaves_every_devices_home_list_including_one_offline_then() {
     let list = later.request("conversation-list", json!({}));
     assert!(list["conversations"].as_array().unwrap().iter().any(|c| c["id"] == chief), "{list}");
 }
+
+/// `home-inbox-since-v1`: without `since` the reply is the old one; `since: 0`
+/// is the whole list and its revision; after one new message `since` answers
+/// that one row (with its index) and no other; a revision the log does not
+/// know reads the whole list; a negative or non-integer `since` is refused.
+#[test]
+fn home_inbox_since_answers_only_the_rows_that_changed() {
+    let config = json!({"server": {"ws": "127.0.0.1:0", "ws_token": TOKEN}}).to_string();
+    let server = HeadlessServer::start_with_config("home-inbox-since", Some(&config));
+    let mut page = Ws::open(&ws_addr(&server));
+    let identity = page.request("identify", json!({}));
+    assert!(
+        identity["capabilities"].as_array().unwrap().iter().any(|v| v == "home-inbox-since-v1"),
+        "{identity}"
+    );
+    // `sent` waits for its own message event, which only a subscribed page gets.
+    page.request("subscribe", json!({}));
+    let builder = json!({"id": "agent_builder", "kind": "agent", "display_name": "Builder"});
+    let docs = json!({"id": "agent_docs", "kind": "agent", "display_name": "Docs"});
+    let first = create(&mut page, "since-a", "Builder", json!([builder]));
+    let second = create(&mut page, "since-b", "Docs", json!([docs]));
+    let local = json!(["local"]);
+
+    let plain = page.request("home-inbox", json!({"owners": local}));
+    let mut keys: Vec<&str> = plain.as_object().unwrap().keys().map(String::as_str).collect();
+    keys.sort_unstable();
+    assert_eq!(keys, vec!["cloud", "me", "rows"], "no since, no new fields: {plain}");
+
+    let whole = page.request("home-inbox", json!({"owners": local, "since": 0}));
+    assert_eq!(whole["full"], true, "{whole}");
+    assert_eq!(order(&whole), order(&plain), "{whole}");
+    let revision = whole["revision"].as_u64().unwrap();
+
+    let same = page.request("home-inbox", json!({"owners": local, "since": revision}));
+    assert_eq!(same["full"], false, "{same}");
+    assert_eq!(same["rows"], json!([]), "{same}");
+    assert_eq!(same["revision"], revision, "{same}");
+
+    page.sent(&first, "since-msg", None, None);
+    let delta = page.request("home-inbox", json!({"owners": local, "since": revision}));
+    assert_eq!(delta["full"], false, "{delta}");
+    let changed = delta["rows"].as_array().unwrap();
+    assert_eq!(changed.len(), 1, "one message, one row: {delta}");
+    assert_eq!(changed[0]["id"], first, "{delta}");
+    assert_eq!(changed[0]["index"], 0, "the newest row is first: {delta}");
+    assert_eq!(delta["total"], 2, "{delta}");
+    assert!(delta["revision"].as_u64().unwrap() > revision, "{delta}");
+    assert!(!delta["rows"].to_string().contains(&second), "{delta}");
+
+    let stale = page.request("home-inbox", json!({"owners": local, "since": 1}));
+    assert_eq!(stale["full"], true, "{stale}");
+    assert_eq!(stale["rows"].as_array().unwrap().len(), 2, "{stale}");
+
+    for bad in [json!(-1), json!("5"), json!(1.5)] {
+        let refused = page.reply("home-inbox", json!({"owners": local, "since": bad}));
+        assert_eq!(refused["ok"], false, "since {bad}: {refused}");
+    }
+    let refused = page.reply("home-inbox", json!({"owners": ["local", "cloud"], "since": 0}));
+    assert_eq!(refused["ok"], false, "since with cloud rows: {refused}");
+}
