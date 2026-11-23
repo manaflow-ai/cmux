@@ -528,9 +528,10 @@ FAILURE_MARKERS = (
 )
 # Each runner's reported failure total, where its summary counts what failed_names names one line per (#41166's
 # review F2: a log with one parsed name and one unparsed failure counted as fully identified, since an unnamed failure
-# was recorded only when no name at all was read). Per invocation: each summary is compared with the lines its own
-# runner's pattern named since that runner's previous summary, so a run that names more never covers one that names
-# fewer:
+# was recorded only when no name at all was read). Per runner, cumulatively over the step: each summary's total is
+# drawn from the names that runner printed which no earlier summary of its accounted for, so a step with several
+# summaries is judged on the sum of its totals against the union of its names (runner_unnamed says why), while a
+# summary reporting more than its runner has left over is still unnamed:
 # - cargo `test result: FAILED. X passed; N failed;` per test binary, against its `test NAME ... FAILED` lines;
 # - unittest `FAILED (failures=N, errors=M, unexpected successes=K)` (each a test or subtest, none of them named by
 #   anything but a `FAIL:` / `ERROR:` line; an unexpected success is named by none), against those lines;
@@ -558,8 +559,9 @@ SWIFT_ISSUE_LINE = re.compile(r"✘ (?:Test|Suite) .* recorded an issue\b")
 
 def unnamed_failures(lines: list[str], steps: list[list[str]] | None = None) -> list[str]:
     """The runner lines of LINES (a step's output, lines_of) that report more failures than that runner's lines name
-    (see above), each summary against the names its runner printed since its previous summary: a failure no parser
-    names, which no comparison can tell from another."""
+    (see above), each summary against the names its runner printed that no earlier summary of its accounted for, so
+    the step is judged on the sum of its summaries: a failure no parser names, which no comparison can tell from
+    another."""
     bun = Result()
     read_bun(lines, bun, steps)
     return runner_unnamed(lines) + bun.unnamed
@@ -615,10 +617,34 @@ def runner_unnamed(lines: list[str]) -> list[str]:
         elif FAILURE_MARKERS[3].search(text):
             xc_summaries.append(text)
         if runner:
-            # A count that cannot be read is unnamed unless its runner named something since its last summary.
-            if (reported is None and not since[runner]) or (reported is not None and reported > since[runner]):
+            # Cumulative, per runner, across the whole step: each summary's total is drawn from every name that
+            # runner printed and no earlier summary of its has already accounted for, so a step with N summaries is
+            # judged on the sum of its totals against the union of its names, never on the last summary alone. One
+            # `cargo test` command over several targets prints one summary per test binary, and cargo buffers each
+            # binary's block, so the blocks do not line up one-to-one with the names between two summaries: with a
+            # per-summary reset, a small rerun summary (`0 passed; 1 failed; 6945 filtered out`) swallowed the 16
+            # names the lib target had printed and left its own `15 failed` summary with none, which made every
+            # multi-target cargo job inexcusable by arithmetic alone (cmux#50814, run 45075034049, job
+            # `acpmux tests (lib, hub_integration)`). A surplus of names carries forward; a deficit never does, so a
+            # failure no parser names is still unnamed at the summary that reports it (#41166's review F2). Names are
+            # counted per line and never deduplicated by test name across the step, for two measured reasons. Two
+            # test binaries of one invocation can each fail a test of the same path, and that is two failures. And
+            # where a run does print one failure twice (nextest's `failure-output = "immediate-final"`, cmux-tui/
+            # .config/nextest.toml `[profile.ci]`), it prints that failure's `test result:` summary twice as well, so
+            # the duplication is symmetric and a per-line count against summed totals balances exactly; a dedupe
+            # would compare one name against a total of two and refuse a one-test run
+            # (tests/test_test_reds.py EveryRustStepShapeIsNamed).
+            if reported is None:
+                # A count that cannot be read is unnamed unless its runner has a name left unaccounted for; how many
+                # it would draw is unknown, so it draws the whole pool.
+                if not since[runner]:
+                    found.append(text)
+                since[runner] = 0
+            elif reported > since[runner]:
                 found.append(text)
-            since[runner] = 0
+                since[runner] = 0
+            else:
+                since[runner] -= reported
     if not xc_family:
         found.extend(xc_summaries)
     return found
