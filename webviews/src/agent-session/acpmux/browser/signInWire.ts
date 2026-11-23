@@ -70,7 +70,9 @@ export function socketSignIn(endpoint: string, token: string, publicKey: () => P
         pending.delete(message.id);
         if (message.error) {
           const reason = message.error.data?.reason;
-          entry.reject(signInError(typeof reason === "string" ? reason : "signin.refused", String(message.error.message)));
+          entry.reject(
+            signInError(typeof reason === "string" ? reason : "signin.refused", String(message.error.message)),
+          );
         } else entry.resolve(message.result);
       };
     }));
