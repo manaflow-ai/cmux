@@ -55,8 +55,7 @@
   --acpmux-md-foot-ink: transparent;
 }
 .acpmux-md-field[data-draft-foot="ghost"] {
-  /* colour-allow: a mask stop's alpha only, never painted */
-  --acpmux-md-foot-ink: rgb(0 0 0 / 0.34);
+  --acpmux-md-foot-ink: rgb(0 0 0 / 0.34); /* colour-allow: a mask stop's alpha only, never painted */
 }
 .acpmux-md-field[data-draft-foot="short"] {
   --acpmux-md-foot-band: 8px;
