@@ -1,0 +1,47 @@
+.acpmux-identity {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  max-width: 100%;
+  vertical-align: middle;
+}
+.acpmux-identity > .agent-mark,
+.acpmux-identity > svg {
+  flex: none;
+}
+.acpmux-identity__text {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--ds-space-1);
+  min-width: 0;
+}
+.acpmux-identity__name,
+.acpmux-identity__fka {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The name keeps its room; the former name gives way first. */
+.acpmux-identity__name {
+  flex: 0 1 auto;
+  min-width: 2ch;
+}
+.acpmux-identity__fka {
+  flex: 0 4 auto;
+  min-width: 0;
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  font-weight: 400;
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.acpmux-identity[data-fka="stacked"] .acpmux-identity__text {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  line-height: 1.15;
+}
+.acpmux-identity[data-fka="stacked"] .acpmux-identity__name,
+.acpmux-identity[data-fka="stacked"] .acpmux-identity__fka {
+  max-width: 100%;
+}
