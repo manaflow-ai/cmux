@@ -129,12 +129,35 @@ pub fn broker_relayed_agent(text: &str) -> bool {
 }
 
 /// A FIRE keeps its waking class (notice-flood.md rule 1): the word `FIRE` in capitals,
-/// `[fire]` or `severity: fire`.
+/// `[fire]` or `severity: fire`, as the notice's own severity: on its head (its first lines,
+/// past the lane-gh broker's relay header), as a tag (`[notice from now on HOST · FIRE]`,
+/// `[fire]`), the first word past its tags (`[asks-router] FIRE ...`) or a `severity:` line.
+/// The word elsewhere is not the notice's severity: a broker digest says it holds "none a
+/// FIRE", and a land stop quotes the alarm log it read (`"text": "FIRE land queue ..."`).
 pub fn fire_text(text: &str) -> bool {
-    let lower = text.to_ascii_lowercase();
-    text.split(|c: char| !c.is_ascii_alphanumeric()).any(|w| w == "FIRE")
-        || lower.contains("[fire]")
-        || lower.contains("severity: fire")
+    let mut lines = text.lines().map(str::trim).filter(|l| !l.is_empty()).peekable();
+    if lines
+        .peek()
+        .is_some_and(|l| l.starts_with("[message ") && l.contains("relayed by the lane-gh broker"))
+    {
+        lines.next();
+    }
+    let head: Vec<&str> = lines.take(3).collect();
+    if head.iter().any(|l| l.to_ascii_lowercase().starts_with("severity: fire")) {
+        return true;
+    }
+    let Some(mut rest) = head.first().copied() else {
+        return false;
+    };
+    while let Some(tagged) = rest.strip_prefix('[') {
+        let Some((tag, after)) = tagged.split_once(']') else { break };
+        let tag = tag.trim();
+        if tag.eq_ignore_ascii_case("fire") || tag.ends_with("\u{b7} FIRE") {
+            return true;
+        }
+        rest = after.trim_start();
+    }
+    rest.split(|c: char| !c.is_ascii_alphanumeric()).next() == Some("FIRE")
 }
 
 /// The `inbox` record `msg` the surge holder wrote, if it is a held one with an id and thread.

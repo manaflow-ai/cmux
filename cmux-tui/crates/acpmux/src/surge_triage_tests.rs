@@ -273,6 +273,26 @@ fn only_a_fire_keeps_a_programs_notice_out_of_fyi() {
     assert!(fire_text("x\nseverity: fire"));
     assert!(!fire_text("fire up the runner"), "the word in lower case is no FIRE");
     assert!(!fire_text("FIREWALL changed"));
+    assert!(fire_text("\n[notice from now on cmux-cp-1 \u{b7} FIRE] RUNNER LABEL STALLED"));
+    assert!(fire_text(
+        "\n[message 8a49 from gcp-agent-lane-2 (a program with no session, not Leo), relayed by the lane-gh broker]\n\n[asks-router] FIRE 2 fix(es) Leo named have not merged"
+    ));
+    assert!(
+        !fire_text(
+            "[lane-gh broker digest 1b20: 4 reports from a/b since 06:18Z, none a FIRE, a blocker or an ask]"
+        ),
+        "a digest saying it holds no FIRE is none"
+    );
+    assert!(
+        !fire_text(
+            "[notice from glaeda-land on cmux-cp-1] glaeda land: #19519 merged\n{\"level\": \"fire\", \"text\": \"FIRE land queue\"}"
+        ),
+        "a FIRE quoted past the head line is not the notice's own"
+    );
+    assert!(
+        !fire_text("[notice from now on cmux-cp-1] URGENT SLO BUDGET BURNING"),
+        "URGENT is no FIRE"
+    );
 }
 
 #[test]
