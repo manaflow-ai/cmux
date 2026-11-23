@@ -206,14 +206,13 @@ struct MacScreenHubCardTests {
         #expect(MacScreenCardView.refusedBody(.notFound, host: "Studio")
             == L.t("macScreen.hub.notFoundBody", "This device was removed from your devices."))
         #expect(MacScreenCardView.refusedTitle(rateLimited, host: "Studio") == L.t("macScreen.card.failedTitle", "Couldn’t connect"))
-        // A Linux desktop has no cmux app or Settings: its offline and not-shared steps name its screen host.
-        #expect(MacScreenCardView.refusedBody(.hostOffline, host: "lane", platform: .linux)
-            == L.t("macScreen.hub.offlineBodyLinux", "Make sure that Linux machine is on and its cmux screen host is running."))
+        // A Linux desktop has no cmux app or Settings: its not-shared step names its screen host.
         #expect(MacScreenCardView.refusedBody(.notShared, host: "lane", platform: .linux).contains("linux-host share on"))
-        #expect(MacScreenCardView.refusedBody(.hostOffline, host: "Studio", platform: .macos)
-            == L.t("macScreen.hub.offlineBody", "Open cmux on that Mac and make sure it is signed in."))
-        #expect(MacScreenCardView.refusedBody(.hostOffline, host: "Studio")
-            == L.t("macScreen.hub.offlineBody", "Open cmux on that Mac and make sure it is signed in."))
+        // Zero touch (Z7): offline asks nothing of the other machine, on every platform.
+        let waits = L.t("macScreen.hub.offlineBodyWaits", "Its screen shows here as soon as it is back online.")
+        for platform in [DevicePlatform.linux, .macos, nil] {
+            #expect(MacScreenCardView.refusedBody(.hostOffline, host: "Studio", platform: platform) == waits)
+        }
     }
 
     @Test func endReasonsReadTheProtocolsAuthoritativeReasons() {
@@ -667,6 +666,26 @@ struct MacScreenHubViewerTests {
         viewer.request(.view)
         #expect(viewer.phase == .refused(.notSignedIn, requested: .view))
         #expect(viewer.lastScope == .view)
+    }
+
+    /// An open in the first seconds after launch, before the saved sign-in restored, asks
+    /// again once the hub comes, instead of keeping "Not Signed In".
+    @Test func aRequestRefusedForNoHubAsksAgainWhenTheHubComes() {
+        @MainActor final class Box { var hub: DeviceHub? }
+        let current = Box()
+        let viewer = MacScreenHubViewer(deviceID: hostID) { current.hub }
+        viewer.request(.full)
+        #expect(viewer.phase == .refused(.notSignedIn, requested: .full))
+        viewer.hubArrived()
+        #expect(viewer.phase == .refused(.notSignedIn, requested: .full), "still no hub: nothing to ask")
+        current.hub = testHub()
+        viewer.hubArrived()
+        #expect(viewer.phase == .requesting(.full))
+        // Any other card stays as it is when a hub comes.
+        viewer.cancel()
+        viewer.phase = .refused(.permissionNone, requested: .view)
+        viewer.hubArrived()
+        #expect(viewer.phase == .refused(.permissionNone, requested: .view))
     }
 }
 

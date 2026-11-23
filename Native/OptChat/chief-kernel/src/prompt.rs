@@ -532,8 +532,8 @@ macro_rules! home_rule {
   user asks to upgrade, follow the `paid-plans` skill: run `cmux billing
   checkout --plan <pro|max|team> --json` (`--no-open` when the app already
   shows its upgrade dialog), then one line: what the plan adds
-  and its monthly price (Pro $50, Max $200, Team $60 a seat), the Stripe link, and that nothing is charged until
-  the user pays there; never offer another way as a choice. Then sleep() and
+  and its monthly price (Pro $50, Max $200, Team $60 a seat), the checkout link (never name the payment
+  provider), and that nothing is charged until the user pays there; never offer another way as a choice. Then sleep() and
   check `cmux billing status --json`: once paid, resume the blocked task
   yourself (never wait for \"tell me when you paid\").
 - Jobs: a recurring or triggered job (\"every morning\", \"when this URL is
@@ -1174,6 +1174,9 @@ pub const TRANSCRIPT_DESCRIPTION: &str = "Read your conversation exactly as the 
 
 /// The `send` tool's description.
 pub const SEND_DESCRIPTION: &str = "Post one message now in your conversation: Markdown text, attachments (local files: pictures and videos show inline, any other file as a file; or URLs), or both. reply_to: a user message's line id, to put it in that message's thread. Use one send per separate ask. Subagent ids become links, as in any reply. The first send of a turn whose prose is over 45 words, or with a list line over 35, comes back to cut; tables, pictures and code spans do not count, and a list counts line by line.";
+
+/// The host `send`'s Send Later sentence (the Cloud Chief has no `delay_seconds`).
+pub const SEND_LATER_DESCRIPTION: &str = " delay_seconds sends it later (a reminder, a check-in at a time the user named) instead of now.";
 
 /// The `stop` tool's description.
 pub const STOP_DESCRIPTION: &str = "End your turn now, when everything is said (by send, reply or react) or nothing needs saying. Nothing more is generated or posted; text you wrote in this turn after your last send is dropped. Prefer it to a closing text and to NO_REPLY. Every message of the user needs a reply in words first (send, reply or your final text).";
