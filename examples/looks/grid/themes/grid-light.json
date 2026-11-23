@@ -1,0 +1,116 @@
+// Grid Light: the Swiss grid on white. A white page and black ink, no second surface: the
+// sidebar, tabs and panes are the same white, parted only by 1 px rules of the ink at 20%. One
+// accent, a deep ultramarine, for Send, focus and the work dot, and nothing else. Zero corners, no
+// shadow, no glass, no wallpaper; every height on the 8 px grid.
+{
+  "name": "Grid Light",
+  "description": "White page, black ink, 1 px rules, ultramarine accent, zero corners, no glass.",
+
+  "appearance.theme": "Builtin Light",
+  // The window, sidebar and pages take this theme too, over an App Theme of your own.
+  "appearance.appTheme": "followTerminal",
+  // Page, ink, the terminal's selection and the one accent; then the terminal palette, whole.
+  "colors": {
+    "background": "#ffffff",
+    "foreground": "#000000",
+    "selection": "#d6d6d6",
+    "accent": "#0038e0",
+    "0": "#000000",
+    "1": "#d0021b",
+    "2": "#257c3a",
+    "3": "#876804",
+    "4": "#396cb7",
+    "5": "#995297",
+    "6": "#04787e",
+    "7": "#6e7279",
+    "8": "#878b93",
+    "9": "#d0021b",
+    "10": "#058549",
+    "11": "#906f04",
+    "12": "#4770cc",
+    "13": "#ac529d",
+    "14": "#01808c",
+    "15": "#939599",
+    "cursor": "#0038e0"
+  },
+  // The accent above is the only hue the chrome draws.
+  "appearance.accent": "theme",
+  // The selected row and tab are a gray block, not an accent tint: the accent stays for action.
+  "appearance.selection": "neutral",
+  "terminal.fontFamily": "SF Mono",
+  "terminal.fontSize": 13,
+
+  // Opaque: no wallpaper, no blur, no glass anywhere.
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "none",
+  "browser.omnibar.glass": "off",
+  "ui.reducedBackgrounds": true,
+  "appearance.fontSmoothing": "antialiased",
+
+  // Rules, not cards: no curved main pane, one color edge to edge, a 1 px line between panes and on
+  // the sidebar's edge. Square pane corners with no inset.
+  "appearance.chromeStyle": "flat",
+  "appearance.borders": "default",
+  "appearance.titleAreaTone": "oneColor",
+  "appearance.cornerFlush": "flush",
+  "appearance.focusIndicator": "both",
+  "layout.paneCornerRadius": 0,
+  "layout.cornerPadding": 0,
+  "layout.paneBorderWidth": 1,
+  "appearance.metrics.dividerThickness": 1,
+
+  // The sidebar on the page's own color behind its 1 px rule; sections parted by rules.
+  "appearance.sidebarSurface": "same",
+  "sidebar.border": true,
+  "sidebar.borderWidth": 1,
+  "sidebar.sectionLook": "lines",
+
+  // Every surface is the page. The rules between panes are the ink at a fixed step.
+  "appearance.surfaces.agentPane.color": "#ffffff",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "appearance.surfaces.terminal.color": "#ffffff",
+  "appearance.surfaces.terminal.opacity": 1,
+  "appearance.surfaces.editor.color": "#ffffff",
+  "appearance.surfaces.editor.opacity": 1,
+  "appearance.surfaces.diff.color": "#ffffff",
+  "appearance.surfaces.diff.opacity": 1,
+  "appearance.surfaces.markdown.color": "#ffffff",
+  "appearance.surfaces.markdown.opacity": 1,
+  "appearance.surfaces.settings.color": "#ffffff",
+  "appearance.surfaces.settings.opacity": 1,
+  "appearance.surfaces.internalPage.color": "#ffffff",
+  "appearance.surfaces.internalPage.opacity": 1,
+  "appearance.surfaces.newTabPage.color": "#ffffff",
+  "appearance.surfaces.newTabPage.opacity": 1,
+  "appearance.surfaces.home.color": "#ffffff",
+  "appearance.surfaces.home.opacity": 1,
+  "appearance.surfaces.sidebar.color": "#ffffff",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "appearance.surfaces.tabBar.color": "#ffffff",
+  "appearance.surfaces.tabBar.opacity": 1,
+  "appearance.surfaces.browserChrome.color": "#ffffff",
+  "appearance.surfaces.browserChrome.opacity": 1,
+  "appearance.surfaces.docks.color": "#ffffff",
+  "appearance.surfaces.docks.opacity": 1,
+  "appearance.surfaces.splitDivider.color": "#cccccc",
+  "appearance.surfaces.splitDivider.opacity": 1,
+
+  // Work in progress: a dot in the accent that holds still.
+  "appearance.statusIndicator.style": "dot",
+  "appearance.statusIndicator.animation": "static",
+  "appearance.statusIndicator.color": "#0038e0",
+
+  // The 8 px grid: a 256 px sidebar, 32 px rows, a 40 px title bar, a 32 px tab strip, 8 px gaps.
+  "appearance.density": "compact",
+  "appearance.metrics.sidebarWidth": 256,
+  "appearance.metrics.sidebarRowHeight": 32,
+  "appearance.metrics.titlebarHeight": 40,
+  "appearance.metrics.tabStripHeight": 32,
+  "appearance.metrics.tabFontSize": 13,
+  "appearance.metrics.tabMaxWidth": 200,
+  "appearance.metrics.chromeFontSize": 13,
+  "appearance.metrics.columnGap": 8,
+
+  // Motion: quick and plain.
+  "ui.animationSpeed": "fast"
+}

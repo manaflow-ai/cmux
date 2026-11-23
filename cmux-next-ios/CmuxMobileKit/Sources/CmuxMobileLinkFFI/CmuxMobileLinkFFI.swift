@@ -1628,6 +1628,16 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
      */
     func openSurface(argsJson: String, observer: BrowserObserver) async throws  -> BrowserStream
     
+    /**
+     * Before the OS suspends the app: ask the Mac to hold this link for up
+     * to `hold_ms` (at most 10 minutes) while the phone is silent, waiting
+     * at most `timeout_ms` for the answer (PROTOCOL.md "Parked link").
+     * `true`: parked, and nothing on the link wakes the phone until
+     * `resume`. `false`: an older Mac, no answer in time, or a WebRTC link,
+     * which cannot be held; the link closes on silence as before.
+     */
+    func park(holdMs: UInt32, timeoutMs: UInt32) async throws  -> Bool
+    
     func path()  -> LinkPath
     
     /**
@@ -1646,6 +1656,13 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
     func probe(timeoutMs: UInt32) async throws  -> UInt32?
     
     /**
+     * How long a probe may wait for its pong on this link: `floor_ms`, or
+     * three smoothed round trips when longer (at most 5 s). The standby loop
+     * uses it, so a 1 s round trip does not time out every probe.
+     */
+    func probeTimeoutMs(floorMs: UInt32)  -> UInt32
+    
+    /**
      * Milliseconds since the link last received any frame from the Mac.
      * Any frame proves the link alive as a probe's pong would, so the app's
      * heartbeat probes only a link quiet for a whole beat.
@@ -1653,11 +1670,27 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
     func receivedAgoMs()  -> UInt64
     
     /**
+     * Back from the background: the link expects the Mac again. `true` when
+     * it was parked and its hold has not passed. The tunnel then moves onto
+     * a fresh socket (as on a network change) and the caller probes; the
+     * first frame back ends the park on both sides.
+     */
+    func resume()  -> Bool
+    
+    /**
      * The latest WireGuard roam of this link (`network_changed`,
      * `roam_reasserted`, `roam_first_packet`, `roam_direct` or `roam_turn`,
      * ...), in milliseconds since the network changed; empty before any.
      */
     func roamTimings()  -> [TimingMark]
+    
+    /**
+     * The app is in the foreground with a terminal or chat on screen
+     * (`true`), or not. While it is and the link's pings travel as
+     * WireGuard datagrams, the link probes every 3 s and is suspect after
+     * two unanswered probes; otherwise it pings on its 15 s keepalive alone.
+     */
+    func setForegroundProbe(on: Bool) 
     
     /**
      * The dial's steps (`signaling_open`, `ice_connected`, `channel_open`,
@@ -1905,6 +1938,31 @@ open func openSurface(argsJson: String, observer: BrowserObserver)async throws  
         )
 }
     
+    /**
+     * Before the OS suspends the app: ask the Mac to hold this link for up
+     * to `hold_ms` (at most 10 minutes) while the phone is silent, waiting
+     * at most `timeout_ms` for the answer (PROTOCOL.md "Parked link").
+     * `true`: parked, and nothing on the link wakes the phone until
+     * `resume`. `false`: an older Mac, no answer in time, or a WebRTC link,
+     * which cannot be held; the link closes on silence as before.
+     */
+open func park(holdMs: UInt32, timeoutMs: UInt32)async throws  -> Bool  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_park(
+                    self.uniffiCloneHandle(),
+                    FfiConverterUInt32.lower(holdMs),FfiConverterUInt32.lower(timeoutMs)
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_i8,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_i8,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_i8,
+            liftFunc: FfiConverterBool.lift,
+            errorHandler: FfiConverterTypeCmuxMobileError_lift
+        )
+}
+    
 open func path() -> LinkPath  {
     return try!  FfiConverterTypeLinkPath_lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_path(
@@ -1959,6 +2017,20 @@ open func probe(timeoutMs: UInt32)async throws  -> UInt32?  {
 }
     
     /**
+     * How long a probe may wait for its pong on this link: `floor_ms`, or
+     * three smoothed round trips when longer (at most 5 s). The standby loop
+     * uses it, so a 1 s round trip does not time out every probe.
+     */
+open func probeTimeoutMs(floorMs: UInt32) -> UInt32  {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_probe_timeout_ms(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt32.lower(floorMs),$0
+    )
+})
+}
+    
+    /**
      * Milliseconds since the link last received any frame from the Mac.
      * Any frame proves the link alive as a probe's pong would, so the app's
      * heartbeat probes only a link quiet for a whole beat.
@@ -1966,6 +2038,20 @@ open func probe(timeoutMs: UInt32)async throws  -> UInt32?  {
 open func receivedAgoMs() -> UInt64  {
     return try!  FfiConverterUInt64.lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_received_ago_ms(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Back from the background: the link expects the Mac again. `true` when
+     * it was parked and its hold has not passed. The tunnel then moves onto
+     * a fresh socket (as on a network change) and the caller probes; the
+     * first frame back ends the park on both sides.
+     */
+open func resume() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_resume(
             self.uniffiCloneHandle(),$0
     )
 })
@@ -1982,6 +2068,20 @@ open func roamTimings() -> [TimingMark]  {
             self.uniffiCloneHandle(),$0
     )
 })
+}
+    
+    /**
+     * The app is in the foreground with a terminal or chat on screen
+     * (`true`), or not. While it is and the link's pings travel as
+     * WireGuard datagrams, the link probes every 3 s and is suspect after
+     * two unanswered probes; otherwise it pings on its 15 s keepalive alone.
+     */
+open func setForegroundProbe(on: Bool)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_set_foreground_probe(
+            self.uniffiCloneHandle(),
+        FfiConverterBool.lower(on),$0
+    )
+}
 }
     
     /**
@@ -6267,10 +6367,10 @@ public func overviewColumns(width: Double) -> UInt32  {
 })
 }
 /**
- * The layout of a window `width` by `height` points. A size that is not
- * finite or not positive is a compact phone's of that width (zero when
- * unknown), so a transient zero size during a scene change never shows two
- * panes.
+ * The layout of a window `width` by `height` points. A size with either side
+ * not finite or not positive is unknown, laid out as a zero-sized compact
+ * window, so a transient zero size during a scene change never shows two
+ * panes or a wide overview.
  */
 public func windowLayout(width: Double, height: Double) -> WindowLayout  {
     return try!  FfiConverterTypeWindowLayout_lift(try! rustCall() {
@@ -6365,7 +6465,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_overview_columns() != 48015) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_window_layout() != 29754) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_window_layout() != 34233) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_channelhandle_close() != 40361) {
@@ -6410,6 +6510,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_open_surface() != 44893) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_park() != 63347) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_path() != 46489) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -6419,10 +6522,19 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_probe() != 33821) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_probe_timeout_ms() != 8844) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_received_ago_ms() != 55134) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_resume() != 43166) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_roam_timings() != 26202) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_set_foreground_probe() != 19184) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_timings() != 339) {
