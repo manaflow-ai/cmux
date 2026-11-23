@@ -13,6 +13,8 @@ app, one idle chat per workspace on the acpmux test agent (its first turn answer
 - memory.app_agents.empty.total_footprint_mb: the launch sample (bench_memory's idle-launch, no chat open);
 - memory.app_agents.<N>.total_footprint_mb: N chats open and idle;
 - memory.app_agents.ratio_vs_empty: the highest N's total / the empty total, both from this one run.
+- memory.app_agents.idle_gpu_device_pct and .idle_disk_write_mb_per_h (goal idle-gpu-disk, idle_rows): the worst idle
+  window's GPU Device Utilization % over the same Mac with no app open, and its disk bytes written per hour.
 A count whose chats did not all open (fewer workspaces than asked, or a pane failure) gets no row and no ratio: a
 partial sample is not that count's cost.
 
@@ -74,6 +76,60 @@ def rows_from(report: dict) -> list[dict]:
 
 
 BREAKDOWN_PREFIX = "memory.app_agents.breakdown."
+# Goal idle-gpu-disk (cmuxterm-hq goals/idle-gpu-disk.md): the same idle windows' GPU and disk writes.
+GPU_ROW = "memory.app_agents.idle_gpu_device_pct"
+DISK_ROW = "memory.app_agents.idle_disk_write_mb_per_h"
+GPU_FLOOR_PCT = 1.0  # ioreg's Device Utilization % is a whole number: one step of it is noise, not a regression
+DISK_FLOOR_MB_PER_H = 1.0  # the goal's own line: below it a change is not one a person's disk sees
+
+
+def idle_rows(report: dict) -> list[dict]:
+    """Goal idle-gpu-disk's rows from bench_memory.py's report (pure), the worst idle window of the run (the empty
+    app and each count whose chats all opened):
+    - GPU_ROW: the Mac's GPU Device Utilization % over the window (ioreg, whole Mac) minus the same Mac's with no app
+      open (bench_memory's gpu_no_app, measured just before the launch), at least 0. No baseline, no row: a whole-Mac
+      reading alone would count whatever else the Mac draws.
+    - DISK_ROW: bytes the app's processes wrote to the storage device (proc_pid_rusage ri_diskio_byteswritten, every
+      process bench_memory.owned counts) over the window, as MB per hour.
+    The raw GPU reading and the baseline are report-only breakdown rows beside them."""
+    samples = [s for s in report.get("samples") or [] if isinstance(s, dict) and s.get("measure_s")]
+    windows = []
+    for s in samples:
+        label = str(s.get("label") or "")
+        if label == "idle-launch":
+            windows.append(s)
+            continue
+        try:
+            asked = int(label.split("-", 1)[1]) if label.startswith("idle-") else None
+        except ValueError:
+            asked = None
+        if asked is not None and s.get("workspaces") == asked and not s.get("pane_failures"):
+            windows.append(s)
+    rows = []
+    disks = []
+    for s in windows:
+        values = [k.get("disk_write_mb_per_h") for k in (s.get("kinds") or {}).values() if isinstance(k, dict)]
+        values = [v for v in values if isinstance(v, (int, float))]
+        if values:
+            disks.append((round(sum(values), 2), s["label"]))
+    if disks:
+        value, label = max(disks)
+        rows.append({"name": DISK_ROW, "p50": value, "p95": value, "unit": "MB/h", "floor": DISK_FLOOR_MB_PER_H,
+                     "window": label})
+    base = (report.get("gpu_no_app") or {}).get("device_utilization_pct")
+    gpus = [((s.get("gpu") or {}).get("device_utilization_pct"), s["label"]) for s in windows]
+    gpus = [(v, label) for v, label in gpus if isinstance(v, (int, float))]
+    if gpus:
+        raw, label = max(gpus)
+        rows.append({"name": BREAKDOWN_PREFIX + "gpu_device_pct_raw", "p50": raw, "p95": raw, "unit": "pct",
+                     "floor": GPU_FLOOR_PCT, "window": label})
+        if isinstance(base, (int, float)):
+            rows.append({"name": BREAKDOWN_PREFIX + "gpu_no_app_pct", "p50": base, "p95": base, "unit": "pct",
+                         "floor": GPU_FLOOR_PCT})
+            value = round(max(raw - base, 0.0), 2)
+            rows.append({"name": GPU_ROW, "p50": value, "p95": value, "unit": "pct", "floor": GPU_FLOOR_PCT,
+                         "window": label})
+    return rows
 KIND_FLOOR_MB = 1.0  # kinds under this at every sample fold into "other": a row each would only be noise
 
 
@@ -184,7 +240,7 @@ def bench_cmd(args: argparse.Namespace, raw: str) -> list[str]:
     vmmap says which of its regions grew."""
     cmd = [sys.executable, os.path.join(HERE, "bench_memory.py"), "--app", args.app, "--workspaces", args.agents,
            "--mix", "terminal+chat", "--fake-agent", os.path.join(ROOT, FAKE_AGENT), "--settle", args.settle,
-           "--measure", args.measure, "--top", "8", "--js-heap", "--out", raw]
+           "--measure", args.measure, "--top", "8", "--js-heap", "--gpu", "--out", raw]
     if not args.no_app_vm or args.app_vm_stacks:
         cmd.append("--app-vm")
     if args.app_vm_stacks:
@@ -217,7 +273,10 @@ def main(argv: list[str] | None = None) -> int:
         report = {}
     rows = rows_from(report)
     breakdown, breakdown_rows = breakdown_from(report)
+    rows += idle_rows(report)
     out = {"rows": rows + breakdown_rows, "agents": args.agents, "bench_status": status}
+    if report.get("gpu_no_app"):
+        out["gpu_no_app"] = report["gpu_no_app"]
     if breakdown:
         out["breakdown"] = breakdown
     empty = next((s for s in report.get("samples") or [] if isinstance(s, dict) and s.get("label") == "idle-launch"), {})

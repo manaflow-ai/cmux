@@ -12,6 +12,10 @@ import CmuxNextSettings
 @MainActor
 public final class PageInputReadiness {
     public static let handlerName = "cmuxInputReady"
+    /// The page function that returns the readiness script's state now (``refresh()``).
+    static let stateName = "__cmuxInputReadyState"
+    /// An expression whose value is that state as JSON text, or null before the script ran.
+    public static let stateExpression = "(globalThis.\(stateName) ? JSON.stringify(globalThis.\(stateName)()) : null)"
 
     /// True once the current document focused an editable element, while no ``awaitFocus(on:)`` waits.
     public private(set) var isReady = false
@@ -42,6 +46,11 @@ public final class PageInputReadiness {
     /// Types into a page another engine shows (a Chromium page, ``PageWebView``); nil types into the
     /// attached web view.
     var editor: ((Edit, Int?) async -> Bool)?
+    /// Reads ``stateExpression`` in a page another engine shows; nil reads it in the attached web view.
+    var stateReader: (() async -> String?)?
+    /// The documents that reported not ready (counted, so a state read before one is not applied after it).
+    private var notReadyReports = 0
+    private var refreshing = false
 
     /// One edit of the focused editable element: queued text, or Deletes typed while it was on its way.
     public enum Edit: Equatable, Sendable {
@@ -167,7 +176,75 @@ public final class PageInputReadiness {
         isPointerOverSidewaysScroller = over
     }
 
+    /// Reads the page's readiness state now instead of waiting for its message: the key dispatcher asks
+    /// while it keeps keys for a page that is not ready. Under a busy launch the page's `true` could be
+    /// lost on its way (Chromium's Runtime gap after a commit), and every key typed then waited for a
+    /// message that never came: all 600 at L4 (hq#15723). The state is an evaluation's value, so no
+    /// message has to arrive. A state read before a new document reported not ready is dropped. Until the page
+    /// is ready the state is read again every ``refreshInterval``, ``refreshLimit`` times at most.
+    public func refresh() {
+        guard !isReady, !refreshing, stateReader != nil || webView != nil else { return }
+        refreshing = true
+        let interval = refreshInterval
+        // task-owner: one read loop at a time; it ends when the page is ready, at its limit, or with this object
+        Task { [weak self] in
+            for _ in 0..<Self.refreshLimit {
+                guard let before = self?.notReadyReports else { return }
+                let state = await self?.readState()
+                guard let self, !isReady else { self?.refreshing = false; return }
+                if notReadyReports == before, let state = Self.parseState(state), state["ready"] as? Bool == true {
+                    trace("refresh ready")
+                    receive(state)
+                    refreshing = false
+                    return
+                }
+                // wakeup-allow: bounded re-read while keys wait for a page that has not said it is ready
+                do { try await Task.sleep(for: interval) } catch { break }
+            }
+            self?.refreshing = false
+        }
+    }
+
+    /// Inserts `text`, typed before the page took keys, at focus epoch `expected`; when that is refused because the
+    /// page moved its focus to another editable element (``epochAfterRefusedInsert(at:)``), once more there. The epoch
+    /// the text landed at, for the Deletes after it; nil when it did not land.
+    public func insertTypedAhead(_ text: String, expectedEpoch expected: Int) async -> Int? {
+        if await insert(text, expectedEpoch: expected) { return expected }
+        guard let moved = await epochAfterRefusedInsert(at: expected), await insert(text, expectedEpoch: moved) else { return nil }
+        return moved
+    }
+
+    /// The focus epoch to insert queued text at after an insert at `expected` was refused, or nil to drop the text:
+    /// the page's state is read again, and when its focus moved since `expected` to another editable element, text
+    /// typed before the page took keys goes there. A chat composer that mounts again at launch (a new chat
+    /// attaching) moves the focus right after the page reports ready, and the first keys typed were dropped with
+    /// the old element (1 to 9 of 600 per launch, hq#15723).
+    public func epochAfterRefusedInsert(at expected: Int) async -> Int? {
+        let before = notReadyReports
+        guard let state = Self.parseState(await readState()), notReadyReports == before else { return nil }
+        receive(state)
+        guard isReady, isEditableFocused, focusEpoch != expected else { return nil }
+        trace("refused insert at \(expected), page at \(focusEpoch)")
+        return focusEpoch
+    }
+
+    /// How long ``refresh()`` waits between reads of a page that is not ready yet.
+    public var refreshInterval: Duration = .milliseconds(100)
+    static let refreshLimit = 50
+
+    private func readState() async -> String? {
+        if let stateReader { return await stateReader() }
+        return try? await webView?.callAsyncJavaScript("return \(Self.stateExpression);", arguments: [:], in: nil, contentWorld: .page) as? String
+    }
+
+    /// The state ``stateExpression`` read, as the readiness script's message; nil for anything else.
+    static func parseState(_ json: String?) -> [String: Any]? {
+        guard let data = json?.data(using: .utf8) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    }
+
     func report(_ ready: Bool) {
+        if !ready { notReadyReports += 1 }
         documentReady = ready
         if ready, awaitedTarget != nil, awaitedBound == nil { startFocusWaitBound() }
         if !ready {
@@ -261,6 +338,15 @@ public final class PageInputReadiness {
           // The command target a focused element is marked as (`data-cmux-command-focus`, Cmd-F's find field); "" for none.
           const commandFocus = (el) => (el && el.closest && el.closest('[data-cmux-command-focus]')?.getAttribute('data-cmux-command-focus')) || '';
           let command = '';
+          // The page's state now, from its focus, not from what was posted: a post the host never got (Chromium's
+          // Runtime gap after a commit, a busy launch) cannot leave the host waiting. The host reads it as an
+          // evaluation's value (``refresh()``), which needs no message, and after a commit as a post (the resend).
+          const state = () => {
+            if (editable(document.activeElement)) sent = true;
+            return { ready: sent, epoch, commandFocus: command, list, editing };
+          };
+          window.\(stateName) = state;
+          window.__cmuxInputReadyResend = () => post(state());
           document.addEventListener('focusin', (event) => {
             const now = commandFocus(event.target);
             if (event.target !== focused) {
@@ -360,6 +446,6 @@ extension PageInputReadiness {
     /// Runs `work` each time the page turns ready for typing (it replaces ``onReady``), and now when it already is.
     public func whenReady(_ work: @escaping () -> Void) {
         onReady = work
-        if isReady { work() }
+        if isReady { work() } else { refresh() } // keys wait: the page's `true` may be lost on its way
     }
 }

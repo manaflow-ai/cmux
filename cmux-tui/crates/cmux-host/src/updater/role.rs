@@ -7,9 +7,9 @@ use std::fs;
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::sync::{Condvar, LazyLock, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -18,7 +18,7 @@ use serde_json::{Value, json};
 
 use super::carrier::{CARRIER_MAX_HOLD, CarrierHold, CarrierLook};
 use super::channel::{self, CHANNEL_MAX_BYTES, CHANNEL_URL, CMUX_TUI, CMUX_TUI_HOOK};
-use super::gate::{Gate, HoldKind, Honor};
+use super::gate::{Gate, HoldKind, Honor, Refused};
 use super::resolve::{
     GuardStep, Resolved, guard_rollback_waits, resolve_with, timeout_rollback_waits,
 };
@@ -30,6 +30,9 @@ use super::{
 use crate::agent::PauseSeen;
 use crate::config::Paths;
 use crate::daemon_spec::{WORK_HOME, WORK_USER};
+use machine::{Caller, Event, Refusal, Verdict};
+
+pub mod machine;
 
 /// The first check after `cmux host run` starts (a boot or an update's restart).
 const BOOT_DELAY: Duration = Duration::from_secs(30);
@@ -93,17 +96,73 @@ pub(super) enum Msg {
     Stop,
 }
 
-/// Bumped by every stop: a worker whose generation it no longer is has been
-/// told to stop, also one that outlived its role's deadline, and touches
-/// nothing more ([`stopped`]). The `cmux host update` verbs run outside any
-/// worker and never stop.
-static GENERATION: AtomicU64 = AtomicU64::new(0);
+/// The role's state in this process ([`machine::State`]): the stop count (a worker whose
+/// generation it no longer is has been told to stop, also one that outlived its role's
+/// deadline, and touches nothing more, [`stopped`]; the `cmux host update` verbs run outside
+/// any worker and never stop), the commit section ([`Committing`]) and the holds the gate
+/// could not record. Locked only for one [`machine::step`].
+static ROLE: LazyLock<Mutex<machine::State>> = LazyLock::new(Mutex::default);
 
-/// Held from a worker's last [`stopped`] look through the flip and the
-/// queued restarts, and by a stop while it bumps [`GENERATION`]: once a stop
-/// returns, no worker flips or restarts anything; a stop that comes during
-/// one waits for it (a rename and a few `--no-block` systemctl calls).
-static COMMIT: Mutex<()> = Mutex::new(());
+/// Notified whenever a commit leaves its section.
+static COMMIT_LEFT: Condvar = Condvar::new();
+
+/// `event` on [`ROLE`].
+fn role_step(event: Event) -> Verdict {
+    let mut state = ROLE.lock().unwrap_or_else(|e| e.into_inner());
+    let step = machine::step(state.clone(), event);
+    *state = step.state;
+    step.verdict
+}
+
+/// A verdict the machine never gives for `event`: logged, and the caller does the safe thing.
+fn unexpected(event: Event, verdict: Verdict) {
+    log(&format!("the role machine answered {event:?} with {verdict:?}"));
+}
+
+/// The commit section ([`machine::Commit::Held`]): held from a worker's last [`stopped`] look
+/// through the flip and the queued restarts, and waited for by a stop before it bumps the
+/// count: once a stop returns, no worker flips or restarts anything; a stop that comes during
+/// one waits for it (a rename and a few `--no-block` systemctl calls). Left when dropped, also
+/// on a panic, as the mutex it replaces was still taken once poisoned.
+struct Committing {
+    entered: bool,
+}
+
+impl Committing {
+    /// Enters the section, waiting for the commit in it.
+    fn enter() -> Committing {
+        let mut state = ROLE.lock().unwrap_or_else(|e| e.into_inner());
+        loop {
+            let step = machine::step(state.clone(), Event::Enter);
+            match step.verdict {
+                Verdict::Entered => {
+                    *state = step.state;
+                    return Committing { entered: true };
+                }
+                Verdict::Refused(Refusal::CommitHeld) => {
+                    state = COMMIT_LEFT.wait(state).unwrap_or_else(|e| e.into_inner());
+                }
+                other => {
+                    unexpected(Event::Enter, other);
+                    return Committing { entered: false };
+                }
+            }
+        }
+    }
+}
+
+impl Drop for Committing {
+    fn drop(&mut self) {
+        if !self.entered {
+            return;
+        }
+        match role_step(Event::Leave) {
+            Verdict::Left => {}
+            other => unexpected(Event::Leave, other),
+        }
+        COMMIT_LEFT.notify_all();
+    }
+}
 
 pub(super) fn wall_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
@@ -125,8 +184,44 @@ pub(super) fn wall_ms() -> u64 {
 /// (or [`hold_if_paused`], [`flip_look`], [`carrier_busy_from`]) inside
 /// [`Gate::run`] or [`flip_in_gate`], which would deadlock on that flock.
 /// Inside, use `Inside::hold_connects(now)`.
+///
+/// A hold the gate can't record is kept in this process ([`ROLE`]),
+/// and this process's flips wait for it; the caller then does not bind.
 pub(crate) fn hold_connects(paths: &Paths, kind: HoldKind) -> bool {
-    super::gate::hold_connects(paths, wall_ms(), kind)
+    hold_connects_at(paths, wall_ms(), kind)
+}
+
+/// [`hold_connects`] at `now` (wall ms).
+fn hold_connects_at(paths: &Paths, now: u64, kind: HoldKind) -> bool {
+    match super::gate::hold_connects(paths, now, kind) {
+        Ok(go) => go,
+        Err(e) => {
+            log(&format!("the connect hold was not recorded ({e}); this process holds it"));
+            unrecorded_hold(now, kind);
+            false
+        }
+    }
+}
+
+/// Keeps a hold of `kind` from `now` the gate failed to record.
+fn unrecorded_hold(now: u64, kind: HoldKind) {
+    let event = Event::HoldNotRecorded { kind, now_ms: now };
+    match role_step(event) {
+        Verdict::Kept => {}
+        other => unexpected(event, other),
+    }
+}
+
+/// What is left at `now_ms` of the unrecorded holds `honor` honors.
+fn unrecorded_left(now_ms: u64, honor: Honor) -> Option<Duration> {
+    let event = Event::HeldLeft { honor, now_ms };
+    match role_step(event) {
+        Verdict::HeldLeft(left) => left,
+        other => {
+            unexpected(event, other);
+            None
+        }
+    }
 }
 
 /// What the flip answers when the connect hold is on: a bind or resume that
@@ -232,7 +327,7 @@ fn hold_if_paused_past(
         return false;
     }
     // A stop is the machine's own wake (as a resume is): a person's link takes its own connect hold.
-    super::gate::hold_connects(paths, now.1, HoldKind::Resume);
+    hold_connects_at(paths, now.1, HoldKind::Resume);
     log("the machine was stopped (a pause or restore): no flip during the connect hold");
     true
 }
@@ -289,7 +384,7 @@ pub(super) fn flip_look(
     let paused = hold_if_paused_past(paths, watch, handled, own, now);
     let restored = restore_look(last, offset_now);
     if restored {
-        super::gate::hold_connects(paths, now.1, HoldKind::Resume);
+        hold_connects_at(paths, now.1, HoldKind::Resume);
         log("a snapshot restore: no flip during the connect hold");
     }
     paused || restored
@@ -417,9 +512,15 @@ fn wait_watching(paths: &Paths, rx: &Receiver<Msg>, d: Duration) -> bool {
     go_on
 }
 
-/// How much of the connect hold is left now.
+/// How much of the connect hold is left now, with the holds this process
+/// could not record. A gate that can't be read holds for [`BUSY_RETRY`].
 pub(super) fn held_for(paths: &Paths) -> Option<Duration> {
-    Gate::new(paths).held_left(wall_ms())
+    let now = wall_ms();
+    let gate = Gate::new(paths).held_left(now).unwrap_or_else(|e| {
+        log(&format!("the restart gate can't be read ({e}); no flip"));
+        Some(BUSY_RETRY)
+    });
+    gate.max(unrecorded_left(now, Honor::All))
 }
 
 thread_local! {
@@ -445,7 +546,19 @@ fn past_deadline() -> bool {
 }
 
 fn stopped() -> bool {
-    WORKER_GENERATION.with(Cell::get).is_some_and(|mine| mine != GENERATION.load(Ordering::SeqCst))
+    let by = match WORKER_GENERATION.with(Cell::get) {
+        Some(generation) => Caller::Worker { generation },
+        None => Caller::Verb,
+    };
+    let event = Event::Live { by };
+    match role_step(event) {
+        Verdict::Live => false,
+        Verdict::Refused(Refusal::Stale { .. }) => true,
+        other => {
+            unexpected(event, other);
+            true
+        }
+    }
 }
 
 struct Worker {
@@ -468,24 +581,20 @@ impl UpdaterRole {
     fn halt(&mut self, deadline: Instant) -> Result<(), RoleError> {
         let Some(worker) = self.worker.take() else { return Ok(()) };
         let _ = worker.tx.send(Msg::Stop);
-        // Bump the generation under COMMIT, so a flip in progress finishes
-        // first and none starts after.
+        // Bump the generation once no commit runs, so a flip in progress
+        // finishes first and none starts after.
         loop {
-            match COMMIT.try_lock() {
-                Ok(_commit) => {
-                    GENERATION.fetch_add(1, Ordering::SeqCst);
-                    break;
-                }
-                Err(std::sync::TryLockError::Poisoned(e)) => {
-                    let _commit = e.into_inner();
-                    GENERATION.fetch_add(1, Ordering::SeqCst);
-                    break;
-                }
-                Err(std::sync::TryLockError::WouldBlock) if Instant::now() < deadline => {
+            match role_step(Event::Stop) {
+                Verdict::Stopped { .. } => break,
+                Verdict::Refused(Refusal::CommitHeld) if Instant::now() < deadline => {
                     std::thread::sleep(Duration::from_millis(20));
                 }
-                Err(std::sync::TryLockError::WouldBlock) => {
+                Verdict::Refused(Refusal::CommitHeld) => {
                     return Err(RoleError("updater was flipping at the deadline".to_owned()));
+                }
+                other => {
+                    unexpected(Event::Stop, other);
+                    break;
                 }
             }
         }
@@ -522,7 +631,14 @@ impl Role for UpdaterRole {
         let (tx, rx) = mpsc::channel();
         let (done_tx, done) = mpsc::channel::<()>();
         let paths = self.paths.clone();
-        let generation = GENERATION.load(Ordering::SeqCst);
+        let generation = match role_step(Event::Start) {
+            Verdict::Started { generation } => generation,
+            other => {
+                // A count no stop reaches: the worker is stale from its first look.
+                unexpected(Event::Start, other);
+                u64::MAX
+            }
+        };
         let thread = std::thread::Builder::new()
             .name("cmux-host-updater".to_owned())
             .spawn(move || {
@@ -580,7 +696,7 @@ pub(super) fn start_hold(paths: &Paths, now_ms: u64, offset_ns: i128) -> bool {
         log("the restart after this machine's own update: no start hold");
         return true;
     }
-    super::gate::hold_connects(paths, now_ms, HoldKind::Resume);
+    hold_connects_at(paths, now_ms, HoldKind::Resume);
     false
 }
 
@@ -823,7 +939,7 @@ fn check_inner(
             Err(e) => Some(Outcome::Busy(vec![e])),
         },
     };
-    let commit = COMMIT.lock().unwrap_or_else(|e| e.into_inner());
+    let commit = Committing::enter();
     // A stop during this check (its download, its busy look) holds its flip.
     stops.before_gate(paths, crate::linux::realtime_minus_boottime_ns(), clocks());
     let last =
@@ -989,7 +1105,7 @@ fn flip_and_restart(paths: &Paths, plan: Plan, what: &str) -> Outcome {
         clear_pending(paths);
         return Outcome::Failed(format!("arming the guard: {e}"));
     }
-    let commit = COMMIT.lock().unwrap_or_else(|e| e.into_inner());
+    let commit = Committing::enter();
     // Last before the flip, so a step that failed above left the work link as it was.
     let relinked = match super::relink_work_link(paths) {
         Ok(relinked) => relinked,
@@ -1056,6 +1172,10 @@ pub(super) fn flip_in_gate<E>(
     stopped: impl FnOnce() -> bool,
     flip: impl FnOnce(&super::gate::Inside) -> Result<(), E>,
 ) -> (Gated<E>, Option<HoldKind>) {
+    // A hold this process could not record holds its own flips.
+    if let Some(left) = unrecorded_left(clock(), honor) {
+        return (Gated::Held(left), None);
+    }
     let ran = Gate::new(paths).run(clock(), honor, |inside| {
         if paths.at(super::OFF_FILE).exists() {
             return (Gated::Off(format!("{} exists", super::OFF_FILE)), inside.skipped());
@@ -1070,7 +1190,11 @@ pub(super) fn flip_in_gate<E>(
                 limit.as_secs()
             )),
             read => carrier_look(read.map_err(Unread::why), || {
-                inside.hold_connects(clock());
+                let now = clock();
+                if let Err(e) = inside.hold_connects(now) {
+                    log(&format!("the connect hold was not recorded ({e}); this process holds it"));
+                    unrecorded_hold(now, HoldKind::Connect);
+                }
                 new_session.set(true);
             }),
         };
@@ -1078,7 +1202,11 @@ pub(super) fn flip_in_gate<E>(
             Some(why) => Gated::Busy(why),
             None if new_session.get() => Gated::Held(CONNECT_HOLD),
             None if stopped() => {
-                inside.hold(HoldKind::Resume, clock());
+                let now = clock();
+                if let Err(e) = inside.hold(HoldKind::Resume, now) {
+                    log(&format!("the resume hold was not recorded ({e}); this process holds it"));
+                    unrecorded_hold(now, HoldKind::Resume);
+                }
                 log("the machine was stopped during the carrier look: no flip during the connect hold");
                 Gated::Held(CONNECT_HOLD)
             }
@@ -1089,7 +1217,10 @@ pub(super) fn flip_in_gate<E>(
         };
         (gated, inside.skipped())
     });
-    ran.unwrap_or_else(|left| (Gated::Held(left), None))
+    ran.unwrap_or_else(|refused| match refused {
+        Refused::Held(left) => (Gated::Held(left), None),
+        refused => (Gated::Busy(refused.to_string()), None),
+    })
 }
 
 /// The first 12 characters of a hash for a log line; a shorter or non-ASCII text is logged whole, never sliced
@@ -1312,12 +1443,32 @@ fn carrier_busy(paths: &Paths) -> Option<String> {
     carrier_busy_from(paths, carrier_sessions())
 }
 
-/// [`carrier_busy`] for a rollback: only sessions the list shows hold it,
-/// under the same bound. A list that can't be read holds nothing here: the
-/// session host that would answer is the build being rolled back, and
+/// [`carrier_busy`] for a rollback's wait: only sessions the list shows hold
+/// it, under the same bound. A list that can't be read holds nothing here:
+/// the session host that would answer is the build being rolled back, and
 /// keeping a broken build is worse than a restart (#37280).
-fn rollback_carrier_busy(paths: &Paths) -> Option<String> {
-    carrier_sessions().ok().and_then(|ids| carrier_busy_from(paths, Ok(ids)))
+///
+/// Each wait has its own hold, started when the wait begins: the forward
+/// update's hold ([`CARRIER`]) may have passed its bound, and a session that
+/// reconnected since would get no hold at all.
+#[derive(Default)]
+pub(super) struct RollbackCarrier {
+    hold: CarrierHold,
+}
+
+impl RollbackCarrier {
+    /// One look at `now` at the sessions read.
+    pub(super) fn look(
+        &mut self,
+        paths: &Paths,
+        now: Instant,
+        sessions: Result<Vec<String>, String>,
+    ) -> Option<String> {
+        let ids = sessions.ok()?;
+        act_on_look(self.hold.look(now, Ok(ids)), || {
+            hold_connects(paths, HoldKind::Connect);
+        })
+    }
 }
 
 /// [`carrier_busy`] for the sessions one look read.
@@ -1325,7 +1476,16 @@ pub(super) fn carrier_busy_from(
     paths: &Paths,
     sessions: Result<Vec<String>, String>,
 ) -> Option<String> {
-    carrier_look(sessions, || {
+    carrier_busy_at(paths, Instant::now(), sessions)
+}
+
+/// [`carrier_busy_from`] at `now`.
+pub(super) fn carrier_busy_at(
+    paths: &Paths,
+    now: Instant,
+    sessions: Result<Vec<String>, String>,
+) -> Option<String> {
+    carrier_look_at(now, sessions, || {
         hold_connects(paths, HoldKind::Connect);
     })
 }
@@ -1336,8 +1496,17 @@ fn carrier_look(
     sessions: Result<Vec<String>, String>,
     start_hold: impl FnOnce(),
 ) -> Option<String> {
+    carrier_look_at(Instant::now(), sessions, start_hold)
+}
+
+/// [`carrier_look`] at `now`.
+fn carrier_look_at(
+    now: Instant,
+    sessions: Result<Vec<String>, String>,
+    start_hold: impl FnOnce(),
+) -> Option<String> {
     let mut hold = CARRIER.lock().unwrap_or_else(|e| e.into_inner());
-    let look = hold.get_or_insert_with(CarrierHold::default).look(Instant::now(), sessions);
+    let look = hold.get_or_insert_with(CarrierHold::default).look(now, sessions);
     drop(hold);
     act_on_look(look, start_hold)
 }
@@ -1601,16 +1770,19 @@ fn resolve(paths: &Paths, pending: &Pending, rx: &Receiver<Msg>) -> bool {
         }
         Resolved::Stopped => false,
         Resolved::TimedOut => {
-            if !timeout_rollback_waits(&mut || rollback_carrier_busy(paths), rx) {
-                return false;
-            }
-            rollback(
-                paths,
-                pending,
-                "the new build did not serve within ten minutes of its restart",
-                true,
-            );
-            true
+            let mut carrier = RollbackCarrier::default();
+            timeout_rollback_waits(
+                &mut || carrier.look(paths, Instant::now(), carrier_sessions()),
+                || {
+                    rollback(
+                        paths,
+                        pending,
+                        "the new build did not serve within ten minutes of its restart",
+                        true,
+                    )
+                },
+                rx,
+            )
         }
     }
 }
@@ -1655,20 +1827,23 @@ pub(super) fn settled_look(
 }
 
 /// Flips back to the previous profile and restarts what runs the new build.
-fn rollback(paths: &Paths, pending: &Pending, why: &str, in_host: bool) {
+/// `Some(wait)` when a bind's request is in flight: the rollback did nothing,
+/// and its caller looks at carrier sessions again after `wait` (the bound
+/// machine's first link may be one) and retries.
+fn rollback(paths: &Paths, pending: &Pending, why: &str, in_host: bool) -> Option<Duration> {
     let _lock = Lock::take(paths, true);
     if load_pending(paths).as_ref() != Some(pending) {
-        return;
+        return None;
     }
     // A stopped worker leaves the rollback to the guard.
-    let _commit = COMMIT.lock().unwrap_or_else(|e| e.into_inner());
+    let _commit = Committing::enter();
     if stopped() {
-        return;
+        return None;
     }
-    log(&format!("rolling {} back to profile {}: {why}", pending.commit, pending.from));
     // The flip back and its restarts go through the gate, so no bind goes out
-    // between them; the hold does not stop a rollback.
-    let _ = Gate::new(paths).run(wall_ms(), Honor::Nothing, |inside| {
+    // between them and none is in flight; the hold does not stop a rollback.
+    let rolled = Gate::new(paths).run(wall_ms(), Honor::Nothing, |inside| {
+        log(&format!("rolling {} back to profile {}: {why}", pending.commit, pending.from));
         if let Err(e) = store::flip(paths, pending.from) {
             log(&format!("flipping back to profile {}: {e}", pending.from));
             return;
@@ -1687,6 +1862,13 @@ fn rollback(paths: &Paths, pending: &Pending, why: &str, in_host: bool) {
         inside.restart_queued(wall_ms());
         restart_after_flip(paths, &store_binary(&pending.cmux_tui));
     });
+    match rolled {
+        Ok(()) => None,
+        Err(refused) => {
+            log(&format!("the rollback waits: {refused}"));
+            Some(refused.retry_in())
+        }
+    }
 }
 
 fn systemctl(args: &[&str]) -> bool {
@@ -1945,12 +2127,18 @@ pub fn verb(args: &[String]) -> u8 {
                 clear_pending(&paths);
                 return 0;
             }
-            guard_rollback_waits(&mut || rollback_carrier_busy(&paths), std::thread::sleep);
-            rollback(
-                &paths,
-                &pending,
-                "the new build did not prove itself within twenty minutes of the flip",
-                false,
+            let mut carrier = RollbackCarrier::default();
+            guard_rollback_waits(
+                &mut || carrier.look(&paths, Instant::now(), carrier_sessions()),
+                || {
+                    rollback(
+                        &paths,
+                        &pending,
+                        "the new build did not prove itself within twenty minutes of the flip",
+                        false,
+                    )
+                },
+                std::thread::sleep,
             );
             0
         }

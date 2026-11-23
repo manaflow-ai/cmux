@@ -2,7 +2,7 @@ public import AppKit
 
 /// Debug: Tooltip Gallery (`debug.tooltipGallery`, DEV and NIGHTLY; Lawrence 2026-11-20: "tooltips everywhere needs
 /// to be redesigned to be better and consistent"). It draws every tooltip state (``TooltipGallerySample``: text only,
-/// a shortcut, several keys, wrapping, wrapping with keys, Reduce Transparency) with the real tooltip surface and
+/// a shortcut, several keys, too long for one line, too long with keys, Reduce Transparency) with the real tooltip surface and
 /// content, in a light, a dark and a strong accent theme side by side, and a live toolbar in each whose buttons show
 /// the real tooltip on hover (the delay, then the warm group's hand-off). It opens from the palette
 /// (`debug.tooltipGallery`) and from the Toast Playground's button, which works before the palette knows the action.

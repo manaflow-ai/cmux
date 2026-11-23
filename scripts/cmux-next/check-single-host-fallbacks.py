@@ -36,7 +36,7 @@ The hook runs only installed code, so the installer puts tests/workflow_jobs.py 
 scripts/git-hooks/checks-copy-inputs, which also stamps the copy, so a resolver change alone reaches the hook); it
 loads that copy first, else the repository's.
 
-Where it runs. No CI gate (CLAUDE.md, Lawrence 2026-10-23: no new CI gates or tests). The mode is an explicit
+Where it runs. No CI gate (built under Lawrence's 2026-10-23 no-new-CI rule, since lifted). The mode is an explicit
 flag, never read from the environment:
 - strict (the default): print each finding and exit 1. scripts/cmux-next/prepush-gate.py runs it on the pre-push
   hook and a plain local run when a push changes .github/workflows/ or the declaration, and refuses only names
