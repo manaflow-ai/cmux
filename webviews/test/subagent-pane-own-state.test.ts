@@ -141,15 +141,18 @@ await requireBrowserLane("subagent-pane-own-state.test.ts", async () => {
     return page;
   };
   /// What the pane's bottom shows: the chat's composer, its queued prompt and its pull request bar,
-  /// and a subagent's own composer: its placeholder and the line naming the chat that passes it on.
+  /// and a subagent's own composer: its prompt's name and the quiet row naming the chat that passes it on.
   const bottom = (page: Page) =>
     page.evaluate(() => ({
       composer: document.querySelectorAll(".acpmux-composer:not(.acpmux-subagent-composer)").length,
       queued: [...document.querySelectorAll(".acpmux-queued")].map((row) => row.textContent ?? ""),
       subagent: document.querySelectorAll(".acpmux-subagent-composer").length,
       placeholder:
-        document.querySelector(".acpmux-subagent-composer [aria-label]")?.getAttribute("aria-label")?.trim() ?? "",
-      via: document.querySelector(".cv-subagent-composer-via")?.textContent?.trim() ?? "",
+        document
+          .querySelector('.acpmux-subagent-composer [role="textbox"][aria-label]')
+          ?.getAttribute("aria-label")
+          ?.trim() ?? "",
+      via: document.querySelector(".acpmux-subagent-composer .acpmux-subagent-via")?.textContent?.trim() ?? "",
       text: document.body.textContent ?? "",
     }));
   /// A message whose relay acpmux takes and whose turn never ends (the stand-in daemon never answers it).
