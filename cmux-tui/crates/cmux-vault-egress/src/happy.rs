@@ -69,6 +69,8 @@ pub async fn race(
         }
         let wait = tokio::time::sleep(stagger);
         tokio::pin!(wait);
+        // One wake per round: an attempt that ended, or the stagger running out with an address
+        // still to try. Either way the next round starts the next address or reads the next end.
         tokio::select! {
             Some(joined) = running.join_next() => match joined {
                 Ok(Ok(stream)) => return Ok(stream),
