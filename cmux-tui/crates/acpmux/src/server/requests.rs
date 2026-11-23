@@ -303,7 +303,13 @@ fn dispatch_text(params: &Value) -> Result<String, RpcError> {
     Ok(text.to_owned())
 }
 
+/// The child's name: the caller's `name` as given, else one made from its title or brief.
 fn dispatch_name(params: &Value, brief: &str) -> String {
+    if let Some(name) =
+        params.get("name").and_then(Value::as_str).map(str::trim).filter(|n| !n.is_empty())
+    {
+        return name.to_owned();
+    }
     let title = params
         .get("title")
         .and_then(Value::as_str)
@@ -598,6 +604,12 @@ async fn dispatch_brief(
         (None, None) => (None, None),
     };
     let mut new_params = json!({"mcpServers": [], "_meta": {"acpmux": {"name": name}}});
+    // A taken name is kept with a `-N` suffix, never the agent's; a replay with an identity
+    // keeps its exact name, so the same child is found again.
+    if identity.is_none() {
+        new_params
+            .set_path(&["_meta", "acpmux", "ifNameTaken"], json!(crate::hub::SUFFIX_TAKEN_NAME));
+    }
     if let Some(obj) = new_params.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
         for (key, value) in [
             ("harness", harness),
@@ -1353,6 +1365,7 @@ async fn dispatch_request_with_identity(
                 method::CHAT_FIX_FROM_LINK_PREPARE,
                 method::MUX_PROJECT_NEW,
                 method::MUX_PERF,
+                method::MUX_CALLERS,
             ];
             #[allow(unused_mut)]
             let mut reply = json!({
@@ -1813,6 +1826,8 @@ async fn dispatch_request_with_identity(
                 harness: copy.harness.or_else(|| pick("harness")),
                 preset: copy.preset.or_else(|| pick("preset")),
                 name: pick("name"),
+                suffix_taken_name: pick("ifNameTaken").as_deref()
+                    == Some(crate::hub::SUFFIX_TAKEN_NAME),
                 cwd,
                 policy,
                 model: copy.model.or_else(|| pick("model")),
@@ -1901,6 +1916,11 @@ async fn dispatch_request_with_identity(
             let mut summary = hub.session_summary(&s);
             if let Some(w) = worktree {
                 summary.set("worktree", w);
+            }
+            // A taken name kept with a suffix (`ifNameTaken`): the caller hears the name asked
+            // for beside the one it got (`name`).
+            if let Some(asked) = pick("name").filter(|n| *n != meta.name) {
+                summary.set("requestedName", Value::String(asked));
             }
             // Started past the lane cap: the caller hears it (`hub/admission.rs`).
             if let Some(w) = admitted.as_ref().and_then(|a| a.warning.clone()) {
@@ -2575,6 +2595,16 @@ async fn dispatch_request_with_identity(
             }
         }
         method::MUX_STATUS => Ok(hub.status().await),
+        // Each caller's requests and bytes over a recent window (`caller_stats.rs`): this
+        // machine's own clients only. It names local pids and sessions.
+        method::MUX_CALLERS => {
+            if !matches!(conn.origin, Origin::Local | Origin::LocalApp) {
+                return Err(RpcError::invalid_params(
+                    "only the local app or unix socket may read the caller stats",
+                ));
+            }
+            Ok(crate::caller_stats::global().report(&params))
+        }
         // The live perf commentator (`perf_watch.rs`): this machine's own clients only. It names
         // chats and clients, and `on` writes its tail file.
         method::MUX_PERF => {
@@ -3175,8 +3205,8 @@ async fn dispatch_request_with_identity(
                     .ok_or_else(|| RpcError::invalid_params("authorization is required"))?,
             )
             .map_err(|_| RpcError::invalid_params("authorization is malformed"))?;
-            let origin = std::env::var("CMUX_PLATFORM_ORIGIN")
-                .map_err(|_| RpcError::invalid_params("Cloud platform is not configured"))?;
+            let origin = cmux_cloud_client::backend::platform_origin_env()
+                .ok_or_else(|| RpcError::invalid_params("Cloud platform is not configured"))?;
             let preparation = async {
                 crate::cloud_rewind::verify_preparation(
                     &origin,
@@ -3802,6 +3832,21 @@ async fn dispatch_request_with_identity(
                 return Err(RpcError::new(-32000, why)
                     .with_data(json!({"reason": "shutdown.refused_client"})));
             }
+            // `swapIfReplaced` (the app, for a daemon whose bundle an update replaced): swap to the
+            // installed build make-before-break instead of stopping, so this daemon serves until
+            // the new one asks for the home, and serves on if it never does. A stop here left
+            // every chat without a daemon until the app's next one started (2026-11-22 23:44Z).
+            // A daemon from before this ignores the flag and stops, as the app asked before.
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
+            if params.get("swapIfReplaced").and_then(Value::as_bool) == Some(true)
+                && let Some(why) = crate::daemon::exe_swap::request_swap()
+            {
+                tracing::warn!(
+                    reason = %shutdown_reason(&params),
+                    "a client asked this daemon to stop; {why}: swapping make-before-break instead of stopping"
+                );
+                return Ok(json!({"swapping": true, "why": why}));
+            }
             // Name who stopped it and why: the log's "a client asked it to" alone cannot tell an
             // app's update from another build's or a script's stop. `reason` is the client's own
             // word for its trigger (`shutdown_reason`); the daily count of the app's stops reads it.
@@ -3899,6 +3944,15 @@ mod dispatch_policy_tests;
 #[cfg(test)]
 mod admission_force_tests {
     use super::*;
+
+    #[test]
+    fn a_dispatch_keeps_the_name_its_caller_gave() {
+        let named = json!({"name": "slam-09", "title": "Fix the bug"});
+        assert_eq!(dispatch_name(&named, "brief"), "slam-09");
+        // No name (or a blank one): made from the title, never the agent's.
+        assert_eq!(dispatch_name(&json!({"title": "Fix the bug"}), "brief"), "fix-the-bug");
+        assert_eq!(dispatch_name(&json!({"name": "  "}), "Do it\nmore"), "do-it");
+    }
 
     #[test]
     fn force_admit_is_honoured_only_from_this_machine() {
