@@ -4,7 +4,7 @@
 Behaviour per prompt text:
   "ask: <x>"   -> requests permission, then replies with the chosen optionId
   "plan-ask: <plan>" -> a plan approval as Claude Code's ExitPlanMode asks it, then as "ask:";
-                 an allow carrying an edited plan (`updatedInput.plan`) says "building: <plan>"
+                 an allow carrying an edited plan (`_meta.updatedInput.plan`) says "building: <plan>"
   "plan-ask-on: <plan>" -> the same; a rejected plan plans on until session/cancel
   "xai-question: <q>" / "xai-plan: <p>" -> Grok's x.ai ask / exit-plan requests
   "cursor-question: <q>" / "cursor-plan: <p>" -> Cursor's ask / create-plan requests
@@ -1181,10 +1181,9 @@ def handle_prompt(rid, params):
             },
         )
         chosen = (res or {}).get("outcome", {}).get("optionId", (res or {}).get("outcome", {}).get("outcome"))
-        # The plan it builds, as Claude Code takes an allow's `updatedInput`: the person's edit. The
-        # hub lifts the outcome's `_meta` to the response's top level (hub permissions.rs), as the
-        # question answers above read it.
-        built = ((res or {}).get("_meta") or {}).get("updatedInput", {}).get("plan")
+        # The plan it builds, as Claude Code takes an allow's `updatedInput`: the person's edit
+        # (acpmux lifts the outcome's `_meta` to the result's, hub permissions.rs).
+        built = (((res or {}).get("_meta") or {}).get("updatedInput") or {}).get("plan")
         said = f"chose {chosen}" + (f" building: {built}" if built else "")
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": said}})
         if plan_on and chosen == "no":
