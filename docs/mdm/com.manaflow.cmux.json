@@ -6353,7 +6353,7 @@
       "type" : "boolean"
     },
     "tabs.newTabApp" : {
-      "description" : "An extension id that draws New Tab, such as \"local/showcase-newtab\". Unset: cmux's own.",
+      "description" : "An extension that draws over the New Tab composer, by its id, such as \"local/showcase-newtab\". The composer always stays. Not used by the native New Tab page.",
       "title" : "New Tab App",
       "type" : "string"
     },
