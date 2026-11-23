@@ -23,6 +23,9 @@
 #                       the quit ended, and the app relaunched into the same scratch, checked to show that
 #                       workspace and not Home; that relaunch is settled and sampled. A plain launch shows Home
 #                       (FirstWorkspace.swift). relaunch=warm keeps what outlived the quit; 0 (default) is as before.
+#   vm=1                chats=0: the terminal launch's idle-launch sample also stores the app process's vmmap --summary,
+#                       footprint, heap --sortBySize and footprint -v (bench_memory.py --app-vm --app-vm-verbose:
+#                       `app_vm` in runs/*-terminal.json), and the step prints the host's macOS and displays
 #   env=NAME=VALUE      an environment variable for both arms' app (repeatable; chats=, cells= and home=1 runs), e.g.
 #                       env=CMUX_NEXT_CHIEF_START=visible: a base that does not read it ignores it
 #   cells=C,C           in the place of chats= (the two together are refused): each cell is CHATS:REPOSITORY:MOTION, one launch for each arm and
@@ -75,7 +78,7 @@ cd "$(git rev-parse --show-toplevel)"
 here="$PWD"
 own_sha="$(git rev-parse HEAD)"
 base="" head="" rounds=5 chats="0,1,10" measure=60 trace=10 kinds="app,cef-gpu" cells="" unfocused=300 settings_open=0 chats_given=false home=0
-relaunch=0 app_env=()
+relaunch=0 app_env=() vm=0
 for arg in "$@"; do
   case "$arg" in
     base=*) base="${arg#base=}" ;;
@@ -91,6 +94,7 @@ for arg in "$@"; do
     home=*) home="${arg#home=}" ;;
     relaunch=*) relaunch="${arg#relaunch=}" ;;
     env=*) app_env+=(--env "${arg#env=}") ;;
+    vm=*) vm="${arg#vm=}" ;;
     *) echo "perf-idle-ab.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
@@ -104,6 +108,13 @@ cell_form='[1-9][0-9]*:(none:rest|(small|large):(rest|scroll))'
 for ((k = 1; k < ${#app_env[@]}; k += 2)); do
   [[ "${app_env[k]}" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || { echo "env= must be NAME=VALUE" >&2; exit 2; }
 done
+[[ "$vm" =~ ^[01]$ ]] || { echo "vm= must be 0 or 1" >&2; exit 2; }
+vm_args=()
+if [ "$vm" = 1 ]; then
+  vm_args=(--app-vm --app-vm-verbose)
+  echo "IDLE-AB host $(hostname -s) $(sw_vers -productVersion 2>/dev/null) ($(sw_vers -buildVersion 2>/dev/null)) $(sysctl -n hw.model 2>/dev/null) $(( $(sysctl -n hw.memsize 2>/dev/null || echo 0) / 1073741824 )) GB"
+  system_profiler SPDisplaysDataType 2>/dev/null | grep -E 'Chipset|Display Type|Resolution|UI Looks like|Main Display|Mirror|Online|^ +[A-Za-z0-9 ]+:$' | sed 's/^ */IDLE-AB display /'
+fi
 relaunch_args=()
 case "$relaunch" in 1|cold) relaunch_args=(--relaunch-restored cold) ;; warm) relaunch_args=(--relaunch-restored warm) ;; esac
 # relaunch= changes only the terminal launch (chats= with 0): refuse it where it would be silently ignored.
@@ -246,7 +257,7 @@ run_arm() {  # run_arm ARM ROUND
   echo "IDLE-AB round $i $arm load $(uptime | sed 's/.*load averages*: //')"
   if $terminal; then
     python3 "$harness/bench_memory.py" --app "$app" --workspaces 1 --mix terminal --settle 20 --measure "$measure" \
-      --top 8 "${attribute[@]}" ${relaunch_args[@]+"${relaunch_args[@]}"} ${app_env[@]+"${app_env[@]}"} \
+      --top 8 "${attribute[@]}" ${relaunch_args[@]+"${relaunch_args[@]}"} ${vm_args[@]+"${vm_args[@]}"} ${app_env[@]+"${app_env[@]}"} \
       --out "$out/runs/$arm-$i-terminal.json" > "$out/runs/$arm-$i-terminal.log" 2>&1
     rc=$?; (( rc )) && { status=1; tail -n 30 "$out/runs/$arm-$i-terminal.log"; }
     python3 "$harness/tag_teardown.py" "$app" >/dev/null 2>&1

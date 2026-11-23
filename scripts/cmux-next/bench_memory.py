@@ -1743,6 +1743,11 @@ APP_VM_TOOLS = (
     ("footprint", [], 400),
     ("heap", ["--sortBySize"], 160),
 )
+# Kept in the report but not printed as APP-VM lines (thousands of lines): `footprint -v` lists every region with its
+# tag, so the App-Specific Tag 14 (Chromium PartitionAlloc's VM tag 253) regions can be counted and sized one by one.
+APP_VM_QUIET_TOOLS = (
+    ("footprint -v", "footprint", ["-v"], 20000),
+)
 
 
 def app_vm_stacks(pid: int, pattern: str, limit: int = 40) -> dict:
@@ -1772,9 +1777,10 @@ def app_vm_stacks(pid: int, pattern: str, limit: int = 40) -> dict:
     return out
 
 
-def app_vm(pid: int) -> dict:
+def app_vm(pid: int, verbose: bool = False) -> dict:
     """--app-vm: the app process's `vmmap --summary`, `footprint` and `heap --sortBySize` (each output's first lines;
-    heap lists its zones, then the largest classes). A tool that fails keeps its error, so the report says why."""
+    heap lists its zones, then the largest classes). A tool that fails keeps its error, so the report says why.
+    verbose (--app-vm-verbose) adds APP_VM_QUIET_TOOLS, stored but not printed."""
     out = {}
     for tool, extra, keep in APP_VM_TOOLS:
         if not shutil.which(tool):
@@ -1788,6 +1794,16 @@ def app_vm(pid: int) -> dict:
         lines = proc.stdout.splitlines()
         out[tool] = {"rc": proc.returncode, "lines": lines[:keep], "total_lines": len(lines),
                      "stderr": proc.stderr[-600:]}
+    if verbose:
+        for key, tool, extra, keep in APP_VM_QUIET_TOOLS:
+            try:
+                proc = subprocess.run([tool, *extra, str(pid)], capture_output=True, text=True, timeout=300)
+            except (OSError, subprocess.TimeoutExpired) as e:
+                out[key] = {"error": str(e)[:300], "quiet": True}
+                continue
+            lines = proc.stdout.splitlines()
+            out[key] = {"rc": proc.returncode, "lines": lines[:keep], "total_lines": len(lines),
+                        "stderr": proc.stderr[-600:], "quiet": True}
     return out
 
 
@@ -1819,6 +1835,9 @@ def soak_growth(first: dict, last: dict) -> dict:
 
 def print_app_vm(label: str, vm: dict) -> None:
     for tool, entry in ((t, e) for t, e in vm.items() if t not in ("pages", "stacks")):
+        if entry.get("quiet"):
+            print(f"APP-VM {label} {tool} rc={entry.get('rc')} lines={entry.get('total_lines')} (in the report only)", flush=True)
+            continue
         if "error" in entry:
             print(f"APP-VM {label} {tool} error: {entry['error']}", flush=True)
             continue
@@ -1984,6 +2003,8 @@ def main():
     parser.add_argument("--soak-vm", action="store_true",
                         help="with --idle-minutes: the app's and the largest cef-renderer's vmmap/footprint/heap at idle-launch "
                              "and at every soak sample (SOAK-VM lines, `soak_vm` in the sample), to diff what grows")
+    parser.add_argument("--app-vm-verbose", action="store_true",
+                        help="with --app-vm: also `footprint -v` (every region with its tag), kept in the report, not printed")
     parser.add_argument("--app-vm-stacks", metavar="PATTERN",
                         help="with --app-vm: launch with MallocStackLogging=lite and print each live block of the classes "
                              "`heap -addresses PATTERN` names with the stack that allocated it (a diagnostic run: the "
@@ -2136,7 +2157,7 @@ def main():
                   f"{heap.get('renderers', 0)} renderers, used {heap.get('used_mb', 0)} MB, total {heap.get('total_mb', 0)} MB "
                   f"{json.dumps(heap.get('by_renderer') or heap.get('error'))[:600]}", flush=True)
         if args.app_vm and label == "idle-launch":
-            result["app_vm"] = app_vm(app_pid)
+            result["app_vm"] = app_vm(app_pid, verbose=args.app_vm_verbose)
             if args.app_vm_stacks:
                 stacks = app_vm_stacks(app_pid, args.app_vm_stacks)
                 result["app_vm"]["stacks"] = stacks
