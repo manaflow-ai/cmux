@@ -661,6 +661,71 @@ fn a_setup_turns_off_and_on_in_its_place_and_order_sets_which_look_wins() {
 }
 
 #[test]
+fn an_update_that_changes_the_id_leaves_one_receipt_in_the_old_place() {
+    let home = Home::new();
+    let customize = home.customize();
+    home.write("cmux-next.json", MINE);
+    let install = |id: &str, color: &str, at: u64| {
+        let read = setup::read_dir(&look(home.dir.path(), id, color)).unwrap();
+        let installed = customize.install_setup(&read, id, "cli", at).unwrap();
+        let reference = Reference::parse(&format!("github.com/{id}")).unwrap();
+        let receipt =
+            Receipt::new(&read, &installed, SetupSource::Repo { reference }, "c", Vec::new(), at);
+        customize.record_setup(receipt).unwrap();
+    };
+    install("leo/dusk", "#111111", 10);
+    install("leo/dawn", "#eeeeee", 20);
+    let old = customize.setup("leo/dusk").unwrap().unwrap();
+    let ids = |customize: &Customize| -> Vec<String> {
+        customize.setups().unwrap().into_iter().map(|r| r.id).collect()
+    };
+
+    // An id another installed setup holds is refused, before any change.
+    let taken =
+        setup::read_dir(&look(home.dir.path(), "leo/dusk", "#222222")).unwrap().renamed("leo/dawn");
+    let error = customize.replace_setup(&old, &taken, "dusk v2", "cli", 30);
+    assert!(matches!(error, Err(Error::Setup(_))), "{error:?}");
+    assert_eq!(ids(&customize), ["leo/dawn", "leo/dusk"]);
+
+    // A new id: one receipt, in the old one's place.
+    let next = setup::read_dir(&look(home.dir.path(), "leo/dusk", "#222222"))
+        .unwrap()
+        .renamed("leo/dusk-two");
+    let installed = customize.replace_setup(&old, &next, "dusk v2", "cli", 40).unwrap();
+    assert_eq!(ids(&customize), ["leo/dawn", "leo/dusk-two"], "held under the new id");
+    let reference = Reference::parse("github.com/leo/dusk").unwrap();
+    let updated =
+        Receipt::new(&next, &installed, SetupSource::Repo { reference }, "d", Vec::new(), 40);
+    customize.record_setup(updated).unwrap();
+    assert_eq!(ids(&customize), ["leo/dawn", "leo/dusk-two"], "exactly one receipt");
+    assert_eq!(home.settings()["appearance"]["themeFile"], json!("dawn"), "dawn stays on top");
+}
+
+#[test]
+fn a_folder_version_changes_with_the_manifest_and_a_view() {
+    let home = Home::new();
+    let repo = look(home.dir.path(), "leo/dusk", "#111111");
+    let version = || setup::read_dir(&repo).unwrap().folder_version();
+    let first = version();
+    let manifest = fs::read_to_string(repo.join(SETUP_FILE)).unwrap();
+    fs::write(repo.join(SETUP_FILE), manifest.replace("\"name\": \"dusk\"", "\"name\": \"Dusk\""))
+        .unwrap();
+    let renamed = version();
+    assert_ne!(first, renamed, "a new name alone is a new version");
+    fs::write(
+        repo.join(SETUP_FILE),
+        manifest.replace("\"cmuxProfile\"", "\"description\": \"darker\", \"cmuxProfile\""),
+    )
+    .unwrap();
+    let described = version();
+    assert!(described != first && described != renamed, "a new description alone too");
+    fs::write(repo.join(SETUP_FILE), &manifest).unwrap();
+    assert_eq!(version(), first);
+    fs::write(repo.join("customize/main.js"), "// changed\nvar __cmuxAppExports = {};\n").unwrap();
+    assert_ne!(version(), first, "a view alone too");
+}
+
+#[test]
 fn the_first_receipts_file_still_reads() {
     let home = Home::new();
     let state = home.dir.path().join("state");

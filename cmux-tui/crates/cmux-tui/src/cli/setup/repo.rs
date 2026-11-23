@@ -775,7 +775,10 @@ fn open(apps: &dyn Apps, source: &SetupSource, as_id: Option<&str>) -> Result<Op
                 setup::check_id(id, id.split('/').next().unwrap_or_default())?;
                 read = read.renamed(id);
             }
-            let commit = format!("local-{}", read.sha256.get(..12).unwrap_or(&read.sha256));
+            // The whole folder, not only what applies: a change to the
+            // manifest alone (name, extensions...) is an update too.
+            let version = read.folder_version();
+            let commit = format!("local-{}", version.get(..12).unwrap_or(&version));
             Ok(Opened { read, source: source.clone(), commit, _checkout: None })
         }
         SetupSource::Repo { reference } => {

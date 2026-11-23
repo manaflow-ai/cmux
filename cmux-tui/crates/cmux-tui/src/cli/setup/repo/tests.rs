@@ -371,6 +371,26 @@ fn a_folder_installs_like_a_repo_and_is_kept_as_its_source() {
     assert!(settings.contains("echo hi again"), "{settings}");
     assert_eq!(customize.setups().unwrap().len(), 1);
 
+    // A change to the manifest alone (its name, its description) is an update too.
+    let manifest = fs::read_to_string(world.repo.join("cmux-setup.json")).unwrap();
+    fs::write(
+        world.repo.join("cmux-setup.json"),
+        manifest.replace("\"name\": \"Sample Setup\"", "\"name\": \"Sample Setup Two\""),
+    )
+    .unwrap();
+    let renamed = update(&customize, &world, OutputMode::Json, None, true).unwrap();
+    assert_eq!(renamed["updated"], json!(true), "{renamed}");
+    assert_eq!(renamed["installed"]["name"], json!("Sample Setup Two"));
+    let manifest = fs::read_to_string(world.repo.join("cmux-setup.json")).unwrap();
+    fs::write(
+        world.repo.join("cmux-setup.json"),
+        manifest.replace("\"version\":", "\"description\": \"Now darker.\",\n  \"version\":"),
+    )
+    .unwrap();
+    let described = update(&customize, &world, OutputMode::Json, None, true).unwrap();
+    assert_eq!(described["updated"], json!(true), "{described}");
+    assert_eq!(customize.setups().unwrap().len(), 1);
+
     remove(&customize, &world, Some("manaflow-ai/cmux-setup-sample")).unwrap();
     assert!(!home.join("config/themes/sample-dusk.json").exists());
     assert!(customize.setups().unwrap().is_empty());

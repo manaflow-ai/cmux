@@ -128,6 +128,16 @@ impl Setup {
     /// The same setup under another id (a local try of a look not
     /// published yet: `cmux setup install ./DIR --as OWNER/NAME`). The
     /// library entry it becomes is named for the new id.
+    /// What a folder holds, as a version: the whole manifest (name,
+    /// description, extensions, engines, id...), every file (views
+    /// included) and what [`Setup::sha256`] covers, so any change reads as
+    /// a new version.
+    pub fn folder_version(&self) -> String {
+        let canonical = serde_json::to_vec(&(&self.manifest, &self.profile.files, &self.sha256))
+            .unwrap_or_default();
+        tree::sha256(&canonical)
+    }
+
     pub fn renamed(mut self, id: &str) -> Setup {
         self.manifest.id = id.to_owned();
         self.profile.name = profile_name(id);
@@ -987,6 +997,16 @@ impl Customize {
         let before = self.current_generation()?;
         let library = self.library_snapshot()?;
         let receipts = self.read_setup_receipts()?;
+        // An update may change the id; it must not take another installed
+        // setup's (two receipts would name one layer). Nothing changed yet.
+        if setup.manifest.id != old.id
+            && let Some(other) = receipts.setups.iter().find(|r| r.id == setup.manifest.id)
+        {
+            return Err(Error::Setup(format!(
+                "{} is installed already, from {}: remove it first",
+                other.id, other.source
+            )));
+        }
         let setups_dir = self.roots().setups_dir();
         let slot = old
             .library
@@ -1014,6 +1034,9 @@ impl Customize {
                 let mut file = self.read_setup_receipts()?;
                 let at = receipts.setups.iter().position(|receipt| receipt.id == old.id);
                 let mut held = old.clone();
+                // Under the new id, so the caller's receipt replaces this one
+                // in place (an id the update changed leaves no second receipt).
+                held.id = setup.manifest.id.clone();
                 held.library =
                     installed.applied.as_ref().and_then(|applied| applied.library.clone());
                 held.layer = installed.layer.clone();
