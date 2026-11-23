@@ -15,9 +15,10 @@ fn to(r: &Repair) -> Vec<&str> {
 
 #[test]
 fn a_synonym_subcommand_runs() {
-    let r = fix(&["list"]);
+    let r = fix(&["inspect", "lane-1"]);
     assert_eq!(r.outcome, Kind::Ran, "{r:?}");
-    assert_eq!(to(&r), ["ls"]);
+    assert_eq!(r.argv.get(1).map(String::as_str), Some("lane-1"), "{r:?}");
+    assert!(["info", "status", "get", "show"].contains(&r.argv[0].as_str()), "{r:?}");
 }
 
 #[test]
@@ -41,10 +42,10 @@ fn an_ambiguous_form_is_listed_or_the_best_read_runs() {
 
 #[test]
 fn a_destructive_form_with_a_typo_is_refused_with_its_exact_form() {
-    let r = fix(&["stp", "lane-1"]);
+    let r = fix(&["archve", "lane-1"]);
     assert_eq!(r.outcome, Kind::Exact, "{r:?}");
-    assert_eq!(to(&r), ["stp", "lane-1"]);
-    assert_eq!(r.candidates[0].argv, ["stop", "lane-1"]);
+    assert_eq!(to(&r), ["archve", "lane-1"]);
+    assert_eq!(r.candidates[0].argv, ["archive", "lane-1"]);
 }
 
 #[test]
