@@ -152,7 +152,7 @@ pub(crate) async fn refresh(
     }
     if let Some(meta) = &file {
         if std::fs::read(&paths.rd).is_ok_and(|b| crate::sha256::sha256_hex(&b) == *sha) {
-            let _ = std::fs::remove_file(&paths.install_failed);
+            let _ = crate::home_fs::remove_file(&paths.install_failed);
             return RdOutcome::Current;
         }
         let age = meta.modified().ok().and_then(|t| now.duration_since(t).ok());
@@ -165,7 +165,7 @@ pub(crate) async fn refresh(
     }
     match install(paths, fetch, feed, &name, sha).await {
         Ok(()) => {
-            let _ = std::fs::remove_file(&paths.install_failed);
+            let _ = crate::home_fs::remove_file(&paths.install_failed);
             RdOutcome::Installed(sha.clone())
         }
         Err(e) => RdOutcome::Failed(format!("{e:#}")),
