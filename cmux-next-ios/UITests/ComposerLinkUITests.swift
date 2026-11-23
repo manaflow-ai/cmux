@@ -81,10 +81,12 @@ final class ComposerLinkUITests: XCTestCase {
         // The typing window of the setup keys closes; what is counted from here is this typing.
         RunLoop.current.run(until: Date().addingTimeInterval(1))
         let before = summary(app)
+        let started = Date()
         for chunk in Self.chunks {
             field.typeText(chunk)
             RunLoop.current.run(until: Date().addingTimeInterval(0.12))
         }
+        let typedSeconds = Date().timeIntervalSince(started)
         // The window's tail (0.5 s), then read it.
         RunLoop.current.run(until: Date().addingTimeInterval(1))
         let after = summary(app)
@@ -92,7 +94,7 @@ final class ComposerLinkUITests: XCTestCase {
         let keyFrame = after["\(fieldID)_key_frame"] as? [String: Any] ?? [:]
         func delta(_ name: String) -> Int { (after[name] as? Int ?? 0) - (before[name] as? Int ?? 0) }
         let result: [String: Any] = [
-            "flow": flow, "link": link.rawValue, "keys": Self.keys,
+            "flow": flow, "link": link.rawValue, "keys": Self.keys, "typed_seconds": (typedSeconds * 10).rounded() / 10,
             "key_frame_p50": keyFrame["p50"] ?? 0, "key_frame_p99": keyFrame["p99"] ?? 0, "key_frame_max": keyFrame["max"] ?? 0,
             "typing_hitches_8ms": delta("typing_hitches_8ms"), "typing_iterations_4ms": delta("typing_iterations_4ms"),
             "typing_max_iteration_ms": after["typing_max_iteration_ms"] ?? 0,
@@ -108,8 +110,10 @@ final class ComposerLinkUITests: XCTestCase {
         add(attachment)
 
         XCTAssertEqual(delta("typing_draft_file_write_main"), 0, "typing wrote the draft file on the main thread: \(json)")
-        // Rescans follow the transcript at most about once a second, not per streamed frame.
-        XCTAssertLessThanOrEqual(delta("typing_mention_scan"), 6, "the @ candidates rescanned the transcript per frame: \(json)")
+        // Rescans follow the transcript at most once a second (`AgentChatStore.mentionRefresh`),
+        // not per streamed frame: one per second typed, plus the window's tail and the first.
+        let rescanBound = Int(typedSeconds.rounded(.up)) + 2
+        XCTAssertLessThanOrEqual(delta("typing_mention_scan"), rescanBound, "the @ candidates rescanned the transcript per frame: \(json)")
         // A re-render per key (and its echo) at most; never one per frame streamed in.
         XCTAssertLessThanOrEqual(delta("typing_chat_composer_body"), Self.keys * 3, "frames re-rendered the composer: \(json)")
     }
