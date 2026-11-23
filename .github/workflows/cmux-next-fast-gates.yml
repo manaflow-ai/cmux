@@ -359,13 +359,18 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
+      - name: Use the VM runner guest Bun cache
+        id: fsr-bun-cache
+        if: ${{ startsWith(github.workspace, '/home/runner/work/') && (steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true') }}
+        run: bash scripts/ci/fsr-bun-cache.sh check bun-web-lint webviews/bun.lock web/bun.lock cmux-tui/frontends/web/bun.lock
+
       # Restore only, on pull requests and dispatches alike: cmux-next-web-lint.yml's web-lint job saves this key on
       # each feat-cmux-next push. A pull request's own save was a copy of about 1.2 GB in that pull request's scope,
       # which nothing else reads and which evicts the base's caches from the 10 GB store (2026-11-22: 10.56 GB, 6.66 GB
       # of it pull request refs). A dispatch runs on feat-cmux-next's ref after pull request code (bun install
       # scripts) ran, so it never saved.
       - name: Restore the Bun package cache
-        if: ${{ steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true' }}
+        if: ${{ (steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true') && steps.fsr-bun-cache.outputs.hit != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
