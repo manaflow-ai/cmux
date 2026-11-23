@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45119294989",
+  "recorded_at": "2026-11-23T06:32:00Z",
+  "reason": "image inputs changed in 8f3fc79cb134d62e31e6f231357d46720fdde072..3b487785c7c1813d60d04b3030d669f03378a112",
+  "dry_run": false,
+  "cmux_tui": "45ed727f30d1a623ba43d98d634b84b838a713db",
+  "fixes": [
+    {
+      "sha": "3b487785c7c1813d60d04b3030d669f03378a112",
+      "mergedAt": "2026-11-22T21:40:44-08:00",
+      "subject": "cmux-vm bake: store downloads resume and run again past the 5-minute exec cap (#51607)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-23T06:32:00Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
