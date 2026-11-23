@@ -14,14 +14,14 @@ This reads the pinned runner live once, before the build is queued:
   the rescue still watches it), with a warning.
 
 `blacksmith` is the Blacksmith macOS 26 label whose queue moves, by simple_pool_picker's one stall
-rule over the queue janitor's snapshot: 12 vCPU first (the build's old default), then 6 vCPU; with
-both stalled, 6 vCPU (more slots); with no fresh snapshot, 12 vCPU. A re-run of failed jobs keeps
-these outputs, so attempt 2 on takes `cloud`. Nothing here routes to any owned label other
+rule over the queue janitor's snapshot: FIRST's label first, else 12 vCPU, then the other; with
+both stalled, 6 vCPU (more slots); with no fresh snapshot, the first. nightly.yml's build pick
+passes FIRST=6vcpu (#39585: blacksmith-12vcpu-macos-26 starts nothing while the 6 vCPU queue takes
+every freed slot). A re-run of failed jobs keeps these outputs, so attempt 2 on takes `cloud`. Nothing here routes to any owned label other
 than the pinned pair, so the ci-cache-writer keys and the Sentry token stay on the trusted mini.
-FIRST (a label among those two, or its size, `6vcpu` or `12vcpu`) puts that label ahead: the sign
-and verify jobs of main's nightly
-and the DEV publisher's Mac jobs keep 6 vCPU, their old pinned default, while it moves. With
-ENABLED unset the trusted pick is skipped and only `cloud` is read. `alternate` is the other label,
+FIRST (a label among those two, or its size, `6vcpu` or `12vcpu`) puts that label ahead: main's
+nightly app build, its sign and verify jobs and the DEV publisher's Mac jobs take 6 vCPU while it
+moves. With ENABLED unset the trusted pick is skipped and only `cloud` is read. `alternate` is the other label,
 for a re-run, unless the snapshot shows it stalled or dead: then it is `cloud` itself.
 A label the snapshot shows dead (simple_pool_picker.blacksmith_dead(): nothing running and no job started on it
 for an hour; a snapshot up to six hours old still proves it) is never picked nor offered as `alternate` while

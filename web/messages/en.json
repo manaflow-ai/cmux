@@ -981,6 +981,7 @@
         "current": "Current plan",
         "perMonth": "per month",
         "names": {
+          "next_plus": "cmux NEXT Plus",
           "next_pro": "cmux NEXT Pro",
           "next_max": "cmux NEXT Max"
         },
@@ -5137,8 +5138,7 @@
       "fallback": "If cmux does not open, install cmux and click Open in cmux again. cmux opens the session only if this Mac can already reach it.",
       "nameLabel": "Name: {value}",
       "hostLabel": "Host: {value}",
-      "harnessLabel": "Harness: {value}",
-      "reference": "This link names an agent session by a private reference, not by its machine or session. It does not open from this page; team members look the reference up with their own tools."
+      "harnessLabel": "Harness: {value}"
     }
   },
   "download": {
