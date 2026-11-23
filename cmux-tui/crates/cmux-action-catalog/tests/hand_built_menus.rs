@@ -5,23 +5,21 @@
 //!   family's member, whose family row stands in), each context is a registry right-click menu.
 //! - The menus are the ones the app exports as `context_menus_not_exported`, from the same source
 //!   files: a new hand-built menu fails here until its rows are listed.
-//! - `plans/cmux-next/hand-built-menus.json`, which `scripts/cmux-next/palette-coverage.py` and
-//!   NOW's palette count read, is this list. `CMUX_UPDATE_HAND_BUILT_MENUS=1 cargo test -p
-//!   cmux-action-catalog --test hand_built_menus` rewrites it.
+//! - `scripts/cmux-next/palette-coverage.py` reads the same `MENUS` list from the source file, so
+//!   no generated copy is committed.
 
 use cmux_action_catalog::hand_built_menus::{self, HandBuiltMenu, MENUS};
 use cmux_action_catalog::{Decision, find};
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-const EXPORT: &str = "plans/cmux-next/hand-built-menus.json";
 const SURFACES: &str = "plans/cmux-next/action-surfaces.json";
 /// Palette exemptions whose own row stands in for the action (palette-coverage.py's FAMILY).
 const STANDS_IN: &[&str] = &["familyMember", "duplicateOfDefault", "secondaryEngine"];
 
 fn repo() -> PathBuf {
-    // affected-reads: plans/cmux-next/hand-built-menus.json plans/cmux-next/action-surfaces.json Packages/macOS/CmuxNext/Sources
+    // affected-reads: plans/cmux-next/action-surfaces.json Packages/macOS/CmuxNext/Sources
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..")
 }
 
@@ -135,33 +133,4 @@ fn the_app_exports_the_same_hand_built_menus() {
         assert!(path.is_file(), "{}: {} is not a file", menu.name, menu.source);
         assert!(hand_built_menus::find(menu.name) == Some(menu));
     }
-}
-
-fn export() -> Value {
-    json!({
-        "about": "Generated from cmux-tui/crates/cmux-action-catalog/src/hand_built_menus.rs by its test (CMUX_UPDATE_HAND_BUILT_MENUS=1 cargo test -p cmux-action-catalog --test hand_built_menus); do not edit. Each hand-built menu's rows by action id: scripts/cmux-next/palette-coverage.py counts a menu as covered when every row is a palette row.",
-        "menus": MENUS.iter().map(|m| json!({
-            "name": m.name,
-            "source": m.source,
-            "rows": m.rows,
-            "contexts": m.contexts,
-            "pointer_rows": m.pointer_rows,
-        })).collect::<Vec<_>>(),
-    })
-}
-
-#[test]
-fn the_committed_export_is_this_list() {
-    let path = repo().join(EXPORT);
-    if std::env::var_os("CMUX_UPDATE_HAND_BUILT_MENUS").is_some() {
-        let mut text = serde_json::to_string_pretty(&export()).expect("json");
-        text.push('\n');
-        std::fs::write(&path, text).unwrap_or_else(|e| panic!("{EXPORT}: {e}"));
-        return;
-    }
-    // Compared as JSON, not text: key order follows serde_json's features, which the workspace unifies.
-    assert!(
-        read_json(EXPORT) == export(),
-        "{EXPORT} is stale: run CMUX_UPDATE_HAND_BUILT_MENUS=1 cargo test -p cmux-action-catalog --test hand_built_menus"
-    );
 }
