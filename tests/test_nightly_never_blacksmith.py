@@ -49,8 +49,6 @@ BLACKSMITH_ONLY_OUTPUTS = re.compile(
 OWNED_OUTPUTS = {
     "needs.pick-nightly-build-runner.outputs.owned", "needs.pick-nightly-build-runner.outputs.trusted",
     "needs.pick-nightly-build-runner.outputs.helper", "needs.pick-nightly-build-runner.outputs.dedicated",
-    "needs.pick-nightly-sign-runner.outputs.owned", "needs.pick-nightly-sign-runner.outputs.sign_owned",
-    "needs.pick-nightly-sign-runner.outputs.sign_owned_pool",
 }
 OWNED_LABEL = '["glaeda-nightly-only-m4pro","glaeda-runner-cmux15-glaeda-nightly-only-3"]'
 # Outputs read as conditions, with the values they take.

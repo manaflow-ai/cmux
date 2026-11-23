@@ -47,7 +47,7 @@ job and never prints an empty `runner`:
     -> owned=..., runner=..., alternate=..., placement=... in $GITHUB_OUTPUT
 
 `signing_runner.py owned` prints `owned` and its shared `owned_pool` label
-(pick-nightly-sign-runner already prints the Blacksmith pair).
+(the recovery picker reads only `owned`).
 """
 
 from __future__ import annotations

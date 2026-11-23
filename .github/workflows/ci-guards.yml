@@ -1712,10 +1712,6 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_delivery_concurrency.py
 
-      - name: Validate an older nightly-next build yields its sign slot and the newest never does
-        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
-        run: python3 tests/test_nightly_sign_yield.py
-
       - name: Validate the nightly-next feed writers' R2 lease
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_r2_cas.py

@@ -869,7 +869,7 @@ class Stall(unittest.TestCase):
         self.assertIsNone(cascade.seen(None, NOW))
 
     def test_the_stall_figure_is_the_pickers_one_rule(self):
-        """pick-nightly-sign-runner, cmux-next's placement and ci.yml's pick read one stall figure."""
+        """cmux-next's placement and ci.yml's pick read one stall figure."""
         sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts/ci"))
         import simple_pool_picker
 

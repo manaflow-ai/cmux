@@ -91,9 +91,6 @@ EXEMPT = {
     ("nightly.yml", "pick-nightly-build-runner"):
         "control job: takes Blacksmith macOS only while Blacksmith Linux overflow is off "
         "(CI_CLOUD_OVERFLOW_SAVED); git, gh and Python only, no Xcode",
-    ("nightly.yml", "pick-nightly-sign-runner"):
-        "control job: takes Blacksmith macOS only while Blacksmith Linux overflow is off "
-        "(CI_CLOUD_OVERFLOW_SAVED); git, gh and Python only, no Xcode",
     ("nightly.yml", "find-nightly-next-recovery"):
         "control job: takes Blacksmith macOS only while Blacksmith Linux overflow is off "
         "(CI_CLOUD_OVERFLOW_SAVED); git, gh and Python only, no Xcode",

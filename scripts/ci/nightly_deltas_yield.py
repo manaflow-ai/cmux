@@ -28,7 +28,7 @@ The two waits hold only while one Mac signs (--signers 1). Since 2026-11-12 two 
 the nightly too, cmux15 stays ready as the standby signer"), and the loop builds one nightly at a time, so the
 build in flight holds one and the deltas usually take the other: with --signers 2 or more only the newer-build
 skip is left. A build can still wait for the deltas (about 10 min of the keyed job) when another signing job, such
-as the classic nightly, holds the second Mac, or when the run's signer pick (pick-nightly-sign-runner, made at the
+as the classic nightly, holds the second Mac, or when the run's signer pick (pick-nightly-next-signer, made at the
 run's start) pinned the deltas to the Mac the next build then takes; deltas, at 10x smaller updates, are worth
 that. One-mini mode (CI_NIGHTLY_MINI) has one signer, so the workflow passes 1 there. The waits never ended in a
 busy loop (a landing every few minutes keeps feat-cmux-next past nightly-next, and the next build publishes
