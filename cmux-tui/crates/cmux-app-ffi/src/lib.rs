@@ -32,11 +32,19 @@
 
 //! `keymap` is the keymap layer of app.keyStyle and app.shortcutLayout: list keys
 //! per style and shortcut matching per layout (cmux-keymap, include/cmux_keymap.h).
+//! `files_lister` is the client of cmux-tui's `__files-lister` child, the DEV
+//! build's Files pane reader (include/cmux_files_lister.h).
+//! `system_calendar` is the `system_calendar.*` app ops' params, window and
+//! answer (include/cmux_system_calendar.h); EventKit stays in the app.
 //! `agent_client` is the no-I/O agent list client (acpmux-client,
 //! include/acpmux_client.h); the app owns and drives its byte connection.
 
+/// cbindgen:ignore
+pub mod files_lister;
 pub mod hover;
 pub mod motion;
+/// cbindgen:ignore
+pub mod system_calendar;
 pub mod terminal_selection;
 
 pub use acpmux_client::ffi as agent_client;

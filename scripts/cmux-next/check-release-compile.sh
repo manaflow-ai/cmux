@@ -158,7 +158,7 @@ build() {
     log="$metrics_dir/xcodebuild-attempt-${build_attempt}.log"
   fi
   "$repo_root/scripts/ci/run-xcodebuild-with-diagnostics.sh" -- \
-    xcodebuild -scheme CmuxNextApp -configuration Release \
+    xcodebuild -skipPackagePluginValidation -scheme CmuxNextApp -configuration Release \
     -destination 'generic/platform=macOS' \
     -derivedDataPath "$derived_data" \
     ARCHS="$archs" ONLY_ACTIVE_ARCH=NO \
