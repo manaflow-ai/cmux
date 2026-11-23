@@ -187,6 +187,7 @@ pub mod mesh_relay_config;
 pub mod mesh_retry;
 pub mod meta_fields;
 pub mod model_copies;
+pub mod model_settings;
 pub mod name_match;
 #[cfg(target_os = "macos")]
 mod named_files_watch;

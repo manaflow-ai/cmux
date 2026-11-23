@@ -31,6 +31,24 @@ extension AgentDefaultsSettingsSchema {
     nonisolated static let modelRouterModelPath = ["agents", "modelRouter", "model"]
     nonisolated static let modelRouterModelDefault = "deepseek/deepseek-v4.1-flash-1017"
     nonisolated static let modelRouterModelValues = ["deepseek/deepseek-v4.1-flash-1017", "deepseek/deepseek-v4.1-flash", "deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-pro"]
+    /// `agents.defaults.claude.model`: The model a new Claude Code chat starts on when the chat names none. acpmux reads it at each new chat (cmux-tui/crates/acpmux/src/model_settings.rs, hub/start_defaults.rs): above config.json defaults (a pick in a chat), below a per-chat pick, a preset, a folder profile or a profile's own model. Empty: today's chain (the last pick, the CLI's own config, the catalog default).
+    nonisolated static let claudeDefaultModelPath = ["agents", "defaults", "claude", "model"]
+    nonisolated static let claudeDefaultModelDefault = ""
+    /// `agents.defaults.claude.effort`: The reasoning effort a new Claude Code chat starts on when the chat names none; acpmux reads it at each new chat (model_settings.rs, hub/start_defaults.rs), in the same order as the model row. An effort the starting model lacks is skipped. auto: today's chain.
+    nonisolated static let claudeDefaultEffortPath = ["agents", "defaults", "claude", "effort"]
+    nonisolated static let claudeDefaultEffortDefault = "auto"
+    nonisolated static let claudeDefaultEffortValues = ["auto", "low", "medium", "high", "xhigh", "max"]
+    /// `agents.defaults.codex.model`: The model a new Codex chat starts on when the chat names none. acpmux reads it at each new chat (cmux-tui/crates/acpmux/src/model_settings.rs, hub/start_defaults.rs): above config.json defaults (a pick in a chat), below a per-chat pick, a preset, a folder profile or a profile's own model. Empty: today's chain (the last pick, the CLI's own config, the catalog default).
+    nonisolated static let codexDefaultModelPath = ["agents", "defaults", "codex", "model"]
+    nonisolated static let codexDefaultModelDefault = ""
+    /// `agents.defaults.codex.effort`: The reasoning effort a new Codex chat starts on when the chat names none; acpmux reads it at each new chat (model_settings.rs, hub/start_defaults.rs), in the same order as the model row. An effort the starting model lacks is skipped. auto: today's chain.
+    nonisolated static let codexDefaultEffortPath = ["agents", "defaults", "codex", "effort"]
+    nonisolated static let codexDefaultEffortDefault = "auto"
+    nonisolated static let codexDefaultEffortValues = ["auto", "low", "medium", "high", "xhigh", "max"]
+    /// `agents.titles.model`: The Claude model that writes cmux's generated text: chat titles, task names, rolling summaries and diff hunk summaries (every _acpmux/complete that names no model and runs on Claude Code, cmux-tui/crates/acpmux/src/hub/complete.rs and hub/titles.rs, read through model_settings.rs). acpmux config titles.model / summaries.model still win. cmux NEXT writes no commit messages or PR text with a model. Default haiku, the small model these ran on before the row.
+    nonisolated static let textGenerationModelPath = ["agents", "titles", "model"]
+    nonisolated static let textGenerationModelDefault = "haiku"
+    nonisolated static let textGenerationModelValues = ["haiku", "sonnet", "opus"]
 }
 
 extension AgentDefaultsSettingsSchema {
@@ -144,6 +162,74 @@ nonisolated enum AgentDefaultsSettingsSchema {
                 ]),
                 default: .string(AgentDefaultsSettingsSchema.modelRouterModelDefault),
                 keywords: ["model", "router", "cmux router", "deepseek", "vision", "images", "inference", "default model", "new chat"]
+            ),
+            SettingDescriptor(
+                AgentDefaultsSettingsSchema.claudeDefaultModelPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agents.defaults.claude.model", "Claude Code Model for New Chats"),
+                help: SettingsText.keyed("settings.agents.defaults.claude.model.help", "A model id such as claude-opus-5-5. Empty starts on the last model you picked."),
+                kind: .text,
+                default: .string(AgentDefaultsSettingsSchema.claudeDefaultModelDefault),
+                keywords: ["model", "default model", "new chat", "claude", "claude code"]
+            ),
+            SettingDescriptor(
+                AgentDefaultsSettingsSchema.claudeDefaultEffortPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agents.defaults.claude.effort", "Claude Code Effort for New Chats"),
+                help: SettingsText.keyed("settings.agents.defaults.claude.effort.help", "How hard a new chat thinks. Last Used keeps the last effort you picked."),
+                kind: .choice([
+                    SettingChoice("auto", SettingsText.keyed("settings.choice.effortLastUsed", "Last Used")),
+                    SettingChoice("low", SettingsText.keyed("settings.choice.effortLow", "Low")),
+                    SettingChoice("medium", SettingsText.keyed("settings.choice.effortMedium", "Medium")),
+                    SettingChoice("high", SettingsText.keyed("settings.choice.effortHigh", "High")),
+                    SettingChoice("xhigh", SettingsText.keyed("settings.choice.effortXHigh", "Extra High")),
+                    SettingChoice("max", SettingsText.keyed("settings.choice.effortMax", "Max")),
+                ]),
+                default: .string(AgentDefaultsSettingsSchema.claudeDefaultEffortDefault),
+                keywords: ["effort", "reasoning", "thinking", "reasoning effort", "model_reasoning_effort", "new chat", "claude", "claude code"]
+            ),
+            SettingDescriptor(
+                AgentDefaultsSettingsSchema.codexDefaultModelPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agents.defaults.codex.model", "Codex Model for New Chats"),
+                help: SettingsText.keyed("settings.agents.defaults.codex.model.help", "A model id such as gpt-6.2-sol. Empty starts on the last model you picked."),
+                kind: .text,
+                default: .string(AgentDefaultsSettingsSchema.codexDefaultModelDefault),
+                keywords: ["model", "default model", "new chat", "codex", "codex"]
+            ),
+            SettingDescriptor(
+                AgentDefaultsSettingsSchema.codexDefaultEffortPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agents.defaults.codex.effort", "Codex Effort for New Chats"),
+                help: SettingsText.keyed("settings.agents.defaults.codex.effort.help", "How hard a new chat thinks. Last Used keeps the last effort you picked."),
+                kind: .choice([
+                    SettingChoice("auto", SettingsText.keyed("settings.choice.effortLastUsed", "Last Used")),
+                    SettingChoice("low", SettingsText.keyed("settings.choice.effortLow", "Low")),
+                    SettingChoice("medium", SettingsText.keyed("settings.choice.effortMedium", "Medium")),
+                    SettingChoice("high", SettingsText.keyed("settings.choice.effortHigh", "High")),
+                    SettingChoice("xhigh", SettingsText.keyed("settings.choice.effortXHigh", "Extra High")),
+                    SettingChoice("max", SettingsText.keyed("settings.choice.effortMax", "Max")),
+                ]),
+                default: .string(AgentDefaultsSettingsSchema.codexDefaultEffortDefault),
+                keywords: ["effort", "reasoning", "thinking", "reasoning effort", "model_reasoning_effort", "new chat", "codex", "codex"]
+            ),
+            SettingDescriptor(
+                AgentDefaultsSettingsSchema.textGenerationModelPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agents.titles.model", "Text Generation Model"),
+                help: SettingsText.keyed("settings.agents.titles.model.help", "The Claude model that writes chat titles and summaries."),
+                kind: .choice([
+                    SettingChoice("haiku", SettingsText.keyed("settings.choice.textModelHaiku", "Haiku")),
+                    SettingChoice("sonnet", SettingsText.keyed("settings.choice.textModelSonnet", "Sonnet")),
+                    SettingChoice("opus", SettingsText.keyed("settings.choice.textModelOpus", "Opus")),
+                ]),
+                default: .string(AgentDefaultsSettingsSchema.textGenerationModelDefault),
+                keywords: ["title", "titles", "summary", "summaries", "text generation", "model", "haiku", "naming"]
             ),
         ]
     }

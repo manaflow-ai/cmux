@@ -312,6 +312,236 @@
             "default model",
             "new chat"
           ]
+        },
+        {
+          "key": "agents.defaults.claude.model",
+          "name": "claudeDefaultModel",
+          "note": "The model a new Claude Code chat starts on when the chat names none. acpmux reads it at each new chat (cmux-tui/crates/acpmux/src/model_settings.rs, hub/start_defaults.rs): above config.json defaults (a pick in a chat), below a per-chat pick, a preset, a folder profile or a profile's own model. Empty: today's chain (the last pick, the CLI's own config, the catalog default).",
+          "title": {
+            "key": "settings.agents.defaults.claude.model",
+            "text": "Claude Code Model for New Chats"
+          },
+          "help": {
+            "key": "settings.agents.defaults.claude.model.help",
+            "text": "A model id such as claude-opus-5-5. Empty starts on the last model you picked."
+          },
+          "kind": "text",
+          "default": "",
+          "keywords": [
+            "model",
+            "default model",
+            "new chat",
+            "claude",
+            "claude code"
+          ]
+        },
+        {
+          "key": "agents.defaults.claude.effort",
+          "name": "claudeDefaultEffort",
+          "note": "The reasoning effort a new Claude Code chat starts on when the chat names none; acpmux reads it at each new chat (model_settings.rs, hub/start_defaults.rs), in the same order as the model row. An effort the starting model lacks is skipped. auto: today's chain.",
+          "title": {
+            "key": "settings.agents.defaults.claude.effort",
+            "text": "Claude Code Effort for New Chats"
+          },
+          "help": {
+            "key": "settings.agents.defaults.claude.effort.help",
+            "text": "How hard a new chat thinks. Last Used keeps the last effort you picked."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "auto",
+              "title": {
+                "key": "settings.choice.effortLastUsed",
+                "text": "Last Used"
+              }
+            },
+            {
+              "value": "low",
+              "title": {
+                "key": "settings.choice.effortLow",
+                "text": "Low"
+              }
+            },
+            {
+              "value": "medium",
+              "title": {
+                "key": "settings.choice.effortMedium",
+                "text": "Medium"
+              }
+            },
+            {
+              "value": "high",
+              "title": {
+                "key": "settings.choice.effortHigh",
+                "text": "High"
+              }
+            },
+            {
+              "value": "xhigh",
+              "title": {
+                "key": "settings.choice.effortXHigh",
+                "text": "Extra High"
+              }
+            },
+            {
+              "value": "max",
+              "title": {
+                "key": "settings.choice.effortMax",
+                "text": "Max"
+              }
+            }
+          ],
+          "default": "auto",
+          "keywords": [
+            "effort",
+            "reasoning",
+            "thinking",
+            "reasoning effort",
+            "model_reasoning_effort",
+            "new chat",
+            "claude",
+            "claude code"
+          ]
+        },
+        {
+          "key": "agents.defaults.codex.model",
+          "name": "codexDefaultModel",
+          "note": "The model a new Codex chat starts on when the chat names none. acpmux reads it at each new chat (cmux-tui/crates/acpmux/src/model_settings.rs, hub/start_defaults.rs): above config.json defaults (a pick in a chat), below a per-chat pick, a preset, a folder profile or a profile's own model. Empty: today's chain (the last pick, the CLI's own config, the catalog default).",
+          "title": {
+            "key": "settings.agents.defaults.codex.model",
+            "text": "Codex Model for New Chats"
+          },
+          "help": {
+            "key": "settings.agents.defaults.codex.model.help",
+            "text": "A model id such as gpt-6.2-sol. Empty starts on the last model you picked."
+          },
+          "kind": "text",
+          "default": "",
+          "keywords": [
+            "model",
+            "default model",
+            "new chat",
+            "codex",
+            "codex"
+          ]
+        },
+        {
+          "key": "agents.defaults.codex.effort",
+          "name": "codexDefaultEffort",
+          "note": "The reasoning effort a new Codex chat starts on when the chat names none; acpmux reads it at each new chat (model_settings.rs, hub/start_defaults.rs), in the same order as the model row. An effort the starting model lacks is skipped. auto: today's chain.",
+          "title": {
+            "key": "settings.agents.defaults.codex.effort",
+            "text": "Codex Effort for New Chats"
+          },
+          "help": {
+            "key": "settings.agents.defaults.codex.effort.help",
+            "text": "How hard a new chat thinks. Last Used keeps the last effort you picked."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "auto",
+              "title": {
+                "key": "settings.choice.effortLastUsed",
+                "text": "Last Used"
+              }
+            },
+            {
+              "value": "low",
+              "title": {
+                "key": "settings.choice.effortLow",
+                "text": "Low"
+              }
+            },
+            {
+              "value": "medium",
+              "title": {
+                "key": "settings.choice.effortMedium",
+                "text": "Medium"
+              }
+            },
+            {
+              "value": "high",
+              "title": {
+                "key": "settings.choice.effortHigh",
+                "text": "High"
+              }
+            },
+            {
+              "value": "xhigh",
+              "title": {
+                "key": "settings.choice.effortXHigh",
+                "text": "Extra High"
+              }
+            },
+            {
+              "value": "max",
+              "title": {
+                "key": "settings.choice.effortMax",
+                "text": "Max"
+              }
+            }
+          ],
+          "default": "auto",
+          "keywords": [
+            "effort",
+            "reasoning",
+            "thinking",
+            "reasoning effort",
+            "model_reasoning_effort",
+            "new chat",
+            "codex",
+            "codex"
+          ]
+        },
+        {
+          "key": "agents.titles.model",
+          "name": "textGenerationModel",
+          "note": "The Claude model that writes cmux's generated text: chat titles, task names, rolling summaries and diff hunk summaries (every _acpmux/complete that names no model and runs on Claude Code, cmux-tui/crates/acpmux/src/hub/complete.rs and hub/titles.rs, read through model_settings.rs). acpmux config titles.model / summaries.model still win. cmux NEXT writes no commit messages or PR text with a model. Default haiku, the small model these ran on before the row.",
+          "title": {
+            "key": "settings.agents.titles.model",
+            "text": "Text Generation Model"
+          },
+          "help": {
+            "key": "settings.agents.titles.model.help",
+            "text": "The Claude model that writes chat titles and summaries."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "haiku",
+              "title": {
+                "key": "settings.choice.textModelHaiku",
+                "text": "Haiku"
+              }
+            },
+            {
+              "value": "sonnet",
+              "title": {
+                "key": "settings.choice.textModelSonnet",
+                "text": "Sonnet"
+              }
+            },
+            {
+              "value": "opus",
+              "title": {
+                "key": "settings.choice.textModelOpus",
+                "text": "Opus"
+              }
+            }
+          ],
+          "default": "haiku",
+          "keywords": [
+            "title",
+            "titles",
+            "summary",
+            "summaries",
+            "text generation",
+            "model",
+            "haiku",
+            "naming"
+          ]
         }
       ]
     },
