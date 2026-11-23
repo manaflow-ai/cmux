@@ -1,6 +1,6 @@
 /// The quit rules (user decision 2026-09-30), free of AppKit and the
 /// settings. The App maps `app.quitBehavior` to the remembered choice
-/// (`QuitPolicy`) and runs the quit (`QuitCoordinator`).
+/// and runs the quit (`QuitCoordinator`).
 public struct QuitRules {
     public init() {}
 

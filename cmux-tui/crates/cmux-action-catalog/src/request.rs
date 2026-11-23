@@ -51,8 +51,9 @@ pub fn constant(value: &BindingValue) -> Value {
 }
 
 /// The params `request` sends, given the value of each argument and target source
-/// (`value`, which answers `None` for an omitted argument or a missing target). The app fills
-/// the routing defaults (`machine`, `session`) on the session lane, as the CLI does.
+/// (`value`, which answers `None` for an omitted argument or a missing target). An
+/// `idempotency_key` source gets a fresh `cli-` key for each call. The app fills the routing
+/// defaults (`machine`, `session`) on the session lane, as the CLI does.
 pub fn params(
     request: &Request,
     value: impl Fn(&ParamSource) -> Option<Value>,
@@ -61,6 +62,9 @@ pub fn params(
     for param in request.params {
         let resolved = match &param.source {
             ParamSource::Constant(constant_value) => Some(constant(constant_value)),
+            ParamSource::IdempotencyKey => {
+                Some(Value::String(format!("cli-{}", uuid::Uuid::new_v4().simple())))
+            }
             source => value(source),
         };
         if let Some(resolved) = resolved {

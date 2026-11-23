@@ -29,7 +29,12 @@ public nonisolated struct ActionCatalogRequest: Sendable, Hashable {
         case argument(String)
         /// The daemon id of the invocation's target of this kind, else the focused one.
         case target(ActionTargetKind)
+        /// The daemon id of the terminal in the invocation's tab, else in the focused tab (the
+        /// export's `target: "terminal"`): a tab action whose request names its terminal.
+        case terminal
         case constant(Constant)
+        /// A fresh CLI-format idempotency key for each invocation.
+        case idempotencyKey
     }
 
     public struct Param: Sendable, Hashable {
@@ -47,7 +52,7 @@ public nonisolated struct ActionCatalogRequest: Sendable, Hashable {
         self.params = params
     }
 
-    /// The export's `request` member (`{lane, operation, params: [{name, argument|target|constant}]}`),
+    /// The export's `request` member (`{lane, operation, params: [{name, argument|target|constant|idempotencyKey}]}`),
     /// nil when it does not decode: a row that does not decode gets no binding, so the conformance
     /// test names it as unbound.
     static func decode(_ wire: Any?) -> ActionCatalogRequest? {
@@ -59,8 +64,12 @@ public nonisolated struct ActionCatalogRequest: Sendable, Hashable {
             guard let name = row["name"] as? String else { return nil }
             if let argument = row["argument"] as? String {
                 params.append(Param(name: name, source: .argument(argument)))
+            } else if row["target"] as? String == "terminal" {
+                params.append(Param(name: name, source: .terminal))
             } else if let kind = (row["target"] as? String).flatMap(ActionTargetKind.init(rawValue:)) {
                 params.append(Param(name: name, source: .target(kind)))
+            } else if row["idempotencyKey"] as? Bool == true {
+                params.append(Param(name: name, source: .idempotencyKey))
             } else if let constant = constant(row["constant"]) {
                 params.append(Param(name: name, source: .constant(constant)))
             } else {
@@ -127,8 +136,10 @@ extension ActionCatalogRequest {
     /// - Parameters:
     ///   - arguments: The action's declared arguments (whether one takes several values).
     ///   - invocation: The run.
+    ///   - terminal: The daemon id of the terminal in the invocation's tab, else in the focused
+    ///     one; nil when that tab shows no terminal (a missing one fails as a missing `tab`).
     ///   - target: The daemon id of the invocation's target of a kind, else of the focused one.
-    public func values(arguments: [ActionArgument], invocation: ActionInvocation,
+    public func values(arguments: [ActionArgument], invocation: ActionInvocation, terminal: () -> String? = { nil },
                        target: (ActionTargetKind) -> String?) -> Result<[String: Value], MissingTarget> {
         var values: [String: Value] = [:]
         for param in params {
@@ -139,6 +150,11 @@ extension ActionCatalogRequest {
             case .target(let kind):
                 guard let id = target(kind) else { return .failure(MissingTarget(kind: kind)) }
                 values[param.name] = .string(id)
+            case .terminal:
+                guard let id = terminal() else { return .failure(MissingTarget(kind: .tab)) }
+                values[param.name] = .string(id)
+            case .idempotencyKey:
+                values[param.name] = .string("cli-" + UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased())
             case .argument(let name):
                 let multiple = arguments.first { $0.name == name }?.suggestions?.allowsMultiple ?? false
                 switch invocation[name] {

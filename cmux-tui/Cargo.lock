@@ -1283,6 +1283,7 @@ name = "cmux-action-catalog"
 version = "0.1.0"
 dependencies = [
  "serde_json",
+ "uuid",
 ]
 
 [[package]]
@@ -1833,6 +1834,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "toml",
+ "toml_edit 0.22.27",
 ]
 
 [[package]]
@@ -2978,6 +2980,7 @@ dependencies = [
  "jsonschema",
  "libc",
  "memchr",
+ "mio",
  "notify",
  "parking_lot",
  "proptest",

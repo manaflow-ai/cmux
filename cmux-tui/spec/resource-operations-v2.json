@@ -15670,7 +15670,8 @@
                 "ghostty",
                 "base16",
                 "iterm2",
-                "windows-terminal"
+                "windows-terminal",
+                "vscode"
               ]
             }
           },
@@ -15695,7 +15696,8 @@
               "ghostty",
               "base16",
               "iterm2",
-              "windows-terminal"
+              "windows-terminal",
+              "vscode"
             ]
           },
           "description": "The format text is written in."
@@ -15794,7 +15796,8 @@
               "ghostty",
               "base16",
               "iterm2",
-              "windows-terminal"
+              "windows-terminal",
+              "vscode"
             ]
           },
           "description": "The format text is written in."
@@ -41669,6 +41672,71 @@
         "validation.invalid"
       ]
     },
+    "terminal.tail_pin.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "terminal",
+      "ancestors": [
+        "machine",
+        "session",
+        "workspace",
+        "screen",
+        "pane",
+        "tab"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "required"
+        },
+        "fields": {
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          },
+          "pinned": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Whether the terminal's view follows its newest output. Omit to flip the pin."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "EmptyResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "mutation.indeterminate",
+        "operation.failed",
+        "origin.forbidden",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ]
+    },
     "terminal.viewer.release": {
       "class": "connection_control",
       "idempotency": "forbidden",
@@ -42020,11 +42088,12 @@
                   "ghostty",
                   "base16",
                   "iterm2",
-                  "windows-terminal"
+                  "windows-terminal",
+                  "vscode"
                 ]
               }
             },
-            "description": "The text's format; absent detects it from file and the text (an XML plist is iterm2, a JSON object windows-terminal, baseXX lines base16, else a Ghostty theme)."
+            "description": "The text's format; absent detects it from file and the text (an XML plist is iterm2, a JSON object with a colors object of dotted keys or tokenColors vscode, another JSON object windows-terminal, baseXX lines base16, else a Ghostty theme)."
           },
           "to": {
             "required": false,
@@ -42036,7 +42105,8 @@
                   "ghostty",
                   "base16",
                   "iterm2",
-                  "windows-terminal"
+                  "windows-terminal",
+                  "vscode"
                 ]
               }
             },
@@ -42096,7 +42166,8 @@
                   "ghostty",
                   "base16",
                   "iterm2",
-                  "windows-terminal"
+                  "windows-terminal",
+                  "vscode"
                 ]
               }
             },
@@ -42197,7 +42268,8 @@
                   "ghostty",
                   "base16",
                   "iterm2",
-                  "windows-terminal"
+                  "windows-terminal",
+                  "vscode"
                 ]
               }
             },

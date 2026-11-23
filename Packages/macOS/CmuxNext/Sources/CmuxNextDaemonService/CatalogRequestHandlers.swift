@@ -18,6 +18,9 @@ public protocol CatalogRequestHost: AnyObject {
     func catalogWorkspace(_ invocation: ActionInvocation) -> String?
     /// The daemon id of the invocation's pane, else of the focused one.
     func catalogPane(_ invocation: ActionInvocation) -> String?
+    /// The daemon id of the terminal in the invocation's tab, else in the focused tab; nil when
+    /// that tab shows no terminal.
+    func catalogTerminal(_ invocation: ActionInvocation) -> String?
     /// Shows `message` briefly on the active window.
     func catalogToast(_ message: String)
 }
@@ -72,7 +75,8 @@ public struct CatalogRequestHandlers {
     static func effect(_ request: ActionCatalogRequest, descriptor: ActionDescriptor, invocation: ActionInvocation,
                        host: any CatalogRequestHost) -> ActionEffect {
         if let reason = refusal(invocation) { return .refused(reason) }
-        let resolved = request.values(arguments: descriptor.arguments, invocation: invocation) { kind in
+        let resolved = request.values(arguments: descriptor.arguments, invocation: invocation,
+                                      terminal: { host.catalogTerminal(invocation) }) { kind in
             switch kind {
             case .workspace: host.catalogWorkspace(invocation)
             case .pane: host.catalogPane(invocation)
@@ -83,7 +87,8 @@ public struct CatalogRequestHandlers {
         switch resolved {
         case .success(let found): values = found
         case .failure(let missing):
-            return .refused(missing.kind == .pane ? CatalogRequestStrings.noPane : RefusalStrings.noWorkspaceToActOn)
+            return .refused(missing.kind == .pane ? CatalogRequestStrings.noPane
+                : missing.kind == .tab ? CatalogRequestStrings.noTerminal : RefusalStrings.noWorkspaceToActOn)
         }
         guard let work = send(request, values, host: host) else { return .refused(CatalogRequestStrings.notConnected) }
         host.catalogToast(descriptor.title)
@@ -254,6 +259,10 @@ struct CatalogRequestStrings {
 
     static var noPane: String {
         String(localized: "catalogRequest.noPane", defaultValue: "Click a tab first, then try again.", table: "CatalogRequests", bundle: .localizedModule)
+    }
+
+    static var noTerminal: String {
+        String(localized: "catalogRequest.noTerminal", defaultValue: "Click a terminal tab first, then try again.", table: "CatalogRequests", bundle: .localizedModule)
     }
 
     static var destructiveBody: String {
