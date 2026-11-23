@@ -864,7 +864,8 @@ fn a_send_message_row_carries_its_recipient() {
         Change::Row(row) | Change::Patch(row) => row.fields.get("recipient").cloned(),
         _ => None,
     });
-    assert_eq!(recipient.as_deref(), Some("Watch the cmux-ci run"));
+    // A row field holds its JSON value, as the body the page reads gets it.
+    assert_eq!(recipient.as_deref(), Some(r#""Watch the cmux-ci run""#));
 }
 
 #[test]
