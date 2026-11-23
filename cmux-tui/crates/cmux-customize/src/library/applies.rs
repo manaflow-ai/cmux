@@ -168,7 +168,9 @@ fn setting(schema: &Schema, key: &str, value: &Value) -> Option<String> {
     let Some(row) = schema.row(key).or_else(|| schema.row_at(&path)) else {
         // A key under a row that holds a map (`appearance.machineColors.x`)
         // is that row's.
-        if (1..path.len()).any(|end| schema.row_at(&path[..end]).is_some()) {
+        if (1..path.len())
+            .any(|end| path.get(..end).is_some_and(|head| schema.row_at(head).is_some()))
+        {
             return None;
         }
         return Some(gone(&path));

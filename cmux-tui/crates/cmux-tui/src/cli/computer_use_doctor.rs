@@ -277,10 +277,9 @@ fn helper(body: &Value) -> Check {
     let Some(exe) = body.pointer("/worker/executable").and_then(Value::as_str) else {
         return pass("helper", "the worker does not name its executable (an older cmux)");
     };
-    let staged = exe.find(STAGED_SEGMENT).map(|at| {
-        let rest = &exe[at + STAGED_SEGMENT.len()..];
-        rest.split('/').next().unwrap_or("").to_owned()
-    });
+    let staged = exe
+        .split_once(STAGED_SEGMENT)
+        .map(|(_, rest)| rest.split('/').next().unwrap_or("").to_owned());
     let is_helper = exe.rsplit('/').next() == Some(MAC_HELPER_EXE);
     match (os, staged, is_helper) {
         (_, Some(bundle), _) => {
