@@ -452,7 +452,7 @@ impl Hub {
     /// configures, for a restart's chain here or a transport cut's (`auto_resume.rs`).
     pub(in crate::hub) fn moves_behind(&self, session: &Arc<Session>, root: &str) -> usize {
         let mut moves = 0;
-        let _ = self.store.scan_heads(&session.id, &mut |head: &RecordHead<'_>| {
+        let _ = self.scan_heads_off(&session.id, &mut |head: &RecordHead<'_>| {
             if head.kind == "auto_resume_scheduled"
                 && let Some(e) = head.record()
                 && e.msg.get("reason").and_then(Value::as_str) == Some(Cut::Move.reason())
@@ -522,7 +522,7 @@ impl Hub {
         // The newest turn before the cut one and the newest prompt text before it, each by turn
         // id: the two records come in either order.
         let (mut ask_turn, mut ask_text) = (None::<(String, String)>, None::<(String, String)>);
-        let _ = self.store.scan_heads(&session.id, &mut |head: &RecordHead<'_>| {
+        let _ = self.scan_heads_off(&session.id, &mut |head: &RecordHead<'_>| {
             // Headers are cheap to inspect. Parse payloads only after the interrupted turn starts,
             // and stop at its result so a long session does not deserialize historical tool I/O.
             let kind = head.kind.strip_suffix(".replay").unwrap_or(head.kind);
@@ -655,7 +655,7 @@ impl Hub {
         let prompt_id = prompt_id.filter(|p| !p.is_empty())?;
         let own_session_id = session.meta().agent_session_id;
         let (unfinished, omitted_tools) = collect_unfinished(|page| {
-            let _ = self.store.scan_heads(&session.id, &mut |head| {
+            let _ = self.scan_heads_off(&session.id, &mut |head| {
                 if tool_end.is_some_and(|end| head.seq >= end) {
                     return false;
                 }

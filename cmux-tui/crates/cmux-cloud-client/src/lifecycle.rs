@@ -323,6 +323,7 @@ impl Pending<Unknown> {
     /// lifecycle action is available on `Unknown` until this succeeds.
     // The error hands the unreconciled subject back so its caller can retry.
     #[allow(clippy::result_large_err)]
+    #[allow(clippy::result_large_err)] // The Err hands this Unknown subject back so the caller can reconcile again.
     pub fn reconcile(mut self, record: CloudMachine) -> Result<Reconciled, (Self, ObserveError)> {
         let status = match validate_record(self.state.payload(), &record) {
             Ok(status) => status,
