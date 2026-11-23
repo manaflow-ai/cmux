@@ -81,6 +81,10 @@ export type ChatSnapshot = {
   theme: string;
   /// When it was written (`Date.now()`).
   savedAt: number;
+  /// The composer's prompt then, as text (restoredDraft.ts): the markup shows it, and the live
+  /// composer holds it from its first frame so it stands where the copy drew it. Absent when empty.
+  /// A write with no copy (`miss`) carries it too: the host keeps and serves it alone.
+  draft?: string;
 };
 
 /// Whether `value` is a snapshot this version draws.
