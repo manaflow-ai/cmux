@@ -138,7 +138,9 @@ import Testing
         let ownHome = RelaunchHome.openArguments(environment: ["HOME": account], accountHome: account)
         #expect(ownHome.isEmpty)
         let own = RollbackSwap.relaunchCommand(pid: 42, app: app, openOptions: ownHome)
-        #expect(own == ["/bin/sh", "-c", #"/usr/bin/caffeinate -w 42; /usr/bin/open "$@" "$0""#, app.path])
+        #expect(own == ["/bin/sh", "-c",
+                        #"trap 'kill "$w" 2>/dev/null; wait "$w"; exit 143' TERM; /usr/bin/caffeinate -w 42 & w=$!; wait "$w"; /usr/bin/open "$@" "$0""#,
+                        app.path])
         #expect(try Self.openArgv(own) == ["/usr/bin/open", app.path])
 
         let drill = "/private/tmp/walk home/it's \(UUID().uuidString)"
