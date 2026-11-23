@@ -69,6 +69,8 @@ pub mod cmux_tui_service;
 pub mod codex_app_server;
 #[cfg(unix)]
 mod codex_auth_file;
+/// The opt-in bundled Codex app-server (Labs, off by default).
+pub mod codex_bundle;
 mod codex_cloud_auth;
 pub mod codex_cmux_entry;
 pub mod codex_desktop;
@@ -371,3 +373,6 @@ pub mod ws_auth;
 pub mod xhost_audit;
 
 pub mod model_catalog;
+/// The per-host model-name hot patch (`$ACPMUX_HOME/model-aliases.json`), read by
+/// `model_catalog::canonical_model`.
+pub mod model_hot_patch;

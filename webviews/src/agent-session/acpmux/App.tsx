@@ -603,6 +603,7 @@ import { withCloudMachineSummary } from "./cloudSummary";
 import { callNative } from "./callNative";
 import { awaitsProjectPreview, takeProjectPreview } from "./newtab/newProject";
 import { copyShowsRunningTurn, showsChatSnapshot, swapChatSnapshot, watchChatSnapshot } from "./chatSnapshot/live";
+import { snapshotDraft } from "./chatSnapshot/restoredDraft";
 import { watchLaunchSettle } from "./launchSettle";
 import { type NativeRegistry, type OpenDiff } from "./rows/rowProps";
 import { editQueued, openOfferChat, openSenderChat } from "./rows/rowActions";
@@ -2751,6 +2752,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [dock, setDock] = useState<HTMLElement | null>(null);
   // The app's toasts lift above this stack; they never move it (toastAvoidance.ts).
   useEffect(() => (dock ? reportToastAvoidance(dock) : undefined), [dock]);
+  // A focused composer lifts the edge of every part of the stack (composerStates.css): the dock's
+  // `data-focused`, written as the composer reports focus-visible in its card while its prompt is not
+  // the shell's (Composer.tsx `onFocusEdge`), never a `.acpmux-dock:has(... :focus-visible)` checked
+  // again for every node a keystroke or a streamed chunk inserts (transcript-motion-model step 7).
+  const dockLit = useRef(false);
+  const dockNow = useRef<HTMLElement | null>(null);
+  const markDockEdge = useCallback((lit: boolean) => {
+    dockLit.current = lit;
+    dockNow.current?.toggleAttribute("data-focused", lit);
+  }, []);
+  useLayoutEffect(() => {
+    dockNow.current = dock;
+    dock?.toggleAttribute("data-focused", dockLit.current);
+  }, [dock]);
   // A chat whose agent started others has something to show too: their rows under Subagents.
   const summaryCard = useSummaryCard(
     // The side panel and Background tasks take the right column: the Summary stays a popover then.
@@ -3444,6 +3459,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       elsewhere: chatElsewhere,
       sessionId: snapshot.sessionId,
       harness: snapshot.summary?.harness,
+      model: snapshot.summary?.model,
       supported: directClient.current?.supportsAgentLogin === true,
       gesture: (intent) =>
         postNative<{ ticket?: string }>("transport.gesture", { intent }).then((reply) => reply?.ticket),
@@ -3516,6 +3532,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     chatElsewhere,
     snapshot.sessionId,
     snapshot.summary?.harness,
+    snapshot.summary?.model,
     snapshot.switching?.phase,
     snapshot.switching?.code,
     snapshot.switching?.harness,
@@ -6470,7 +6487,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // relaunch's attach no longer meets (Leo, 2026-11-08: "what you saw when you clicked the
       // restart button ... here's literally what you just had").
       directClient.current?.handOverCurrentTail();
-      return callNative("chat.snapshot.put", params);
+      // The prompt the markup shows, as text: the next launch's composer holds it from its first
+      // frame (chatSnapshot/restoredDraft.ts), so the copy's composer and the live one are one size.
+      // A miss (a copy too large to keep) carries it too; a forget carries nothing.
+      const draft =
+        "html" in params || "miss" in params ? snapshotDraft(composerHandle.current?.draft().text) : undefined;
+      return callNative("chat.snapshot.put", draft ? { ...params, draft } : params);
     });
   }, [snapshotSession]);
   const summary = snapshot.summary;
@@ -9061,6 +9083,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       />
     ) : null;
   const goalAtFoot = goalNode !== null && goalHatPlaceArm === "foot";
+  // The dock draws the composer (a draft a refusal put back stays in reach even once the tab's run
+  // shows), and with it the composer card's quiet row: the dock's `data-foot` (bottomStack.css).
+  const dockFoot = (!sandboxHoldsChat || sandboxDraftMoved) && !viewedSandbox && (readOnlySubagent || !reviewing);
   // The managed banner's Hide: the chat is the person's again, and the composer takes the focus.
   const hideManaged = (sessionId: string) => {
     takeOverManaged(sessionId);
@@ -9068,6 +9093,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     composerHandle.current?.focus();
   };
   const composer = drawPaneComposer({
+    markDockEdge,
     readOnlySubagent,
     subagentDraftKey,
     shownSubagentTarget,
@@ -9755,13 +9781,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     closeInspector,
     sendPerf,
     setDock,
+    dockFoot,
     paneToasts,
     toastTop,
     asks,
     dotGridArm,
     hostLine,
     forkPendingLine,
-    sandboxDraftMoved,
     composer,
     artifact,
     liveArtifact,
