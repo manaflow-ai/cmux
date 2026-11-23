@@ -317,6 +317,7 @@ computerUse.pauseOnTakeover
 computerUse.settle
 computerUse.showCursor
 contextMenus.showCustomizeItem
+customize.doctorNotice
 customize.fromTheApp
 developerTools.appPages
 deviceHub.url
@@ -663,6 +664,9 @@ sidebar.workspaceRow.browser.working
 sidebar.workspaceRow.directory
 sidebar.workspaceRow.icon
 sidebar.workspaceRow.lastActivity
+sidebar.workspaceRow.lines
+sidebar.workspaceRow.linesByAgent
+sidebar.workspaceRow.linesByKind
 sidebar.workspaceRow.log
 sidebar.workspaceRow.mixed.agentStatus
 sidebar.workspaceRow.mixed.branch
