@@ -190,7 +190,13 @@ test("a connected page keeps publishing on later emits, whatever their reason", 
     T0 + 4,
   );
   store.publishSessions(
-    { link: "connecting" as const, emitReason: "reconnecting (2)", origin: "local", listedSessions: true, sessions: [] },
+    {
+      link: "connecting" as const,
+      emitReason: "reconnecting (2)",
+      origin: "local",
+      listedSessions: true,
+      sessions: [],
+    },
     T0 + 5,
   );
   store.reloadChatStoreForTests();

@@ -16,7 +16,7 @@ The root [CLAUDE.md](../../CLAUDE.md) still applies: never build or test on the 
 - Rust core: `CCmuxAppFFI` from `cmux-tui/crates/cmux-app-ffi`, pinned in `CmuxNext/app-ffi-pin.json` (re-pin below).
 
 Where a typical change goes:
-- A setting: a row in `schemas/settings/source/<section>.json`, then `python3 scripts/cmux-next/gen-settings-sources.py`
+- A setting: a row in `schemas/settings/source/<section>.json`; the build writes its Swift, nothing to commit
   ([checklist](../../plans/cmux-next/settings-surfaces.md#agent-checklist)). The PR autofix regenerates the exports.
 - A window or panel: AppKit in its feature module, wired in `CmuxNextApp` (`AppServices+*.swift`). New SwiftUI is
   refused (`scripts/cmux-next/check-no-swiftui.py`). The settings window is `CmuxNextSettingsWindow`.
@@ -24,6 +24,10 @@ Where a typical change goes:
   `ActionRegistry.bind`, placed by `CmuxNextApp/MainMenu.swift`. `HandlerCoverageTests` fails a missing handler.
 - The theme: `Shared/CmuxTheme` (`ThemeTokens`), `CmuxNextDesign` (`Palette`), looks in root `Resources/theme-files/`
   ([recipes](../../docs/cmux-next/theme-recipes.md)). `schemas/theme/chrome-layer-colors.json` needs `Chrome-Look-OK:`.
+
+Decided, do not rebuild the other side: Home, the Chief panel and native chrome are Swift, the agent chat is React,
+logic is Rust ([which layer](../../plans/cmux-next/language-layers.md)). Other decided forks (first run is a card on
+Home, launch reopens where you were) and their reasons: cmuxterm-hq `decisions/junctions.md`.
 
 ## Check a change in five minutes (from a Linux lane VM)
 

@@ -35,7 +35,7 @@ The Freestyle path installs the declared Bun dependencies and Playwright browser
 
 The local runner reuses one browser per engine but recycles it when a renderer target crashes or exceeds the 30-second per-attempt case bound (`--case-timeout-ms` changes it). If the replacement also fails, that case is recorded as broken and the rest of the matrix still publishes its screenshots. The local matrix can run base, head and repeat stages as isolated jobs, then compare their complete result files in one read-only job; a timeout in one case cannot erase the other stages.
 
-Use `--record-video` only for a focused motion review run. It records one WebM per case and engine,
+Set `CMUX_GALLERY_RECORD_VIDEO=1` only for a focused motion review run (`undeclared-run.sh` does). It records one WebM per case and engine,
 adds the player to the matrix index, and leaves the ordinary screenshot/diff path unchanged. Video is
 review evidence, not a baseline or a deterministic gate; the gallery play report's frame samples and
 motion metrics are the gate.

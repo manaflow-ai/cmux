@@ -75,7 +75,7 @@ function stopped(): AcpmuxSnapshot {
 }
 const emptyState = {
   offered: true,
-  text: "",
+  blank: true,
   attachments: 0,
   pending: 0,
   shell: false,
@@ -90,8 +90,7 @@ test("Resume requires an empty stopped-turn offer and cannot race work, queue, g
   expect(canResumeFromComposer(snapshot, emptyState)).toBe(true);
   for (const change of [
     { offered: false },
-    { text: "next" },
-    { text: " " },
+    { blank: false },
     { attachments: 1 },
     { pending: 1 },
     { shell: true },
@@ -103,8 +102,8 @@ test("Resume requires an empty stopped-turn offer and cannot race work, queue, g
     expect(canResumeFromComposer(snapshot, { ...emptyState, ...change })).toBe(false);
   for (const changed of [
     { ...snapshot, isWorking: true },
-    { ...snapshot, connection: "disconnected" },
-    { ...snapshot, connection: "connecting…" },
+    { ...snapshot, link: "disconnected" as const, emitReason: "disconnected" },
+    { ...snapshot, link: "connecting" as const, emitReason: "connecting…" },
     { ...snapshot, queue: [{ id: "queued", prompt: "Next" }] },
     { ...snapshot, summary: { ...snapshot.summary!, watching: "another-owner" } },
     { ...snapshot, summary: { ...snapshot.summary!, goal: { objective: "Finish", status: "active" as const } } },

@@ -260,27 +260,17 @@ const checkedLevel = () =>
   [...(menu()?.querySelectorAll<HTMLElement>('.acpmux-cols-tune [role="radio"][aria-checked="true"]') ?? [])].map(
     (row) => row.querySelector(".acpmux-cols-name")?.textContent,
   );
-// Each pick opens the menu when a pick before it closed it, and closes it (David Beyer 2026-11-20).
 async function pickModel(name: string) {
-  await openMenu();
   const row = modelRow(name);
   expect(row, name).toBeDefined();
   await act(async () => press(row!));
   await settle();
-  expect(menu()).toBeNull();
 }
 async function pickLevel(label: string) {
-  await openMenu();
   const row = levelRow(label);
   expect(row, label).toBeDefined();
   await act(async () => press(row!));
   await settle();
-  expect(menu()).toBeNull();
-}
-/// The checked level, read in the menu opened again.
-async function checkedAfterOpen() {
-  await openMenu();
-  return checkedLevel();
 }
 
 test("effort picks on the running model reach the agent", async () => {
@@ -292,10 +282,10 @@ test("effort picks on the running model reach the agent", async () => {
   await pickLevel("Medium");
   await agent.deliver();
   expect(agent.state).toEqual({ model: "gpt-6.1-sol", effort: "medium" });
-  expect(await checkedAfterOpen()).toEqual(["Medium"]);
+  expect(checkedLevel()).toEqual(["Medium"]);
 });
 
-test("a model pick, then an effort pick in the menu opened again after the agent switched", async () => {
+test("a model pick, then an effort pick in the same open menu after the agent switched", async () => {
   const { agent } = await mount();
   await openMenu();
   await pickModel("GPT-6 Astra");
@@ -307,7 +297,7 @@ test("a model pick, then an effort pick in the menu opened again after the agent
   await pickLevel("Medium");
   await agent.deliver();
   expect(agent.state).toEqual({ model: "gpt-6-astra", effort: "medium" });
-  expect(await checkedAfterOpen()).toEqual(["Medium"]);
+  expect(checkedLevel()).toEqual(["Medium"]);
 });
 
 test("an effort pick while the model switch is still in flight lands on the new model", async () => {
