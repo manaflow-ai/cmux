@@ -127,7 +127,7 @@ final class AppWidgetPreviewButton: NSView {
         press.actions = ["backgroundColor": NSNull(), "bounds": NSNull(), "position": NSNull()]
         layer?.addSublayer(press)
         let label = AppWidgetStrings.addSized(title, AppWidgetStrings.size(preview.size))
-        toolTip = label
+        themedToolTip = label
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel(label)

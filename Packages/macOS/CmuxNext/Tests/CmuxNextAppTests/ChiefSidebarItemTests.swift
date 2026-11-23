@@ -100,13 +100,17 @@ struct ChiefSidebarItemTests {
         #expect(SidebarTransientItem.chiefSubagentSession(LayoutItemID("itm_chief")) == nil)
     }
 
+    /// The top row that was Home is the Chief (the person, 2026-11-20: "we replace home with chief"), so the rows
+    /// follow it too when the layout has no Chief item.
     @Test func subagentRowsFollowTheChiefItemAndVanishWithoutIt() {
         let rows = Self.rows([Self.lane("optchat-sub-6b68ac4a-a1", .working), Self.lane("optchat-sub-6b68ac4a-a2", .input)])
         let home = LayoutItem(id: LayoutItemID("itm_home"), ref: SidebarLayoutDocument.homeRef)
         let ids = rows.map(\.item.id.rawValue)
         #expect(Self.placed([Self.chiefItem, home], transient: rows) == ["itm_chief"] + ids + ["itm_home"])
         #expect(Self.placed([home, Self.chiefItem], transient: rows) == ["itm_home", "itm_chief"] + ids)
-        #expect(Self.placed([home], transient: rows) == ["itm_home"])
+        #expect(Self.placed([home], transient: rows) == ["itm_home"] + ids)
+        let store = LayoutItem(id: LayoutItemID("itm_app_store"), ref: .app("cmux/app-store"))
+        #expect(Self.placed([store], transient: rows) == ["itm_app_store"], "rows drew with no Chief row to follow")
     }
     /// Home learns which of the Chief's agents started from these lanes (a1019, 2026-11-06: a queued agent that
     /// started with no word in the chat still said Queued). The list names each subagent by its Chief id, and

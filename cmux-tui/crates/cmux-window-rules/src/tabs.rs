@@ -16,6 +16,8 @@ pub mod draft;
 pub mod panes;
 #[path = "tabs_place.rs"]
 pub mod place;
+#[path = "tabs_plus_menu.rs"]
+pub mod plus_menu;
 
 // MARK: New tab kind
 

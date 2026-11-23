@@ -89,9 +89,9 @@ where
     if !autostart {
         return Err(anyhow!("no acpmux daemon at {} (run `acpmux daemon`)", path.display()));
     }
-    // Before the managed unit too: starting it would make a removed home again.
+    // Starting the managed unit can recreate a removed home, just like a detached start.
     if !EXPLICIT_START.load(std::sync::atomic::Ordering::Relaxed) {
-        check_autostart(path)?;
+        check_autostart(current_home, path)?;
     }
     if let Some(value) = managed_unit_connect_with(systemctl, current_home, path, &connect).await? {
         return Ok(value);
@@ -111,7 +111,7 @@ where
     Fut: std::future::Future<Output = Result<T>>,
 {
     if !EXPLICIT_START.load(std::sync::atomic::Ordering::Relaxed) {
-        check_autostart(path)?;
+        check_autostart(&home(), path)?;
     }
     exe_path::check_start()?;
     // A config.json the daemon would refuse (a network listen without its opt-in, WireGuard
@@ -157,17 +157,16 @@ pub fn mark_explicit_start() {
 
 /// Refuses a start whose home or socket cannot be this command's daemon's
 /// ([`crate::config::autostart_refusal`]).
-pub(super) fn check_autostart(path: &std::path::Path) -> Result<()> {
-    let home = home();
+pub(super) fn check_autostart(home: &std::path::Path, path: &std::path::Path) -> Result<()> {
     let configured =
         std::env::var_os("ACPMUX_SOCKET").filter(|v| !v.is_empty()).map(|_| path.to_path_buf());
     #[cfg(unix)]
-    let own = crate::config::socket_path_for(&home, None);
+    let own = crate::config::socket_path_for(home, None);
     // Windows derives its pipe path its own way; only the missing-home rule applies there.
     #[cfg(not(unix))]
     let own = path.to_path_buf();
     match crate::config::autostart_refusal(
-        &home,
+        home,
         std::env::var_os("ACPMUX_HOME").is_some(),
         configured.as_deref(),
         &own,

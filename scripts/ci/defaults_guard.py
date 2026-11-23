@@ -94,6 +94,8 @@ SWIFT_SOURCES = "Packages/macOS/CmuxNext/Sources"
 # The settings exporter's inputs, which the source stamp hashes.
 SETTINGS_SOURCE_DIR = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings"
 SETTINGS_SOURCE_SUFFIXES = (".swift", ".xcstrings")
+SETTINGS_GENERATOR_INPUTS = ("schemas/settings/source", "schemas/settings/generator",
+                             "schemas/settings/retired-keys.json", "scripts/cmux-next/gen-settings-sources.py")
 SETTINGS_EXPORTER_FILES = (
     "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/ManagedPreferencesManifestTests.swift",
     "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/SettingsSchemaExportTests.swift",
@@ -1096,7 +1098,9 @@ def settings_source_stamp(tree: Tree) -> str:
     order, with a blank line between entries and a newline at the end. It is derived for a
     commit, never committed."""
     paths = list(SETTINGS_EXPORTER_FILES) + [
-        path for path in tree.files(SETTINGS_SOURCE_DIR) if PurePosixPath(path).suffix in SETTINGS_SOURCE_SUFFIXES]
+        path for path in tree.files(SETTINGS_SOURCE_DIR) if PurePosixPath(path).suffix in SETTINGS_SOURCE_SUFFIXES] + [
+        # The settings Swift the build generates (SettingsSchemaPlugin, RFD 0048) is not in git: its inputs.
+        path for top in SETTINGS_GENERATOR_INPUTS for path in tree.files(top)]
     paths.sort(key=lambda path: path.encode("utf-8"))
     contents = tree.read_bytes(paths)
     return "\n\n".join(f"{hashlib.sha256(contents[path]).hexdigest()}  {path}" for path in paths) + "\n"

@@ -120,6 +120,62 @@ pub fn takes_session_mcp(name: &str, profile: &crate::config::HarnessProfile) ->
     !NO_SESSION_MCP_FAMILIES.contains(&crate::config::derive_family(name, profile).as_str())
 }
 
+/// Harness families that start a stdio MCP server with a scrubbed environment: Hermes passes a
+/// child only PATH, HOME, USER, LANG, LC_ALL, TERM, SHELL and TMPDIR plus the entry's own `env`
+/// (`tools/mcp_tool_config.py` `_SAFE_ENV_KEYS`). The cmux server then cannot find the session's
+/// socket and every cmux tool fails ("the cmux session socket is unavailable", cmux-ci step
+/// 20724a44bada). [`with_routing_env`] writes the routing variables into each stdio entry.
+pub const SCRUBBED_ENV_FAMILIES: [&str; 1] = ["hermes"];
+
+/// Environment names a cmux-owned MCP server reads to reach this session's daemons: the sockets
+/// and state folders of cmux, the mux and acpmux, and the Chief's tool list. Values only, never a
+/// key or a token.
+pub const ROUTING_ENV: [&str; 9] = [
+    "CMUX_TUI_SOCKET",
+    "CMUX_SOCKET_PATH",
+    "CMUX_MUX_SOCKET",
+    "CMUX_TUI_STATE_DIR",
+    "CMUX_TUI_CHIEF_TOOLS_SOCKET",
+    "CMUX_MCP_TOOLS",
+    "MUX_HOME",
+    "ACPMUX_HOME",
+    "XDG_RUNTIME_DIR",
+];
+
+/// `servers` (an ACP `mcpServers` array) with [`ROUTING_ENV`] added to each stdio entry's `env`
+/// for a harness in [`SCRUBBED_ENV_FAMILIES`]: the value from `env` (the harness's own spawn env)
+/// or else this process's. An entry's own value wins; HTTP entries and other harnesses are
+/// unchanged.
+pub fn with_routing_env(
+    mut servers: Value,
+    name: &str,
+    profile: &crate::config::HarnessProfile,
+    env: &BTreeMap<String, String>,
+) -> Value {
+    if !SCRUBBED_ENV_FAMILIES.contains(&crate::config::derive_family(name, profile).as_str()) {
+        return servers;
+    }
+    let routing: Vec<(&str, String)> = ROUTING_ENV
+        .iter()
+        .filter_map(|k| {
+            env.get(*k)
+                .cloned()
+                .or_else(|| std::env::var(k).ok())
+                .filter(|v| !v.is_empty())
+                .map(|v| (*k, v))
+        })
+        .collect();
+    for entry in servers.as_array_mut().into_iter().flatten() {
+        let Some(list) = entry.get_mut("env").and_then(Value::as_array_mut) else { continue };
+        for (k, v) in &routing {
+            if !list.iter().any(|e| e.get("name").and_then(Value::as_str) == Some(*k)) {
+                list.push(json!({"name": k, "value": v}));
+            }
+        }
+    }
+    servers
+}
+
 /// The agent memory server's name (`optchat-chief agent-memory mcp`).
 pub const MEMORY_SERVER_NAME: &str = "cmux-agent-memory";
 /// The person's saved MCP servers (`optchat-chief integrations serve`): one `mcp_servers` tool
@@ -902,26 +958,30 @@ pub fn is_codex(
 }
 
 /// Extra Claude Code flags for session `session_id` whose command line is
-/// `args`. The MCP config goes to [`mcp_config_path`], never into argv.
+/// `args`. The MCP config goes to [`mcp_config_path`], never into argv. With them, the
+/// instructions of acpmux's own servers for the system prompt
+/// ([`AgentTools::instructions_in_prompt`]), which those servers then leave out: the caller
+/// puts them in the appended system prompt ([`append_system_prompt`]).
 pub fn claude_args_for(
     remote_origin: bool,
     env: &BTreeMap<String, String>,
     args: &[String],
     session_id: &str,
     cwd: &Path,
-) -> Vec<String> {
+) -> (Vec<String>, Option<String>) {
     // Under `--strict-mcp-config` Claude starts no project server; a remote origin's config
     // stays empty (`left_out`).
     let strict = args.iter().any(|a| a == "--strict-mcp-config");
     let project_servers =
         if remote_origin || strict { Map::new() } else { project_servers_at_head(env, cwd) };
+    let mut prompt = None;
     let tools = if left_out(remote_origin, env, args) {
         if project_servers.is_empty() {
-            return Vec::new();
+            return (Vec::new(), None);
         }
         AgentTools::default()
     } else {
-        current()
+        let mut tools = current()
             .scoped(env)
             .for_session(session_id)
             // Claude Code has tool search unless its env or settings turn
@@ -929,11 +989,38 @@ pub fn claude_args_for(
             .listing(all_tools_opted_in(env) && claude_lists_all_tools(env, cwd))
             .without_off(env)
             .fit_skills()
-            .folded()
-            .via_gateway(session_id, cwd)
+            .folded();
+        if takes_appended_prompt(args) {
+            prompt = tools.instructions_in_prompt();
+        }
+        tools.via_gateway(session_id, cwd)
     };
-    AgentTools { project_servers, ..tools }
-        .claude_args(&mcp_config_path(&crate::config::home(), session_id))
+    let args = AgentTools { project_servers, ..tools }
+        .claude_args(&mcp_config_path(&crate::config::home(), session_id));
+    (args, prompt)
+}
+
+/// The heading Claude Code gives MCP server instructions (2.1.330), so the moved text reads as
+/// it did in its own section.
+const INSTRUCTIONS_HEADING: &str = "# MCP Server Instructions\n\nThe following MCP servers have \
+provided instructions for how to use their tools and resources:";
+
+/// Whether a Claude Code command line `args` can take more appended system prompt in its
+/// `--append-system-prompt <text>`: not when it uses the file or `=` form, which
+/// [`append_system_prompt`] does not edit.
+pub fn takes_appended_prompt(args: &[String]) -> bool {
+    !args.iter().any(|a| a.starts_with("--append-system-prompt") && a != "--append-system-prompt")
+}
+
+/// `text` at the end of Claude Code's appended system prompt in `args`: after the value of its
+/// last `--append-system-prompt` (Claude Code takes only the last), else as a new one.
+pub fn append_system_prompt(args: &mut Vec<String>, text: &str) {
+    let at = args.iter().rposition(|a| a == "--append-system-prompt").map(|i| i + 1);
+    match at.and_then(|i| args.get_mut(i)) {
+        Some(value) if !value.trim().is_empty() => *value = format!("{value}\n\n{text}"),
+        Some(value) => *value = text.to_owned(),
+        None => args.extend(["--append-system-prompt".to_owned(), text.to_owned()]),
+    }
 }
 
 /// The project's own servers wrapped to wait for the checkout ([`project_mcp`]), for a Claude
@@ -1426,6 +1513,40 @@ impl AgentTools {
         self
     }
 
+    /// The instructions of acpmux's own servers in the list (not folded behind `cmux`) as one
+    /// system prompt section, each under its server's name as Claude Code heads them, and those
+    /// servers told to leave them out of `initialize`
+    /// ([`crate::tools_mcp::INSTRUCTIONS_IN_PROMPT_ENV`]). Claude Code 2.1.330 puts MCP
+    /// instructions in the first turn's system message, after its last cached system block, so
+    /// every new chat wrote them (about 1.7k tokens) to the prompt cache again; in the appended
+    /// system prompt they are part of the prefix all chats share. The text comes from each
+    /// server's env as it will run (its tool allowlist), never from the session or folder, so
+    /// two chats' prompts stay byte-identical. None, and nothing changed, without any.
+    pub fn instructions_in_prompt(&mut self) -> Option<String> {
+        let mut parts: Vec<(String, String)> = Vec::new();
+        for server in &mut self.servers {
+            if !crate::tools_mcp::owns(&server.name, &server.args) {
+                continue;
+            }
+            let env = server.env.iter().cloned().collect();
+            let Some(text) = crate::tool_env::sync_scope(env, || {
+                crate::tools_mcp::instructions_of(&server.name)
+            }) else {
+                continue;
+            };
+            server.env.retain(|(k, _)| k != crate::tools_mcp::INSTRUCTIONS_IN_PROMPT_ENV);
+            server.env.push((crate::tools_mcp::INSTRUCTIONS_IN_PROMPT_ENV.to_owned(), "1".into()));
+            parts.push((server.name.clone(), text));
+        }
+        if parts.is_empty() {
+            return None;
+        }
+        parts.sort();
+        let sections: Vec<String> =
+            parts.iter().map(|(name, text)| format!("## {name}\n{text}")).collect();
+        Some(format!("{INSTRUCTIONS_HEADING}\n\n{}", sections.join("\n\n")))
+    }
+
     /// Without the servers [`OFF_ENV`] names (the chat turned them off).
     pub fn without_off(mut self, env: &BTreeMap<String, String>) -> Self {
         if let Some(off) = env.get(OFF_ENV) {
@@ -1718,14 +1839,7 @@ fn app_daemon_socket_for(
     build: &cmux_agent_pane_policy::build_identity::BuildIdentity,
     home: Option<&std::path::Path>,
 ) -> Option<std::path::PathBuf> {
-    let session = build.app_session()?;
-    let adopted = home.is_some_and(|home| {
-        [build.legacy_session_marker(home), build.legacy_session_marker_before_move(home)]
-            .into_iter()
-            .flatten()
-            .any(|marker| marker.is_file())
-    });
-    let session = if adopted { "cmux-app".to_owned() } else { session };
+    let session = crate::computer_use::daemon_socket::app_session(build, home)?;
     Some(cmux::raw::default_socket_path(&session))
 }
 

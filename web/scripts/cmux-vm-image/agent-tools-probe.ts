@@ -95,7 +95,8 @@ export function attachedComputerUse(servers: readonly RecordedServer[]): { name:
 
 /**
  * Problems with the `cmux` server of the default launch: acpmux (#48374) serves it from the daemon's
- * MCP gateway as loopback HTTP (`/mcp/<session>/tools`); a stdio `cmux` from the tool dir is also right
+ * MCP gateway as loopback HTTP (`/mcp/<session>`, or its `/tools` and `/tools/<server>` endpoints, mcp_gateway.rs);
+ * a stdio `cmux` from the tool dir is also right
  * (an acpmux without the gateway). Empty when it is attached one of those ways.
  */
 export function gatewayProblems(servers: readonly RecordedServer[]): string[] {
@@ -110,7 +111,7 @@ export function gatewayProblems(servers: readonly RecordedServer[]): string[] {
   }
   const problems: string[] = [];
   if (!["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)) problems.push(`cmux url ${cmux.url} is not loopback`);
-  if (!/^\/mcp\/[^/]+\/tools$/.test(url.pathname)) problems.push(`cmux url ${cmux.url} is not a gateway tool endpoint`);
+  if (!/^\/mcp\/[^/]+(\/tools(\/[^/]+)?)?$/.test(url.pathname)) problems.push(`cmux url ${cmux.url} is not a gateway tool endpoint`);
   return problems;
 }
 
@@ -213,8 +214,9 @@ export function parseRecordedLaunch(text: string): { servers: RecordedServer[]; 
 /**
  * MCP client over stdio (python3 on the image): starts one server from a spec file, initializes,
  * lists tools, runs `before_calls` (a shell command), makes `calls`, and writes a JSON report.
- * A call `{shell}` runs that shell command at its place instead. A call's PNG (an image content
- * item, else a PNG path in its text) is written to `copy_png_to`.
+ * A call `{shell}` runs that shell command at its place instead. A call with `until` is repeated
+ * every 2 s, for up to `until_s` seconds, until its text contains `until`. A call's PNG (an image
+ * content item, else a PNG path in its text) is written to `copy_png_to`.
  */
 const MCP_CLIENT_PY = String.raw`import base64, json, os, re, select, shutil, subprocess, sys, time
 spec = json.load(open(sys.argv[1]))
@@ -247,9 +249,13 @@ if spec.get("before_calls"): subprocess.run(spec["before_calls"], shell=True)
 for n, call in enumerate(spec.get("calls", [])):
     if "shell" in call:
         subprocess.run(call["shell"], shell=True); continue
-    res = rpc(10 + n, "tools/call", {"name": call["name"], "arguments": call["arguments"]}, 180)
-    body = res.get("result", {})
-    text = " ".join(c.get("text", "") for c in body.get("content", []) if c.get("type") == "text")
+    deadline = time.time() + call.get("until_s", 0)
+    while True:
+        res = rpc(10 + n, "tools/call", {"name": call["name"], "arguments": call["arguments"]}, 180)
+        body = res.get("result", {})
+        text = " ".join(c.get("text", "") for c in body.get("content", []) if c.get("type") == "text")
+        if not call.get("until") or call["until"] in text or time.time() >= deadline: break
+        time.sleep(2)
     entry = {"name": call["name"], "isError": bool(body.get("isError")) or "error" in res, "expect_error": bool(call.get("expect_error")), "text": (text or str(res.get("error", "")))[:1500]}
     images = [c["data"] for c in body.get("content", []) if c.get("type") == "image" and c.get("data")]
     m = re.search(r"(/[^\s\"']+\.png)", text)
@@ -468,7 +474,8 @@ async function callServers(vm: Vm, check: Checker, result: ProbeResult, outDir: 
         { name: "status", arguments: {} },
         { shell: displayWindowCommand(`http://127.0.0.1:${PAGE_PORT}/cua.html`) },
         { name: "screenshot", arguments: { force: true }, copy_png_to: `${WORK_DIR}/cua.png` },
-        { name: "list_windows", arguments: {} },
+        // Chrome can still be mapping the window, titled by its URL, after the 5 s (cmux run 44955837342's bake).
+        { name: "list_windows", arguments: {}, until: CUA_PAGE_TEXT, until_s: 30 },
       ],
     },
     [LEGACY_CU_SERVER]: {

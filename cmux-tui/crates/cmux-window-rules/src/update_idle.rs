@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 pub const MIN_IDLE_MINUTES: f64 = 1.0;
 
 /// What the app knows now.
-#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct IdleFacts {
     /// `updates.installWhenIdle`.
@@ -40,6 +40,18 @@ pub struct IdleFacts {
     pub running_turns: Option<u32>,
     /// Composers holding typed text not sent yet; none when unknown.
     pub unsent_drafts: Option<u32>,
+}
+
+impl Default for IdleFacts {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            idle_minutes: 15.0,
+            input_idle_seconds: None,
+            running_turns: None,
+            unsent_drafts: None,
+        }
+    }
 }
 
 /// Why the update waits.

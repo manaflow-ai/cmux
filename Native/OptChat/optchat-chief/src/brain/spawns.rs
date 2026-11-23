@@ -131,6 +131,88 @@ impl Brain {
             .count()
     }
 
+    /// The earliest wall-clock time (ms) one of the cloud checks has work:
+    /// the same rules as `cloud_tick`, `cloud_reap_tick`, `agent_key_tick` and
+    /// `fleet_tick` below (keep them together). A wait not started yet is due
+    /// now (its check starts it). `None`: no check waits for anything.
+    pub(super) fn cloud_due_ms(&self) -> Option<u64> {
+        if self.cloud_vms.is_none() && self.agent_keys.is_none() {
+            return None;
+        }
+        let now = now_ms();
+        let live = |s: &crate::state::SubRecord| {
+            matches!(
+                s.status,
+                SubStatus::Starting | SubStatus::Queued | SubStatus::Running
+            )
+        };
+        let subs = || self.state.spawns.values().flat_map(|r| r.subs.iter());
+        let mut due: Vec<u64> = Vec::new();
+        if self.chief.cloud_auto_pause && self.cloud_vms.is_some() {
+            let mut peers: Vec<String> = subs()
+                .filter(|s| !s.vm_deleted)
+                .filter_map(|s| s.peer.clone())
+                .filter(|p| !self.cloud_reaping.contains(p))
+                .collect();
+            peers.sort_unstable();
+            peers.dedup();
+            for peer in peers {
+                if self.live_on(&peer) > 0 || self.state.cloud_paused.contains(&peer) {
+                    continue;
+                }
+                if let Some(retry) = self.cloud_pause_retry.get(&peer) {
+                    due.push(retry.next_ms);
+                    continue;
+                }
+                let wait = if crate::subagents::is_agent_peer(&peer) {
+                    0
+                } else {
+                    self.cloud_idle.as_millis() as u64
+                };
+                let since = self.cloud_idle_since.get(&peer).copied().unwrap_or(now);
+                due.push(since.saturating_add(wait));
+            }
+        }
+        if self.cloud_vms.is_some() {
+            let reap = self.cloud_reap.as_millis() as u64;
+            for sub in subs().filter(|s| !s.vm_deleted && !live(s)) {
+                if let Some(peer) = sub.peer.as_deref()
+                    && crate::subagents::is_agent_peer(peer)
+                    && !self.cloud_reaping.contains(peer)
+                {
+                    due.push(sub.vm_idle_since.unwrap_or(now).saturating_add(reap));
+                }
+            }
+        }
+        if self.agent_keys.is_some() {
+            let grace = self.agent_key_grace.as_millis() as u64;
+            for sub in subs().filter(|s| s.agent_key.is_some() && !live(s)) {
+                if !self.agent_key_revoking.contains(&sub.id) {
+                    let since = self
+                        .agent_key_done_since
+                        .get(&sub.id)
+                        .copied()
+                        .unwrap_or(now);
+                    due.push(since.saturating_add(grace));
+                }
+            }
+        }
+        if self.fleet.is_some()
+            && subs().any(|s| {
+                !s.fleet_wait.is_empty()
+                    && !s.vm_deleted
+                    && matches!(s.status, SubStatus::Done | SubStatus::Reported)
+                    && !self.fleet_polling.contains(&s.id)
+            })
+        {
+            due.push(
+                self.fleet_polled_ms
+                    .saturating_add(self.fleet_every.as_millis() as u64),
+            );
+        }
+        due.into_iter().min()
+    }
+
     /// B4: pauses each cloud peer's VM after `cloud_idle`
     /// (`cloud.autoPauseIdleSeconds`, 60 s) with no live subagent on it,
     /// once; [`CLOUD_TICK`](super::control::CLOUD_TICK) runs it. A subagent
@@ -610,6 +692,7 @@ impl Brain {
     /// [`PER_AGENT`](crate::subagents::PER_AGENT) each subagent gets its
     /// own VM, `chief-sub-<id>`, at `size` or the size its task needs; a
     /// task that needs the Mac stays here unless `place` is `cloud`.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn register_spawn_sized(
         &mut self,
         tasks: &[String],
@@ -618,6 +701,7 @@ impl Brain {
         size: Option<&str>,
         machines: &[crate::place_route::Machine],
         family: crate::acpmux::Family,
+        taken: &[u64],
     ) -> Result<SpawnPlan, String> {
         if let Some(s) = size
             && !crate::subagents::SIZES.contains(&s)
@@ -686,10 +770,13 @@ impl Brain {
         // Never below an id already handed out: a reset or unreadable
         // counter must not give `a<N>` twice (persistent-ids-DESIGN.md).
         let prior = self.state.next_subagent;
-        let first = self
-            .state
-            .next_subagent
-            .max(highest_subagent(&self.state.spawns) + 1);
+        let first = free_subagent_run(
+            self.state
+                .next_subagent
+                .max(highest_subagent(&self.state.spawns) + 1),
+            tasks.len() as u64,
+            taken,
+        );
         let ids: Vec<String> = (0..tasks.len() as u64)
             .map(|k| format!("a{}", first + k))
             .collect();
@@ -3754,6 +3841,22 @@ fn user_text(msg: &serde_json::Map<String, Value>) -> String {
         .filter_map(|b| b.get("text").and_then(Value::as_str))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// The first of `count` numbers in a row, from `from` on, none of which is
+/// `taken` (an `a<N>` whose acpmux session name exists): acpmux refuses a
+/// session name it holds, so a counter that restarted below the old
+/// sessions (memory deleted, sessions kept) would fail every spawn.
+pub(crate) fn free_subagent_run(from: u64, count: u64, taken: &[u64]) -> u64 {
+    let mut first = from;
+    while let Some(hit) = taken
+        .iter()
+        .filter(|&&n| n >= first && n < first + count)
+        .max()
+    {
+        first = hit + 1;
+    }
+    first
 }
 
 /// The highest `a<N>` any recorded spawn gave, 0 when none did.

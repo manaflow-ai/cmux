@@ -239,6 +239,23 @@ export function playResize(node: HTMLElement, from: number): void {
   };
   animation.onfinish = release;
   animation.oncancel = release;
+  restartAfterSlowFirstFrame(node, animation);
+}
+
+/// A resize's first gap that comes slow (the toggle's own render and layout: a permission card's full
+/// command, gallery `agent-pane.transcript` permission-expanded, cost a 64 ms first frame under load)
+/// restarts its clock, as a fold's does (`settleOnDroppedFrames`), so the first frame the reader sees
+/// moved is near the start rather than most of the way. Two frame callbacks, once per resize.
+function restartAfterSlowFirstFrame(node: HTMLElement, animation: Animation): void {
+  const view = node.ownerDocument.defaultView;
+  if (!view?.requestAnimationFrame) return;
+  view.requestAnimationFrame((first) =>
+    view.requestAnimationFrame((now) => {
+      if (resizing.get(node) !== animation) return;
+      const gap = now - first;
+      if (gap > FOLD_FRAME_MS * 1.5) restartClock(node, animation, gap - FOLD_FRAME_MS);
+    }),
+  );
 }
 
 /// Stops the resize `node` is playing, if any (`playResize`), leaving it at the height it lays out at.

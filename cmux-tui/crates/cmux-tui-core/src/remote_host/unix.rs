@@ -44,6 +44,7 @@ const QUIT_REASON: &str = "cmux Remote was quit; it starts again with `cmux remo
 const QUIT_INTENT: &str = "person quit cmux Remote";
 
 /// What the person turned on (`config.json`, kept for the next daemon start).
+/// The app sends its switches at every launch; until then this file is the last word.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct RemoteConfig {
     #[serde(default)]
@@ -249,6 +250,13 @@ impl RemoteHostSupervisor {
         if let Some(value) = update.get("headless").and_then(Value::as_bool) {
             config.headless = value;
         }
+        if previous.computer_use && !config.computer_use {
+            // Only the app turns it off (its Computer Use mode `off`, or a managed
+            // setting): never silent, so a switch nobody meant to flip shows in the log.
+            eprintln!(
+                "cmux-tui: cmux Remote: Computer Use turned off by the app (Settings > Computer Use mode is off, or a managed setting)"
+            );
+        }
         *lock(&self.inner.config) = config.clone();
         if let Some(paths) = lock(&self.inner.paths).clone() {
             write_config(&paths.config(), &config);
@@ -296,7 +304,7 @@ impl RemoteHostSupervisor {
             // Nothing turned on (Computer Use off or Legacy, and signed out of Screen Sharing):
             // no host starts for a request, so an off switch never runs cmux Remote.
             if !lock(&self.inner.config).wanted() {
-                return Err("cmux Remote is off: turn on Computer Use (Upstream driver) or sign in for Screen Sharing".into());
+                return Err(OFF.into());
             }
             // `cmux remote-host restart` is the person's explicit start. Any other request
             // (an agent's, the app's hourly anchor) never starts a host the person quit.
@@ -949,11 +957,27 @@ fn mint_secret() -> Result<String, String> {
     Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
+/// The saved switches. No file is the defaults (nothing on until the app sends its
+/// switches); a file that cannot be read or parsed is said in the log, never
+/// turned into everything off with nothing shown.
 fn read_config(path: &Path) -> RemoteConfig {
-    std::fs::read(path)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-        .unwrap_or_default()
+    match std::fs::read(path) {
+        Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|error| {
+            eprintln!(
+                "cmux-tui: cmux Remote: {} is not valid ({error}); nothing on until the app sends its switches",
+                path.display()
+            );
+            RemoteConfig::default()
+        }),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => RemoteConfig::default(),
+        Err(error) => {
+            eprintln!(
+                "cmux-tui: cmux Remote: cannot read {} ({error}); nothing on until the app sends its switches",
+                path.display()
+            );
+            RemoteConfig::default()
+        }
+    }
 }
 
 fn write_config(path: &Path, config: &RemoteConfig) {
@@ -994,6 +1018,10 @@ fn write_private_checked(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     std::fs::rename(&temporary, path)
 }
 
+/// Why a request found nothing turned on (Computer Use off, and signed out of Screen Sharing).
+/// Callers read "is off" in it as the off state.
+const OFF: &str = "Computer Use is off. Turn it on in Settings > Computer Use.";
+
 /// Whether this cmux build embeds cmux Remote (`CMUX_REMOTE_APP`, or the app
 /// bundle that holds this daemon). Never starts or stages it.
 fn bundled() -> bool {
@@ -1017,9 +1045,16 @@ impl crate::mux::Mux {
     /// Lets this daemon run cmux Remote (macOS): the host for the daemon on
     /// `daemon_socket`, with durable state beside the daemon's own.
     pub fn configure_remote_host(self: &Arc<Self>, daemon_socket: &Path) {
-        // Linux runs Computer Use in the daemon's own worker, not cmux Remote.
+        // Linux runs Computer Use in the daemon's own worker, not cmux Remote. So does a Mac
+        // whose cmux build embeds no cmux Remote (Release and NIGHTLY): its worker runs in the
+        // Screen Sharing helper (computer_use_host/macos.rs). cmux Remote stays configured for
+        // its status and app permissions either way.
         #[cfg(target_os = "linux")]
         self.configure_computer_use(daemon_socket);
+        #[cfg(target_os = "macos")]
+        if !bundled() {
+            self.configure_computer_use(daemon_socket);
+        }
         let Some(state_root) = crate::platform::workspace_state_dir()
             .and_then(|sessions| sessions.parent().map(Path::to_path_buf))
         else {
