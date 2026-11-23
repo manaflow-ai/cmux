@@ -414,6 +414,53 @@ class Evidence(unittest.TestCase):
         self.assertEqual(again["linux"], label)
         self.assertNotIn(label, again[runner_pools.DEAD_KEY])
 
+    def gcp_stall_snapshot(self, **idle):
+        label = "cmux-fleet-linux-x64"
+        snapshot = copy.deepcopy(RECORDED)
+        # 2026-11-21 23:46Z: 19 queued on the GCP label beside 428 available and 309 busy runners.
+        snapshot["pools"][label] = {"queued": 19, "running": 309, "reserved_queued": 0, "oldest_queued_minutes": 12,
+                                    **idle}
+        snapshot["label_started"] = {label: runner_pools.iso(SNAPSHOT_AT - dt.timedelta(minutes=1))}
+        return label, snapshot
+
+    def test_an_owned_label_with_idle_runners_is_not_full_while_jobs_wait(self) -> None:
+        # Detector: a few jobs the pool never takes must not move every x64 pool to Blacksmith while hundreds of
+        # its runners are idle. Leo, 2026-11-19, on Blacksmith: "stop ... relying on it".
+        label, snapshot = self.gcp_stall_snapshot(online=709, busy=309, idle=400)
+        dead, started, notes = runner_pools.label_evidence(None, snapshot, now=NOW)
+        self.assertNotIn(label, dead)
+        self.assertIn(label, started)
+        self.assertTrue(any("400 runners idle" in note for note in notes))
+        pools = runner_pools.load_pools()
+        # A full mark an earlier pass wrote clears now.
+        marked = {runner_pools.DEAD_KEY: {label: runner_pools.iso(NOW - dt.timedelta(minutes=5))}}
+        value, _ = runner_pools.reconcile(marked, pools, dead_now=dead, served_now=started, now=NOW,
+                                          covered=runner_pools.evidence_covers(None, snapshot, pools, now=NOW))
+        for name in ("linux", "linux_2", "linux_8", "linux_16"):
+            self.assertEqual(value[name], label, name)
+
+    def test_an_owned_label_with_no_idle_runner_spills_once_a_job_waited(self) -> None:
+        for idle in (0, runner_pools.OWNED_IDLE_HEADROOM):
+            with self.subTest(idle=idle):
+                label, snapshot = self.gcp_stall_snapshot(online=309 + idle, busy=309, idle=idle)
+                dead, started, _ = runner_pools.label_evidence(None, snapshot, now=NOW)
+                self.assertIn(label, dead)
+                self.assertNotIn(label, started)
+                pools = runner_pools.load_pools()
+                value, _ = runner_pools.reconcile({}, pools, dead_now=dead, served_now=started, now=NOW,
+                                                  covered=runner_pools.evidence_covers(None, snapshot, pools, now=NOW))
+                self.assertEqual(value["linux"], "blacksmith-4vcpu-ubuntu-2404")
+                self.assertEqual(value["linux_16"], "blacksmith-16vcpu-ubuntu-2404")
+
+    def test_idle_runners_do_not_count_before_the_stall_cutoff_and_a_bad_reading_keeps_the_queue_rule(self) -> None:
+        label, quiet = self.gcp_stall_snapshot(idle=0)
+        quiet["pools"][label]["oldest_queued_minutes"] = 2
+        self.assertNotIn(label, runner_pools.label_evidence(None, quiet, now=NOW)[0])
+        for reading in ({}, {"idle": None}, {"idle": "400"}, {"idle": True}, {"idle": -1}):
+            with self.subTest(reading=reading):
+                label, snapshot = self.gcp_stall_snapshot(**reading)
+                self.assertIn(label, runner_pools.label_evidence(None, snapshot, now=NOW)[0])
+
     def test_an_old_snapshot_does_not_make_the_gcp_pool_full(self) -> None:
         # 2026-11-22 09:37Z: the 09:02Z snapshot (35 min old) read cmux-fleet-linux-x64 1 queued, oldest 0 min, 884
         # running, a start at 09:03Z. 0 + 35 min of snapshot age crossed the cutoff, and every x64 pool went to
