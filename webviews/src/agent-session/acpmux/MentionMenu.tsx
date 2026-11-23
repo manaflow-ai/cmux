@@ -70,7 +70,7 @@ export function MentionMenu({
           <>
             <span className="acpmux-mention-icon" data-mention-icon={item.kind}>
               <Icon
-name={item.kind === "harness" ? "agent.chat" : item.kind === "tool" ? item.icon : item.kind}
+                name={item.kind === "harness" ? "agent.chat" : item.kind === "tool" ? item.icon : item.kind}
                 size={14}
               />
             </span>

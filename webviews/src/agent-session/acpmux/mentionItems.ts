@@ -321,7 +321,12 @@ export function mentionSelection(
   const chosen = activeKey === undefined ? -1 : items.findIndex((item) => item.key === activeKey);
   if (chosen >= 0) return chosen;
   if (items.length === 0) return -1;
-  return pending ? Math.max(0, items.findIndex((item) => item.kind !== "extension" || providerAsked)) : 0;
+  return pending
+    ? Math.max(
+        0,
+        items.findIndex((item) => item.kind !== "extension" || providerAsked),
+      )
+    : 0;
 }
 
 /// What a pick writes in place of the `@word`: a file's or folder's `@path ` (a folder's with its

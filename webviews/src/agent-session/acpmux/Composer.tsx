@@ -1437,8 +1437,7 @@ function ComposerFrame({
   // are always offered, so the menu always has rows.
   // Installed extensions' mention providers (`@pr`), composer/extensionMentions.ts.
   const mentionPrefixes = useExtensionMentionPrefixes();
-  const mentionTyped =
-    !open && !recalling && !facts.mentionDismissed ? facts.mention : undefined;
+  const mentionTyped = !open && !recalling && !facts.mentionDismissed ? facts.mention : undefined;
   const mentionWord = mentionTyped?.query;
   const extensionMentions = useExtensionMentions(mentionWord, mentionPrefixes);
   // Only a specific word asks for files (mentionItems.ts mentionWantsFiles): `@b` lists the plugins.
