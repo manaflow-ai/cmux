@@ -1283,6 +1283,27 @@
                 "key": "settings.choice.groupBackgroundSections",
                 "text": "Sections"
               }
+            },
+            {
+              "value": "chip",
+              "title": {
+                "key": "settings.choice.groupBackgroundChip",
+                "text": "Chips"
+              }
+            },
+            {
+              "value": "tree",
+              "title": {
+                "key": "settings.choice.groupBackgroundTree",
+                "text": "Tree"
+              }
+            },
+            {
+              "value": "card",
+              "title": {
+                "key": "settings.choice.groupBackgroundCard",
+                "text": "Cards"
+              }
             }
           ],
           "default": "folder",
@@ -1301,7 +1322,14 @@
             "sections",
             "section",
             "heading",
-            "plain"
+            "plain",
+            "chip",
+            "chromium",
+            "rail",
+            "tree",
+            "guide",
+            "card",
+            "cards"
           ],
           "swift_enum": {
             "name": "SidebarGroupBackgroundStyle",
@@ -1974,6 +2002,56 @@
           ],
           "swift_owner": {
             "type": "SidebarNavigationSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "sidebar.sections.hidden",
+          "name": "sectionsHidden",
+          "note": "Sidebar sections to leave out, by section id or stable key (cmux-layout-reducer sidebar_section_customization.rs plans the projection; SidebarProjectionCustomizationResolver reads it; docs/cmux-next/sidebar-customization.md).",
+          "title": {
+            "key": "settings.sidebar.sections.hidden",
+            "text": "Hidden Sections"
+          },
+          "help": {
+            "key": "settings.sidebar.sections.hidden.help",
+            "text": "Sidebar sections to hide, by id. The section of the selected workspace always shows."
+          },
+          "kind": "string_list",
+          "default": [],
+          "keywords": [
+            "sidebar",
+            "section",
+            "hide",
+            "hidden"
+          ],
+          "swift_owner": {
+            "type": "SidebarSectionIDsSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "sidebar.sections.order",
+          "name": "sectionsOrder",
+          "note": "Sidebar sections first in their region (top, middle, bottom), by section id or stable key; never across regions (sidebar_section_customization.rs).",
+          "title": {
+            "key": "settings.sidebar.sections.order",
+            "text": "Section Order"
+          },
+          "help": {
+            "key": "settings.sidebar.sections.order.help",
+            "text": "Sidebar sections to show first in their part of the sidebar, in this order, by id."
+          },
+          "kind": "string_list",
+          "default": [],
+          "keywords": [
+            "sidebar",
+            "section",
+            "order",
+            "sort"
+          ],
+          "swift_owner": {
+            "type": "SidebarSectionIDsSetting",
             "prefixed": true
           }
         }

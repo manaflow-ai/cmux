@@ -2,5 +2,3 @@
 #   <control> | <enabled|disabled> | <floor>
 # A failing reading passes while it reads at least the floor; raise or drop a line as fixes land.
 # Each run prints its worst reading per control as 'native-control-contrast baseline:' lines.
-# Hot Dog Stand's own text on a popover's glass over a black page: the caller's ink (textPrimary), at the 90% veil cap.
-SwiftUI Button (cmuxPressFill) | enabled | 4.16

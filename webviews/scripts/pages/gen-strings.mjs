@@ -74,7 +74,11 @@ export const PAGES = {
   // its keys and translations the Swift steps' (CmuxNextOnboarding) it replaces.
   onboarding: {
     out: "webviews/src/pages/onboarding/generated/strings.json",
-    catalogs: [{ file: "webviews/src/pages/onboarding/Localizable.xcstrings" }],
+    catalogs: [
+      { file: "webviews/src/pages/onboarding/Localizable.xcstrings" },
+      // The provider readiness rows' sign-in (logins done right): the shared sign-in card's keys.
+      { file: "webviews/src/pages/shared/signIn/Localizable.xcstrings" },
+    ],
   },
   gallery: {
     out: "webviews/src/gallery/generated/strings.json",
@@ -108,6 +112,11 @@ export const PAGES = {
   pageErrors: {
     out: "webviews/src/pages/shared/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/shared/Localizable.xcstrings" }],
+  },
+  // The device sign-in card and account list (Settings > Accounts, onboarding): their own table.
+  signIn: {
+    out: "webviews/src/pages/shared/signIn/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/shared/signIn/Localizable.xcstrings" }],
   },
   variantPick: {
     out: "webviews/src/ui/variant-pick/generated/strings.json",
@@ -174,6 +183,8 @@ export const PAGES = {
         file: `${sources}/CmuxNextActions/RemoteActions.xcstrings`,
         keys: () => ["action.device.add"],
       },
+      // Settings > Accounts' device sign-in and account list (logins done right).
+      { file: "webviews/src/pages/shared/signIn/Localizable.xcstrings" },
     ],
   },
   history: {
@@ -360,30 +371,10 @@ export const PAGES = {
     out: "webviews/src/pages/home-channels/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/home-channels/Localizable.xcstrings" }],
   },
-  // The cards drawn in a Home chat (home-messages/cards: agent pills, link previews, MCP connect,
-  // first run, header toggles), with the Swift keys they replace; their table lives next to them.
-  "home-messages-cards": {
-    out: "webviews/src/pages/home-messages/cards/generated/strings.json",
-    catalogs: [{ file: "webviews/src/pages/home-messages/cards/Localizable.xcstrings" }],
-  },
-  // The Messages transcript and composer (home-messages/transcript): the Swift transcript's keys, so
-  // their translations carry over. The parts it reuses from Channels read Channels' table beside it.
-  "home-messages-transcript": {
-    out: "webviews/src/pages/home-messages/transcript/generated/strings.json",
-    catalogs: [{ file: "webviews/src/pages/home-messages/transcript/Localizable.xcstrings" }],
-  },
-  // The docked Home's Messages page (cmux-page://cmux.home-messages/): its own table next to it (the
-  // native list's `home.*` and `sidebar.*` keys), and the Channels page's connect strings for the
-  // daemon gate it shares.
-  "home-messages": {
-    out: "webviews/src/pages/home-messages/generated/strings.json",
-    catalogs: [
-      { file: "webviews/src/pages/home-messages/Localizable.xcstrings" },
-      {
-        file: "webviews/src/pages/home-channels/Localizable.xcstrings",
-        keys: (all) => all.filter((key) => key.startsWith("connect.")),
-      },
-    ],
+  // Home's Set Up cmux card (setup-card), with the Swift keys it replaces; its table lives next to it.
+  "setup-card": {
+    out: "webviews/src/pages/setup-card/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/setup-card/Localizable.xcstrings" }],
   },
   // The agent pane's rows the channels Home reuses for agent runs (tool calls, shell blocks,
   // diffs, Markdown): only their keys, installed as the pane's table (agent-session/acpmux/i18n.ts).
@@ -485,12 +476,6 @@ export const PAGES = {
   viewerEmpty: {
     out: "webviews/src/viewer-empty/generated/strings.json",
     catalogs: [{ file: "webviews/src/viewer-empty/Localizable.xcstrings" }],
-  },
-  // The Messages page's sheets and New Message (home-messages/sheets), keyed as the Swift
-  // CmuxNextHome catalog they replace; the page's own table takes this catalog when it lands.
-  "home-messages-sheets": {
-    out: "webviews/src/pages/home-messages/sheets/generated/strings.json",
-    catalogs: [{ file: "webviews/src/pages/home-messages/sheets/Localizable.xcstrings" }],
   },
 };
 

@@ -427,7 +427,8 @@
               "appearance.accent",
               "appearance.selection",
               "appearance.themeFile",
-              "appearance.highlightColor"
+              "appearance.highlightColor",
+              "customize.doctorNotice"
             ],
             "title" : {
               "key" : "settings.group.appTheme",
@@ -526,6 +527,17 @@
             }
           },
           {
+            "key" : "sidebar.3",
+            "rows" : [
+              "sidebar.sections.hidden",
+              "sidebar.sections.order"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.sidebarSections",
+              "text" : "Sidebar Sections"
+            }
+          },
+          {
             "key" : "settings.group.workspaceRows",
             "rows" : [
               "sidebar.workspaceRow.icon",
@@ -549,7 +561,7 @@
             }
           },
           {
-            "key" : "sidebar.4",
+            "key" : "sidebar.5",
             "rows" : [
               "sidebar.showSpaces",
               "sidebar.spacesPosition",
@@ -568,7 +580,7 @@
             }
           },
           {
-            "key" : "sidebar.5",
+            "key" : "sidebar.6",
             "rows" : [
               "sidebar.hoverCards.enabled",
               "sidebar.hoverCards.delay",
@@ -586,7 +598,7 @@
             }
           },
           {
-            "key" : "sidebar.6",
+            "key" : "sidebar.7",
             "rows" : [
               "sidebar.hoverCards.groups.workspaceGroups",
               "sidebar.hoverCards.groups.tabGroups",
@@ -1481,7 +1493,8 @@
           {
             "key" : "settings.group.agentTools",
             "rows" : [
-              "agents.cmuxMcp"
+              "agents.cmuxMcp",
+              "agents.appControl"
             ],
             "title" : {
               "key" : "settings.group.agentTools",
@@ -1931,6 +1944,39 @@
 
         ],
         "aliases" : [
+          "server"
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.screenSharing",
+            "rows" : [
+              "macScreen.onlyPersonStartsViewing"
+            ],
+            "title" : {
+              "key" : "settings.group.screenSharing",
+              "text" : "Screen Sharing"
+            }
+          }
+        ],
+        "id" : "devices",
+        "lead" : [
+          "devices"
+        ],
+        "symbol" : "laptopcomputer",
+        "title" : {
+          "key" : "settings.category.devices",
+          "text" : "Devices"
+        },
+        "trail" : [
+          "server",
+          "tailnet"
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
 
         ],
         "groups" : [
@@ -2066,6 +2112,29 @@
 
         ],
         "groups" : [
+
+        ],
+        "id" : "extensions",
+        "lead" : [
+          "extensions"
+        ],
+        "symbol" : "puzzlepiece.extension",
+        "title" : {
+          "key" : "settings.group.extensions",
+          "text" : "Extensions"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
           {
             "key" : "settings.group.cloudWorkspaces",
             "rows" : [
@@ -2122,32 +2191,22 @@
 
         ],
         "aliases" : [
-          "server"
+
         ],
         "groups" : [
-          {
-            "key" : "settings.group.screenSharing",
-            "rows" : [
-              "macScreen.onlyPersonStartsViewing"
-            ],
-            "title" : {
-              "key" : "settings.group.screenSharing",
-              "text" : "Screen Sharing"
-            }
-          }
+
         ],
-        "id" : "devices",
+        "id" : "integrations",
         "lead" : [
-          "devices"
+          "integrationsHub"
         ],
-        "symbol" : "laptopcomputer",
+        "symbol" : "link",
         "title" : {
-          "key" : "settings.category.devices",
-          "text" : "Devices"
+          "key" : "settings.category.integrations",
+          "text" : "Integrations"
         },
         "trail" : [
-          "server",
-          "tailnet"
+
         ]
       },
       {
@@ -2462,7 +2521,8 @@
       {
         "categories" : [
           "accounts",
-          "mobile"
+          "mobile",
+          "devices"
         ],
         "id" : "devices",
         "title" : {
@@ -2476,9 +2536,10 @@
           "menus",
           "computerUse",
           "mcpServers",
+          "extensions",
           "cloud",
           "keys",
-          "devices",
+          "integrations",
           "import",
           "privacy",
           "advanced",
@@ -9887,7 +9948,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.updates",
@@ -13193,7 +13254,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "adaptive",
+      "default" : "openai",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.computerUse",
@@ -28726,6 +28787,144 @@
       "title" : {
         "key" : "settings.appearance.highlightColor",
         "text" : "Highlight Color"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.appTheme",
+        "text" : "App Theme"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "customize.doctorNotice",
+      "keywords" : [
+        "customize",
+        "customization",
+        "doctor",
+        "notice",
+        "toast",
+        "theme",
+        "layer",
+        "broken",
+        "file"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "customize",
+        "doctorNotice"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.customize.doctorNotice.summary",
+        "text" : "Tell me when a file or layer changes my setup"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:customize.doctorNotice"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.customize.doctorNotice",
+        "text" : "Customization notices"
       },
       "validation" : "portable"
     },
@@ -72456,7 +72655,10 @@
         "auto",
         "glass",
         "solid",
-        "sections"
+        "sections",
+        "chip",
+        "tree",
+        "card"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -72495,6 +72697,27 @@
             "text" : "Sections"
           },
           "value" : "sections"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupBackgroundChip",
+            "text" : "Chips"
+          },
+          "value" : "chip"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupBackgroundTree",
+            "text" : "Tree"
+          },
+          "value" : "tree"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupBackgroundCard",
+            "text" : "Cards"
+          },
+          "value" : "card"
         }
       ],
       "consumers" : [
@@ -72527,7 +72750,14 @@
         "sections",
         "section",
         "heading",
-        "plain"
+        "plain",
+        "chip",
+        "chromium",
+        "rail",
+        "tree",
+        "guide",
+        "card",
+        "cards"
       ],
       "kind" : "choice",
       "page_hidden" : false,
@@ -74796,6 +75026,320 @@
         "text" : "Wrap Around"
       },
       "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "recents"
+        ],
+        [
+          "projects",
+          "pinned"
+        ]
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.sections.hidden.help",
+        "text" : "Sidebar sections to hide, by id. The section of the selected workspace always shows."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.sections.hidden",
+      "keywords" : [
+        "sidebar",
+        "section",
+        "hide",
+        "hidden"
+      ],
+      "kind" : "string_list",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "sections",
+        "hidden"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "recents",
+        [
+          ""
+        ],
+        [
+          "pinned",
+          "pinned"
+        ],
+        [
+          1
+        ],
+        {
+          "hidden" : [
+            "recents"
+          ]
+        }
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:sidebar.sections.hidden"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.sidebar.sections.hidden",
+        "text" : "Hidden Sections"
+      },
+      "validation" : "domain:sidebar_section_ids"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "recents"
+        ],
+        [
+          "projects",
+          "pinned"
+        ]
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.sections.order.help",
+        "text" : "Sidebar sections to show first in their part of the sidebar, in this order, by id."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.sections.order",
+      "keywords" : [
+        "sidebar",
+        "section",
+        "order",
+        "sort"
+      ],
+      "kind" : "string_list",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "sections",
+        "order"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "recents",
+        [
+          ""
+        ],
+        [
+          "pinned",
+          "pinned"
+        ],
+        [
+          1
+        ],
+        {
+          "hidden" : [
+            "recents"
+          ]
+        }
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:sidebar.sections.order"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.sidebar.sections.order",
+        "text" : "Section Order"
+      },
+      "validation" : "domain:sidebar_section_ids"
     },
     {
       "accepts" : [
@@ -104245,6 +104789,164 @@
     },
     {
       "accepts" : [
+        "standard",
+        "solid",
+        "flat"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.glass",
+            "text" : "Glass"
+          },
+          "value" : "standard"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.solid",
+            "text" : "Solid"
+          },
+          "value" : "solid"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chromeStyle.flat",
+            "text" : "Flat"
+          },
+          "value" : "flat"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "standard",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.banners",
+        "text" : "Banners and Sound"
+      },
+      "help" : {
+        "key" : "settings.notifications.toastStyle.help",
+        "text" : "How toasts and prompts draw: glass, an opaque surface, or flat with a thin edge and no shadow."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "notifications.toast.style",
+      "keywords" : [
+        "toast",
+        "theme",
+        "flat",
+        "glass"
+      ],
+      "kind" : "choice",
+      "page_hidden" : true,
+      "path" : [
+        "notifications",
+        "toast",
+        "style"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : false,
+          "operations" : [
+
+          ],
+          "reason" : "a theme hook, set in cmux.json by themes; the Toast Playground picks a style on the page",
+          "row" : null
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.notifications.toastStyle",
+        "text" : "Toast Style"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -115157,20 +115859,12 @@
     },
     {
       "accepts" : [
-        "ask",
         "on",
         "off"
       ],
       "agent_refusal" : "userOnly",
       "agent_settable" : false,
       "choices" : [
-        {
-          "title" : {
-            "key" : "settings.agents.cmuxMcp.ask",
-            "text" : "Ask"
-          },
-          "value" : "ask"
-        },
         {
           "title" : {
             "key" : "settings.agents.cmuxMcp.on",
@@ -115189,7 +115883,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "ask",
+      "default" : "on",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.agentTools",
@@ -115197,7 +115891,7 @@
       },
       "help" : {
         "key" : "settings.agents.cmuxMcp.help",
-        "text" : "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. Until you choose, they get nothing. cmux never changes your agents’ own settings."
+        "text" : "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. cmux never changes your agents’ own settings."
       },
       "kept_on_reset_all" : false,
       "key" : "agents.cmuxMcp",
@@ -115209,8 +115903,7 @@
         "claude",
         "codex",
         "coding agents",
-        "agents",
-        "onboarding"
+        "agents"
       ],
       "kind" : "choice",
       "page_hidden" : false,
@@ -115315,6 +116008,161 @@
       "title" : {
         "key" : "settings.agents.cmuxMcp",
         "text" : "cmux Tools for Agents in cmux"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "change",
+        "read"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.agents.appControl.change",
+            "text" : "Read and Change"
+          },
+          "value" : "change"
+        },
+        {
+          "title" : {
+            "key" : "settings.agents.appControl.read",
+            "text" : "Read Only"
+          },
+          "value" : "read"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "change",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentTools",
+        "text" : "cmux Tools"
+      },
+      "help" : {
+        "key" : "settings.agents.appControl.help",
+        "text" : "Read Only: agents in cmux’s terminals and agent chats can read cmux but not change it: no new workspaces, tabs or panes, no typing into other terminals, no settings changes."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.appControl",
+      "keywords" : [
+        "agents",
+        "remote control",
+        "drive",
+        "control",
+        "read only",
+        "automation",
+        "socket",
+        "cli",
+        "permission"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "appControl"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.agents.appControl.summary",
+        "text" : "Whether agents in cmux may drive and change the app"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agents.appControl"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.appControl",
+        "text" : "Agents Can Change cmux"
       },
       "validation" : "portable"
     },
