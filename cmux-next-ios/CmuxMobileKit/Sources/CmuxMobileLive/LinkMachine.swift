@@ -224,7 +224,20 @@ public struct LinkMachine: Sendable {
             }
             // A link held awake was never suspended (a call kept the app
             // running): probe it as on any foreground, no redial.
-            if wasBackgrounded, isActive, awakeHolds == 0 {
+            guard awakeHolds == 0 else { return handle(.foreground) }
+            // Back from the background a connected link is kept beside the
+            // redial (make before break), not closed first: after a short
+            // background (another app for a few seconds) the Mac still holds
+            // it, its first probe answers in one round trip and the chat goes
+            // on with nothing re-attached. After a long one it is silent, and
+            // the redial, sent at the same moment, wins as before.
+            if wasBackgrounded, keepsStandby, case .connected = phase {
+                let kept = generation
+                let effects = dropStandby() + [.keepStandby] + dial(attempt: 1, closing: false)
+                standby = kept
+                return effects
+            }
+            if wasBackgrounded, isActive {
                 return dial(attempt: 1, closing: true)
             }
             return handle(.foreground)

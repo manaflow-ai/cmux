@@ -217,14 +217,18 @@ private final class FakeMac: @unchecked Sendable {
     private let lock = NSLock()
     private var oneWayLatency: Duration = .milliseconds(40)
     private var acceptsParks = false
-
-    init(macID: String) { self.macID = macID }
+    private var linkEpoch = 0
 
     /// The Mac accepts a park (PROTOCOL.md "Parked link"); off, it refuses as an older Mac.
     var parks: Bool {
         get { lock.withLock { acceptsParks } }
         set { lock.withLock { acceptsParks = newValue } }
     }
+
+    /// The links the Mac holds now; `forgetLinks` drops them (a long background:
+    /// the phone's old link is gone, so the chain measured is a fresh link's).
+    var epoch: Int { lock.withLock { linkEpoch } }
+    func forgetLinks() { lock.withLock { linkEpoch += 1 } }
 
     private var dialCount = 0
     private var keyArrival: ContinuousClock.Instant?
@@ -306,6 +310,7 @@ private final class ChainLink: ParkableMacLink, @unchecked Sendable {
     private let oneWay: Duration
     private let lock = NSLock()
     private var nextID: UInt32 = 1
+    private let epoch: Int
     private var paired = false
     private var closed = false
     private var held: [@Sendable () -> Void] = []
@@ -324,6 +329,7 @@ private final class ChainLink: ParkableMacLink, @unchecked Sendable {
     init(mac: FakeMac) {
         let delay = mac.oneWay
         self.mac = mac
+        epoch = mac.epoch
         oneWay = delay
         (states, stateContinuation) = AsyncStream.makeStream()
         stateContinuation.yield(.connected(.wireGuard, .direct, rttMillis: rttMillis))
@@ -354,7 +360,15 @@ private final class ChainLink: ParkableMacLink, @unchecked Sendable {
         return rttMillis
     }
 
-    func probe(timeout: Duration) async throws -> UInt32? { try await ping() }
+    /// A link the Mac forgot never answers (the probe's bound is on the test clock, so it waits
+    /// until the link closes).
+    func probe(timeout: Duration) async throws -> UInt32? {
+        if epoch != mac.epoch {
+            try await Task.sleep(for: .seconds(3600))
+            return nil
+        }
+        return try await ping()
+    }
 
     func park(hold: Duration, timeout: Duration) async -> Bool {
         guard mac.parks else { return false }
@@ -671,6 +685,7 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
                 let liveTurn = FakeAcpmux.liveTurn(reattach)
                 marks.reset()
                 mac.lockstep.hold()
+                mac.forgetLinks()
                 live.background()
                 marks.mark("resume")
                 // A suspend iOS ended the link of: `.resume` replaces it (a short one keeps it).
