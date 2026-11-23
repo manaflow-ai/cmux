@@ -378,23 +378,10 @@ extension AgentTabStore {
             guard let services, let (tab, _) = services.locateTab(key.key, onMachine: key.machine) else { return [] }
             return services.machines.daemon(forTab: tab).store.tabFolders
         }
-        tabs.remoteMachineFoldersScoped = { [weak services] key in
+        tabs.remoteMachineDiskScoped = { [weak services] key in
             guard let services, let (tab, _) = services.locateTab(key.key, onMachine: key.machine),
-                  let daemon = try? services.machines.agentDaemon(forTab: tab), !daemon.isLocal,
-                  daemon.supports(DaemonCapability.agentSessionFolders.rawValue) else { return [] }
-            let client = AgentSessionAttachClient(surface: tab.surface.rawValue, endpoint: AgentTabRemoteHost.endpoint(on: daemon))
-            let folders = (try? await client.folders().folders) ?? []
-            await client.close()
-            return folders
-        }
-        tabs.remoteListFolderScoped = { [weak services] key, path, files in
-            guard let services, let (tab, _) = services.locateTab(key.key, onMachine: key.machine),
-                  let daemon = try? services.machines.agentDaemon(forTab: tab), !daemon.isLocal,
-                  daemon.supports(DaemonCapability.agentSessionListDir.rawValue) else { return nil }
-            let client = AgentSessionAttachClient(surface: tab.surface.rawValue, endpoint: AgentTabRemoteHost.endpoint(on: daemon))
-            let data = try? await client.listDirectory(path, files: files)
-            await client.close()
-            return data.flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] }
+                  let daemon = try? services.machines.agentDaemon(forTab: tab), !daemon.isLocal else { return nil }
+            return AgentRemoteMachineDisk(surface: tab.surface.rawValue, endpoint: AgentTabRemoteHost.endpoint(on: daemon), supports: daemon.supports)
         }
         tabs.shareMachineWithMeScoped = { [weak services, weak tabs] key in
             guard let services, let session = services.machines.session(key.machine) else {

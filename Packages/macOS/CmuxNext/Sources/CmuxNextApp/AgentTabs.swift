@@ -251,10 +251,7 @@ final class AgentTabStore {
     var remoteFoldersScoped: (@MainActor (AgentTabKey) -> [String])?
     /// The folders the machine of tab `key` lists itself (`agent-session-folders`: its work folder,
     /// then the folders under it), for the same project list; none from an older daemon.
-    var remoteMachineFoldersScoped: (@MainActor (AgentTabKey) async -> [String])?
-    /// One folder of the disk of the machine of tab `key` (`agent-session-list-dir`): its listing, or
-    /// nil when that machine's daemon cannot list (older, or not reachable).
-    var remoteListFolderScoped: (@MainActor (AgentTabKey, String?, Bool) async -> [String: Any]?)?
+    var remoteMachineDiskScoped: (@MainActor (AgentTabKey) -> AgentRemoteMachineDisk?)?
     /// Share with Me on the refused start of tab `key`'s chat: grants the signed-in person chats on
     /// its Cloud machine (``CloudCLICall/shareChatWithMe(machine:signedIn:socket:)``).
     var shareMachineWithMeScoped: (@MainActor (AgentTabKey) async -> AgentPaneMachineShare)?
@@ -613,16 +610,14 @@ final class AgentTabStore {
             model.onListRemoteProjects = { [weak self] query in
                 guard let self else { return [] }
                 let listed = remoteFoldersScoped?(resolvedRemoteKey(tabKey)) ?? []
-                let machine = await remoteMachineFoldersScoped?(resolvedRemoteKey(tabKey)) ?? []
+                let machine = await remoteMachineDiskScoped?(resolvedRemoteKey(tabKey))?.folders() ?? []
                 let folders = AgentRemoteStartFolders(listed: listed, machine: machine).merged
                 guard let query = query?.lowercased(), !query.isEmpty else { return folders }
                 return folders.filter { $0.lowercased().contains(query) }
             }
-            model.onListMachineFolder = { [weak self] path, files in
-                guard let self, let listed = await remoteListFolderScoped?(resolvedRemoteKey(tabKey), path, files) else {
-                    return ["error": ["code": "list_dir.unavailable", "message": "This machine cannot list its folders yet"]]
-                }
-                return listed
+            model.onListMachineFolder = { [weak self] path, files in // the chooser's listing, from that machine's own disk
+                guard let self, let disk = remoteMachineDiskScoped?(resolvedRemoteKey(tabKey)) else { return AgentRemoteMachineDisk.unavailable }
+                return await disk.list(path, files: files)
             }
             model.onShareMachineWithMe = { [weak self] in
                 guard let self, let shareMachineWithMeScoped else { return .refused(code: "unavailable", message: CloudShareStrings.notCloudMachine) }

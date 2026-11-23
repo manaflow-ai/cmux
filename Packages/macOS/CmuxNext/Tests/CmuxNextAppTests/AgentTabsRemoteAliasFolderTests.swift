@@ -22,7 +22,7 @@ struct AgentTabsRemoteAliasFolderTests {
         let provisional = AgentTabKey(machine: "mini", key: "tab_provisional")
         let view = try #require(tabs.view(for: provisional.key, machine: provisional.machine))
         tabs.remoteFoldersScoped = { $0.key == "tab_real" ? ["/repo"] : [] }
-        tabs.remoteMachineFoldersScoped = { _ in [] }
+        tabs.remoteMachineDiskScoped = { _ in nil }
         tabs.remoteCreations[provisional] = AgentTabPending(key: provisional.key, surface: .init(rawValue: 1))
         tabs.rekey(provisional.key, to: "tab_real", machine: provisional.machine)
         tabs.aliases.removeValue(forKey: provisional) // the settled tree no longer lists the provisional id
