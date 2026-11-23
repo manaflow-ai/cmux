@@ -1,5 +1,6 @@
 public import CmuxNextDaemon
 public import CmuxNextSettings
+import Foundation
 
 /// What the chat header shows from the chat's tab, read with `pane.tabState` and pushed as the
 /// `headerState` event when it changes (the page's header/headerState.ts): the pin the "..." menu's
@@ -29,6 +30,9 @@ public struct AgentPaneHeaderState: Equatable, Sendable {
     /// Which top-right icons show (Debug Settings `agentChat.headerIcons.contextual`), read like
     /// `sessionInfo`; the page's header/headerRelevance.ts applies it.
     public var headerIcons: AgentPaneHeaderIcons
+    /// Where the chat runs and its move's progress, as the app's Rust reducer views it (`place: {mode, at, cloudName?, move?}`), JSON
+    /// bytes the page reads; nil when the app has none. Re-sent on every step of a move.
+    public var placeData: Data?
     /// Rises with every change the App sees: a `pane.tabState` reply that reaches the page after a
     /// newer push (two channels) is older, and the page keeps the newer state.
     public var version = 0
@@ -52,7 +56,7 @@ public struct AgentPaneHeaderState: Equatable, Sendable {
             && pullRequest == other.pullRequest && workspace == other.workspace && sessionInfo == other.sessionInfo
             && headerControls == other.headerControls
             && headerMotion == other.headerMotion
-            && headerIcons == other.headerIcons
+            && headerIcons == other.headerIcons && placeData == other.placeData
     }
 
     var reply: [String: Any] { json.foundationObject as? [String: Any] ?? [:] }
@@ -63,7 +67,8 @@ public struct AgentPaneHeaderState: Equatable, Sendable {
          "inspector": .bool(sessionInfo), "headerControls": .string(headerControls.rawValue),
          "headerMotion": .string(headerMotion.rawValue), "headerIcons": .string(headerIcons.rawValue),
          "version": CmuxNextSettings.JSONValue(version),
-         "pullRequest": pullRequest?.json ?? .null, "workspace": workspace?.json ?? .null]
+         "pullRequest": pullRequest?.json ?? .null, "workspace": workspace?.json ?? .null,
+         "place": placeData.flatMap { try? JSONDecoder().decode(CmuxNextSettings.JSONValue.self, from: $0) } ?? .null]
     }
 }
 
