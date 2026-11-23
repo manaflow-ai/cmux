@@ -44,6 +44,11 @@ const VERBS: &[(&str, &str)] = &[
     ("move", "move"),
 ];
 
+/// The app's Cloud verb a short verb runs (`pause` → `pause-machine`), for its `--help`.
+pub(super) fn long_verb(short: &str) -> Option<&'static str> {
+    VERBS.iter().find(|(name, _)| *name == short).map(|(_, long)| *long)
+}
+
 /// The short verbs the VM API (vm.rs) also has: with no signed-in app to answer, they go there.
 const API_VERBS: &[&str] = &["ls", "list", "pause", "shutdown", "resume", "rm", "fork", "exec"];
 
@@ -412,6 +417,12 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         Err(None) => return None,
         Err(Some(error)) => return Some(super::wire::print_local_error(&error, global.output, 1)),
     };
+    if short.cloud_verb == "pause-machine" && short.tail.iter().any(|word| word == "--all") {
+        if short.named.is_some() || short.targeted {
+            return Some(usage(&global, "`--all` pauses every VM; it takes no name or --target"));
+        }
+        return Some(pause_all(&global, &listed));
+    }
     if short.cloud_verb == "list-machines"
         && short.tail.is_empty()
         && global.output == super::OutputMode::Human
@@ -450,6 +461,73 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         )),
         Resolved::Refused(error) => Some(super::wire::print_local_error(&error, global.output, 1)),
     }
+}
+
+/// The VMs `vm pause --all` pauses: every listed VM that is running (a paused, failed or
+/// still-creating one is left as it is), as (id, name).
+pub(super) fn pausable(listed: &Value) -> Vec<(String, String)> {
+    let rows = listed.get("machines").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
+    rows.iter()
+        .filter(|row| row.get("status").and_then(Value::as_str) == Some("running"))
+        .filter_map(|row| {
+            let id = row.get("machine_id").and_then(Value::as_str)?.to_owned();
+            let name = row
+                .get("title")
+                .and_then(Value::as_str)
+                .map_or_else(|| format!("vm:{id}"), super::wire::sanitize_remote_text);
+            Some((id, name))
+        })
+        .collect()
+}
+
+/// `cmux vm pause --all` (and `shutdown --all`): pause every running VM, one app `pause-machine`
+/// each, and say which paused and which did not. Leo, 2026-11-20 (ask-b97d36a28a): a mass pause.
+/// Exit 0 when every one paused (or none was running), 1 when any failed.
+fn pause_all(global: &GlobalArgs, listed: &Value) -> i32 {
+    // Each pause is its own request: one caller key would make the second replay the first.
+    let mut one = global.clone();
+    one.idempotency_key = None;
+    let mut results = Vec::new();
+    for (id, name) in pausable(listed) {
+        let words = [
+            "cloud".to_owned(),
+            "pause-machine".to_owned(),
+            "--target".to_owned(),
+            format!("machine:{id}"),
+        ];
+        let answer = super::cloud_start_chat::app_step(&one, &words);
+        results.push((id, name, answer));
+    }
+    let failed = results.iter().filter(|(_, _, answer)| answer.is_err()).count();
+    if global.output == super::OutputMode::Human {
+        if results.is_empty() {
+            println!("No running Cloud VMs to pause.");
+        }
+        for (_, name, answer) in &results {
+            match answer {
+                Ok(_) => println!("paused {name}"),
+                Err(error) => {
+                    let why = error.get("message").and_then(Value::as_str).unwrap_or("failed");
+                    println!("not paused {name}: {}", super::wire::sanitize_remote_text(why));
+                }
+            }
+        }
+    } else {
+        let rows: Vec<Value> = results
+            .iter()
+            .map(|(id, name, answer)| match answer {
+                Ok(_) => json!({"machine_id": id, "name": name, "paused": true}),
+                Err(error) => {
+                    json!({"machine_id": id, "name": name, "paused": false, "error": error})
+                }
+            })
+            .collect();
+        println!(
+            "{}",
+            json!({"ok": failed == 0, "paused": results.len() - failed, "failed": failed, "machines": rows})
+        );
+    }
+    i32::from(failed > 0)
 }
 
 /// A `vm_…` id the app does not list, for a verb only the app runs: deleted, another team's or
