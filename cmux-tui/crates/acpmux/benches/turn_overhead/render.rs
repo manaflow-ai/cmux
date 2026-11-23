@@ -15,10 +15,10 @@ use acpmux_client::{Change, Client};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::io;
-use std::path::Path;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::UnixStream;
+
+use super::BoxStream;
 
 /// The daemon's `acpmux.v2` for the pane's chat rows: `chat` (the daemon adds `books` itself).
 /// The app ships with `acpmux.v2` empty, where the pane's upgrade is refused and it runs v1.
@@ -30,7 +30,7 @@ const SID: &str = "turn-bench-1";
 const READ_BYTES: usize = 64 << 10;
 
 pub struct ChatRender {
-    stream: UnixStream,
+    stream: BoxStream,
     client: Client<Value>,
     /// Bytes read that the core has not taken yet (it takes none while a change is queued).
     pending: Vec<u8>,
@@ -50,10 +50,10 @@ fn other(message: impl Into<String>) -> io::Error {
 }
 
 impl ChatRender {
-    /// Connects to the daemon's unix socket, does the v2 upgrade and hello the pane host does, and
-    /// subscribes `chat_id` as the pane does on open. Returns once the sub's first window came.
-    pub async fn open(socket: &Path, chat_id: &str) -> io::Result<Self> {
-        let stream = UnixStream::connect(socket).await?;
+    /// On `stream` (the daemon's unix socket, or a relay circuit to it), does the v2 upgrade and
+    /// hello the pane host does, and subscribes `chat_id` as the pane does on open. Returns once
+    /// the sub's first window came.
+    pub async fn open(stream: BoxStream, chat_id: &str) -> io::Result<Self> {
         let mut client = Client::<Value>::new(["chat"]);
         // The host's order: the sub is held first, then the driver starts and connects.
         client

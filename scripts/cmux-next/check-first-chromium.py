@@ -45,6 +45,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_cli_storm import Client  # noqa: E402
+from state_wait import wait_stable, wait_until  # noqa: E402
 
 ACTIONS = ["pane flash-focused", "pane focus-next", "pane equalize-splits", "pane focus-previous"]
 
@@ -73,7 +74,8 @@ def main():
     parser.add_argument("--exception-max-ms", type=float, default=200)
     parser.add_argument("--warm-timeout", type=float, default=30)
     parser.add_argument("--url", default="about:blank")
-    parser.add_argument("--settle", type=float, default=3.0, help="seconds to wait before reading debug.hangs")
+    parser.add_argument("--settle", type=float, default=3.0,
+                        help="quiet seconds the hang log must hold still before it is read (deadline 10x)")
     parser.add_argument("--json")
     args = parser.parse_args()
     path = args.socket or f"/tmp/cmux-debug-{args.tag}.sock"
@@ -135,7 +137,17 @@ def main():
     for worker in workers:
         worker.join()
     storm_ms = (time.monotonic() - storm_started) * 1000
-    time.sleep(args.settle)
+    # Before reading debug.hangs: CEF has started (when the tab opened), then the hang log holds still for
+    # --settle s (a stall still running is recorded when it ends; each read also needs the main thread free).
+    if chromium.get("ok"):
+        wait_until(lambda: (control.call("debug.cef").get("result") or {}).get("state") == "ready",
+                   "debug.cef state ready after the Chromium tab", timeout=max(10.0, args.settle * 10),
+                   interval=0.1, raise_on_timeout=False)
+    quiet_reads = max(2, int(args.settle / 0.25) + 1)
+    wait_stable(lambda: [(r.get("duration_ms"), r.get("start")) for r in
+                         (control.call("debug.hangs").get("result") or {}).get("records", [])],
+                "the hang log", timeout=max(10.0, args.settle * 10), interval=0.25, reads=quiet_reads,
+                raise_on_timeout=False)
     hangs = control.call("debug.hangs").get("result") or {}
     records = hangs.get("records", [])
     stalls = [round(r.get("duration_ms", 0), 1) for r in records if r.get("duration_ms", 0) > args.max_stall_ms]
