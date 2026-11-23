@@ -20,8 +20,8 @@ fn socket_path(name: &str) -> PathBuf {
 
 fn carrier(socket: PathBuf) -> Carrier {
     Carrier {
-        id: "cloud-vm/vm-alpha01#1".into(),
-        target: "vm-alpha01".into(),
+        id: "cloud-vm/vm_alpha01#1".into(),
+        target: "vm_alpha01".into(),
         generation: 1,
         socket,
     }
