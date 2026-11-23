@@ -182,14 +182,13 @@ export const UsageSection = memo(function UsageSection({
               )}
               {/* acpmux cannot restart a session with a cap yet: the step is named, not invented. */}
               {action === "cap" && (
-                <button
-                  type="button"
-                  className="acpmux-session-info-usage__action"
-                  disabled
-                  title={t("sessionInfo.usage.restartWithCapSoon")}
-                >
-                  {t("sessionInfo.usage.restartWithCap")}
-                </button>
+                <>
+                  <button type="button" className="acpmux-session-info-usage__action" disabled>
+                    {t("sessionInfo.usage.restartWithCap")}
+                  </button>
+                  {/* Why it is off, as text: a disabled button gets no hover (Chief, 2026-11-21). */}
+                  <span className="acpmux-session-info-usage__soon">{t("sessionInfo.usage.restartWithCapSoon")}</span>
+                </>
               )}
             </li>
           ))}

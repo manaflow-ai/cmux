@@ -41,6 +41,9 @@ use super::*;
 use cmux_json::JsonSet as _;
 use std::process::Stdio;
 
+#[path = "acpmux_mcp_guest_handoff.rs"]
+mod handoff;
+
 /// The tools of the full server a guest keeps, by name.
 const KEPT: &[&str] = &["send", "send_status", "ls", "last", "info", "search"];
 pub(super) const NEW: &str = "new";
@@ -62,6 +65,10 @@ there is no acpmux daemon, cmux NEXT is not running on this machine: ask the per
 /// The guest's tools: [`KEPT`] of `all` (the full server's list, artifacts included when signed
 /// in), then `machines` and `new`.
 pub(super) fn tools(all: &Value) -> Value {
+    tools_with_preview(all, false)
+}
+
+fn tools_with_preview(all: &Value, preview: bool) -> Value {
     let mut out: Vec<Value> = all
         .as_array()
         .into_iter()
@@ -74,6 +81,9 @@ pub(super) fn tools(all: &Value) -> Value {
         .collect();
     out.push(machines_tool());
     out.push(new_tool());
+    if preview {
+        out.push(handoff::tool());
+    }
     Value::Array(out)
 }
 
@@ -354,54 +364,73 @@ async fn run_cli(
 /// Runs the guest server for `app` on stdin and stdout.
 pub(super) async fn run(app: String, artifacts: Option<Arc<artifacts::Artifacts>>) -> Result<()> {
     let inside = std::env::var(SESSION_ENV).is_ok_and(|s| !s.trim().is_empty());
-    let tools = if inside { json!([]) } else { tools(&tools_with_artifacts(artifacts.is_some())) };
+    let preview = handoff::enabled(&crate::user_settings::read());
+    let tools = if inside {
+        json!([])
+    } else {
+        tools_with_preview(&tools_with_artifacts(artifacts.is_some()), preview)
+    };
     let steer = (!inside).then(|| STEER.to_owned());
-    crate::secret_mcp::serve_as(SERVER_NAME, String::new(), tools, steer, move |_, params| {
-        let artifacts = artifacts.clone();
-        let app = app.clone();
-        async move {
-            if inside {
-                return error_result("this chat runs in acpmux: use its own cmux tools".to_owned());
-            }
-            let name = params.get("name").and_then(Value::as_str).unwrap_or_default();
-            let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
-            if !args.is_object() {
-                return error_result("arguments must be an object".to_owned());
-            }
-            if artifacts::TOOLS.contains(&name) {
-                return match &artifacts {
-                    Some(client) => artifacts::call(client, name, &args).await,
-                    None => error_result(
-                        "the artifact tools need a cmux sign-in on this machine".to_owned(),
-                    ),
+    // Outside acpmux, this server is the chat's own child: acpmux's messages into a Claude Code
+    // chat go through it, so the chat does not hold them (`claude_inbox_relay.rs`). It ends with
+    // the server, or at once where no Claude Code session runs it.
+    let server =
+        crate::secret_mcp::serve_as(SERVER_NAME, String::new(), tools, steer, move |_, params| {
+            let artifacts = artifacts.clone();
+            let app = app.clone();
+            async move {
+                if inside {
+                    return error_result(
+                        "this chat runs in acpmux: use its own cmux tools".to_owned(),
+                    );
+                }
+                let name = params.get("name").and_then(Value::as_str).unwrap_or_default();
+                let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+                if !args.is_object() {
+                    return error_result("arguments must be an object".to_owned());
+                }
+                if artifacts::TOOLS.contains(&name) {
+                    return match &artifacts {
+                        Some(client) => artifacts::call(client, name, &args).await,
+                        None => error_result(
+                            "the artifact tools need a cmux sign-in on this machine".to_owned(),
+                        ),
+                    };
+                }
+                match name {
+                    NEW => return new(&app, &args).await,
+                    handoff::NAME => {
+                        // Recheck on use: disabling Labs also stops clients with a cached tool list.
+                        let enabled = preview && handoff::enabled(&crate::user_settings::read());
+                        return match handoff::arguments(&args, enabled) {
+                            Ok(args) => new(&app, &args).await,
+                            Err(why) => error_result(why),
+                        };
+                    }
+                    MACHINES => return machines(&app).await,
+                    "search" | "send_status" => {}
+                    n if KEPT.contains(&n) => {}
+                    other => {
+                        return error_result(crate::mcp_hint::unknown_tool(
+                            other,
+                            crate::mcp_hint::names(&tools_list()),
+                        ));
+                    }
+                }
+                // Only a tool that reads the daemon connects, and with no caller token, even one
+                // left in its env: the daemon takes a guest for no session (module docs).
+                let daemon = match crate::daemon::connect_without_caller(false).await {
+                    Ok(daemon) => daemon,
+                    Err(e) => return error_result(format!("{e:#}")),
                 };
-            }
-            match name {
-                NEW => return new(&app, &args).await,
-                MACHINES => return machines(&app).await,
-                "search" | "send_status" => {}
-                n if KEPT.contains(&n) => {}
-                other => {
-                    return error_result(crate::mcp_hint::unknown_tool(
-                        other,
-                        crate::mcp_hint::names(&tools_list()),
-                    ));
+                match name {
+                    "search" => search_tool(&daemon, "", &args).await,
+                    "send_status" => send_status::call(&daemon, "", &args).await,
+                    _ => call_as(&daemon, &params, None).await,
                 }
             }
-            // Only a tool that reads the daemon connects, and with no caller token, even one
-            // left in its env: the daemon takes a guest for no session (module docs).
-            let daemon = match crate::daemon::connect_without_caller(false).await {
-                Ok(daemon) => daemon,
-                Err(e) => return error_result(format!("{e:#}")),
-            };
-            match name {
-                "search" => search_tool(&daemon, "", &args).await,
-                "send_status" => send_status::call(&daemon, "", &args).await,
-                _ => call_as(&daemon, &params, None).await,
-            }
-        }
-    })
-    .await
+        });
+    if inside { server.await } else { crate::claude_inbox_relay::beside(server).await }
 }
 
 fn tools_list() -> Value {

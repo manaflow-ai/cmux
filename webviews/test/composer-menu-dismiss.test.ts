@@ -463,19 +463,10 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
                 .first()
                 .waitFor();
             if (name === "Model" && (await page.locator(".acpmux-cols").count()) > 0) {
-              const level = page.locator(columnsLevel).first();
-              const label = await level.locator(".acpmux-cols-name").textContent();
+              // A level pick applies and closes the menu (David Beyer, Nov 20), as a model pick does.
               await menusAtRest(page);
-              await level.scrollIntoViewIfNeeded();
+              await page.locator(columnsLevel).first().scrollIntoViewIfNeeded();
               await pressAt(page, columnsLevel);
-              expect(await page.locator('.acpmux-cols-tune [role="radio"][aria-checked="true"]').textContent()).toBe(
-                label,
-              );
-              expect(await settle(page, stage.chips, [name])).toEqual([name]);
-              expect(
-                await page.evaluate(() => document.activeElement?.matches('.acpmux-cols-search input[type="search"]')),
-              ).toBe(true);
-              await page.keyboard.press("Enter");
             } else if (name === "Model" && (await page.locator(sideEffort).count()) > 0) {
               // A submenu trigger opens on hover or from the keyboard (Base UI ignores a press while it
               // opens on hover): hover it, then press a level in its dropdown.

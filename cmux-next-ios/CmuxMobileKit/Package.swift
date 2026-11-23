@@ -33,6 +33,8 @@ let package = Package(
     dependencies: [
         .package(path: "../../Packages/Shared/CmuxGhosttyKit"),
         .package(path: "../../Packages/Shared/CmuxAgentQuestion"),
+        // A message's preview words (MessagePreview), shared with the Mac's Home.
+        .package(path: "../../Packages/Shared/CmuxHomeCore"),
         // Shared Stack Auth runtime (used as-is; do not modify from here).
         .package(path: "../../Packages/Shared/CmuxAuthRuntime"),
         // Connectivity observability: verbose for the cmux team, sampled for everyone.
@@ -145,6 +147,7 @@ let package = Package(
             .product(name: "CmuxConversationUI", package: "CmuxConversation", condition: .when(platforms: [.iOS])),
             .product(name: "CmuxMobileSupport", package: "CmuxMobileSupport", condition: .when(platforms: [.iOS])),
             .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
+            .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
         ], resources: [.process("Resources")]),
         // Live data: device registry, presence, the Mac link state machine, the
         // daemon tree, acpmux chats, Feed events and Chief over the link.
@@ -183,6 +186,7 @@ let package = Package(
             .product(name: "CmuxDeviceHub", package: "CmuxDeviceHub"),
             .product(name: "CmuxScreenKit", package: "CmuxScreenKit", condition: .when(platforms: [.iOS])),
             .product(name: "CmuxScreenKitUI", package: "CmuxScreenKit", condition: .when(platforms: [.iOS])),
+            .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),
         ]),
         // Chief calls: the Action Button voice note (recorder, on-device transcriber, delivery to Chief)
         // and the live call (WebRTC link to the Realtime API, call screen, Chief's tools).
@@ -209,6 +213,8 @@ let package = Package(
                 "CmuxMobileBrowserStream", "CmuxMobileNotifications", "CmuxMobileVoice", "CmuxMobileRealtime", "CmuxMobileScreenSharing",
                 .product(name: "CmuxMobileBilling", package: "CmuxMobileBilling"),
                 .product(name: "CmuxMobileBillingUI", package: "CmuxMobileBilling", condition: .when(platforms: [.iOS])),
+                // The window's layout at its size (one pane or two), decided in Rust.
+                .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),
                 .product(name: "CmuxDeviceHub", package: "CmuxDeviceHub"),
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 .product(name: "CmuxMobileSupport", package: "CmuxMobileSupport", condition: .when(platforms: [.iOS])),
@@ -242,7 +248,7 @@ let package = Package(
             .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),
         ]),
         .testTarget(name: "CmuxMobileLiveTests", dependencies: [
-            "CmuxMobileLive", "CmuxMobileChief", "CmuxMobileNotifications", "CmuxMobileTransport", "CmuxMobileModel", "CmuxMobileAgentChat", "CmuxMobileFeed", "CmuxMobileTerminal", "CmuxMobileDesign",
+            "CmuxMobileLive", "CmuxMobileChief", "CmuxMobileNotifications", "CmuxMobileTransport", "CmuxMobileModel", "CmuxMobileAgentChat", "CmuxMobileFeed", "CmuxMobileTerminal", "CmuxMobileDesign", "CmuxMobileMarkdown",
             .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
             .product(name: "CmuxConnectivityTelemetry", package: "CmuxConnectivityTelemetry"),

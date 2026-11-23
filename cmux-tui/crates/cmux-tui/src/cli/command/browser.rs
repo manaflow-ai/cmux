@@ -4,8 +4,8 @@ use cmux_tui_core::resource::ResourceOperation;
 
 use super::{
     CommandPlan, Flags, Selectors, UsageError, add_optional_parent_selectors, add_pixel_size,
-    add_stream_id, insert_float, insert_optional_enum_list, insert_optional_string, insert_u32,
-    map_with, request, strs, usage, validate_decimal, validate_one_of,
+    add_stream_id, insert_float, insert_optional_enum_list, insert_optional_string, insert_purpose,
+    insert_u32, map_with, request, strs, usage, validate_decimal, validate_one_of,
 };
 
 pub(super) fn parse_browser(
@@ -328,6 +328,7 @@ fn parse_browser_open(
     insert_engine(&mut params, flags)?;
     add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
     add_pixel_size(&mut params, flags)?;
+    insert_purpose(&mut params, flags);
     request(ResourceOperation::TabCreateBrowser, selectors, flags, params)
 }
 

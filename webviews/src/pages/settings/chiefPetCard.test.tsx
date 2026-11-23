@@ -11,8 +11,8 @@ const restore = installDom();
 afterAll(() => restore());
 const { renderPage, settle, ops } = await import("./testing");
 
-// The card's one home is Personalization's Chief part (SectionView HUB_KEYS); Chief no longer draws it.
-const PAGE = "/settings/personalization?part=chief";
+// The card's one home is Chief, the home of its rows.
+const PAGE = "/settings/chief";
 const card = (container: HTMLElement) => container.querySelector<HTMLElement>('[data-card="chief-pet"]')!;
 const choices = (element: HTMLElement) => [...element.querySelectorAll<HTMLElement>(".chief-pet-choice")];
 /** The pet as the card shows it: on or off, and the character in its preview. */
@@ -54,11 +54,6 @@ test("the page shows every character, the chosen one checked while the pet is of
   expect(page.container.querySelector('.row[data-row-key="home.chiefPetEnabled"]')).toBeNull();
   expect(page.container.querySelector('.row[data-row-key="home.chiefPetMascot"]')).toBeNull();
   page.unmount();
-  // Chief no longer draws the card or its rows: Personalization is their one home.
-  const chief = await renderPage({ path: "/settings/chief" });
-  expect(card(chief.container)).toBeNull();
-  expect(chief.container.querySelector('.row[data-row-key="home.chiefPetMascot"]')).toBeNull();
-  chief.unmount();
 });
 
 test("picking a character with the pet off swaps the avatar and leaves the pet off", async () => {

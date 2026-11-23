@@ -163,10 +163,18 @@ fn effort_value(effort: &str) -> &str {
 /// Claude Code alias: Claude Code sends it to the API as typed and every turn
 /// fails with "There's an issue with the selected model (opus-5-5)". It takes
 /// the prefix, as the live list's `launch_id` does. Bare aliases (`opus`,
-/// `opusplan`), full ids and other providers' names pass unchanged.
+/// `opusplan`), full ids and other providers' names pass unchanged. Any other spelling of a
+/// catalog id (`fable-5.2`, `Fable 5.2`) is that id (`model_catalog.rs`): Claude Code refused
+/// `fable-5.2` with `unrecognized_model`.
 pub fn model_id(value: &str) -> String {
     let value = value.trim();
-    let versioned = ["opus-", "sonnet-", "haiku-"].iter().any(|family| {
+    if let Some(found) = crate::model_catalog::bundled_harness("claude")
+        .and_then(|entry| crate::model_catalog::canonical_model(&entry, value).ok())
+        .filter(|c| c.changed())
+    {
+        return found.model;
+    }
+    let versioned = ["opus-", "sonnet-", "haiku-", "fable-"].iter().any(|family| {
         value
             .strip_prefix(family)
             .is_some_and(|rest| rest.starts_with(|c: char| c.is_ascii_digit()))
@@ -189,6 +197,14 @@ fn cli_effort(effort: &str) -> Option<&str> {
         "default" => None,
         level => Some(shown_level(level)),
     }
+}
+
+/// Whether a new chat's `effort` can go on its command line (`--effort`) instead of the live
+/// `apply_flag_settings` channel after `initialize` (`hub/lifecycle.rs` `effort_request`): a
+/// plain Reasoning level. "default" stays live (it clears an effort the person's settings set,
+/// which no flag does), as do Ultracode and the retired Ultrathink.
+pub fn takes_effort_at_spawn(effort: &str) -> bool {
+    effort != "default" && EFFORTS.iter().any(|(v, _)| *v == effort)
 }
 
 /// The `apply_flag_settings` settings for a session effort. Every level
@@ -330,6 +346,8 @@ mod result_images_tests;
 mod queued_prompt_tests;
 #[cfg(test)]
 mod steer_now_tests;
+// Claude's background shells, a workflow agent's under its agent (`background_shells.rs`).
+mod background_shells;
 // Other sessions' messages steered into one step go in as one line (`steer_batch.rs`).
 mod steer_batch;
 #[cfg(test)]
@@ -351,8 +369,11 @@ mod usage_limits;
 #[cfg(test)]
 mod usage_limits_tests;
 #[cfg(test)]
+mod workflow_shell_tests;
+#[cfg(test)]
 mod workflow_tests;
 mod workflows;
+use background_shells::{BackgroundShell, background_task_update, origin, shell_update};
 pub use usage_limits::{merge_usage_limits, usage_limit_reached};
 
 /// Longest failure text a failed subagent's end carries, in characters.
@@ -521,21 +542,53 @@ pub fn spawn_plan(
     }
     // Lets the chat switch to bypassPermissions ("Bypass permissions") later; a
     // process that cannot take it is never given bypassPermissions at spawn.
-    let bypass = bypass_allowed(profile);
-    if bypass {
+    if bypass_allowed(profile) {
         args.push(ALLOW_BYPASS_FLAG.into());
+    }
+    if !argv_names_mode(&profile.argv) {
+        let mode = spawn_mode(profile, mode);
+        if !mode.is_empty() {
+            args.push("--permission-mode".into());
+            args.push(mode.into());
+        }
+    }
+    SpawnPlan { program, args }
+}
+
+/// The profile's argv passes `--permission-mode` itself (`--permission-mode X` or
+/// `--permission-mode=X`): `spawn_plan` then adds none.
+fn argv_names_mode(argv: &[String]) -> bool {
+    argv.iter().any(|a| a == "--permission-mode" || a.starts_with("--permission-mode="))
+}
+
+/// The `--permission-mode` value the profile's argv pins, if any.
+fn pinned_mode(argv: &[String]) -> Option<&str> {
+    argv.iter().enumerate().find_map(|(i, a)| match a.strip_prefix("--permission-mode") {
+        Some("") => argv.get(i + 1).map(String::as_str),
+        Some(rest) => rest.strip_prefix('='),
+        None => None,
+    })
+}
+
+/// The mode a Claude Code process that `spawn_plan` starts for `mode` runs in: the mode the
+/// profile's argv pins, else `mode`, with `bypassPermissions` moved to [`OWN_MODE`] when the
+/// process could not take it. The translator starts in this mode, so a chat's first answer
+/// (`session/new` is answered before Claude Code's `system/init`, which comes with the first
+/// turn) already tells the truth: a profile pinned to Manual showed Auto until then.
+pub fn spawn_mode<'a>(profile: &'a HarnessProfile, mode: &'a str) -> &'a str {
+    if let Some(pinned) = pinned_mode(&profile.argv) {
+        return pinned;
     }
     // A profile that passes a skip flag itself takes the mode as it is.
     let own_skip = profile
         .argv
         .iter()
         .any(|a| a == ALLOW_BYPASS_FLAG || a == "--dangerously-skip-permissions");
-    let mode = if mode == "bypassPermissions" && !bypass && !own_skip { OWN_MODE } else { mode };
-    if !profile.argv.iter().any(|a| a == "--permission-mode") && !mode.is_empty() {
-        args.push("--permission-mode".into());
-        args.push(mode.into());
+    if mode == "bypassPermissions" && !bypass_allowed(profile) && !own_skip {
+        OWN_MODE
+    } else {
+        mode
     }
-    SpawnPlan { program, args }
 }
 
 /// Per-process translation state.
@@ -711,29 +764,6 @@ pub struct Translator {
     task_plan: Mutex<task_plan::TaskPlan>,
     /// Claude Code's /loop: its tools' calls and the loops armed, the chat's goal (`loops.rs`).
     loops: Mutex<loops::Loops>,
-}
-
-/// A running shell: the session its Bash call ran in, its command, Claude's
-/// task id once a task event named it, and whether it runs in the background.
-#[derive(Debug, Clone)]
-struct BackgroundShell {
-    sid: String,
-    command: String,
-    /// What the Bash call says it does (its `description`): the tray names
-    /// the process by it (webviews `session-info/commandRules.ts`).
-    description: Option<String>,
-    task: Option<String>,
-    background: bool,
-    /// Started in the background (`run_in_background`), not moved there.
-    launched: bool,
-    /// The person asked for it to go to the background (`BACKGROUND_TASKS`):
-    /// once it moves, its origin is `user_backgrounded`.
-    asked: bool,
-    /// Its `running` update went out (`inbound.rs` `running`).
-    announced: bool,
-    /// The file Claude Code writes its output to (`output_file`), once a
-    /// task event named it.
-    output: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -951,7 +981,8 @@ impl Translator {
     /// Whether Claude Code runs a subagent or a background shell: work an agent host whose
     /// daemon is gone keeps its harness for (`agent_host::OrphanExit`).
     pub async fn runs_background_work(&self) -> bool {
-        self.interrupt_ends_work().await
+        !self.subagents.lock().await.is_empty()
+            || self.background_shells.lock().await.values().any(|shell| shell.background)
     }
 
     pub async fn take_stdin_replies(&self) -> Vec<Value> {

@@ -94,9 +94,7 @@ final class SidebarFooterBand {
         let bar = host.profileBar, footer = host.footer, bounds = host.bounds
         // The Search button sits at the row's right end and the update button left of it: the strip ends before them.
         let searchMinX = placeSearch()
-        // Swift live mode's mark follows the avatar; the dots and the update button start after it. App
-        // health's line is not in this row (``placeHealthIndicator(above:)``): its coming and going never
-        // moves the strip, the update button or Search.
+        // Swift live mode's mark follows the avatar; the dots and the update button start after it.
         let leadMaxX = placeLiveBadge(before: searchMinX)
         let trailing = placeUpdateAvailable(before: searchMinX, after: leadMaxX ?? bandFirstRow?.itemsMaxX ?? 0) ?? searchMinX
         if host.spacesPosition == .top {
@@ -198,7 +196,11 @@ final class SidebarFooterBand {
                 : host.bounds.maxY - SidebarStyle.bottomInset - side / 2)
         }
         let scale = host.window?.backingScaleFactor ?? 2
-        button.frame = NSRect(x: (x * scale).rounded() / scale, y: ((midY - side / 2) * scale).rounded() / scale, width: side, height: side)
+        // Round the origin up the screen (the view is flipped), never down past the drop: a density's
+        // half-point footer height (every density is Default scaled, #44449) otherwise added half a
+        // pixel to the lens drop, 1.5 pt under the avatar's line at scale 1.
+        button.frame = NSRect(x: (x * scale).rounded() / scale, y: ((midY - side / 2) * scale).rounded(.down) / scale,
+                              width: side, height: side)
         return button.frame.minX
     }
 
@@ -232,56 +234,17 @@ final class SidebarFooterBand {
         return badge.frame.maxX
     }
 
-    // MARK: App health
-
-    /// Places app health's line (`host.healthIndicator`) over the sidebar, never in the footer row's flow, so
-    /// its arrival and departure move nothing beside it (Leo, 2026-11-11: "slow indicator on the bottom left
-    /// is uselsss and layout shifts the space. it's bad"; it used to sit after the avatar and push the spaces
-    /// strip and the update button along the row). The shipped line floats just above the bottom stack
-    /// (`ceiling`: the top of the footer row and of any card over it), at the avatar's leading edge, on its
-    /// own opaque chip over the list's bottom; a badge (``AvatarBadgePlacing``) sits on the
-    /// avatar's top-trailing corner. The row's own frames are laid out before and without it.
-    func placeHealthIndicator(above ceiling: CGFloat) {
-        guard let host, let line = host.healthIndicator, !line.isHidden else { return }
-        let size = line.fittingSize
-        let scale = host.window?.backingScaleFactor ?? 2
-        let row = bandFirstRow
-        if (line as? any AvatarBadgePlacing)?.sitsOnAvatar == true {
-            guard let avatar = row?.frame else {
-                line.frame = .zero
-                return
-            }
-            line.frame = WindowTitlebar.alignedFrame(NSRect(x: avatar.maxX - size.width * 0.75, y: avatar.minY - size.height * 0.25,
-                                                            width: size.width, height: size.height), scale: scale)
-            return
-        }
-        let x = row?.frame.minX ?? Metrics.space4
-        let top = min(ceiling, row?.frame.minY ?? ceiling)
-        let width = min(size.width, host.bounds.width - x - Metrics.space4)
-        guard width >= Self.searchButtonSide * 2 else {
-            line.frame = .zero
-            return
-        }
-        line.frame = WindowTitlebar.alignedFrame(NSRect(x: x, y: top - Metrics.space2 - size.height, width: width, height: size.height),
-                                                 scale: scale)
-    }
-
     // MARK: Experiments mark
 
-    /// Places the experiments mark (`host.experimentsMark`) over the sidebar like app health's line: at the
-    /// avatar's leading edge, just above the bottom stack (`ceiling`), and above app health's chip when that
-    /// floats there too, so neither covers the other. It is never in the footer row's flow: its arrival and
-    /// departure move nothing in the row, and app health's line keeps its place.
+    /// Places the experiments mark (`host.experimentsMark`) over the sidebar: at the avatar's leading edge,
+    /// just above the bottom stack (`ceiling`). It is never in the footer row's flow: its arrival and
+    /// departure move nothing in the row.
     func placeExperimentsMark(above ceiling: CGFloat) {
         guard let host, let mark = host.experimentsMark, !mark.isHidden else { return }
         let size = mark.fittingSize
         let row = bandFirstRow
         let x = row?.frame.minX ?? Metrics.space4
-        var top = min(ceiling, row?.frame.minY ?? ceiling)
-        if let line = host.healthIndicator, !line.isHidden, line.frame.height > 0,
-           (line as? any AvatarBadgePlacing)?.sitsOnAvatar != true {
-            top = min(top, line.frame.minY)
-        }
+        let top = min(ceiling, row?.frame.minY ?? ceiling)
         let width = min(size.width, host.bounds.width - x - Metrics.space4)
         guard width >= Self.searchButtonSide * 2 else {
             mark.frame = .zero

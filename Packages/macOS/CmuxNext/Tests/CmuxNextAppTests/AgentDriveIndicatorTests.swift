@@ -150,7 +150,8 @@ struct AgentDriveIndicatorTests {
 
     /// The row's Stop is Stop Computer Use (`computerUseStop`, one path with the File menu and the CLI) given the
     /// agent's terminals: the session that agent started stops, not the newest; with none of its own, the newest.
-    @Test(arguments: [("term_x,term_old", "cua_old"), ("term_unknown", "cua_new"), ("", "cua_new")])
+    /// With no terminals (the File menu, the CLI) Stop ends every session (#37003).
+    @Test(arguments: [("term_x,term_old", "cua_old"), ("term_unknown", "cua_new"), ("", "")])
     func stopEndsTheSessionTheAgentsTerminalStarted(_ terminals: String, _ stopped: String) async {
         let sessions = ComputerUseSessionActionsTests.FakeSessions([ComputerUseSessionActionsTests.older, ComputerUseSessionActionsTests.newer])
         let registry = ComputerUseSessionActionsTests.registry(sessions, ComputerUseSessionActionsTests.FakeFocus())
@@ -160,6 +161,7 @@ struct AgentDriveIndicatorTests {
         for task in work {
             #expect(await task.value == nil)
         }
-        #expect(sessions.stopped == [stopped])
+        #expect(sessions.stopped == (stopped.isEmpty ? [] : [stopped]))
+        #expect(sessions.stoppedAll == (stopped.isEmpty ? 1 : 0))
     }
 }

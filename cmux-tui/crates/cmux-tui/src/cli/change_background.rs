@@ -30,7 +30,7 @@ const ACTION: &str = "settings change-background";
 
 pub(super) const USAGE: &str = "\
 cmux settings change-background [VALUE] [options]
-  With no VALUE, opens the background picker (Settings > Personalization).
+  With no VALUE, opens the background picker (Settings > Appearance).
   With a VALUE, sets the background to it, as a pick in the picker does.
 VALUE:
   a picture or video file of this Mac (stored as file:<absolute path>)

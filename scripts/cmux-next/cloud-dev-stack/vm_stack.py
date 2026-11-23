@@ -61,6 +61,9 @@ NODE_VERSION = "v24.22.3"
 NODE_SHA256 = "4f2b175a6d53a5c617a80dba2676238a0688cef28c6da4eba35c7d844e66fcfb"  # node-v24.22.3-linux-x64.tar.xz
 BUN_VERSION = "1.4.4"
 BUN_SHA256 = "bf8ccbfb2b0b80159e0f9a6d15c55317add8077534dbc6130a3edb52fccb395c"  # bun-v1.4.4/bun-linux-x64.zip
+# The Cloudflare Tunnel's connector (public origins), run only when <base>/secrets/tunnel.token exists.
+CLOUDFLARED_VERSION = "2026.11.1"
+CLOUDFLARED_SHA256 = "97bb3b02d23a5980fc9c15a1a270e692da1923f103f920d5b16d4931d5ab55e7"  # cloudflared-linux-amd64
 # Memory and disk a stack that is preparing or starting will take once it runs (measured 1.5-1.9 GiB for the
 # API alone; the mobile Worker and the device hub share its workerd).
 PENDING_MEM_GIB = 3.0
@@ -84,6 +87,10 @@ ROUTER_PORT = int(os.environ.get("CMUX_WDEV_ROUTER_PORT", "3790"))
 # wrangler's own port on 127.0.0.1, one per stack: outside the tailnet range, which the classic daemon allocates
 # from without reading Serve, so a stopped stack's tailnet ports can never collide with a classic stack's local one.
 LOCAL_MIN, LOCAL_MAX = (int(p) for p in os.environ.get("CMUX_WDEV_LOCAL_PORTS", "23800-24799").split("-"))
+# Public origins (cloud-dev-stack/gateway): <svc>.<slot>.<domain>, from the slots public.json lists (written by the
+# Mac's `cloud-dev-stack.sh public-setup`, which made their custom domains). No file: tailnet only.
+PUBLIC_DOMAIN = "wdev.cmux.dev"
+SLOT_RE = re.compile(r"^s[0-9]{1,3}$")
 ROUTER_TARGET = f"http://127.0.0.1:{ROUTER_PORT}"
 MIN_MEM_GIB = float(os.environ.get("CMUX_WDEV_MIN_MEM_GIB", "24"))
 MIN_DISK_GIB = float(os.environ.get("CMUX_WDEV_MIN_DISK_GIB", "120"))
@@ -183,7 +190,29 @@ def routes_table(entries: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         if e.get("state") in ROUTED and e.get("host") and e.get("port"):
             for p in entry_ports(e):
                 table[f"{e['host']}:{p}".lower()] = {"tag": e["tag"], "port": local_port(e)}
+            if e.get("slot"):
+                for svc in SERVICES:
+                    table[f"{svc}.{e['slot']}.{e.get('domain') or PUBLIC_DOMAIN}"] = {"tag": e["tag"], "port": local_port(e), "public": True}
     return table
+
+
+def public_slots() -> tuple[str, list[str]]:
+    """The public domain and its provisioned slots (public.json), or (PUBLIC_DOMAIN, []) when there are none."""
+    try:
+        data = json.loads((BASE / "public.json").read_text())
+    except (OSError, ValueError):
+        return PUBLIC_DOMAIN, []
+    return data.get("domain") or PUBLIC_DOMAIN, [x for x in data.get("slots") or [] if SLOT_RE.match(str(x))]
+
+
+def assign_slot(tag: str, entry: dict[str, Any]) -> str | None:
+    """Under the registry lock: the stack's public slot, kept across ups, stops and wakes; else the first one no
+    other stack that is not released holds. None: no free slot (tailnet only)."""
+    domain, slots = public_slots()
+    held = {e.get("slot") for e in all_entries() if e["tag"] != tag and e.get("state") in HOLDS_PORT}
+    if entry.get("slot") in slots and entry.get("slot") not in held:
+        return entry["slot"]
+    return next((x for x in slots if x not in held), None)
 
 
 def write_routes() -> None:
@@ -408,6 +437,31 @@ MemoryMax=1G
 WantedBy=multi-user.target
 """
 
+TUNNEL_SERVICE = """[Unit]
+Description=cmux-next wrangler dev stacks: Cloudflare Tunnel cmux-wdev (public origins; scripts/cmux-next/cloud-dev-stack)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={user}
+Group={user}
+ExecStart={base}/tools/cloudflared-{version}/cloudflared tunnel --no-autoupdate run --token-file {base}/secrets/tunnel.token
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadOnlyPaths={base}
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+MemoryMax=1G
+
+[Install]
+WantedBy=multi-user.target
+"""
+
 REAPER_SERVICE = """[Unit]
 Description=cmux-next wrangler dev stacks: stop idle or expired stacks
 
@@ -444,6 +498,10 @@ def install_host() -> dict[str, Any]:
         f"/etc/systemd/system/{UNIT_PREFIX}-reaper.service": REAPER_SERVICE.format(user=user, base=BASE),
         f"/etc/systemd/system/{UNIT_PREFIX}-reaper.timer": REAPER_TIMER,
     }
+    tunnel = (BASE / "secrets/tunnel.token").exists()
+    if tunnel:
+        ensure_cloudflared()
+        files[f"/etc/systemd/system/{UNIT_PREFIX}-tunnel.service"] = TUNNEL_SERVICE.format(user=user, base=BASE, version=CLOUDFLARED_VERSION)
     changed = []
     for path, body in files.items():
         try:
@@ -461,6 +519,11 @@ def install_host() -> dict[str, Any]:
     with registry_lock():
         write_routes()
         changed += serve_sweep()
+    if tunnel and (any("tunnel" in c for c in changed)
+                   or systemctl("is-active", "--quiet", f"{UNIT_PREFIX}-tunnel.service", check=False).returncode != 0):
+        systemctl("enable", f"{UNIT_PREFIX}-tunnel.service")
+        systemctl("restart", f"{UNIT_PREFIX}-tunnel.service")
+        changed.append("tunnel restarted")
     # The router: (re)started when its unit or its code changed since it last started.
     router = BASE / "bin/router.mjs"
     stamp = BASE / "bin/.router.sha256"
@@ -546,6 +609,17 @@ def ensure_tools() -> dict[str, str]:
         bun.chmod(0o755)
         tmp.unlink()
     return {"node": str(node / "bin"), "bun": str(bun.parent)}
+
+
+def ensure_cloudflared() -> Path:
+    path = BASE / "tools" / f"cloudflared-{CLOUDFLARED_VERSION}" / "cloudflared"
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.parent / ".cloudflared.download"
+        fetch_verified(f"https://github.com/cloudflare/cloudflared/releases/download/{CLOUDFLARED_VERSION}/cloudflared-linux-amd64", CLOUDFLARED_SHA256, tmp)
+        tmp.chmod(0o755)
+        os.replace(tmp, path)
+    return path
 
 
 def tool_path() -> str:
@@ -652,24 +726,33 @@ def render_mobile_config(cfg: dict[str, Any]) -> dict[str, Any]:
     return flatten_env(cfg, "dev")
 
 
-def render_hub_config(cfg: dict[str, Any], hub_origin: str) -> dict[str, Any]:
-    """The device hub (workers/device-hub, a TOML config) as its dev deployment runs it (env `dev`), with its
-    signal URLs on the stack's own hub origin."""
+def render_hub_config(cfg: dict[str, Any]) -> dict[str, Any]:
+    """The device hub (workers/device-hub, a TOML config) as its dev deployment runs it (env `dev`). Its signal
+    URLs come from each request's own origin (PUBLIC_BASE_URL empty): the front rewrites a request to the hub
+    origin it arrived on, the tailnet one or the public one, so each client gets URLs it can reach."""
     dev = flatten_env(cfg, "dev")
-    dev.setdefault("vars", {})["PUBLIC_BASE_URL"] = hub_origin
+    dev.setdefault("vars", {})["PUBLIC_BASE_URL"] = ""
     return dev
 
 
 def stack_origins(host: str, base: int) -> dict[str, str]:
-    """The stack's public origins, one per Worker: https://<host>:<port> on the tailnet."""
+    """The stack's tailnet origins, one per Worker: https://<host>:<port>."""
     return {svc: f"https://{host}:{port}" for svc, port in zip(SERVICES, stack_ports(base))}
 
 
-def front_routes(host: str, base: int, local: int | None = None) -> dict[str, str]:
-    """The front Worker's routes: the authority a request arrives with (Serve and the router keep the client's
-    Host) to the Worker that serves it. 127.0.0.1:<local> is the API, for checks on the VM itself."""
-    routes = {f"{host}:{port}".lower(): svc for svc, port in zip(SERVICES, stack_ports(base))}
-    routes[f"127.0.0.1:{local or base}"] = "api"
+def public_origins(slot: str, domain: str = PUBLIC_DOMAIN) -> dict[str, str]:
+    """The stack's public origins (cloud-dev-stack/gateway), one per Worker: https://<svc>.<slot>.<domain>."""
+    return {svc: f"https://{svc}.{slot}.{domain}" for svc in SERVICES}
+
+
+def front_routes(host: str, base: int, local: int | None = None, slot: str | None = None, domain: str = PUBLIC_DOMAIN) -> dict[str, list[str]]:
+    """The front Worker's routes: the authority a request arrives with (Serve, the router and the gateway keep the
+    client's Host) to the Worker that serves it and the origin family it came by (tailnet or public).
+    127.0.0.1:<local> is the API, for checks on the VM itself."""
+    routes = {f"{host}:{port}".lower(): [svc, "tailnet"] for svc, port in zip(SERVICES, stack_ports(base))}
+    routes[f"127.0.0.1:{local or base}"] = ["api", "tailnet"]
+    if slot:
+        routes.update({f"{svc}.{slot}.{domain}": [svc, "public"] for svc in SERVICES})
     return routes
 
 
@@ -684,10 +767,11 @@ const BINDINGS = { api: "API", mobile: "MOBILE", hub: "HUB" }
 export default {
   async fetch(request, env) {
     const routes = JSON.parse(env.WDEV_ROUTES)
-    const origins = JSON.parse(env.WDEV_ORIGINS)
     const url = new URL(request.url)
-    const service = routes[url.host.toLowerCase()]
+    const [service, family] = routes[url.host.toLowerCase()] ?? []
     if (!service) return new Response(`no Worker of this stack answers on ${url.host}\n`, { status: 421 })
+    // The origins of the family the request came by: a public client is told public origins, a tailnet one tailnet.
+    const origins = JSON.parse(env.WDEV_ORIGINS)[family]
     const forwarded = new Request(new URL(url.pathname + url.search, origins[service]), request)
     if (service === "api" && url.pathname === "/v1/client-config" && request.method === "GET") {
       return clientConfig(forwarded, env, origins)
@@ -743,7 +827,8 @@ def development_client_config() -> dict[str, Any]:
     return dict(FALLBACK_CLIENT_CONFIG)
 
 
-def render_front_config(names: dict[str, str], routes: dict[str, str], origins: dict[str, str], client_config: dict[str, Any]) -> dict[str, Any]:
+def render_front_config(names: dict[str, str], routes: dict[str, list[str]], origins: dict[str, dict[str, str]], client_config: dict[str, Any]) -> dict[str, Any]:
+    """origins: each family's origins ({"tailnet": {...}, "public": {...}})."""
     return {
         "name": FRONT_NAME, "main": "index.js", "compatibility_date": "2026-08-20",
         "services": [{"binding": binding, "service": names[svc]} for svc, binding in (("api", "API"), ("mobile", "MOBILE"), ("hub", "HUB"))],
@@ -845,7 +930,7 @@ def stop_unit(tag: str) -> None:
 
 
 def up_in_progress(entry: dict[str, Any], now: int) -> bool:
-    """An up of this tag holds its lock (prepare to up-done): the stack is never released or stopped under it."""
+    """An up of this tag holds its lock (prepare to up-done): its stopped stack is never released under it."""
     return bool(entry.get("up_token")) and now - entry.get("up_started", 0) < UP_LOCK_SECS
 
 
@@ -937,9 +1022,11 @@ def cmd_prepare(args) -> dict[str, Any]:
         token = secrets.token_hex(8)
         if state in ("stopped", "running"):
             entry.setdefault("served_at", entry.get("started_at") or now)  # an entry from before the mark served
-        if state == "stopped" and (d / "run.sh").exists():
-            # A re-up of a stopped stack: it stays stopped (and wakes on a request) until start restarts it, so
-            # a re-up that fails before start leaves it as it was, files and data included.
+        waking = state == "starting" and bool(entry.get("wake_token")) and entry.get("served_at") and (d / "run.sh").exists()
+        if (state == "stopped" or waking) and (d / "run.sh").exists():
+            # A re-up of a stopped stack, or of one a request is waking: it stays as it is (and the wake settles
+            # it) until start restarts it, so a re-up that fails before start leaves it as it was, files and data
+            # included. Never a fresh stack, which a failed up would turn into one gc releases.
             entry["reup_at"] = now
         elif state == "running":
             # A re-up of a running stack: it stays running (and keeps serving) until start restarts it.
@@ -1089,6 +1176,21 @@ def cmd_wake(args) -> dict[str, Any]:
     if e is None:
         raise Refused(f"{tag}: a down or an up took the stack while it woke")
     return {"tag": tag, "state": "running", "woke": True, "secs": int(time.time()) - now, "made_room": e.get("made_room", [])}
+
+
+def cmd_put_public(_args) -> dict[str, Any]:
+    """Store the public slots the Mac provisioned (JSON {domain, slots} on stdin) and rewrite the routes."""
+    data = json.loads(sys.stdin.read())
+    domain = str(data.get("domain") or "")
+    if domain != PUBLIC_DOMAIN:
+        raise Refused(f"public domain {domain!r}: only {PUBLIC_DOMAIN} (the gateway's and the apps' allowlist)")
+    slots = sorted({str(x) for x in data.get("slots") or [] if SLOT_RE.match(str(x))}, key=lambda x: int(x[1:]))
+    with registry_lock():
+        tmp = BASE / "public.json.tmp"
+        tmp.write_text(json.dumps({"domain": domain, "slots": slots}))
+        os.replace(tmp, BASE / "public.json")
+        write_routes()
+    return {"domain": domain, "slots": len(slots)}
 
 
 def cmd_stop(args) -> dict[str, Any]:
@@ -1282,6 +1384,26 @@ HUB_KEYS_JS = """const gen = async () => { const p = await crypto.subtle.generat
 process.stdout.write(`SESSION_KEY='${await gen()}'\\nTICKET_KEY='${await gen()}'\\n`)"""
 
 
+def write_public_jwks(d: Path) -> None:
+    """The public halves of the keys the stack signs tokens with (the API's JWT_PRIVATE_JWK, the hub's SESSION_KEY
+    and TICKET_KEY), for the gateway to verify a stack-issued token (the router's GET /__wdev/jwks)."""
+    keys = []
+    texts = []
+    for name in ("jwt.jwk",):
+        if (d / "secrets" / name).exists():
+            texts.append((d / "secrets" / name).read_text())
+    if (d / "secrets/hub.vars").exists():
+        texts += re.findall(r"^[A-Z_]+='(\{.*\})'$", (d / "secrets/hub.vars").read_text(), re.M)
+    for t in texts:
+        try:
+            k = json.loads(t)
+        except ValueError:
+            continue
+        if k.get("kty") == "EC" and k.get("x") and k.get("y"):
+            keys.append({f: k[f] for f in ("kty", "crv", "x", "y", "kid") if f in k})
+    (d / "public-jwks.json").write_text(json.dumps({"keys": keys}))
+
+
 def ensure_hub_keys(d: Path, env: dict[str, str]) -> str:
     """The stack's own device hub keys (SESSION_KEY, TICKET_KEY) as .dev.vars lines, made once per stack."""
     path = d / "secrets" / "hub.vars"
@@ -1349,6 +1471,10 @@ def cmd_start(args) -> dict[str, Any]:
         local = pick_local_port(tag, entry.get("local_port"), listening - mine)
         host = dns_name()
         origins = stack_origins(host, port)
+        slot = assign_slot(tag, entry)
+        domain = public_slots()[0]
+        public = public_origins(slot, domain) if slot else {}
+        entry.update({"slot": slot, "domain": domain if slot else None, "public_urls": public})
         entry.update({"port": port, "ports": stack_ports(port), "local_port": local, "url": origins["api"], "urls": origins, "state": "starting", "host": host,
                       "platform": with_platform, "commit": args.commit, "dirty": bool(args.dirty), "idle_secs": args.idle or IDLE_SECS_DEFAULT,
                       "retain_secs": RETAIN_SECS, "last_up_at": int(time.time())})
@@ -1360,7 +1486,7 @@ def cmd_start(args) -> dict[str, Any]:
     rendered = {
         "api": lambda c: render_api_config(c, tag, origins["api"], with_platform),
         "mobile": render_mobile_config,
-        "hub": lambda c: render_hub_config(c, origins["hub"]),
+        "hub": render_hub_config,
     }
     for svc, (rel, cfg_name) in PROJECTS.items():
         project = d / rel
@@ -1376,7 +1502,8 @@ def cmd_start(args) -> dict[str, Any]:
         projects.append(d / "platform")
     (d / "front").mkdir(mode=0o700, exist_ok=True)
     (d / "front/index.js").write_text(FRONT_JS)
-    front = render_front_config(names, front_routes(host, port, local), origins, development_client_config())
+    front = render_front_config(names, front_routes(host, port, local, slot, domain), {"tailnet": origins, "public": public},
+                                development_client_config())
     (d / "front/wrangler.wdev.generated.json").write_text(json.dumps(front, indent=1))
 
     jwk = ensure_jwk(d, tag, env)
@@ -1386,6 +1513,7 @@ def cmd_start(args) -> dict[str, Any]:
     for project in [d / PROJECTS["api"][0]] + ([d / "platform"] if with_platform else []):
         write_private(project / ".dev.vars", f"JWT_PRIVATE_JWK='{jwk}'\n")
     write_private(d / PROJECTS["hub"][0] / ".dev.vars", ensure_hub_keys(d, env))
+    write_public_jwks(d)
     wrangler = newest_wrangler(projects)
     run_sh = render_run_sh(d, path, local, args.commit, wrangler, configs)
     write_private(d / "run.sh", run_sh)
@@ -1449,7 +1577,8 @@ def cmd_start(args) -> dict[str, Any]:
             health[svc] = json.loads(body)
         except ValueError:
             health[svc] = body
-    return {"tag": tag, "url": origins["api"], "urls": origins, "port": port, "health": health, "retain_days": RETAIN_SECS // 86400}
+    return {"tag": tag, "url": origins["api"], "urls": origins, "public_urls": public, "port": port, "health": health,
+            "retain_days": RETAIN_SECS // 86400}
 
 
 def settle_failed_start(entry: dict[str, Any]) -> str:
@@ -1819,7 +1948,7 @@ def cmd_status(args) -> dict[str, Any]:
             continue
         hb = stack_dir(e["tag"]) / "heartbeat"
         last = max(e.get("last_request_at", 0), int(hb.stat().st_mtime) if hb.exists() else 0, e.get("started_at", 0))
-        rows.append({k: e.get(k) for k in ("tag", "state", "url", "urls", "port", "ports", "commit", "dirty", "platform", "reason", "last_up_at", "reup_at", "releasing_at")}
+        rows.append({k: e.get(k) for k in ("tag", "state", "url", "urls", "public_urls", "slot", "port", "ports", "commit", "dirty", "platform", "reason", "last_up_at", "reup_at", "releasing_at")}
                     | {"active": unit_active(e["tag"]) if e.get("state") == "running" else False,
                        "idle_min": (now - last) // 60 if last else None, "idle_limit_min": e.get("idle_secs", IDLE_SECS_DEFAULT) // 60,
                        "mem_mib": unit_memory_mib(e["tag"]) if e.get("state") == "running" else None,
@@ -1856,6 +1985,7 @@ def main() -> int:
     s = sub.add_parser("down"); s.add_argument("--tag", required=True); s.add_argument("--reason", default="down")
     s = sub.add_parser("claim-release"); s.add_argument("--tag", required=True)
     s = sub.add_parser("stop"); s.add_argument("--tag", required=True)
+    sub.add_parser("put-public")
     s = sub.add_parser("wake"); s.add_argument("--tag", required=True); s.add_argument("--wait", type=int, default=150)
     s = sub.add_parser("up-done"); s.add_argument("--tag", required=True); s.add_argument("--token", required=True); s.add_argument("--failed", action="store_true")
     s = sub.add_parser("cred-fresh"); s.add_argument("--tag", required=True); s.add_argument("--kind", required=True); s.add_argument("--mode", required=True)
@@ -1865,7 +1995,7 @@ def main() -> int:
     handlers = {"install": lambda a: install_host(), "capacity": cmd_capacity, "reap": cmd_reap, "status": cmd_status,
                 "prepare": cmd_prepare, "touch": cmd_touch, "forget": cmd_forget, "prune": cmd_prune, "put-cred": cmd_put_cred,
                 "migrate": cmd_migrate, "start": cmd_start, "down": cmd_down, "logs": cmd_logs,
-                "claim-release": cmd_claim_release, "up-done": cmd_up_done, "wake": cmd_wake, "stop": cmd_stop, "cred-fresh": cmd_cred_fresh, "ledger": cmd_ledger}
+                "claim-release": cmd_claim_release, "up-done": cmd_up_done, "wake": cmd_wake, "stop": cmd_stop, "put-public": cmd_put_public, "cred-fresh": cmd_cred_fresh, "ledger": cmd_ledger}
     try:
         result = handlers[args.cmd](args)
     except Refused as e:

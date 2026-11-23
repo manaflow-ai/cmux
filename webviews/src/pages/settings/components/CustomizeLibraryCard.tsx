@@ -1,4 +1,4 @@
-// Personalization > Customization Library (cmux-customize `library.rs`). Leo, 2026-11-14: "for
+// Appearance > Customization Library (cmux-customize `library.rs`). Leo, 2026-11-14: "for
 // customization i wonder if there's good ways to have like an accumulated collection of those
 // things". Everything the person applies (an ask, a profile, a kept try-on, an import) is saved as
 // one entry; entries stack top first, each turns on and off, and where two that are on set the same
@@ -6,7 +6,7 @@
 // lists `cmux customize library` and runs its verbs (on, off, order, remove) through the host's
 // bundled CLI, so the card and the CLI never differ. The list is read with the section
 // (sectionQueries) and answered again by each change; it does not poll. Opened at this card by
-// `#/settings/personalization?focus=card.customizeLibrary`.
+// `#/settings/appearance?focus=card.customizeLibrary`.
 //
 // A `pr-N` entry (`cmux customize use pr:N`) is an unmerged pull request's web layer on this app:
 // its row names the PR (number, title, short head, a link to it), what it cannot carry ("Needs a
@@ -37,6 +37,7 @@ import type { LibraryCode, LibraryEntry, LibraryListing, LibraryRun } from "../o
 import { LIBRARY_KEY, libraryQuery, type LibraryRead } from "../sectionQueries";
 import { t } from "../strings";
 import { focusRoute } from "../../../ui/focusRoute";
+import { WithFacts } from "../../../agent-session/acpmux/chips/FactsHoverCard";
 
 /** How the list draws (gallery `settings.customize-library-layouts`). `layers`, the shipped one, is
  * the stack itself: one Settings row per entry, top first, with its switch and its order. `cards` is
@@ -328,23 +329,27 @@ export function LibraryEntryRow({
   }
   if (layout === "table") {
     return (
-      <div className="row library-line" {...shared} title={entryDetail(entry)}>
-        <div className="row-main">
-          <span className="library-position row-help">{entry.position}</span>
-          <LibrarySwatches entry={entry} />
-          <span className="row-label">
-            <span className="row-title" id={labelId}>
-              {title}
-            </span>
-            <span className="row-help"> · {sourceLabel(entry.source)}</span>
-            {beaten.length > 0 && <span className="row-help library-beaten"> · {beatenLine(beaten[0]!)}</span>}
-          </span>
-          <span className="row-control library-controls">
-            {order}
-            {toggle}
-          </span>
-        </div>
-      </div>
+      <WithFacts facts={[{ value: entryDetail(entry) }]}>
+        {(facts) => (
+          <div {...facts} className="row library-line" {...shared}>
+            <div className="row-main">
+              <span className="library-position row-help">{entry.position}</span>
+              <LibrarySwatches entry={entry} />
+              <span className="row-label">
+                <span className="row-title" id={labelId}>
+                  {title}
+                </span>
+                <span className="row-help"> · {sourceLabel(entry.source)}</span>
+                {beaten.length > 0 && <span className="row-help library-beaten"> · {beatenLine(beaten[0]!)}</span>}
+              </span>
+              <span className="row-control library-controls">
+                {order}
+                {toggle}
+              </span>
+            </div>
+          </div>
+        )}
+      </WithFacts>
     );
   }
   return (

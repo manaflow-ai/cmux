@@ -78,26 +78,9 @@
 
 /* ---------- `rolodex`: a card flips up over the line under the pointer ---------- */
 /* The shared hover card (ui/Tooltip.tsx `ui-card`, its glass and warm group): the first waits the
-   hover delay, then running the pointer down the list flips from card to card at once. Each flips in
-   from its bottom edge, a Rolodex card turning up, on the move token. */
-@keyframes acpmux-hat-peek-flip {
-  from {
-    opacity: 0;
-    transform: perspective(480px) rotateX(-28deg) translateY(4px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-.ui-card.acpmux-hat-peek {
-  transform-origin: 50% 100%;
-  animation: acpmux-hat-peek-flip var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out) both;
-}
-:root[data-cmux-motion="reduced"] .ui-card.acpmux-hat-peek,
-:root[data-cmux-motion="off"] .ui-card.acpmux-hat-peek {
-  animation: none;
-}
+   hover delay, then running the pointer down the list moves from card to card at once. Like every
+   hover card it shows and goes in one frame, with no flip, fade or rise
+   (test/popover-instant-open.test.ts). */
 
 /* ---------- `hide`: the hide control in the header, not on the top edge ---------- */
 /* Its room, in the header's trailing run one column before the panel button's (or the lines' Stop
@@ -109,7 +92,8 @@
 }
 .acpmux-running-tray__hide {
   position: absolute;
-  top: 0;
+  /* On the header's centre line, as the panel button (subagents.css `--acpmux-tray-head-control-top`). */
+  top: var(--acpmux-tray-head-control-top);
   right: calc(var(--acpmux-tray-inset) + var(--acpmux-tray-chevron-width) + var(--acpmux-tray-gap));
   box-sizing: border-box;
   width: var(--acpmux-tray-stop-width);

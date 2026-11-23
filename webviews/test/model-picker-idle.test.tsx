@@ -128,7 +128,7 @@ describe("closed model picker catalog work", () => {
       const sonnet = items.find((item) => item.textContent?.includes("Sonnet 5.5"));
       expect(sonnet).toBeDefined();
       await act(async () => sonnet!.click());
-      // The compact menu's columns stay open after a pick and land it as the button closes them.
+      // The compact menu's columns land a pick at once and stay open (#50998); the button closes them.
       const closeColumns = async () => {
         if (!compact) return;
         expect(dom.window.document.querySelector(".acpmux-cols")).not.toBeNull();

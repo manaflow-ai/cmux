@@ -91,9 +91,6 @@ impl Brain {
         // The turn that starts now takes the cut turn's resume note: its
         // hold (a backoff, or a network cut's wait) is over.
         self.resume_at = None;
-        // What the shared screen showed since the last turn joins the log
-        // first, so this turn's delta carries it (screen_share.rs).
-        self.ingest_screen_share();
         if self.state.stopped_reply.take().is_some() {
             self.save();
         }
@@ -387,6 +384,7 @@ impl Brain {
         let (items, rest): (Vec<Queued>, Vec<Queued>) =
             self.queue.drain(..).partition(|q| q.conversation == side);
         self.queue.extend(rest);
+        self.turn_from_automation = items.iter().any(super::automations::is_automation_note);
         // The messages, their bookkeeping (floors, children) and the pending
         // turn commit together: a crash leaves all of it or none of it, so a
         // restart never logs a message twice and never loses one.
@@ -427,6 +425,9 @@ impl Brain {
         self.turn_landed.clear();
         self.turn_posts.clear();
         self.landed_refused = false;
+        // The person wrote: the loop guard's hold ends, and what it kept
+        // from being told goes in this turn (budget_hold.rs).
+        let held_news = self.end_budget_hold(side.as_deref(), &items);
         let done = self.log_items(&items, move |next, done| {
             next.carry_answers.clear();
             let first = done.ids.first().copied().unwrap_or(first_id);
@@ -582,12 +583,23 @@ impl Brain {
         // every turn, so a file saved in the last turn holds in this one.
         // In another person's turn, only the open loops.
         let (memory, memory_seen) = self.turn_memory_block();
+        // The Cloud computer the owner attached (engine.json `computer`, read
+        // now like the turn's engine): one line, never in the cached prompt.
+        let computer = self
+            .settings
+            .engine_file
+            .as_deref()
+            .map(crate::engine::load)
+            .as_ref()
+            .and_then(crate::engine::computer_line);
         // The person's Home workspace as it is now: after the view, never logged.
         let tail: Vec<String> = now
             .iter()
             .chain(memory.iter())
             .chain(at_work.iter())
             .chain(open_items.iter())
+            .chain(held_news.iter())
+            .chain(computer.iter())
             .chain(home.iter())
             .chain(resumes.iter())
             .cloned()
@@ -770,6 +782,9 @@ impl Brain {
         }
         if let Some(line) = &at_work {
             layout["at_work"] = serde_json::json!(line);
+        }
+        if let Some(line) = &computer {
+            layout["computer"] = serde_json::json!(line);
         }
         if let Some(block) = &home {
             layout["home_workspace"] = serde_json::json!(block);
@@ -992,6 +1007,9 @@ impl Brain {
     /// turn's own. False: the write failed (the host stops).
     pub(super) fn log_delivered(&mut self, items: &[Queued]) -> bool {
         self.taint_approval(items);
+        if items.iter().any(super::automations::is_automation_note) {
+            self.turn_from_automation = true;
+        }
         let at = self.chat.status().messages;
         let batch: Vec<Item> = items.iter().map(item).collect();
         let answers = self.answers_of(items);
@@ -1460,7 +1478,26 @@ impl Brain {
         true
     }
 
+    /// A turn whose harness reported tokens but no dollars is priced from the shared table
+    /// (turn_price.rs): its engine's model, else a brain's home model.
+    fn price_unpriced(&self, outcome: &mut TurnOutcome) {
+        if outcome.stats.cost.is_some() {
+            return;
+        }
+        let Some((usage, _)) = outcome.stats.totals.as_ref() else {
+            return;
+        };
+        let engine = self.turn_engine.as_ref();
+        let model = engine.and_then(|e| e.model.clone()).or_else(|| {
+            engine
+                .filter(|e| self.settings.brains.get(&e.harness).is_some())
+                .and_then(|_| self.settings.brains.model.clone())
+        });
+        outcome.stats.cost = model.and_then(|m| crate::turn_price::price(&m, usage));
+    }
+
     pub(super) fn turn_ended(&mut self, key: &str, mut outcome: TurnOutcome) {
+        self.price_unpriced(&mut outcome);
         // A failed turn on an open-source brain is cut and runs again on the default harness
         // (turn_engine_choice), so the person's message still gets its answer.
         // A lost acpmux link is no fault of the brain: that cut runs again on the brain.

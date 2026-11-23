@@ -368,6 +368,11 @@ public final class DaemonStore: StateResourceQueries {
         tab(id: id).flatMap { pane(containing: $0.surface) }.flatMap { workspace(containing: $0.handle) }
     }
 
+    /// Every tab of the workspace that holds tab `id`, in screen and pane order; nil when no workspace lists it.
+    public func tabs(inWorkspaceHolding id: String) -> [TabModel]? {
+        workspace(holdingTab: id)?.allTabs
+    }
+
     // MARK: Snapshot
 
     /// Replaces the confirmed tree, reusing records by durable identity,
@@ -464,7 +469,7 @@ public final class DaemonStore: StateResourceQueries {
     /// Seeds agent state (`list-agents`), e.g. after connect.
     public func apply(agents: [AgentStatus]) {
         self.agents.seed(agents)
-        for (surface, tab) in tabsBySurface { tab.setAgent(self.agents.bySurface[surface]) }
+        for tab in tabsBySurface.values { tab.setAgent(self.agents.status(for: tab)) }
     }
 
     /// Records a completed handshake before its `.connected` event drains, so capability checks right after connect see this daemon.
@@ -576,7 +581,8 @@ public final class DaemonStore: StateResourceQueries {
     /// What a tab learns when it is indexed: its agent, its observed folder and this Mac's former hosts.
     private func prime(_ tab: TabModel) {
         if tab.formerLocalHosts != formerLocalHosts { tab.formerLocalHosts = formerLocalHosts }
-        if tab.agent == nil, let agent = agents.bySurface[tab.surface] { tab.setAgent(agent) }
+        // By its terminal first: a tab a restore or reopen gave a new surface finds its agent (cmux#49392).
+        if let agent = agents.status(for: tab) { tab.setAgent(agent) }
         if let presence = heldPresence.removeValue(forKey: tab.surface) { tab.setPresence(presence) }
         tab.setObservedCwd(directories.directory(for: tab.surface))
     }

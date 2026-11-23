@@ -66,7 +66,16 @@ enum CheckedFont {
         case .default: .systemFont(ofSize: size, weight: weight)
         case .monospaced: .monospacedSystemFont(ofSize: size, weight: weight)
         case .monospacedDigit: .monospacedDigitSystemFont(ofSize: size, weight: weight)
+        case .rounded: designed(.rounded, size: size, weight: weight)
+        case .serif: designed(.serif, size: size, weight: weight)
         }
+    }
+
+    /// The system font in one of its other designs; the default design where the system has none.
+    private static func designed(_ design: NSFontDescriptor.SystemDesign, size: CGFloat, weight: NSFont.Weight) -> NSFont {
+        let base = NSFont.systemFont(ofSize: size, weight: weight)
+        guard let descriptor = base.fontDescriptor.withDesign(design) else { return base }
+        return NSFont(descriptor: descriptor, size: size) ?? base
     }
 
     /// `font` as an optional, so a null reference from a non-optional
