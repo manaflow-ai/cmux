@@ -2773,6 +2773,52 @@ mod keep_sig_tests {
             same(common_view_prefix(&previous, &changed))
         );
     }
+
+    #[test]
+    fn a_part_rebuilt_unbuilt_by_compaction_shortens_the_prefix() {
+        // Compaction rewrites a part's content; its unbuilt bit flips, so the
+        // identity no longer matches the kept view and the prefix stops there.
+        let previous = vec![part(1), part(2), part(3)];
+        let compacted = vec![part(1), (NodeId::new(1, 2), true), part(3)];
+        assert_eq!(common_view_prefix(&previous, &compacted), vec![part(1)]);
+    }
+
+    #[test]
+    fn a_changed_system_prompt_or_preset_retires_the_kept_session() {
+        let engine = TurnEngine {
+            harness: "claude-sr".into(),
+            model: Some("model".into()),
+            effort: Some("medium".into()),
+            speed: None,
+        };
+        let view = vec![part(1), part(2)];
+        let base = keep_sig(
+            &engine,
+            &Some("preset".into()),
+            Some("system"),
+            &view,
+            CacheTtl::OneHour,
+            "approve-all",
+        );
+        let other_system = keep_sig(
+            &engine,
+            &Some("preset".into()),
+            Some("system changed"),
+            &view,
+            CacheTtl::OneHour,
+            "approve-all",
+        );
+        let other_preset = keep_sig(
+            &engine,
+            &Some("other-preset".into()),
+            Some("system"),
+            &view,
+            CacheTtl::OneHour,
+            "approve-all",
+        );
+        assert_ne!(base, other_system, "a system prompt change must retire");
+        assert_ne!(base, other_preset, "a preset change must retire");
+    }
 }
 
 /// The shape of a turn session: a kept one serves only a turn of the same
