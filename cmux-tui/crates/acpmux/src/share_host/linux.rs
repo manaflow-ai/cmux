@@ -518,8 +518,6 @@ pub(crate) fn start(scope: &cmux_scope::Scope) {
     let config_home = std::env::var_os("XDG_CONFIG_HOME")
         .filter(|v| !v.is_empty())
         .map_or_else(|| user_home.join(".config"), PathBuf::from);
-    let unset =
-        enable_unset(std::env::var_os("DISPLAY").as_deref(), own_virtual_display(&config_home));
     // The loop ends with the daemon's scope (a `while`, so the task's output is `()`).
     let stop = scope.token();
     scope.spawn_until_cancelled("share-host-linux", async move {
@@ -569,14 +567,14 @@ pub(crate) fn start(scope: &cmux_scope::Scope) {
                         &hub,
                     ));
                     let mark = mark_of(&credential, &id);
-                    let (home, folder, rd, hub, env, unset) = (
-                        home.clone(),
-                        folder.clone(),
-                        rd.clone(),
-                        hub.clone(),
-                        env.clone(),
-                        unset.clone(),
+                    // Read at each enable: the join writes cmux's own display unit, so the
+                    // first enable after it already runs without that DISPLAY.
+                    let unset = enable_unset(
+                        std::env::var_os("DISPLAY").as_deref(),
+                        own_virtual_display(&config_home),
                     );
+                    let (home, folder, rd, hub, env) =
+                        (home.clone(), folder.clone(), rd.clone(), hub.clone(), env.clone());
                     // The thread outlives an aborted task: dropping this cancels its enable
                     // (stopped with its process group), and nothing it set up is kept (review F2
                     // of #45369).

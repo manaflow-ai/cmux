@@ -435,11 +435,11 @@ fn helper_bundle(app: &Path, name: &str) -> std::path::PathBuf {
 }
 
 #[test]
-fn helpers_are_found_in_order_and_staged_beside_the_apps_slot() {
+fn helpers_are_found_in_order_and_staged_at_the_fixed_path() {
     let root = tempfile::tempdir().unwrap();
     let own = root.path().join("cmux DEV.app");
     let nightly = root.path().join("cmux NIGHTLY.app");
-    let own_helper = helper_bundle(&own, "cmux DEV Screen Sharing.app");
+    let own_helper = helper_bundle(&own, "cmux DEV Helper.app");
     let nightly_helper = helper_bundle(&nightly, "cmux NIGHTLY Screen Sharing.app");
     // Not a helper: another bundle in the same folder.
     std::fs::create_dir_all(nightly.join("Contents/Library/cmux Remote.app")).unwrap();
@@ -462,9 +462,18 @@ fn helpers_are_found_in_order_and_staged_beside_the_apps_slot() {
     assert_eq!(
         helper::staging_root(Path::new("/Users/p"), "com.cmuxterm.app.nightly.screen-sharing"),
         Path::new(
-            "/Users/p/Library/Application Support/cmux-next/screen-sharing/com.cmuxterm.app.nightly.screen-sharing/daemon"
+            "/Users/p/Library/Application Support/cmux-next/helper/com.cmuxterm.app.nightly.screen-sharing"
         )
     );
+    // The old per-digest slot it removes once, and nothing above Application Support/cmux-next.
+    let (legacy, stop) = helper::legacy_root(Path::new("/Users/p"), "x.screen-sharing");
+    assert_eq!(
+        legacy,
+        Path::new(
+            "/Users/p/Library/Application Support/cmux-next/screen-sharing/x.screen-sharing/daemon"
+        )
+    );
+    assert_eq!(stop, Path::new("/Users/p/Library/Application Support/cmux-next"));
     assert_eq!(
         helper::app_of(Path::new("/Applications/cmux.app/Contents/Resources/bin/acpmux")),
         Some("/Applications/cmux.app".into())
@@ -634,7 +643,11 @@ fn a_helper_that_exits_early_ends_only_its_own_share() {
     assert!(records::read(&dir, "s-live").is_some_and(|r| r.alive()));
     stop_live.store(true, Ordering::SeqCst);
     let ended = live.join().unwrap();
-    assert_eq!(ended.reason, "stopped");
+    // Stopped before a viewer connected: the reason says how far it got (the helper had the offer).
+    assert_eq!(
+        ended.reason,
+        "stopped before the viewer connected: the screen host had not answered the viewer's offer"
+    );
     assert_eq!(ended.tell_hub, None);
     assert_eq!(ends.lock().unwrap().len(), 1);
     assert!(!dir.join("s-live.json").exists());
@@ -1172,11 +1185,13 @@ fn the_device_hub_tells_a_mesh_host_s_screen_by_its_name() {
     ]}));
     assert_eq!(
         shared.device_hub_of("lane-1"),
-        Some(json!({"listed": true, "platform": "linux", "screenShared": true}))
+        Some(json!({"listed": true, "id": "d1", "platform": "linux", "online": true,
+            "screenShared": true}))
     );
     assert_eq!(
         shared.device_hub_of("lane-2"),
-        Some(json!({"listed": true, "platform": "linux", "screenShared": false}))
+        Some(json!({"listed": true, "id": "d3", "platform": "linux", "online": true,
+            "screenShared": false}))
     );
     assert_eq!(shared.device_hub_of("lane-3"), Some(json!({"listed": false})));
     // This device's own record is never another machine's.
