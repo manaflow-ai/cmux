@@ -583,7 +583,10 @@ impl Hub {
             b"turn_result",
         ];
         let mut last = None;
-        let scanned = self.store.scan_back(
+        // Every kind it reads is in the log's kind copies (`store/kind_index.rs`): a chat with no
+        // completed turn near its end reads its copies, not its whole log back from the end, at
+        // every start (ask-5136ca7948).
+        let scanned = self.store.scan_back_indexed(
             &session.id,
             0,
             u64::MAX,

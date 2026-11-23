@@ -19,4 +19,16 @@ extension SidebarMapping {
         case .image?, .svg?, nil: return fallback
         }
     }
+
+    /// The SF Symbol of the device a machine is, for its header when it has no icon of its own: a Cloud
+    /// machine is always the cloud (`DeviceKind::Cloud`), whatever its VM reports (it calls itself a
+    /// Linux server); any other machine is what its daemon named (`machine_symbol`: `macmini`,
+    /// `macbook.gen2`), else nil. Leo, 2026-10-22: "but default group header can put cloud icon or mac
+    /// mini icon or laptop icon".
+    public static func deviceSymbol(kind: SidebarMachine.Kind, reported: String?) -> String? {
+        kind == .cloud ? cloudDeviceSymbol : reported
+    }
+
+    /// `DeviceKind::Cloud`'s symbol (cmux-device-kind), the one a Cloud machine's header draws.
+    public static let cloudDeviceSymbol = "cloud"
 }
