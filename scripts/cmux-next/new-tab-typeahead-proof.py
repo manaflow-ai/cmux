@@ -12,7 +12,10 @@ the page; then reads the New Tab field
 workspace of its own (one terminal). A run is ok when the field holds TEXT exactly. Exit 1 when
 any run lost or reordered a key.
 """
-import json, random, socket, sys, time
+import json, os, random, socket, sys, time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from state_wait import wait_stable  # noqa: E402
 
 TAG, RUNS = sys.argv[1], int(sys.argv[2])
 TEXT = sys.argv[3] if len(sys.argv) > 3 else "hello"
@@ -34,12 +37,15 @@ def rpc(method, params=None, timeout=30):
 
 window = rpc("snapshot.get")["topology"]["windows"][0]["key"]
 WS = rpc("action.run", {"action": "workspace.newAtBottom", "focus": True, "wait": True})["created"][0]
-time.sleep(1.5)
 
 
 def tabs():
     w = next(w for w in rpc("snapshot.get")["topology"]["workspaces"] if w["id"] == WS)
     return {t["id"] for sc in w["screens"] for p in sc["panes"] for t in p["tabs"]}
+
+
+# The new workspace is in the topology with its terminal tab, and its tabs stop changing.
+wait_stable(lambda: tabs() or None, "the new workspace's terminal tab", timeout=15, interval=0.1, reads=4)
 
 
 rows = []
