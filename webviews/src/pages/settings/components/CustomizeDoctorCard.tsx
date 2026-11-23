@@ -388,6 +388,7 @@ export function DoctorNotice({
         variant="ghost"
         size="sm"
         className="doctor-chip-open"
+        title={line}
         aria-label={`${line}. ${t("settingsPage.customizeDoctor.review")}`}
         data-doctor-action="review"
         onClick={onReview}

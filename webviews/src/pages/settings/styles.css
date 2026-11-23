@@ -3053,8 +3053,13 @@ button.menu-disclosure {
 
 /* chip: the dot and the line at the bottom of the sidebar, the app-health footer's look. The
    section list above scrolls; nothing else moves when it comes and goes. */
-/* One column: the sidebar is narrow, so the line takes two rows (what it is and the first
-   finding) and Recover… sits under it, never cutting the line to "3 customiza…". */
+/* One column: the sidebar is narrow, so the line wraps under the dot (what it is, then the first
+   findings) and Recover… sits under it, never cutting the line to "3 customiza…".
+   Issue 52838: the button's own rules are `.ui-button.ui-btn` and `.ui-btn[data-size="sm"]`, two
+   classes each, so a one-class rule here lost to them. The button stayed 24px tall at control size
+   and the sidebar cut the second line in half. Every rule here is scoped under `.doctor-chip` to
+   outrank them. The button grows with its text at every density and text size; at most three whole
+   lines show, the last ending in an ellipsis, and the full line is the button's tooltip. */
 .doctor-chip {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -3064,33 +3069,38 @@ button.menu-disclosure {
   min-width: 0;
 }
 
-.doctor-chip-open .doctor-line {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
-  white-space: normal;
-}
-
-.doctor-chip-open {
-  flex: 0 1 auto;
-  justify-content: flex-start;
-  gap: var(--ds-space-2);
+.doctor-chip .ui-button.ui-btn.doctor-chip-open {
+  height: auto;
+  min-height: var(--ds-control-compact);
   min-width: 0;
   max-width: 100%;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: var(--ds-space-2);
+  padding-block: var(--ds-space-1);
   color: var(--muted-text);
   font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+  white-space: normal;
   text-align: start;
 }
 
-.doctor-chip-open {
-  height: auto;
-  align-items: flex-start;
+.doctor-chip .doctor-chip-open .doctor-line {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
-.doctor-chip-open .doctor-dot {
+/* The dot centers on the first line of the chip's own (detail-size) text. */
+.doctor-chip .doctor-chip-open .doctor-dot {
   align-self: flex-start;
-  margin-top: 0.45em;
+  --doctor-dot-offset: calc((var(--text-detail--line-height) - 6px) / 2);
+  margin-top: var(--doctor-dot-offset);
 }
 
 .doctor-chip-recover {

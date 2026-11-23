@@ -6,7 +6,14 @@
 // the card's header. The route's `focus=card.customizeDoctor` scrolls the page to the card. With
 // nothing found the page draws no card and no notice (the `empty` variant waits for the library).
 import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } from "../../gallery/format";
-import { mockAllDoctor, mockDismissedDoctor, mockDoctor, mockEmptyDoctor, mockOverrideDoctor } from "./mockDoctor";
+import {
+  mockAllDoctor,
+  mockDismissedDoctor,
+  mockDoctor,
+  mockEmptyDoctor,
+  mockManyDoctor,
+  mockOverrideDoctor,
+} from "./mockDoctor";
 
 const shown: PageFixtureStep = { selector: '[data-card="customizeDoctor"]', action: "wait" };
 const variant = (patch: Partial<SettingsPageVariant> & { note: string }): SettingsPageVariant => ({
@@ -76,6 +83,14 @@ export default settingsPageEntry({
       doctorTreatment: "chip",
       steps: [{ selector: '[data-doctor-notice="chip"]', action: "wait" }],
       note: "Chip (shipped): on any Settings page, a dot and the line at the sidebar's bottom; a click opens the card.",
+    }),
+    "treatment-chip-many": variant({
+      section: "general",
+      focus: undefined,
+      doctor: mockManyDoctor(),
+      doctorTreatment: "chip",
+      steps: [{ selector: '[data-doctor-notice="chip"]', action: "wait" }],
+      note: "Chip with seventeen long findings (issue 52838): the line wraps to at most three whole lines at detail size, the last ending in an ellipsis, the dot on the first line, nothing cut by the sidebar's bottom.",
     }),
     "treatment-banner": variant({
       section: "general",

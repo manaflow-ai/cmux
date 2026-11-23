@@ -116,9 +116,7 @@ fn a_stale_pr_layer_and_a_broken_file_are_both_said_in_one_line() {
 
     assert_eq!(
         report.line.as_deref(),
-        Some(
-            "2 things change your customization: pr-45206 is still on; themes/night.json does not load"
-        )
+        Some("2 customization problems: pr-45206 is still on; themes/night.json does not load")
     );
 }
 
