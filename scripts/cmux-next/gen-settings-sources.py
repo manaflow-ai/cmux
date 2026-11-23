@@ -24,8 +24,9 @@ script writes the copies the app's Swift modules compile in. Sources so far:
 - schemas/settings/source/agent-policy.json: which keys an agent may change, and why not
   (Swift: SettingsSchema+AgentPolicy.generated.swift). Every row of a section source needs a group.
 - schemas/settings/source/row-facts.json: the keys Reset All keeps and cmux-browser shares, and each
-  row's validation domain (Swift: SettingsSchema+RowFacts.generated.swift), with the app id
-  pattern of the app manifest schema (cmux-app.schema.json `properties.id.pattern`) for domain:app_id.
+  row's validation domain (Swift: SettingsSchema+RowFacts.generated.swift), with its copy of the app id
+  pattern of the app manifest schema (cmux-app.schema.json `properties.id.pattern`) for domain:app_id;
+  --check compares the copy with that schema when the checkout has it.
 - schemas/settings/source/samples.json: the values per row kind and validation domain a validator
   must accept and refuse (Swift: SettingsSchema+Samples.generated.swift; the export's accepts/refuses).
 
@@ -97,19 +98,20 @@ The constants are `public` when the owner type is: an owner declared without `pu
 CmuxNextSettings (a section type, or a hand-written internal parser) gets internal constants, since
 a public constant on an internal type can name a type that is itself internal.
 
-A generated Swift file this script no longer writes (for example a choices file after a section
-lost its choice rows) counts as drift under --check and is deleted when writing.
+The Swift is not in git (RFD 0048): the package's SettingsSchemaPlugin build-tool plugin
+(Packages/macOS/CmuxNext/Plugins/SettingsSchemaPlugin) runs this script with --swift-out into its
+work directory on every build, so the `swift` paths above (in the Schema directory) only name the
+files. A generated Swift file this script no longer writes (for example a choices file after a
+section lost its choice rows) counts as drift under --check and is deleted when writing.
 
-    python3 scripts/cmux-next/gen-settings-sources.py           # write the copies
-    python3 scripts/cmux-next/gen-settings-sources.py --check   # exit 1 when a copy drifted
+    python3 scripts/cmux-next/gen-settings-sources.py --check   # exit 1 on a bad source or a stale export
     python3 scripts/cmux-next/gen-settings-sources.py --swift-out DIR   # write the Swift into DIR
 
---swift-out DIR writes (or with --check compares) the Swift files in DIR instead of the Schema
-directory, under the same file names, and removes from DIR only the generated files it no longer
-writes. It is for a build step that generates the Swift where it compiles it (a SwiftPM build-tool
-plugin may write only inside its work directory, RFD 0045); a file whose text is unchanged is not
-rewritten, so an incremental build does not recompile it. Without --check it skips the export
-key check below (a build step generates; the lints run --check).
+--swift-out DIR writes (or with --check compares) the Swift files in DIR under the Schema file names
+and removes from DIR only the generated files it no longer writes; a file whose text is unchanged is
+not rewritten, so an incremental build does not recompile it. Without --check it skips the export
+key check below (a build step generates; the lints run --check). It never writes into the Schema
+directory: the plugin's copies would compile twice.
 """
 import json, os, re, sys
 
@@ -1328,8 +1330,10 @@ extension SettingsSchema {{
 def load_row_facts():
     src = FACTS_SOURCE
     data = load_json(src)
-    if set(data) != {"$comment", "kept_on_reset_all", "shared_with_browser", "validation", "former_defaults"}:
-        fail(src, "fields are $comment, kept_on_reset_all, shared_with_browser, validation, former_defaults")
+    if set(data) != {"$comment", "kept_on_reset_all", "shared_with_browser", "validation", "app_id_pattern", "former_defaults"}:
+        fail(src, "fields are $comment, kept_on_reset_all, shared_with_browser, validation, app_id_pattern, former_defaults")
+    if not isinstance(data["app_id_pattern"], str) or not data["app_id_pattern"]:
+        fail(src, "app_id_pattern is the app manifest schema's properties.id.pattern")
     for field in ("kept_on_reset_all", "shared_with_browser"):
         if len(set(data[field])) != len(data[field]):
             fail(src, "%s lists a key twice" % field)
@@ -1355,11 +1359,18 @@ def load_row_facts():
     return data
 
 
-def app_id_pattern():
+def app_id_pattern_drift():
+    """The app id pattern row-facts.json copies, when it is not the app manifest schema's: the
+    generator reads only schemas/settings and scripts (a SwiftPM build has no cmux-tui), so --check
+    keeps the copy equal to the schema in a checkout that has it."""
+    if not os.path.exists(os.path.join(ROOT, APP_MANIFEST_SCHEMA)):
+        return []
     pattern = load_json(APP_MANIFEST_SCHEMA).get("properties", {}).get("id", {}).get("pattern")
     if not isinstance(pattern, str) or not pattern:
         fail(APP_MANIFEST_SCHEMA, "properties.id.pattern is the app id pattern")
-    return pattern
+    copy = load_json(FACTS_SOURCE)["app_id_pattern"]
+    return [] if copy == pattern else ["%s app_id_pattern %r is not %s properties.id.pattern %r"
+                                       % (FACTS_SOURCE, copy, APP_MANIFEST_SCHEMA, pattern)]
 
 
 def row_facts_swift(data):
@@ -1406,7 +1417,7 @@ extension SettingsSchema {{
            shared="\n".join(wrap([swift_string(k) for k in data["shared_with_browser"]], "        ")),
            kept="\n".join(wrap(kept, "        ")), by_key=table(data["validation"]["keys"]),
            by_kind=table(data["validation"]["kinds"]), default=swift_string(data["validation"]["default"]),
-           app_schema=APP_MANIFEST_SCHEMA, app_id_pattern=swift_string(app_id_pattern()),
+           app_schema=APP_MANIFEST_SCHEMA, app_id_pattern=swift_string(data["app_id_pattern"]),
            former="\n".join(wrap(["%s: [%s]" % (swift_string(k), ", ".join(json_value_swift(v) for v in values))
                                   for k, values in data["former_defaults"].items()], "        ")))
 
@@ -1543,6 +1554,10 @@ def parse_args(argv):
 
 def main(argv=None):
     check, swift_out = parse_args(sys.argv[1:] if argv is None else argv)
+    if swift_out is None and not check:
+        print("gen-settings-sources.py: the build generates the Swift (SettingsSchemaPlugin); "
+              "run --check, or --swift-out DIR to see it", file=sys.stderr)
+        return 2
     if swift_out is not None and not check:
         os.makedirs(swift_out, exist_ok=True)
     out_dir = swift_out if swift_out is not None else os.path.join(ROOT, SCHEMA_DIR)
@@ -1570,7 +1585,7 @@ def main(argv=None):
     outputs[PAGE_CATEGORIES_SWIFT] = page_categories_swift(page)
     outputs.update(row_fact_outputs())
     drifted = []
-    for path, text in outputs.items():
+    for path, text in outputs.items() if swift_out is not None else ():
         full = target(path)
         current = open(full, encoding="utf-8").read() if os.path.exists(full) else None
         if current == text:
@@ -1583,7 +1598,7 @@ def main(argv=None):
             print("wrote " + (path if swift_out is None else full))
     # Generated files this script no longer writes.
     marker = "// GENERATED by scripts/cmux-next/gen-settings-sources.py"
-    for name in sorted(os.listdir(out_dir)) if os.path.isdir(out_dir) else []:
+    for name in sorted(os.listdir(out_dir)) if swift_out is not None and os.path.isdir(out_dir) else []:
         path = SCHEMA_DIR + "/" + name
         if not name.endswith(".generated.swift") or path in outputs:
             continue
@@ -1597,14 +1612,18 @@ def main(argv=None):
             print("removed " + (path if swift_out is None else os.path.join(out_dir, name)))
     # A build step that writes the Swift elsewhere generates; it does not lint the committed export.
     stale_export = export_key_drift(loaded) if swift_out is None or check else []
+    stale_pattern = app_id_pattern_drift() if swift_out is None or check else []
+    if stale_pattern:
+        print("\n".join(stale_pattern) + "\ncopy the schema's pattern into app_id_pattern", file=sys.stderr)
+        return 1
     if stale_export:
         print("%s is not the sources' export (an export from another base?):\n  %s\nregenerate it: "
               "scripts/cmux-next/regenerate-settings-exports.sh (a Mac or the PR's cmux-next-generated-patch artifact)"
               % (EXPORT, "\n  ".join(stale_export)), file=sys.stderr)
         return 1
     if drifted:
-        print("generated settings copies differ from schemas/settings:\n  %s\nrun: python3 scripts/cmux-next/gen-settings-sources.py"
-              % "\n  ".join(drifted), file=sys.stderr)
+        print("generated settings Swift in %s differs from schemas/settings:\n  %s\nrun: python3 scripts/cmux-next/gen-settings-sources.py --swift-out %s"
+              % (out_dir, "\n  ".join(drifted), out_dir), file=sys.stderr)
         return 1
     return 0
 
