@@ -49,6 +49,9 @@ public struct WorkspacesList: View {
     @State private var unfolded: Set<String> = []
     /// A refresh has taken long enough to say so.
     @State private var showsUpdating = false
+    /// The page's placeholder rows showed in this load: the list's own (below Mac lines) take
+    /// over from them at once.
+    @State private var placeholdersShown = false
     /// The offline workspace whose tap is being explained.
     @State private var unavailable: Workspace?
     @State private var renaming: Workspace?
@@ -169,6 +172,12 @@ public struct WorkspacesList: View {
     /// The list's own placeholder rows fill the page (Macs known, no rows yet).
     private var listShowsPlaceholder: Bool { inbox.isLoading && inbox.folds.isEmpty }
 
+    /// The page shows placeholder rows over everything: the team's first load, or no Mac line yet.
+    private var pageShowsPlaceholder: Bool {
+        if case .firstLoad = launchState { return true }
+        return listShowsPlaceholder
+    }
+
     public var body: some View {
         groupDialogs(page)
     }
@@ -185,6 +194,11 @@ public struct WorkspacesList: View {
             // remembered choice, and when the chosen Mac comes online.
             .onChange(of: scope.macToLink(in: macs), initial: true) { _, id in
                 if let id { linking?.link(id) }
+            }
+            // Set when the page's placeholders show; kept while this load lasts, so the list's
+            // own placeholder rows that replace them (a Mac line arrived) skip their show delay.
+            .onChange(of: pageShowsPlaceholder || inbox.isLoading, initial: true) { _, loading in
+                placeholdersShown = loading && (placeholdersShown || pageShowsPlaceholder)
             }
             .task(id: isRefreshing) {
                 // Say "Updating…" only when a refresh is slow, not on every one.
@@ -585,7 +599,10 @@ public struct WorkspacesList: View {
             // The line's "Last seen 4m ago" reads the minute clock in its own view: a tick redraws this line only.
             AnyView(OnMinute { now in foldLine(line.fold, now: now) })
         case .loading:
-            AnyView(SkeletonList(rows: 4, leadingSquare: nil)
+            // Its show delay keeps a quick load from flashing rows. Taking over from the page's
+            // rows, already on screen, it waited with nothing shown: the rows blinked out.
+            AnyView(SkeletonList(rows: 4, leadingSquare: nil,
+                                 delay: placeholdersShown ? .zero : theme.motion.skeletonDelay)
                 .allowsHitTesting(false)
                 .accessibilityIdentifier("workspaces.loading"))
         }
@@ -1400,35 +1417,48 @@ struct BulkClose: Identifiable {
 
 /// The Mac's workspace color swatch (its `GroupColor.swatch` hue, chroma and brightness).
 enum WorkspaceSwatch {
-    static func color(_ color: WorkspaceColor) -> Color {
-        let (hue, chroma) = color.hueAndChroma
-        return Color(UIColor { traits in
-            let dark = traits.userInterfaceStyle == .dark
-            return UIColor(hue: hue / 360, saturation: (dark ? 0.40 : 0.42) * chroma, brightness: dark ? 0.68 : 0.64, alpha: 1)
-        })
+    /// The Mac's vibrant group color (`GroupColor`), light or dark. It replaced a low-saturation
+    /// formula that the Mac dropped on 2026-11-06 for going brown and olive.
+    static func color(_ color: WorkspaceColor) -> Color { Color(uiColor: uiColor(color)) }
+
+    static func uiColor(_ color: WorkspaceColor) -> UIColor {
+        UIColor { traits in rgb(color.vibrant(dark: traits.userInterfaceStyle == .dark)) }
+    }
+
+    static func rgb(_ value: UInt32) -> UIColor {
+        UIColor(red: CGFloat(value >> 16 & 0xFF) / 255, green: CGFloat(value >> 8 & 0xFF) / 255, blue: CGFloat(value & 0xFF) / 255, alpha: 1)
+    }
+
+    /// A stored `#RRGGBB` (or `#RRGGBBAA`) color's `0xRRGGBB`.
+    static func hex(_ stored: String?) -> UInt32? {
+        guard let stored, stored.hasPrefix("#"), stored.count >= 7 else { return nil }
+        return UInt32(stored.dropFirst().prefix(6), radix: 16)
     }
 
     /// A stored color: a palette name, or `#RRGGBB`.
     static func color(stored: String?) -> Color? {
         if let palette = WorkspaceColor(stored: stored) { return color(palette) }
-        guard let stored, stored.hasPrefix("#"), stored.count >= 7, let value = UInt32(stored.dropFirst().prefix(6), radix: 16) else { return nil }
-        return Color(red: Double((value >> 16) & 0xFF) / 255, green: Double((value >> 8) & 0xFF) / 255, blue: Double(value & 0xFF) / 255)
+        return hex(stored).map { Color(uiColor: rgb($0)) }
     }
 
     /// A menu icon: a filled circle in the color (menus draw images, not shapes).
     /// Drawn once per color: a menu lists nine of them.
     @MainActor static func image(_ color: WorkspaceColor) -> Image { Image(uiImage: uiImage(color)) }
 
-    /// The same circle for a UIKit menu, drawn once per color.
+    /// The same circle for a UIKit menu, drawn once per color, light and dark.
     @MainActor static func uiImage(_ color: WorkspaceColor) -> UIImage {
         if let image = images[color] { return image }
-        let (hue, chroma) = color.hueAndChroma
-        let fill = UIColor(hue: hue / 360, saturation: 0.42 * chroma, brightness: 0.64, alpha: 1)
         let size = CGSize(width: 16, height: 16)
-        let image = UIGraphicsImageRenderer(size: size).image { _ in
-            fill.setFill()
-            UIBezierPath(ovalIn: CGRect(origin: .zero, size: size)).fill()
-        }.withRenderingMode(.alwaysOriginal)
+        func circle(dark: Bool) -> UIImage {
+            UIGraphicsImageRenderer(size: size).image { _ in
+                rgb(color.vibrant(dark: dark)).setFill()
+                UIBezierPath(ovalIn: CGRect(origin: .zero, size: size)).fill()
+            }.withRenderingMode(.alwaysOriginal)
+        }
+        let asset = UIImageAsset()
+        asset.register(circle(dark: false), with: UITraitCollection(userInterfaceStyle: .light))
+        asset.register(circle(dark: true), with: UITraitCollection(userInterfaceStyle: .dark))
+        let image = asset.image(with: UITraitCollection(userInterfaceStyle: .light))
         images[color] = image
         return image
     }

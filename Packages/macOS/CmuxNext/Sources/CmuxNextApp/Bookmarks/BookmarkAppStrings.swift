@@ -4,7 +4,7 @@ import Foundation
 /// App strings for bookmarks (table Bookmarks.xcstrings).
 enum BookmarkAppStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "Bookmarks", bundle: .module)
+        String(localized: key, defaultValue: value, table: "Bookmarks", bundle: .module.inAppLanguage)
     }
 
     static var cannotBookmark: String { t("bookmarks.refusal.cannotBookmark", "This page cannot be bookmarked") }
