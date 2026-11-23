@@ -326,6 +326,7 @@ mod stress;
 pub mod subagent_call;
 pub mod subagent_notice;
 pub mod subagents;
+pub mod subrouter_priority;
 pub mod subrouter_session;
 pub mod subsession_mcp;
 pub mod subsession_settings;
