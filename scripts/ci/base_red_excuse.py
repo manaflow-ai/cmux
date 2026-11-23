@@ -3870,16 +3870,51 @@ SAME_TREE_SUFFIX = " (same-tree)"
 FAST_GATES_STATUS = "cmux-next/fast-gates"
 
 
+# The controller's required-checks pool posts its verdicts as commit statuses (manaflow-checks[bot]); a failed one says
+# "failed on the cmux pool (exit 1); rerun: POST /v1/required-checks/rerun?head=<sha>". cmux#49885 at 8b11f0c2
+# (2026-11-22): 'clippy (changed cmux-tui packages)' failed on the pool while the Actions job of that name was skipped
+# by path routing, and the only refusal said "'...' is skipped: ... re-run it": a re-run of the Actions job comes back
+# skipped, so the loop never ended without a person. A pool red is named as the pool's, with the controller's rerun
+# as its step. The pool posts nothing on base commits, so there is no base verdict of its own to compare: it is
+# refused, never excused, as before.
+POOL_RERUN = re.compile(r"\brerun: POST (?P<path>/v1/required-checks/rerun\?head=(?P<head>[0-9a-fA-F]{7,40}))")
+
+
+def pool_status_refusal(sha: str, name: str, status: dict | None) -> "Refused | None":
+    """The refusal for STATUS, the head's commit status NAME, when it is a failed required-checks pool status for SHA
+    (POOL_RERUN in its description), else None."""
+    if not isinstance(status, dict) or status.get("state") not in ("failure", "error"):
+        return None
+    description = str(status.get("description") or "")
+    match = POOL_RERUN.search(description)
+    if match is None or not sha.lower().startswith(match["head"].lower()):
+        return None
+    url = str(status.get("target_url") or "")
+    origin = re.match(r"https?://[^/?#\s]+", url)
+    post = f"{origin[0] if origin else ''}{match['path']}"
+    return Refused(f"'{name}': pool status red at {sha[:12]} ({status.get('state')}: {description[:160]}): its verdict "
+                   "is the controller's required-checks pool, not an Actions job (one of that name, if any, has no "
+                   "verdict to give: path routing left it out); rerun it through the controller (POST "
+                   f"{post})" + (f", its log is at {url}" if url else "") + "; the pool posts nothing on the base, so "
+                   "no base verdict is compared")
+
+
+def head_status(repo: str, sha: str, name: str, github) -> dict | None:
+    """The newest commit status NAME on SHA (the combined status lists the newest per context), or None."""
+    statuses = github.json(f"repos/{repo}/commits/{sha}/status?per_page=100").get("statuses") or []
+    return next((found for found in statuses if found.get("context") == name), None)
+
+
 def status_job(repo: str, sha: str, name: str, github, base: str | None = None,
                suites: SuiteChecks | None = None, evidence: "Evidence | None" = None) -> dict | str | None:
     """The completed Actions job behind commit status NAME on SHA, or None when SHA has no status NAME. A red
     status no Actions job gave (Vercel's) is the audit line of base_status when BASE (EVIDENCE's) shares it, else
     refused."""
-    statuses = github.json(f"repos/{repo}/commits/{sha}/status?per_page=100").get("statuses") or []
-    # The combined status lists the newest per context.
-    status = next((found for found in statuses if found.get("context") == name), None)
+    status = head_status(repo, sha, name, github)
     if status is None:
         return None
+    if (pool := pool_status_refusal(sha, name, status)) is not None:
+        raise pool
     state, job_name = status.get("state"), name.removesuffix(SAME_TREE_SUFFIX)
     if state == "pending":
         raise Refused(f"'{name}': its status is still pending on {sha}")
@@ -5138,6 +5173,11 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
                     excused.append(f"read '{name}' as check run '{check['name']}' (job {check.get('id')}) on {sha}: "
                                    + (why or "the only check run at the head that name is a part of"))
                 name = check["name"]
+            elif (check.get("conclusion") == "skipped"
+                  and (pool := pool_status_refusal(sha, name, head_status(repo, sha, name, github))) is not None):
+                # A red named for a pool status whose Actions twin has no verdict (skipped by path routing): the
+                # pool's red, never the twin's "is skipped ... re-run it" (cmux#49885).
+                raise pool
             job = job_for(repo, check, sha, github)
             if is_aggregate(name, repo):
                 # The check-run can remain failed while its Actions job has

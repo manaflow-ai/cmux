@@ -559,6 +559,12 @@ FAILURE_MARKERS = (
 # an xcresult `FAILED:` line, xcodebuild's `Failing tests:` list) named a failure; likewise a summary line whose count
 # cannot be read.
 CARGO_FAILED_TOTAL = re.compile(r"^test result: FAILED\. \d+ passed; (\d+) failed\b")
+# cargo's closing list, right above its summary: `failures:`, then each failing test indented four spaces. It names
+# what the summary counts even where a test ran a nested `cargo test` of itself, whose own `running 1 test` ... `test
+# result:` printed inside the parent's output and took the parent's `... FAILED` lines as its own (cmux#50445 at
+# fb4bd6c4, run 45036997271: bwrap's real_second_home_mount_hides_denied_names re-ran itself, and acpmux's lib
+# summary `12 failed` read as naming none though its list named all 12).
+CARGO_LISTED = re.compile(r"^    (\S+)$")
 UNITTEST_FAILED_TOTAL = re.compile(r"^FAILED \(([^)]*)\)$")
 UNITTEST_COUNTED = re.compile(r"\b(failures|errors|unexpected successes)=(\d+)")
 PYTEST_TOTAL = re.compile(r"^=+ (.*?) =+$")
@@ -592,9 +598,16 @@ def runner_unnamed(lines: list[str]) -> list[str]:
     xc_family = 0  # XCTest, xcresult `FAILED:` and xcodebuild listing names, anywhere in LINES
     xc_summaries: list[str] = []
     listing = False
+    cargo_listed: set | None = None  # the names under cargo's last `failures:` heading, while only names follow it
     for text in lines:
         if text.startswith(TAP_MARKER):
             continue
+        if text.strip() == "failures:":
+            cargo_listed = set()
+        elif cargo_listed is not None and (match := CARGO_LISTED.match(text)):
+            cargo_listed.add(match.group(1))
+        elif text.strip() and not CARGO_FAILED_TOTAL.match(text):
+            cargo_listed = None
         if listing:
             if XCODEBUILD_FAILED.match(text):
                 xc_family += 1
@@ -615,6 +628,8 @@ def runner_unnamed(lines: list[str]) -> list[str]:
         if FAILURE_MARKERS[0].search(text):
             runner, match = "cargo", CARGO_FAILED_TOTAL.match(text)
             reported = int(match.group(1)) if match else None
+            since[runner] = max(since[runner], len(cargo_listed or ()))
+            cargo_listed = None
         elif (match := UNITTEST_FAILED_TOTAL.match(text)) and (FAILURE_MARKERS[1].search(text)
                                                               or UNITTEST_COUNTED.search(match.group(1))):
             counts = UNITTEST_COUNTED.findall(match.group(1))
