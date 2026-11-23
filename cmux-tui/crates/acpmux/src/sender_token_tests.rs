@@ -135,3 +135,36 @@ fn a_daemon_that_does_not_take_the_token_is_never_sent_it() {
     withhold_unless(&mut new, true);
     assert_eq!(new, sent());
 }
+
+/// A send presents what its caller named, else its daemon home's own token, so no sender has to
+/// remember to (Leo, 2026-11-20: "sometimes you guys litearlly dont announce your permissions
+/// apparently which fucks it up").
+#[cfg(unix)]
+#[test]
+fn a_send_that_names_no_token_presents_its_homes_own() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = home();
+    // No file in the home yet: nothing, and no error.
+    assert_eq!(of_this_send_in(None, None, dir.path()).unwrap(), None);
+    ensure(dir.path()).unwrap();
+    let own = read_trusted(&path_in(dir.path())).unwrap();
+    // Neither given: the home's own.
+    assert_eq!(of_this_send_in(None, None, dir.path()).unwrap(), Presented::new(&own));
+    assert_eq!(of_home(dir.path()), Presented::new(&own));
+    // The environment's comes first, then a file the caller named.
+    let env = "e".repeat(64);
+    assert_eq!(of_this_send_in(None, Some(&env), dir.path()).unwrap(), Presented::new(&env));
+    let named = dir.path().join("named");
+    std::fs::write(&named, "f".repeat(64)).unwrap();
+    assert_eq!(
+        of_this_send_in(Some(&named), Some(&env), dir.path()).unwrap(),
+        Presented::new(&"f".repeat(64))
+    );
+    // An empty environment value is none: the home's own.
+    assert_eq!(of_this_send_in(None, Some(" "), dir.path()).unwrap(), Presented::new(&own));
+    // A named file that cannot be read still fails the send.
+    assert!(of_this_send_in(Some(&dir.path().join("missing")), None, dir.path()).is_err());
+    // A home file anyone else could read is no token to present.
+    std::fs::set_permissions(path_in(dir.path()), std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert_eq!(of_this_send_in(None, None, dir.path()).unwrap(), None);
+}
