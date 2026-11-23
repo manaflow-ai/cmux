@@ -1,6 +1,7 @@
 import { composerHealthHarness } from "./composerPickerEntries";
 import { useFold } from "./conversation/fold";
 import { setSessionRefResolver } from "./conversation/sessionRefs";
+import { readUnread, subscribeUnread } from "./conversation/unreadState";
 import { useHeightsSettledFor } from "./conversation/unsettledHeights";
 import { PANE_PAINTED_MARK } from "./firstLoadWatch";
 import { useStopThroughReconnect } from "./stopThroughReconnect";
@@ -460,6 +461,7 @@ import {
   useFeatureTipsOn,
   useTrayHandle,
   useTrayTucked,
+  useUnreadBannerMode,
 } from "./chatDisplay";
 import { usePresentation } from "./conversation/presentation";
 import { PresentationContext } from "./conversation/presentationContextModel";
@@ -473,6 +475,7 @@ import {
   localApiKeyLogin,
   SIGN_IN_ON_MACHINE,
 } from "./cloudAgentLogin";
+import { cloudGitHubSignIn } from "./cloudGitHubSignIn";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { archiveClosesTab, deleteClosesTab } from "./header/archiveClose";
 import { avatarRows } from "./header/avatarRow";
@@ -3468,6 +3471,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       elsewhere: chatElsewhere,
       sessionId: snapshot.sessionId,
       harness: snapshot.summary?.harness,
+      model: snapshot.summary?.model,
       supported: directClient.current?.supportsAgentLogin === true,
       gesture: (intent) =>
         postNative<{ ticket?: string }>("transport.gesture", { intent }).then((reply) => reply?.ticket),
@@ -3496,8 +3500,25 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       snapshot.switching?.phase === "failed" && snapshot.switching.code === SIGN_IN_REQUIRED
         ? snapshot.switching.harness
         : undefined;
+    // GitHub's sign-in on the chat's machine (logins done right): only for a chat elsewhere that
+    // names its chat, which acpmux forwards to that machine (cloudGitHubSignIn.ts).
+    const cloudSignIn = cloudAgentLogin(login);
+    const owner = snapshot.sessionId;
     return {
-      cloudSignIn: cloudAgentLogin(login),
+      cloudSignIn:
+        cloudSignIn && owner
+          ? {
+              ...cloudSignIn,
+              github: cloudGitHubSignIn({
+                sessionId: owner,
+                currentClient: () =>
+                  restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession)
+                    ? (directClient.current ?? undefined)
+                    : undefined,
+                openURL: login.openURL,
+              }),
+            }
+          : cloudSignIn,
       apiKeySignIn: localApiKeyLogin(login),
       // A new chat has no session yet: its machine signs the agent in there with none, where its
       // daemon can (`agent_login_machine`); elsewhere the card says to sign in on that machine.
@@ -3540,6 +3561,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     chatElsewhere,
     snapshot.sessionId,
     snapshot.summary?.harness,
+    snapshot.summary?.model,
     snapshot.switching?.phase,
     snapshot.switching?.code,
     snapshot.switching?.harness,
@@ -5085,7 +5107,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Inspector's section that lists them all (the summary card with the Inspector off). With the tray
   // on (the default) the tray is the count, in a turn and between turns, so the line counts nothing.
   // `child`: a row of the subagent view shown then, which only that view reveals.
-  const [revealRow, setRevealRow] = useState<{ rowId: string; key: number; toolId: string; child?: true }>();
+  const [revealRow, setRevealRow] = useState<{
+    rowId: string;
+    key: number;
+    toolId: string;
+    child?: true;
+    land?: true;
+  }>();
   const counting = snapshot.isWorking && !subagentTray;
   // chatAgents already lists every subagent and changes when one's state does.
   const runningAgents = useMemo(() => (counting ? chatAgents.filter(running) : NO_AGENTS), [counting, chatAgents]);
@@ -5263,6 +5291,38 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setRevealRow({ rowId: SINCE_DIVIDER, key, toolId: "" });
     setTimeout(() => setRevealRow((current) => (current?.key === key ? undefined : current)), REVEAL_HOLD_MS);
   }, []);
+  // A return (a chat picked, its tab or window shown again; Leo, 2026-11-15, of the terminal's
+  // "157 new messages" rule: "we needto properly do somthing like this in the gui somehow") with
+  // something new to read lands at the line, not the latest: the view opens where the new part
+  // starts. Only once the transcript has said the line has news under it (unreadState.ts `quiet`
+  // false, from sinceNews.ts): a quiet line draws nothing, so there is nothing to land at. A line
+  // the reader's own scroll-up placed, or a return by hand to a chat left on screen (`inPlace`),
+  // leaves `sinceLands` unset and never moves the view, and a reader scrolled up keeps their place
+  // (VirtualTranscript's `land` reveal moves only a view at the latest). A person who turned the
+  // unread banner on chose to open at the latest with the banner to jump from: their view stays.
+  const landedSince = useRef<string | undefined>(undefined);
+  const bannerMode = useUnreadBannerMode();
+  const sinceHasNews = useSyncExternalStore(
+    subscribeUnread,
+    () => {
+      const view = readUnread();
+      return sinceKey !== undefined && view?.mark === sinceKey && view.quiet === false;
+    },
+    () => false,
+  );
+  const sinceLands = snapshot.sinceLands === true && bannerMode === "off" && sinceHasNews;
+  useEffect(() => {
+    if (sinceKey === undefined || !sinceLands || landedSince.current === sinceKey) return;
+    landedSince.current = sinceKey;
+    const key = Date.now();
+    const done = (current: typeof revealRow) => (current?.key === key ? undefined : current);
+    setRevealRow({ rowId: SINCE_DIVIDER, key, toolId: "", land: true });
+    const timer = setTimeout(() => setRevealRow(done), REVEAL_HOLD_MS);
+    return () => {
+      clearTimeout(timer);
+      setRevealRow(done);
+    };
+  }, [sinceKey, sinceLands]);
   // A link waiting on replay retries against committed rows, without a polling timer.
   useLayoutEffect(() => notifyRevealRowsChanged(), [sourceRows, transcriptRows]);
   // A shell's Bash row, opening its turn's "Worked for" when that is closed and the run that
