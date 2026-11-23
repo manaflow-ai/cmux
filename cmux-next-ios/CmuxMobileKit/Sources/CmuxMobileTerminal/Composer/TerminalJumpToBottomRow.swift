@@ -26,6 +26,9 @@ struct TerminalJumpToBottomRow: View {
             if showsJumpToBottom {
                 Button {
                     taps += 1
+                    // The tap that hid the pill, or a second one where it
+                    // was, never also lands on the shell (Leo, 2026-11-23).
+                    model.controller?.quietShellTaps()
                     model.scrollToBottom()
                 } label: {
                     Label("Jump to bottom", systemImage: "arrow.down")
@@ -79,10 +82,14 @@ struct TerminalJumpToBottomRow: View {
     nonisolated static let rowSpace = "terminal.jumpRow"
     /// The pill as drawn.
     static let pillHeight: CGFloat = 28
-    /// The tap target's height, the key-row gap included.
-    static let hitHeight: CGFloat = 56
-    /// The tap target's reach past each side of the pill.
-    static let hitSlop: CGFloat = 28
+    /// The tap target's height, the key-row gap included (56 pt until Leo,
+    /// 2026-11-23: "making the jump to bottom be more clickable").
+    static let hitHeight: CGFloat = 64
+    /// The tap target's reach past each side of the pill (was 28 pt).
+    static let hitSlop: CGFloat = 44
+    /// Around the target, a near miss is ignored by the shell rather than
+    /// taken as a tap into the terminal (`TerminalViewController.nearShellButton`).
+    static let nearMissMargin: CGFloat = 16
 }
 
 /// The pill's entrance: from 14 pt low, 92 % and transparent (0) to its
