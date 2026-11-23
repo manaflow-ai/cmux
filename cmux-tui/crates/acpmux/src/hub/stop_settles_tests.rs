@@ -295,6 +295,85 @@ async fn an_automatic_release_names_only_the_prompts_it_let_go() {
     assert!(held.contains(&("p-agent".to_owned(), true)), "{held:?}");
 }
 
+/// The person's Stop ends the turn and keeps their queued prompt: it is listed held by the Stop,
+/// never reaches the agent by itself, and runs once the person sends it (the queue's Resume).
+/// One the person sent after the Stop runs at once, ahead of it. (2026-11-05: the person stays in
+/// control of what is sent.)
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_persons_stop_keeps_their_queued_prompt_until_they_send_it() {
+    let (hub, s) = chat(false).await;
+    let first = prompt(&hub, &s, "until-cancel");
+    record(&hub, &s, "", "agent_message_chunk", |m| {
+        m["params"]["update"]["content"]["text"] == "running"
+    })
+    .await;
+    let queued = prompt_as(&hub, &s, "then the tests", "p-mine", None);
+    until("the person's prompt queues", || s.queue().len() == 1).await;
+    hub.person_stop(&s).await.expect("the Stop is refused");
+    let _ = tokio::time::timeout(WAIT, first).await.expect("the stopped turn ends");
+    record(&hub, &s, "mux", "queue_paused", |m| {
+        m["reason"] == "stop" && m["held"] == json!(["p-mine"])
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let row = hub.session_summary(&s);
+    assert_eq!(row["queue"][0]["promptId"], "p-mine", "{row}");
+    assert_eq!(row["queue"][0]["heldByStop"], true, "{row}");
+    assert_eq!(written(&hub, &s, "then the tests"), 0, "the queued prompt ran after the Stop");
+    // A prompt the person sends now runs ahead of the one the Stop holds.
+    let now = prompt_as(&hub, &s, "hello first", "p-now", None);
+    let answer = tokio::time::timeout(WAIT, now).await.expect("the new prompt answers").unwrap();
+    assert!(answer.is_ok(), "{answer:?}");
+    assert_eq!(written(&hub, &s, "then the tests"), 0, "the held prompt ran after the next turn");
+    // The person's Resume sends it.
+    assert!(hub.resume_queue(&s));
+    let answer =
+        tokio::time::timeout(WAIT, queued).await.expect("the held prompt answers").unwrap();
+    assert!(answer.is_ok(), "{answer:?}");
+    assert_eq!(written(&hub, &s, "then the tests"), 1);
+}
+
+/// Stop holds automatic retries too: the person's own prompt a failed turn held waits for a retry
+/// (`retry_held_agent_messages`, `PERSON_RETRIES`); a Stop that comes during that wait makes it
+/// the Stop's, so the wait's end sends nothing, nor does a failed turn's retry scheduled after
+/// the Stop. Only the person's Resume sends it. (d-037a7faabc: other agents' messages were held
+/// on Stop already; the person's own prompt still went in again by itself.)
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_persons_stop_holds_the_automatic_retry_of_their_queued_prompt() {
+    let (hub, s) = chat(false).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![1_000]);
+    let first = prompt(&hub, &s, "until-cancel");
+    record(&hub, &s, "", "agent_message_chunk", |m| {
+        m["params"]["update"]["content"]["text"] == "running"
+    })
+    .await;
+    let turn = s.turn().unwrap().turn_id;
+    let queued = prompt_as(&hub, &s, "then the tests", "p-mine", None);
+    until("the person's prompt queues", || s.queue().len() == 1).await;
+    // A failed turn's hold: the person's prompt would go in again by itself after the wait.
+    hub.pause_queue(&s, &turn);
+    let paused = record(&hub, &s, "mux", "queue_paused", |m| m["turnId"] == json!(turn)).await;
+    assert_eq!(paused.msg["retrying"], json!(["p-mine"]), "{:?}", paused.msg);
+    // The person presses Stop during the retry's wait.
+    hub.person_stop(&s).await.expect("the Stop is refused");
+    let _ = tokio::time::timeout(WAIT, first).await.expect("the stopped turn ends");
+    // A retry scheduled after the Stop sends nothing either.
+    hub.retry_held_agent_messages(&s);
+    // Past the retry's wait (1 s), with room to spare.
+    tokio::time::sleep(Duration::from_millis(2_500)).await;
+    assert_eq!(written(&hub, &s, "then the tests"), 0, "an automatic retry sent it after the Stop");
+    let row = hub.session_summary(&s);
+    assert_eq!(row["queue"][0]["promptId"], "p-mine", "{row}");
+    assert_eq!(row["queue"][0]["heldByStop"], true, "{row}");
+    assert!(s.queue().iter().all(|q| q.held && q.held_by_stop), "{:?}", s.queue());
+    // The person's Resume sends it.
+    assert!(hub.resume_queue(&s));
+    let answer =
+        tokio::time::timeout(WAIT, queued).await.expect("the held prompt answers").unwrap();
+    assert!(answer.is_ok(), "{answer:?}");
+    assert_eq!(written(&hub, &s, "then the tests"), 1);
+}
+
 /// acpmux's inbox notice a failed turn held goes in again by itself, as another agent's message
 /// does: it pauses nothing (no "Paused after an error" over it, `Session::queue_paused`), its
 /// hold record says it retries, and the queue lists it as the notice it is. Leo, 2026-11-05, on

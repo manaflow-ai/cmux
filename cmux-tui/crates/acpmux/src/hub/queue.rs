@@ -93,6 +93,10 @@ pub struct QueuedPrompt {
     /// Times a hold let it go by itself (`digest.rs` `retry_held_agent_messages`): the next
     /// hold waits longer.
     pub(super) retries: usize,
+    /// The person's own prompt their Stop holds (`cancel.rs` `hold_agent_messages`): it waits for
+    /// them to send it (Resume, or Send now), never for the turn's end. Listed `heldByStop`
+    /// while `held`; a failed turn's hold (`pause_queue`) clears it.
+    pub(super) held_by_stop: bool,
 }
 
 impl QueuedPrompt {
@@ -120,7 +124,12 @@ impl QueuedPrompt {
     /// The person's own prompt goes in again by itself after the hold's wait (`digest.rs`
     /// `retry_held_agent_messages`), [`PERSON_RETRIES`] times, so a chat whose turn failed keeps
     /// draining (Leo, 2026-11-05: "Don't have it work this kind of way"); after those it waits.
+    /// One the person's Stop holds (`held_by_stop`, `cancel.rs`) never goes in again by itself:
+    /// after Stop no automatic retry sends it, only the person's Resume or Send now.
     pub(super) fn waits_for_resume(&self, stop_held: bool) -> bool {
+        if self.held_by_stop {
+            return true;
+        }
         if self.goes_in_by_itself() { stop_held } else { self.retries >= PERSON_RETRIES }
     }
 }
@@ -907,6 +916,7 @@ impl Hub {
                 joined: joined.clone(),
                 requeued: false,
                 retries: 0,
+                held_by_stop: false,
             },
         );
         let order: Vec<String> = queue.iter().map(|q| q.prompt_id.clone()).collect();
@@ -1116,7 +1126,7 @@ impl Hub {
                 .iter_mut()
                 .filter(|q| !q.held && !q.sent_now)
                 .map(|q| {
-                    q.held = true;
+                    (q.held, q.held_by_stop) = (true, false);
                     if retry_off && !q.goes_in_by_itself() {
                         q.retries = q.retries.max(PERSON_RETRIES);
                     }
@@ -1148,6 +1158,7 @@ impl Hub {
         session.stop_hold.store(0, Ordering::SeqCst);
         for q in queue.iter_mut() {
             resumed |= std::mem::take(&mut q.held);
+            q.held_by_stop = false;
         }
         if resumed {
             session.queue_moved.notify_waiters();
@@ -1169,6 +1180,8 @@ impl Hub {
         for q in queue.iter_mut() {
             if ids.contains(&q.prompt_id)
                 && !(stop_held && q.goes_in_by_itself())
+                // The person's prompt their Stop holds waits for them (`cancel.rs`).
+                && !q.held_by_stop
                 && std::mem::take(&mut q.held)
             {
                 released.push(q.prompt_id.clone());
@@ -1211,7 +1224,7 @@ impl Hub {
             // Only the last prompt sent now: one sent before it is a queued prompt again.
             queue.iter_mut().for_each(|q| q.sent_now = false);
             let mut q = queue.remove(from);
-            (q.held, q.sent_now) = (false, true);
+            (q.held, q.sent_now, q.held_by_stop) = (false, true, false);
             queue.insert(0, q);
             let order: Vec<String> = queue.iter().map(|q| q.prompt_id.clone()).collect();
             let msg = json!({"promptId": prompt_id, "order": order, "next": true});

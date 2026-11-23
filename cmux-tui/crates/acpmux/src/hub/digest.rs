@@ -498,6 +498,7 @@ impl Hub {
                 joined: Arc::new(StdMutex::new(None)),
                 requeued: false,
                 retries: 0,
+                held_by_stop: false,
             };
             digest.taken.lock().unwrap_or_else(|e| e.into_inner()).insert(0, q);
         }
@@ -886,6 +887,7 @@ mod tests {
             joined: Arc::new(StdMutex::new(None)),
             requeued: false,
             retries: 0,
+            held_by_stop: false,
         }];
         hub.requeue_joined(&session, &digest, false);
 
@@ -919,6 +921,7 @@ mod tests {
             joined: Arc::new(StdMutex::new(None)),
             requeued: false,
             retries: 0,
+            held_by_stop: false,
             awaiting_owner: false,
             revision: 0,
             declined: Default::default(),

@@ -387,6 +387,9 @@ impl Hub {
                 sent_now: false,
                 joined: Arc::new(StdMutex::new(None)),
                 requeued: e.msg.get("requeued") == Some(&Value::Bool(true)),
+                // A daemon restart forgets the Stop's hold; its record keeps them waiting
+                // for Resume (`waits_for_resume` above).
+                held_by_stop: false,
             });
             restored_any = true;
             session.queued.fetch_add(1, Ordering::SeqCst);
