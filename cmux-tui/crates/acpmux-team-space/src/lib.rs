@@ -29,8 +29,11 @@ pub mod delivery;
 pub mod digest;
 pub mod fake;
 pub mod glob;
+pub mod hosted;
+pub mod log;
 pub mod model;
 pub mod record;
+pub mod service;
 pub mod store;
 pub mod thread;
 

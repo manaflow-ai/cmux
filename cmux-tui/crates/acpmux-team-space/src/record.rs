@@ -7,7 +7,7 @@
 
 use crate::store::{StoreError, TeamSpaceStore};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// What a person did with one digest item.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -61,8 +61,17 @@ pub struct DigestReceipt {
     pub to_seq: u64,
     pub posts_seen: usize,
     pub duplicates_folded: usize,
+    /// Posts in the items the digest raised (needs you, affects you).
+    #[serde(default)]
+    pub raised: usize,
+    /// Posts the digest only summarized (counted in its rest groups).
+    #[serde(default)]
+    pub summarized: usize,
     /// Ids of the items the rendered digest showed (items past the budget's cut are not here).
     pub shown: Vec<String>,
+    /// Each shown item's fold key by its id, so acting on an item later needs only its id.
+    #[serde(default)]
+    pub shown_keys: BTreeMap<String, String>,
     /// Items the budget cut.
     pub cut: usize,
     pub at: u64,
@@ -106,6 +115,10 @@ pub struct Stats {
     pub digests: usize,
     pub posts_seen: usize,
     pub duplicates_folded: usize,
+    /// Posts raised to the person, summed over digests.
+    pub raised: usize,
+    /// Posts only summarized for the person, summed over digests.
+    pub summarized: usize,
     /// Items shown, summed over digests (an item shown in two digests counts twice).
     pub items_shown: usize,
     /// Distinct shown items the person opened, answered or dismissed.
@@ -128,6 +141,8 @@ pub fn fold_stats(records: &[PersonRecord]) -> Stats {
             stats.digests += 1;
             stats.posts_seen += r.posts_seen;
             stats.duplicates_folded += r.duplicates_folded;
+            stats.raised += r.raised;
+            stats.summarized += r.summarized;
             stats.items_shown += r.shown.len();
             shown.extend(r.shown.iter().map(|id| (r.space.as_str(), id.as_str())));
         }

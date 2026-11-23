@@ -209,8 +209,10 @@ dependencies = [
 name = "acpmux-team-space"
 version = "1.0.0"
 dependencies = [
+ "cmux-forum-hosted",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]

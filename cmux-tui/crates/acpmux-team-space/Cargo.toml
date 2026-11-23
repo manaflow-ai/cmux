@@ -13,3 +13,8 @@ workspace = true
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
+cmux-forum-hosted = { path = "../cmux-forum-hosted" }
+tokio = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

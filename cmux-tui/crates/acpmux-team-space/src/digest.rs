@@ -561,6 +561,10 @@ enum Line<'a> {
     Item(&'a DigestEntry, String),
 }
 
+fn posts(entry: &DigestEntry) -> usize {
+    entry.attributions.len()
+}
+
 impl Digest {
     /// Every item, needs-you first, then affects-you, then rest in group order.
     pub fn items(&self) -> impl Iterator<Item = &DigestEntry> {
@@ -682,7 +686,14 @@ impl Digest {
             to_seq: self.to_seq,
             posts_seen: self.posts_seen,
             duplicates_folded: self.duplicates_folded,
+            raised: self.needs_you.iter().chain(&self.affects_you).map(posts).sum(),
+            summarized: self.rest.iter().map(|g| g.posts).sum(),
             shown: rendered.shown.clone(),
+            shown_keys: rendered
+                .shown
+                .iter()
+                .filter_map(|id| self.item(id).map(|e| (id.clone(), e.fold_key.clone())))
+                .collect(),
             cut: rendered.cut,
             at,
         }
