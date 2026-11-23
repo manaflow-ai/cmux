@@ -203,7 +203,6 @@ pub struct ServiceOptions {
     /// How long one upstream receive waits before the driver rechecks its
     /// subscribers and the lease.
     pub poll: Duration,
-    pub max_conversation_subscriptions: usize,
     /// Cloud HTTP requests the daemon runs at once; one more is refused with
     /// `cloud_unavailable` (retryable) instead of queueing.
     pub max_concurrent_requests: usize,
@@ -223,7 +222,6 @@ impl Default for ServiceOptions {
             backoff_min: Duration::from_secs(1),
             backoff_max: Duration::from_secs(30),
             poll: Duration::from_secs(1),
-            max_conversation_subscriptions: 64,
             max_concurrent_requests: 16,
             api_origins: std::env::var("CMUX_CLOUD_API_ORIGINS")
                 .unwrap_or_default()
@@ -947,18 +945,8 @@ impl CloudConversations {
                 subscription.idle_since = None;
                 (None, subscription.state.reply(&target))
             } else {
-                let conversations = subscriptions
-                    .keys()
-                    .filter(|target| matches!(target, Target::Conversation(_)))
-                    .count();
-                if matches!(target, Target::Conversation(_))
-                    && conversations >= self.inner.options.max_conversation_subscriptions
-                {
-                    return Err(CloudError::daemon_reject(
-                        "too_many_subscriptions",
-                        "too many cloud conversation subscriptions",
-                    ));
-                }
+                // No count cap: an open conversation costs one driver thread
+                // and one socket, and ends `linger` after its last subscriber.
                 let reply = initial.reply(&target);
                 let driver = self.inner.next_driver.fetch_add(1, Ordering::Relaxed);
                 subscriptions.insert(
@@ -1832,5 +1820,20 @@ mod presence_order_tests {
         // Nothing is kept for a later subscribe: the socket is gone.
         drop(emitted);
         assert!(service.inner.subscriptions.lock().unwrap()[&target].presence.is_none());
+    }
+
+    /// Past the 64 open conversations the daemon once refused at, every
+    /// subscribe still opens its own stream.
+    #[test]
+    fn conversation_subscriptions_have_no_count_cap() {
+        let service = CloudConversations::new(Arc::new(NoBackend));
+        let past_old_cap = 65;
+        for index in 0..past_old_cap {
+            let target = Target::Conversation(format!("conv_{index:026}"));
+            service.subscribe(1, target).expect("subscribe past the old cap");
+        }
+        let open = service.inner.subscriptions.lock().unwrap().len();
+        assert_eq!(open, past_old_cap);
+        service.shutdown();
     }
 }

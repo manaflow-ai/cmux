@@ -1828,6 +1828,18 @@ fn code_mode_lists_only_exec_and_a_script_reaches_every_tool() {
     assert_eq!(other["isError"], true, "{other}");
 }
 
+/// A script makes more calls than the old limit of 2000; past the call log's length they are
+/// only counted.
+#[test]
+fn code_mode_scripts_make_more_calls_than_the_old_limit() {
+    let mut server = code_mode_server(Fake::with_actions());
+    let script = "for (let i = 0; i < 2100; i++) { await cmux.workspace_list({}); } return 1;";
+    let ran = call(&mut server, "cmux_exec", json!({"script": script}));
+    assert_eq!(ran["isError"], false, "{ran}");
+    assert_eq!(ran["structuredContent"]["calls"], 2100);
+    assert_eq!(ran["structuredContent"]["result"], 1);
+}
+
 #[test]
 fn code_mode_scripts_see_failed_calls_and_report_partial_runs() {
     let mut server = code_mode_server(Fake { fail_resources: true, ..Fake::with_actions() });
