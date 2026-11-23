@@ -216,7 +216,7 @@ def main(argv: list[str] | None = None) -> int:
     print(" ".join(command), flush=True)
     # From cmux-tui/ so rustup uses its rust-toolchain.toml pin and cargo its workspace.
     text: list[str] = []
-    result = run_clippy(command, repo / ROOT, repo, text)
+    result = run_clippy(warnings_soft(command, repo), repo / ROOT, repo, text)
     report_lints(result.lints, scope)
     if result.rc and not result.lock and args.autofixed_ok and paths is not None and autofixed(
             repo, command, paths, workspace, args.autofixed_ok):
@@ -237,7 +237,7 @@ def main(argv: list[str] | None = None) -> int:
             nonlocal red_files
             print(" ".join(argv), flush=True)
             out: list[str] = []
-            run = run_clippy(argv, repo / ROOT, repo, out)
+            run = run_clippy(warnings_soft(argv, repo), repo / ROOT, repo, out)
             report_lints(run.lints, scope)
             red_files = run.red_files
             lints_only = run.rc and not run.lock and not run.compile_errors and run.lint_errors
@@ -261,6 +261,15 @@ def load_isolate(repo: Path):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def warnings_soft(command: list[str], repo: Path) -> list[str]:
+    """COMMAND through scripts/ci/warnings_policy.py when CI_WARNINGS=soft (pull requests: warnings never fail
+    their compile; Leo, 2026-11-19), else as written. A replayed tree without the policy runs it as written."""
+    policy = repo / "scripts/ci/warnings_policy.py"
+    if os.environ.get("CI_WARNINGS", "").strip().lower() == "soft" and policy.is_file():
+        return [sys.executable, str(policy), "run", "--", *command]
+    return command
 
 
 def is_autofix_head(repo: Path, head: str) -> bool:

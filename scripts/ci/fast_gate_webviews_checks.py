@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The webviews checks that fail a feat-cmux-next pull request, compared with its base per error.
 
-    fast_gate_webviews_checks.py [--base BASE] [--repo PATH] [--no-install] [--advisory-out FILE]
+    fast_gate_webviews_checks.py [--base BASE] [--repo PATH] [--no-install] [--only CHECK]... [--skip CHECK]... [--advisory-out FILE]
 
 Installs webviews' node_modules (bun install --frozen-lockfile; --no-install when the job already did) and runs, in
 webviews/, every check in CHECKS, each on its own: a red never stops the next. ci-web's "Check webviews" step runs
@@ -13,6 +13,12 @@ one diagnostic of the type check (Oxlint's report: `path: code: message`), or el
 checkout root, `path:line` numbers and timings ignored, since the pull request may move lines; a check's own
 counts still compare). The base's findings are warnings, never charged to the pull request. Without BASE (a push)
 every red is the commit's. Exits 1 when any check adds a finding.
+
+--only and --skip pick from CHECKS: ci-web runs the type check (`--only typecheck`) in its own job,
+webviews-typecheck, and the rest (`--skip typecheck`) in react-apps-check (1), so a type error is a red check of
+its own and never the test shard's (Leo, 2026-11-19: "the CI doesn't necessarily have to fail and like give up ...
+just as if it were like a follow-up"). The bundles, the gallery and the tests build transpile-only (Vite, bun), so
+they run on a tree with a type error.
 
 #23763 (2026-10-21) merged a TS2339 in test/composer-row-layout.test.ts: the base was red, so its own red read as
 "the same base red". Compared per error, it is the one new finding (tests/test_cmux_next_fast_gates.py replays it).
@@ -50,7 +56,6 @@ CHECKS = (
     "check:design-tokens",
     "check:ui-review",
     "typecheck",
-    "acpmux-protocol:check",
     "check:catalog-keys",
     "check:catalog-unused",
     "check:popup-hover-reveals",
@@ -65,7 +70,6 @@ CHECK_CLASSES = {
     "check:design-tokens": LINT,
     "check:ui-review": LINT,
     "typecheck": ("blocks", "#32056's TS2448 broke every agent pane and was published 2026-11-02"),
-    "acpmux-protocol:check": ("blocks", "generated code drifting from the spec breaks the client-daemon wire"),
     "check:catalog-keys": LINT,
     "check:catalog-unused": LINT,
     "check:popup-hover-reveals": LINT,
@@ -335,9 +339,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--base", default="", help="the base sha (or ref) to compare with; none charges every red")
     parser.add_argument("--repo", type=Path, default=Path.cwd())
     parser.add_argument("--no-install", action="store_true", help="webviews' node_modules is already installed")
+    parser.add_argument("--only", action="append", default=[], metavar="CHECK", help="run only this check (repeat)")
+    parser.add_argument("--skip", action="append", default=[], metavar="CHECK", help="leave this check out (repeat)")
     parser.add_argument("--advisory-out", type=Path, default=None,
                         help="the nightly: lint-class reds go to this JSON report and never fail the run")
     args = parser.parse_args(argv)
+    unknown = sorted(set(args.only + args.skip) - set(CHECKS))
+    if unknown:
+        parser.error(f"not in CHECKS: {', '.join(unknown)}")
+    checks = [c for c in CHECKS if (not args.only or c in args.only) and c not in args.skip]
     repo = args.repo.resolve()
     webviews = repo / "webviews"
     if not args.no_install and subprocess.run(["bun", "install", "--frozen-lockfile"], cwd=webviews).returncode != 0:
@@ -347,7 +357,7 @@ def main(argv: list[str] | None = None) -> int:
     failed = []
     shown: dict[str, list[str]] = {}  # a failed check's findings, for --advisory-out
     try:
-        for check in CHECKS:
+        for check in checks:
             code, output = run_check(webviews, check, fixit=True)
             print(output, end="", flush=True)
             if code == 0:
