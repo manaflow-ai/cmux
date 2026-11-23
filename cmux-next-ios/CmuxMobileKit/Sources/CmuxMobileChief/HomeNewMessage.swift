@@ -48,7 +48,7 @@ public final class HomeNewMessage {
     /// fix at the lifecycle owner instead of adding another notification
     /// observer to every tracker.
     public static func appActiveChanged() {
-        current?.sheet?.keyboard.reconcileWithFocus()
+        current?.sheet?.keyboard.dropKeyboardWithoutOwner()
     }
 
     init(context: Context) {

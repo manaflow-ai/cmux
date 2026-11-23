@@ -274,7 +274,7 @@ public final class ConversationComposeViewController: UIViewController {
         // The sheet may be presented after its keyboard was already hidden.
         // Reconcile before focusing To:, so an unannounced hide cannot leave
         // the composer above empty space.
-        keyboardTracker.reconcileWithFocus()
+        keyboardTracker.dropKeyboardWithoutOwner()
         recipientField.textField.becomeFirstResponder()
     }
 

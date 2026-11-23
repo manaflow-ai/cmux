@@ -43,4 +43,20 @@ for required in en en_GB es es_419 pt_BR pt_PT zh_CN zh_TW; do
   }
 done
 
+# Every Chromium locale (first-use downloads, CMUX-570): 55, each catalog the
+# allowlist keeps among them, and the same list as cmux-tui-core's
+# CHROMIUM_LOCALES, which checks a pack's pin.
+all_locales="$(cef_chromium_locales)"
+[[ "$(wc -l <<<"$all_locales" | tr -d ' ')" == 55 ]] || { echo "FAIL: not 55 Chromium locales" >&2; exit 1; }
+while read -r kept; do
+  grep -Fxq -- "$kept" <<<"$all_locales" || { echo "FAIL: allowlisted $kept is not a Chromium locale" >&2; exit 1; }
+done <<<"$allowlist"
+rust_locales="$(sed -n '/CHROMIUM_LOCALES: \[&str; 55\] = \[/,/^\];/p' \
+  "$ROOT/cmux-tui/crates/cmux-tui-core/src/language_packs.rs" | grep -o '"[A-Za-z_0-9]*"' | tr -d '"')"
+[[ "$rust_locales" == "$all_locales" ]] || {
+  echo "FAIL: cef_chromium_locales and language_packs.rs CHROMIUM_LOCALES differ" >&2
+  diff <(echo "$all_locales") <(echo "$rust_locales") >&2 || true
+  exit 1
+}
+
 echo "PASS: CEF locale fallback mappings retain every app and regional catalog"

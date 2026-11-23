@@ -7,12 +7,14 @@ import CmuxMobileSupport
 
 /// A chat controller can outlive its window while the app-wide tracker hears a
 /// keyboard hide. The controller's own notification observer then has no hide
-/// to consume, so the dock must follow the tracker's reconciled frame.
+/// to consume, so the dock must follow the tracker's drop of a keyboard nothing owns
+/// (`MobileKeyboardFrameTracker.dropKeyboardWithoutOwner`).
 @MainActor
 @Suite(.serialized) struct ChatKeyboardReconcileTests {
     @Test func aDetachedHideReturnsTheChatDockToTheBottom() throws {
         let center = NotificationCenter()
-        let tracker = MobileKeyboardFrameTracker(notificationCenter: center, hasKeyInputFocus: { false })
+        let tracker = MobileKeyboardFrameTracker(notificationCenter: center)
+        tracker.keyboardOwnerPresent = { false }
         let store = AgentChatStore(source: SmoothChatTests.Silent())
         let surface = AgentChatSurface()
         let controller = ChatTranscriptController(
@@ -48,7 +50,7 @@ import CmuxMobileSupport
         window.rootViewController = nil
         window.isHidden = true
         #expect(controller.view.window == nil)
-        #expect(tracker.reconcileWithFocus(), "the tracker emits the detached hide")
+        #expect(tracker.dropKeyboardWithoutOwner(), "the tracker drops the keyboard nothing owns")
         window.rootViewController = controller
         window.makeKeyAndVisible()
         controller.view.layoutIfNeeded()

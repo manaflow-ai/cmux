@@ -3,7 +3,7 @@ import Foundation
 /// Layout template strings (table MiscHandlers.xcstrings).
 enum LayoutTemplateStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "MiscHandlers", bundle: .module)
+        String(localized: key, defaultValue: value, table: "MiscHandlers", bundle: .module.inAppLanguage)
     }
 
     static var nameRequired: String { t("handlers.layoutTemplate.nameRequired", "A layout template needs a name") }

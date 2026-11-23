@@ -591,7 +591,7 @@ struct ChiefQuickAction: View {
             .frame(width: ChiefInfoGeometry.quickActionSize, height: ChiefInfoGeometry.quickActionSize)
             .contentShape(.circle)
         }
-        .buttonStyle(.cmuxPressFill)
+        .buttonStyle(.cmuxPressFillCircle)
         .disabled(!enabled)
         .accessibilityLabel(title)
         .accessibilityValue(busy ? Text("In progress") : Text(""))
