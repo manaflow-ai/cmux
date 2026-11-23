@@ -39,10 +39,17 @@ A file written for an older cmux keeps working. This covers your own
 `cmux-next.json`, a theme file, a saved profile, a library collection and a
 setup you install from a repo.
 
-- A **renamed** key still applies under its new name. Your file is never
-  rewritten. `cmux settings validate` prints the new name, for example
+- A **renamed** key applies under its new name. The first time cmux opens your
+  `cmux-next.json` after the release that renamed it, the key moves to its new
+  name in the file (comments and the rest stay), once. cmux records each rename
+  it has run in `settings/migrations.json` in its state folder, so it never
+  moves that key twice: an old spelling you paste in later is still read as the
+  new name, and the file is left as you wrote it. A file that does not parse,
+  a classic `cmux.json` cmux has not yet copied into `cmux-next.json`, and a
+  value the new setting refuses are left alone (the old key is still read through the
+  table). `cmux settings validate` prints the new name for an old key still in
+  a file, for example
   `sidebar.showCounts is now sidebar.workspaceRow.tabCount (until 2026-12-05)`.
-  When you change that setting in Settings, the old key goes.
 - A **renamed choice** (for example `updates.notify` `card`, now `badge`) reads
   as the new value. A setup that sets the old value installs the new one.
 - A **removed** key is ignored. A setup that sets one installs without it, and
