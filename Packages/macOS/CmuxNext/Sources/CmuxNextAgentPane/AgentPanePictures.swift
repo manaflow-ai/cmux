@@ -35,10 +35,14 @@ public final class AgentPanePictures {
     public func picture(_ key: String, fit maxPixelSize: CGSize, kept: () async -> CGImage?) async -> CGImage? {
         if let fresh = await freshPicture(key, fit: maxPixelSize) { return fresh }
         if let image = await kept() { return image }
-        guard view(key) != nil, let page = images?.lastPage(key) else { return nil }
+        // A released chat has no view, so the page is looked up by its tab alone (keys are unique tab ids).
+        let appearance = NSApp?.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
+        guard let page = images?.lastPage(key, appearance: appearance) else { return nil }
         let side = Self.side
         guard let scaled = await Task.detached(priority: .userInitiated, operation: { AgentPaneVideoInfo.scaled(page, toFit: side) }).value
         else { return nil }
+        // A newer picture kept while this one scaled wins; the old page never replaces it.
+        if let newer = await kept() { return newer }
         keep(key, scaled)  // the next hover reads it from `kept`, not decoding the page again
         return scaled
     }

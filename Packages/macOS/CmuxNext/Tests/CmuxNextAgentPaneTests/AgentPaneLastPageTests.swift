@@ -26,4 +26,23 @@ struct AgentPaneLastPageTests {
         images.drop("tab_chat")
         #expect(images.lastPage("tab_chat") == nil)
     }
+
+    @Test func aHeldFrameInTheOtherLookIsNotTheLastPage() async throws {
+        let images = AgentPaneLaunchImages(directory: nil)
+        #expect(await images.hold("tab_chat", try Self.frame(), size: NSSize(width: 4, height: 4), appearance: .darkAqua))
+        #expect(images.lastPage("tab_chat", appearance: .aqua) == nil)  // a dark page on a light card: the label instead
+        #expect(images.lastPage("tab_chat", appearance: .darkAqua) != nil)
+    }
+
+    @Test func aReleasedChatWithNoViewStillShowsItsLastPageAndKeepsIt() async throws {
+        let images = AgentPaneLaunchImages(directory: nil)
+        #expect(await images.hold("tab_chat", try Self.frame(), size: NSSize(width: 4, height: 4), appearance: nil))
+        var kept: [String: CGImage] = [:]
+        // A released chat's view is gone (the app's lookup gives nil); its held frame is still its picture.
+        let pictures = AgentPanePictures(view: { _ in nil }, images: images, keep: { kept[$0] = $1 })
+        let picture = await pictures.picture("tab_chat", fit: CGSize(width: 640, height: 320)) { kept["tab_chat"] }
+        #expect(picture != nil)
+        #expect(kept["tab_chat"] != nil)  // the next hover reads it from the app's store
+        #expect(await pictures.picture("tab_other", fit: CGSize(width: 640, height: 320)) { nil } == nil)
+    }
 }
