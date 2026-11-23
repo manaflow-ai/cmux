@@ -82,6 +82,16 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                     DemoDirector.shared.post(.feedScroll(toEvent: event))
                 }
             }
+            // Screenshot rig: CMUX_MOBILE_FEED_SHOT_ANSWER=<event id> allows that permission request
+            // (the ask leaves the pinned group for its place in time).
+            if let event = ProcessInfo.processInfo.environment["CMUX_MOBILE_FEED_SHOT_ANSWER"], !event.isEmpty {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(1.5))
+                    guard case .permission(let request) = store.item(id: event)?.kind,
+                          let option = request.options.first(where: \.isAllow) else { return }
+                    store.respond(event, option: option)
+                }
+            }
             #endif
             FeedRouting.shared.sendPrompt = { item, text in
                 guard let workspace = appStore.workspaces.first(where: { $0.id == item.workspaceID }),
