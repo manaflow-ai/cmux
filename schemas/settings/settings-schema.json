@@ -1346,6 +1346,8 @@
               "agents.chats.sessionRecap",
               "agents.chats.coldArchive",
               "agents.chats.coldArchiveAfterDays",
+              "agents.chats.coldSegments",
+              "agents.chats.coldSegmentsLevel",
               "agents.chats.archiveInactive",
               "chat.on"
             ],
@@ -4921,7 +4923,7 @@
       },
       "help" : {
         "key" : "settings.tabs.newTabApp.help",
-        "text" : "An extension id that draws New Tab, such as \"local/showcase-newtab\". Unset: cmux's own."
+        "text" : "An extension that draws over the New Tab composer, by its id, such as \"local/showcase-newtab\". The composer always stays. Not used by the native New Tab page."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.newTabApp",
@@ -4958,7 +4960,7 @@
       "section" : "general",
       "summary" : {
         "key" : "settings.tabs.newTabApp.summary",
-        "text" : "An extension's New Tab page"
+        "text" : "An extension over the New Tab composer"
       },
       "surfaces" : {
         "cli" : {
@@ -12503,23 +12505,7 @@
         "org.keepassxc.KeePassXC",
         "1password",
         "bitwarden",
-        "com.apple.systempreferences",
-        "com.apple.Terminal",
-        "com.googlecode.iterm2",
-        "com.mitchellh.ghostty",
-        "net.kovidgoyal.kitty",
-        "com.github.wez.wezterm",
-        "org.alacritty",
-        "dev.warp.*",
-        "windowsterminal.exe",
-        "cmd.exe",
-        "powershell.exe",
-        "pwsh.exe",
-        "org.gnome.Terminal",
-        "org.gnome.Ptyxis",
-        "org.kde.konsole",
-        "com.cmuxterm.app",
-        "com.cmuxterm.app.*"
+        "com.apple.systempreferences"
       ],
       "default_label" : null,
       "group" : {
@@ -23507,6 +23493,290 @@
       "title" : {
         "key" : "settings.palette.aliases",
         "text" : "Command Aliases"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chats",
+        "text" : "Chats"
+      },
+      "help" : {
+        "key" : "settings.chats.coldSegments.help",
+        "text" : "Compresses the older parts of long chats. Run cmux chats warm to undo."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.chats.coldSegments",
+      "keywords" : [
+        "agents",
+        "chats",
+        "history",
+        "cold",
+        "compress",
+        "segments",
+        "disk",
+        "storage",
+        "zstd"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "chats",
+        "coldSegments"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:agents.chats.coldSegments"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.chats.coldSegments",
+        "text" : "Compress Long Chats"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1,
+        19,
+        10
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 3,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chats",
+        "text" : "Chats"
+      },
+      "help" : {
+        "key" : "settings.chats.coldSegmentsLevel.help",
+        "text" : "Higher levels use less disk and take longer to compress."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.chats.coldSegmentsLevel",
+      "keywords" : [
+        "agents",
+        "chats",
+        "history",
+        "compress",
+        "level",
+        "zstd",
+        "disk"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "chats",
+        "coldSegmentsLevel"
+      ],
+      "placeholder" : null,
+      "range" : {
+        "max" : 19,
+        "min" : 1,
+        "placeholder" : 1,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -17,
+        37,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agents.chats.coldSegmentsLevel"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.chats.coldSegmentsLevel",
+        "text" : "Long Chat Compression Level"
       },
       "validation" : "portable"
     },
