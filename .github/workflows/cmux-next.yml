@@ -3456,6 +3456,7 @@ jobs:
         env:
           # Why: docs/ci/cmux-next-workflow-notes.md#note-409
           CMUX_FAST_TIER_OWNED_SEED: ${{ (vars.CI_FAST_TIER_OWNED_SEED || '1') != '0' && '1' || '' }}
+          CMUX_FAST_TIER_SECOND_SEED_ROOT: ${{ vars.CI_FAST_TIER_SECOND_SEED_ROOT == '0' && '0' || '' }}
         run: |
           python3 scripts/ci/owned_spm_scratch.py lease "$GITHUB_WORKSPACE"
           python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py --package-path Packages/macOS/CmuxNext
@@ -5043,6 +5044,7 @@ jobs:
         continue-on-error: true
         env:
           CMUX_FAST_TIER_OWNED_SEED: ${{ (vars.CI_FAST_TIER_OWNED_SEED || '1') != '0' && '1' || '' }}
+          CMUX_FAST_TIER_SECOND_SEED_ROOT: ${{ vars.CI_FAST_TIER_SECOND_SEED_ROOT == '0' && '0' || '' }}
         run: |
           python3 scripts/ci/owned_spm_scratch.py lease "$GITHUB_WORKSPACE"
           python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py --package-path Packages/macOS/CmuxNext
