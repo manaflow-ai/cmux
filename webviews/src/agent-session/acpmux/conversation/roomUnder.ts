@@ -228,7 +228,16 @@ export function roomUnder(input: RoomUnderInput): RoomUnder {
   const rowsEnd = Math.max(input.floor - lifted, rowsHeight, input.sendTop?.(rowsHeight) ?? 0);
   const keptEnd = sessionSwitched ? 0 : input.foldRoom;
   const total = input.dragged ?? Math.max(rowsEnd, keptEnd);
-  const lift = lifted ? Math.round(Math.max(0, total - input.height) - Math.max(0, atDock - input.height)) : 0;
+  // Where the rows draw against where they lay out: the followed offset of this layout against the
+  // one the unlifted layout would hold. Negative draws them up, positive down. A lift only ever moves
+  // the rows with the card's change (up for a card that grew, down for one that shrank): any other
+  // height in this layout, as the room a send keeps under its prompt (`sendTop`), is not the card's.
+  // The send from a raised composer (a six-line draft) read that room as lift in the commit before the
+  // card's emptied height was measured, and drew every row 12 px low for one frame before they jumped
+  // up (Leo, 2026-11-11: "when there's a composer thing raised then it gets sent ... if you look at the
+  // tnimation for when things get sent: it's not good"; agent-pane-send-raised).
+  const offsetLift = lifted ? Math.round(Math.max(0, total - input.height) - Math.max(0, atDock - input.height)) : 0;
+  const lift = lifted > 0 ? Math.min(0, offsetLift) : Math.max(0, offsetLift);
   return {
     room,
     total,

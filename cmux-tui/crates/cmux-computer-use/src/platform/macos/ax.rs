@@ -462,6 +462,29 @@ pub fn find_window(pid: i32, id: u32, frame: &Rect, title: &str) -> DResult<(Ax,
     }) {
         return Ok((app, w.clone()));
     }
+    // An inline editor (Finder's rename field) is listed in AXWindows as
+    // the text element itself, with a CG window of its own: say where its
+    // keys go instead of "not found".
+    if get_window_fn().is_some()
+        && let Some(editor) = app.elements("AXWindows").into_iter().find(|e| {
+            e.string("AXRole").as_deref() != Some("AXWindow") && e.window_id() == Some(id)
+        })
+    {
+        let role = editor.string("AXRole").unwrap_or_default();
+        let over = app
+            .element("AXMainWindow")
+            .filter(|m| m.frame().is_some_and(|f| super::roles::rect_within(frame, &f)))
+            .and_then(|m| m.window_id())
+            .or_else(|| {
+                windows
+                    .iter()
+                    .find(|w| w.frame().is_some_and(|f| super::roles::rect_within(frame, &f)))
+                    .and_then(|w| w.window_id())
+            });
+        return Err(DesktopError::TargetNotFound(super::roles::overlay_editor_window_hint(
+            id, &role, over,
+        )));
+    }
     Err(DesktopError::TargetNotFound(format!(
         "window {id} has no accessibility element (it may be on another Space or not a standard window)"
     )))

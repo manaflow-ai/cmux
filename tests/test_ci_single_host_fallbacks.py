@@ -549,6 +549,23 @@ class SingleHostFallbacks(unittest.TestCase):
             with self.subTest(runs_on=value):
                 self.assertEqual(self.runs_on(value), [])
 
+    def test_the_scheduler_granted_label_is_settled_and_nothing_like_it(self) -> None:
+        """CI v2 (cmuxterm-hq docs/design/ci-v2.md): the one label per run and attempt the scheduler grants a
+        one-job JIT runner is settled; any other format() stays a finding."""
+        grant = "format('cmux-{0}-{1}-linux', github.run_id, github.run_attempt)"
+        for value in (f"${{{{ {grant} }}}}",
+                      "${{ format('cmux-{0}-{1}-mac', github.run_id, github.run_attempt) }}",
+                      "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                      "github.event_name == 'pull_request' && (vars.CI_OVERFLOW_LINUX != '' && "
+                      f"vars.CI_OVERFLOW_LINUX || {grant}) || fromJSON(vars.RUNNER_POOLS).linux_4 }}}}"):
+            with self.subTest(runs_on=value):
+                self.assertEqual([f for f in self.runs_on(value) if "cannot settle" in f], [])
+        for value in ("${{ format('cmux-{0}-{1}-linux', github.run_id, needs.a.outputs.x) }}",
+                      "${{ format('glaeda-{0}-{1}-linux', github.run_id, github.run_attempt) }}",
+                      "${{ format('cmux-{0}-{1}-linux-x', github.run_id, github.run_attempt) }}"):
+            with self.subTest(runs_on=value):
+                self.assertTrue([f for f in self.runs_on(value) if "cannot settle" in f], value)
+
 
     def test_review_f3_a_literal_fromjson_runner_array_is_scanned(self) -> None:
         label = "glaeda-runner-cmux22-review"
