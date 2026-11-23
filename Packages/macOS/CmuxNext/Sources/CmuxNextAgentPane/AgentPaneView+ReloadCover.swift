@@ -25,7 +25,7 @@ extension AgentPaneView: WebReloadCovering {
     /// whose child window draws over any cover in this view.
     public var coversNextReload: Bool {
         reloadCover != nil || (window != nil && !isHiddenOrHasHiddenAncestor && model.hasPainted && !pageDrawsOverCovers
-            && !holdsPageAway && pageContent.frame.width >= 1 && pageContent.frame.height >= 1)
+            && !holdsPageAway && !drawsUnseenForHold && pageContent.frame.width >= 1 && pageContent.frame.height >= 1)
     }
 
     public func reloadUnderCover(_ reload: @escaping @MainActor () -> Void) {
