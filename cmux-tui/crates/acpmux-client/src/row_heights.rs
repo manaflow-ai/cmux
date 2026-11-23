@@ -114,10 +114,10 @@ impl RowHeightCache {
         let mut stored = 0;
         for entry in request.entries {
             let cache_key = CacheKey { sid: request.sid.clone(), key: entry.key };
-            if self.entries.contains_key(&cache_key) {
-                if let Some(position) = self.order.iter().position(|key| key == &cache_key) {
-                    self.order.remove(position);
-                }
+            if let Some(height) = self.entries.get_mut(&cache_key) {
+                *height = entry.height;
+                stored += 1;
+                continue;
             }
             self.order.push_back(cache_key.clone());
             self.entries.insert(cache_key, entry.height);
@@ -209,6 +209,38 @@ mod tests {
             })
             .unwrap();
         assert_eq!(cache.len(), 1);
+    }
+
+    #[test]
+    fn replacement_keeps_fifo_order() {
+        let mut cache = RowHeightCache::default();
+        let entries = (0..MAX_ENTRIES)
+            .map(|id| RowHeightEntry { key: key(id as u64, 1, 800), height: id as f32 })
+            .collect::<Vec<_>>();
+        for chunk in entries.chunks(MAX_BATCH) {
+            cache.write(WriteRequest { sid: "chat".into(), entries: chunk.to_vec() }).unwrap();
+        }
+        cache
+            .write(WriteRequest {
+                sid: "chat".into(),
+                entries: vec![RowHeightEntry { key: key(0, 1, 800), height: 99.0 }],
+            })
+            .unwrap();
+        cache
+            .write(WriteRequest {
+                sid: "chat".into(),
+                entries: vec![RowHeightEntry { key: key(MAX_ENTRIES as u64, 1, 800), height: 1.0 }],
+            })
+            .unwrap();
+        let response = cache
+            .read(ReadRequest {
+                sid: "chat".into(),
+                rows: vec![key(0, 1, 800), key(1, 1, 800), key(MAX_ENTRIES as u64, 1, 800)],
+            })
+            .unwrap();
+        assert_eq!(response.rows[0].height, None);
+        assert_eq!(response.rows[1].height, Some(1.0));
+        assert_eq!(response.rows[2].height, Some(1.0));
     }
 
     #[test]
