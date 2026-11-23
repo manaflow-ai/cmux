@@ -61,14 +61,44 @@ pub fn run(scenario: &Scenario, inputs: &Inputs) -> Result<Run, String> {
     let started = Instant::now();
     let knobs = scenario.knobs()?;
     let mut metrics = Metrics::default();
-    match scenario.path {
+    with_cpu_load(knobs.cpu_threads, knobs.cpu_duty, || match scenario.path {
         PathKind::Terminal if scenario.tui.is_some() => {
-            tui_bytes_run(scenario, inputs, &mut metrics)?
+            tui_bytes_run(scenario, inputs, &mut metrics)
         }
-        PathKind::Terminal => terminal_run(scenario, inputs, &mut metrics)?,
-        PathKind::Projection => projection_run(scenario, inputs, &mut metrics)?,
-    }
+        PathKind::Terminal => terminal_run(scenario, inputs, &mut metrics),
+        PathKind::Projection => projection_run(scenario, inputs, &mut metrics),
+    })?;
     Ok(Run { seed: knobs.seed, metrics, wall_ms: ms(started) })
+}
+
+/// Runs `work` under the spec's CPU contention: `threads` threads, each busy for `duty` of every
+/// 10 ms, scoped to the call (they stop when `work` returns).
+fn with_cpu_load<T>(threads: u64, duty: f64, work: impl FnOnce() -> T) -> T {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
+    let window = Duration::from_millis(10);
+    let busy = window.mul_f64(duty.clamp(0.0, 1.0));
+    if threads == 0 || busy.is_zero() {
+        return work();
+    }
+    let stop = AtomicBool::new(false);
+    std::thread::scope(|scope| {
+        for _ in 0..threads {
+            scope.spawn(|| {
+                let mut spin = 0u64;
+                while !stop.load(Ordering::Relaxed) {
+                    let started = Instant::now();
+                    while started.elapsed() < busy {
+                        spin = std::hint::black_box(spin.wrapping_mul(31).wrapping_add(7));
+                    }
+                    std::thread::sleep(window.saturating_sub(busy));
+                }
+            });
+        }
+        let out = work();
+        stop.store(true, Ordering::Relaxed);
+        out
+    })
 }
 
 fn ms(started: Instant) -> f64 {

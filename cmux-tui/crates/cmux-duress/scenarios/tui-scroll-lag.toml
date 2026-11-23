@@ -6,7 +6,8 @@ sources = [
   "TerminalTUILocalPanUITests (#49954): a 10 s pan, drags swap direction every 3",
   "TerminalScrollBench.swift (#48951): toReply (wheel to the Mac's first output) maps to mac_queue_ms + mac_grid_ms + mac_diff_ms + mac_encode_ms + wire_ms; toPresent (wheel to the next present) maps to scroll_to_paint_ms",
 ]
-spec = "idle,link=lte"
+# duress: the lte link and 2 threads at 50% CPU on the machine that runs it.
+spec = "duress"
 headless = true
 path = "terminal"
 cols = 50
@@ -34,13 +35,9 @@ every_ms = 250
 metric = "paint_mismatch"
 max = 0
 
-[[check]]
-metric = "scroll_to_paint_ms"
-stat = "p95"
-max = 80
-
-# Budgets below are ours, not a harness's: the Mac keeps up with claudefull's 16 ms redraw,
-# a scroll paints within about 5 frames, the phone's parse and frame fit in half a frame.
+# scroll_to_paint_ms is reported, not checked: on lte its p95 is the link's own (loss and
+# retransmit). Budgets below are ours, not a harness's: the Mac keeps up with claudefull's 16 ms
+# redraw, the phone's parse and frame fit in half a frame.
 # path = "terminal" with [tui]: the default (Agent CLI Screen Changes off), each redraw's PTY
 # bytes as an `output` event; tui-scroll-lag-projection is the same case on the opt-in path.
 # The stop line: a scroll paints within one display frame of the link's own delivery.
