@@ -37,7 +37,7 @@ cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/SidebarContainer.swift	1
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/TerminalChipPage.swift	3
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/Composer/TerminalComposer.swift	1
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/Ghostty/CmuxMobileGhosttyApp.swift	2
-cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/KeyBar/Joystick.swift	4
+cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/KeyBar/Joystick.swift	3
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/KeyBar/KeyBarGallery.swift	2
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/KeyBar/TerminalKeyBar.swift	1
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/Screen/TerminalConnectingView.swift	1
@@ -45,14 +45,11 @@ cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/Screen/TerminalCopyModeCo
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/Screen/TerminalModel.swift	1
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/Screen/TerminalScreen.swift	1
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/Screen/TerminalTabPage.swift	5
-cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileVoice/AgentVoiceBar.swift	2
-cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileVoice/ChiefCallScreen.swift	3
-cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileVoice/LiveCallScreen.swift	23
+cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileVoice/ChiefCallScreen.swift	2
+cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileVoice/LiveCallScreen.swift	16
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/AgentChatsScreen.swift	2
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/BrowserTab.swift	3
-cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/CommandPaletteSheet.swift	2
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/NativeBrowserPage.swift	1
-cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/TabMoveAndGroupSheets.swift	1
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/TaskComposerScreen.swift	3
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/TaskComposerSheets.swift	2
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/TerminalTabContent.swift	1

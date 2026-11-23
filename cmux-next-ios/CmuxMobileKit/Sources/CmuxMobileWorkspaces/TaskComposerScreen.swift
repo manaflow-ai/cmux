@@ -720,7 +720,7 @@ struct TaskFileChip: View {
             Button(action: remove) {
                 Image(systemName: "xmark.circle.fill")
                     .symbolRenderingMode(.palette)
-                    .foregroundStyle(.white, .black.opacity(0.65))
+                    .foregroundStyle(CmuxMobileTheme.standard.colors.label.color, CmuxMobileTheme.standard.colors.surfaceRaised.color)
                     .font(.system(size: 18, weight: .semibold))
                     .frame(width: 44, height: 44, alignment: .topTrailing)
                     .contentShape(.rect)
@@ -949,7 +949,7 @@ struct TaskImageThumb: View {
             Button(action: remove) {
                 Image(systemName: "xmark.circle.fill")
                     .symbolRenderingMode(.palette)
-                    .foregroundStyle(.white, .black.opacity(0.65))
+                    .foregroundStyle(CmuxMobileTheme.standard.colors.label.color, CmuxMobileTheme.standard.colors.surfaceRaised.color)
                     .font(.system(size: 18, weight: .semibold))
                     .frame(width: 44, height: 44, alignment: .topTrailing)
                     .contentShape(.rect)
