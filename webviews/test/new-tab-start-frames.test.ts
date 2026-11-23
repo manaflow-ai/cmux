@@ -217,7 +217,7 @@ await requireBrowserLane("new-tab-start-frames.test.ts", async () => {
             hero: Boolean(empty),
             chat: Boolean(transcript?.textContent?.includes(prompt)),
             // New Tab's own failure line (the screen's StartFailure, the Classic page's).
-            failed: Boolean(document.querySelector(".acpmux-newtab-failed, [role='alert']")),
+            failed: Boolean(document.querySelector(".acpmux-newtab-failed, .acpmux-start-failure")),
             text: document.body.innerText.slice(0, 200).replace(/\s+/g, " "),
           });
           return performance.now() - start < ms;

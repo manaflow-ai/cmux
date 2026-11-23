@@ -7924,7 +7924,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     returnedDraft.current = undefined;
     const typed = composerHandle.current?.draft();
     // The Classic page's own prompt, when the switch has not handed it to the chat composer yet.
-    if (sent && !typed?.text && !typed?.attachments.length) return sent;
+    if (sent && !typed?.text && !typed?.attachments.length) {
+      // The failed switch may also have held it back for a chat composer not mounted yet: the
+      // page has it now, so no later composer takes it a second time.
+      const copy = heldBack.current?.findIndex((draft) => draft.text === sent.text) ?? -1;
+      if (copy >= 0) heldBack.current!.splice(copy, 1);
+      if (heldBack.current?.length === 0) heldBack.current = undefined;
+      return sent;
+    }
     const waiting = typed ?? heldBack.current?.pop();
     if (heldBack.current?.length === 0) heldBack.current = undefined;
     return waiting;
