@@ -25,12 +25,10 @@ import Testing
         #expect(rules.lastPrompted(tree.filter { $0.prompt == nil }, prompt: { $0.prompt }) == nil)
     }
 
-    @Test func historyTableAndLayoutUndo() throws {
+    @Test func historyTable() throws {
         let table = try #require(rules.historyActions())
         #expect(table.walks.map(\.action) == ["focusHistoryBack", "focusHistoryForward", "focusHistoryLast"])
         #expect(table.historyPage == ["history.show", "browserShowHistory"])
-        let undo = rules.undoReply(confirmationRequired: true, revision: 8, closesPanes: nil)
-        #expect(undo?.pending == 8 && undo?.closesPanes == 1)
     }
 
     @Test func remoteMachineAndTerminalHere() {

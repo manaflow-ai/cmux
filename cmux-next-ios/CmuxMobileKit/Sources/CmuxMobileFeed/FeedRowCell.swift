@@ -263,7 +263,6 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
         FeedRowCell.drawAsync(contentView)
         registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (cell: FeedRowCell, _: UITraitCollection) in
             cell.unread.layer.borderColor = UIColor.cmuxMobileBackground.resolvedColor(with: cell.traitCollection).cgColor
-            if cell.made.contains("quote") { cell.quote.updateColors() }
         }
     }
 
@@ -795,6 +794,11 @@ final class FeedQuoteView: UIView {
         addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped)))
         isAccessibilityElement = true
         accessibilityTraits = .button
+        // The bubble's fill is a CGColor resolved from this view's own traits, so this view follows
+        // its own appearance changes. The cell's handler ran before this view's traits caught up:
+        // backgrounding flips the app to light and back to dark for the switcher's snapshots, and
+        // the return to dark resolved the light fill, leaving white bubbles until the row was rebuilt.
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: FeedQuoteView, _: UITraitCollection) in view.updateColors() }
     }
 
     @available(*, unavailable)
@@ -806,10 +810,16 @@ final class FeedQuoteView: UIView {
         frame = part.frame
         let shift = CGPoint(x: -part.frame.minX, y: -part.frame.minY)
         caption.attributedText = part.caption
-        // A little wider than measured: an attachment's rounding must never truncate "You".
+        // A little wider than measured, the room on the side away from the bubble's edge: an
+        // attachment's rounding must never truncate "You". The text keeps to the measured edge it
+        // lines up with (the bubble text's trailing edge for your message, its leading edge for an
+        // agent's), so it is aligned to that edge, not drawn from the widened frame's other side.
         caption.lineBreakMode = .byClipping
-        caption.frame = part.captionFrame.offsetBy(dx: shift.x, dy: shift.y).insetBy(dx: -3, dy: 0)
-            .offsetBy(dx: part.outgoing ? -3 : 3, dy: 0)
+        caption.textAlignment = part.outgoing ? .right : .left
+        let measured = part.captionFrame.offsetBy(dx: shift.x, dy: shift.y)
+        caption.frame = part.outgoing
+            ? CGRect(x: measured.minX - 6, y: measured.minY, width: measured.width + 6, height: measured.height)
+            : CGRect(x: measured.minX, y: measured.minY, width: measured.width + 6, height: measured.height)
         text.attributedText = part.text
         text.numberOfLines = part.maxLines
         text.frame = part.textFrame.offsetBy(dx: shift.x, dy: shift.y)
@@ -915,6 +925,8 @@ final class FeedFadeView: UIView {
 /// CmuxMobileCapsuleButtonStyle in UIKit: a 40 pt capsule inside a 44 pt target.
 final class FeedCapsuleButton: UIControl {
     private let fill = UIView()
+    /// The pressed wash over `fill` (design/pressed-state.md: a press changes the fill only).
+    private let pressWash = UIView()
     private let label = UILabel()
     var actionID: String?
     /// The button opens the event's terminal (not an answer: an agent's option id could be anything).
@@ -924,6 +936,10 @@ final class FeedCapsuleButton: UIControl {
         super.init(frame: frame)
         fill.isUserInteractionEnabled = false
         addSubview(fill)
+        pressWash.isUserInteractionEnabled = false
+        pressWash.backgroundColor = .cmuxMobileFillPressed
+        pressWash.isHidden = true
+        fill.addSubview(pressWash)
         label.textAlignment = .center
         label.numberOfLines = 1
         label.adjustsFontSizeToFitWidth = true
@@ -944,6 +960,8 @@ final class FeedCapsuleButton: UIControl {
         isEnabled = button.enabled
         fill.frame = bounds.insetBy(dx: 0, dy: 2)
         fill.layer.cornerRadius = fill.bounds.height / 2
+        pressWash.frame = fill.bounds
+        pressWash.layer.cornerRadius = fill.layer.cornerRadius
         let kind: FeedRowLayout.CapsuleButton.Kind = button.kind
         fill.backgroundColor = !button.enabled ? .cmuxMobileFill : (kind == .primary ? .cmuxMobileAccent : .cmuxMobileFillSelected)
         label.attributedText = button.title
@@ -952,7 +970,7 @@ final class FeedCapsuleButton: UIControl {
     }
 
     override var isHighlighted: Bool {
-        didSet { fill.alpha = isHighlighted ? 0.85 : 1; transform = isHighlighted ? CGAffineTransform(scaleX: 0.98, y: 0.98) : .identity }
+        didSet { pressWash.isHidden = !isHighlighted }
     }
 }
 

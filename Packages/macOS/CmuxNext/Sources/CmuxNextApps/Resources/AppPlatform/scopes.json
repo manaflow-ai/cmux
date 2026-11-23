@@ -237,6 +237,18 @@
       "scope": "channel:write",
       "class": "mutation"
     },
+    "chat.list": {
+      "scope": "chat:read",
+      "class": "read"
+    },
+    "chat.mark_read": {
+      "scope": "chat:write",
+      "class": "mutation"
+    },
+    "chat.pin": {
+      "scope": "chat:write",
+      "class": "mutation"
+    },
     "chief.continue": {
       "scope": "chief:write",
       "class": "mutation"
@@ -409,6 +421,10 @@
       "scope": "cloud:write",
       "class": "mutation"
     },
+    "cloud.machine.pause_all": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
     "cloud.machine.rename": {
       "scope": "cloud:write",
       "class": "mutation"
@@ -458,6 +474,10 @@
       "class": "mutation"
     },
     "cloud.snapshot.list": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.surge.preview": {
       "scope": "cloud:read",
       "class": "read"
     },
@@ -765,6 +785,10 @@
       "scope": "git:read",
       "class": "read"
     },
+    "git.fingerprint": {
+      "scope": "git:read",
+      "class": "read"
+    },
     "git.push": {
       "scope": "git:external",
       "class": "mutation"
@@ -812,6 +836,18 @@
     "group.list": {
       "scope": "group:read",
       "class": "read"
+    },
+    "group.members.list": {
+      "scope": "group:read",
+      "class": "read"
+    },
+    "group.members.remove": {
+      "scope": "group:write",
+      "class": "mutation"
+    },
+    "group.members.set": {
+      "scope": "group:write",
+      "class": "mutation"
     },
     "group.rename": {
       "scope": "group:write",
@@ -1059,6 +1095,18 @@
     },
     "notification.list": {
       "scope": "notification:read",
+      "class": "read"
+    },
+    "page.follow": {
+      "scope": "page:write",
+      "class": "mutation"
+    },
+    "page.hints": {
+      "scope": "page:write",
+      "class": "mutation"
+    },
+    "page.read": {
+      "scope": "page:read",
       "class": "read"
     },
     "palette_usage.forget": {
@@ -1577,6 +1625,18 @@
       "scope": "sidebar:write",
       "class": "mutation"
     },
+    "signal.publish": {
+      "scope": "none",
+      "class": "mutation"
+    },
+    "signal.read": {
+      "scope": "none",
+      "class": "read"
+    },
+    "signal.sources.list": {
+      "scope": "none",
+      "class": "read"
+    },
     "skills_app.cycle_variant": {
       "scope": "skills_app:write",
       "class": "mutation"
@@ -1611,6 +1671,14 @@
     },
     "stash.restore": {
       "scope": "stash:write",
+      "class": "mutation"
+    },
+    "system_calendar.events": {
+      "scope": "system_calendar:read",
+      "class": "read"
+    },
+    "system_calendar.request_access": {
+      "scope": "system_calendar:read",
       "class": "mutation"
     },
     "tab_group.add_tabs": {
@@ -1728,6 +1796,38 @@
     "team.ai_limit.get": {
       "scope": "team:read",
       "class": "read"
+    },
+    "team.cloud.session.archive": {
+      "scope": "team:write",
+      "class": "mutation"
+    },
+    "team.cloud.session.follow": {
+      "scope": "team:write",
+      "class": "mutation"
+    },
+    "team.cloud.session.get": {
+      "scope": "team:read",
+      "class": "read"
+    },
+    "team.cloud.session.list": {
+      "scope": "team:read",
+      "class": "read"
+    },
+    "team.cloud.session.publish": {
+      "scope": "team:write",
+      "class": "mutation"
+    },
+    "team.cloud.session.reassign": {
+      "scope": "team:write",
+      "class": "mutation"
+    },
+    "team.cloud.session.remove": {
+      "scope": "team:write",
+      "class": "mutation"
+    },
+    "team.cloud.session.viewing": {
+      "scope": "team:write",
+      "class": "mutation"
     },
     "team.device.compliance": {
       "scope": "team:read",
@@ -1847,6 +1947,18 @@
     },
     "terminal.wait_exit": {
       "scope": "terminal:read",
+      "class": "read"
+    },
+    "theme.scheme.convert": {
+      "scope": "theme:read",
+      "class": "read"
+    },
+    "theme.scheme.export": {
+      "scope": "theme:read",
+      "class": "read"
+    },
+    "theme.scheme.from_image": {
+      "scope": "theme:read",
       "class": "read"
     },
     "thread.update": {
@@ -2021,12 +2133,16 @@
     "agent.message.send",
     "agent.message.unsend",
     "automation.delete",
+    "automation.secret.list",
+    "automation.secret.remove",
+    "automation.secret.set",
     "automation.settings.set",
     "automation.webhook.get",
     "browser.attach",
     "browser.close",
     "browser.viewer.release",
     "browser.viewer.resize",
+    "browser_import.read",
     "chief.archive",
     "chief.delete",
     "classic_import.plan",
@@ -2045,6 +2161,7 @@
     "cloud.fs.remove",
     "cloud.machine.archive_delete",
     "cloud.machine.chat_access",
+    "cloud.machine.chief_start",
     "cloud.machine.create",
     "cloud.machine.delete",
     "cloud.machine.io",
@@ -2055,6 +2172,8 @@
     "cloud.owner.acpmux_person_holds",
     "cloud.owner.fork_run",
     "cloud.owner.github_app",
+    "cloud.owner.github_connect",
+    "cloud.owner.github_repos",
     "cloud.owner.handoff_begin_turn",
     "cloud.owner.handoff_open",
     "cloud.owner.handoff_wait",
@@ -2075,6 +2194,7 @@
     "cloud.snapshot.create",
     "cloud.snapshot.delete",
     "cloud.snapshot.restore",
+    "cloud.surge.create",
     "cloud.vm.domains",
     "cloud.vm.firewall_create",
     "cloud.vm.firewall_delete",
@@ -2144,6 +2264,7 @@
     "keybindings.remove",
     "keybindings.reset",
     "keybindings.set",
+    "language_packs.ensure",
     "layout.bulk",
     "network.list",
     "origin.confirmation.issue",
@@ -2179,6 +2300,9 @@
     "stream.cancel",
     "tab.close",
     "tab_group.close",
+    "team.agent_key.remove",
+    "team.agent_key.set",
+    "team.agent_key.status",
     "team.ai_limit.member.set",
     "team.ai_limit.set",
     "team.audit.list",
@@ -2187,6 +2311,8 @@
     "team.enrollment_token.revoke",
     "team.integration.release_lock",
     "team.members.remove",
+    "team.models_policy.get",
+    "team.models_policy.set",
     "team_vm.rebuild",
     "team_vm.retired.delete",
     "team_vm.retired.export",

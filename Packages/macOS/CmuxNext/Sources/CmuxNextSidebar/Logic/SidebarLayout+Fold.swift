@@ -13,7 +13,7 @@ nonisolated extension SidebarLayout {
     ///   - group: The group as the model holds it (its members; `isCollapsed` is ignored).
     ///   - collapsed: The fold to show.
     ///   - section: The section that lists the group (its machine names the rows of another computer).
-    ///   - base: The list's metrics (`options.minimal` makes them minimal, as in `make`).
+    ///   - base: The list's metrics (`options` resolves them, as in `make`).
     ///   - o: The options the list lays out with.
     func folding(_ group: SidebarGroup, collapsed: Bool, in section: SidebarSection, metrics base: SidebarLayoutMetrics,
                  options o: SidebarLayoutOptions) -> SidebarLayout? {
@@ -36,9 +36,12 @@ nonisolated extension SidebarLayout {
         // A group holding workspaces marked Done draws them behind its "Done (N)" row (`foldingDone`): laid out again.
         // So does one holding archived workspaces (its "Archived (N)" row), and one longer than the row limit (its
         // "Show N more" row).
+        // So does one whose members nest under each other (the session tree's lineage: `treeRows` orders them).
         guard group.parent == nil, !(o.foldsDone && group.workspaces.contains { $0.taskStatus == .done }),
+              !group.workspaces.contains(where: { o.settled.contains($0.id) }),
               !(o.foldsArchived && group.workspaces.contains(where: \.isArchived)),
               !(o.archiveSection && (group.isArchived || group.workspaces.contains(where: \.isArchived))),
+              !(o.sessionTree.map { tree in group.workspaces.contains { tree.parents[$0.id] != nil } } ?? false),
               o.rowLimit == 0 || group.members.count <= o.rowLimit + 1,
               !section.nodes.contains(where: { if case let .group(child) = $0 { child.parent == group.id } else { false } }) else { return false }
         let m = base.resolved(for: o)

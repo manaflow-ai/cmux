@@ -11,12 +11,14 @@
 // busy main thread). Chromium resolves the start at the frame, so there the two agree.
 //
 // `holdEntranceForFirstFrame` holds the row's entrance at its first keyframe from the commit and
-// plays it from the next frame's callbacks, so the frame that first draws the row draws it at its
-// start on every engine. One animation frame request per entering row, none at rest.
+// plays it in a task after the next frame renders. A frame callback is before rendering: releasing
+// there let the short fade reach 98% opacity before the first observed WebKit frame under load. The slim
+// follow arm places the row in view at once, exposing that premature start. One frame request and
+// one posted task per entering row, none at rest; the motion's duration and follow mode stay the same.
 //
-// Stop condition: the hold ends on the next frame; a page that hides first has its held animations
+// Stop condition: the hold ends after the next frame; a page that hides first has its held animations
 // finished by pageReveal.ts (finishPageAnimations finishes paused ones too), and an unmount cancels
-// the request.
+// the frame or posted task.
 
 /// The entrance keyframes a generic row's own animation plays (conversation.css).
 const ENTRANCES = new Set(["cv-enter", "cv-enter-fade"]);
@@ -24,11 +26,32 @@ const ENTRANCES = new Set(["cv-enter", "cv-enter-fade"]);
 type Frames = {
   request: (run: () => void) => number;
   cancel: (handle: number) => void;
+  post: (run: () => void) => () => void;
 };
+
+/// Posted from a frame callback: runs after that frame's rendering, with no fixed delay.
+function postAfterFrame(run: () => void): () => void {
+  const channel = new MessageChannel();
+  const cancel = () => {
+    channel.port1.onmessage = null;
+    channel.port1.close();
+    channel.port2.close();
+  };
+  channel.port1.onmessage = () => {
+    cancel();
+    run();
+  };
+  channel.port2.postMessage(null);
+  return cancel;
+}
 
 const windowFrames = (): Frames | undefined =>
   typeof requestAnimationFrame === "function"
-    ? { request: (run) => requestAnimationFrame(() => run()), cancel: (handle) => cancelAnimationFrame(handle) }
+    ? {
+        request: (run) => requestAnimationFrame(() => run()),
+        cancel: (handle) => cancelAnimationFrame(handle),
+        post: postAfterFrame,
+      }
     : undefined;
 
 /// Whether `animation` is the row's own finite entrance.
@@ -39,7 +62,7 @@ function isEntrance(animation: Animation): boolean {
   return end !== undefined && Number.isFinite(Number(end));
 }
 
-/// Holds `row`'s entrance at its start until the next frame, then plays it from there. Called in
+/// Holds `row`'s entrance at its start through the next frame, then plays it from there. Called in
 /// the layout effect of the commit that mounts the row, before it paints. Returns the cancel.
 export function holdEntranceForFirstFrame(row: Element, frames: Frames | undefined = windowFrames()): () => void {
   if (!frames || typeof row.getAnimations !== "function") return () => {};
@@ -49,12 +72,18 @@ export function holdEntranceForFirstFrame(row: Element, frames: Frames | undefin
     animation.pause();
     animation.currentTime = 0;
   }
+  let cancelPosted: (() => void) | undefined;
   let handle: number | undefined = frames.request(() => {
     handle = undefined;
-    for (const animation of held) if (animation.playState === "paused") animation.play();
+    cancelPosted = frames.post(() => {
+      cancelPosted = undefined;
+      for (const animation of held) if (animation.playState === "paused") animation.play();
+    });
   });
   return () => {
     if (handle !== undefined) frames.cancel(handle);
     handle = undefined;
+    cancelPosted?.();
+    cancelPosted = undefined;
   };
 }

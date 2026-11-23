@@ -127,6 +127,21 @@ fn agent_background() -> bool {
     std::env::var_os(ENV).is_some_and(|v| v == "background")
 }
 
+/// This process (or, on Linux, this thread) at nice 0 when it runs below it: an agent host or a
+/// harness the daemon starts, which inherits a negative nice the daemon took
+/// (`daemon_priority.rs`). Raising a nice needs no privilege. Async-signal-safe: it runs between
+/// fork and exec (`cpu_class::start_at_normal`).
+#[cfg(unix)]
+pub fn at_least_default_nice() {
+    // SAFETY: plain syscalls on the calling process. -1 is also getpriority's error answer, and
+    // raising -1 to 0 is right either way.
+    unsafe {
+        if libc::getpriority(libc::PRIO_PROCESS, 0) < 0 {
+            libc::setpriority(libc::PRIO_PROCESS, 0, 0);
+        }
+    }
+}
+
 /// The daemon's tier: acknowledged replies wait on the event journal's sync, so the daemon keeps
 /// the default disk tier (lead rule 2026-11-04: a reply the person waits for never waits on a
 /// throttled sync) and only its background threads yield ([`background_thread`]). Nothing to
@@ -150,6 +165,11 @@ pub fn background_thread() {
 pub fn enter(role: Role) {
     if !enabled() {
         return;
+    }
+    // Never above the default: the daemon may run at a negative nice (`daemon_priority.rs`).
+    #[cfg(unix)]
+    if matches!(tier(role), Tier::Agent | Tier::AgentStart) {
+        at_least_default_nice();
     }
     match tier(role) {
         // Nothing: acknowledged replies wait on the event journal's sync ([`enter_daemon`]).
@@ -176,6 +196,18 @@ pub fn enter(role: Role) {
 pub fn background<T>(work: impl FnOnce() -> T) -> T {
     let _guard = enabled().then(imp::ThreadBackground::enter);
     work()
+}
+
+/// Run `work`, a request's blocking read (a chat's log page, its prompt index), without holding a
+/// runtime worker: on the daemon's multi-thread runtime the worker hands its other tasks to a new
+/// one first (`block_in_place`), so a long read never queues a hello, a status or another chat's
+/// attach behind it. Leo's daemon, 2026-11-18: three of its workers sat in attach log reads for a
+/// whole 4 s sample and `acpmux daemon status` answered in 4.9 to 11.8 s. A current-thread
+/// runtime (a one-shot test) and a thread outside any runtime run it in place.
+pub fn off_worker<T>(work: impl FnOnce() -> T) -> T {
+    let multi = tokio::runtime::Handle::try_current()
+        .is_ok_and(|h| h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread);
+    if multi { tokio::task::block_in_place(work) } else { work() }
 }
 
 /// Run `work` (blocking) with this thread in [`Tier::OnScreen`], then put the

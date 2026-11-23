@@ -167,7 +167,7 @@ impl TerminalSizingEntry {
     /// and, unless the engine holds the grid (no view counts, so an apply does nothing), the grid it applied is its
     /// decision and the participants are the ones it applied for.
     fn fast_path(&self) -> Option<SizingFastPath> {
-        if self.hold.get().is_some() {
+        if self.hold.get().is_some() || !self.agent_layout_holds.is_empty() {
             return None;
         }
         let sized_handheld = self.engine.participant_ids().any(|id| {

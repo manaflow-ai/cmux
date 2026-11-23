@@ -133,7 +133,7 @@ fn pid_exists(_pid: u32) -> bool {
 /// When `pid` started, in milliseconds since the epoch (macOS).
 #[cfg(target_os = "macos")]
 fn pid_start_ms(pid: u32) -> Option<u64> {
-    let (sec, usec) = crate::cua_v2::start_time(libc::pid_t::try_from(pid).ok()?)?;
+    let (sec, usec) = crate::proc_start::start_time(libc::pid_t::try_from(pid).ok()?)?;
     Some(sec.saturating_mul(1000).saturating_add(usec / 1000))
 }
 
@@ -141,7 +141,7 @@ fn pid_start_ms(pid: u32) -> Option<u64> {
 /// (clock ticks since boot) after `/proc/stat`'s `btime` (the boot, seconds since the epoch).
 #[cfg(any(target_os = "linux", target_os = "android"))]
 fn pid_start_ms(pid: u32) -> Option<u64> {
-    let ticks = crate::daemon::owner_exit::process_start(pid)?;
+    let ticks = crate::owner_exit::process_start(pid)?;
     let stat = std::fs::read_to_string("/proc/stat").ok()?;
     let boot: u64 =
         stat.lines().find_map(|line| line.strip_prefix("btime "))?.trim().parse().ok()?;

@@ -1,54 +1,8 @@
 import CmuxConversationCore
+import enum CmuxMobileModel.UserFacingError
 import CmuxMobileTransport
 import Foundation
 import Observation
-
-/// Markdown to one plain line, as a list preview: the rows, Chief's pin
-/// bubble and its VoiceOver label (F4).
-///
-/// Runs once per row of every Home read, so a text with nothing to strip costs one pass
-/// over its bytes and no regular expression (`home_list_first_screen`,
-/// cmux-next-ios/design/instant-perf.md).
-func plainPreview(_ markdown: String) -> String {
-    var text = markdown
-    if text.utf8.contains(UInt8(ascii: "`")) {
-        text = text.replacingOccurrences(of: "```[a-z]*", with: "", options: .regularExpression)
-    }
-    if text.utf8.contains(where: { PreviewMarkers.bytes.contains($0) }) {
-        var kept = String.UnicodeScalarView()
-        kept.append(contentsOf: text.unicodeScalars.lazy.filter { !PreviewMarkers.scalars.contains($0) })
-        text = String(kept)
-    }
-    if PreviewMarkers.needsSpaceFolding(text) {
-        text = text.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-    }
-    return text.trimmingCharacters(in: .whitespaces)
-}
-
-/// The Markdown markers a preview drops (`[*_`#>]`), and whether a text has any run of
-/// whitespace that is not already one space.
-private enum PreviewMarkers {
-    static let scalars: Set<Unicode.Scalar> = ["*", "_", "`", "#", ">"]
-    static let bytes: Set<UInt8> = Set(scalars.map { UInt8($0.value) })
-
-    /// False only for ASCII text whose whitespace is single spaces: then `\\s+` to one space
-    /// changes nothing. Any other text (a tab, a newline, two spaces, or a non-ASCII scalar,
-    /// which may be Unicode whitespace) takes the regular expression.
-    static func needsSpaceFolding(_ text: String) -> Bool {
-        var lastWasSpace = false
-        for byte in text.utf8 {
-            if byte >= 0x80 { return true }
-            if byte == 0x20 {
-                if lastWasSpace { return true }
-                lastWasSpace = true
-            } else {
-                if byte == 0x09 || byte == 0x0A || byte == 0x0B || byte == 0x0C || byte == 0x0D { return true }
-                lastWasSpace = false
-            }
-        }
-        return false
-    }
-}
 
 /// A conversation of the Mac's Home list other than the Mac Chief's: pushed
 /// as that conversation over the Mac's `chief` channel.
@@ -57,6 +11,16 @@ public struct MacConversationRoute: Hashable, Sendable {
     /// The Chief's agent id (a `chief` row), else nil.
     public let chief: String?
     public let title: String
+}
+
+/// A Cloud conversation New Message opened on this phone (a DM or group with
+/// teammates, another Cloud Chief's conversation): read and written with this
+/// account's token, as the Cloud Chief's is.
+public struct CloudConversationRoute: Hashable, Sendable {
+    public let conversationID: String
+    public let title: String
+    /// The Chief's agent id when the conversation is a Chief's.
+    public let chief: String?
 }
 
 /// One or two letters for a name's monogram ("Build Bot" → "BB").
@@ -290,54 +254,83 @@ public enum HomeListNote: Equatable, Sendable {
     }
 }
 
-/// The bar at the top of Home while the Home Mac is not connected or its list could not be
-/// read (CMUX-489). The list under it stays usable, but it is what this phone last read, not
-/// the Mac's live list. The bar says so where the person looks first: at the top, not in
-/// small gray text under the last row.
-public struct HomeConnectionBar: Equatable, Sendable {
+/// What Home says while its Mac's list is not live (CMUX-489), in the Workspaces tab's words
+/// (the user, 2026-11-13: no card over the list, "make them similar, no different messaging
+/// paradigms"). With rows on screen the list stays exactly as normal under Workspaces' connection
+/// toast ("Offline" and Retry); with none, Home shows Workspaces' empty state for that Mac.
+public struct HomeConnectionStatus: Equatable, Sendable {
     public enum Kind: Equatable, Sendable {
-        /// The Mac's link is down.
-        case offline
+        /// The Mac is offline (its presence says so): nothing to dial.
+        case macOffline
+        /// The Mac is online, but its link is down.
+        case unreachable
         /// The link is up, but the Mac's list did not load.
         case failed
-        /// A Try Again from the bar is running.
-        case retrying
+        /// A retry runs after the link came back, before the list answers.
+        case connecting
+    }
+
+    /// The empty state when no rows show (Workspaces' `EmptyState` for the same case).
+    public struct Empty: Equatable, Sendable {
+        public let symbol: String
+        public let title: String
+        public let message: String
+        /// Offers Retry (not for an offline Mac: there is nothing to dial, as on Workspaces).
+        public let canRetry: Bool
     }
 
     public let kind: Kind
-    public let title: String
-    /// What the list under the bar is and what happens next.
+    /// A retry runs: Retry shows its spinner and the toast says it reconnects.
+    public let isRetrying: Bool
+    /// The status in words after the Mac's name (Workspaces' words), for VoiceOver.
     public let detail: String
+    /// What Home shows when no rows show (nil for ``Kind/connecting``: Workspaces' spinner).
+    public let empty: Empty?
 
-    /// The bar for Home's state, or nil while the list is live. `offline`: the Home Mac's link
-    /// is neither connected nor connecting. `problem`: why the last read failed. `retrying`: a
-    /// Try Again runs. `hasRows`: rows show under the bar (the last ones read).
-    /// `reconnecting`: the running Try Again dials the Mac first (it was offline), else it only reads again.
-    public static func make(offline: Bool, problem: String?, retrying: Bool, reconnecting: Bool = true, hasRows: Bool,
-                            macName: String?) -> HomeConnectionBar? {
+    /// Home's status, or nil while the list is live. `linkDown`: the Home Mac's link is neither
+    /// connected nor connecting. `macOnline`: the account's presence for the Mac (nil: unknown).
+    /// `failed`: the last read failed. `retrying`: a retry runs.
+    public static func make(linkDown: Bool, macOnline: Bool?, failed: Bool, retrying: Bool,
+                            macName: String?) -> HomeConnectionStatus? {
+        // The Mac's name, or "your Mac" ("Your Mac" where it starts a sentence).
         let mac = macName ?? String(localized: "your Mac")
+        let macAtStart = macName ?? String(localized: "Your Mac")
         let kind: Kind
-        if retrying {
-            kind = .retrying
-        } else if offline {
-            kind = .offline
-        } else if problem != nil {
+        if linkDown {
+            kind = macOnline == false ? .macOffline : .unreachable
+        } else if failed {
             kind = .failed
+        } else if retrying {
+            kind = .connecting
         } else {
             return nil
         }
-        let title: String = switch kind {
-        case .offline: String(localized: "Not connected to \(mac)")
-        case .failed: String(localized: "Couldn't load Home from \(mac)")
-        case .retrying: reconnecting ? String(localized: "Reconnecting to \(mac)…") : String(localized: "Loading Home from \(mac)…")
-        }
-        var detail: String = if hasRows {
-            String(localized: "Showing the last list from this iPhone. It updates when the Mac answers.")
+        let detail: String = if retrying {
+            String(localized: "Updating…")
+        } else if kind == .failed {
+            String(localized: "Couldn't refresh · last known")
         } else {
-            String(localized: "Its conversations show when the Mac answers.")
+            String(localized: "Offline · last known")
         }
-        if kind == .failed, let problem, !problem.isEmpty { detail = "\(problem) \(detail)" }
-        return HomeConnectionBar(kind: kind, title: title, detail: detail)
+        let empty: Empty? = switch kind {
+        case .macOffline:
+            Empty(symbol: "moon.zzz", title: String(localized: "\(macAtStart) is offline"),
+                  message: String(localized: "Open cmux on it to see its conversations."), canRetry: false)
+        case .unreachable:
+            Empty(symbol: "desktopcomputer.trianglebadge.exclamationmark", title: String(localized: "Can't connect to \(mac)"),
+                  message: String(localized: "\(macAtStart) is online, but this iPhone can't reach it."), canRetry: true)
+        case .failed:
+            Empty(symbol: "desktopcomputer.trianglebadge.exclamationmark", title: String(localized: "Couldn't load conversations"),
+                  message: String(localized: "Can't reach \(macAtStart) right now. It reconnects on its own."), canRetry: true)
+        case .connecting:
+            nil
+        }
+        return HomeConnectionStatus(kind: kind, isRetrying: retrying, detail: detail, empty: empty)
+    }
+
+    /// The connecting line when no rows show and no empty state applies.
+    public static func connectingTitle(macName: String?) -> String {
+        String(localized: "Connecting to \(macName ?? String(localized: "your Mac"))…")
     }
 }
 
@@ -458,6 +451,36 @@ public final class MacHomeFeed {
         }, complete: true)
         self.macID = macID
     }
+
+    /// The `retry-home-failed` demo: the last read failed on a live link.
+    public func setProblemForDemo(_ text: String) { problem = text }
+
+    /// New Message's demo (verify/new-message): a Mac's Home with its Chief, two more Chiefs and
+    /// a few other conversations, with no link.
+    public func seedNewMessageRows(macID: String, macChief: String? = nil) {
+        let chiefRow = macChief ?? "conv-mac-chief"
+        let stamp = ISO8601DateFormatter()
+        let rows: [(id: String, kind: String, name: String, chief: String?, minutes: Double, preview: String)] = [
+            (chiefRow, "chief", "Chief", "agent_mux", 4, "The nightly is green. Two flaky tests were retried."),
+            ("conv-builder", "chief", "Builder", "agent_builder", 52, "I opened the release branch and bumped the version."),
+            ("conv-reviewer", "chief", "Reviewer", "agent_reviewer", 60 * 26, "Three PRs are waiting for your review."),
+            // A second Chief named like the first: New Message tells them apart by their last activity.
+            ("conv-builder-2", "chief", "Builder", "agent_builder_2", 60 * 50, "Nightly packaging is done."),
+            ("conv-infra", "group", "Infra", nil, 90, "Lawrence: the mini fleet is back up."),
+            ("conv-design", "channel", "Design", nil, 60 * 5, "New tab bar mocks are in the folder."),
+        ]
+        setRows(rows.compactMap { row -> MacHomeRow? in
+            var wire: [String: Any] = ["id": row.id, "kind": row.kind, "name": row.name, "unread": 0, "preview": row.preview,
+                                       "activity_at": stamp.string(from: Date().addingTimeInterval(-row.minutes * 60))]
+            if let chief = row.chief {
+                wire["chief"] = chief
+                wire["chief_state"] = "idle"
+            }
+            return MacHomeRow(wire: wire)
+        }, complete: true)
+        self.macID = macID
+        macChiefID = chiefRow
+    }
     #endif
 
     /// The Mac Chief's own conversation on this Mac (the oldest with the owner and `agent_mux`,
@@ -531,7 +554,7 @@ public final class MacHomeFeed {
     /// A conversation of the list other than the Mac Chief's, over its own
     /// `chief` channel to this Mac (the channel's filter allows only
     /// conversations between the owner and agents, which is every row). It
-    /// stays open (with its outbox) until the link or the Mac changes; a screen
+    /// stays open until the link or the Mac changes; a screen
     /// showing it then asks again (``sessionEpoch``).
     public func session(for route: MacConversationRoute) async throws -> ChiefSession {
         if let session = sessions[route.conversationID] { return session }
@@ -561,7 +584,7 @@ public final class MacHomeFeed {
                 kept.status = nil
                 session = kept
             } else {
-                session = ChiefSession(backend: backend, identity: identity, outbox: ChiefOutbox(file: nil),
+                session = ChiefSession(backend: backend, identity: identity,
                                        transcripts: transcripts, transcriptKey: transcriptKey(route.conversationID))
             }
             session.macID = macID
@@ -583,23 +606,27 @@ public final class MacHomeFeed {
     /// The conversation as this phone last saw it, shown while its channel opens
     /// (``session(for:)`` waits on the Mac's list): a session on no backend whose store shows
     /// the kept messages (in this turn when read this run, else once read off the main thread).
-    /// The open session when there is one; nil when nothing can be kept (no account or Mac).
-    /// Its screen shows it only once it has a message (``ChiefSession/lastMessage``).
-    public func keptSession(for route: MacConversationRoute) -> ChiefSession? {
+    /// The open session when there is one; nil when nothing can be kept (no account or Mac),
+    /// unless `orEmpty`: then an empty one (its title and composer) for a conversation whose
+    /// first open failed, so its screen never falls back to a full-screen error.
+    /// Its screen shows it only once it has a message (``ChiefSession/lastMessage``), with no bar:
+    /// a normal reconnect says nothing, and its loader marks it only past the quiet bound
+    /// (``MacConversationLoader``; Leo, 2026-11-16).
+    public func keptSession(for route: MacConversationRoute, orEmpty: Bool = false) -> ChiefSession? {
         if let session = sessions[route.conversationID] ?? keptSessions[route.conversationID] { return session }
-        guard let transcripts, let key = transcriptKey(route.conversationID) else { return nil }
+        let key = transcripts == nil ? nil : transcriptKey(route.conversationID)
+        guard key != nil || orEmpty else { return nil }
         let identity = ChiefIdentity(chiefID: route.chief ?? "agent_unknown", title: route.title, avatar: homeInitials(route.title))
-        let session = ChiefSession(backend: ChiefOfflineBackend(reason: Self.keptReason), identity: identity,
-                                   outbox: ChiefOutbox(file: nil), transcripts: transcripts, transcriptKey: key)
-        session.unavailableTitle = Self.keptTitle
-        session.status = Self.keptReason
+        let info = ConversationInfo(id: route.conversationID, title: route.title, kind: .direct,
+                                    participants: [identity.me, identity.chief])
+        let session = ChiefSession(backend: ChiefOfflineBackend(reason: Self.keptReason, info: info), identity: identity,
+                                   transcripts: key == nil ? nil : transcripts, transcriptKey: key)
         session.macID = macID
         keptSessions[route.conversationID] = session
         return session
     }
 
-    /// The bar over a conversation shown from what the phone kept while its channel opens.
-    static var keptTitle: String { String(localized: "Connecting to your Mac…") }
+    /// Why a conversation shown from what the phone kept is not live (its offline backend's reason).
     static var keptReason: String { String(localized: "Showing the last messages. New ones load when it connects.") }
 
     /// Bumped each time the opened conversations close (a new link or another Mac):
@@ -654,11 +681,18 @@ public final class MacHomeFeed {
             isShowingKeptRows = true
             return
         }
+        // The first screen of kept rows in this turn (one small head file), so the first frame
+        // draws them, not "Connecting to <Mac>…"; the rest of the kept list follows off the main thread.
+        let head = rowsCache.firstScreen(key)
+        if let head {
+            setRows(head, complete: false)
+            isShowingKeptRows = true
+        }
         let macID = macID
         // task-owner: one disk read of the kept rows; ends with it, and its rows land only if nothing newer did
         Task { [weak self] in
             guard let kept = await rowsCache.load(key), let self,
-                  self.macID == macID, self.rows == nil, self.rowsKey() == key else { return }
+                  self.macID == macID, self.rows == head, self.rowsKey() == key, kept != head else { return }
             self.setRows(kept, complete: false)
             self.isShowingKeptRows = true
         }
@@ -730,13 +764,18 @@ public final class MacHomeFeed {
     /// on cancellation, and after `cap` (a channel that goes quiet without closing
     /// never answers; Retry must come back to be tapped again).
     public func reload(cap: Duration = .seconds(15)) async {
+        await reload(cap: cap, on: ContinuousClock())
+    }
+
+    /// ``reload(cap:)`` with the cap timed on `clock` (tests pass one that moves only when told to).
+    public func reload<C: Clock<Duration>>(cap: Duration, on clock: C) async {
         refresh(relist: false, read: .all)
         guard client != nil || opening else { return }
         readWaiterCount += 1
         let id = readWaiterCount
         // task-owner: the cap of one reload; ends at the cap or with the reload's own end
         let capTask = Task { [weak self] in
-            try? await ContinuousClock().sleep(for: cap)
+            try? await clock.sleep(for: cap)
             self?.endReadWait(id)
         }
         defer { capTask.cancel() }
@@ -1006,8 +1045,8 @@ public final class MacHomeFeed {
     }
 
     nonisolated static func reason(_ error: any Error) -> String {
-        if let error = error as? LinkError, !error.message.isEmpty { return String(error.message.prefix(80)) }
-        return error.localizedDescription
+        // LinkError's own copy (LocalizedError): never its code or a type name.
+        String(UserFacingError.message(error).prefix(120))
     }
 
     /// One command's `data`, or the owner's refusal.

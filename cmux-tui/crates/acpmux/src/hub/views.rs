@@ -39,18 +39,28 @@ pub(crate) fn running_work(session: &Session, turn_runs: bool, commands: usize) 
     RunningWork { subagents: running.len(), names, commands }
 }
 
-/// A peer's summary as a census row (`Hub::session_list_summary`): no inventory, and a long
-/// title cut (`TITLE_CHARS`), including in rows supplied by older peers.
+/// A peer's summary as a census row (`Hub::session_list_summary`): no inventory, no time
+/// breakdown, and a long title cut (`TITLE_CHARS`), including in rows supplied by older peers.
+/// A packed row cuts the same with no parse (`PeerRow::changed_text`).
+/// A peer on an older acpmux lists `timeBreakdown` in every row once a chat's Session Info read
+/// it: 6.5 MB of a 38 MB list of 10,790 rows, up to 78 KB a row, which every agent page held and
+/// parsed again on each change (Leo, 2026-11-18: "typing in the composer still slow"). Only the
+/// chat's own pane reads it, from its attach and its attached `session_changed`, which keep it.
 pub(crate) fn without_summary_tools(mut summary: Value) -> Value {
     if let Some(row) = summary.as_object_mut() {
         row.remove("tools");
         row.remove("toolsMutable");
+        row.remove(CENSUS_LEAVES_OUT);
         if let Some(Value::String(title)) = row.get_mut("title") {
             *title = summary_title(title);
         }
     }
     summary
 }
+
+/// The detail-only member a census row leaves out beside the inventory: a chat's time
+/// breakdown, its spans one per turn (`hub/time_breakdown.rs`).
+pub(crate) const CENSUS_LEAVES_OUT: &str = "timeBreakdown";
 
 /// The most of a chat's title a census row shows. A harness may title a chat with its whole first
 /// prompt: one fleet host's list rows came to 4 KB each with them, and its list of 3,700 to more
@@ -70,8 +80,7 @@ pub(super) fn summary_title(title: &str) -> String {
     }
 }
 
-/// The tag naming the session whose agent started this one (`Hub::spawned_by`).
-pub const SPAWNED_BY_TAG: &str = "spawnedBy";
+pub use crate::meta_fields::SPAWNED_BY_TAG;
 const COORDINATOR_PARENT_TAG: &str = "mux.parent";
 
 /// The direct parent has the same precedence as lineage_of(), without walking
@@ -675,6 +684,17 @@ impl Hub {
         self.summary_with_tools(session, false)
     }
 
+    /// Whether `fork_through.rs` and `fork.rs` fork this chat through any completed turn: its
+    /// profile cuts a conversation at a turn (`config::turn_cut`), by kind, not by family name (a
+    /// Claude Code profile named `claude-sr2` with that family is Claude Code too). None (unknown)
+    /// while the configuration is being written: a config write emits session events under its
+    /// lock, and a summary built then must not say false, which would take Fork and Edit off a
+    /// Claude or Codex chat.
+    pub(crate) fn forks_any_turn(&self, m: &crate::store::SessionMeta) -> Option<bool> {
+        let cfg = self.config.try_read().ok()?;
+        Some(cfg.profile(&m.harness).and_then(|p| crate::config::turn_cut(&m.harness, p)).is_some())
+    }
+
     fn summary_with_tools(&self, session: &Session, with_tools: bool) -> Value {
         use crate::protocol::session::{
             QueuedImage, QueuedPromptSummary, SessionSummary, TurnSummary,
@@ -711,7 +731,9 @@ impl Hub {
         let summary = SessionSummary {
             session_id: m.id.clone(),
             name: m.name.clone(),
+            handle: Some(m.spoken_handle().into_owned()),
             name_given: m.name_given,
+            former_names: m.former_names.clone(),
             harness: m.harness.clone(),
             family: m.family.clone(),
             cwd: m.cwd.to_string_lossy().into_owned(),
@@ -749,6 +771,7 @@ impl Hub {
             parent_id: m.parent_id.clone(),
             // Where a fork branched off its parent (the pane's < 1/2 > arrows, cx-ncc.61).
             fork_seq: m.fork_seq,
+            forks_any_turn: self.forks_any_turn(&m),
             spawned_by: self.spawned_by(&m),
             parent: lineage.as_ref().map(|l| l.parent.clone()),
             root: lineage.as_ref().map_or_else(|| m.id.clone(), |l| l.root.clone()),
@@ -764,11 +787,22 @@ impl Hub {
             last_prompt: m.last_prompt.clone(),
             preview: m.preview.as_deref().map(|p| short_text(p, 160)),
             last_message: last_message(&m),
+            // An expired list is no longer the chat's plan (`task_list.rs`): the row and the hat drop it.
+            task_list: super::task_list::current_task_list(&m),
+            rolling_summary: m.rolling_summary.clone(),
             queued: session.queued(),
+            // The person's unsent text (`set_composer_draft`): an idle app update waits for it.
+            has_draft: m.composer_draft.as_deref().is_some_and(|d| !d.trim().is_empty()),
+            // Background work no turn shows: an idle app update waits for it too.
+            working_below: self.holds_work_below_read(session),
             // A turn failed: the prompts that waited behind it wait for a client to resume them.
             queue_paused: session.queue_paused(),
             // A daemon start holds its queue until a person opens it (`protected_hold.rs`).
             person_hold: self.person_hold(session),
+            // The account's rate limit holds every turn until the reset (`rate_hold.rs`).
+            rate_limited_until: session.rate_hold.until(),
+            // Parked after six failed turns in a row: goes on at `acpmux retry` (`rate_hold.rs`).
+            rate_limit_parked: session.rate_hold.parked(),
             // Its queued prompt waits for a run slot of its parent (`subsession_runs.rs`).
             waits_for_slot: self.waits_for_slot(&m),
             // An agent start under way (`lifecycle.rs` holds `spawn_lock` until the agent answered
@@ -979,7 +1013,8 @@ impl Hub {
         self.start_time_breakdown_seed(session);
         let m = session.meta();
         let mut v = self.session_summary(session);
-        v.set("modes", m.modes.clone().unwrap_or(Value::Null));
+        // Its permission modes (`permission_modes.rs`): the phone's Mode picker reads them.
+        v.set("modes", super::permission_modes::of_session(&m).unwrap_or(Value::Null));
         v.set("configOptions", m.config_options.as_deref().cloned().unwrap_or(Value::Null));
         v.set("models", m.models.clone().unwrap_or(Value::Null));
         v.set("agentInfo", m.agent_info.clone().unwrap_or(Value::Null));
@@ -1008,7 +1043,7 @@ impl Hub {
         }
         // The newest command list: a client that has it needs no read of the log for it.
         if let Some(commands) = &m.available_commands {
-            v.set("availableCommands", commands.clone());
+            v.set("availableCommands", Value::clone(commands));
         }
         v.set("forkSeq", json!(m.fork_seq));
         v.set("rulesJson", m.permission_rules.clone().unwrap_or(Value::Null));
@@ -1043,7 +1078,11 @@ impl Hub {
             .await
             .disk_low_bytes
             .unwrap_or(crate::recovery::DISK_LOW_DEFAULT_BYTES);
-        let sessions = self.sessions();
+        // Only the sessions that are not closed: a close ends a session's agent and its turn
+        // before its status (`Hub::live_session_handles`), so the closed ones hold no agent and
+        // none is stuck. Status costs the same beside 11k closed chats as beside none.
+        let sessions = self.indexed_live_sessions();
+        let (all, live_ids) = self.session_counts();
         let (host_pressure, disk, agents) = tokio::join!(
             within_status_budget(async {
                 if loading { Value::Null } else { self.host_pressure_status().await }
@@ -1081,11 +1120,20 @@ impl Hub {
         // Read after every wait above and held through no other.
         let cfg = self.config.read().await;
         let exe_unstable = crate::daemon::exe_path::current_unstable();
+        let closed = self.closed_listed(all.saturating_sub(live_ids));
         json!({
             "version": VERSION,
             "build": build(),
             // The protocol surfaces this build serves (`capabilities.rs`).
             "capabilities": crate::capabilities::ids(),
+            // The closed rows `_acpmux/sessions` lists with no filter, counted with no row built
+            // (`Hub::closed_listed`): `acpmux ls` counts them on its hidden line while it reads
+            // only the live view (agent service v2, row 7b). Not one snapshot with that read.
+            "closedListed": closed.all,
+            // Of those, the peers' and hub machines' (decision 213): the v2 list holds no closed
+            // row of another machine, so `ls --all` and the other forms that walk the whole view
+            // read v1 while this is not 0.
+            "closedRemoteListed": closed.remote,
             "pid": std::process::id(),
             // Its own executable, and whether it runs as `cmux-tui acp …`, so a
             // client (host enroll) tells which program runs it without scanning
@@ -1098,15 +1146,22 @@ impl Hub {
             "exeStable": exe_unstable.is_none(),
             "exeUnstable": exe_unstable,
             "startedAt": self.started_at,
+            // What kind of device this machine is (`cmux-device-kind`), so the app draws This
+            // Mac with its own glyph (a Mac mini as a Mac mini) beside the peers' `health.device`.
+            "device": cmux_device_kind::this_device().kind.as_str(),
+            "deviceSymbol": cmux_device_kind::this_device().kind.symbol(),
             // Whether this run holds a person key, and its id (`hub/person.rs`):
             // the app checks that a daemon it started with a key still runs.
             "personKey": self.person.has_key(),
             "personInstance": self.person.instance(),
             "home": crate::config::home(),
+            // The supervisor contract's health: this daemon's owner record, today's stops and
+            // their causes, and `restart-budget-exceeded` past the budget (`daemon/supervision.rs`).
+            "supervisor": crate::daemon::supervision::status(&crate::config::home()),
             "userHome": dirs::home_dir(),
             "socket": crate::config::socket_path(),
             "store": cfg.store,
-            "sessions": sessions.len(),
+            "sessions": all,
             // Messages handed to this daemon that are not delivered yet (`outbox.rs`):
             // `acpmux ls` says so, `acpmux send --status` lists them.
             "outboxPending": self.outbox_unsettled(),
@@ -1145,7 +1200,15 @@ impl Hub {
             "listReplies": crate::list_bytes::global().status(),
             // Startup phases, memory, list rebuilds and each connection's queued bytes
             // (`gauges.rs`, `server/queue_gauge.rs`): atomics and short locks no request holds.
-            "gauges": crate::gauges::daemon_status(),
+            "gauges": ({
+                let mut gauges = crate::gauges::daemon_status();
+                gauges["v2SnapshotDamagedFrames"] = json!(self.events.damaged_snapshot_frames());
+                // The v2 list stream on peer links: frames dropped, held bytes (`link_v2.rs`).
+                if let Some(gauges) = gauges.as_object_mut() {
+                    gauges.insert("v2PeerLink".into(), self.link_v2.counters.status());
+                }
+                gauges
+            }),
             "webUrl": web_url(&cfg),
             "listen": cfg.web_listener().map(|w| w.listen.clone()),
             "ready": self.startup_complete(),
@@ -1208,6 +1271,55 @@ pub(crate) fn runs_as_cmux_tui_acp<A: AsRef<std::ffi::OsStr>>(
 #[cfg(test)]
 #[path = "views_lane_tests.rs"]
 mod lane_tests;
+
+#[cfg(test)]
+mod forks_any_turn_tests {
+    use serde_json::json;
+
+    fn meta(harness: &str) -> crate::store::SessionMeta {
+        serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "s", "name": "s", "harness": harness,
+            "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 2
+        }))
+        .unwrap()
+    }
+
+    /// Leo, 2026-11-11: "why are only some chats forkable". A Claude Code profile under its own
+    /// family name forks through any turn, as `fork.rs` does by kind; an ACP agent that is not
+    /// Codex forks only at its end. The summary says which.
+    #[test]
+    fn a_claude_code_profile_under_any_family_forks_every_turn() {
+        let mut config: crate::config::Config = serde_json::from_value(json!({"harnesses": {
+            "claude-sr2": {"argv": ["claude-sr2"], "kind": "claude-stdio", "family": "claude-sr2"},
+            "codex": {"argv": ["codex-acp"]},
+            "opencode": {"argv": ["opencode", "acp"], "family": "opencode"},
+        }}))
+        .unwrap();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let hub = crate::hub::Hub::new(config, Box::new(crate::store::MemoryStore::default()));
+        assert_eq!(hub.forks_any_turn(&meta("claude-sr2")), Some(true));
+        assert_eq!(hub.forks_any_turn(&meta("codex")), Some(true));
+        assert_eq!(hub.forks_any_turn(&meta("opencode")), Some(false));
+        assert_eq!(hub.forks_any_turn(&meta("gone")), Some(false));
+    }
+
+    /// A summary built while the configuration is being written (a default-permissions change
+    /// emits session events under the write lock) says nothing, never false: false would take
+    /// Fork and Edit off every earlier message of a Claude or Codex chat until the next summary.
+    #[test]
+    fn a_summary_built_during_a_config_write_leaves_forks_any_turn_unknown() {
+        let mut config: crate::config::Config =
+            serde_json::from_value(json!({"harnesses": {"codex": {"argv": ["codex-acp"]}}}))
+                .unwrap();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let hub = crate::hub::Hub::new(config, Box::new(crate::store::MemoryStore::default()));
+        let writing = hub.config.try_write().unwrap();
+        let unknown = hub.forks_any_turn(&meta("codex"));
+        drop(writing);
+        assert_eq!(unknown, None, "a contended read is unknown, not false");
+        assert_eq!(hub.forks_any_turn(&meta("codex")), Some(true), "known again once written");
+    }
+}
 
 #[cfg(test)]
 #[path = "views_status_tests.rs"]

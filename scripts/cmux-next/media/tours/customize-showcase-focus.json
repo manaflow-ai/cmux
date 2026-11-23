@@ -1,0 +1,223 @@
+{
+  "title": "Customization showcase: focus",
+  "customize": true,
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "New workspace",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Tour"
+      ],
+      "shot": false
+    },
+    {
+      "title": "Show the Tour workspace",
+      "cmux": [
+        "workspace",
+        "name:Tour",
+        "focus"
+      ],
+      "shot": false
+    },
+    {
+      "title": "Before: cmux as it ships",
+      "wait": 2
+    },
+    {
+      "title": "focus: its views",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Tour",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D\" && echo Ly8gRm9jdXM6IGV2ZXJ5IE5ldyBUYWIgaXMgb25lIHF1ZXN0aW9uLCB3aGF0IHlvdSBhcmUgd29ya2luZyBvbiwgYW5kIGEgdGltZWQgc2Vzc2lvbi4gVGhlIHJlc3Qgb2YKLy8gdGhlIHdpbmRvdyBnb2VzIHF1aWV0IHRocm91Z2ggdGhlIHByb2ZpbGUncyBzZXR0aW5ncyAoYSByYWlsIHNpZGViYXIgdGhhdCBoaWRlcyBpdHMgYmFuZHMsIHRoZQovLyBjaGF0IGFzIG1lc3NhZ2VzLCBubyBob3ZlciBjYXJkcywgbm90aGluZyBtb3ZpbmcpLgoKY29uc3QgW3Rhc2ssIHNldFRhc2tdID0gc2lnbmFsKCIiKQpjb25zdCBbbWludXRlcywgc2V0TWludXRlc10gPSBzaWduYWwoMjUpCmNvbnN0IFtsZWZ0LCBzZXRMZWZ0XSA9IHNpZ25hbChudWxsKSAvLyBzZWNvbmRzIGxlZnQgd2hpbGUgYSBzZXNzaW9uIHJ1bnMKY29uc3QgW2RvbmUsIHNldERvbmVdID0gc2lnbmFsKDApCmNvbnN0IHJ1bm5pbmcgPSBjb21wdXRlZCgoKSA9PiBsZWZ0KCkgIT09IG51bGwpCmxldCB0aWNrID0gbnVsbAoKLy8gUmVtZW1iZXJpbmcgbmVlZHMgc3RvcmFnZTpsb2NhbCAoU2V0dGluZ3MgPiBBcHBzID4gRm9jdXMpOyB3aXRob3V0IGl0IHRoZSBwYWdlIHN0aWxsIHdvcmtzIGFuZAovLyBmb3JnZXRzIG9uIHJlbG9hZC4KY29uc3QgdG9kYXkgPSAoKSA9PiBuZXcgRGF0ZSgpLnRvSVNPU3RyaW5nKCkuc2xpY2UoMCwgMTApCmNtdXguc3RvcmFnZQogIC5nZXQoImZvY3VzIikKICAudGhlbigoc2F2ZWQpID0+IHsKICAgIGlmICghc2F2ZWQpIHJldHVybgogICAgc2V0VGFzayhzYXZlZC50YXNrIHx8ICIiKQogICAgc2V0RG9uZShzYXZlZC5kYXkgPT09IHRvZGF5KCkgPyBzYXZlZC5kb25lIHx8IDAgOiAwKQogIH0pCiAgLmNhdGNoKCgpID0+IHVuZGVmaW5lZCkKY29uc3Qgc2F2ZSA9ICgpID0+IGNtdXguc3RvcmFnZS5zZXQoImZvY3VzIiwgeyB0YXNrOiB0YXNrKCksIGRheTogdG9kYXkoKSwgZG9uZTogZG9uZSgpIH0pLmNhdGNoKCgpID0+IHVuZGVmaW5lZCkKCmNvbnN0IGNsb2NrID0gKHMpID0+IGAke01hdGguZmxvb3IocyAvIDYwKX06JHtTdHJpbmcocyAlIDYwKS5wYWRTdGFydCgyLCAiMCIpfWAKY29uc3QgcnVuID0gKGlkLCBhcmdzKSA9PgogIGNtdXguYWN0aW9ucy5ydW4oaWQsIGFyZ3MpLmNhdGNoKChlKSA9PiBjbXV4LnRvYXN0KHsgdGl0bGU6ICJUdXJuIG9uIFJ1biBhY3Rpb25zIGZvciBGb2N1cyIsIG1lc3NhZ2U6IFN0cmluZyhlKSwgdG9uZTogIndhcm5pbmciIH0pKQoKZnVuY3Rpb24gc3RvcChmaW5pc2hlZCkgewogIGlmICh0aWNrICE9PSBudWxsKSBjbXV4LnRpbWVyLmNsZWFyKHRpY2spCiAgdGljayA9IG51bGwKICBzZXRMZWZ0KG51bGwpCiAgaWYgKGZpbmlzaGVkKSB7CiAgICBzZXREb25lKChuKSA9PiBuICsgMSkKICAgIHNhdmUoKQogICAgY211eC50b2FzdCh7IHRpdGxlOiAiU2Vzc2lvbiBkb25lIiwgbWVzc2FnZTogdGFzaygpIHx8ICJUYWtlIGEgc2hvcnQgYnJlYWsuIiwgdG9uZTogInN1Y2Nlc3MiIH0pCiAgfQp9CgpmdW5jdGlvbiBzdGFydCgpIHsKICBzdG9wKGZhbHNlKQogIHNhdmUoKQogIHNldExlZnQobWludXRlcygpICogNjApCiAgdGljayA9IGNtdXgudGltZXIuZXZlcnkoMTAwMCwgKCkgPT4gewogICAgY29uc3QgbmV4dCA9IChsZWZ0KCkgPz8gMCkgLSAxCiAgICBpZiAobmV4dCA8PSAwKSBzdG9wKHRydWUpCiAgICBlbHNlIHNldExlZnQobmV4dCkKICB9KQp9CgpmdW5jdGlvbiByZW5kZXJGb2N1cygpIHsKICByZXR1cm4gVlN0YWNrKHsgc3BhY2luZzogMTYgfSwgWwogICAgU3BhY2VyKCksCiAgICBUZXh0KCJXaGF0IGFyZSB5b3Ugd29ya2luZyBvbj8iKS5mb250KCJsYXJnZVRpdGxlIikud2VpZ2h0KCJzZW1pYm9sZCIpLAogICAgVGV4dEZpZWxkKHRhc2ssIHsgcGxhY2Vob2xkZXI6ICJPbmUgdGhpbmciLCBvbkVkaXQ6IHNldFRhc2ssIG9uU3VibWl0OiAoKSA9PiAoc2F2ZSgpLCBzdGFydCgpKSB9KS5mb250KCJ0aXRsZTIiKSwKICAgIFBhbmVsKHsgc3R5bGU6ICJjYXJkIiB9LCBbCiAgICAgIFRleHQoKCkgPT4gY2xvY2sobGVmdCgpID8/IG1pbnV0ZXMoKSAqIDYwKSkuZm9udCgibGFyZ2VUaXRsZSIpLm1vbm9zcGFjZWQoKSwKICAgICAgKCkgPT4gKHJ1bm5pbmcoKSA/IFByb2dyZXNzVmlldygoKSA9PiAxIC0gKGxlZnQoKSA/PyAwKSAvIChtaW51dGVzKCkgKiA2MCkpIDogU2xpZGVyKG1pbnV0ZXMsIHsgbWluOiAxMCwgbWF4OiA5MCwgc3RlcDogNSwgb25DaGFuZ2U6IHNldE1pbnV0ZXMgfSkpLAogICAgICBIU3RhY2soeyBzcGFjaW5nOiA4IH0sIFsKICAgICAgICAoKSA9PiAocnVubmluZygpID8gQnV0dG9uKCJTdG9wIiwgKCkgPT4gc3RvcChmYWxzZSkpIDogQnV0dG9uKCJTdGFydCBzZXNzaW9uIiwgc3RhcnQpKSwKICAgICAgICBCdXR0b24oIkNoYXQgYWJvdXQgaXQiLCAoKSA9PiBydW4oInBhbGV0dGUubmV3QWdlbnRDaGF0IikpLAogICAgICAgIEJ1dHRvbigiVGVybWluYWwiLCAoKSA9PiBydW4oIm5ld1N1cmZhY2UiKSksCiAgICAgICAgU3BhY2VyKCksCiAgICAgICAgVGV4dCgoKSA9PiBgJHtkb25lKCl9IHRvZGF5YCkuZm9udCgiY2FwdGlvbiIpLmNvbG9yKGNtdXgudGhlbWUudGV4dC5zZWNvbmRhcnkpCiAgICAgIF0pCiAgICBdKSwKICAgIFNwYWNlcigpCiAgXSkKfQoKZ2xvYmFsVGhpcy5fX2NtdXhBcHBFeHBvcnRzID0geyByZW5kZXJGb2N1cyB9Cg== | base64 -d > \"$D/main.js\" && echo ewogICIkc2NoZW1hIjogImh0dHBzOi8vY211eC5kZXYvc2NoZW1hcy9jbXV4LWFwcC8yLmpzb24iLAogICJtYW5pZmVzdFZlcnNpb24iOiAyLAogICJpZCI6ICJsb2NhbC9jdXN0b21pemUiLAogICJuYW1lIjogIkZvY3VzIiwKICAidmVyc2lvbiI6ICIxLjAuMCIsCiAgImRlc2NyaXB0aW9uIjogIkEgTmV3IFRhYiBwYWdlIHdpdGggb25lIHF1ZXN0aW9uLCB3aGF0IHlvdSBhcmUgd29ya2luZyBvbiwgYW5kIGEgdGltZWQgc2Vzc2lvbiwgd2l0aCBidXR0b25zIGZvciBhIGNoYXQgb3IgYSB0ZXJtaW5hbC4iLAogICJlbmdpbmVzIjogeyAiY211eCI6ICJeMi4wIiB9LAogICJydW50aW1lIjogeyAibWFpbiI6ICJtYWluLmpzIiB9LAogICJpbXBsZW1lbnRzIjogewogICAgImNtdXgubmV3dGFiLzEiOiB7ICJleHBvcnQiOiAicmVuZGVyRm9jdXMiLCAidGl0bGUiOiAiRm9jdXMiLCAic3ltYm9sIjogInNjb3BlIiB9CiAgfSwKICAic2NvcGVzIjogewogICAgImFjdGlvbnM6cnVuIjogIlN0YXJ0IGEgY2hhdCBvciBhIHRlcm1pbmFsIGZyb20gdGhlIHBhZ2UuIiwKICAgICJzdG9yYWdlOmxvY2FsIjogIlJlbWVtYmVyIHdoYXQgeW91IGFyZSB3b3JraW5nIG9uIGFuZCBob3cgbWFueSBzZXNzaW9ucyB5b3UgZmluaXNoZWQgdG9kYXkuIgogIH0KfQo= | base64 -d > \"$D/cmux-app.json\" && echo saved focus\r"
+      ],
+      "wait": 4,
+      "shot": false
+    },
+    {
+      "title": "focus: tabs.newTabApp",
+      "cmux": [
+        "settings",
+        "set",
+        "tabs.newTabApp",
+        "local/customize"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "focus: agentPane.display.presentation",
+      "cmux": [
+        "settings",
+        "set",
+        "agentPane.display.presentation",
+        "messages"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "focus: agentPane.display.minimap",
+      "cmux": [
+        "settings",
+        "set",
+        "agentPane.display.minimap",
+        "off"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "focus: agentPane.display.trayTucked",
+      "cmux": [
+        "settings",
+        "set",
+        "agentPane.display.trayTucked",
+        "true"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "focus: agentPane.display.environment.placement",
+      "cmux": [
+        "settings",
+        "set",
+        "agentPane.display.environment.placement",
+        "off"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "focus: sidebar.style",
+      "cmux": [
+        "settings",
+        "set",
+        "sidebar.style",
+        "rail"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "focus: sidebar.minimalMode",
+      "cmux": [
+        "settings",
+        "set",
+        "sidebar.minimalMode",
+        "both"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "focus: sidebar.controlsOnHover",
+      "cmux": [
+        "settings",
+        "set",
+        "sidebar.controlsOnHover",
+        "true"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "focus: sidebar.hoverCards.enabled",
+      "cmux": [
+        "settings",
+        "set",
+        "sidebar.hoverCards.enabled",
+        "false"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "focus: layout.rows",
+      "cmux": [
+        "settings",
+        "set",
+        "layout.rows",
+        "false"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "focus: layout.paneSeparation",
+      "cmux": [
+        "settings",
+        "set",
+        "layout.paneSeparation",
+        "none"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "focus: appearance.chromeStyle",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.chromeStyle",
+        "bare"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "focus: appearance.focusIndicator",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.focusIndicator",
+        "none"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "focus: ui.calm",
+      "cmux": [
+        "settings",
+        "set",
+        "ui.calm",
+        "still"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "focus: One thing at a time: the chat as messages, not a transcript; the sidebar a rail whose bands hide until you point at it; no hover cards, minimap or running tray; nothing moves; and a New Tab page that asks what you are working on and starts a timed session.",
+      "wait": 3
+    },
+    {
+      "title": "focus: a New Tab is the setup's own page",
+      "cmux": [
+        "action",
+        "run",
+        "newTab.default"
+      ],
+      "wait": 3,
+      "optional": "a New Tab opens a terminal when tabs.newTabTemplate picks one"
+    }
+  ]
+}

@@ -36,10 +36,12 @@ pub(super) enum AcpmuxTarget {
 }
 
 impl AcpmuxTarget {
-    /// The acpmux home this user's daemon runs from (`ACPMUX_HOME`, else
-    /// `~/.acpmux`).
-    pub(super) fn from_acpmux_home() -> Self {
-        Self::Live(acpmux::config::home())
+    /// The acpmux home this user's daemon runs from: `recorded`, the one the
+    /// app recorded for this link (`key_lock::record_home`), else by this
+    /// process's environment (`ACPMUX_HOME`, else `~/.acpmux`), which launchd
+    /// does not give a link it starts.
+    pub(super) fn for_home(recorded: Option<PathBuf>) -> Self {
+        Self::Live(recorded.unwrap_or_else(acpmux::config::home))
     }
 }
 

@@ -1,0 +1,11 @@
+{
+  "date": "2026-11-16",
+  "row": "app_lines",
+  "allow": 25,
+  "why": "Cloud multiplayer GitHub onboarding (the new chat folder picker's GitHub section, a Cloud start in a repository, Set Up GitHub's Connect GitHub). The logic lives in CmuxNextAgentPane (AgentPaneGitHub, AgentPaneGitHubFolder, AgentPaneCloudStart+Repository) and CmuxNextCloud (CloudGitHubRepos, CloudGitHubPicker). The App keeps only wiring that needs App-only types: the picker's dependency in AgentPageChats (AppServices, services.accounts.github), the clone hand-off in CloudStartChat (services.cloud.machineAPI, the machine session), the dialog branch in CloudGitHubHandlers (CloudPresenter, CloudHandlers, context.services), and two strings beside their neighbours in the App's Cloud table (CloudStrings+GitHub).",
+  "author": "cloud-multiplayer lead (claude fable, GitHub onboarding integration)",
+  "owner": "lane/cloud-mp-keys",
+  "receipt": "Review (independent correctness-first review subagent b0251774): SHIP at 170de51a1597e456fe456042498a073bf0d648c9",
+  "expiry": "2026-12-16",
+  "applied_sha": "92aeb2987f12fc87762cd724d9f805cc2fa2d221"
+}

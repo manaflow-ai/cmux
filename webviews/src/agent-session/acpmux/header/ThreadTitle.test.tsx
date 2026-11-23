@@ -84,7 +84,7 @@ test("the chat title is plain text, not a menu button", async () => {
   const title = container.querySelector<HTMLElement>(".acpmux-thread-title")!;
   expect(title.tagName).toBe("SPAN");
   expect(title.textContent).toBe("Phone to computer connection");
-  expect(title.title).toBe("Phone to computer connection");
+  expect(title.title).toBe("");
   expect(container.querySelector("button, [role='button'], [aria-haspopup], [tabindex]")).toBeNull();
   expect(container.querySelector(".acpmux-thread-title-chevron")).toBeNull();
   await act(async () => title.click());

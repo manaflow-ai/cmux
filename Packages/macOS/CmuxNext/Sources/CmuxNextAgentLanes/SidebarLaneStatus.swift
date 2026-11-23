@@ -42,6 +42,8 @@ enum SidebarLaneStatus {
                     : SidebarLocalLanes.lanes(workspace, lanes: lanes, turns: turns)
                 // A runaway session's warning shows whatever the lane toggles say (Leo 2026-10-30).
                 row.usageWarnings = usageWarnings(local)
+                // The agent's task list across its turns, whatever the other lane toggles say.
+                row.taskProgress = SidebarTunables.taskProgress.value ? taskProgress(local) : nil
                 if let chiefAvatar {
                     let owned = workspace.screens.flatMap(\.panes).flatMap(\.tabs).compactMap { tab -> String? in
                         guard let ref = tab.agentSession, let id = ref.session,
@@ -56,9 +58,20 @@ enum SidebarLaneStatus {
                     }
                     row.chiefAvatar = owned.first.flatMap(chiefAvatar)
                 }
+                // `experiments.agentBadges`' Done pill: a chat's finished turn nobody has seen, as the Priority view ranks it.
+                row.agentDone = local.contains { lane in
+                    let read = marks.state.read[lane.id] == AgentPriorityMarks.stamp(lane)
+                    if case .done = AgentPriorityRanking.state(lane, read: read) { return true }
+                    return false
+                }
                 guard mergesState || namesState || saysStep else { return row }
-                if mergesState { merge(local, into: &row) }
-                if namesState { row.agentChip = chip(local, marks: marks.state) }
+                let standing = withoutSupersededFailures(local)
+                if mergesState { merge(standing, into: &row) }
+                // A superseded failure keeps its lane's own failing checks (Red CI): only its turn failure goes.
+                if namesState {
+                    let superseded = Set(local.map(\.id)).subtracting(standing.map(\.id))
+                    row.agentChip = chip(local, marks: marks.state, superseded: superseded)
+                }
                 if saysStep { row.agentStep = step(local) }
                 return row
             }
@@ -88,6 +101,24 @@ enum SidebarLaneStatus {
         }
     }
 
+    /// `lanes` without each failed or lost chat that another chat of the same workspace went on past
+    /// (cmux#48434: "just because one of them is red and open but something else is running means that
+    /// this shouldnt be red again"): one that is working or waits on the person now, or one that came to
+    /// rest after the failure, the chat continued or forked and finished. A failure with nothing after
+    /// it stays, so a workspace whose only news is a failure still reads red.
+    static func withoutSupersededFailures(_ lanes: [AgentActivityLane]) -> [AgentActivityLane] {
+        let failures = lanes.filter { $0.state == .failed || $0.state == .lost }
+        guard !failures.isEmpty, failures.count < lanes.count else { return lanes }
+        let active = lanes.contains { $0.state == .working || $0.state == .input }
+        let lastRest = lanes.filter { $0.state == .idle }.compactMap(\.since).max()
+        return lanes.filter { lane in
+            guard lane.state == .failed || lane.state == .lost else { return true }
+            if active { return false }
+            guard let lastRest, let failedAt = lane.since else { return true }
+            return failedAt >= lastRest
+        }
+    }
+
     /// Whether `state` waits on the user (a question, a permission, a sign-in).
     private static func asks(_ state: StatusIndicatorState) -> Bool {
         if case .waiting = state { true } else { false }
@@ -99,9 +130,12 @@ enum SidebarLaneStatus {
     /// finished chat drops out before the ranking, so it never hides a failed one, and its failing
     /// checks still read as Red CI. `failingChecks` is the Red CI answer, by default the session tree feed's.
     static func chip(_ lanes: [AgentActivityLane], marks: AgentPriorityMarks.State,
-                     failingChecks: ((AgentActivityLane) -> Bool)? = nil) -> SidebarPriorityEntry.State? {
+                     failingChecks: ((AgentActivityLane) -> Bool)? = nil,
+                     superseded: Set<String> = []) -> SidebarPriorityEntry.State? {
         lanes.compactMap { lane -> SidebarPriorityEntry.State? in
             let failing = failingChecks?(lane) ?? SidebarSessionTreeFeed.shared.checksFailing(lane)
+            // A failure another chat went on past (`withoutSupersededFailures`) says only its failing checks.
+            if superseded.contains(lane.id) { return failing ? .ciFailing : nil }
             switch AgentPriorityRanking.state(lane, read: marks.read[lane.id] == AgentPriorityMarks.stamp(lane), failingChecks: failing) {
             case .done: return failing ? .ciFailing : nil
             case .working, .idle: return nil
@@ -125,6 +159,18 @@ enum SidebarLaneStatus {
                 ?? (lane.turnPrompt == nil ? firstLine(lane.step) : nil) else { return nil }
             return (lane.since ?? .distantPast, text)
         }.max { $0.0 < $1.0 }?.1
+    }
+
+    /// The task progress a row shows for `lanes`: a working chat's list first, else the one changed
+    /// last; nil when none has steps left (a finished list says nothing a row needs).
+    static func taskProgress(_ lanes: [AgentActivityLane]) -> SidebarTaskProgress? {
+        let open = lanes.compactMap { lane in lane.taskList.flatMap { $0.isFinished ? nil : (lane, $0) } }
+        let pick = open.max { a, b in
+            let (aWorks, bWorks) = (a.0.state == .working, b.0.state == .working)
+            if aWorks != bWorks { return bWorks }
+            return (a.1.updatedAt ?? .distantPast) < (b.1.updatedAt ?? .distantPast)
+        }
+        return pick.map { SidebarTaskProgress(done: $0.1.done, total: $0.1.total, current: $0.1.current, next: $0.1.next) }
     }
 
     /// Each usage warning of `lanes`, once, in lane order.

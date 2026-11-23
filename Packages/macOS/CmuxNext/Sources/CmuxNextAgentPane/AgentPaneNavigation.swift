@@ -43,10 +43,12 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
         if let view, let log = view.flickerLog {
             log.record("navigation", ["page": AgentPageFlickerLog.pageName(view), "engine": view.engineName])
         }
+        // A new document has no shared text of the context (``AgentPaneModel/newTabSharedGeneration``).
+        view?.model.newTabSharedGeneration = nil
         guard let model = view?.model, model.sessionId == nil, var page = model.newTab else { return }
         // Its start folder too, so the first frame draws the project or no project (``AgentPaneNewTab/start``).
         page.start = model.startFolders.local(of: model)
-        guard let data = try? JSONEncoder().encode(page), let json = String(data: data, encoding: .utf8) else { return }
+        guard let json = model.newTabScriptValue(page, always: true) else { return }
         webView.evaluateJavaScript("window.__cmuxNewTabContext = \(json);", completionHandler: nil)
     }
 
@@ -60,10 +62,14 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
         // The initial zoom can run before WebKit has a document. Reapply it after the
         // document exists so the interface scale and page scale are visible on first paint.
         view?.applyZoom()
+        // `app.language`: the old host's document has no PageWebView to push it on load.
+        view?.applyLanguage()
         view?.applyShortcuts()
         view?.applyPreviewFeatures()
+        view?.applyLiveTree()
         if let view { AgentPaneSessionStatus.push(to: view) }
         if let view { AgentPaneSuggestedTasks.shared.push(to: view) }
+        view?.replayExperiments()
         view?.applyEditedFiles()
         view?.replayCustomization()
         view?.announceSessionInfo()

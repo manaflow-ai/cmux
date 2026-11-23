@@ -147,6 +147,9 @@ pub struct Hooks {
 struct Next<H: Http> {
     client: CloudClient<H>,
     prefetch: bool,
+    /// The bind answer carried the first ticket, kept in the bind's own
+    /// transition: the bind's request mints the bearer only.
+    seeded: bool,
 }
 
 /// What the threads share: the state and the client-bearing payloads it
@@ -217,9 +220,14 @@ impl<H: Http> Shared<H> {
     }
 }
 
+/// The ticket state before the bind request starts. Any intervening bind or
+/// resume invalidates the answer's first ticket, even before it is installed.
+pub struct BindGeneration(u64);
+
 /// The worker's handle on the ticket threads.
 pub struct CarrierServer<H: Http> {
     shared: Arc<Shared<H>>,
+    hooks: Hooks,
     resumes: Arc<Resumes>,
     /// Shutting it down stops the socket thread.
     wake: UnixStream,
@@ -269,7 +277,7 @@ impl<H: Http + Send + 'static> CarrierServer<H> {
                 }
                 .run();
             })?;
-        let mut server = CarrierServer { shared, resumes, wake, threads: vec![fetcher] };
+        let mut server = CarrierServer { shared, hooks, resumes, wake, threads: vec![fetcher] };
         // On a failed spawn, `server`'s drop stops the fetch thread.
         let theirs = Arc::clone(&server.shared);
         let socket = std::thread::Builder::new()
@@ -283,9 +291,41 @@ impl<H: Http + Send + 'static> CarrierServer<H> {
     /// `prefetch` (the machine has a relay carrier), a ticket is asked for at
     /// once and kept for the session host's Register.
     pub fn bound(&self, client: CloudClient<H>, prefetch: bool) {
-        // The bind's generation starts now, not when the fetch thread takes
-        // it: an ask in between waits for the bind's ticket.
-        self.shared.change(|state| state.bind(Next { client, prefetch }));
+        self.bound_with_ticket(client, prefetch, None);
+    }
+
+    /// Capture before starting the bind request, to fence its ticket against
+    /// resumes while the HTTP request or answer installation is in progress.
+    pub fn bind_generation(&self) -> BindGeneration {
+        BindGeneration(self.shared.lock().generation)
+    }
+
+    /// [`CarrierServer::bound`], with the ticket the bind answer carried
+    /// (`first`, the generation captured before the request and the reply
+    /// line the session host gets): on a carrier machine
+    /// it is kept in the bind's own transition, so the session host's first
+    /// Register takes it at once instead of waiting for the bearer mint and
+    /// the ticket request (three platform requests after the bind). The
+    /// bind's request then mints the bearer only, for later tickets; the kept
+    /// ticket is refreshed before it expires like any other, at most
+    /// [`MAX_REFRESHES`] times. A ticket too close to its expiry to keep is
+    /// dropped, and the bind asks for one as before.
+    pub fn bound_with_ticket(
+        &self,
+        client: CloudClient<H>,
+        prefetch: bool,
+        first: Option<(BindGeneration, Value)>,
+    ) {
+        // Check the request's generation and install its answer under the
+        // same lock as a resume. A later resume clears the installed ticket;
+        // an earlier one means this bind must prefetch a replacement.
+        self.shared.change(|state| {
+            let warm = first.and_then(|(before, reply)| {
+                state.seed_from_bind(before.0, prefetch, &reply, (self.hooks.now)())
+            });
+            let seeded = warm.is_some();
+            state.bind_with(Next { client, prefetch, seeded }, warm);
+        });
     }
 }
 
@@ -306,10 +346,18 @@ impl<H: Http + Send + 'static> Fetcher<H> {
         while let Some(job) = self.next_job() {
             match job {
                 Job::Stop | Job::Wait(_) => {}
-                Job::Bind(next, generation) => {
-                    let Next { client, prefetch } = *next;
+                Job::Bind(next, generation, seed_valid) => {
+                    let Next { client, prefetch, seeded } = *next;
                     self.hands.bound(client, prefetch);
-                    let ticket = prefetch.then_some(("prefetched", false));
+                    // A resume can land after the bind job was picked but
+                    // before this arm runs. Its generation invalidates the
+                    // bind answer's seed just as the state transition does.
+                    let seeded =
+                        seeded && seed_valid && self.shared.lock().generation == generation;
+                    if seeded {
+                        (self.hooks.log)("carrier ticket: kept from the bind");
+                    }
+                    let ticket = (prefetch && !seeded).then_some(("prefetched", false));
                     self.start(Task { mint: true, ticket }, generation);
                 }
                 Job::Resume(generation) => {
@@ -403,9 +451,7 @@ impl<H: Http + Send + 'static> Fetcher<H> {
             ));
         }
         if current && let (Some(reply), Some((what, _))) = (&reply, task.ticket) {
-            let said =
-                if reply.get("ok") == Some(&Value::Bool(true)) { what } else { outcome(reply) };
-            (self.hooks.log)(&format!("carrier ticket: {said} in {took} ms"));
+            (self.hooks.log)(&outcome_line(reply, what, "", took));
         }
         if resume {
             self.resume(generation);
@@ -632,20 +678,39 @@ fn read_ask(stream: &UnixStream) -> Result<(), String> {
     }
 }
 
-/// A reply's outcome: `issued`, or its error code.
-fn outcome(reply: &Value) -> &str {
+/// How much of a refusal's message a journal line keeps.
+const LINE_MESSAGE_CHARS: usize = 200;
+
+/// The journal line for one ticket outcome, never the ticket itself:
+/// `carrier ticket: <what><from> in N ms` for a ticket (`what` is what was
+/// done: prefetched, refreshed, issued, ...), and for a refusal
+/// `carrier ticket: refused <code><from> in N ms: <message>`. A refusal has
+/// its own `refused` token: under the bare code a reader of the journal
+/// could not tell a refusal from a success without knowing every success
+/// word, and a probe that counted the whole prefix read the two successes of
+/// every healthy bind as two errors.
+fn outcome_line(reply: &Value, what: &str, from: &str, took_ms: u128) -> String {
     if reply.get("ok") == Some(&Value::Bool(true)) {
-        "issued"
-    } else {
-        reply.get("error").and_then(|e| e.get("code")).and_then(Value::as_str).unwrap_or("refused")
+        return format!("carrier ticket: {what}{from} in {took_ms} ms");
     }
+    let error = reply.get("error");
+    let code = error.and_then(|e| e.get("code")).and_then(Value::as_str).unwrap_or("unknown");
+    let message: String = error
+        .and_then(|e| e.get("message"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .take(LINE_MESSAGE_CHARS)
+        .collect();
+    let said = if message.is_empty() { String::new() } else { format!(": {message}") };
+    format!("carrier ticket: refused {code}{from} in {took_ms} ms{said}")
 }
 
 /// The journal line for one answer: its outcome, whether it was the kept
 /// ticket, and how long it took.
 fn note(reply: &Value, kept: bool, took: Duration) -> String {
-    let from = if kept { " (kept)" } else { "" };
-    format!("carrier ticket: {}{from} in {} ms", outcome(reply), took.as_millis())
+    outcome_line(reply, "issued", if kept { " (kept)" } else { "" }, took.as_millis())
 }
 
 fn write_reply(mut stream: UnixStream, reply: &Value) -> io::Result<()> {

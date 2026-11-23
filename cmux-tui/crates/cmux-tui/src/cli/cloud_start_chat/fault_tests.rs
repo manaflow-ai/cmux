@@ -2,10 +2,15 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
-use super::super::{Outcome, Parsed, Ran, Request, Runner, parse};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use super::super::internal::fault_routes::tests::{FakeSession, routes_over};
+use super::super::{Outcome, Parsed, Ran, Request, Runner, failed, parse};
 use super::{start, take};
 use crate::carrier::drill::EventRoutes;
 use crate::carrier::fault::tests::{Carrier as FakeCarrier, routes_of, turn};
+use crate::carrier::fault::tests::{judged_after_kill, seqs};
 use crate::carrier::fault::{Absent, Carrier, FaultSpec, Route, this_build};
 
 const PROBE: &str = "cmux-cloud-capture-prod@manaflow.dev";
@@ -51,6 +56,16 @@ fn request(words: &[&str]) -> Request {
         Ok(Parsed::Run(request)) => *request,
         other => panic!("{words:?}: {other:?}"),
     }
+}
+
+/// A source the gates must never reach.
+fn unreached(
+    _: &mut dyn Runner,
+    _: &crate::carrier::fault::FaultPlan,
+    _: &Value,
+    _: Instant,
+) -> Result<Box<dyn EventRoutes>, Outcome> {
+    panic!("the drill's source was asked before its gates passed")
 }
 
 fn relay_after(n: u32) -> FaultSpec {
@@ -101,7 +116,7 @@ fn a_person_without_the_probe_switch_is_refused_before_any_step() {
     let mut fake = Fake { email: Some(PROBE), asked: Vec::new() };
     let asked = request(&["--prompt", "count", "--wait"]);
     for env in [None, Some("0"), Some("yes")] {
-        let outcome = start(&mut fake, &asked, relay_after(3), env, relay_only, |_| None);
+        let outcome = start(&mut fake, &asked, relay_after(3), env, relay_only, unreached);
         let (error, exit) = error_of(&outcome);
         assert_eq!((error["code"].as_str(), exit), (Some("carrier_fault.not_probe"), 2));
     }
@@ -118,7 +133,7 @@ fn an_account_that_is_not_a_probe_account_is_refused_with_the_same_words() {
             relay_after(3),
             Some("1"),
             relay_only,
-            |_| None,
+            unreached,
         );
         let (error, exit) = error_of(&outcome);
         assert_eq!(
@@ -137,7 +152,7 @@ fn the_drill_needs_a_prompt_and_wait() {
     let mut fake = Fake { email: Some(PROBE), asked: Vec::new() };
     for words in [&["--wait"][..], &["--prompt", "count"]] {
         let outcome =
-            start(&mut fake, &request(words), relay_after(3), Some("1"), relay_only, |_| None);
+            start(&mut fake, &request(words), relay_after(3), Some("1"), relay_only, unreached);
         assert_eq!(error_of(&outcome).0["code"], "usage.invalid", "{words:?}");
     }
 }
@@ -151,7 +166,7 @@ fn killing_the_only_relay_is_a_typed_error_with_the_judges_record_not_a_hang() {
         relay_after(3),
         Some("1"),
         relay_only,
-        |_| None,
+        unreached,
     );
     let (error, exit) = error_of(&outcome);
     assert_eq!((error["code"].as_str(), exit), (Some("carrier_fault.no_other_route"), 2));
@@ -164,18 +179,57 @@ fn killing_the_only_relay_is_a_typed_error_with_the_judges_record_not_a_hang() {
 }
 
 /// With ssh available on the device the fault leaves a carrier to go on over, and the drill
-/// stops at the missing event source (slice S1), the capabilities in its record listing ssh.
+/// asks its source, once, with the plan and the capabilities listing ssh; a source's refusal
+/// (a start that failed) is the answer as it came.
 #[test]
-fn with_ssh_on_the_device_the_fault_plan_passes_and_the_record_lists_ssh() {
+fn with_ssh_on_the_device_the_fault_plan_passes_and_the_source_is_asked() {
     let mut fake = Fake { email: Some(PROBE), asked: Vec::new() };
     let request = request(&["--prompt", "count", "--wait"]);
-    let outcome =
-        start(&mut fake, &request, relay_after(3), Some("1"), || this_build(Ok(())), |_| None);
+    let outcome = start(
+        &mut fake,
+        &request,
+        relay_after(3),
+        Some("1"),
+        || this_build(Ok(())),
+        |_, plan, caps, _| {
+            assert_eq!(plan.candidates, vec![Route::Relay, Route::Ssh]);
+            assert_eq!(caps["routes"], json!(["relay", "ssh"]));
+            Err(failed("cloud.start_pending", "the machine is starting", json!({}), 75))
+        },
+    );
     let (error, exit) = error_of(&outcome);
-    assert_eq!((error["code"].as_str(), exit), (Some("carrier_fault.no_event_source"), 2));
-    let caps = &error["details"]["capabilities"];
-    assert_eq!(caps, &json!({"routes": ["relay", "ssh"], "faults": ["kill-route"]}));
-    assert_eq!(fake.asked.len(), 1, "no machine was made: {:?}", fake.asked);
+    assert_eq!((error["code"].as_str(), exit), (Some("cloud.start_pending"), 75));
+    assert_eq!(fake.asked.len(), 1, "only the gate's diagnostics ran: {:?}", fake.asked);
+}
+
+/// The drill over a carrier session: the stream on the relay, the relay killed inside the
+/// session after 3 events, the resume over ssh after the last seq, and the finished drill's
+/// answer under `drill` holds the relay's events, then ssh's, with nothing lost.
+#[test]
+fn a_drill_over_the_carrier_session_answers_relay_then_ssh_events_with_no_loss() {
+    let mut fake = Fake { email: Some(PROBE), asked: Vec::new() };
+    let request = request(&["--prompt", "count", "--wait"]);
+    let session = FakeSession::new(8, Route::Relay);
+    let sent = Arc::new(AtomicUsize::new(0));
+    let routes = routes_over(&session, &sent);
+    let outcome = start(
+        &mut fake,
+        &request,
+        relay_after(3),
+        Some("1"),
+        || this_build(Ok(())),
+        move |_, _, _, _| Ok(Box::new(routes) as Box<dyn EventRoutes>),
+    );
+    let Outcome::Done(answer) = &outcome else { panic!("not an answer: {outcome:?}") };
+    let drill = &answer["drill"];
+    let routes: Vec<&str> =
+        drill["events"].as_array().unwrap().iter().map(|e| e["route"].as_str().unwrap()).collect();
+    assert_eq!(routes, [vec!["relay"; 3], vec!["ssh"; 5]].concat());
+    assert_eq!(seqs(drill), (1..=8).collect::<Vec<_>>());
+    assert_eq!(judged_after_kill(drill), vec!["ssh"; 5]);
+    assert_eq!(drill["resumes"][1]["from_seq"], 4);
+    assert_eq!(*session.kills.lock().unwrap(), vec![Route::Relay]);
+    assert_eq!(sent.load(Ordering::SeqCst), 1);
 }
 
 /// A drill that reaches the turn's last event answers its record under `drill` (exit 0), the
@@ -193,7 +247,7 @@ fn a_drill_that_finishes_answers_its_record_under_drill() {
         relay_after(3),
         Some("1"),
         || this_build(Ok(())),
-        |_| Some(Box::new(routes) as Box<dyn EventRoutes>),
+        move |_, _, _, _| Ok(Box::new(routes) as Box<dyn EventRoutes>),
     );
     let Outcome::Done(answer) = &outcome else { panic!("not an answer: {outcome:?}") };
     let drill = &answer["drill"];
@@ -219,4 +273,51 @@ fn a_prompt_on_stdin_is_not_read_before_the_gates() {
     // No CMUX_CARRIER_PROBE_FAULTS in the test environment: refused (exit 2) without reading
     // stdin, which the test harness leaves open.
     assert_eq!(super::run_if_requested(&global, &rest), Some(2));
+}
+
+/// A turn that did not finish names the step it stopped in from its own record: the relay's connect, the relay's
+/// events before the kill, ssh's resume after it, or ssh's events.
+#[test]
+fn a_turn_that_stopped_names_its_step_from_the_record() {
+    use crate::carrier::fault::FaultPlan;
+    let caps = json!({"routes": ["relay", "ssh"], "faults": ["kill-route"]});
+    let plan = FaultPlan::new(relay_after(3), vec![Route::Relay, Route::Ssh], &caps).unwrap();
+    let ok = json!({"route": "relay", "phase": "connect", "outcome": "ok"});
+    let bad = json!({"route": "relay", "phase": "connect", "outcome": "error"});
+    let kill = json!({"route": "relay", "at_ms": 9});
+    let resumed = json!({"route": "ssh", "phase": "resume", "outcome": "ok"});
+    let refused = json!({"route": "ssh", "phase": "resume", "outcome": "error"});
+    for (record, step) in [
+        (json!({"kill": null, "resumes": []}), "relay connect"),
+        (json!({"kill": null, "resumes": [bad]}), "relay connect"),
+        (json!({"kill": null, "resumes": [ok]}), "relay events"),
+        (json!({"kill": kill, "resumes": [ok]}), "ssh resume"),
+        (json!({"kill": kill, "resumes": [ok, refused]}), "ssh resume"),
+        (json!({"kill": kill, "resumes": [ok, resumed]}), "ssh events"),
+    ] {
+        assert_eq!(super::turn_step(&record, &plan), step, "{record}");
+    }
+}
+
+/// A drill whose turn never ends stops at its deadline with the record so far, which names the step it stopped in
+/// and how long the turn ran: the relay's events, here, since the stream never sends one.
+#[test]
+fn a_turn_past_its_deadline_names_the_step_it_stopped_in() {
+    let mut fake = Fake { email: Some(PROBE), asked: Vec::new() };
+    let request = request(&["--prompt", "count", "--wait", "--timeout", "1"]);
+    let relay = FakeCarrier { events: turn(6), stall_after: Some(0), ..FakeCarrier::default() };
+    let (routes, _) = routes_of(vec![relay, FakeCarrier::default()]);
+    let outcome = start(
+        &mut fake,
+        &request,
+        relay_after(3),
+        Some("1"),
+        || this_build(Ok(())),
+        move |_, _, _, _| Ok(Box::new(routes) as Box<dyn EventRoutes>),
+    );
+    let (error, exit) = error_of(&outcome);
+    assert_eq!((error["code"].as_str(), exit), (Some("carrier_fault.timeout"), 2), "{error}");
+    assert_eq!(error["details"]["stopped_in"], "relay events", "{error}");
+    assert!(error["details"]["turn_ms"].as_u64().is_some_and(|ms| ms >= 900), "{error}");
+    assert_eq!(error["details"]["timeout_ms"], 1_000, "{error}");
 }

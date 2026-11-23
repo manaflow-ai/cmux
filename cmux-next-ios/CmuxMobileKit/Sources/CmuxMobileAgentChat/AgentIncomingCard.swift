@@ -14,7 +14,12 @@ struct AgentIncomingCard: View {
     /// The images and files the prompt carried, as the person's bubble draws them.
     var attachments: [AgentAttachment] = []
     let at: Date
+    /// The transcript's key for whether a single message is open (`ChatDisclosures`).
+    var disclosureKey: String?
     @State private var open: Set<Int> = []
+    @State private var localOpen = false
+    @Environment(\.chatDisclosures) private var disclosures
+    @Environment(\.transcriptFoldHold) private var holdFold
 
     var body: some View {
         if incoming.chief != nil, let message = incoming.messages.first {
@@ -93,7 +98,10 @@ struct AgentIncomingCard: View {
                 SentAttachments(attachments: attachments)
             }
             if incoming.messages.count == 1 {
-                MarkdownView(markdown: incoming.messages[0].text, margin: 0)
+                if singleOpen {
+                    MarkdownView(markdown: incoming.messages[0].text, margin: 0)
+                        .transition(.disclosureReveal)
+                }
             } else {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(incoming.messages.enumerated()), id: \.offset) { index, message in
@@ -131,11 +139,44 @@ struct AgentIncomingCard: View {
             } label: {
                 headerLine(chevron: allOpen).contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressFill)
             .accessibilityHint(allOpen ? "Closes every message" : "Opens every message")
         } else {
-            headerLine(chevron: nil)
+            // One message starts closed: its sender's line and its first line, muted; a tap opens the
+            // whole message in place, as the Mac's received line does (Leo, 2026-11-17: "collapse the
+            // agent messages that come in by default ... rn they're just all expanded and it's kinda
+            // undreadable").
+            Button {
+                toggleDisclosure(holdFold, key: disclosureKey, in: disclosures) {
+                    if let disclosureKey, let disclosures { disclosures.set(disclosureKey, !singleOpen) } else { localOpen.toggle() }
+                }
+            } label: {
+                VStack(alignment: .leading, spacing: 4) {
+                    headerLine(chevron: singleOpen)
+                    if !singleOpen {
+                        Text(Self.firstLine(incoming.messages.first?.text ?? ""))
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .contentShape(.rect)
+            }
+            .buttonStyle(.cmuxPressFill)
+            .accessibilityValue(singleOpen ? "Expanded" : "Collapsed")
+            .accessibilityHint(singleOpen ? "Closes the message" : "Opens the message")
+            .accessibilityIdentifier("agent-chat.incoming-line")
         }
+    }
+
+    /// The transcript's disclosure key for a single message's row.
+    static func key(_ rowID: String) -> String { "incoming-\(rowID)" }
+
+    /// Whether a single message shows in full: the transcript's disclosure by `disclosureKey` (its
+    /// rows are reused cells), else this view's own.
+    private var singleOpen: Bool {
+        disclosureKey.flatMap { disclosures?.isOpen($0) } ?? localOpen
     }
 
     private func headerLine(chevron open: Bool?) -> some View {
@@ -200,7 +241,7 @@ struct AgentIncomingCard: View {
                 }
                 .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressFill)
             .accessibilityHint(isOpen ? "Closes the message" : "Opens the message")
             if isOpen {
                 MarkdownView(markdown: message.text, margin: 0)

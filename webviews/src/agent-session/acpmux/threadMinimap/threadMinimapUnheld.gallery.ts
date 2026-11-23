@@ -9,6 +9,7 @@ import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
 import type { Play } from "../../../gallery/play";
 import type { AcpmuxRow } from "../model";
+import { PromptHeads } from "../promptHeads";
 
 const TOTAL = 60;
 const prompt = (n: number) => `Prompt ${n}: inspect the next part of the rollout`;
@@ -59,7 +60,11 @@ export default agentPaneEntry({
     },
     indexed: {
       note: "The prompt index answered: every tick has its words, and nothing moved. The card's words fade in where the blank line was.",
-      snapshot: chat(heldRows(12), { title: "Rail: indexed", canLoadOlder: true, earlierPrompts: indexRows(12) }),
+      snapshot: chat(heldRows(12), {
+        title: "Rail: indexed",
+        canLoadOlder: true,
+        earlierPrompts: PromptHeads.fromRows(indexRows(12)),
+      }),
       play: pointAtOld(4),
     },
     "far-card-loading": {
@@ -72,7 +77,7 @@ export default agentPaneEntry({
       snapshot: chat(heldRows(12), {
         title: "Rail: far card loaded",
         canLoadOlder: true,
-        earlierPrompts: indexRows(12),
+        earlierPrompts: PromptHeads.fromRows(indexRows(12)),
       }),
       play: pointAtOld(2),
     },

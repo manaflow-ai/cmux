@@ -102,6 +102,20 @@ class WebOTAPublicationContractTests(unittest.TestCase):
         self.assertIn('echo "::error::the existing manifest for $key has a different Bun/Node toolchain; refusing immutable-key publication"', workflow)
         self.assertIn('exit 1\n          fi', workflow)
 
+    def test_a_layer_dispatch_never_moves_the_web_update_pointer(self):
+        # A `pr` or `ref` dispatch builds code that is not on the channel's branch: it only
+        # writes its layer pointer (cmux-next-web/pr|ref/...), never the signed update pointer,
+        # and records no deployment.
+        import yaml
+
+        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        pointer_if = jobs["pointer"]["if"]
+        for name in ("inputs.pr", "inputs.ref"):
+            self.assertIn(f"!{name} &&", pointer_if, name)
+        deployment = str(jobs["publish"]["environment"]["deployment"])
+        for name in ("inputs.pr", "inputs.ref"):
+            self.assertIn(f"!{name} &&", deployment, name)
+
 
 if __name__ == "__main__":
     unittest.main()

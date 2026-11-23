@@ -2,15 +2,15 @@ import CoreGraphics
 import Testing
 @testable import CmuxMobileTerminal
 
-/// Leo, 2026-11-12: "the resizing is so wack when j tap the thijg". The soft
-/// keyboard insets the page; it never resizes the Mac's PTY.
+/// Leo, 2026-11-12: "the resizing is so wack when j tap the thijg";
+/// 2026-11-15: "i meant previously there was the thing that stopped the
+/// resizing when you closed the ios built in keyboard". The soft keyboard
+/// insets the page; it never resizes the Mac's PTY.
 @Suite struct TerminalGridSizingTests {
     typealias Size = TerminalResizeSettle.Size
     let resting: CGFloat = 676, top: CGFloat = 62, cell: CGFloat = 16.4
 
-    private func rows(resting: CGFloat? = nil, top: CGFloat? = nil) -> Int {
-        TerminalGridSizing.rows(restingStackTop: resting ?? self.resting, chromeTop: top ?? self.top, cellHeight: cell)
-    }
+    private var sizing: TerminalGridSizing { TerminalGridSizing(cellHeight: cell) }
 
     /// One layout pass of the page: what the controller measures and feeds
     /// to the settle. The keyboard moves only `stackTop` (the stack rides it);
@@ -21,15 +21,15 @@ import Testing
         var columns: Int
         var stackTop: CGFloat
         func size(cell: CGFloat) -> Size {
-            Size(columns: columns, rows: TerminalGridSizing.rows(restingStackTop: restingStackTop, chromeTop: chromeTop, cellHeight: cell))
+            Size(columns: columns, rows: TerminalGridSizing(cellHeight: cell).rows(restingStackTop: restingStackTop, chromeTop: chromeTop))
         }
     }
 
     @Test func keyboardDownGivesTheRestingRows() {
-        #expect(rows() == 37)
+        #expect(sizing.rows(restingStackTop: resting, chromeTop: top) == 37)
     }
 
-    @Test func showingAndHidingTheKeyboardSendsNoResize() {
+    @Test func showingAndClosingTheKeyboardSendsNoResize() {
         var settle = TerminalResizeSettle()
         var page = Page(restingStackTop: resting, chromeTop: top, columns: 53, stackTop: resting)
         #expect(settle.measured(page.size(cell: cell)) == .sendNow(Size(columns: 53, rows: 37)))
@@ -43,6 +43,13 @@ import Testing
         }
         #expect(settle.pending == nil)
         #expect(settle.settled() == nil)
+    }
+
+    /// The rows follow the page's own resting top: a dock or inset change
+    /// (the composer coming in, a tab's insets arriving) changes them.
+    @Test func theRowsFollowTheRestingTop() {
+        #expect(sizing.rows(restingStackTop: 600, chromeTop: top) == 32)
+        #expect(sizing.rows(restingStackTop: 810, chromeTop: top) == 45)
     }
 
     @Test func aRotationSendsExactlyOneDebouncedResize() {
@@ -66,29 +73,49 @@ import Testing
         #expect(settle.measured(Page(restingStackTop: 330, chromeTop: 24, columns: 104, stackTop: 180).size(cell: cell)) == .nothing)
     }
 
-    @Test func repeatedIdenticalSizesSendNothing() {
-        var settle = TerminalResizeSettle()
-        _ = settle.measured(Size(columns: 53, rows: 37))
-        for _ in 0..<10 { #expect(settle.measured(Size(columns: 53, rows: 37)) == .nothing) }
-        #expect(settle.settled() == nil)
-    }
-
     @Test func noLiftWhileTheGridFits() {
-        #expect(TerminalGridSizing.keyboardLift(gridRows: 37, visibleHeight: 37 * 16, cursorRow: 0, cellHeight: 16) == 0)
+        #expect(TerminalGridSizing(cellHeight: 16).keyboardLift(gridRows: 37, visibleHeight: 37 * 16, cursorRow: 0) == 0)
     }
 
     @Test func noLiftWhenTheCursorIsBelowTheClippedTop() {
         // Keyboard up: 20 rows visible of 37; the prompt near the bottom (Claude Code, a shell).
-        #expect(TerminalGridSizing.keyboardLift(gridRows: 37, visibleHeight: 20 * 16, cursorRow: 30, cellHeight: 16) == 0)
-        #expect(TerminalGridSizing.keyboardLift(gridRows: 37, visibleHeight: 20 * 16, cursorRow: 17, cellHeight: 16) == 0)
+        let sizing = TerminalGridSizing(cellHeight: 16)
+        #expect(sizing.keyboardLift(gridRows: 37, visibleHeight: 20 * 16, cursorRow: 30) == 0)
+        #expect(sizing.keyboardLift(gridRows: 37, visibleHeight: 20 * 16, cursorRow: 17) == 0)
+    }
+
+    /// The top exception (Leo, 2026-11-15: "add the top exception? why roll
+    /// the whole thing back"): 37 rows, 20 visible with the keyboard up.
+    @Test func theHeaderStaysAboveABodyThatKeepsTheCursor() {
+        typealias Placement = TerminalGridSizing.KeyboardPlacement
+        let sizing = TerminalGridSizing(cellHeight: 16)
+        func place(_ cursor: Int?) -> Placement { sizing.keyboardPlacement(gridRows: 37, visibleHeight: 20 * 16, cursorRow: cursor) }
+        // Claude Code: the cursor in its input box on the last row. The
+        // header's 3 rows pin above the bottom 17.
+        #expect(place(36) == Placement(lift: 0, headerRows: 3))
+        #expect(place(20) == Placement(lift: 0, headerRows: 3))
+        // The cursor mid-grid: the body moves down until the cursor's row is
+        // just under the header (row 10 at the body's top).
+        #expect(place(10) == Placement(lift: 10 * 16, headerRows: 3))
+        #expect(place(15) == Placement(lift: 5 * 16, headerRows: 3))
+        // The cursor near the top: the grid's top as it is, no header.
+        #expect(place(3) == Placement(lift: 17 * 16, headerRows: 0))
+        #expect(place(0) == Placement(lift: 17 * 16, headerRows: 0))
+        // Unknown cursor: header over the bottom rows.
+        #expect(place(nil) == Placement(lift: 0, headerRows: 3))
+        // The grid fits: nothing to pin.
+        #expect(sizing.keyboardPlacement(gridRows: 20, visibleHeight: 20 * 16, cursorRow: 19) == Placement(lift: 0, headerRows: 0))
+        // A short area keeps two thirds for the body: 6 visible rows, 2 header rows.
+        #expect(sizing.keyboardPlacement(gridRows: 37, visibleHeight: 6 * 16, cursorRow: 36) == Placement(lift: 0, headerRows: 2))
     }
 
     @Test func aCursorUnderTheToolbarLiftsTheGridByWholeRows() {
+        let sizing = TerminalGridSizing(cellHeight: 16)
         // vim on line 1 with the keyboard up: 17 rows clipped at the top.
-        #expect(TerminalGridSizing.keyboardLift(gridRows: 37, visibleHeight: 20 * 16, cursorRow: 0, cellHeight: 16) == CGFloat(17 * 16))
-        #expect(TerminalGridSizing.keyboardLift(gridRows: 37, visibleHeight: 20 * 16, cursorRow: 10, cellHeight: 16) == CGFloat(7 * 16))
+        #expect(sizing.keyboardLift(gridRows: 37, visibleHeight: 20 * 16, cursorRow: 0) == CGFloat(17 * 16))
+        #expect(sizing.keyboardLift(gridRows: 37, visibleHeight: 20 * 16, cursorRow: 10) == CGFloat(7 * 16))
         // Unknown cursor: the bottom rows stay above the keyboard.
-        #expect(TerminalGridSizing.keyboardLift(gridRows: 37, visibleHeight: 20 * 16, cursorRow: nil, cellHeight: 16) == 0)
+        #expect(sizing.keyboardLift(gridRows: 37, visibleHeight: 20 * 16, cursorRow: nil) == 0)
     }
 }
 

@@ -160,4 +160,36 @@ struct AgentPaneChromiumVisibilityTests {
         PageWebView.syncChromiumVisibility(in: view)
         #expect(chromium.visibility.last == false)
     }
+
+    /// A page view tells a new Chromium page whether it shows in the same run that makes the page its own. Until it
+    /// tells, the page counts as not shown, and the lookup of the pane under a page window answers no view for it.
+    /// The row reads the page view at each turn of the main actor from the start, and at the first turn that has the
+    /// Chromium page it wants the tell made, with the value that a tell gives then.
+    @Test func aNewChromiumPageIsToldWhetherItShowsInTheRunThatStartsIt() async throws {
+        _ = NSApplication.shared
+        let file = try #require(AgentPageTestRoot.page)
+        let hosting = FakeChromiumHosting()
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file),
+                                              pageHost: true, chromium: hosting))
+        let page = try #require(view.page)
+        let window = NSWindow(contentRect: view.bounds, styleMask: .titled, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = view
+        defer { page.close(); window.close() }
+        try #require(!page.showsChromium, "setup: the page view has its Chromium page before the first turn after its start")
+        var turns = 0
+        let limit = ContinuousClock.now + .seconds(5)
+        while !page.showsChromium, ContinuousClock.now < limit {
+            await Task.yield()
+            turns += 1
+        }
+        try #require(page.showsChromium, "setup: the page view has no Chromium page after \(turns) turns and 5 s")
+        let chromium = try #require(hosting.made.first)
+        let told = chromium.visibility, shows = page.chromiumShows
+        page.setChromiumVisibility(true)
+        print("AgentPaneChromiumVisibilityTests: the first turn that has the Chromium page (turn \(turns)): the page view told it \(told); "
+            + "a tell at that turn gives \(page.chromiumShows)")
+        #expect(!told.isEmpty, "the page view has a new Chromium page and did not tell it whether it shows")
+        #expect(shows == page.chromiumShows, "the page view told its new Chromium page \(shows); a tell at that turn gives \(page.chromiumShows)")
+    }
 }

@@ -139,10 +139,11 @@ async function open(history: Rec[]) {
 async function scrollToTop(client: AcpmuxDirectClient, snapshot: () => Snapshot): Promise<number> {
   let asks = 0;
   for (; snapshot().canLoadOlder && asks < 40; asks++) {
-    const key = `${snapshot().rows[0]?.id}\u0000${snapshot().historyFrom}`;
+    const before = snapshot().historyFrom ?? Number.POSITIVE_INFINITY;
     await client.loadOlder();
     await settle();
-    expect(`${snapshot().rows[0]?.id}\u0000${snapshot().historyFrom}`).not.toBe(key);
+    const after = snapshot().historyFrom ?? Number.POSITIVE_INFINITY;
+    expect(after < before || !snapshot().canLoadOlder).toBe(true);
   }
   return asks;
 }
@@ -166,13 +167,9 @@ test("every older page the reader asks for brings an older turn in, past a promp
   expect(questions(snapshot().rows)).toEqual(["Question 3", "Question 4", "Question 5", "Question 6"]);
   expect(snapshot().canLoadOlder).toBe(true);
 
-  // Each ask brings an older turn above the first row.
-  for (let asks = 0; snapshot().canLoadOlder && asks < 10; asks++) {
-    const first = snapshot().rows[0]?.id;
-    await client.loadOlder();
-    await settle();
-    expect(snapshot().rows[0]?.id).not.toBe(first);
-  }
+  // A page can contain a large queued record that draws no row. The cursor still advances, so the
+  // next near-top check continues without requiring a visible row to change on every ask.
+  await scrollToTop(client, snapshot);
   expect(questions(snapshot().rows)).toEqual([1, 2, 3, 4, 5, 6].map((n) => `Question ${n}`));
   expect(snapshot().canLoadOlder).toBe(false);
   client.close();
@@ -216,8 +213,8 @@ test("a chat that opens mid-turn pages past a turn before it larger than an olde
 });
 
 test("one ask reads past a run of rows that draw nothing to the turn before it, in a bounded number of pages", async () => {
-  // Twelve prompts queued with 1200 KB pastes in a row: twelve pages that draw no row. One ask reads on past them
-  // (direct.ts OLDER_PAGES_PER_ASK) instead of stopping after eight with nothing new to draw.
+  // Twelve prompts queued with 1200 KB pastes in a row: twelve pages that draw no row. One ask reads
+  // one bounded page and publishes it; subsequent near-top checks continue from its cursor.
   const history = records([
     ...turn(1),
     ...ask(2),
@@ -230,9 +227,10 @@ test("one ask reads past a run of rows that draw nothing to the turn before it, 
   const before = daemon.olderReads();
   await client.loadOlder();
   await settle();
-  expect(daemon.olderReads() - before).toBeGreaterThan(8);
-  expect(daemon.olderReads() - before).toBeLessThanOrEqual(128);
-  expect(questions(snapshot().rows)).toContain("Question 2");
+  // One page for the ask, then up to OLDER_AHEAD_PAGES (4) read ahead for the next asks.
+  expect(daemon.olderReads() - before).toBeGreaterThanOrEqual(1);
+  expect(daemon.olderReads() - before).toBeLessThanOrEqual(1 + 4);
+  expect(snapshot().historyFrom).toBeDefined();
 
   await scrollToTop(client, snapshot);
   expect(questions(snapshot().rows)).toEqual(["Question 1", "Question 2", "Question 3"]);

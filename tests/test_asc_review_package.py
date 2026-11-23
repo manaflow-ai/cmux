@@ -26,7 +26,7 @@ APP = "6783338052"
 VERSION = pkg.marketing_version()
 LISTING = pkg.version_listing(VERSION)
 SUPPORT = "https://cmux.com/support"
-LIVE_ENV = {"CMUX_IOS_REVIEW_CHIEF_NAME": "App Review"}
+LIVE_ENV: dict[str, str] = {}
 # Info.plist usage keys in project.yml, by the name the notes give each permission.
 PERMISSION_NAMES = {
     "NSCameraUsageDescription": "Camera",
@@ -145,7 +145,7 @@ class NotesTests(FakeAscCase):
         # Classic screens and flows this app does not have.
         for phrase in (
             "Tailscale", "Add Computer", "Host:", "Port:", "Demo Mac", "Your Mac is connected",
-            "Open Workspaces", "Subscription", "In-App Purchase", "Scan Pairing Code", "Connection Method",
+            "Open Workspaces", "Scan Pairing Code", "Connection Method",
             "Chat Server", "Self-Hosted", "New Group",
         ):
             self.assertNotIn(phrase, notes)
@@ -160,9 +160,25 @@ class NotesTests(FakeAscCase):
                 self.assertIn(label, strings, f"the notes quote {label!r}, which the app does not show")
 
     def test_template_walks_sign_in_chief_and_account_deletion(self):
-        for label in ('"Continue with email"', '"Check your email"', '"Message Chief"', '"Delete Account"',
+        for label in ('"Continue with email"', '"Check your email"', '"Chief Is Off"', '"Turn On"', '"Delete Account"',
                       '"Delete your cmux account?"', "Settings", '"Account"', '"Not now"'):
             self.assertIn(label, self.TEMPLATE)
+
+    def test_template_says_where_the_subscriptions_are_and_how_to_restore(self):
+        # App Review could not locate the in-app purchases (2026-11-07): the notes name
+        # the Plan row, the products, the Sandbox, Restore Purchases, Manage Subscription
+        # and the 3.1.2 renewal terms, and never claim the app sells nothing.
+        notes = self.rendered()
+        for phrase in ('Settings > "Plan"', '"Plans"', "cmux Go", "cmux Pro", "cmux Max", "monthly", "Sandbox",
+                       '"Restore Purchases"', '"Manage Subscription"', '"Terms of Use"', '"Privacy Policy"', "3.1.2",
+                       "until cancelled"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, notes)
+        self.assertNotRegex(notes, r"(?i)sells? (no|nothing)|no digital goods")
+        self.assertLessEqual(len(pkg.render_notes(self.TEMPLATE, {**self.DETAIL,
+                             "demoAccountName": "cmux-rev-0e6ba145@mailinator.com",
+                             "contactEmail": "a-long-review-contact@example.com", "contactPhone": "+1 415 555 0100"},
+                             LIVE_ENV)), pkg.NOTES_LIMIT)
 
     def test_template_explains_every_permission_in_project_yml(self):
         project = (ROOT / "cmux-next-ios/project.yml").read_text(encoding="utf-8")
@@ -191,7 +207,6 @@ class NotesTests(FakeAscCase):
         notes = self.rendered()
         self.assertNotIn("{{", notes)
         self.assertIn("https://www.mailinator.com/v4/public/inboxes.jsp?to=cmux-review", notes)
-        self.assertIn('the Chief named "App Review"', notes)
         self.assertLessEqual(len(notes), pkg.NOTES_LIMIT)
 
     def test_render_keeps_the_inbox_url_already_in_app_store_connect(self):
@@ -216,10 +231,25 @@ class NotesTests(FakeAscCase):
             pkg.render_notes(self.TEMPLATE, {**self.DETAIL, "contactEmail": ""}, LIVE_ENV)
         self.assertIn("REVIEW_CONTACT_EMAIL", str(raised.exception))
 
-    def test_render_refuses_an_unset_review_chief(self):
+    def test_the_notes_need_no_environment_value(self):
+        self.assertEqual(pkg.REVIEW_ENV_VALUES, {})
+        self.assertNotIn("REVIEW_CHIEF_NAME", self.TEMPLATE)
+        self.assertNotIn("{{", pkg.render_notes(self.TEMPLATE, self.DETAIL, {}))
+
+    def test_a_named_review_chief_placeholder_is_refused(self):
+        # The review path opens the Hosted Chief (#40831); a Chief named from a variable is gone.
         with self.assertRaises(pkg.PackageError) as raised:
-            pkg.render_notes(self.TEMPLATE, self.DETAIL, {"CMUX_IOS_REVIEW_CHIEF_NAME": "  "})
-        self.assertIn("CMUX_IOS_REVIEW_CHIEF_NAME", str(raised.exception))
+            pkg.render_notes(self.TEMPLATE + '\nOpen "{{REVIEW_CHIEF_NAME}}".\n', self.DETAIL,
+                             {"CMUX_IOS_REVIEW_CHIEF_NAME": "Chief"})
+        self.assertIn("REVIEW_CHIEF_NAME", str(raised.exception))
+
+    def test_the_demo_steps_open_the_hosted_chief(self):
+        start = self.TEMPLATE.index("## REVIEW DEMO STEPS: START")
+        block = self.TEMPLATE[start:self.TEMPLATE.index("## REVIEW DEMO STEPS: END")]
+        for text in ("Tap Chief", "Main · Cloud", "Send", '"Chief Is Off"', '"Turn On"'):
+            self.assertIn(text, block)
+        self.assertNotIn("Chief named", block)
+        self.assertNotIn("replaces the earlier", self.TEMPLATE)
 
     def test_render_refuses_a_placeholder_with_no_source(self):
         with self.assertRaises(pkg.PackageError) as raised:
@@ -239,8 +269,9 @@ class NotesTests(FakeAscCase):
         self.assertFalse(pkg.sync_notes(api, APP, VERSION, pkg.DEFAULT_NOTES_TEMPLATE, dry_run=False))
         self.assertEqual(len(self.writes(fake, "PATCH")), 1)
 
-    def test_sync_without_the_review_chief_writes_nothing(self):
-        fake = self.start(env={}, notes="old notes")
+    def test_sync_without_review_information_writes_nothing(self):
+        fake = self.start(notes="old notes", detail={"demoAccountName": "", "contactEmail": "c@example.com",
+                                                     "contactPhone": "1", "notes": "old notes"})
         with self.assertRaises(pkg.PackageError):
             pkg.sync_notes(pkg.Api(), APP, VERSION, pkg.DEFAULT_NOTES_TEMPLATE, dry_run=False)
         self.assertEqual(self.writes(fake, "PATCH"), [])
@@ -316,6 +347,74 @@ class ApiTests(unittest.TestCase):
     def test_the_default_version_is_project_yml_marketing_version(self):
         text = (ROOT / "cmux-next-ios/project.yml").read_text(encoding="utf-8")
         self.assertIn(f"MARKETING_VERSION: {VERSION}", text)
+
+    def test_the_appstore_configuration_version_wins_over_the_base_one(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            yml = Path(tmp) / "project.yml"
+            yml.write_text("settings:\n  base:\n    MARKETING_VERSION: 1.2.0\n  configs:\n"
+                           "    TestFlight:\n      CMUX_MOBILE_TAG: \"\"\n"
+                           "    AppStore:\n      CMUX_MOBILE_APP_BUNDLE_ID: com.cmux.app\n      MARKETING_VERSION: 1.0.0\n"
+                           "packages:\n  X:\n    path: X\n", encoding="utf-8")
+            self.assertEqual(pkg.marketing_version(yml), "1.0.0")
+            yml.write_text("settings:\n  base:\n    MARKETING_VERSION: 1.2.0\n  configs:\n"
+                           "    AppStore:\n      CMUX_MOBILE_APP_BUNDLE_ID: com.cmux.app\n", encoding="utf-8")
+            self.assertEqual(pkg.marketing_version(yml), "1.2.0")
+
+    def test_cmux_internal_reads_the_testflight_configurations_version(self):
+        # cmux INTERNAL (app 6791408425) ships the TestFlight configuration:
+        # --config TestFlight reads its version, never the AppStore one.
+        with tempfile.TemporaryDirectory() as tmp:
+            yml = Path(tmp) / "project.yml"
+            yml.write_text("settings:\n  base:\n    MARKETING_VERSION: 1.2.0\n  configs:\n"
+                           "    TestFlight:\n      CMUX_MOBILE_TAG: \"\"\n"
+                           "    AppStore:\n      CMUX_MOBILE_APP_BUNDLE_ID: com.cmux.app\n      MARKETING_VERSION: 1.0.0\n",
+                           encoding="utf-8")
+            self.assertEqual(pkg.marketing_version(yml, config="TestFlight"), "1.2.0")
+            self.assertEqual(pkg.marketing_version(yml), "1.0.0", "the default stays the AppStore record's")
+        self.assertEqual(pkg.marketing_version(config="TestFlight"), "1.2.0")
+        with self.assertRaises(SystemExit):
+            pkg.main(["--app", "6791408425", "--config", "Debug", "sync-notes"])
+
+
+class InternalNotesTests(FakeAscCase):
+    """cmux INTERNAL (dev.cmux.app.internal, --config TestFlight) has no
+    subscriptions: its plans screen is read-only, so its notes promise none."""
+
+    TEMPLATE = pkg.NOTES_TEMPLATES["TestFlight"].read_text(encoding="utf-8")
+    DETAIL = NotesTests.DETAIL
+
+    def test_each_record_gets_its_own_template(self):
+        self.assertEqual(pkg.NOTES_TEMPLATES["AppStore"], pkg.DEFAULT_NOTES_TEMPLATE)
+        self.assertEqual(pkg.NOTES_TEMPLATES["TestFlight"].name, "review-notes-asc-internal.txt")
+
+    def test_the_notes_show_the_plan_and_promise_no_purchase(self):
+        notes = pkg.render_notes(self.TEMPLATE, self.DETAIL, LIVE_ENV)
+        self.assertIn('Settings > "Plan" shows the account\'s current plan.', notes)
+        self.assertIn("This version offers no purchase, no subscription and no external purchase link.", notes)
+        for phrase in ('"Subscribe"', '"Restore Purchases"', '"Manage Subscription"', "Sandbox", "cmux Pro"):
+            self.assertNotIn(phrase, notes)
+        self.assertIn("Launch cmux INTERNAL", notes)
+        self.assertLessEqual(len(notes), pkg.NOTES_LIMIT)
+
+    def test_everything_else_matches_the_app_store_notes(self):
+        def body(text: str) -> str:
+            text = pkg.TEMPLATE_COMMENT.sub("", text).replace("Launch cmux INTERNAL", "Launch cmux")
+            return re.sub(r"\n(In-app purchases|Purchases):\n(- [^\n]*\n)+", "\n", text)
+        self.assertEqual(body(self.TEMPLATE), body(NotesTests.TEMPLATE))
+
+    def test_every_quoted_label_is_a_string_the_app_shows(self):
+        strings = listing_text.app_strings()
+        for label in re.findall(r'"([^"\n]+)"', pkg.TEMPLATE_COMMENT.sub("", self.TEMPLATE)):
+            if "{{" not in label:
+                with self.subTest(label=label):
+                    self.assertIn(label, strings)
+
+    def test_config_testflight_writes_the_internal_notes(self):
+        fake = self.start(notes="old notes")
+        self.assertEqual(pkg.main(["--app", APP, "--config", "TestFlight", "sync-notes", "--version", VERSION]), 0)
+        self.assertIn("offers no purchase", fake.detail["notes"])
+        self.assertEqual(pkg.main(["--app", APP, "sync-notes", "--version", VERSION]), 0)
+        self.assertIn('"Restore Purchases"', fake.detail["notes"], "the AppStore default is unchanged")
 
 
 class CheckoutTests(unittest.TestCase):

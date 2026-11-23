@@ -13,6 +13,11 @@
 //! there's a terminal that gets opened when there's already a browser, and
 //! vice versa"), the app's RightColumnPlacement rule.
 //!
+//! A browser created with no place (`cmux browser open URL`, `cmux tab create
+//! browser`) by anyone, an agent or a person's terminal, is a tab in the
+//! column right of the caller when there is one (the pane holding a browser,
+//! else the lowest), never over the caller's terminal (Lawrence 2026-11-15).
+//!
 //! This module only decides; each transport sends the requests.
 
 use serde_json::{Map, Value, json};
@@ -86,6 +91,48 @@ pub(super) fn placement(identity: &Value) -> Option<Placement> {
     Some(Placement::NewColumn { workspace, chat_pane })
 }
 
+/// Where a browser tab created with no place goes (`cmux browser open URL`,
+/// `cmux tab create browser`), from the app's identity answer: a tab in the
+/// existing column right of the caller, in the pane there that already holds
+/// a browser, else the column's lowest pane, never a split below it and never
+/// the caller's own pane (Lawrence 2026-11-15: an agent's `cmux browser open`
+/// of its page put the tab over the terminal it ran in, "i expected it to just
+/// open in the right side"). `None` with no column on the right: the creation
+/// keeps the daemon's default (a split would make a terminal pane first).
+pub(super) fn browser_placement(identity: &Value) -> Option<Placement> {
+    let caller = identity.get("caller")?;
+    if caller.get("found").and_then(Value::as_bool) == Some(false) {
+        return None;
+    }
+    let workspace = caller.get("workspace").and_then(Value::as_str)?.to_owned();
+    let beside = identity.get("beside")?;
+    let pane = beside.get("pane").and_then(Value::as_str)?;
+    let column: Vec<(&str, bool)> = beside
+        .get("panes")
+        .and_then(Value::as_array)
+        .map(|panes| {
+            panes
+                .iter()
+                .filter_map(|entry| {
+                    let id = entry.get("id").and_then(Value::as_str)?;
+                    let browser = entry
+                        .get("kinds")
+                        .and_then(Value::as_array)
+                        .is_some_and(|kinds| kinds.iter().any(|kind| kind == "browser"));
+                    Some((id, browser))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let chosen = column
+        .iter()
+        .rev()
+        .find(|(_, browser)| *browser)
+        .or(column.last())
+        .map_or(pane, |(id, _)| *id);
+    Some(Placement::Pane { workspace, pane: chosen.to_owned() })
+}
+
 /// The `pane.split` params that open the terminal a `tab.create_terminal`
 /// asked for as a new column right of `chat_pane`: its command, directory
 /// and size carry over; `name` does not (a split has none), so the caller
@@ -154,14 +201,19 @@ pub(super) enum CliOutcome {
 }
 
 /// [`placement`] for `cmux tab create terminal` run by an agent
-/// (`CMUX_AGENT_SESSION`) with no `--workspace`, `--screen` or `--pane`, on
-/// the request's own connection. A person's terminal keeps the daemon's
-/// default, the pane they type in.
+/// (`CMUX_AGENT_SESSION`, or a Chief turn's `CMUX_CALLER_HOME_CHAT`) with
+/// no `--workspace`, `--screen` or `--pane`, on the request's own
+/// connection, when the app that owns `daemon_socket` places it. A person's
+/// terminal opens it in its own pane instead (command/plan.rs).
+/// [`browser_placement`] for `cmux browser open` / `cmux tab create browser`
+/// with no place, run by anyone: a browser never opens over the terminal that
+/// asked for it.
 #[cfg(unix)]
 pub(super) fn apply_cli(
     global: &super::GlobalArgs,
     plan: &mut super::command::RequestPlan,
     reader: &mut std::io::BufReader<Box<dyn cmux_tui_core::platform::transport::Stream>>,
+    daemon_socket: &std::path::Path,
     idempotency_key: Option<&str>,
 ) -> CliOutcome {
     use cmux_tui_core::resource::ResourceOperation;
@@ -170,17 +222,36 @@ pub(super) fn apply_cli(
 
     let creates_terminal =
         matches!(plan.operation, WireOperation::Typed(ResourceOperation::TabCreateTerminal));
-    let agent = std::env::var("CMUX_AGENT_SESSION").is_ok_and(|session| !session.is_empty());
+    let creates_browser =
+        matches!(plan.operation, WireOperation::Typed(ResourceOperation::TabCreateBrowser));
+    // An agent chat, or a Chief turn the app places beside the Home chat.
+    let env = |key: &str| std::env::var(key).ok().filter(|value| !value.is_empty());
+    let agent =
+        env("CMUX_AGENT_SESSION").is_some() || env("CMUX_CALLER_HOME_CHAT").as_deref() == Some("1");
     let Some(params) = plan.params.as_object_mut() else { return CliOutcome::Unchanged };
-    if !creates_terminal || !agent || !names_no_place(params) {
+    // A browser with no place goes beside any caller (an agent's or a person's
+    // terminal); a terminal only beside an agent's chat.
+    if !(creates_browser || creates_terminal && agent) || !names_no_place(params) {
         return CliOutcome::Unchanged;
     }
-    let identity = super::app::socket_path(global)
-        .and_then(|socket| super::app::connect(&socket))
-        .and_then(|mut app| {
-            super::app::request(&mut app, "system.identify", json!({}), super::app::READ_TIMEOUT)
-        });
-    let Some(placed) = identity.ok().and_then(Result::ok).and_then(|identity| placement(&identity))
+    // Only the app that owns this daemon places a terminal in its topology:
+    // a Cloud Chief turn reaches the person's Mac app over a relay while its
+    // daemon is the VM's, where the Mac's ids name nothing.
+    let app = if creates_browser {
+        super::app::socket_path(global).ok()
+    } else {
+        let local = params
+            .get("machine")
+            .and_then(Value::as_str)
+            .is_none_or(|machine| machine == "current");
+        local.then(|| super::frontend_browser::owning_app_socket(global, daemon_socket)).flatten()
+    };
+    let Some(app) = app else { return CliOutcome::Unchanged };
+    let identity = super::app::connect(&app).and_then(|mut app| {
+        super::app::request(&mut app, "system.identify", json!({}), super::app::READ_TIMEOUT)
+    });
+    let decide = if creates_browser { browser_placement } else { placement };
+    let Some(placed) = identity.ok().and_then(Result::ok).and_then(|identity| decide(&identity))
     else {
         return CliOutcome::Unchanged;
     };
@@ -242,6 +313,7 @@ pub(super) fn run_cli(
     plan: &mut super::command::RequestPlan,
     request: &mut Value,
     reader: &mut std::io::BufReader<Box<dyn cmux_tui_core::platform::transport::Stream>>,
+    daemon_socket: &std::path::Path,
     caller_route: bool,
     key_report: &super::wire::KeyReport,
 ) -> Result<Option<Vec<u8>>, i32> {
@@ -249,7 +321,7 @@ pub(super) fn run_cli(
         return Ok(None);
     }
     let key = request.get("idempotency_key").and_then(Value::as_str).map(str::to_owned);
-    match apply_cli(global, plan, reader, key.as_deref()) {
+    match apply_cli(global, plan, reader, daemon_socket, key.as_deref()) {
         CliOutcome::Unchanged => Ok(None),
         CliOutcome::Placed => {
             request["params"] = plan.params.clone();
@@ -266,111 +338,5 @@ pub(super) fn run_cli(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn identity(beside: Value) -> Value {
-        json!({
-            "caller": {"agent_session": "s", "workspace": "ws_a", "pane": "pane_chat", "screen": "screen_a"},
-            "beside": beside,
-        })
-    }
-
-    #[test]
-    fn an_existing_column_right_of_the_chat_takes_the_tab() {
-        let placed =
-            placement(&identity(json!({"pane": "pane_right", "placement": "existing_column"})));
-        assert_eq!(
-            placed,
-            Some(Placement::Pane { workspace: "ws_a".into(), pane: "pane_right".into() })
-        );
-    }
-
-    #[test]
-    fn no_column_right_of_the_chat_makes_one() {
-        let placed = placement(&identity(json!({"pane": null, "placement": "new_column"})));
-        assert_eq!(
-            placed,
-            Some(Placement::NewColumn { workspace: "ws_a".into(), chat_pane: "pane_chat".into() })
-        );
-    }
-
-    #[test]
-    fn a_terminal_goes_to_the_column_pane_that_already_holds_one() {
-        let beside = json!({"pane": "pane_web", "placement": "existing_column", "panes": [
-            {"id": "pane_web", "kinds": ["browser"]}, {"id": "pane_term", "kinds": ["terminal"]},
-        ]});
-        assert_eq!(
-            placement(&identity(beside)),
-            Some(Placement::Pane { workspace: "ws_a".into(), pane: "pane_term".into() })
-        );
-        let one = json!({"pane": "pane_term", "placement": "existing_column", "panes": [
-            {"id": "pane_term", "kinds": ["terminal", "browser"]},
-        ]});
-        assert_eq!(
-            placement(&identity(one)),
-            Some(Placement::Pane { workspace: "ws_a".into(), pane: "pane_term".into() })
-        );
-    }
-
-    #[test]
-    fn a_terminal_beside_a_lone_browser_splits_below_it() {
-        let beside = json!({"pane": "pane_web", "placement": "existing_column", "panes": [
-            {"id": "pane_web", "kinds": ["browser"]},
-        ]});
-        assert_eq!(
-            placement(&identity(beside)),
-            Some(Placement::SplitBelow { workspace: "ws_a".into(), pane: "pane_web".into() })
-        );
-    }
-
-    #[test]
-    fn a_full_column_without_a_terminal_takes_its_lowest_pane() {
-        let beside = json!({"pane": "pane_a", "placement": "existing_column", "panes": [
-            {"id": "pane_a", "kinds": ["browser"]}, {"id": "pane_b", "kinds": []},
-        ]});
-        assert_eq!(
-            placement(&identity(beside)),
-            Some(Placement::Pane { workspace: "ws_a".into(), pane: "pane_b".into() })
-        );
-    }
-
-    #[test]
-    fn a_split_below_stays_in_the_column() {
-        let create =
-            json!({"shell": "make dev", "cwd": "/w"}).as_object().cloned().unwrap_or_default();
-        let split = split_below_params(&create, "ws_a", "pane_web");
-        assert_eq!(split["pane"], "pane_web");
-        assert_eq!(split["direction"], "down");
-        assert_eq!(split["shell"], "make dev");
-        assert!(split.get("viewport_width").is_none());
-    }
-
-    #[test]
-    fn a_caller_the_app_does_not_find_has_no_placement() {
-        let unfound = json!({"caller": {"agent_session": "s", "found": false}, "beside": null});
-        assert_eq!(placement(&unfound), None);
-        assert_eq!(placement(&json!({"caller": null})), None);
-    }
-
-    #[test]
-    fn a_split_keeps_the_command_and_a_rename_carries_the_name() {
-        let create = json!({"session": "current", "shell": "make dev", "cwd": "/w", "name": "dev",
-                            "cols": 80, "rows": 24})
-        .as_object()
-        .cloned()
-        .unwrap_or_default();
-        let split = split_params(&create, "ws_a", "pane_chat");
-        assert_eq!(split["shell"], "make dev");
-        assert_eq!(split["cwd"], "/w");
-        assert_eq!(split["pane"], "pane_chat");
-        assert_eq!(split["direction"], "right");
-        assert_eq!(split["fit"], true);
-        assert!(split.get("viewport_width").is_none());
-        assert!(split.get("name").is_none());
-        let rename = rename_params(&create, "ws_a", &json!({"tab_id": "tab_new"}));
-        assert_eq!(rename.as_ref().map(|r| r["tab"].clone()), Some(json!("tab_new")));
-        assert_eq!(rename.as_ref().map(|r| r["name"].clone()), Some(json!("dev")));
-        assert!(rename_params(&Map::new(), "ws_a", &json!({"tab_id": "tab_new"})).is_none());
-    }
-}
+#[path = "beside_tests.rs"]
+mod tests;

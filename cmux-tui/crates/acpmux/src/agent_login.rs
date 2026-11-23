@@ -140,6 +140,11 @@ pub const MODEL_PLANE_ENV: &[&str] = &[
     "GEMINI_API_KEY",
     "GOOGLE_API_KEY",
     "XAI_API_KEY",
+    // The gateway's endpoints for Gemini and Grok (`provider_cloud_auth.rs`, hq#11225).
+    "GOOGLE_GEMINI_BASE_URL",
+    "GROK_MODELS_BASE_URL",
+    "GROK_MODELS_LIST_URL",
+    "GROK_XAI_API_BASE_URL",
 ];
 
 /// The account-home variables pinned on the CLI's command (`Cli::command`), so it
@@ -362,9 +367,6 @@ impl Cli {
             if k.to_string_lossy().starts_with("ACPMUX_") {
                 cmd.env_remove(&k);
             }
-        }
-        for key in crate::cua_socket::AGENT_SCRUBBED_ENV {
-            cmd.env_remove(key);
         }
         cmd.env_remove("CODEX_THREAD_ID")
             .env_remove("OMPCODE")

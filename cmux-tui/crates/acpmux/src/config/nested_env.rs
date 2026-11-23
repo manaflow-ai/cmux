@@ -73,7 +73,7 @@ pub(crate) fn is_prompt_cache_key(key: &str) -> bool {
 /// (`session_env.rs`). Per-session acpmux values
 /// (`ACPMUX_*`, `CMUX_AGENT_SESSION`) are set again for each agent in
 /// `agent/command.rs`; these have no per-agent value, so they are removed.
-pub(crate) const TURN_SCOPED_ENV: [&str; 7] = [
+pub(crate) const TURN_SCOPED_ENV: [&str; 8] = [
     // `sr claude proxy` sends it as X-Subrouter-Session: one sticky account.
     "SUBROUTER_SESSION_KEY",
     // Its opt-in for acpmux to send that header itself (subrouter_session.rs).
@@ -88,6 +88,10 @@ pub(crate) const TURN_SCOPED_ENV: [&str; 7] = [
     "CMUX_CHIEF_PARTICIPANT",
     // A coding agent's mark for the commands its tools run.
     "AI_AGENT",
+    // A terminal agent's answer to cmux's tools (the `claude` shim): a daemon its shell started
+    // must not hold it over the live setting. A chat another Mac started gets its own in its
+    // session env, applied after (`hub/cmux_tools_answer.rs`).
+    "CMUX_AGENT_TOOLS_ANSWER",
 ];
 
 /// Whether `key` belongs to the daemon starter's turn or session alone: the

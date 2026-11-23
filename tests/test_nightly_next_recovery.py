@@ -594,6 +594,8 @@ def run_recheck(build: int, next_builds: tuple, legacy_builds: tuple = (), class
     recheck = step(workflow()["jobs"]["publish-nightly"], "Recheck the recovered build against both feeds")
     condition = recheck["if"].replace("steps.source.outputs.source", repr(source))
     condition = condition.replace("needs.decide.outputs.track", repr(track)).replace("||", "or")
+    # Shared with nightly-next-one, whose steps also skip once its run left the push slot (LEFT_SLOT, unset here).
+    condition = condition.replace(" && !env.LEFT_SLOT", "")
     script = recheck["run"] if eval(condition, {"__builtins__": {}}, {}) else ":"
     with tempfile.TemporaryDirectory() as temp:
         work = Path(temp)
@@ -1237,7 +1239,7 @@ class RepublishWorkflowTests(unittest.TestCase):
         self.assertEqual(fetch["env"]["SOURCE_RUN"], "${{ needs.decide.outputs.republish_run }}")
         names = {s["with"]["name"] for s in job["steps"] if "upload-artifact" in s.get("uses", "")}
         self.assertEqual(names, {"cmux-nightly-republished-variant-arm64", "cmux-nightly-republished-tested-arm64",
-                                 "cef-runtime-pack"})
+                                 "cef-runtime-pack", "language-packs"})
 
     def test_a_republish_never_starts_a_notarization_recovery(self):
         self.assertIn("needs.decide.outputs.republish_run == ''", workflow()["jobs"]["find-nightly-next-recovery"]["if"])

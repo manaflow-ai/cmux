@@ -87,15 +87,28 @@ function gallerySignIn(agent: LoginAgent, approve: boolean, fail?: LoginFailure)
   };
 }
 
-/// Only a Cloud chat's sign-in card, for its states.
-function CloudSignInStates({ agent, approve, fail }: { agent: LoginAgent; approve: boolean; fail?: LoginFailure }) {
+/// Only a sign-in card of a chat on another machine, for its states: a Cloud one, or (`ownMachine`)
+/// the person's own, whose failure the same card answers (App.tsx `chatElsewhere`).
+function CloudSignInStates({
+  agent,
+  approve,
+  fail,
+  ownMachine,
+}: {
+  agent: LoginAgent;
+  approve: boolean;
+  fail?: LoginFailure;
+  ownMachine: boolean;
+}) {
   return (
     <main className="acpmux-scroll" style={{ padding: 18, overflow: "auto", height: "100%", boxSizing: "border-box" }}>
       <TurnActionsContext.Provider
         value={{
           switchModel: () => {},
           cloudSignIn: gallerySignIn(agent, approve, fail),
-          route: { name: AGENT_NAMES[agent], harness: agent, hostKind: "cloud" },
+          route: ownMachine
+            ? { name: AGENT_NAMES[agent], harness: agent }
+            : { name: AGENT_NAMES[agent], harness: agent, hostKind: "cloud" },
         }}
       >
         <TurnFooter
@@ -119,12 +132,14 @@ function TranscriptType({
   signIn,
   approve = false,
   fail,
+  ownMachine = false,
 }: {
   signIn?: LoginAgent;
   approve?: boolean;
   fail?: LoginFailure;
+  ownMachine?: boolean;
 }) {
-  if (signIn) return <CloudSignInStates agent={signIn} approve={approve} fail={fail} />;
+  if (signIn) return <CloudSignInStates agent={signIn} approve={approve} fail={fail} ownMachine={ownMachine} />;
   const [viewer, setViewer] = useState(false);
   return (
     <main className="acpmux-scroll" style={{ padding: 18, overflow: "auto", height: "100%", boxSizing: "border-box" }}>
@@ -167,7 +182,6 @@ function TranscriptType({
         value={{
           switchModel: () => {},
           reauthenticate: () => {},
-          transferCloudCredentials: async () => {},
           route: { name: "Claude Code", hostKind: "cloud" },
         }}
       >
@@ -209,6 +223,7 @@ export default componentEntry({
     "agent-session/acpmux/conversation/Markdown.tsx",
     "agent-session/acpmux/conversation/TurnRows.tsx#TurnFooter",
     "agent-session/acpmux/conversation/CloudSignIn.tsx#CloudSignIn",
+    "agent-session/acpmux/cloudAgentLogin.ts",
     "agent-session/acpmux/conversation/RenderCard.tsx",
     "agent-session/acpmux/conversation/DiagramBlock.tsx",
     "agent-session/acpmux/conversation/ImageViewer.tsx",
@@ -244,6 +259,26 @@ export default componentEntry({
       play: async (ctx) => {
         await ctx.click({ selector: ".cv-turn-error__primary" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin .cv-turn-error__offer-link"));
+      },
+    },
+    "own-machine-claude-sign-in": {
+      props: { signIn: "claude", ownMachine: true },
+      note: "A chat on the person's own machine (not Cloud) whose Claude is not signed in there: the same card as Cloud's, Sign in to Claude with Use an API key beside it, in place of Sign in again opening a terminal with the login command.",
+    },
+    "own-machine-claude-approve": {
+      props: { signIn: "claude", approve: true, ownMachine: true },
+      note: "After the one Sign in to Claude click on an own machine: Claude's automatic page opens in a tab whose localhost is that machine, and the card waits for the approve with no code to paste.",
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cv-turn-error__primary" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin .cv-turn-error__offer-link"));
+      },
+    },
+    "own-machine-codex-code": {
+      props: { signIn: "codex", ownMachine: true },
+      note: "Codex on an own machine: one click runs codex login --device-auth there, opens its page and shows the device code, already copied.",
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cv-turn-error__primary" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin__code"));
       },
     },
     "cursor-sign-in": {

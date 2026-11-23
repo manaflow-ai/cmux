@@ -207,7 +207,7 @@ fn the_readers_of_one_build_share_one_text_that_the_last_reader_frees() {
             let writes = writes.clone();
             std::thread::spawn(move || {
                 flight
-                    .read_text(build, |tree| {
+                    .read_text(build, TabProjection::canonical(), |tree| {
                         writes.fetch_add(1, Ordering::SeqCst);
                         TreeText::of(tree)
                     })

@@ -7,6 +7,7 @@ import type { QuickSetup, UsedLook } from "./quickModelMenuModel";
 import type { SetupPick } from "./harnessSetup";
 import type { PickerProfile } from "./pickerProfiles";
 import type { SessionAuth } from "./sessionAuth";
+import type { ClaudeConnectRowProps } from "./claudeConnect";
 
 /// What the picker gets from ComposerPickers. Picks go through `onLand` (model, then its effort
 /// once the agent reports that model) and `onEffort`.
@@ -82,9 +83,6 @@ export type ModelPickerProps = {
   onSetUpPick?(pick: SetupRequest): void;
   /// What that setup is doing: the compact menu's setup strip.
   setup?: QuickSetup;
-  /// Set while the picker is mounted to a call that opens its menu (the compact one when `quick`
-  /// is set), whose rail switches harness: the footer's harness item opens it (ComposerHarness.tsx).
-  opener?: { current: (() => void) | undefined };
   /// The chat has started, so its harness is fixed, as in Claude Code (Leo 2026-10-19): the menu
   /// lists `harness`'s models alone, with search and More models, and no harness rail, Starred tab
   /// or Add harness…; the compact menu draws no rail either. A New Tab or a chat with no message
@@ -118,6 +116,9 @@ export type ModelPickerProps = {
   signedOut?: Readonly<Record<string, string>>;
   /// Runs a signed-out harness's login (its Log In row).
   onLogIn?(harness: string, login: string): void;
+  /// With no Claude connection that serves Cloud, the Claude section's Connect row
+  /// (ClaudeConnectRow.tsx, claudeConnect.ts); the composer holds its dialog.
+  claudeConnect?: ClaudeConnectRowProps;
   /// The compact menu a click on the chip opens (QuickModelMenu). Every composer passes it (Leo
   /// 2026-10-20: one model button); the full picker is its More models row. Without it (a picker
   /// on its own) the chip opens the full picker at once. With it the chip draws `detail` (the
