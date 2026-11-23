@@ -136,6 +136,12 @@ export type Subagent = {
   /// work of its own in the background, and reads Idle, not Running (summary/SubagentStatusList.tsx
   /// ``subagentStatus``). Leo, 2026-11-02, on rows running for two hours: "but what's going on with these?"
   quietSince?: number;
+  /// Its start came before what this fold read: it was first met through its progress or its end
+  /// (a page, a lag's re-read or a reconnect that began after its spawn). It draws no "started
+  /// working" line (runningTray.ts `startedLine`): it did not start there. Leo, 2026-11-22, on a
+  /// row of eleven empty name pills that flickered in and out over a running turn: "ENTIRE THING
+  /// FUCKING BLANKED AND FUCKING SHIFTED".
+  startUnseen?: true;
 };
 
 /// Why a subagent was stopped: the person stopped it (Stop on the turn, or on the subagent), or a
@@ -371,6 +377,8 @@ export class SubagentFold {
     if (tag !== undefined) this.named.add(tag);
     // Met first through its progress, its spawn is older than what this fold read: not this turn's.
     const spawn = update?.sessionUpdate !== "subagent_progress";
+    // Met first through its progress or its end: its start is older than what this fold read.
+    const unseenStart = kind === "subagent_progress" || kind === "subagent_state_update";
     for (const change of events) {
       if (typeof change?.id !== "string" || this.rootThreads.has(change.id)) continue;
       const rootRepair =
@@ -390,7 +398,7 @@ export class SubagentFold {
       const authoritative =
         sender !== undefined &&
         (this.rootThreads.has(sender) || (this.agents.has(sender) && this.canParent(change.id, sender)));
-      this.apply(normalized, event, spawn, authoritative);
+      this.apply(normalized, event, spawn, authoritative, unseenStart);
     }
     // An update acpmux tagged with the chat's own session is the chat's (``isChat``).
     const owner = tag !== undefined && !this.isChat(tag) ? this.agents.get(tag) : undefined;
@@ -1137,7 +1145,7 @@ export class SubagentFold {
     return this.named.has(id);
   }
 
-  private apply(change: any, event: Event, spawn = true, authoritative = false): void {
+  private apply(change: any, event: Event, spawn = true, authoritative = false, unseenStart = false): void {
     if (typeof change?.id !== "string") return;
     this.named.add(change.id);
     if (typeof change.parent === "string") this.named.add(change.parent);
@@ -1172,7 +1180,8 @@ export class SubagentFold {
         kind: text(change.kind),
         prompt: text(change.prompt),
         state: "running",
-        startedAt: event.at,
+        startedAt: startOf(change, event, unseenStart),
+        ...(unseenStart && { startUnseen: true as const }),
       };
       this.agents.set(agent.id, agent);
       this.noteActivity(agent, event.at);
@@ -1535,6 +1544,17 @@ function sameIdentity(a: ChildIdentity, b: ChildIdentity): boolean {
 
 function isTerminal(status: unknown): boolean {
   return ["completed", "failed", "stopped", "cancelled", "timed_out", "timed-out", "timeout"].includes(String(status));
+}
+
+/// When a subagent started: acpmux's `startedAt` when it says (the spawn it saw), else, for one met
+/// first through its progress, that record's time less its `elapsedMs`, else the record's time.
+function startOf(change: any, event: Event, unseenStart: boolean): number {
+  const said = change?.startedAt;
+  if (typeof said === "number" && Number.isFinite(said) && said > 0 && said <= event.at) return said;
+  const elapsed = change?.elapsedMs;
+  if (unseenStart && typeof elapsed === "number" && Number.isFinite(elapsed) && elapsed > 0 && elapsed < event.at)
+    return event.at - elapsed;
+  return event.at;
 }
 
 /// Why acpmux ended a subagent after the fact (`subagents::expiry`): its harness exited, it was
