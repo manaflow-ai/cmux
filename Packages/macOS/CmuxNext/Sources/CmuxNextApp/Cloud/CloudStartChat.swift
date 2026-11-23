@@ -323,6 +323,7 @@ extension CloudStartChat {
         }
         services.cloud.setup.gateway = { [weak services] in guard let services, !services.accounts.agentKeys.scopeIsSignedOut, let binary = services.cloud.move.cli, let team = await services.cloud.installIdentity.installTeam() else { return nil }; return await CloudMoveCLI(binary: binary).inferenceGatewayServes(team: team) } // a team in inference gateway mode, its gateway online, serves a chat with no connection of the person's own (hq#15762): the team the start's machine is made in (the install token's), whose gateway serves it, never the active team's
         services.cloud.setup.run = { [weak services] action in try? services?.settingsWindow.show(section: nil, route: DeepLink.cloudRoute(row: action.settingsRow)) }
+        services.cloud.signedIn = { [weak services] in if let services { warmSpare(services) } } // a sign-in in front, as an activation signed in: an activation before the sign-in (signed out) warmed nothing
         services.cloud.startSessionRuns.began = { [weak services] key in if key.machine.hasPrefix("name:"), let services { warmSpare(services) } } // `cmux chat --on vm:new` and `cloud start-session --name`: a create, which claims the spare, comes next
     }
 
