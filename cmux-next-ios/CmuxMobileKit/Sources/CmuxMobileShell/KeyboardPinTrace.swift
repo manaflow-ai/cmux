@@ -1,8 +1,10 @@
 #if DEBUG && os(iOS)
 import CmuxMobileSupport
+import CmuxMobileTerminal
 import GameController
 import QuartzCore
 import UIKit
+import UIKit.UIGestureRecognizerSubclass
 
 /// `-cmux-mobile-kbd-pin-trace`: one line per display frame to
 /// `Documents/kbd-pin-trace.txt` with the keyboard and the focused composer
@@ -13,8 +15,15 @@ import UIKit
 /// It never changes a view, a responder or a layout of the app. UI tests read
 /// the latest frame from `probe`, a 1 pt label in the key window that takes no
 /// touches (ComposerKeyboardPinUITests).
+///
+/// For the keyboard motion bench (KeyboardMotionBenchUITests,
+/// scripts/measure/ios-keyboard-motion.sh) it also writes the trace's clock
+/// (`epoch=`, CACurrentMediaTime at t=0, which a UI test on the same simulator
+/// host reads on the same clock), `ev=touchBegan` for every touch the app takes,
+/// `ev=keyAccepted` for every edit a text field or the terminal takes, and the
+/// terminal's grid resizes so far (`rz=` per frame).
 @MainActor
-final class KeyboardPinTrace: NSObject {
+public final class KeyboardPinTrace: NSObject {
     static let flag = "-cmux-mobile-kbd-pin-trace"
     /// The composers' text fields, in the order a tie is broken.
     static let fieldIDs = ["conversation.composer.text", "terminal.composer.field", "chat.composer.field"]
@@ -25,7 +34,8 @@ final class KeyboardPinTrace: NSObject {
     private let probe = UILabel(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
     private let start = CACurrentMediaTime()
 
-    static func startIfRequested() {
+    /// Idempotent: RootView's task and the app's root (TerminalDemoRoot has no RootView) both call it.
+    public static func startIfRequested() {
         guard shared == nil, CommandLine.arguments.contains(flag) else { return }
         shared = KeyboardPinTrace()
     }
@@ -53,6 +63,7 @@ final class KeyboardPinTrace: NSObject {
         FileManager.default.createFile(atPath: url.path, contents: nil)
         handle = try? FileHandle(forWritingTo: url)
         super.init()
+        write(String(format: "epoch=%.6f", start))
         probe.isUserInteractionEnabled = false
         probe.alpha = 0.02
         probe.isAccessibilityElement = true
@@ -98,10 +109,42 @@ final class KeyboardPinTrace: NSObject {
                 }
             }
         }
+        let edits: [Notification.Name] = [
+            UITextView.textDidChangeNotification, UITextField.textDidChangeNotification, TerminalModel.debugKeyAccepted,
+        ]
+        for name in edits {
+            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.write(String(format: "t=%.4f ev=keyAccepted", CACurrentMediaTime() - self.start))
+                }
+            }
+        }
         let link = CADisplayLink(target: self, selector: #selector(tick(_:)))
         link.add(to: .main, forMode: .common)
         self.link = link
     }
+
+    /// Notes every touch the window gets and never takes one: it fails at once.
+    private final class TouchMarker: UIGestureRecognizer {
+        var onTouch: (() -> Void)?
+        override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+            onTouch?()
+            state = .failed
+        }
+    }
+
+    private lazy var touchMarker: TouchMarker = {
+        let marker = TouchMarker(target: nil, action: nil)
+        marker.cancelsTouchesInView = false
+        marker.delaysTouchesBegan = false
+        marker.delaysTouchesEnded = false
+        marker.onTouch = { [weak self] in
+            guard let self else { return }
+            self.write(String(format: "t=%.4f ev=touchBegan", CACurrentMediaTime() - self.start))
+        }
+        return marker
+    }()
 
     /// The file's writes, off the main thread: the per-frame write cost the
     /// keyboard bench's main thread about 19 ms per chat keyboard window
@@ -140,10 +183,12 @@ final class KeyboardPinTrace: NSObject {
     @objc private func tick(_ link: CADisplayLink) {
         guard let window = keyWindow else { return }
         if probe.window !== window { window.addSubview(probe) }
+        if touchMarker.view !== window { window.addGestureRecognizer(touchMarker) }
         var parts = [String(format: "t=%.4f", link.targetTimestamp - start)]
         parts.append(String(format: "win=%.0fx%.0f", window.bounds.width, window.bounds.height))
         parts.append("orient=\(window.windowScene?.effectiveGeometry.interfaceOrientation.rawValue ?? 0)")
         parts.append("hw=\(GCKeyboard.coalesced == nil ? 0 : 1)")
+        parts.append("rz=\(TerminalModel.debugResizesSentTotal)")
         if let keyboard = Self.keyboardRect(in: window) {
             parts.append(String(format: "kb=%.2f kbx=%.1f kbw=%.1f kbh=%.1f", keyboard.minY, keyboard.minX, keyboard.width, keyboard.height))
         } else {
@@ -204,7 +249,28 @@ final class KeyboardPinTrace: NSObject {
         }
         walk(window)
         if let responder = found.first(where: \.isFirstResponder) { return responder }
-        return found.max { MobileKeyboardProbe().onScreen($0, in: window).maxY < MobileKeyboardProbe().onScreen($1, in: window).maxY }
+        if let lowest = found.max(by: { MobileKeyboardProbe().onScreen($0, in: window).maxY < MobileKeyboardProbe().onScreen($1, in: window).maxY }) {
+            return lowest
+        }
+        // No composer: what rides the keyboard elsewhere (the terminal's key row), else a search field.
+        return lowestVisible(in: window) { $0.accessibilityIdentifier == "terminal.key.keyboard" }
+            ?? lowestVisible(in: window) { $0 is UISearchTextField && $0.isFirstResponder }
+            ?? lowestVisible(in: window) { $0 is UISearchTextField }
+    }
+
+    private static func lowestVisible(in window: UIWindow, where match: (UIView) -> Bool) -> UIView? {
+        var best: UIView?
+        var bestBottom = -CGFloat.infinity
+        func walk(_ view: UIView) {
+            guard !view.isHidden, view.alpha > 0.01 else { return }
+            if match(view) {
+                let bottom = MobileKeyboardProbe().onScreen(view, in: window).maxY
+                if bottom > bestBottom { best = view; bestBottom = bottom }
+            }
+            for sub in view.subviews { walk(sub) }
+        }
+        walk(window)
+        return best
     }
 
     /// The nearest keyboard layout guide an ancestor already has (never
