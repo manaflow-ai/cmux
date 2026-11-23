@@ -117,6 +117,7 @@ mod coderouter;
 mod codex_app_server;
 mod command;
 mod completion;
+mod intent;
 #[cfg(unix)]
 mod key_broker;
 #[cfg(unix)]
@@ -1123,6 +1124,16 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
                 .and_then(|(global, _)| skew::reexec_at_dead_end(&global).err().flatten());
             #[cfg(not(unix))]
             let skew: Option<String> = None;
+            // A mistyped or synonym scope or verb (`cmux sessions ls`) runs the one word it
+            // meant, said on stderr; once, so a still-refused command ends here (cli/intent.rs).
+            static INTENT_TRIED: std::sync::atomic::AtomicBool =
+                std::sync::atomic::AtomicBool::new(false);
+            if skew.is_none()
+                && !INTENT_TRIED.swap(true, std::sync::atomic::Ordering::Relaxed)
+                && let Some(fixed) = intent::retry(args, startup_usage)
+            {
+                return run(&fixed, startup_usage);
+            }
             let message = if matches!(failure.output, OutputMode::Quiet | OutputMode::Human) {
                 format!("cmux: {}", failure.error)
             } else {

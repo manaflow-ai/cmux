@@ -1888,6 +1888,10 @@ pub enum RouterCmd {
 mod help_contract_tests;
 
 #[cfg(test)]
+#[path = "intent_tests.rs"]
+mod intent_tests;
+
+#[cfg(test)]
 mod config_set_tests {
     use super::{Cli, Command};
     use clap::Parser;
