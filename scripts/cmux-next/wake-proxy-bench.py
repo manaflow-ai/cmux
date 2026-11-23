@@ -186,7 +186,7 @@ def run_round(bundle: str, app_pid: int, app: bm.App, term: Terminal | None, sle
         for pid in reversed(pids):  # the app first: it sees none of the others stop
             if signal_all([pid], signal.SIGSTOP):
                 stopped.append(pid)
-        time.sleep(sleep_s)  # the "sleep": nothing of the app runs
+        time.sleep(sleep_s)  # sleep-ok: the measured freeze length; nothing of the app runs for sleep_s
     finally:
         signal_all(list(reversed(stopped)), signal.SIGCONT)  # the app last: everything it talks to runs again first
     resumed = time.monotonic()

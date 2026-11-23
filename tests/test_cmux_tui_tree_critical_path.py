@@ -47,9 +47,11 @@ _git_fixture_spec.loader.exec_module(git_fixture_env)
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORKFLOW = os.path.join(ROOT, ".github", "workflows", "cmux-tui-artifacts.yml")
 KEY = "8729cadfd262d8c13cad8f8ad5d7d54ca4984e01"
-# tree-preflight, select binary targets, the target builds, publish,
-# publish-tree. A reusable workflow call counts as its two serial jobs.
-PATH_BUDGET = 5
+# coalesce (base-coalesce.yml, a one-job reusable call: #48943 builds one tree per
+# 120-minute window), tree-preflight, select binary targets, the target builds,
+# publish, publish-tree. A reusable workflow call counts as its callee's own
+# serial job depth (queues() reads it).
+PATH_BUDGET = 6
 FAILURES = []
 
 
@@ -133,9 +135,42 @@ def simulate(all_jobs, base):
     return results
 
 
+class _CalleeValues(dict):
+    """Context values for a callee's `if`s: the caller's inputs, every callee job succeeding, outputs 'true'."""
+
+    def get(self, path, default=""):
+        if path.startswith("needs.") and ".outputs." in path:
+            return "true"
+        return super().get(path, default)
+
+
 def queues(job):
-    """Serial runner queues a job costs: a reusable call is select-targets then the builds."""
-    return 2 if "uses" in job else 1
+    """Serial runner queues a job costs: 1, or for a local reusable call the longest chain of the callee's
+    jobs that its `with:` inputs let run (build-package.yml: plan-build then the builds, 2; base-coalesce.yml: 1)."""
+    uses = job.get("uses")
+    if not uses:
+        return 1
+    with open(os.path.join(ROOT, uses.split("@")[0]), encoding="utf-8") as handle:
+        callee_workflow = yaml.safe_load(handle)
+    callee = callee_workflow["jobs"]
+    declared = (callee_workflow.get(True) or callee_workflow.get("on"))["workflow_call"].get("inputs", {})
+    # The push this test is about: a feat-cmux-next push (base-coalesce.yml's coalesce runs only on it).
+    values = _CalleeValues({"github.event_name": "push", "github.ref": "refs/heads/feat-cmux-next"})
+    values.update({f"inputs.{name}": spec.get("default", "") for name, spec in declared.items()})
+    values.update({f"inputs.{name}": value for name, value in (job.get("with") or {}).items()})
+    depth = {}
+    pending = dict(callee)
+    while pending:
+        for name, entry in list(pending.items()):
+            if any(n not in depth for n in needs(entry)):
+                continue
+            values["__needs__"] = needs(entry)
+            for n in needs(entry):
+                values[f"needs.{n}.result"] = "success" if depth[n] else "skipped"
+            ran = evaluate(entry["if"], values) if "if" in entry else all(depth[n] for n in needs(entry))
+            depth[name] = (1 + max((depth[n] for n in needs(entry)), default=0)) if ran else 0
+            del pending[name]
+    return max(depth.values())
 
 
 def longest_path(all_jobs, results, target):
@@ -331,23 +366,13 @@ def main():
                                                      "needs.tree-preflight.outputs.darwin_builder": "mac"})),
            "darwin-fallback-plan plans nothing when the committed builder is mac (no second builder)")
     fallback = all_jobs["build-darwin-fallback"]
-    builder = fallback["with"]["darwin_builder"]
-    for mac_runner, expected in (("an-owned-mac-label", "linux"), ("", "mac")):
-        # `a != '' && 'linux' || 'mac'` yields a string, not a truth value: evaluate both arms.
-        on_mac = evaluate("${{ needs.tree-preflight.outputs.darwin_mac_runner != '' }}",
-                          {"needs.tree-preflight.outputs.darwin_mac_runner": mac_runner, "__needs__": []})
-        _check(builder == "${{ needs.tree-preflight.outputs.darwin_mac_runner != '' && 'linux' || 'mac' }}"
-               and ("linux" if on_mac else "mac") == expected,
-               f"the fallback after a first build {'on an owned Mac' if mac_runner else 'by the Linux cross build'} "
-               f"uses darwin_builder {expected}")
-    _check("darwin_mac_runner" not in fallback["with"],
-           "the fallback never goes back to the owned Mac whose build just ended without artifacts")
+    _check(fallback["with"]["darwin_builder"] == "mac",
+           "missing macOS targets from the Linux cross build are rebuilt on a Mac")
     _check(fallback["with"]["target_set"] == "${{ needs.darwin-fallback-plan.outputs.target_set }}",
            "the fallback builds only the macOS targets the plan found missing")
     plan_step = next(s for s in plan["steps"] if s.get("id") == "plan")
-    _check(plan_step["env"].get("BUILD_RESULT") == "${{ needs.build.result }}"
-           and plan_step["env"].get("FIRST_ON_MAC") == "${{ needs.tree-preflight.outputs.darwin_mac_runner != '' }}",
-           "the plan's annotation names the first build's result and builder")
+    _check(plan_step["env"].get("BUILD_RESULT") == "${{ needs.build.result }}",
+           "the plan's annotation reports the cross build's result")
 
     # 4. publish-tree writes this commit's marker on feat-cmux-next, and only on its first (unix) pass.
     tree_steps = all_jobs["publish-tree"]["steps"]

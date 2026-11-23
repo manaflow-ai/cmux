@@ -334,13 +334,17 @@ impl Customize {
         }
     }
 
-    /// What is wrong with the settings files of a recorded generation, as
-    /// stored (the bytes the person had when it was recorded).
+    /// What is wrong with the settings files and stylesheets of a recorded
+    /// generation, as stored (the bytes the person had when it was recorded).
     /// An object it cannot read counts as holding nothing, so its problems
     /// stop the apply as before.
     pub(crate) fn settings_problems_in(&self, tree: &Tree) -> io::Result<Vec<validate::Problem>> {
         let mut files = BTreeMap::new();
-        for (path, entry) in tree.iter().filter(|(path, _)| Part::of(path) == Part::Settings) {
+        // Stylesheets too: one that would load something by address, held
+        // unchanged, is the person's own (validate::introduced).
+        for (path, entry) in
+            tree.iter().filter(|(path, _)| matches!(Part::of(path), Part::Settings | Part::Styles))
+        {
             if let Ok(bytes) = self.store.object(&entry.sha) {
                 files.insert(path.clone(), bytes);
             }

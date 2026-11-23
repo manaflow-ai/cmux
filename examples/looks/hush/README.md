@@ -16,8 +16,8 @@ It is built only from public surfaces, so you can copy any part of it:
 | File | What it does |
 | --- | --- |
 | `cmux-setup.json` | Picks the theme file; the chat in the system font at 15 px with a 1.6 line height, code at 0.88, a 680 px column, no minimap; the sidebar quiet: one-line rows with their icon and nothing else, groups as plain headings, no timestamps or detailed marks, its buttons shown only while you point at it (`sidebar.minimal`); a 12 px address field with no shadow |
-| `themes/hush.json` | Default, Light. Card `#FDFCF8`, text `#2A2825` (warm graphite), accent `#4A65A3` (muted slate-blue), selection `#E9E5DC`, the sidebar, toolbar and tab strip `#F3EEE2` (parchment), pages `#FBF8F1`, no glass |
-| `themes/hush-dark.json` | Dark. Card `#222424`, text `#E3E2E2`, accent `#6682C2`, selection `#3D4040`, the sidebar, toolbar and tab strip `#1B1D1D`, pages `#202222` |
+| `themes/hush.json` | Default, Light. Card `#FDFCF8`, text `#2A2825` (warm graphite), accent `#4A65A3` (muted slate-blue), selection `#E9E5DC`, the sidebar, toolbar and tab strip `#FFFCF0` (parchment), pages `#FBF8F1`, no glass |
+| `themes/hush-dark.json` | Dark. Card `#222424`, text `#E3E2E2`, accent `#6682C2`, selection `#727575`, the sidebar, toolbar and tab strip `#1B1D1D`, pages `#202222` |
 | `agent-pane/theme.css` | An 18 px soft gray prompt pill (the text at 6%) with no edge, cards at 3% with a faint hairline, links in the accent a step toward the text, and roomy rounded menus (pending, below): `cmux.agentPane.style/1` tokens only, every color mixed from the theme's own |
 | `customize/` | A two-line hover card (title and age, then one line of what it is doing, or what it asks of you in its place) and still rows in regular weight with a small dot while work runs |
 | `markdown/theme.css` | The Markdown viewer's paint: quiet. Medium-weight headings with no rule, code on a barely-there fill with the card's 12 px corners, quotes on a soft gray line. Only `--cmux-md-*` properties on `:root`, every color mixed from the page's own |

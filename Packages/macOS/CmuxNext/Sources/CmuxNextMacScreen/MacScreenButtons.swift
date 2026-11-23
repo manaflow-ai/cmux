@@ -261,6 +261,9 @@ final class MacScreenMenuButton: NSButton, MacScreenInked {
     /// Draws the glyph and title at the type scale's size now.
     func reloadType() { refresh() }
 
+    /// The button shows a word beside its glyph.
+    var hasTitle: Bool { !(label ?? "").isEmpty }
+
     func retitle(_ title: String) {
         guard label != nil, title != label else { return }
         label = title
