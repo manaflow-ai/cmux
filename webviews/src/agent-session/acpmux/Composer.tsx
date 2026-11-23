@@ -27,10 +27,10 @@ import {
   MAX_IMAGE_BYTES,
   placeInline,
   withoutInlineTokens,
-  inlineTokenSpans,
   type ComposerAttachment,
   type DroppedKind,
   type KnownPaths,
+  inlineTokenSpans,
 } from "./attachments";
 import { useReleasedPicks } from "./designSelection";
 import type { SendGesture } from "./heldPrompt";
@@ -124,6 +124,7 @@ import {
   useDraftActionsVersion,
   writePersistedDraft,
 } from "./composerDraft";
+import { RESTORED_CHAT_EVENT, replacedRestoredDraft, restoredDraft } from "./chatSnapshot/restoredDraft";
 import type { MarkdownFieldHandle, MarkdownFieldProps } from "./MarkdownField";
 import { useT } from "./i18n";
 import { sendsHeldForHost } from "./sendWhenReady";
@@ -661,9 +662,14 @@ function ComposerFrame({
   const importInput = useRef<HTMLInputElement>(null);
   // Seed from the handshake before the editor mounts. The relaunch draft and the local cache can
   // arrive in the same render; preferring the host value keeps it visible through initialization.
+  // After a relaunch, the prompt the chat's drawn copy showed (chatSnapshot/restoredDraft.ts): it
+  // stands in for acpmux's draft until that read answers, so the composer is the copy's size from
+  // its first frame instead of one line until the connection is up.
   // The prompt's text and caret live outside React state (composer/promptRef.current.ts): a key renders
   // this frame only when what it draws from the text changes (`facts`, below).
-  const [promptText] = useState(() => new PromptText(draft ?? readPersistedDraft(sessionId) ?? ""));
+  const [promptText] = useState(
+    () => new PromptText(draft ?? readPersistedDraft(sessionId) ?? restoredDraft(sessionId) ?? ""),
+  );
   /// The same store for handlers and effects: a ref, so a hook that reads the text does not list it.
   const promptRef = useRef(promptText);
   /// Each write from here (not the field's own typing) renders the frame once, so the caret it
@@ -996,7 +1002,20 @@ function ComposerFrame({
     const history = draftHistory(session);
     const edited = editedBeforeHydration.current || history.edited;
     editedBeforeHydration.current = false;
-    const next = hydratedDraft({ current: currentText, restored: saved, ...history, edited });
+    // The prompt held is the relaunch copy's (chatSnapshot/restoredDraft.ts), acpmux's draft as last
+    // seen, never text typed for this read to merge: untouched, acpmux's draft replaces it (the same
+    // text, so nothing moves); typed on while acpmux still holds that draft, what was typed stays.
+    // Merged as typed text, an untouched copy's prompt would come back doubled.
+    const stoodIn = restoredDraft(session);
+    replacedRestoredDraft(session);
+    const onCopy = stoodIn !== undefined && (edited ? (saved ?? "") === stoodIn : currentText === stoodIn);
+    const next = hydratedDraft({
+      current: currentText,
+      restored: saved,
+      ...history,
+      read: history.read || onCopy,
+      edited,
+    });
     if (next.shown) {
       // Its own write (below) or none: the text effect does not write it again.
       restoringSession.current = next.text !== promptRef.current.text;
@@ -1262,7 +1281,7 @@ function ComposerFrame({
       ? draftWasRead(sessionId)
         ? typedBefore
         : mergedDraft(typedBefore, restored || draft)
-      : restored || carried || draft || "";
+      : restored || carried || draft || restoredDraft(sessionId) || "";
     // Not yet acpmux's: the durable read merges it with acpmux's draft and writes the result.
     if (typedBefore.trim()) {
       editedBeforeHydration.current = true;
@@ -1343,6 +1362,22 @@ function ComposerFrame({
       current = false;
     };
   }, [sessionId, draftActionsVersion, onDraftSettled]);
+  // The relaunch copy's script loads `async`, so it can land after this composer mounted: its prompt
+  // still goes in before acpmux's read answers, while nothing was typed and the prompt is empty.
+  useEffect(() => {
+    if (!sessionId) return;
+    const take = () => {
+      if (hydratedSession.current === sessionId || editedBeforeHydration.current) return;
+      const shown = restoredDraft(sessionId);
+      if (!shown || (field.current?.value() ?? promptRef.current.text).trim()) return;
+      notTyped();
+      if (field.current && field.current.value() !== shown) field.current.reset(shown);
+      writeText(shown, shown.length);
+      pendingCaret.current = shown.length;
+    };
+    window.addEventListener(RESTORED_CHAT_EVENT, take);
+    return () => window.removeEventListener(RESTORED_CHAT_EVENT, take);
+  }, [sessionId]);
   /// The text's draft write: on each text change (`textChanged`) and on a new session.
   const persistText = (session: string | undefined, text: string) => {
     if (restoringSession.current) {
