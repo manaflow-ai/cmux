@@ -25,7 +25,6 @@ import {
   type AccountsCmux,
   type AccountsRow,
   type AccountsRun,
-  type AccountsRunReply,
   type AgentsRun,
   type AgentsState,
   type ChannelsProgress,
@@ -36,8 +35,6 @@ import {
   type DevicesRelay,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
-  type LibraryListing,
-  type LibraryRun,
   type SharesState,
   type TailnetState,
   type DevicesRun,
@@ -59,8 +56,12 @@ import {
   type SnapshotResult,
   type ThemeOverride,
   type WorkspaceBackground,
+  type LibraryListing,
+  type LibraryRun,
   type CustomizeTryOn,
   type KeysState,
+  type AllotmentSet,
+  type AllotmentView,
   type ModelsRun,
   type ModelsState,
   type ComputerUseApproval,
@@ -77,8 +78,8 @@ import {
   type AgentConfigAgent,
   type AgentConfigRun,
   type AgentConfigState,
-  type AllotmentSet,
-  type AllotmentView,
+  type AccountsRunReply,
+  type AgentSkillRow,
 } from "./ops";
 import { rowsByKey, schema } from "./schema";
 import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
@@ -761,6 +762,43 @@ export class MockSettingsProvider {
         const run = params as AgentSkillsRun;
         const shown = this.agentSkills;
         if (run.action === "refresh" || !shown.enabled) return this.agentSkills;
+        if (run.action === "add") {
+          // Like the CLI: a Claude Code command is listed; Codex's and cmux's are only reported.
+          this.agentSkillRuns.push(run);
+          const dir = { claude: "~/.claude/commands", codex: "~/.codex/prompts", cmux: "~/.config/cmux/commands" };
+          const path = `${dir[run.agent]}/${run.name}.md`;
+          const invocation = run.agent === "codex" ? `/prompts:${run.name}` : `/${run.name}`;
+          const taken = (entry: AgentSkillRow) =>
+            entry.agent === run.agent && entry.kind === "command" && entry.name === run.name;
+          if (shown.skills.some(taken)) {
+            this.agentSkills = {
+              ...shown,
+              refusal: { path: "new-command", message: `${path} already exists (--replace writes over it)` },
+            };
+            return this.agentSkills;
+          }
+          const listed: AgentSkillRow[] =
+            run.agent === "claude"
+              ? [
+                  {
+                    agent: "claude",
+                    kind: "command",
+                    scope: "user",
+                    name: run.name,
+                    description: run.description || run.prompt.split("\n")[0],
+                    path,
+                    enabled: true,
+                  },
+                ]
+              : [];
+          this.agentSkills = {
+            ...shown,
+            skills: [...shown.skills, ...listed],
+            refusal: null,
+            added: { agent: run.agent, invocation, path },
+          };
+          return this.agentSkills;
+        }
         const row = shown.skills.find((entry) => entry.path === run.path);
         // Like the host: only a listed file.
         if (!row) throw new ProtocolError("cmux.settings.invalid", "path must be a listed skill's file");
@@ -1406,6 +1444,9 @@ export class MockSettingsProvider {
         return result;
       case "setSharing":
         if (state.sharing) this.setDevices({ ...state, sharing: { ...state.sharing, on: run.on } });
+        return result;
+      case "setAgentsMayShare":
+        if (state.sharing) this.setDevices({ ...state, sharing: { ...state.sharing, agentsMayShare: run.on } });
         return result;
       case "saveRelay": {
         const draft = run.relay;
@@ -2507,6 +2548,8 @@ export function mockDevicesState(): DevicesState {
       sharingSection: "Mac Screen on This Mac",
       sharingToggle: "Allow Mac Screen on this Mac",
       sharingDetail: "Your devices can see or control this Mac.",
+      agentsToggle: "My agents can turn screen sharing and control on my machines",
+      agentsDetail: "Your agents share without asking, with a notice each time.",
       openSettings: "Open System Settings",
       allowed: "Allowed",
       relaysSection: "Relays",
@@ -2598,6 +2641,7 @@ export function mockDevicesState(): DevicesState {
     sharing: {
       on: true,
       busy: false,
+      agentsMayShare: false,
       permissions: [
         {
           id: "screenRecording",
