@@ -407,7 +407,7 @@ describe("the tray", () => {
       await act(async () => head.click());
       expect(opened).toEqual([]);
       expect(head.getAttribute("aria-expanded")).toBe("true");
-      expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe("1 subagent running");
+      expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe("1 subagent");
       const lines = [...root.querySelectorAll(RUNNING_TRAY_LINE)];
       expect(lines.length).toBe(1);
       const text = (selector: string) => lines[0]!.querySelector(selector)?.textContent;
@@ -485,7 +485,7 @@ describe("the tray", () => {
       const kinds = head.querySelector(".acpmux-running-tray__kinds");
       // One part per kind, the subagents then the server, in one line of counts; the stack of the lines'
       // marks is the other arms' header, not this one's.
-      expect(kinds?.textContent).toBe("2 subagents running · 1 server");
+      expect(kinds?.textContent).toBe("2 subagents · 1 server");
       expect(head.querySelectorAll(".acpmux-running-tray__kind").length).toBe(2);
       expect(head.querySelector("[data-tray-stack]")).toBeNull();
     } finally {
@@ -521,7 +521,7 @@ describe("the tray", () => {
       expect(head.querySelector(`svg[data-icon="app.sample.runningagents"]`)).toBeNull();
       expect(head.querySelector('svg[data-icon="agent.session"]')).toBeNull();
       expect(head.querySelector('[role="progressbar"]')).toBeNull();
-      expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe("2 subagents running · 1 server");
+      expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe("2 subagents · 1 server");
       expect(shown.root.querySelectorAll(".acpmux-agent-line").length).toBe(3);
       // Each line keeps its own time; a several-item header draws none, only its reserved track
       // (trayHeadClock.experiment.ts; Leo, 2026-11-22: "what the fuck are you timing man").
@@ -1200,7 +1200,7 @@ describe("the tray tells the truth", () => {
       // The header is each kind's mark and count (trayFoldHead.experiment.ts `kinds`, #48542): what
       // failed is its own kind, last, in the failed tone.
       expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe(
-        "2 subagents running · 1 session · 1 waiting · 1 server · 2 done · 2 failed",
+        "2 subagents · 1 session · 1 waiting · 1 server · 2 done · 2 failed",
       );
       expect(head.querySelector('[data-kind="failed"]')?.getAttribute("data-tone")).toBe("failed");
       const lines = liveLines(root);
@@ -1514,7 +1514,7 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
     try {
       const head = root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
       await act(async () => head.click());
-      expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe("2 subagents running");
+      expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe("2 subagents");
       head.focus();
       // Run 1 ends past the header's dwell (hatStep.ts PHASE_DWELL_MS), so its words change at once:
       // one runs, one ended. The header stays, the same node, focused and open.
@@ -1525,9 +1525,7 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
       expect(head.getAttribute("aria-expanded")).toBe("true");
       expect(head.getAttribute("aria-controls")).toBe(root.querySelector(".acpmux-running-tray__list")!.id);
       // The one that ended counts after what runs (trayHeadKinds.ts).
-      expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe(
-        "1 subagent running · 1 subagent done",
-      );
+      expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe("1 subagent · 1 subagent done");
       await act(async () => head.click());
       expect(root.querySelectorAll(".acpmux-agent-line").length).toBe(0);
       expect(root.querySelector(".acpmux-running-tray__head")).toBe(head);
@@ -1681,7 +1679,7 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
       await act(async () => root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!.click());
       // Four running, none waiting: the open header counts them all as running, the two chats the
       // agent started as sessions (trayHeadKinds.ts).
-      expect(root.querySelector(".acpmux-running-tray__title")?.textContent).toBe("2 subagents running · 2 sessions");
+      expect(root.querySelector(".acpmux-running-tray__title")?.textContent).toBe("2 subagents · 2 sessions");
       // What it does is the tooltip's, in words; the line has no subtitle.
       expect(root.querySelector(".acpmux-summary-agent__kind")).toBeNull();
       const tips = [...root.querySelectorAll<HTMLElement>(".acpmux-agent-line__button")].map((node) => node.title);
