@@ -142,6 +142,7 @@
         "CmuxNextCompat",
         "CmuxNextDaemon",
         "CmuxNextDesign",
+        "CmuxNextDesignTokens",
         "CmuxNextHistory",
         "CmuxNextHome",
         "CmuxNextHomeEngine",
