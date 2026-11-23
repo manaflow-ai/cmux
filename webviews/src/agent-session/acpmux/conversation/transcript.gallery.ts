@@ -2039,14 +2039,17 @@ export default agentPaneEntry({
       },
     },
     "thought-row": {
-      note: 'Play: a finished thought is one quiet row, for Codex parity: the brain glyph and its words on one line, cut with an ellipsis, with no tooltip. Opened, it reads Thought for 12s over its text. Debug Settings agentPane.debug.thoughtFoldThreshold "Taller than the transcript" brings back the short thought in full after Thought.',
+      note: 'Play: a finished thought is one quiet row, for Codex parity: the brain glyph and its own first line, cut with an ellipsis when it runs past the row, with no tooltip and how long it took at the row\'s end. Opened, the rest of its text unfolds under that line. Debug Settings agentPane.debug.thoughtFoldThreshold "Taller than the transcript" brings back the short thought in full after Thought.',
       snapshot: thoughtChat([thought(SHORT_THOUGHT, { startedAt: 0, endedAt: 12_000 })]),
       play: async (ctx) => {
         await openEndedStretch(ctx);
         const row = () => ctx.document.querySelector<HTMLElement>(".cv-thought");
-        // Its words on one line, its paragraphs joined with spaces (ThoughtRow.tsx thoughtLine).
-        const line = SHORT_THOUGHT.split("\n").filter(Boolean).join(" ");
-        await ctx.waitFor(() => row()?.textContent === line);
+        // Its own first line (thoughtRowModel.ts thoughtHead), then how long it took.
+        const line = SHORT_THOUGHT.split("\n")[0]!;
+        await ctx.waitFor(() => row()?.querySelector(".cv-thought__preview")?.textContent === line);
+        if (row()!.querySelector(".cv-thought__time")?.textContent !== "12s")
+          throw new Error("a dated thought shows how long it took at the row's end");
+        if (row()!.textContent?.includes("Thought")) throw new Error("a thought's row reads its words, not Thought");
         await ctx.hover({ selector: ".cv-thought" });
         if (!row()!.matches("button") || row()!.getAttribute("aria-expanded") !== "false")
           throw new Error("a finished thought is a closed toggle");
@@ -2061,7 +2064,7 @@ export default agentPaneEntry({
       },
     },
     "thought-expanded": {
-      note: "Play: the folded thought opens to its full text under its label, which reads Thought for 12s.",
+      note: "Play: the folded thought opens to the rest of its text under its own first line, which stays where it was.",
       checks: {
         layoutShiftMax: {
           value: 0.02,
@@ -2072,13 +2075,22 @@ export default agentPaneEntry({
       snapshot: thoughtChat([thought(SHORT_THOUGHT, { startedAt: 0, endedAt: 12_000 })]),
       play: async (ctx) => {
         await openEndedStretch(ctx);
+        const line = () => ctx.document.querySelector<HTMLElement>("button.cv-thought .cv-thought__preview");
+        await ctx.waitFor(() => line());
+        const before = line()!.getBoundingClientRect();
+        const words = line()!.textContent;
         await ctx.click({ selector: "button.cv-thought" });
         const body = () => ctx.document.querySelector<HTMLElement>(".cv-thought__body");
         await ctx.waitFor(() => body()?.textContent?.includes("jittered backoff capped at three attempts") ?? false);
         if (ctx.document.querySelector("button.cv-thought")?.getAttribute("aria-expanded") !== "true")
           throw new Error("the opened thought is not expanded");
-        const label = ctx.document.querySelector("button.cv-thought .cv-thought__label")?.textContent;
-        if (label !== "Thought for 12s") throw new Error(`the opened thought reads ${label}, not Thought for 12s`);
+        // No word is swapped and the line does not move: the rest opens under it.
+        const after = line()!.getBoundingClientRect();
+        if (line()!.textContent !== words || words !== SHORT_THOUGHT.split("\n")[0])
+          throw new Error(`the opened thought's line reads ${line()!.textContent}, not its own first line`);
+        if (Math.abs(after.left - before.left) > 0.5 || Math.abs(after.top - before.top) > 0.5)
+          throw new Error("the thought's line moved when it opened");
+        if (body()!.textContent?.includes(words!)) throw new Error("the opened thought repeats its first line");
       },
     },
     "thoughts-merged": {
@@ -2102,10 +2114,13 @@ export default agentPaneEntry({
         await ctx.waitFor(() => rows()[0]?.textContent?.includes("parses errors first") ?? false);
         if (rows().length !== 1) throw new Error(`two thoughts side by side draw ${rows().length} rows, not one`);
         await ctx.click({ selector: "button.cv-thought" });
+        // The first thought is the row's line; the second opens under it.
         const body = () => ctx.document.querySelector<HTMLElement>(".cv-thought__body")?.textContent ?? "";
-        await ctx.waitFor(() => body().includes("parses errors first") && body().includes("On second thought"));
-        const label = ctx.document.querySelector("button.cv-thought .cv-thought__label")?.textContent;
-        if (label !== "Thought for 12s") throw new Error(`the opened thoughts read ${label}, not Thought for 12s`);
+        await ctx.waitFor(() => body().includes("On second thought"));
+        if (!rows()[0]!.querySelector(".cv-thought__preview")?.textContent?.includes("parses errors first"))
+          throw new Error("the first thought is not the row's line");
+        const time = ctx.document.querySelector("button.cv-thought .cv-thought__time")?.textContent;
+        if (time !== "12s") throw new Error(`the opened thoughts took ${time}, not 12s`);
       },
     },
     "thought-quiet": {
@@ -2124,7 +2139,7 @@ export default agentPaneEntry({
       },
     },
     "thought-codex-headings": {
-      note: 'Play: a Codex reasoning summary opened: "Thought for 12s", then each **Heading** as a muted title of its own over its text, never with its marks and never after "Thought".',
+      note: "Play: a Codex reasoning summary: its leading **Heading** is the row's line, in bold without its marks; opened, its text and each later heading as a muted title of its own unfold under it.",
       checks: {
         layoutShiftMax: {
           value: 0.01,
@@ -2141,7 +2156,10 @@ export default agentPaneEntry({
         await openEndedStretch(ctx);
         await ctx.click({ selector: "button.cv-thought" });
         const titles = () => [...ctx.document.querySelectorAll(".cv-thought__title")].map((node) => node.textContent);
-        await ctx.waitFor(() => titles().length === 2);
+        await ctx.waitFor(() => titles().length === 1);
+        const line = ctx.document.querySelector("button.cv-thought .cv-thought__preview.is-title")?.textContent;
+        if (line !== "Planning the retry fix") throw new Error(`the leading heading is not the row's line: ${line}`);
+        if (titles()[0] !== "Checking the callers") throw new Error(`the later heading reads ${titles()[0]}`);
         if (ctx.document.querySelector(".cv-thought__body")?.textContent?.includes("**"))
           throw new Error("a heading shows its ** marks");
       },
@@ -2153,7 +2171,7 @@ export default agentPaneEntry({
       }),
     },
     "long-thought-done": {
-      note: "A long thought followed by a step folds to its brain glyph and its words on one line; opened, it reads Thought for 12s.",
+      note: "A long thought followed by a step folds to its brain glyph and its leading heading; opened, the rest of its text unfolds under that line.",
       snapshot: chat(
         [
           user(prompt, 2),
