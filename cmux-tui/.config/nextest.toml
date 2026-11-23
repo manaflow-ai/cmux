@@ -272,3 +272,11 @@ slow-timeout = { period = "60s", terminate-after = 8, grace-period = "5s" }
 filter = 'binary_id(cmux-tui::automation_live_journey)'
 success-output = "final"
 slow-timeout = { period = "60s", terminate-after = 8, grace-period = "5s" }
+
+# The rows of the reset command with a rollback check (tests/reset_after_a_rollback_check.rs) write
+# to stderr which `-wal` and `-shm` files the session's folder holds, each with its length, in
+# lines that start with RESET-ROW. A passing row keeps its output, so a step's log shows those
+# lines on each system.
+[[profile.default.overrides]]
+filter = 'binary_id(cmux-tui::reset_after_a_rollback_check)'
+success-output = "final"
