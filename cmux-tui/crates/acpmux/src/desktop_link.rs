@@ -967,6 +967,17 @@ pub fn ensure_inbox_relay_once() {
     if cfg!(test) || ONCE.is_completed() || crate::config::home() != crate::config::default_home() {
         return;
     }
+    // The settings file is read at most once a minute, not on every relay-less delivery: this
+    // runs on the async delivery path, and a person who turns the setting on waits a minute.
+    static LAST_READ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let last = LAST_READ.load(std::sync::atomic::Ordering::Relaxed);
+    if last != 0 && now.saturating_sub(last) < 60 {
+        return;
+    }
+    LAST_READ.store(now.max(1), std::sync::atomic::Ordering::Relaxed);
     if !relay_setting_on(&crate::user_settings::read()) {
         HINTED.call_once(|| tracing::info!("{RELAY_HINT}"));
         return;
