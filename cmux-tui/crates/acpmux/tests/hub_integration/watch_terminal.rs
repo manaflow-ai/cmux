@@ -690,6 +690,10 @@ async fn with_no_inbox_a_chat_send_is_typed_into_the_terminal_once_idle() {
     terminal.type_line("the person's own");
     assert_eq!(terminal.until("RUN", 2).await[1], "the person's own");
     let one = send(&hub, &sid, "queued 1", "t-1");
+    // Each send is its own task on its own connection: let the first reach the hub (held, the
+    // terminal's turn runs) before the second, or "in order" tests the scheduler, not acpmux.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(!one.is_finished(), "typed or refused while the turn ran");
     let two = send(&hub, &sid, "queued 2", "t-2");
     let one = tokio::time::timeout(Duration::from_secs(30), one).await.unwrap().unwrap().unwrap();
     let two = tokio::time::timeout(Duration::from_secs(30), two).await.unwrap().unwrap().unwrap();
