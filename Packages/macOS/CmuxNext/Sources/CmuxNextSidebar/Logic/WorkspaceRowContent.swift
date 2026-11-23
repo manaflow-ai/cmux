@@ -84,6 +84,8 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var treeFold: SidebarTreeFold?
     /// The session tree: a folded parent's descendants by state, drawn as chips.
     public var rollUp: SidebarTreeRollUp?
+    /// Its chats' subagents under the name: a line each (a click opens one) or one stacked line; nil without any.
+    public var subagents: SidebarSubagentStrip?
     /// The Priority view's chip (`SidebarWorkspace.agentChip`) when it asks for something
     /// (`rowChip`), for the row's accessibility label. Never drawn: a row shows no status words
     /// (Leo 2026-10-21); needs you is the badge's yellow dot.

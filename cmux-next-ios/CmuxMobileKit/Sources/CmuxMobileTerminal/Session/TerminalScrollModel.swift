@@ -202,6 +202,30 @@ public struct TerminalScrollModel: Equatable, Sendable {
         state = .reading(anchor)
     }
 
+    /// The rows changed height (the key row's zoom keys, the font size in
+    /// Settings): a reader keeps the row at the top of the visible rows (the
+    /// top inset's edge, under the toolbar), at the same fraction of it. The
+    /// anchor names the row at the bounds' top, behind the toolbar: kept as
+    /// is, `topInset` points held another number of rows at the new height
+    /// and the first row read moved by one or more (Leo, 2026-11-22: "zoming
+    /// in and out eith the magnifying glass layout shifts unnecessarily when
+    /// resizing").
+    public mutating func rowHeightChanged(from old: CGFloat, to new: CGFloat, topInset: CGFloat) {
+        guard old > 0, new > 0, old != new else { return }
+        func rescaled(_ anchor: Anchor) -> Anchor {
+            // Points from the anchor row's top to the first visible row's edge.
+            let visible = anchor.delta + topInset
+            let rows = Int(floor(visible / old))
+            let fraction = (visible - CGFloat(rows) * old) * new / old
+            let row = anchor.row + rows
+            guard row >= 0 else { return Anchor(row: 0, delta: CGFloat(row) * new + fraction - topInset) }
+            return Anchor(row: row, delta: fraction - topInset)
+        }
+        restoredUnderGesture = restoredUnderGesture.map(rescaled)
+        guard case .reading(let anchor) = state else { return }
+        state = .reading(rescaled(anchor))
+    }
+
     /// The keyboard follows the finger in a drag that began at the prompt
     /// (M6): the prompt rides the composer for the rest of the gesture.
     public mutating func keyboardDragPinned() { state = .interacting(startedFollowing: true) }

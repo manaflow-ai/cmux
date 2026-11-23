@@ -21,6 +21,9 @@ pub enum Code {
     PermissionDenied = 5,
     /// A conditional stop refused (`hub/stop_if_idle.rs`): nothing was stopped.
     NotIdle = 6,
+    /// The target refused a send at once (`send_async.rs`): its folder's trust, a bad prompt, a
+    /// paused or full agent pair. Nothing was delivered.
+    Refused = 7,
     /// Reserved: a SIGINT ends the process with the shell's own 130.
     #[allow(dead_code)]
     Interrupted = 130,
@@ -35,6 +38,7 @@ impl Code {
             Code::NoSession => "no_session",
             Code::PermissionDenied => "permission_denied",
             Code::NotIdle => "not_idle",
+            Code::Refused => "refused",
             Code::Interrupted => "interrupted",
         }
     }
@@ -274,7 +278,9 @@ fn classify_message(e: &anyhow::Error, msg: String) -> AppError {
     {
         return AppError::new(Code::Usage, "usage", msg);
     }
-    if lower.contains("timed out") || lower.contains("timeout") {
+    // A step that ran past its bound (`ls`'s "read step stalled after 15s") is a timeout to
+    // retry, not a daemon that is gone.
+    if lower.contains("timed out") || lower.contains("timeout") || lower.contains("stalled after") {
         return AppError::new(Code::Timeout, "timeout", msg);
     }
     let detail = if lower.contains("connection refused") || lower.contains("daemon") {

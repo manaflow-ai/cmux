@@ -167,6 +167,9 @@ public final class BrowserPopupWindow: NSWindow {
             pageView.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             pageView.bottomAnchor.constraint(equalTo: root.bottomAnchor),
         ])
+        // Chrome gives a popup's keyboard to its page; Cmd-L moves it to the omnibar. Unset, AppKit makes the first
+        // key view (the omnibar) first responder when the window shows, with the whole address selected.
+        initialFirstResponder = pageView
         return root
     }
 

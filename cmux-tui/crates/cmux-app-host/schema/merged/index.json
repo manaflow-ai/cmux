@@ -310,6 +310,8 @@
     "closeWindow",
     "closed.clear",
     "closed.delete",
+    "cloud.chiefComputer",
+    "cloud.computerControl",
     "cloud.group.memberRemove",
     "cloud.group.memberSet",
     "cloud.group.members",

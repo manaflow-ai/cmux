@@ -43,7 +43,7 @@ static LAN_CUT: AtomicBool = AtomicBool::new(false);
 
 /// Relayed: through this side's TURN allocation, or plain UDP from a TURN
 /// relayed port (the peer's allocation).
-fn impair(via_turn: bool, from: &SocketAddr) -> Option<Duration> {
+fn impair(via_turn: bool, from: &SocketAddr, _len: usize) -> Option<Duration> {
     let relayed = via_turn || is_test_relay(from);
     if relayed {
         return Some(Duration::from_micros(RELAY_ONE_WAY_US.load(Ordering::Relaxed)));
