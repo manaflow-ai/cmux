@@ -630,7 +630,12 @@ async fn every_session_reporting_a_turn_is_followed() {
     r.step("acp_new", began(1)).await;
     assert!(r.tracks.contains_key(S) && r.tracks.contains_key("acp_new"));
     assert!(r.tracks.len() < QUIET_TRACKS_KEPT + 11);
-    assert_eq!(fake.take(), [s(1, "running", None)]);
+    let sent = std::mem::take(&mut fake.0.lock().unwrap().sent);
+    assert_eq!(sent.len(), 1);
+    assert_eq!(
+        (&sent[0]["session"], &sent[0]["turn"], &sent[0]["status"]),
+        (&json!("acp_new"), &json!(1), &json!("running"))
+    );
 }
 
 /// A turn's end waits to be sent again however many others wait (the old cap was 4096).

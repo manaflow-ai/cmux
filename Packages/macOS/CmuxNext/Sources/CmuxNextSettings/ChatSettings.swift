@@ -12,6 +12,10 @@ public nonisolated struct ChatSettings: Sendable, Equatable {
     /// `agents.chats.sessionRecap`: a Claude chat the person comes back to after 5+ minutes away
     /// shows a recap (`cmux-tui/crates/acpmux/src/hub/away_recap.rs`).
     public let sessionRecap: Bool
+    /// `agents.chats.terminalChatWritable`: a chat Toggle Terminal and Chat hands to a cmux terminal keeps its
+    /// composer, and what it sends goes into that terminal's harness (`cmux-tui/crates/acpmux/src/hub/bridge.rs`).
+    /// Off (the default), the chat is a View Only watch. acpmux decides; the pane only reads its tags.
+    public let terminalChatWritable: Bool
     /// The effective permission mode for new chats, or nil when no layer sets one (`""` when a
     /// forced value is not a string).
     public let permissionMode: String?
@@ -27,7 +31,7 @@ public nonisolated struct ChatSettings: Sendable, Equatable {
     public let promptSuggestionsManaged: Bool?
 
     // Paths and defaults: schemas/settings/source/chats.json (SettingsSchema+Chats.generated.swift).
-    public static let booleanKeys = [enabledPath, discoveryPath, sessionRecapPath].map { $0.joined(separator: ".") }
+    public static let booleanKeys = [enabledPath, discoveryPath, sessionRecapPath, terminalChatWritablePath].map { $0.joined(separator: ".") }
     public static let keys = Set(booleanKeys + [rootsPath.joined(separator: ".")])
 
     /// Builds the daemon payload from the effective switches and each roots layer. Refused roots
@@ -37,6 +41,8 @@ public nonisolated struct ChatSettings: Sendable, Equatable {
         enabled = effective.value(at: Self.enabledPath)?.boolValue ?? Self.enabledDefault
         discovery = effective.value(at: Self.discoveryPath)?.boolValue ?? Self.discoveryDefault
         sessionRecap = effective.value(at: Self.sessionRecapPath)?.boolValue ?? Self.sessionRecapDefault
+        terminalChatWritable = effective.value(at: Self.terminalChatWritablePath)?.boolValue
+            ?? Self.terminalChatWritableDefault
         roots = Self.strings(file.value(at: Self.rootsPath)).filter { validator.refusal($0) == nil }
         self.managedRoots = Self.unique(managedRoots).filter { validator.refusal($0) == nil }
         let modePath = AgentDefaultsSettingsSchema.permissionModePath
@@ -60,6 +66,7 @@ public nonisolated struct ChatSettings: Sendable, Equatable {
          "permissionMode": permissionMode.map(JSONValue.string) ?? .null, "permissionModeManaged": .bool(permissionModeManaged),
          "allowFullAccess": fullAccessManaged.map(JSONValue.bool) ?? .null, "allowFullAccessManaged": .bool(fullAccessManaged != nil),
          "sessionRecap": .bool(sessionRecap),
+         "terminalChatWritable": .bool(terminalChatWritable),
          "promptSuggestions": promptSuggestionsManaged.map(JSONValue.bool) ?? .null,
          "promptSuggestionsManaged": .bool(promptSuggestionsManaged != nil)]
     }

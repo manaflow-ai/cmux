@@ -330,7 +330,8 @@ instead; exclusive with --wireguard-config
   --wireguard-hub-token-stdin  read that hub's client token as one line on stdin
   --via-machine MACHINE  dial a loopback ws route (ws://127.0.0.1:PORT/) on another
 of your machines through your own carrier (acpmux), with no inbound port; MACHINE
-is an acpmux peer name or its node key (`acpmux machine status --json`, wgPublicKey)
+is a name `acpmux machine ls` lists, an acpmux peer name or its node key
+(`acpmux machine status --json`, wgPublicKey)
   --ssh-binary PATH  --remote-binary PATH  --ssh-arg ARG  --no-install
   --ssh-forced-command  the SSH key's forced command already runs remote-link,
 so the client never runs remote-probe or an install over it
@@ -420,6 +421,9 @@ OPTIONS:
   create: --device-key KEY [--device-name NAME] binds the invitation to the
 device whose key `cmux remote device-key` printed: only that device can use
 it, and it enrolls with no approval step
+  create: --via-machine KEY names the hub route the invitation carries (a
+machine's node key); a machine joined to a hub carries its own by default, so
+redeeming it elsewhere dials through the hub with no --via-machine
   create relay access: repeat --relay-route ROUTE --relay-slot SLOT with
 --relay-ticket-file PATH, in occurrence order,
 for up to two relay fallbacks
@@ -611,8 +615,8 @@ ID とセッション:
 --wireguard-config とは併用できません
   --wireguard-hub-token-stdin  そのハブのクライアントトークンを標準入力から 1 行で読みます
   --via-machine マシン  自分の別のマシンのループバック ws ルート (ws://127.0.0.1:ポート/) に
-自分のキャリア (acpmux) 経由で接続します。受信ポートは不要です。マシンは acpmux のピア名か
-そのノード鍵です (`acpmux machine status --json` の wgPublicKey)
+自分のキャリア (acpmux) 経由で接続します。受信ポートは不要です。マシンは `acpmux machine ls`
+に出る名前、acpmux のピア名、またはそのノード鍵です (`acpmux machine status --json` の wgPublicKey)
   --ssh-binary パス  --remote-binary パス  --ssh-arg 引数  --no-install
   --ssh-forced-command  SSH 鍵の強制コマンドがすでに remote-link を実行するため、
 その接続では remote-probe もインストールも実行しません
@@ -700,6 +704,9 @@ ID とセッション:
   create: --device-key キー [--device-name 名前] で、`cmux remote device-key`
 が出力したキーのデバイスに招待を限定します。そのデバイスだけが使え、
 承認なしで登録されます
+  create: --via-machine キー で、招待が持つハブ経路 (マシンのノード鍵) を
+指定します。ハブに参加したマシンは既定で自分の鍵を持たせるので、別の
+マシンで使うときも --via-machine なしでハブ経由で接続します
   create のリレーアクセスでは --relay-route、--relay-slot、
 --relay-ticket-file の組を出現順に最大 2 回指定します。
   connect では `cmux remote connect` の全オプションを使用できます。

@@ -7,7 +7,7 @@
 //!   focused window, else the screen ([`Camera::focus`]).
 //! - Cut: a change of focused window (an app or window switch) or an
 //!   explicit [`Signal::Cut`] snaps the crop to the new focus. Signals for
-//!   [`CUT_SETTLE_US`] after a cut snap too, so the caret of the new window
+//!   [`Config::cut_settle_us`] after a cut snap too, so the caret of the new window
 //!   lands in the same shot.
 //! - Dead zone: while the focus stays inside the middle [`Config::dead_zone`]
 //!   of the crop's goal, the goal does not move (a locked shot).
@@ -18,11 +18,16 @@
 //! - Manual: [`Camera::manual`] (a pinch or drag) holds the crop where the
 //!   person put it and keeps its size; [`Camera::resume`] (a tap) pans back
 //!   to the focus from there.
+//! - Lookahead: a recording's cut ([`path`]) knows what comes next, so it
+//!   can see caret and pointer moves [`Config::lookahead_us`] early.
 //!
 //! No I/O, no threads, no clock: every time is the caller's monotonic clock
 //! in microseconds, and the same events give the same path at any frame
 //! rate (the motion steps at [`STEP_US`]). Coordinates are the shared
 //! screen's pixels, origin top left.
+
+pub mod damage;
+pub mod video;
 
 use std::collections::VecDeque;
 
@@ -30,7 +35,8 @@ use serde::{Deserialize, Serialize};
 
 /// The motion's fixed step: 240 Hz.
 pub const STEP_US: u64 = 1_000_000 / 240;
-/// After a cut, how long new focus signals still snap instead of pan.
+/// After a cut, how long new focus signals still snap instead of pan, by
+/// default ([`Config::cut_settle_us`]).
 pub const CUT_SETTLE_US: u64 = 200_000;
 /// Damage rects kept for the focus (newest last).
 const MAX_DAMAGE: usize = 64;
@@ -132,6 +138,21 @@ pub struct Config {
     /// Damage covering more than this share of the screen (a full redraw,
     /// a scroll of everything) says nothing about where to look.
     pub damage_max_share: f64,
+    /// After a cut, how long new focus still snaps instead of panning: short
+    /// live, where the new window's caret comes at once; longer for a
+    /// recording, where a new scene's first typing can come a second later.
+    #[serde(default = "default_cut_settle_us")]
+    pub cut_settle_us: u64,
+    /// For a recording cut ([`path`]) only: how far ahead the caret and the
+    /// pointer are seen, so a pan to a far caret ends as its typing starts
+    /// instead of setting off then. It never reaches back past a cut. 0 (live,
+    /// where nothing is known ahead) is off.
+    #[serde(default)]
+    pub lookahead_us: u64,
+}
+
+fn default_cut_settle_us() -> u64 {
+    CUT_SETTLE_US
 }
 
 impl Default for Config {
@@ -145,6 +166,8 @@ impl Default for Config {
             intent_hold_us: 3_000_000,
             damage_hold_us: 800_000,
             damage_max_share: 0.4,
+            cut_settle_us: CUT_SETTLE_US,
+            lookahead_us: 0,
         }
     }
 }
@@ -363,7 +386,7 @@ impl Camera {
         self.caret = None;
         self.pointer_moved_us = None;
         self.damage.clear();
-        self.snap_until_us = Some(t + CUT_SETTLE_US);
+        self.snap_until_us = Some(t + self.config.cut_settle_us);
         self.shot = None;
     }
 
@@ -509,9 +532,10 @@ pub fn path(
     let (Some(first), Some(last)) = (events.first(), events.last()) else {
         return Vec::new();
     };
+    let ahead = look_ahead(events, config.lookahead_us);
     let frame_us = 1e6 / fps.max(1.0);
     let mut frames = Vec::new();
-    let mut next = events.iter().peekable();
+    let mut next = ahead.iter().peekable();
     for i in 0.. {
         let t = first.t_us + (f64::from(i) * frame_us).round() as u64;
         if t > last.t_us {
@@ -523,4 +547,35 @@ pub fn path(
         frames.push(Frame { t_us: t, rect: camera.advance(t) });
     }
     frames
+}
+
+/// A trace with every caret and pointer signal `lookahead_us` earlier, but
+/// never before the cut (a window switch, a [`Signal::Cut`], a new screen
+/// size) it follows, so no shot shows what comes after the next cut.
+fn look_ahead(events: &[Event], lookahead_us: u64) -> Vec<Event> {
+    if lookahead_us == 0 {
+        return events.to_vec();
+    }
+    let mut window = None;
+    let mut cut_us = 0;
+    let mut moved: Vec<(bool, Event)> = events
+        .iter()
+        .map(|event| {
+            let t = event.t_us;
+            match event.signal {
+                Signal::Window { id, .. } if window != Some(id) => {
+                    window = Some(id);
+                    cut_us = t;
+                }
+                Signal::Cut | Signal::Source { .. } => cut_us = t,
+                _ => {}
+            }
+            let intent = matches!(event.signal, Signal::Caret { .. } | Signal::Pointer { .. });
+            let t_us = if intent { t.saturating_sub(lookahead_us).max(cut_us) } else { t };
+            (intent, Event { t_us, ..*event })
+        })
+        .collect();
+    // Stable: at one time a cut goes before the intent moved onto it.
+    moved.sort_by_key(|(intent, event)| (event.t_us, *intent));
+    moved.into_iter().map(|(_, event)| event).collect()
 }

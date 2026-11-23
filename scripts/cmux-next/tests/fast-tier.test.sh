@@ -122,7 +122,8 @@ registry '{"entries": [
   {"name": "tokens", "kind": "swift", "package": "Packages/Shared/CmuxHomeRender", "filter": "MotionTokenTests", "owner": "op-test"},
   {"name": "intents", "kind": "swift", "package": "Packages/Shared/CmuxHomeRender", "filter": "IntentMappingTests", "owner": "op-test"},
   {"name": "clock", "kind": "cargo", "path": "cmux-tui", "package": "cmux-motion", "owner": "op-test"},
-  {"name": "reducer", "kind": "cargo", "path": "cmux-tui", "package": "cmux-layout-reducer", "owner": "op-test"}]}'
+  {"name": "reducer", "kind": "cargo", "path": "cmux-tui", "package": "cmux-layout-reducer", "owner": "op-test"},
+  {"name": "core", "kind": "cargo", "path": "cmux-tui", "package": "cmux-tui-core", "filter": "mux::tests::matrix", "lib": true, "owner": "op-test"}]}'
 run --dry-run
 expect "dry run builds a Swift package once" 0 "^BUILD swift build --build-tests --package-path Packages/Shared/CmuxHomeRender$"
 if [ "$(grep -c '^BUILD swift build' <<<"$out")" -ne 1 ]; then echo "FAIL: one build per Swift package" >&2; printf '%s\n' "$out" >&2; exit 1; fi
@@ -131,6 +132,9 @@ expect "dry run tests each Swift entry against the built package" 0 "^RUN tokens
 expect "dry run builds cargo test binaries once, outside the cap" 0 "^BUILD cargo test --locked --no-run -p cmux-motion \\(in cmux-tui\\)$"
 expect "dry run builds each cargo package alone, with the features its entry runs with" 0 "^BUILD cargo test --locked --no-run -p cmux-layout-reducer \\(in cmux-tui\\)$"
 expect "dry run tests a cargo entry" 0 "^RUN clock: cargo test --locked -p cmux-motion \(in cmux-tui\)$"
+# A lib entry builds and runs only the library's unit tests, not every integration-test binary.
+expect "dry run builds a lib entry's library tests only" 0 "^BUILD cargo test --locked --no-run -p cmux-tui-core --lib \(in cmux-tui\)$"
+expect "dry run runs a lib entry against its library tests" 0 "^RUN core: cargo test --locked -p cmux-tui-core --lib -- mux::tests::matrix \(in cmux-tui\)$"
 
 # --kind splits one registry between the Linux cargo job and the Mac Swift job:
 # each runs and builds only its kinds, and a kind with no entry is refused.

@@ -239,7 +239,8 @@ fn empty_workspace_registry_enforces_string_limits_and_no_count_cap() {
         let mut state = full_mux.state.lock().unwrap();
         for index in 0..past_old_cap {
             state.push_workspace(Workspace {
-                id: index as u64 + 1,
+                // From the mux's own counter, as a real workspace's id is.
+                id: full_mux.next_id(),
                 public_id: WorkspacePublicId::random().unwrap(),
                 key: format!("key-{index}"),
                 name: format!("workspace-{index}"),
