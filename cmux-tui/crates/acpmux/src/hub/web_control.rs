@@ -660,6 +660,17 @@ pub(crate) enum ModeWrite {
     ConfigOptions(Value),
 }
 
+impl ModeWrite {
+    /// The part of the mode state it writes, 0 to 2 (`ChildAgent::answer_writes`).
+    pub(crate) fn part(&self) -> usize {
+        match self {
+            Self::Modes(_) => 0,
+            Self::CurrentMode(_) => 1,
+            Self::ConfigOptions(_) => 2,
+        }
+    }
+}
+
 impl Control {
     /// The name `turn_started` records, read back when a host is adopted.
     pub fn as_str(self) -> &'static str {

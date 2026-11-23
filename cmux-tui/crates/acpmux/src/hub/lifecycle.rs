@@ -1736,6 +1736,8 @@ impl Hub {
             {
                 tracing::warn!(session = %session.id, "replay mode {mode}: {}", e.message);
             } else {
+                // Its reports sent before the answer first (`forward_as`).
+                child.drain_inbound().await;
                 self.write_mode_state(session, [ModeWrite::CurrentMode(json!(mode))]);
                 self.restore_mode_mark(session, mode);
             }
@@ -1777,6 +1779,9 @@ impl Hub {
                     // pushed while it was asked, `cap_full_access` then counts it (#26340).
                     super::full_access_bound::record_option_answer(session, &res, asked);
                     if let Some(o) = res.get("configOptions") {
+                        // The mode replayed above reports the options as they were: applied
+                        // first, so this answer is the one kept (`forward_as`).
+                        child.drain_inbound().await;
                         self.write_mode_state(session, [ModeWrite::ConfigOptions(o.clone())]);
                     }
                     // A mode that is its `mode` option is cmux's again once this agent runs it.

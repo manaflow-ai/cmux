@@ -295,18 +295,60 @@ struct Pending {
     /// Requests whose client cancelled them (`request_cancel.rs`): their answers, which may
     /// still come, are dropped on purpose and logged, never taken as orphans.
     cancelled: crate::request_cancel::Cancelled,
+    /// Where each answer came among the agent's answers, for the requests that ask
+    /// ([`ChildAgent::request_in_order`]).
+    order: AnswerOrder,
 }
+
+/// The answers an agent's reader handed on, counted in the order it read them, and the place of
+/// each a [`ChildAgent::request_in_order`] waits on. Two answers whose waiters wake in either
+/// order keep the agent's order this way: the later one's report of a mode or an option is the
+/// newer (`hub/turns.rs` `forward_as`).
+#[derive(Default)]
+struct AnswerOrder {
+    /// Answers handed on so far.
+    answered: u64,
+    /// Keys of the requests that wait for their place, with that place once answered (0 before).
+    places: HashMap<String, u64>,
+}
+
+/// More waiting requests than this means places were left by requests dropped unanswered: they
+/// are forgotten, and a request whose place is forgotten gets 0 (no order), as before.
+const ORDER_PLACES_CAP: usize = 256;
 
 impl Pending {
     /// The waiter of answer `id`; None when nobody waits, and a cancelled request's late answer
     /// is then dropped and logged.
     fn take(&mut self, id: &Id) -> Option<oneshot::Sender<Result<Value, RpcError>>> {
         let k = key(id);
-        let tx = self.map.remove(&k);
+        let tx = self.answered(&k);
         if tx.is_none() {
             self.cancelled.take_late(&k, "agent");
         }
         tx
+    }
+
+    /// The waiter of the answer with key `k`, which takes the next place among the answers.
+    fn answered(&mut self, k: &str) -> Option<oneshot::Sender<Result<Value, RpcError>>> {
+        let tx = self.map.remove(k)?;
+        self.order.answered += 1;
+        if let Some(place) = self.order.places.get_mut(k) {
+            *place = self.order.answered;
+        }
+        Some(tx)
+    }
+
+    /// The request with key `k` waits for its answer's place.
+    fn ask_place(&mut self, k: &str) {
+        if self.order.places.len() >= ORDER_PLACES_CAP {
+            self.order.places.clear();
+        }
+        self.order.places.insert(k.to_owned(), 0);
+    }
+
+    /// The place the answer with key `k` took (0: none, or forgotten), forgetting it.
+    fn take_place(&mut self, k: &str) -> u64 {
+        self.order.places.remove(k).unwrap_or(0)
     }
 }
 
@@ -871,6 +913,10 @@ pub struct ChildAgent {
     /// Set once acpmux ends the agent on purpose (MDM's off, `end_managed_full_access`): its
     /// turn's end leaves the chat idle and no failover runs its prompt again (review 3 of #26034).
     ended_on_purpose: std::sync::atomic::AtomicBool,
+    /// The newest answer place ([`Self::request_in_order`]) whose report of each part of the
+    /// chat's mode state the hub wrote, by part (`hub/turns.rs` `ModeWrite::part`): an older
+    /// answer's report of that part is not written over it.
+    pub(crate) answer_writes: std::sync::Mutex<[u64; 3]>,
     /// The question preview format its command was pinned to, for a direct
     /// start (a host's is recorded where the host starts, `hub/hosts.rs`).
     pub preview_format: Option<crate::questions::PreviewFormat>,
@@ -900,6 +946,10 @@ struct CodexLink {
     /// Held from a translator call until its lines are queued for stdin, so
     /// the reader and writers send them in the translator's order.
     order: Mutex<()>,
+    /// Taken under `order` and held while a translator call's messages for the hub are handed
+    /// on, so they reach the hub in the translator's order too: a mode change's answer and
+    /// reports never come after the answer to a pick the translator took after it.
+    to_hub: Mutex<()>,
 }
 
 /// A started agent's process (or, in the simulation, its in-process stand-in) and its pipes:
@@ -1078,6 +1128,7 @@ impl ChildAgent {
             tr: crate::codex_app_server::translator(),
             inbound: inbound.clone(),
             order: Mutex::new(()),
+            to_hub: Mutex::new(()),
         });
         // A delivery may have updated or removed the machine's secrets since
         // daemon startup. Never build a process env from stale cached values.
@@ -1114,6 +1165,7 @@ impl ChildAgent {
             map: HashMap::new(),
             orphans: Default::default(),
             cancelled: Default::default(),
+            order: Default::default(),
         }));
         let agent = Arc::new(Self {
             name: name.to_owned(),
@@ -1133,6 +1185,7 @@ impl ChildAgent {
             launch: std::sync::Mutex::new(launch),
             retired: std::sync::Mutex::new(false),
             ended_on_purpose: std::sync::atomic::AtomicBool::new(false),
+            answer_writes: std::sync::Mutex::new([0; 3]),
             generation: NEXT_GENERATION.fetch_add(1, Ordering::Relaxed),
             preview_format,
             run_class,
@@ -1264,6 +1317,8 @@ impl ChildAgent {
                     if line.trim().is_empty() {
                         continue;
                     }
+                    // A Codex line's turn to hand its messages on (`CodexLink::to_hub`).
+                    let mut hub_turn = None;
                     let msgs: Vec<Message> = if let Some(tr) = &agent_for_exit.translator {
                         let raw: Value = match serde_json::from_str(&line) {
                             Ok(v) => v,
@@ -1324,6 +1379,8 @@ impl ChildAgent {
                         let order = cx.order.lock().await;
                         let split = crate::codex_app_server::split(cx.tr.from_server(&raw));
                         agent_for_exit.codex_lines(split.server, None).await;
+                        // Held until this line's messages are handed on, below (`to_hub`).
+                        hub_turn = Some(cx.to_hub.lock().await);
                         drop(order);
                         for m in &split.hub {
                             if !matches!(m, Message::Response { .. }) {
@@ -1389,6 +1446,7 @@ impl ChildAgent {
                             }
                         }
                     }
+                    drop(hub_turn);
                     // Claude Code ended its turn and runs on with steers it had not read: its next
                     // line waits until the hub logged that turn's end and the next one's start
                     // (the next turn's prompt), bounded (`claude_stdio/carry.rs`).
@@ -1734,11 +1792,15 @@ impl ChildAgent {
             let order = cx.order.lock().await;
             let split = crate::codex_app_server::split(cx.tr.from_client(&msg.to_value()));
             let written = self.codex_lines(split.server, fence).await;
+            // Taken before `order` goes, so the hub gets these after what the translator said
+            // before them (`CodexLink::to_hub`).
+            let hub_turn = cx.to_hub.lock().await;
             drop(order);
             if !written {
                 return Err(anyhow!("agent {} stdin closed", self.name));
             }
             self.codex_to_hub(cx, split.hub).await;
+            drop(hub_turn);
             return Ok(());
         }
         (self.tap)(Direction::Out, msg, None);
@@ -1896,7 +1958,7 @@ impl ChildAgent {
         fence: Option<&Fence>,
         on_written: F,
     ) -> Result<Value, RpcError> {
-        self.request_hook(method, params, fence, false, on_written).await
+        self.request_hook(method, params, fence, false, None, on_written).await
     }
 
     /// Like `request_with_hook`, but the callback requires confirmation from the stdin writer
@@ -1911,20 +1973,29 @@ impl ChildAgent {
         let own_fence = Fence::default();
         let fence = fence.unwrap_or(&own_fence);
         let _unsent = CutOnDrop(Some(fence));
-        self.request_hook(method, params, Some(fence), true, on_written).await
+        self.request_hook(method, params, Some(fence), true, None, on_written).await
     }
 
+    /// `place`: set to the place its answer took among this agent's answers
+    /// ([`Self::request_in_order`]).
     async fn request_hook<F: FnOnce()>(
         &self,
         method: &str,
         params: Value,
         fence: Option<&Fence>,
         confirmed: bool,
+        place: Option<&mut u64>,
         on_written: F,
     ) -> Result<Value, RpcError> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
-        self.pending.lock().await.map.insert(key(&Value::from(id)), tx);
+        {
+            let mut p = self.pending.lock().await;
+            p.map.insert(key(&Value::from(id)), tx);
+            if place.is_some() {
+                p.ask_place(&key(&Value::from(id)));
+            }
+        }
         let mut abandoned = Abandoned {
             pending: self.pending.clone(),
             sink: self.cancel_sink(),
@@ -1988,7 +2059,35 @@ impl ChildAgent {
             }
             self.pending.lock().await.map.remove(&key(&Value::from(id)));
         }
+        if let Some(place) = place {
+            *place = self.pending.lock().await.take_place(&key(&Value::from(id)));
+        }
         answer
+    }
+
+    /// [`Self::request`], with the place its answer took among this agent's answers, in the
+    /// order its reader read them (1 the first; 0 for an answer this side made up, such as a
+    /// closed agent's error). A later place is a later answer, whichever waiter wakes first.
+    pub async fn request_in_order(
+        &self,
+        method: &str,
+        params: Value,
+    ) -> (Result<Value, RpcError>, u64) {
+        let mut place = 0;
+        let answer = self.request_hook(method, params, None, false, Some(&mut place), || {}).await;
+        (answer, place)
+    }
+
+    /// Waits until the hub handled everything this agent's reader queued before now (its mode and
+    /// option reports included): queued through its own sender, a barrier lands behind them.
+    /// Bounded, as `Hub::drain_inbound`: a loop that is gone or stuck holds no one past it.
+    pub async fn drain_inbound(&self) {
+        let (done, handled) = oneshot::channel();
+        let bound = std::time::Duration::from_secs(5);
+        let queued = tokio::time::timeout(bound, self.inbound.send(Inbound::Barrier(done))).await;
+        if matches!(queued, Ok(Ok(()))) {
+            let _ = tokio::time::timeout(bound, handled).await;
+        }
     }
 
     /// [`Self::request`], given up after `limit`: the pending entry goes too, so an agent that
@@ -2482,6 +2581,7 @@ impl ChildAgent {
             map,
             orphans: Default::default(),
             cancelled: Default::default(),
+            order: Default::default(),
         }));
         let agent = Arc::new(Self {
             name: name.to_owned(),
@@ -2519,6 +2619,7 @@ impl ChildAgent {
             launch: std::sync::Mutex::new(None),
             retired: std::sync::Mutex::new(false),
             ended_on_purpose: std::sync::atomic::AtomicBool::new(false),
+            answer_writes: std::sync::Mutex::new([0; 3]),
             generation: NEXT_GENERATION.fetch_add(1, Ordering::Relaxed),
             preview_format: None,
             run_class: std::sync::OnceLock::new(),
@@ -2903,7 +3004,7 @@ impl ChildAgent {
                             None => Ok(result.unwrap_or(Value::Null)),
                         };
                         let mut p = self.pending.lock().await;
-                        if let Some(tx) = p.map.remove(&key(&id)) {
+                        if let Some(tx) = p.answered(&key(&id)) {
                             let _ = tx.send(answer);
                         } else if !p.cancelled.take_late(&key(&id), "agent host") {
                             if p.orphans.len() >= ORPHAN_ANSWERS {
@@ -3488,7 +3589,29 @@ mod cancel_tests {
             map: HashMap::new(),
             orphans: Default::default(),
             cancelled: Default::default(),
+            order: Default::default(),
         }))
+    }
+
+    /// #45385: answers take their places in the order the reader hands them on, whichever waiter
+    /// reads its place first; one asked by no `request_in_order` still counts.
+    #[tokio::test]
+    async fn answers_take_places_in_the_order_read() {
+        let pending = pending();
+        let mut p = pending.lock().await;
+        for id in [1, 2, 3] {
+            let (tx, _rx) = oneshot::channel();
+            p.map.insert(key(&json!(id)), tx);
+        }
+        p.ask_place(&key(&json!(1)));
+        p.ask_place(&key(&json!(3)));
+        for id in [3, 2, 1] {
+            assert!(p.take(&json!(id)).is_some());
+        }
+        assert_eq!(p.take_place(&key(&json!(1))), 3);
+        assert_eq!(p.take_place(&key(&json!(3))), 1);
+        assert_eq!(p.take_place(&key(&json!(2))), 0, "never asked");
+        assert!(p.order.places.is_empty());
     }
 
     /// F1: the agent's answer comes between the cancel and the cleanup of its entry (the pending
