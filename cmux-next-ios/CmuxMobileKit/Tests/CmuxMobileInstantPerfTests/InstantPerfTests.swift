@@ -89,6 +89,25 @@ struct InstantPerfTests {
                          HomeInboxFixture.wire(.god).count, godWhole))
     }
 
+    /// The small and the god first windows must differ in the list behind them alone (its
+    /// `total`, its pins, its dates), never in what their 20 rows say: `home_list_first_screen`
+    /// and its under-load twin time the two side by side, and the time to read a window follows
+    /// its previews' bytes. Seeded apart, the god window drew 12.7 KB of previews against the
+    /// small one's 9.1 KB, and the bench read that as god 1.33x to 1.47x of small (iOS simulator,
+    /// kit run 45000194533: 8.477 vs 5.755 ms) with no cost of the 5,000 rows in it.
+    @Test("the small and the god first windows say the same words")
+    func firstWindowsSayTheSame() {
+        func previews(_ size: InstantPerfSize) -> [String] {
+            HomeInboxFixture.rows(size).prefix(MacHomeRows.firstWindow).map { $0["preview"] as? String ?? "" }
+        }
+        let small = previews(.small)
+        let god = previews(.god)
+        let bytes = (small: small.reduce(0) { $0 + $1.utf8.count }, god: god.reduce(0) { $0 + $1.utf8.count })
+        #expect(small == god, "the first windows' previews differ: small \(bytes.small) B, god \(bytes.god) B")
+        let wire = (small: HomeInboxFixture.firstWindowWire(.small).count, god: HomeInboxFixture.firstWindowWire(.god).count)
+        #expect(abs(wire.god - wire.small) * 20 <= wire.small, "the first windows' bytes differ by over 5%: small \(wire.small) B, god \(wire.god) B")
+    }
+
     @Test("home_list_one_row_update")
     func homeListOneRowUpdate() async throws {
         /// The rows before one conversation in the middle of the list changes in place (a Chief
