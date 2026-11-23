@@ -275,7 +275,7 @@ extension SidebarMapping {
     static func agentMark(_ tab: TabModel?, harnessIcons: HarnessIconLookup,
                           turns: AgentTurnStateStore = .shared) -> (brand: String?, icon: SidebarAgentIcon?) {
         guard let tab else { return (nil, nil) }
-        let own = HarnessIconArtwork.chatArt(tab.agentSession.flatMap(turns.detail(for:))?.icon)
+        let own = harnessIcons.chatArt(tab.agentSession.flatMap(turns.detail(for:))?.icon)
         switch own ?? harnessIcons.custom(for: tab.agentSession?.harness) {
         case .brand(let brand)?: return (brand, nil)
         case .symbol(let name)?: return (nil, .symbol(name))

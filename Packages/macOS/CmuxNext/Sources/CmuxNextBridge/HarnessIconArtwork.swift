@@ -14,6 +14,8 @@ public final class HarnessIconArtwork {
     /// Pixels of a drawn icon's side: the 16 pt icon box at 3x.
     static let pixels = 48
     private var last: (icons: HarnessIcons, lookup: HarnessIconLookup)?
+    /// The icons chats gave themselves, drawn once (ask-8d11bc20e5); every lookup carries it.
+    let chats = ChatIconArt()
 
     public init() {}
 
@@ -22,29 +24,12 @@ public final class HarnessIconArtwork {
     public func lookup(for icons: HarnessIcons) -> HarnessIconLookup {
         if let last, last.icons == icons { return last.lookup }
         var lookup = HarnessIconLookup()
+        lookup.chats = chats
         for (harness, spec) in icons.specs {
             if let art = Self.art(spec) { lookup.art[harness] = (art, spec.isOwn) }
         }
         last = (icons, lookup)
         return lookup
-    }
-
-    /// Each chat's own icon drawn once (``AgentChatDetail/icon``), by icon: chats that share one
-    /// share its image, and a snapshot that draws it again keeps its identity.
-    private static var chatArtCache: [HarnessIconSpec: HarnessIconLookup.Art] = [:]
-    /// The most distinct chat icons kept drawn; past it the cache starts over.
-    static let chatArtCap = 256
-
-    /// The drawn icon a chat gave itself (`acpmux icon @ 🥭`, ask-8d11bc20e5), or nil when it
-    /// gave none or this Mac cannot draw it.
-    /// - Parameter spec: The chat's icon, from its acpmux summary.
-    static func chatArt(_ spec: HarnessIconSpec?) -> HarnessIconLookup.Art? {
-        guard let spec else { return nil }
-        if let art = chatArtCache[spec] { return art }
-        guard let art = art(spec) else { return nil }
-        if chatArtCache.count >= chatArtCap { chatArtCache.removeAll(keepingCapacity: true) }
-        chatArtCache[spec] = art
-        return art
     }
 
     static func art(_ spec: HarnessIconSpec) -> HarnessIconLookup.Art? {
@@ -100,5 +85,26 @@ public final class HarnessIconArtwork {
         context.textPosition = CGPoint(x: (side - bounds.width) / 2 - bounds.minX, y: (side - bounds.height) / 2 - bounds.minY)
         CTLineDraw(line, context)
         return context.makeImage()
+    }
+}
+
+/// Each chat's own icon (``AgentChatDetail/icon``, `acpmux icon @ 🥭`, ask-8d11bc20e5) drawn once,
+/// by icon: chats that share one share its image, and a snapshot that draws it again keeps its
+/// identity, so the tab strip redraws nothing.
+@MainActor
+final class ChatIconArt {
+    /// The most distinct chat icons kept drawn; past it the cache starts over.
+    static let cap = 256
+    private var drawn: [HarnessIconSpec: HarnessIconLookup.Art] = [:]
+
+    /// The drawn icon a chat gave itself, or nil when it gave none or this Mac cannot draw it.
+    /// - Parameter spec: The chat's icon, from its acpmux summary.
+    func art(_ spec: HarnessIconSpec?) -> HarnessIconLookup.Art? {
+        guard let spec else { return nil }
+        if let art = drawn[spec] { return art }
+        guard let art = HarnessIconArtwork.art(spec) else { return nil }
+        if drawn.count >= Self.cap { drawn.removeAll(keepingCapacity: true) }
+        drawn[spec] = art
+        return art
     }
 }

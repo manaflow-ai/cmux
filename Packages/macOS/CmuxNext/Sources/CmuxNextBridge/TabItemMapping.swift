@@ -117,7 +117,7 @@ public struct TabItemMapping {
               chatIcon: HarnessIconSpec? = nil) -> TabIcon {
         if isConversation {
             // The chat's own icon (ask-8d11bc20e5: "SET CUSTOM ICONS FOR YOURSELVES IN THE TABS").
-            if let own = HarnessIconLookup.tabIcon(HarnessIconArtwork.chatArt(chatIcon)) { return own }
+            if let own = HarnessIconLookup.tabIcon(harnessIcons.chatArt(chatIcon)) { return own }
             // A custom harness's own icon (user 12922), else its brand mark, else the chat icon.
             return harnessIcons.tabIcon(for: tab.agentSession?.harness)
                 ?? tab.agentBrand.map(TabIcon.agentMark) ?? .icon(.agentChat)

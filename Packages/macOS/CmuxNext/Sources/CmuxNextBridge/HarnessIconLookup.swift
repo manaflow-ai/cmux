@@ -1,4 +1,5 @@
 import CmuxAgentBrands
+import CmuxNextDaemon
 public import CmuxNextSidebar
 public import CmuxNextTabs
 
@@ -21,9 +22,16 @@ public struct HarnessIconLookup: Equatable, Sendable {
     }
 
     var art: [String: (art: Art, isOwn: Bool)] = [:]
+    /// The artwork's drawn chat icons (``chatArt(_:)``); nil in ``none``, where no chat icon draws.
+    var chats: ChatIconArt?
 
     public static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.art.count == rhs.art.count && lhs.art.allSatisfy { key, value in rhs.art[key].map { $0.art == value.art && $0.isOwn == value.isOwn } ?? false }
+    }
+
+    /// The drawn icon a chat gave itself (`acpmux icon @ 🥭`), drawn before its harness's.
+    func chatArt(_ spec: HarnessIconSpec?) -> Art? {
+        chats?.art(spec)
     }
 
     /// The icon to draw for `harness` in place of what its id suggests: the profile's own icon,
