@@ -2,8 +2,11 @@
 //! whether a chat may move, and where its folder goes on the target. Pure, so the rules are
 //! tested without a daemon, ssh or git.
 //!
-//! - A chat whose turn is running moves only with `--interrupt`; one being moved, or one that
-//!   moved away already, never.
+//! - A chat whose turn is running moves too: the move waits for its tool calls in flight to end,
+//!   then stops the turn there and it goes on where the chat lands (`cli/run/transfer.rs`
+//!   `begin_move_live`); `--after-turn` waits for the turn to end instead, `--interrupt` stops it
+//!   at once. A dry run (the preflight) names the running turn, so its caller can offer those
+//!   choices. One being moved, or one that moved away already, never moves.
 //! - A folder in a git checkout on a branch becomes a fresh worktree of the same branch on the
 //!   target (`Folder::Worktree`), its subfolder kept. The branch is pushed first, so the target
 //!   checks out what this machine has. A detached HEAD is refused; so are uncommitted changes, unless `--carry-changes` (they go with the chat,
@@ -71,8 +74,9 @@ pub(crate) enum Folder {
     Bundle { top: String, branch: String, subdir: String, dirty: bool },
 }
 
-/// Whether the chat `summary` (`_acpmux/info`) may move now; the reason when not.
-pub(crate) fn refusal(summary: &Value, interrupt: bool) -> Option<String> {
+/// Whether the chat `summary` (`_acpmux/info`) may move now; the reason when not. With
+/// `running_ok` a running turn is no reason: the move takes it along.
+pub(crate) fn refusal(summary: &Value, running_ok: bool) -> Option<String> {
     if summary.get("movedTo").is_some_and(|m| !m.is_null()) {
         let to = moved_to_text(&summary["movedTo"]);
         return Some(format!("it moved away already ({to}); it never runs here again"));
@@ -80,9 +84,10 @@ pub(crate) fn refusal(summary: &Value, interrupt: bool) -> Option<String> {
     if summary["moving"] == true {
         return Some("it is being moved already".into());
     }
-    if running(summary) && !interrupt {
+    if running(summary) && !running_ok {
         return Some(
-            "a turn is running; pass --after-turn to wait, or --interrupt to stop it and move"
+            "a turn is running; the move takes it along between its tool calls, --after-turn \
+             waits for it to end, --interrupt stops it now"
                 .into(),
         );
     }

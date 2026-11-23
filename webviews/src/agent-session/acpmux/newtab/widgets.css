@@ -72,7 +72,7 @@
   -webkit-backdrop-filter: var(--ds-glass-popover-blur);
   backdrop-filter: var(--ds-glass-popover-blur);
 }
-/* Reduce Transparency: an opaque card, no blur. */
+/* Reduce Transparency or Liquid Glass off: an opaque card, no blur. */
 @media (prefers-reduced-transparency: reduce) {
   .nt-widget-card {
     background: color-mix(in srgb, var(--agent-text) 8%, var(--acpmux-base, var(--agent-page-bg, Canvas)));
@@ -80,7 +80,7 @@
     backdrop-filter: none;
   }
 }
-:root[data-reduce-transparency] .nt-widget-card {
+:root:is([data-reduce-transparency], [data-glass="off"]) .nt-widget-card {
   background: color-mix(in srgb, var(--agent-text) 8%, var(--acpmux-base, var(--agent-page-bg, Canvas)));
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
