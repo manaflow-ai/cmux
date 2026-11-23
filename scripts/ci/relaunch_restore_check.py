@@ -420,6 +420,68 @@ def page_live_event(inst: Instance, seconds: float = 20.0) -> tuple[bool | None,
     return bool(wait(live, seconds, 0.25)), ""
 
 
+SHIFT_PT = 1.0  # a row that moves or resizes more than this between two display frames shifted
+
+
+def layout_film(report: dict | None, launch_ms: float | None = None) -> dict:
+    """The sidebar's launch film (`debug.sidebar_rows {motion: "stop"}` of a relaunch started with
+    CMUX_BENCH_LAUNCH_MOTION=1: every display frame from the window's first, each row's presented rect) as a verdict.
+
+    hq#18554 ask 2, Leo: "the sometimes insanely slow loading speed of the restarts and the layout settling ... 1. sidebar
+    shift 2. agent chat shift". The cached layout should be the final one at frame 0, so after the first frame no row
+    may move, resize, appear or vanish. `shifts`: row steps over SHIFT_PT between consecutive frames, the row shown in
+    both; `added` / `removed`: rows that appear or go after the first frame; `blank_frames`: frames with no row;
+    `settled_ms`: the last frame that changed anything, in ms since the process started (`process_start_media` maps the
+    frames' clock); `first_ms` the first frame's. `events`: the first 20 changes, for reading which row did it.
+    """
+    if not isinstance(report, dict) or not isinstance(report.get("frames"), list):
+        return {"error": f"no film: {str(report)[:200]}"}
+    zero = report.get("process_start_media")
+    frames = [f for f in report["frames"] if isinstance(f, dict) and isinstance(f.get("views"), dict)]
+
+    def ms(frame):
+        return round((frame["t"] - zero) * 1000) if isinstance(zero, (int, float)) and isinstance(frame.get("t"), (int, float)) else None
+
+    def shown(frame):
+        return {k: v for k, v in frame["views"].items() if isinstance(v, list) and len(v) >= 4 and (len(v) < 5 or v[4] > 0.01)}
+
+    out: dict = {"frames": len(frames), "shifts": 0, "added": 0, "removed": 0, "blank_frames": 0, "events": [],
+                 "first_ms": ms(frames[0]) if frames else None, "settled_ms": None}
+    moved_rows: dict[str, float] = {}
+    prev = None
+    for frame in frames:
+        rows = shown(frame)
+        if not rows:
+            out["blank_frames"] += 1
+        if prev is not None:
+            changes = []
+            for key, rect in rows.items():
+                if key not in prev:
+                    out["added"] += 1
+                    changes.append(("added", key, None))
+                    continue
+                delta = max(abs(a - b) for a, b in zip(rect[:4], prev[key][:4]))
+                if delta > SHIFT_PT:
+                    out["shifts"] += 1
+                    moved_rows[key] = max(moved_rows.get(key, 0.0), delta)
+                    changes.append(("shift", key, round(delta, 1)))
+            for key in prev.keys() - rows.keys():
+                out["removed"] += 1
+                changes.append(("removed", key, None))
+            if changes:
+                out["settled_ms"] = ms(frame)
+                for kind, key, delta in changes:
+                    if len(out["events"]) < 20:
+                        out["events"].append({"ms": ms(frame), "kind": kind, "row": key, **({"pt": delta} if delta else {})})
+        prev = rows
+    if out["settled_ms"] is None:
+        out["settled_ms"] = out["first_ms"]
+    out["rows_shifted"] = len(moved_rows)
+    out["max_shift_pt"] = round(max(moved_rows.values()), 1) if moved_rows else 0.0
+    out["final_rows"] = len(prev or {})
+    return out
+
+
 def page_marks(inst: Instance) -> dict[str, int]:
     """The shown chat page's own launch marks (perf.ts `launchTimeline`: page origin, handshake asked and answered,
     connect, first event) in ms since the app process started, beside the app's marks. Without them the ~300 ms from
@@ -524,7 +586,8 @@ def round_once(n: int, process, inst: Instance, app: Path, env: dict, before: di
             os.remove(inst.sock)  # the old app's socket file: only the relaunched app's counts
         except OSError:
             pass
-    process, marks_read, _ = launch(app, env, out / "app-relaunched.log")
+    # --layout-film: the relaunched app samples its sidebar per display frame from its first window (bench hooks).
+    process, marks_read, _ = launch(app, {**env, "CMUX_BENCH_LAUNCH_MOTION": "1"} if args.layout_film else env, out / "app-relaunched.log")
     row["pid_after"] = process.pid
     launched = time.monotonic()
     row["relaunch_ms"] = round((launched - asked) * 1000)
@@ -580,6 +643,19 @@ def round_once(n: int, process, inst: Instance, app: Path, env: dict, before: di
         failures.append(f"not usable within {args.settle:.0f} s of the relaunch: {why}")
     elif row["quit_to_usable_ms"] > args.budget_ms:
         failures.append(f"usable {row['quit_to_usable_ms']} ms after the quit, over the {args.budget_ms} ms budget")
+    if args.layout_film:
+        # Rows that arrive late (Cloud sections, the daemon's tree) still count: the film runs --film-tail s past usable.
+        if ok:
+            time.sleep(args.film_tail)
+        film = layout_film(call(inst.sock, "debug.sidebar_rows", {"motion": "stop"}, timeout=20))
+        row["sidebar_film"] = film
+        if args.fail_on_shift:
+            if "error" in film:
+                failures.append(f"sidebar film: {film['error']}")
+            elif film["shifts"] or film["added"] or film["removed"] or film["blank_frames"]:
+                failures.append(f"sidebar layout changed after its first frame: {film['shifts']} shifts, {film['added']} rows "
+                                f"added, {film['removed']} removed, {film['blank_frames']} blank frames, settled at "
+                                f"{film['settled_ms']} ms")
     if not row["terminal_alive_while_quit"]:
         failures.append(f"the terminal's process {made['terminal_pid']} ended with the app")
     if ok and which == "chat":
@@ -704,7 +780,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--settle", type=float, default=30.0, help="seconds a relaunch may take to become usable")
     parser.add_argument("--fake-agent", default=str(DEFAULT_FAKE_AGENT))
     parser.add_argument("--out")
+    parser.add_argument("--layout-film", action="store_true",
+                        help="film the relaunched sidebar per display frame (a bench-hooks build) and report its shifts "
+                             "and settle time per round (sidebar_film); the sampling costs main-thread time, so the "
+                             "round's times are not the clean ones")
+    parser.add_argument("--film-tail", type=float, default=3.0, help="seconds the film runs on past usable")
+    parser.add_argument("--fail-on-shift", action="store_true",
+                        help="with --layout-film: a round fails on any sidebar shift, row added or removed, or blank frame")
     args = parser.parse_args(argv)
+    if args.fail_on_shift and not args.layout_film:
+        parser.error("--fail-on-shift needs --layout-film")
     if args.rounds < 1:
         parser.error("--rounds must be at least 1")
     args.fronts = [f.strip() for f in args.fronts.split(",") if f.strip()]
