@@ -30,6 +30,8 @@ struct TerminalComposer: View {
     var body: some View {
         #if DEBUG
         let _ = InputLatencyTrace.shared?.count("composer_body")
+        // The before rows: the body read the draft (onChange, the send button), as on base.
+        let _ = ComposerReturnTextView.measuresWholeDraft ? model.composerText.isEmpty : false
         #endif
         VStack(alignment: .leading, spacing: 6) {
             if let notice = model.composerNotice {

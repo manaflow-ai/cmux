@@ -317,7 +317,8 @@ open class ComposerReturnTextView: UITextView {
 
     /// `-cmux-mobile-composer-measure-whole`: measure the whole draft on every key with one
     /// answer kept, as before the fix (ComposerTypingLagUITests' before rows).
-    static let measuresWholeDraft = CommandLine.arguments.contains("-cmux-mobile-composer-measure-whole")
+    /// Composers read the draft in their body while it is on (base's per-key rebuild, too).
+    public static let measuresWholeDraft = CommandLine.arguments.contains("-cmux-mobile-composer-measure-whole")
 
     #endif
 
