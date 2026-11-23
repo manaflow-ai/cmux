@@ -24,10 +24,10 @@ import Testing
 
     /// A Mac's `acpmux` channel whose prompt writes are slow. Each `session/prompt` write takes the
     /// next of `writes` (past the end: answered at once) and moves the clock by `writeTakes`:
-    /// `hang` never finishes (its bound cuts it off); `gate` goes out once the test opens the gate,
+    /// `hang` never finishes (its bound cuts it off); `fail` throws at once; `gate` goes out once the test opens the gate,
     /// and every read written meanwhile is answered only after it (it queues behind the bytes).
     final class SlowMac: LinkChannel, @unchecked Sendable {
-        enum Write { case answer, hang, gate }
+        enum Write { case answer, hang, gate, fail }
         let id: UInt32 = 1
         private let mac: ChatPromptBlipTests.Mac
         private let clock: FakeClock
@@ -98,6 +98,8 @@ import Testing
                     // Cancelled by the write's bound (LinkDeadline), which throws here.
                     try await Task.sleep(for: .seconds(3600))
                     return
+                case .fail:
+                    throw LinkError(code: "write_failed", message: "write failed")
                 case .gate:
                     lock.withLock { sendingPrompt = true }
                     await waitForGate()
@@ -206,6 +208,32 @@ import Testing
         await eventually { store.returnedDraft != nil }
         #expect(store.returnedDraft?.text == "run the tests")
         #expect(store.clientError == "Not sent: mini is offline.")
+    }
+
+    /// (b2) A write that fails at once, again and again, on a channel that still says ready is
+    /// not held for good: each failure moves the wait on only by what the write took (nothing),
+    /// so the window still runs out and the draft comes back.
+    @Test func aWriteThatFailsAtOnceOnAReadyLinkStillComesBackAfterTheWindow() async throws {
+        let mac = ChatPromptBlipTests.Mac()
+        let clock = FakeClock()
+        let channel = SlowMac(mac, clock: clock, writes: Array(repeating: .fail, count: 1000))
+        let (hub, source, store) = await openChat(channel, clock: clock)
+        defer { withExtendedLifetime(hub) {} }
+
+        store.send(prompt: "run the tests")
+        await eventually { channel.promptWrites >= 1 && source.heldPrompts.count == 1 }
+        #expect(store.returnedDraft == nil)
+        // One second at a time, with a failed attempt in each: never a whole window between two
+        // attempts, so only a wait that is not restarted by each failure can run out.
+        for _ in 0..<12 where store.returnedDraft == nil {
+            let before = channel.promptWrites
+            clock.advance(by: .seconds(1))
+            await eventually { channel.promptWrites > before || store.returnedDraft != nil }
+        }
+        await eventually { store.returnedDraft != nil }
+        #expect(store.returnedDraft?.text == "run the tests")
+        #expect(store.clientError == "Not sent: mini is offline.")
+        #expect(mac.prompts.isEmpty)
     }
 
     /// (c) A read stalled behind a large prompt write still going out on the same channel is slow,

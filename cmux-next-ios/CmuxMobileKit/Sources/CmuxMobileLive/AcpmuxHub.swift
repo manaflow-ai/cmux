@@ -956,11 +956,12 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             return
         }
         let params = Self.promptParams(prompt, session: sessionID)
+        let attempted = now()
         do {
             let (connection, id) = try await hub.submit("session/prompt", params)
             Task { [weak self] in await self?.awaitPromptReply(prompt, connection: connection, id: id) }
         } catch {
-            promptFailed(prompt, error, written: false)
+            promptFailed(prompt, error, written: false, attempted: attempted)
         }
     }
 
@@ -984,15 +985,23 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     /// The link lost the prompt (it may have reached the Mac: it goes again as a resend, which
     /// acpmux runs at most once), or the Mac refused it (the draft comes back with the reason).
-    private func promptFailed(_ prompt: HeldPrompt, _ error: any Error, written: Bool) {
+    private func promptFailed(_ prompt: HeldPrompt, _ error: any Error, written: Bool,
+                              attempted: ContinuousClock.Instant? = nil) {
         if !(error is AcpmuxConnection.RPCError) {
             var again = prompt
             // It may have run: sent again it is a resend (acpmux checks its log).
             if written { again.resend = true }
-            // Aged from this failure: the window counts only time without a usable link, never
-            // the tap, an upload or a slow write before it (a write on a ready link can take
-            // longer than the window, and bounced at once as "unreachable" though the Mac was there).
-            again.waitingSince = now()
+            // The window counts only time without a usable link, never the tap, an upload or a
+            // slow write (a write on a ready link can take longer than the window, and bounced
+            // at once as "unreachable" though the Mac was there). So its wait is moved on by
+            // what the failed write took, not restarted: a write that fails at once on a
+            // channel that still says ready ages as before and comes back after the window,
+            // instead of being held for good.
+            if let attempted, !written {
+                again.waitingSince = (prompt.waitingSince ?? attempted) + (now() - attempted)
+            } else {
+                again.waitingSince = now()
+            }
             hold(again)
             return
         }
@@ -1054,13 +1063,14 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             while true {
                 guard let self, !self.heldPrompts.isEmpty else { break }
                 let prompt = self.heldPrompts.removeFirst()
+                let attempted = self.now()
                 do {
                     let (connection, id) = try await hub.submit("session/prompt", Self.promptParams(prompt, session: self.sessionID))
                     Task { [weak self] in await self?.awaitPromptReply(prompt, connection: connection, id: id) }
                 } catch {
                     self.flushingHeld = false
                     // Not written: held again (first, its order kept), for the next link.
-                    self.promptFailed(prompt, error, written: false)
+                    self.promptFailed(prompt, error, written: false, attempted: attempted)
                     return
                 }
             }
