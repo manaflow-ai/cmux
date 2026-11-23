@@ -3218,21 +3218,24 @@ The scoped value `pr-rescue` (hq#11523, 2026-11-15: `glaeda-side-std-xcode-26.6`
 placement (`next_macos_cascade.pr_rescue()`, `rescue_open()`) opens the Blacksmith labels only when the event is
 `pull_request`, `GITHUB_WORKFLOW_REF` is this file, and the owned route's oldest queued job has waited
 `RESCUE_ROUTE_MINUTES` (45); the slots then go through the same cascade, `CAPACITY` and `MAX_PER_RUN` caps as `on`.
-In runs-on, a placement-listed Blacksmith job reads `vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_BLACKSMITH_MACOS != 'pr-rescue'` (no fromJSON, so tests/runs_on_labels.py resolves it), and every
-owned fallback reads `(vars.CI_BLACKSMITH_MACOS != 'pr-rescue' || github.run_attempt < 2 ||
-github.event_name != 'pull_request' && (<not a bot's re-run of a pull request's dispatch>)) &&
-vars.CI_BLACKSMITH_MACOS != 'on'`: a pull request's re-run (the bot's stall-move or
-refusal rescue, or a person's re-run of failed jobs) takes Blacksmith macOS; attempt 1 stays owned. A bot's re-run
-(`github-actions[bot]`, `cmux-bot[bot]`) of a dispatch that gates a pull request leaves too: event
-`workflow_dispatch`, `same_tree_origin` empty or `pull_request`, and none of `dev_daily`, `tip_swift_suite`,
-`tip_daemon_suite`, `base_tier` or `no_reuse` set, so its run name is the default `cmux-next · <sha>` that
-main's `owned_pool_rescue.same_tree_pull_dispatch()` reads. Without it the stall move skipped every such run under
-`pr-rescue`, its re-run rejoining the side lane: cmux#44529's scheme compile (run 43879624016, job 133341854319)
-queued on `glaeda-side-std-xcode-26.6` from 13:50Z on 2026-11-16 (cmuxterm-hq#12109). The stall move admits such a
-run only when its head's cmux-next.yml carries this clause. DEV daily, the tip suites, the base tier and a push's
-same-tree run keep the side lane. Every other
-workflow compares the variable with exactly `on`, so nightly, promote, signing and release read `pr-rescue` as
-off; `BlacksmithPrRescue` in `tests/test_ci_next_macos_cascade.py` proves both. Unset or `on` behave as before.
+In runs-on, a placement-listed Blacksmith job reads
+`vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_BLACKSMITH_MACOS != 'pr-rescue'`.
+The placement branch covers pull-request events and bot reruns of same-tree dispatches whose
+`same_tree_origin` is `pull_request`. A bot rerun takes the current attempt's selected
+`RUNNER_POOLS.macos_26` or `macos_26_large`; it does not silently fall through to the owned side pool.
+DEV daily, tip suites, base tier, uncached, push-origin dispatches, and human dispatch reruns keep
+existing routing. Every job still requires matching `placed_attempt` and membership in the
+placement's job list. A missing or stale placement never grants a Blacksmith route.
+
+The old unconditional `pr-rescue` fallback was removed by cmux#45176 after cmux#44966 showed
+it could send a rerun to a pool with no runner. Keep that removal: a retry uses the placement's
+`retry_jobs` and `retry_runner`. Main's legacy `owned_pool_rescue.stall_moves_dispatch()` still
+requires its exact `PULL_DISPATCH_RESCUE_CLAUSE` in the run head, so this routing change alone
+does not claim that its legacy stall scan will move a new head. HQ's queue diagnostic checks
+that exact head contract rather than promising a move based only on the event name.
+`Wiring.test_same_tree_pr_bot_rerun_uses_its_selected_blacksmith_pool` evaluates both bot actors,
+both Blacksmith sizes and each job's runner environment; `BlacksmithPrRescue` holds the
+placement-only retry behavior and unrelated dispatch routes.
 
 The repository's generic `vars.MACOS_RUNNER_26` is a Blacksmith macOS read too, and it sat ahead of the switch: a
 bot re-run past an attempt cap (`run_attempt <= 3`, #22565), or one carrying attempt 1's placement, took it. On

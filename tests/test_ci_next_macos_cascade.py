@@ -1404,6 +1404,22 @@ class Wiring(unittest.TestCase):
                 attempt if attempt == "1" or attempt in ("2", "3") and actor == BOT else "1")}}}
         return context
 
+    def test_same_tree_pr_bot_rerun_uses_its_selected_blacksmith_pool(self):
+        for name in (*CASCADED, *GUI_JOBS):
+            for actor in ("github-actions[bot]", "cmux-bot[bot]"):
+                for key, label in (("small", SMALL), ("large", LARGE)):
+                    context = self.context("2", actor, placed="2", **{key: f" {name} "})
+                    context["github"].update(event_name="workflow_dispatch", event={})
+                    context["inputs"] = {"same_tree_origin": "pull_request"}
+                    context["vars"]["CI_BLACKSMITH_MACOS"] = "pr-rescue"
+                    job = self.jobs[name]
+                    expressions = {"runs-on": runs_on_of(job)}
+                    expressions.update({key: value for key, value in env_of(job).items()
+                                        if key in ("CMUX_NEXT_RUNNER", "CMUX_NEXT_SIDE_ROUTE")})
+                    for where, expression in expressions.items():
+                        with self.subTest(job=name, actor=actor, pool=key, where=where):
+                            self.assertEqual(evaluate(expression, context), label)
+
     def test_a_later_bot_attempt_takes_the_blacksmith_slot_its_own_placement_found(self):
         # macos-placement runs on every rescue bot attempt (run 43716323834's attempt 5, #43733), so each placed
         # output of that attempt is honored: a job its cascade put on Blacksmith takes Blacksmith, never the deeper
