@@ -61,10 +61,13 @@ export const OWN_LOGIN_HINT: Record<NoAccountFamily, string> = {
 };
 
 /**
- * The terminal 403 text when a team with no Claude account of its own has
- * used up the model usage included with its account (claudeFallback.ts).
- * Plain words for someone who has never heard of upstream accounts: no
- * provider or service names, just the two ways to keep going.
+ * What the house Claude route (claudeFallback.ts) says when it refuses a team
+ * with no Claude account of its own. Plain words for someone who has never
+ * heard of upstream accounts: no provider or service names, one way forward.
+ * The used-up line is the pricing lane's copy (hq#19720).
  */
-export const INCLUDED_USAGE_USED_UP_MESSAGE =
-  "The model usage included with your account is used up. To keep going, sign in to Claude on this machine: run `cr use own claude`, restart claude, and sign in with /login. Or add credits to your team.";
+export const FALLBACK_REFUSAL_MESSAGES = {
+  included_usage_used_up: "You have used the model usage included with your pass. Sign in to Claude or Codex to keep going.",
+  model_not_included: "This model is not included with your pass. Sign in to Claude or Codex to use it, or pick a Sonnet model.",
+  included_daily_budget_reached: "Included model usage is paused for today. Sign in to Claude or Codex to keep going.",
+} as const;

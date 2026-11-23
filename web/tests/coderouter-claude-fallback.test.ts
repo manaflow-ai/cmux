@@ -9,14 +9,17 @@ import {
 import {
   claudeFallbackConfig,
   createClaudeFallbackSpend,
+  fallbackCapCents,
+  fallbackModelAllowed,
   FALLBACK_ACCOUNT_ENV,
-  FALLBACK_CAP_ENV,
+  GLOBAL_DAILY_BUDGET_CENTS,
+  INCLUDED_USAGE_NOTICE,
   UNPRICED_USD_PER_TOKEN,
   type ClaudeFallbackConfig,
 } from "../services/coderouter/claudeFallback";
 import type { CredentialKeyService } from "../services/coderouter/encryption";
 import { createClaudeMessagesProxy, type ClaudeProxyDependencies } from "../services/coderouter/claudeProxy";
-import { INCLUDED_USAGE_USED_UP_MESSAGE } from "../services/coderouter/noAccountMessage";
+import { FALLBACK_REFUSAL_MESSAGES } from "../services/coderouter/noAccountMessage";
 import { classifyCoderouterFault } from "../services/coderouter/faultClassification";
 import { makeAgentAccessHandler } from "../app/api/coderouter/agent-access/route";
 
@@ -70,15 +73,26 @@ function memoryStore(): ClaudeAccountStore & { rows: Map<string, ClaudeAccountRo
   };
 }
 
-function setup(options: { config?: ClaudeFallbackConfig; spent?: number | null; withFallbackDeps?: boolean } = {}) {
+type SetupOptions = {
+  config?: ClaudeFallbackConfig;
+  /** Cents the team has used; null = the ledger cannot answer. */
+  spent?: number | null;
+  /** Cents every team used today; null = the ledger cannot answer. */
+  today?: number | null;
+  plan?: string | null;
+};
+
+function setup(options: SetupOptions = {}) {
   const store = memoryStore();
   let counter = 0;
   const keys = fakeKeys();
   const newId = () => `00000000-0000-4000-8000-${String(++counter).padStart(12, "0")}`;
   const plain = createClaudeUpstreamService({ store, keys, keyId: "kms-test", now: () => T0, newId });
-  const spentUsd = mock(async () => (options.spent === undefined ? 0 : options.spent));
+  const teamCents = mock(async () => (options.spent === undefined ? 0 : options.spent));
+  const todayCents = mock(async () => (options.today === undefined ? 0 : options.today));
   const loadAccount = mock(async (id: string) => store.rows.get(id) ?? null);
   const teamHasAnyAccount = mock(async (teamId: string) => [...store.rows.values()].some((row) => row.teamId === teamId));
+  const planId = mock(async () => (options.plan === undefined ? "next_intro" : options.plan));
   let config: ClaudeFallbackConfig = options.config ?? { kind: "off" };
   const service = createClaudeUpstreamService({
     store,
@@ -86,20 +100,21 @@ function setup(options: { config?: ClaudeFallbackConfig; spent?: number | null; 
     keyId: "kms-test",
     now: () => T0,
     newId,
-    ...(options.withFallbackDeps === false ? {} : {
-      fallback: {
-        config: () => config,
-        teamHasAnyAccount,
-        loadAccount,
-        spend: { spentUsd, note: () => {} },
-      },
-    }),
+    fallback: {
+      config: () => config,
+      teamHasAnyAccount,
+      planId,
+      loadAccount,
+      spend: { teamCents, todayCents, note: () => {} },
+    },
   });
   return {
     store,
     service,
     plain,
-    spentUsd,
+    teamCents,
+    todayCents,
+    planId,
     loadAccount,
     teamHasAnyAccount,
     setConfig: (next: ClaudeFallbackConfig) => {
@@ -108,157 +123,201 @@ function setup(options: { config?: ClaudeFallbackConfig; spent?: number | null; 
   };
 }
 
-async function withFallbackAccount(options: Parameters<typeof setup>[0] = {}) {
+async function withFallbackAccount(options: SetupOptions = {}) {
   const ctx = setup(options);
   const fallback = await ctx.plain.add(PLATFORM, "ops", { kind: "anthropic_api_key", apiKey: API_KEY }, "team");
-  const on: ClaudeFallbackConfig = { kind: "on", accountId: fallback.id, capUsd: 1 };
+  const on: ClaudeFallbackConfig = { kind: "on", accountId: fallback.id };
   if (!options.config) ctx.setConfig(on);
   return { ...ctx, fallbackId: fallback.id, on };
 }
 
-describe("claude fallback config", () => {
-  test("off unless the id is set; an id without a positive cap is refused", () => {
-    const id = "00000000-0000-4000-8000-0000000000aa";
+const sonnet = () => "claude-sonnet-5";
+const opus = () => "claude-opus-4-8";
+const pick = (model: () => string | null = sonnet) => ({ access: vmAccess, stickyKey: "vm-1", model });
+
+describe("house route config, plan cap and model tier", () => {
+  test("off unless the id is set to an account id", () => {
+    const id = "00000000-0000-4000-8000-0000000000AA";
     expect(claudeFallbackConfig({})).toEqual({ kind: "off" });
-    expect(claudeFallbackConfig({ [FALLBACK_CAP_ENV]: "1" })).toEqual({ kind: "off" });
-    expect(claudeFallbackConfig({ [FALLBACK_ACCOUNT_ENV]: id })).toEqual({ kind: "refused" });
-    expect(claudeFallbackConfig({ [FALLBACK_ACCOUNT_ENV]: id, [FALLBACK_CAP_ENV]: "0" })).toEqual({ kind: "refused" });
-    expect(claudeFallbackConfig({ [FALLBACK_ACCOUNT_ENV]: id, [FALLBACK_CAP_ENV]: "-1" })).toEqual({ kind: "refused" });
-    expect(claudeFallbackConfig({ [FALLBACK_ACCOUNT_ENV]: id, [FALLBACK_CAP_ENV]: "one" })).toEqual({ kind: "refused" });
-    expect(claudeFallbackConfig({ [FALLBACK_ACCOUNT_ENV]: "not-a-uuid", [FALLBACK_CAP_ENV]: "1" })).toEqual({ kind: "refused" });
-    expect(claudeFallbackConfig({ [FALLBACK_ACCOUNT_ENV]: id, [FALLBACK_CAP_ENV]: "1.5" }))
-      .toEqual({ kind: "on", accountId: id, capUsd: 1.5 });
+    expect(claudeFallbackConfig({ [FALLBACK_ACCOUNT_ENV]: "" })).toEqual({ kind: "off" });
+    expect(claudeFallbackConfig({ [FALLBACK_ACCOUNT_ENV]: "not-a-uuid" })).toEqual({ kind: "off" });
+    expect(claudeFallbackConfig({ [FALLBACK_ACCOUNT_ENV]: id })).toEqual({ kind: "on", accountId: id.toLowerCase() });
+  });
+
+  test("the plan picks the cap in cents; every other plan gets none", () => {
+    expect(fallbackCapCents("next_intro")).toBe(500);
+    expect(fallbackCapCents("next_taste")).toBe(50);
+    for (const plan of ["pro", "go", "free", "", null, undefined, "next_intro_x"]) expect(fallbackCapCents(plan)).toBe(0);
+    expect(GLOBAL_DAILY_BUDGET_CENTS).toBe(10_000);
+  });
+
+  test("Sonnet tier and below only", () => {
+    for (const model of ["claude-sonnet-5", "claude-sonnet-4-6", "claude-haiku-4-5-20251001", "claude-3-5-haiku-20241022", "claude-3-7-sonnet-latest"]) {
+      expect(fallbackModelAllowed(model)).toBe(true);
+    }
+    for (const model of ["claude-opus-4-8", "claude-opus-5", "claude-3-opus-20240229", "gpt-5", "", null]) {
+      expect(fallbackModelAllowed(model)).toBe(false);
+    }
   });
 });
 
-describe("claude fallback selection", () => {
+describe("house route selection", () => {
   test("unset env: a team with no accounts gets exactly today's answer, and nothing else is read", async () => {
-    const { service, plain, setConfig, spentUsd, loadAccount, teamHasAnyAccount } = await withFallbackAccount();
+    const { service, plain, setConfig, teamCents, loadAccount, teamHasAnyAccount, planId } = await withFallbackAccount();
     setConfig({ kind: "off" });
-    const input = { access: vmAccess, stickyKey: "vm-1" };
-    expect(await service.select(NEWCOMER, input)).toEqual({ kind: "none" });
-    expect(await plain.select(NEWCOMER, input)).toEqual({ kind: "none" });
+    expect(await service.select(NEWCOMER, pick())).toEqual({ kind: "none" });
+    expect(await plain.select(NEWCOMER, pick())).toEqual({ kind: "none" });
     expect(await service.hasActive(NEWCOMER, vmAccess)).toBe(false);
-    expect(teamHasAnyAccount).not.toHaveBeenCalled();
-    expect(spentUsd).not.toHaveBeenCalled();
-    expect(loadAccount).not.toHaveBeenCalled();
+    for (const read of [teamHasAnyAccount, planId, teamCents, loadAccount]) expect(read).not.toHaveBeenCalled();
   });
 
-  test("set, no accounts, under the cap: the fallback account serves the caller's team", async () => {
-    const { service, fallbackId, spentUsd } = await withFallbackAccount({ spent: 0.4 });
-    const selection = await service.select(NEWCOMER, { access: vmAccess, stickyKey: "vm-1" });
+  test("no-account team under the cap: the house account serves it, tagged, with its usage", async () => {
+    const { service, fallbackId, teamCents } = await withFallbackAccount({ spent: 120 });
+    const selection = await service.select(NEWCOMER, pick());
     expect(selection.kind).toBe("selected");
-    const upstream = (selection as { upstream: ClaudeUpstream }).upstream;
-    expect(upstream.accountId).toBe(fallbackId);
-    expect(upstream.fallback).toBe(true);
-    expect(upstream.secret).toEqual({ kind: "anthropic_api_key", apiKey: API_KEY });
-    expect(spentUsd).toHaveBeenCalledWith(NEWCOMER, fallbackId, undefined);
+    const selected = selection as { upstream: ClaudeUpstream; included?: unknown };
+    expect(selected.upstream.accountId).toBe(fallbackId);
+    expect(selected.upstream.fallback).toBe(true);
+    expect(selected.upstream.secret).toEqual({ kind: "anthropic_api_key", apiKey: API_KEY });
+    expect(selected.included).toEqual({ spentCents: 120, capCents: 500 });
+    expect(teamCents).toHaveBeenCalledWith(NEWCOMER, fallbackId, undefined);
     expect(await service.hasActive(NEWCOMER, vmAccess)).toBe(true);
   });
 
-  test("at or over the cap: refused with the capped answer, and agent access reports no Claude", async () => {
-    for (const spent of [1, 3.2]) {
-      const { service, loadAccount } = await withFallbackAccount({ spent });
-      expect(await service.select(NEWCOMER, { access: vmAccess, stickyKey: "vm-1" })).toEqual({ kind: "fallback_capped" });
+  test("at or over the cap: refused as used up, before the account is read", async () => {
+    for (const [plan, spent] of [["next_intro", 500], ["next_intro", 731], ["next_taste", 50]] as const) {
+      const { service, loadAccount } = await withFallbackAccount({ plan, spent });
+      expect(await service.select(NEWCOMER, pick())).toEqual({ kind: "fallback_refused", reason: "included_usage_used_up" });
       expect(await service.hasActive(NEWCOMER, vmAccess)).toBe(false);
       expect(loadAccount).not.toHaveBeenCalled();
     }
   });
 
-  test("an id with no cap is refused: today's answer", async () => {
-    const { service, spentUsd, loadAccount } = await withFallbackAccount({ config: { kind: "refused" } });
-    expect(await service.select(NEWCOMER, { access: vmAccess, stickyKey: "vm-1" })).toEqual({ kind: "none" });
-    expect(await service.hasActive(NEWCOMER, vmAccess)).toBe(false);
-    expect(spentUsd).not.toHaveBeenCalled();
-    expect(loadAccount).not.toHaveBeenCalled();
+  test("a plan with no included usage, or no plan the router can read, gets today's answer", async () => {
+    for (const plan of ["pro", null]) {
+      const { service, teamCents } = await withFallbackAccount({ plan });
+      expect(await service.select(NEWCOMER, pick())).toEqual({ kind: "none" });
+      expect(await service.hasActive(NEWCOMER, vmAccess)).toBe(false);
+      expect(teamCents).not.toHaveBeenCalled();
+    }
   });
 
-  test("a ledger that cannot answer refuses the fallback (fail closed)", async () => {
+  test("a usage read that fails refuses (fail closed)", async () => {
     const { service } = await withFallbackAccount({ spent: null });
-    expect(await service.select(NEWCOMER, { access: vmAccess, stickyKey: "vm-1" })).toEqual({ kind: "fallback_unavailable" });
+    expect(await service.select(NEWCOMER, pick())).toEqual({ kind: "fallback_unavailable" });
     expect(await service.hasActive(NEWCOMER, vmAccess)).toBe(false);
+    const taste = await withFallbackAccount({ plan: "next_taste", today: null });
+    expect(await taste.service.select(NEWCOMER, pick())).toEqual({ kind: "fallback_unavailable" });
   });
 
-  test("a team with its own accounts never touches the fallback, even ones this caller cannot see", async () => {
-    const { service, plain, store, spentUsd, loadAccount } = await withFallbackAccount();
+  test("tastes share one daily budget; the intro plan does not draw on it", async () => {
+    const taste = await withFallbackAccount({ plan: "next_taste", spent: 10, today: GLOBAL_DAILY_BUDGET_CENTS });
+    expect(await taste.service.select(NEWCOMER, pick())).toEqual({ kind: "fallback_refused", reason: "included_daily_budget_reached" });
+    expect(await taste.service.hasActive(NEWCOMER, vmAccess)).toBe(false);
+    const under = await withFallbackAccount({ plan: "next_taste", spent: 10, today: GLOBAL_DAILY_BUDGET_CENTS - 1 });
+    expect((await under.service.select(NEWCOMER, pick())).kind).toBe("selected");
+    const intro = await withFallbackAccount({ plan: "next_intro", today: GLOBAL_DAILY_BUDGET_CENTS * 2 });
+    expect((await intro.service.select(NEWCOMER, pick())).kind).toBe("selected");
+    expect(intro.todayCents).not.toHaveBeenCalled();
+  });
+
+  test("a tier above Sonnet gets the sign-in step, never a silent downgrade", async () => {
+    const { service, teamCents, loadAccount } = await withFallbackAccount();
+    expect(await service.select(NEWCOMER, pick(opus))).toEqual({ kind: "fallback_refused", reason: "model_not_included" });
+    expect(await service.select(NEWCOMER, pick(() => null))).toEqual({ kind: "fallback_refused", reason: "model_not_included" });
+    expect(teamCents).not.toHaveBeenCalled();
+    expect(loadAccount).not.toHaveBeenCalled();
+    // The model list names no model and is served.
+    expect((await service.select(NEWCOMER, { access: vmAccess, stickyKey: "vm-1" })).kind).toBe("selected");
+  });
+
+  test("a team with its own account is untouched, even one this caller cannot see", async () => {
+    const { service, plain, store, teamCents, loadAccount, planId } = await withFallbackAccount();
     const own = await plain.add(NEWCOMER, "user-1", { kind: "anthropic_api_key", apiKey: API_KEY_2 }, "team");
-    const selection = await service.select(NEWCOMER, { access: vmAccess, stickyKey: "vm-1" });
+    const selection = await service.select(NEWCOMER, pick(opus));
     expect((selection as { upstream: ClaudeUpstream }).upstream.accountId).toBe(own.id);
     expect((selection as { upstream: ClaudeUpstream }).upstream.fallback).toBeUndefined();
-    // Disabled: the team's own exhausted answer, not the fallback.
+    expect((selection as { included?: unknown }).included).toBeUndefined();
+    // Disabled: the team's own exhausted answer, never the house route.
     store.rows.set(own.id, { ...store.rows.get(own.id)!, state: "disabled" });
-    expect((await service.select(NEWCOMER, { access: vmAccess, stickyKey: "vm-1" })).kind).toBe("exhausted");
+    expect((await service.select(NEWCOMER, pick())).kind).toBe("exhausted");
     expect(await service.hasActive(NEWCOMER, vmAccess)).toBe(false);
     // Not granted to this machine's pool: still the team's own "none".
     store.rows.set(own.id, { ...store.rows.get(own.id)!, state: "active" });
     store.hidden.add(own.id);
-    expect(await service.select(NEWCOMER, { access: vmAccess, stickyKey: "vm-1" })).toEqual({ kind: "none" });
+    expect(await service.select(NEWCOMER, pick())).toEqual({ kind: "none" });
     expect(await service.hasActive(NEWCOMER, vmAccess)).toBe(false);
-    expect(spentUsd).not.toHaveBeenCalled();
-    expect(loadAccount).not.toHaveBeenCalled();
+    for (const read of [planId, teamCents, loadAccount]) expect(read).not.toHaveBeenCalled();
   });
 
   test("only the configured id crosses teams: another team's account stays out of reach", async () => {
     const { service, plain, store, setConfig, on, loadAccount } = await withFallbackAccount();
     const foreign = await plain.add("other-team", "someone", { kind: "anthropic_api_key", apiKey: API_KEY_2 }, "team");
-    // The caller excluding or naming another id never reaches it: select reads only the configured id.
-    const selection = await service.select(NEWCOMER, { access: vmAccess, stickyKey: "vm-1" });
-    expect((selection as { upstream: ClaudeUpstream }).upstream.accountId).toBe(on.accountId);
-    expect(loadAccount.mock.calls.map((call) => call[0])).toEqual([on.accountId]);
-    // A config naming an id whose row is a different account (or none) serves nothing.
+    const selection = await service.select(NEWCOMER, pick());
+    expect((selection as { upstream: ClaudeUpstream }).upstream.accountId).toBe((on as { accountId: string }).accountId);
+    expect(loadAccount.mock.calls.map((call) => call[0])).toEqual([(on as { accountId: string }).accountId]);
+    // A load that returns any other row serves nothing.
     loadAccount.mockImplementation(async () => store.rows.get(foreign.id) ?? null);
-    expect(await service.select(NEWCOMER, { access: vmAccess, stickyKey: "vm-1" })).toEqual({ kind: "none" });
+    expect(await service.select(NEWCOMER, pick())).toEqual({ kind: "none" });
     loadAccount.mockImplementation(async (id: string) => store.rows.get(id) ?? null);
-    setConfig({ kind: "on", accountId: "00000000-0000-4000-8000-0000000000ff", capUsd: 1 });
-    expect(await service.select(NEWCOMER, { access: vmAccess, stickyKey: "vm-1" })).toEqual({ kind: "none" });
-    // The foreign team's own listing for the newcomer stays empty.
+    // An id with no row serves nothing.
+    setConfig({ kind: "on", accountId: "00000000-0000-4000-8000-0000000000ff" });
+    expect(await service.select(NEWCOMER, pick())).toEqual({ kind: "none" });
     expect(await plain.list(NEWCOMER, vmAccess)).toEqual([]);
   });
 
-  test("a tried or disabled fallback account is exhausted, not reused", async () => {
+  test("a tried or disabled house account is exhausted, not reused", async () => {
     const { service, store, fallbackId } = await withFallbackAccount();
-    const tried = await service.select(NEWCOMER, { access: vmAccess, stickyKey: "vm-1", excludedAccountIds: [fallbackId] });
-    expect(tried.kind).toBe("exhausted");
+    expect((await service.select(NEWCOMER, { ...pick(), excludedAccountIds: [fallbackId] })).kind).toBe("exhausted");
     store.rows.set(fallbackId, { ...store.rows.get(fallbackId)!, state: "disabled" });
     expect(await service.hasActive(NEWCOMER, vmAccess)).toBe(false);
   });
 });
 
-describe("claude fallback spend cache", () => {
-  test("one ledger read per team per window; local completions add to it", async () => {
+describe("house route spend", () => {
+  test("one ledger read per team per window; local completions add to it, and it never drops", async () => {
     let clock = 0;
-    const read = mock(async () => 0.25);
-    const spend = createClaudeFallbackSpend({ read, now: () => clock, ttlMs: 60_000 });
-    expect(await spend.spentUsd("t", "a")).toBe(0.25);
-    spend.note("t", "a", 0.5);
-    expect(await spend.spentUsd("t", "a")).toBe(0.75);
+    const readTeam = mock(async () => 25);
+    const spend = createClaudeFallbackSpend({ readTeam, now: () => clock, ttlMs: 60_000 });
+    expect(await spend.teamCents("t", "a")).toBe(25);
+    spend.note("t", "a", 50);
+    expect(await spend.teamCents("t", "a")).toBe(75);
     clock = 59_999;
-    expect(await spend.spentUsd("t", "a")).toBe(0.75);
-    expect(read).toHaveBeenCalledTimes(1);
-    // After the window, the ledger answer replaces it, but never lowers it.
+    expect(await spend.teamCents("t", "a")).toBe(75);
+    expect(readTeam).toHaveBeenCalledTimes(1);
     clock = 60_000;
-    expect(await spend.spentUsd("t", "a")).toBe(0.75);
-    read.mockImplementation(async () => 2);
+    expect(await spend.teamCents("t", "a")).toBe(75);
+    readTeam.mockImplementation(async () => 200);
     clock = 120_000;
-    expect(await spend.spentUsd("t", "a")).toBe(2);
-    expect(read).toHaveBeenCalledTimes(3);
+    expect(await spend.teamCents("t", "a")).toBe(200);
+    expect(readTeam).toHaveBeenCalledTimes(3);
+  });
+
+  test("the daily sum starts over at the UTC day boundary", async () => {
+    let clock = Date.parse("2026-11-23T23:59:30Z");
+    const readToday = mock(async () => (clock < Date.parse("2026-11-24T00:00:00Z") ? 9_000 : 0));
+    const spend = createClaudeFallbackSpend({ readToday, now: () => clock });
+    expect(await spend.todayCents("a")).toBe(9_000);
+    spend.note("t", "a", 500);
+    expect(await spend.todayCents("a")).toBe(9_500);
+    clock = Date.parse("2026-11-24T00:00:10Z");
+    expect(await spend.todayCents("a")).toBe(0);
   });
 
   test("concurrent requests share one read, and a failed read is not cached", async () => {
     let calls = 0;
     const spend = createClaudeFallbackSpend({
-      read: async () => {
+      readTeam: async () => {
         calls += 1;
-        return calls === 1 ? null : 0.1;
+        return calls === 1 ? null : 10;
       },
     });
-    expect(await spend.spentUsd("t", "a")).toBeNull();
-    const [a, b] = await Promise.all([spend.spentUsd("t", "a"), spend.spentUsd("t", "a")]);
-    expect([a, b]).toEqual([0.1, 0.1]);
+    expect(await spend.teamCents("t", "a")).toBeNull();
+    expect(await Promise.all([spend.teamCents("t", "a"), spend.teamCents("t", "a")])).toEqual([10, 10]);
     expect(calls).toBe(2);
   });
 
-  test("the ledger read is one team-scoped sum, and unpriced tokens are charged", async () => {
+  test("the ledger reads are bounded sums in cents, and unpriced tokens are charged", async () => {
     const bodies: string[] = [];
     const urls: string[] = [];
     const spend = createClaudeFallbackSpend({
@@ -271,20 +330,37 @@ describe("claude fallback spend cache", () => {
         }) as never,
       } as never,
     });
-    expect(await spend.spentUsd("team-x", "acct-y")).toBeCloseTo(0.5 + 40_000 * UNPRICED_USD_PER_TOKEN, 9);
+    const expected = (0.5 + 40_000 * UNPRICED_USD_PER_TOKEN) * 100;
+    expect(await spend.teamCents("team-x", "acct-y")).toBeCloseTo(expected, 9);
     expect(bodies[0]).toContain("FROM coderouter.usage_events");
     expect(bodies[0]).toContain("team_id = {team_id:String}");
     expect(bodies[0]).toContain("upstream_account_id = {account_id:String}");
     expect(urls[0]).toContain("param_team_id=team-x");
     expect(urls[0]).toContain("param_account_id=acct-y");
+    expect(await spend.todayCents("acct-y")).toBeCloseTo(expected, 9);
+    expect(bodies[1]).toContain("event_time >= toStartOfDay(now('UTC'))");
+    expect(bodies[1]).not.toContain("team_id");
   });
 });
 
-describe("claude fallback through the proxy", () => {
-  function proxy(selection: Awaited<ReturnType<ClaudeProxyDependencies["select"]>>, fetched: string[]) {
+describe("house route through the proxy", () => {
+  const houseUpstream: ClaudeUpstream = {
+    accountId: "00000000-0000-4000-8000-0000000000aa",
+    teamId: PLATFORM,
+    kind: "anthropic_api_key",
+    label: "",
+    secret: { kind: "anthropic_api_key", apiKey: API_KEY },
+    config: {},
+    updatedAt: T0,
+    fallback: true,
+  };
+  function proxy(selection: Awaited<ReturnType<ClaudeProxyDependencies["select"]>>, fetched: string[], models: (string | null)[] = []) {
     return createClaudeMessagesProxy({
       authenticate: async () => ({ ok: true, identity: { teamId: NEWCOMER, stackUserId: "user-1", vmId: "vm-1", token: "crt_x" } }),
-      select: async () => selection,
+      select: async (_teamId, input) => {
+        models.push(input.model ? input.model() : "(none)");
+        return selection;
+      },
       cooldown: async () => {},
       touchUsed: async () => {},
       fetch: (async (input: string | URL | Request) => {
@@ -293,31 +369,47 @@ describe("claude fallback through the proxy", () => {
       }) as typeof fetch,
       now: () => T0,
       capture: () => {},
-      fallbackSpend: { spentUsd: async () => 0, note: () => {} },
+      fallbackSpend: { teamCents: async () => 0, todayCents: async () => 0, note: () => {} },
     }, { now: () => 0, sleep: async () => {}, random: () => 0 });
   }
-  const request = () => new Request("https://coderouter.dev/v1/messages", {
+  const request = (model = "claude-sonnet-5") => new Request("https://coderouter.dev/v1/messages", {
     method: "POST",
     headers: { "content-type": "application/json", authorization: "Bearer crt_x" },
-    body: JSON.stringify({ model: "claude-sonnet-5", max_tokens: 8, messages: [{ role: "user", content: "hi" }] }),
+    body: JSON.stringify({ model, max_tokens: 8, messages: [{ role: "user", content: "hi" }] }),
   });
 
-  test("over the cap: a distinct non-retryable refusal in plain words, before anything is forwarded", async () => {
+  test("at the cap: HTTP 402 with a typed reason and the pricing lane's copy, nothing forwarded", async () => {
     const fetched: string[] = [];
-    const response = await proxy({ kind: "fallback_capped" }, fetched)(request());
-    expect(response.status).toBe(403);
-    const body = await response.json();
-    expect(body).toEqual({ type: "error", error: { type: "permission_error", message: INCLUDED_USAGE_USED_UP_MESSAGE } });
+    const response = await proxy({ kind: "fallback_refused", reason: "included_usage_used_up" }, fetched)(request());
+    expect(response.status).toBe(402);
+    expect(response.headers.get("x-cmux-refusal-reason")).toBe("included_usage_used_up");
     expect(response.headers.get("retry-after")).toBeNull();
+    expect(await response.json()).toEqual({
+      type: "error",
+      error: {
+        type: "billing_error",
+        reason: "included_usage_used_up",
+        message: "You have used the model usage included with your pass. Sign in to Claude or Codex to keep going.",
+      },
+    });
     expect(fetched).toEqual([]);
-    expect(INCLUDED_USAGE_USED_UP_MESSAGE).toContain("used up");
-    expect(INCLUDED_USAGE_USED_UP_MESSAGE).toContain("sign in to Claude");
-    expect(INCLUDED_USAGE_USED_UP_MESSAGE).toContain("add credits");
-    expect(INCLUDED_USAGE_USED_UP_MESSAGE).not.toMatch(/coderouter|anthropic|bedrock|aws|fallback|upstream/i);
-    expect(classifyCoderouterFault({ outcome: "no_usable_account", failureStage: "usage_cap", status: 403 } as never)).toBe("tenant");
+    for (const message of Object.values(FALLBACK_REFUSAL_MESSAGES)) {
+      expect(message).not.toMatch(/coderouter|anthropic|bedrock|aws|fallback|upstream|house/i);
+    }
+    expect(classifyCoderouterFault({ outcome: "no_usable_account", failureStage: "usage_cap", status: 402 } as never)).toBe("tenant");
   });
 
-  test("an unreadable ledger is a retryable 503, nothing forwarded", async () => {
+  test("a tier above Sonnet: 402 model_not_included, and the proxy hands select the request's model", async () => {
+    const fetched: string[] = [];
+    const models: (string | null)[] = [];
+    const response = await proxy({ kind: "fallback_refused", reason: "model_not_included" }, fetched, models)(request("claude-opus-4-8"));
+    expect(response.status).toBe(402);
+    expect((await response.json()).error.reason).toBe("model_not_included");
+    expect(models).toEqual(["claude-opus-4-8"]);
+    expect(fetched).toEqual([]);
+  });
+
+  test("a usage read that fails: a retryable 503, nothing forwarded", async () => {
     const fetched: string[] = [];
     const response = await proxy({ kind: "fallback_unavailable" }, fetched)(request());
     expect(response.status).toBe(503);
@@ -325,27 +417,20 @@ describe("claude fallback through the proxy", () => {
     expect(fetched).toEqual([]);
   });
 
-  test("under the cap: forwarded with the fallback account's credential", async () => {
-    const fetched: string[] = [];
-    const upstream: ClaudeUpstream = {
-      accountId: "00000000-0000-4000-8000-0000000000aa",
-      teamId: PLATFORM,
-      kind: "anthropic_api_key",
-      label: "",
-      secret: { kind: "anthropic_api_key", apiKey: API_KEY },
-      config: {},
-      updatedAt: T0,
-      fallback: true,
-    };
-    const response = await proxy({ kind: "selected", upstream, total: 1, healthy: 1 }, fetched)(request());
-    expect(response.status).toBe(200);
-    expect(fetched).toEqual(["https://api.anthropic.com/v1/messages"]);
+  test("under the cap: forwarded; at 80% each answer carries the one-line notice", async () => {
+    for (const [spentCents, notice] of [[100, null], [400, INCLUDED_USAGE_NOTICE]] as const) {
+      const fetched: string[] = [];
+      const response = await proxy({ kind: "selected", upstream: houseUpstream, total: 1, healthy: 1, included: { spentCents, capCents: 500 } }, fetched)(request());
+      expect(response.status).toBe(200);
+      expect(response.headers.get("x-cmux-included-usage-notice")).toBe(notice);
+      expect(fetched).toEqual(["https://api.anthropic.com/v1/messages"]);
+    }
   });
 });
 
-describe("agent access with the fallback", () => {
-  test("reports Claude available exactly when the fallback applies and the team is under the cap", async () => {
-    for (const [spent, expected] of [[0, true], [1, false]] as const) {
+describe("agent access with the house route", () => {
+  test("reports Claude available exactly when the house route applies and the team is under the cap", async () => {
+    for (const [spent, expected] of [[0, true], [500, false]] as const) {
       const { service } = await withFallbackAccount({ spent });
       const GET = makeAgentAccessHandler({
         resolveUsageTeam: (async () => ({ ok: true, teamId: NEWCOMER, stackUserId: "user-1", access: vmAccess })) as never,

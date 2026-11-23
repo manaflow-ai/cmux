@@ -2,10 +2,13 @@ import { grantVmImportedAccount } from "./vmAccountImport";
 import { accountAccessPredicate, type CoderouterAccountAccess } from "./accountAccess";
 import {
   claudeFallbackConfig,
+  decideClaudeFallback,
   defaultClaudeFallbackSpend,
+  fallbackPlanIdForCaller,
   loadClaudeAccountRowById,
   teamHasAnyClaudeAccount,
   type ClaudeFallbackDependencies,
+  type FallbackRefusal,
 } from "./claudeFallback";
 // Per-team Claude upstream accounts for the coderouter `/v1/messages` leg.
 //
@@ -75,9 +78,9 @@ export type ClaudeUpstream = {
   readonly config: ClaudeUpstreamConfig;
   readonly updatedAt: Date;
   /**
-   * Set only when this is the configured fallback account serving a team with
-   * no Claude account of its own (claudeFallback.ts). `teamId` above is the
-   * account's owner, not the caller.
+   * Set only when this is the house account (claudeFallback.ts) serving a
+   * team with no Claude account of its own. `teamId` above is the account's
+   * owner, not the caller.
    */
   readonly fallback?: true;
 };
@@ -164,7 +167,7 @@ export type ClaudeUpstreamDependencies = {
   readonly keyId?: string;
   readonly now?: () => Date;
   readonly newId?: () => string;
-  /** The capped fallback account; absent means no fallback. */
+  /** The house route's reads (claudeFallback.ts); absent means no house route. */
   readonly fallback?: ClaudeFallbackDependencies<ClaudeAccountRow>;
 };
 
@@ -179,15 +182,28 @@ export type ClaudeSelectionInput = {
   readonly excludedAccountIds?: readonly string[];
   /** Request-scoped cancellation for database and credential selection work. */
   readonly signal?: AbortSignal;
+  /**
+   * Reads the requested model; called only by the house route's tier check.
+   * Absent for a request that names none (the model list); returns `null`
+   * when the model cannot be read.
+   */
+  readonly model?: () => string | null;
 };
 
 export type ClaudeSelection =
-  | { readonly kind: "selected"; readonly upstream: ClaudeUpstream; readonly total: number; readonly healthy: number }
+  | {
+    readonly kind: "selected";
+    readonly upstream: ClaudeUpstream;
+    readonly total: number;
+    readonly healthy: number;
+    /** House route only: the team's included usage before this request. */
+    readonly included?: { readonly spentCents: number; readonly capCents: number };
+  }
   /** The team has no accounts at all. */
   | { readonly kind: "none" }
-  /** The team has no accounts and has used up its fallback usage. */
-  | { readonly kind: "fallback_capped" }
-  /** The team has no accounts and its fallback usage could not be read. */
+  /** The team has no accounts and the house route refuses this request. */
+  | { readonly kind: "fallback_refused"; readonly reason: FallbackRefusal }
+  /** The team has no accounts and its included usage could not be read. */
   | { readonly kind: "fallback_unavailable" }
   /** Every remaining account is disabled, cooling down, or already tried. */
   | {
@@ -364,37 +380,9 @@ export function createClaudeUpstreamService(dependencies: ClaudeUpstreamDependen
   async function hasActive(teamId: string, access?: CoderouterAccountAccess): Promise<boolean> {
     const rows = await store.list(teamId, undefined, access);
     if (rows.length > 0) return rows.some((row) => row.state === "active");
-    const fallback = await fallbackFor(teamId);
-    return fallback.kind === "row" && fallback.row.state === "active";
-  }
-
-  /**
-   * The fallback row for a team whose caller sees no account, or why not.
-   * Only reached when `store.list` came back empty, so a team with accounts
-   * never gets here, and an unset id costs nothing beyond reading the env.
-   */
-  async function fallbackFor(teamId: string, signal?: AbortSignal): Promise<
-    | { readonly kind: "none" }
-    | { readonly kind: "capped" }
-    | { readonly kind: "unavailable" }
-    | { readonly kind: "row"; readonly row: ClaudeAccountRow }
-  > {
-    const fallback = dependencies.fallback;
-    if (!fallback) return { kind: "none" };
-    const config = fallback.config();
-    if (config.kind !== "on") return { kind: "none" };
-    // Rows the caller cannot see still belong to its team: that team uses its
-    // own accounts (or is told to share one), never the fallback.
-    if (await fallback.teamHasAnyAccount(teamId, signal)) return { kind: "none" };
-    throwIfAborted(signal);
-    const spent = await fallback.spend.spentUsd(teamId, config.accountId, signal);
-    throwIfAborted(signal);
-    if (spent === null) return { kind: "unavailable" };
-    if (spent >= config.capUsd) return { kind: "capped" };
-    const row = await fallback.loadAccount(config.accountId, signal);
-    throwIfAborted(signal);
-    if (!row || row.id.toLowerCase() !== config.accountId) return { kind: "none" };
-    return { kind: "row", row };
+    // Only reached with no visible account: unset, this is today's `false`.
+    const house = await decideClaudeFallback(dependencies.fallback, fallbackCaller(teamId, access), undefined);
+    return house.kind === "row" && house.row.state === "active";
   }
 
   async function add(
@@ -464,14 +452,15 @@ export function createClaudeUpstreamService(dependencies: ClaudeUpstreamDependen
     throwIfAborted(input.signal);
     let rows = await store.list(teamId, input.signal, input.access);
     throwIfAborted(input.signal);
-    let fallback = false;
+    let included: { spentCents: number; capCents: number } | undefined;
     if (rows.length === 0) {
-      const found = await fallbackFor(teamId, input.signal);
-      if (found.kind === "none") return { kind: "none" };
-      if (found.kind === "capped") return { kind: "fallback_capped" };
-      if (found.kind === "unavailable") return { kind: "fallback_unavailable" };
-      rows = [found.row];
-      fallback = true;
+      const house = await decideClaudeFallback(dependencies.fallback, fallbackCaller(teamId, input.access), input.model, input.signal);
+      throwIfAborted(input.signal);
+      if (house.kind === "none") return { kind: "none" };
+      if (house.kind === "refused") return { kind: "fallback_refused", reason: house.reason };
+      if (house.kind === "unavailable") return { kind: "fallback_unavailable" };
+      rows = [house.row];
+      included = { spentCents: house.spentCents, capCents: house.capCents };
     }
     const at = now();
     const excluded = new Set(input.excludedAccountIds ?? []);
@@ -490,8 +479,8 @@ export function createClaudeUpstreamService(dependencies: ClaudeUpstreamDependen
       : leastRecentlyUsed(healthy);
     const decrypted = await decrypt(chosen, input.signal);
     throwIfAborted(input.signal);
-    const upstream: ClaudeUpstream = fallback ? { ...decrypted, fallback: true } : decrypted;
-    return { kind: "selected", upstream, total: rows.length, healthy: healthy.length };
+    if (!included) return { kind: "selected", upstream: decrypted, total: rows.length, healthy: healthy.length };
+    return { kind: "selected", upstream: { ...decrypted, fallback: true }, total: 1, healthy: healthy.length, included };
   }
 
   async function cooldown(
@@ -509,6 +498,11 @@ export function createClaudeUpstreamService(dependencies: ClaudeUpstreamDependen
   }
 
   return { list, hasActive, add, update, remove, removeAll, select, cooldown, touchUsed };
+}
+
+/** Only a Cloud machine carries a plan the house route can read. */
+function fallbackCaller(teamId: string, access?: CoderouterAccountAccess) {
+  return { teamId, vmId: access?.kind === "vm" ? access.vmId : null };
 }
 
 function retryAfter(eligible: readonly ClaudeAccountRow[], at: Date): number {
@@ -800,6 +794,7 @@ const defaultService = createClaudeUpstreamService({
   fallback: {
     config: () => claudeFallbackConfig(),
     teamHasAnyAccount: teamHasAnyClaudeAccount,
+    planId: fallbackPlanIdForCaller,
     loadAccount: async (accountId, signal) => {
       const row = await loadClaudeAccountRowById(accountId, signal);
       return row ? rowFromDb(row) : null;
