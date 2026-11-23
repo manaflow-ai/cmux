@@ -162,7 +162,11 @@ function UnreadLooks({
             paddingBottom: 0,
             // As in the transcript, the 0 px row takes no gap above it: its top is the row above's
             // end, so the gap it reads is the whole space between the two rows (#51747).
-            ...(task && { marginTop: -8 }),
+            // In the transcript the row is placed absolutely and keeps its 34 px box (.acpmux-row's
+            // min-height), which its paint containment clips to, so the mark paints over the gap
+            // under it. Here the box is that tall too, and the margin under it gives the height
+            // back to the grid; `alignSelf: start` keeps the grid from stretching it.
+            ...(task && { marginTop: -8, alignSelf: "start", height: 34, marginBottom: -34 }),
             "--cv-since-gap": `${gap}px`,
           } as React.CSSProperties
         }
@@ -185,7 +189,15 @@ function UnreadLooks({
       <div
         className={`acpmux-row ${task ? "acpmux-system" : working ? "acpmux-working" : "acpmux-worked"}`}
         // The stage's grid gap is 8; the margin makes the gap under the line's row the transcript's.
-        style={{ position: "relative", left: 0, right: 0, marginTop: gap - 8, ...(task && { minHeight: 0 }) }}
+        // Over a task line the line's row gave back the gap above it, so this row also gives back the
+        // gap under it: the task line sits `gap` under the reply, as in the transcript.
+        style={{
+          position: "relative",
+          left: 0,
+          right: 0,
+          marginTop: task ? gap - 16 : gap - 8,
+          ...(task && { minHeight: 0 }),
+        }}
       >
         {task ? <TaskLine /> : <Worked />}
       </div>
