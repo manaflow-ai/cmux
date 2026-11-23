@@ -1,4 +1,5 @@
 import { SCROLLER_FADE_ATTRIBUTE } from "../../scrollers";
+import { guardedStylesheet } from "../../surfaces/stylesheetGuard";
 import { applyAgentTheme } from "../shared/theme";
 import { configureSubagentTray } from "./subagents/runningTray";
 import { configureSubagentTrayPlacement } from "./subagents/subagentTrayPlacement";
@@ -35,11 +36,13 @@ const USER_THEME_ID = "acpmux-user-theme";
 let userThemeKeptLast: MutationObserver | undefined;
 
 /**
- * Install the user font/layout stylesheet before the first render when already known. It stays the
- * head's last element, so a person's `:root { --token: ... }` (cmux.agentPane.style/1,
- * schemas/agent-pane/style-tokens.json) wins over the pane's own `:root` at equal specificity even
- * when a stylesheet loads after it (a lazily loaded chunk's CSS): before, such a sheet silently
- * took the token back.
+ * Install the person's `agent-pane/theme.css` before the first render when already known: any CSS,
+ * after the pane's own styles. It stays the head's last element, so a person's `:root { --token: ...
+ * }` (cmux.agentPane.style/1, schemas/agent-pane/style-tokens.json) wins over the pane's own `:root`
+ * at equal specificity even when a stylesheet loads after it (a lazily loaded chunk's CSS): before,
+ * such a sheet silently took the token back. A sheet that would load something by address
+ * (cmux.stylesheetGuard/1: an `@import`, a `url()` other than `data:`) is refused whole and the last
+ * good one stays; the style element's `data-refused` says why.
  */
 export function applyPaneThemeCSS(themeCSS: string): void {
   let style = document.getElementById(USER_THEME_ID) as HTMLStyleElement | null;
@@ -47,7 +50,12 @@ export function applyPaneThemeCSS(themeCSS: string): void {
     style = document.createElement("style");
     style.id = USER_THEME_ID;
   }
-  style.textContent = themeCSS;
+  const sheet = style;
+  delete sheet.dataset.refused;
+  sheet.textContent = guardedStylesheet(themeCSS, sheet.textContent ?? "", (why) => {
+    sheet.dataset.refused = why;
+    console.warn(`agent-pane/theme.css not applied: ${why}; it loads nothing by address (inline images as data: URLs)`);
+  });
   if (document.head.lastElementChild !== style) document.head.append(style);
   if (!userThemeKeptLast && typeof MutationObserver !== "undefined") {
     // Fires only when the head's children change (a stylesheet added): moving the sheet back is one
