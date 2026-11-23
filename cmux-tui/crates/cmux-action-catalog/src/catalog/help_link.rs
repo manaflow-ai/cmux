@@ -86,6 +86,33 @@ pub static ACTIONS: &[Action] = &[
         main_menu: Some("help"),
         ..Action::DEFAULT
     },
+    // Leo's ask (gap:peer:9fb88e1ce5): the build in one paste, for a bug report or a chat.
+    Action {
+        id: "help.copyVersionInfo",
+        group: GROUP,
+        title: t("ActionCatalog", "action.help.copyVersionInfo", "Copy Version Info"),
+        description: Some("Copies this build's version, build number, channel and commit to the clipboard."),
+        keywords: &["version", "build", "commit", "nightly", "about", "copy", "clipboard", "bug report"],
+        category: "settings",
+        symbol: "info.circle",
+        surfaces: PALETTE,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("clipboard")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action help-copy-version-info",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "help.copyDebugInfo",
+        group: GROUP,
+        title: t("ActionCatalog", "action.help.copyDebugInfo", "Copy Debug Info"),
+        description: Some("Copies the version info plus macOS, hardware, language and the log folder to the clipboard."),
+        keywords: &["debug", "diagnostics", "version", "build", "system", "macos", "copy", "clipboard", "bug report", "support"],
+        category: "settings",
+        symbol: "ladybug",
+        surfaces: PALETTE,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("clipboard")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action help-copy-debug-info",
+        ..Action::DEFAULT
+    },
     // A catalog request row (`Action::request`): the app's own `errors.clear` control method.
     Action {
         id: "errors.clear",
