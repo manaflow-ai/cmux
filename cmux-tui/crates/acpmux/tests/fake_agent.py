@@ -93,6 +93,8 @@ has another process put it in background class (an outside cause, not its own ca
 Auto mode (tests/auto_session.rs):
 "auto-shell: <path>": a running tool call whose shell, in a session of its own, appends a line to
 <path> every 50 ms (its pid in <path>.pid); the turn waits for session/cancel (bounded at 120 s).
+"auto-run: <path>" (tests/auto_journey.rs): the same, with a shell that appends "start" to <path>,
+works for ten minutes, then appends "end".
 
 Start under load (tests/start_under_load_bench.rs):
 FAKE_BOOT_CPU_MS=<ms>: before it reads its first line, the agent spends that much CPU time (not
@@ -1302,12 +1304,17 @@ def handle_prompt(rid, params):
     # "auto-shell: <path>": a running tool call whose shell is in a session of its own, as a
     # tool's detached shell is, and appends a line to <path> every 50 ms; its pid goes to
     # <path>.pid. The turn then waits as "until-cancel" (module docs, tests/auto_session.rs).
-    if text.startswith("auto-shell:"):
+    # "auto-run: <path>" is the same with a command that runs once: it appends "start" to
+    # <path>, works for ten minutes, then appends "end" (tests/auto_journey.rs).
+    if text.startswith("auto-shell:") or text.startswith("auto-run:"):
         import subprocess
-        out = text[len("auto-shell:"):].strip()
+        once = text.startswith("auto-run:")
+        out = text.split(":", 1)[1].strip()
+        script = ('echo start >> "$0"; sleep 600; echo end >> "$0"' if once
+                  else 'while :; do echo tick >> "$0"; sleep 0.05; done')
         update(sid, {"sessionUpdate": "tool_call", "toolCallId": "tc-auto", "title": "Run the build",
                      "kind": "execute", "status": "in_progress", "rawInput": {"command": "build"}})
-        shell = subprocess.Popen(["sh", "-c", 'while :; do echo tick >> "$0"; sleep 0.05; done', out],
+        shell = subprocess.Popen(["sh", "-c", script, out],
                                  stdin=subprocess.DEVNULL, start_new_session=True)
         with open(f"{out}.pid.tmp", "w") as f:
             f.write(str(shell.pid))
