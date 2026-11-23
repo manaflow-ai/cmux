@@ -108,6 +108,11 @@ impl Tier {
         self.lock().values().any(|row| pred(&row.meta))
     }
 
+    /// Every evicted chat's name: the taken names a new chat's name avoids.
+    pub(super) fn names(&self) -> Vec<String> {
+        self.lock().values().map(|row| row.meta.name.clone()).collect()
+    }
+
     /// The ids of the evicted chats whose metadata answers `pred`.
     pub(super) fn ids_where(&self, mut pred: impl FnMut(&SessionMeta) -> bool) -> Vec<String> {
         self.lock().values().filter(|row| pred(&row.meta)).map(|row| row.meta.id.clone()).collect()
@@ -172,6 +177,17 @@ impl Hub {
                 || (bare && crate::session_name::ends_with_segments(&m.name, key))
         });
         for id in ids {
+            self.rehydrate(&id);
+        }
+    }
+
+    /// Brings back every evicted chat whose metadata answers `pred` (a create's id, key, name or
+    /// adopted session: the checks that pick or refuse it read the map).
+    pub(super) fn rehydrate_where(&self, pred: impl FnMut(&SessionMeta) -> bool) {
+        if self.evicted.len() == 0 {
+            return;
+        }
+        for id in self.evicted.ids_where(pred) {
             self.rehydrate(&id);
         }
     }

@@ -2579,6 +2579,7 @@ impl Hub {
     /// and live; by short name and closed]. A peer's short name gives way to the first two, and
     /// to the third only when it is closed too (`Hub::resolve_remote`).
     pub(super) fn local_match_counts(&self, key: &str) -> [usize; 3] {
+        self.rehydrate_named(key);
         let bare = !key.contains('/');
         let sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut counts = [0_usize; 3];
@@ -2607,6 +2608,7 @@ impl Hub {
         if key.contains('/') {
             return None;
         }
+        self.rehydrate_named(key);
         let sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let (live, closed): (Vec<_>, Vec<_>) = sessions
             .values()
@@ -2643,6 +2645,9 @@ impl Hub {
                 name.to_ascii_lowercase().contains(&lower).then_some(name)
             })
             .collect();
+        names.extend(
+            self.evicted.names().into_iter().filter(|n| n.to_ascii_lowercase().contains(&lower)),
+        );
         names.extend(self.remote_names_containing(&lower));
         let close = crate::session_name::candidates(names.iter().map(String::as_str), key);
         crate::session_name::not_found(key, &close)
@@ -3313,7 +3318,9 @@ impl Hub {
     /// The daemon calls it after metadata loads and before startup releases spawns.
     #[cfg(unix)]
     pub fn sweep_session_tmp(&self) {
-        let metas: Vec<_> = self.sessions().iter().map(|session| session.meta()).collect();
+        let mut metas: Vec<_> = self.sessions().iter().map(|session| session.meta()).collect();
+        // An evicted chat keeps its folder as it did in memory (`evict.rs`).
+        metas.extend(self.evicted.rows().iter().map(|row| row.meta.clone()));
         let known: std::collections::HashSet<&str> = metas.iter().map(|m| m.id.as_str()).collect();
         let closed: std::collections::HashSet<&str> = metas
             .iter()
