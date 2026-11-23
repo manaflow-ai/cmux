@@ -103,6 +103,7 @@ impl Hub {
                 machine_wake,
                 peer_wake,
                 btw,
+                remote_sandbox,
                 titles,
                 summaries,
                 context_overrides,
@@ -193,6 +194,8 @@ impl Hub {
                 peer_wake.as_ref().map(|w| w.argv.clone());
             current.peer_wake = peer_wake;
             current.btw = btw;
+            // The next remote chain carries the new hook list (`remote_sandbox.rs`).
+            current.remote_sandbox = remote_sandbox;
             current.titles = titles;
             current.summaries = summaries;
             current.context_overrides = context_overrides;

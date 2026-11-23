@@ -1685,6 +1685,10 @@ pub struct Config {
     /// `btw`: side sessions (`hub/btw.rs`): the model they start on, per harness.
     #[serde(default, skip_serializing_if = "BtwConfig::is_default")]
     pub btw: BtwConfig,
+    /// `remoteSandbox`: what a remote chain's sandboxed Claude Code carries beyond acpmux's own
+    /// settings (`hooks`: an opt-in list of user hooks, `hub/remote_sandbox.rs`). Unset: nothing.
+    #[serde(default, skip_serializing_if = "RemoteSandboxConfig::is_default")]
+    pub remote_sandbox: RemoteSandboxConfig,
     /// `titles`: short titles for chats their harness never titles (`hub/titles.rs`).
     #[serde(default, skip_serializing_if = "TitlesConfig::is_default")]
     pub titles: TitlesConfig,
@@ -1988,6 +1992,8 @@ mod pool;
 pub use pool::PoolConfig;
 mod btw;
 pub use btw::BtwConfig;
+mod remote_sandbox;
+pub use remote_sandbox::RemoteSandboxConfig;
 mod usage_warnings;
 pub use usage_warnings::{ContextLimit, FALLBACK_CONTEXT_TOKENS, UsageLimits, UsageWarningsConfig};
 pub mod folder_profiles;
