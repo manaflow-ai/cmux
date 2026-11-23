@@ -4,26 +4,6 @@ import CmuxNextWakeups
 import Foundation
 public import Observation
 
-/// A session host that keeps sent comments as threads (`comment-threads-v1`): `diff.comments.send`
-/// with `keep: true` sends them and marks each `thread.state: "sent"` instead of deleting it, and
-/// `diff.comments.list` fills in `thread.reply` once the agent's turn for that prompt ended.
-public protocol CommentThreadStoring: DiffCommentsStoring {
-    /// `diff.comments.send {root, acp_session, ids, versions, text, keep: true}` → `{sent, threaded}`:
-    /// `text` to the acpmux session `acpSession` as one prompt whose id is `key`; the comments stay.
-    func sendKeeping(root: String, acpSession: String, ids: [String], versions: [String: JSONValue],
-                     text: String, key: String) async throws(AgentPaneGitFailure) -> JSONValue
-}
-
-extension DiffAgentGit: CommentThreadStoring {
-    public func sendKeeping(root: String, acpSession: String, ids: [String], versions: [String: JSONValue],
-                            text: String, key: String) async throws(AgentPaneGitFailure) -> JSONValue {
-        let params: [String: JSONValue] = ["root": .string(root), "acp_session": .string(acpSession),
-                                           "ids": .array(ids.map(JSONValue.string)), "text": .string(text),
-                                           "versions": .object(versions), "keep": .bool(true)]
-        return try await mutate("diff.comments.send", .object(params), key: key)
-    }
-}
-
 /// One stored comment and, once sent, its thread: the quote, the comment, "Sent", then the reply.
 public nonisolated struct CommentThread: Sendable, Equatable, Identifiable {
     public enum State: String, Sendable {
@@ -98,7 +78,8 @@ public nonisolated struct CommentedTerminal: Sendable, Equatable {
     }
 }
 
-/// The comment threads of one root on one session host (`comment-threads-v1`): Comment… on a
+/// The comment threads of one root on one session host (`comment-threads-v1`,
+/// ``DiffCommentsStoring/keepsThreads``): Comment… on a
 /// terminal selection saves it and sends it to the workspace's chat in one step, keeping it as a
 /// thread; ``threads`` is polled about every 2 s while any is "sent", so the agent's reply shows in
 /// the same thread. Resolve deletes it.
@@ -106,7 +87,7 @@ public nonisolated struct CommentedTerminal: Sendable, Equatable {
 @Observable
 public final class CommentThreadsModel {
     public let root: String
-    @ObservationIgnored let store: any CommentThreadStoring
+    @ObservationIgnored let store: any DiffCommentsStoring
     @ObservationIgnored let interval: Duration
     /// Every thread of ``root``, oldest first.
     public private(set) var threads: [CommentThread] = []
@@ -115,7 +96,7 @@ public final class CommentThreadsModel {
     /// The next poll's deadline while a thread is "sent".
     @ObservationIgnored private let poll = DemandTimer(owner: "comment-threads.poll")
 
-    public init(root: String, store: any CommentThreadStoring, interval: Duration = .seconds(2)) {
+    public init(root: String, store: any DiffCommentsStoring, interval: Duration = .seconds(2)) {
         self.root = root
         self.store = store
         self.interval = interval
@@ -138,7 +119,7 @@ public final class CommentThreadsModel {
             let saved = try await store.saveComment(root: root, comment: record, key: key + "-save")
             guard let comment = saved["comment"], let thread = CommentThread(comment) else { throw AgentPaneGitFailure.failed }
             upsert(thread)
-            _ = try await store.sendKeeping(root: root, acpSession: acpSession, ids: [thread.id],
+            _ = try await store.sendCommentThreads(root: root, acpSession: acpSession, ids: [thread.id],
                                             versions: thread.version.map { [thread.id: $0] } ?? [:],
                                             text: terminal.prompt(quote: quote, message: message), key: key)
             failure = nil

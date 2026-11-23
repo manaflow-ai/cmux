@@ -224,6 +224,8 @@ export function App({ config, initialStatus }: ConfigProps) {
   const comments = useDiffComments({
     bridgeAvailable,
     canSend: payload.commentsSend === true,
+    canThread: payload.commentsThreads === true,
+    comments: state.comments,
     dispatch,
     latestState,
     repoRoot: commentRepoRoot,
@@ -503,6 +505,7 @@ export function App({ config, initialStatus }: ConfigProps) {
         comment={metadata.comment}
         labels={commentLabels}
         onDelete={() => comments.remove(metadata.comment)}
+        onReply={comments.canThread ? (message) => comments.reply(metadata.comment, message, item.fileDiff) : undefined}
         onSaveMessage={(message) => comments.editMessage(metadata.comment, message, item.fileDiff)}
       />
     );

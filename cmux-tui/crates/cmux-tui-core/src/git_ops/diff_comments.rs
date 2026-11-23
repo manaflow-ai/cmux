@@ -15,6 +15,8 @@
 //! A send (`send`) hands the caller's prompt to an acpmux session of this
 //! machine as one queued prompt; once acpmux takes it, the sent comments
 //! still at the caller's versions are removed, as a delete removes them.
+//! With `keep`, they stay instead, each with a `thread` naming the chat and
+//! prompt it went out as; `list` fills in the reply once that turn ends.
 
 use std::collections::HashMap;
 use std::io;
@@ -41,6 +43,11 @@ mod send_tests;
 pub(crate) const CAPABILITY: &str = "diff-comments-v1";
 /// Advertised in identify: the session host answers `diff.comments.send`.
 pub(crate) const SEND_CAPABILITY: &str = "diff-comments-send-v1";
+/// Advertised in identify: a send with `keep` leaves its comments as threads,
+/// and `diff.comments.list` brings each thread the agent's reply
+/// (`crate::comment_threads`). Any surface's comment (`surface`: diff,
+/// browser, terminal) is stored, sent and answered the same way.
+pub(crate) const THREADS_CAPABILITY: &str = "comment-threads-v1";
 
 const DIRECTORY: &str = "diff-comments";
 /// The longest root, in bytes.
@@ -78,7 +85,11 @@ pub(super) fn dispatch(
     let store = Store::open(mux, operation)?;
     match request.envelope.operation {
         ResourceOperation::DiffCommentsList => {
-            let file = store.read(root).map_err(|error| io_failed(operation, &error))?;
+            let mut file = store.read(root).map_err(|error| io_failed(operation, &error))?;
+            if file.has_open_threads() {
+                file = answer_threads(mux, &store, root, file)
+                    .map_err(|error| io_failed(operation, &error))?;
+            }
             Ok(json!({"root": root, "comments": file.sorted()}))
         }
         ResourceOperation::DiffCommentsSave => {
@@ -146,6 +157,103 @@ fn cleared(
     let (deleted, changed) = delete(file, ids, versions);
     let cleared = deleted.get("ids").cloned().unwrap_or_else(|| json!([]));
     (json!({"sent": sent, "cleared": cleared}), changed)
+}
+
+/// A delivered `keep` send: each sent comment still at its version stays,
+/// with `thread: {promptId, acpSession, sentAt, state: "sent"}`, answered as
+/// `{sent, threaded}`. The comment's `updatedAt` is not touched: it is the
+/// person's edit, which a later send's `versions` compares.
+fn threaded(
+    file: &mut File,
+    ids: &[String],
+    versions: &Map<String, Value>,
+    sent: usize,
+    prompt_id: &str,
+    acp_session: &str,
+) -> (Value, bool) {
+    let now = rfc3339(now_ms());
+    let mut threaded = Vec::new();
+    for comment in &mut file.comments {
+        let Some(id) = comment.get("id").and_then(Value::as_str).map(str::to_owned) else {
+            continue;
+        };
+        if !ids.contains(&id)
+            || versions.get(&id).is_some_and(|version| comment.get("updatedAt") != Some(version))
+        {
+            continue;
+        }
+        let thread = json!({
+            "promptId": prompt_id,
+            "acpSession": acp_session,
+            "sentAt": now,
+            "state": "sent",
+        });
+        comment.insert("thread".into(), thread);
+        threaded.push(id);
+    }
+    let changed = !threaded.is_empty();
+    (json!({"sent": sent, "threaded": threaded}), changed)
+}
+
+/// The most prompts one list asks acpmux about.
+const MAX_THREAD_READS: usize = 8;
+
+/// Asks acpmux how each open thread's turn ended and stores the answers on
+/// their comments (under the root's lock, re-read, so a save or delete
+/// meanwhile is kept). An acpmux that cannot be read leaves them open.
+fn answer_threads(mux: &Arc<Mux>, store: &Store, root: &str, file: File) -> io::Result<File> {
+    use crate::comment_threads::TurnReply;
+    let mut asks: Vec<(String, String)> = Vec::new();
+    for comment in &file.comments {
+        let Some(thread) = open_thread(comment) else { continue };
+        if !asks.contains(&thread) && asks.len() < MAX_THREAD_READS {
+            asks.push(thread);
+        }
+    }
+    let mut answers: Vec<(String, Value)> = Vec::new();
+    for (session, prompt_id) in asks {
+        let (state, text) = match mux.acp_prompt_reply(&session, &prompt_id) {
+            Some(TurnReply::Answered(text)) => ("answered", text),
+            Some(TurnReply::Failed(text)) => ("failed", text),
+            Some(TurnReply::Pending) | None => continue,
+        };
+        let reply = json!({"text": text, "at": rfc3339(now_ms())});
+        answers.push((prompt_id, json!({"state": state, "reply": reply})));
+    }
+    if answers.is_empty() {
+        return Ok(file);
+    }
+    store.exclusive(root, || {
+        let mut file = store.read(root)?;
+        let mut changed = false;
+        for comment in &mut file.comments {
+            let Some((_, prompt_id)) = open_thread(comment) else { continue };
+            let Some((_, answer)) = answers.iter().find(|(id, _)| *id == prompt_id) else {
+                continue;
+            };
+            if let Some(Value::Object(thread)) = comment.get_mut("thread") {
+                for (key, value) in answer.as_object().into_iter().flatten() {
+                    thread.insert(key.clone(), value.clone());
+                }
+                changed = true;
+            }
+        }
+        if changed {
+            store.write(root, &file)?;
+        }
+        Ok(file)
+    })
+}
+
+/// A comment's thread still waiting on the agent: its chat and prompt id.
+fn open_thread(comment: &Map<String, Value>) -> Option<(String, String)> {
+    let thread = comment.get("thread")?;
+    if thread.get("state").and_then(Value::as_str) != Some("sent") {
+        return None;
+    }
+    let session = thread.get("acpSession").and_then(Value::as_str)?;
+    let prompt_id = thread.get("promptId").and_then(Value::as_str)?;
+    Some((session.to_owned(), prompt_id.to_owned()))
 }
 
 /// Stamps and stores `comment`: an edit of the comment its `id` names, or a
@@ -322,6 +430,10 @@ pub(super) struct File {
 }
 
 impl File {
+    fn has_open_threads(&self) -> bool {
+        self.comments.iter().any(|comment| open_thread(comment).is_some())
+    }
+
     fn position(&self, id: &str) -> Option<usize> {
         self.comments
             .iter()

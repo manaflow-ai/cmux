@@ -610,9 +610,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `diff.comments.send`: the session host hands a diff tab's review comments to an acpmux
     /// session of its own machine as one prompt and clears them (DiffPageProvider+Comments.swift).
     case diffCommentsSend = "diff-comments-send-v1"
-    /// `diff.comments.send {keep: true}` keeps the sent comments as threads, and `diff.comments.list`
-    /// fills in each thread's reply once the agent's turn ended: a terminal selection's or a browser
-    /// page's comment and its answer (TerminalCommentThreads.swift).
+    /// `diff.comments.send {keep: true}` leaves the sent comments as threads, and
+    /// `diff.comments.list` brings each the agent's reply, for every surface's comments (diff,
+    /// browser, terminal; cmux-tui `comment_threads.rs`).
     case commentThreads = "comment-threads-v1"
     /// `git.fingerprint`: digits that stay while one scope's diff stays, made from the changed
     /// files with no patch. The diff tab asks them every few seconds; a session host without the

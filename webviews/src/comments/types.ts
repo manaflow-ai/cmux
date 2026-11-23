@@ -1,5 +1,16 @@
 export type DiffCommentSide = "additions" | "deletions";
 
+export type DiffCommentThreadState = "sent" | "answered" | "failed";
+
+/** A comment kept after "Send to agent": the turn it started and, once it ended, the agent's reply. */
+export type DiffCommentThread = {
+  promptId: string;
+  acpSession?: string;
+  sentAt: string;
+  state: DiffCommentThreadState;
+  reply?: { text: string; at: string };
+};
+
 export type DiffCommentRecord = {
   id: string;
   filePath: string; // exactly fileName(item.fileDiff) for the item it belongs to
@@ -12,6 +23,8 @@ export type DiffCommentRecord = {
   submissionText?: string; // precomputed text block consumed by the native pending pool
   createdAt: string; // ISO8601
   updatedAt: string;
+  surface?: "diff" | "browser" | "terminal"; // absent means "diff"
+  thread?: DiffCommentThread; // set by the host once the comment was sent with keep
 };
 
 export type DiffCommentSaveInput = Omit<DiffCommentRecord, "id" | "createdAt" | "updatedAt"> & {

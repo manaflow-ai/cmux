@@ -83,6 +83,9 @@ pub(crate) const DIFF_COMMENTS_CAPABILITY: &str = diff_comments::CAPABILITY;
 /// Advertised in identify: the session host answers `diff.comments.send`.
 pub(crate) const DIFF_COMMENTS_SEND_CAPABILITY: &str = diff_comments::SEND_CAPABILITY;
 
+/// Advertised in identify: kept sends become threads that `list` answers.
+pub(crate) const COMMENT_THREADS_CAPABILITY: &str = diff_comments::THREADS_CAPABILITY;
+
 /// Advertised in identify: the session host answers `git.branches`.
 pub(crate) const BRANCHES_CAPABILITY: &str = "git-branches-v1";
 
