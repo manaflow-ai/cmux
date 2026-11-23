@@ -39,19 +39,28 @@ pub(crate) fn running_work(session: &Session, turn_runs: bool, commands: usize) 
     RunningWork { subagents: running.len(), names, commands }
 }
 
-/// A peer's summary as a census row (`Hub::session_list_summary`): no inventory, and a long
-/// title cut (`TITLE_CHARS`), including in rows supplied by older peers.
+/// A peer's summary as a census row (`Hub::session_list_summary`): no inventory, no time
+/// breakdown, and a long title cut (`TITLE_CHARS`), including in rows supplied by older peers.
 /// A packed row cuts the same with no parse (`PeerRow::changed_text`).
+/// A peer on an older acpmux lists `timeBreakdown` in every row once a chat's Session Info read
+/// it: 6.5 MB of a 38 MB list of 10,790 rows, up to 78 KB a row, which every agent page held and
+/// parsed again on each change (Leo, 2026-11-18: "typing in the composer still slow"). Only the
+/// chat's own pane reads it, from its attach and its attached `session_changed`, which keep it.
 pub(crate) fn without_summary_tools(mut summary: Value) -> Value {
     if let Some(row) = summary.as_object_mut() {
         row.remove("tools");
         row.remove("toolsMutable");
+        row.remove(CENSUS_LEAVES_OUT);
         if let Some(Value::String(title)) = row.get_mut("title") {
             *title = summary_title(title);
         }
     }
     summary
 }
+
+/// The detail-only member a census row leaves out beside the inventory: a chat's time
+/// breakdown, its spans one per turn (`hub/time_breakdown.rs`).
+pub(crate) const CENSUS_LEAVES_OUT: &str = "timeBreakdown";
 
 /// The most of a chat's title a census row shows. A harness may title a chat with its whole first
 /// prompt: one fleet host's list rows came to 4 KB each with them, and its list of 3,700 to more
@@ -778,7 +787,8 @@ impl Hub {
             last_prompt: m.last_prompt.clone(),
             preview: m.preview.as_deref().map(|p| short_text(p, 160)),
             last_message: last_message(&m),
-            task_list: m.task_list.as_ref().map(crate::task_list::TaskList::summary),
+            // An expired list is no longer the chat's plan (`task_list.rs`): the row and the hat drop it.
+            task_list: super::task_list::current_task_list(&m),
             rolling_summary: m.rolling_summary.clone(),
             queued: session.queued(),
             // The person's unsent text (`set_composer_draft`): an idle app update waits for it.

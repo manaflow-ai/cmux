@@ -453,20 +453,6 @@ beyond GATEWAY_JOBS', or placement lists nothing (side_lane_placement.fleet_gate
 and daemon-test are not cascade jobs, so placement never lists them; daemon-test also needs the
 same-tree cmux-tui daemon, which a fleet suite step reports as no result.
 
-## note-25
-
-Above `portable-placement` in `.github/workflows/cmux-next.yml`.
-
-cmux-next checks' runner.
-Jobs that need neither Linux nor Blacksmith take fleet Linux (vars.LINUX_RUNNER when it names our
-own Linux runner), else a mini idle now with no nightly job waiting on its pool, else their
-Blacksmith label (scripts/ci/portable_job_placement.py; Leo, 2026-10-31: "i mean the linux things
-cant our minis just run them"). Every step fails open: no output keeps each job's Blacksmith route.
-The placement code comes from the base branch, as macos-placement's does.
-This bootstrap must start independently of the labels it validates: Blacksmith 2 vCPU
-(RUNNER_POOLS.linux_2) on every attempt, like the other placement bootstraps. It took hosted Ubuntu on
-attempt 1 until 2026-11-18, when GitHub-hosted runners left it queued for hours (cmux#45735). Its consumers take live fleet capacity from its outputs.
-
 ## note-26
 
 Above `checks: needs` in `.github/workflows/cmux-next.yml`.
@@ -480,7 +466,6 @@ its commit range: the previous base tier run's tip to this one ("Previous checke
 "Pushed commits add no violations" sweeps and base_red_checks.py compares against.
 vars.CMUX_NEXT_BASE_TIER_COALESCE = '0' puts it back on every push, with the base tier.
 Earlier (Leo, 2026-10-19; cx-g34i had dropped it) each push ran it so a direct push's red showed on that push.
-!cancelled(): a skipped or failed portable-placement (a fork, a re-run, a base tier run) leaves the Blacksmith route.
 
 ## note-27
 
@@ -686,6 +671,16 @@ cancels stopped at the 20-minute limit (20.3 to 20.6 min). They were 4,100 runne
 p50 of 6.4 min. Every log that was read showed a cold start and was 99% through compiling at the limit (job
 137081242103: step 14646 of 14698). The cancelled runs were then re-run (attempts 2 to 5), each one cold
 again, so none of them gave a verdict. With 30, a cold run finishes once and reports pass or fail.
+
+Other runs get 60, not 30. On 2026-11-22, run 45002704947 (cmux#49316) was cancelled at 30 three times
+(job 137149824562 on cmux18-glaeda-1, 08:35:54 to 09:05:06Z; job 137170836244 on cmux13s-mac-mini-glaeda-3,
+10:05:56 to 10:36:24Z). Each started cold: the seed root was refused ("busy, unprovisioned or has no room") and
+every shared root was busy, so the job skipped the R2 restore. `swift build --build-tests` for CmuxHomeRender
+took 37 s. For CmuxNext it ran 28.5 min, reached step 13998 of 14000 (CmuxNextAppTests) and was cancelled
+before any test started. That build takes no `--jobs`: SwiftPM uses every core, so the hook's
+`CMUX_CI_CPU_BUDGET=2` does not slow it, and raising the grant would not speed it up. The time comes from the
+cold start on a host that a waiting fleet build also needs. With 60, a cold run gets past its last link and
+gives a verdict.
 
 ## note-40
 
@@ -2141,6 +2136,30 @@ those two hours, 11 were at the limit (2,775 runner-min/day). Both hosts build a
 `/home/runner/work/cmux/cmux` with the pinned toolchain, and cargo's fingerprints check every reused
 crate. acpmux tests made the same fix in #49482. `cmux-next-car-guards.yml` reads this cache with the
 same key.
+
+## note-210b
+
+Above `fast-tier-cargo: environment`, `fast-tier-cargo: Key the cargo build in R2` and `Strip the workspace's own output before the R2 save` in `.github/workflows/cmux-next.yml`.
+
+note-210 (#49838) gives pool hosts and Blacksmith one key; this note covers the store. The GitHub cache store sits at its 10 GB cap (22 entries, most of them 0.6-1.1 GB bun and playwright caches on
+pull request refs), so the about 470 MB build a feat-cmux-next push saves there is evicted within minutes. A
+Blacksmith runner reads Blacksmith's own store and hits; a cmux-runner-pool runner read "No cache found" and
+compiled all ~495 crates: 650 s for the cargo step against 325 s on Blacksmith, the median job 14.7 min against
+7.4 (controller timing feed, 2026-11-22 01:00-05:30Z). Once linux_8 began landing the job on the pool (01:24Z),
+fast-tier-cargo went from 291 to 488 runner-hours a day.
+
+Off Blacksmith the job now restores `cmux-tui/target` and the cargo registry from R2 (scripts/ci/r2-cache.sh,
+public reads, no credentials, so pull requests read it too). The key is the cmux-tui lockfiles, toolchain file,
+rustc and cargo versions, plus a hash of the workspace path (Blacksmith's `_work` and the pool's `work` paths
+make different fingerprints); a lockfile change restores the newest entry under the same workspace prefix.
+A feat-cmux-next push off Blacksmith that missed the exact key strips the workspace crates' own output
+(scripts/ci/cargo_target_strip.py, what rust-cache's cleanup drops) and saves; r2-cache.sh skips a key that
+exists. Retention is r2_cache_prune.py's default (30 days, pointers kept).
+
+Only a feat-cmux-next run enters next-cache-writer (deployment branch feat-cmux-next only) and holds the R2
+write credentials, for NEXT's own bucket cmux-ci-cache-next (as note-171); a pull request holds none
+(tests/test_ci_pull_request_caches_are_read_only.py). Each restore is bounded at 4 minutes and each save at 6,
+both continue-on-error, so a slow store costs the build at most that and never fails or outlasts the job's 20.
 
 ## note-211
 
@@ -4767,12 +4786,6 @@ The placement code from the base branch, as ci-macos.yml's admission-placement u
 Above `if [ -z "$route" ] && [[ "$SIDE_LABEL" == glaeda-side-* ]] && [ "$GITHUB_RUN_ATT` in `.github/workflows/cmux-next.yml`.
 
 The rescue's re-run writes no owned route (side_lane_placement.rerun_main()).
-
-## note-532
-
-Above `if [ ! -f scripts/ci/portable_job_placement.py ]; then` in `.github/workflows/cmux-next.yml`.
-
-A base branch that predates the script places nothing: every job keeps its Blacksmith route.
 
 ## note-533
 

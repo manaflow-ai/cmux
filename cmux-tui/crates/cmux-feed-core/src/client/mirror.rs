@@ -191,6 +191,12 @@ impl Mirror {
         self.ledger.list_ids().filter_map(|id| self.ledger.visible.get(id))
     }
 
+    /// How many items [`Self::list`] yields (its open requests are
+    /// [`Counts::open_requests`], and they come first).
+    pub fn list_len(&self) -> usize {
+        self.ledger.list_len()
+    }
+
     /// Every visible item, newest first.
     pub fn timeline(&self) -> impl Iterator<Item = &FeedItem> {
         self.ledger.timeline_ids().filter_map(|id| self.ledger.visible.get(id))
