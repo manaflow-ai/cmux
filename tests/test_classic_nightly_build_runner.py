@@ -96,16 +96,22 @@ class TrustedRoute(unittest.TestCase):
 
 
 class CloudRoute(unittest.TestCase):
-    def test_no_snapshot_keeps_the_old_default(self) -> None:
-        self.assertEqual(picker.blacksmith_route(None, NOW)[0], picker.LARGE)
+    def test_no_snapshot_takes_six_vcpu_first(self) -> None:
+        # #39585 F1: runners.json's macos_26_large leads with 6 vCPU; 12 vCPU starves behind it.
+        self.assertEqual(picker.CANDIDATES, (picker.SMALL, picker.LARGE))
+        self.assertEqual(picker.blacksmith_route(None, NOW)[0], picker.SMALL)
 
-    def test_a_stalled_large_label_is_skipped(self) -> None:
+    def test_twelve_vcpu_is_only_the_overflow(self) -> None:
+        # Both moving: 6 vCPU, never the starved 12 vCPU.
+        self.assertEqual(picker.blacksmith_route(snapshot(), NOW)[0], picker.SMALL)
         self.assertEqual(picker.blacksmith_route(snapshot(large=40), NOW)[0], picker.SMALL)
-        self.assertEqual(picker.blacksmith_route(snapshot(large=2), NOW)[0], picker.LARGE)
+        # 6 vCPU stalled and 12 vCPU moving: the overflow.
+        self.assertEqual(picker.blacksmith_route(snapshot(small=40), NOW)[0], picker.LARGE)
+        self.assertEqual(picker.blacksmith_route(snapshot(small=2), NOW)[0], picker.SMALL)
 
     def test_snapshot_age_counts_toward_the_stall(self) -> None:
         later = NOW + dt.timedelta(minutes=9)
-        self.assertEqual(picker.blacksmith_route(snapshot(large=2), later)[0], picker.SMALL)
+        self.assertEqual(picker.blacksmith_route(snapshot(small=2), later)[0], picker.LARGE)
 
     def test_both_stalled_takes_the_label_with_more_slots(self) -> None:
         self.assertEqual(picker.blacksmith_route(snapshot(large=40, small=40), NOW)[0], picker.SMALL)
@@ -126,7 +132,9 @@ class FirstAndAlternate(unittest.TestCase):
         for fragment in ("6vcpu-macos", "macos", "6vcpu-macos-26", "vcpu"):
             self.assertEqual(picker.candidates(fragment), picker.CANDIDATES, fragment)
         # A label that is not a candidate changes nothing.
-        self.assertEqual(picker.blacksmith_route(None, now, "glaeda-std-xcode-26.6")[0], picker.LARGE)
+        self.assertEqual(picker.blacksmith_route(None, now, "glaeda-std-xcode-26.6")[0], picker.SMALL)
+        # FIRST still puts 12 vCPU ahead for a job that names it.
+        self.assertEqual(picker.blacksmith_route(None, now, "12vcpu")[0], picker.LARGE)
 
     def test_the_alternate_is_the_other_blacksmith_label_while_it_moves(self) -> None:
         self.assertEqual(picker.alternate(picker.SMALL), picker.LARGE)
@@ -349,7 +357,7 @@ class Main(unittest.TestCase):
 
     def test_outputs(self) -> None:
         self.assertEqual(self.run_main({}, [runner(POOL, RUNNER)], snapshot()),
-                         {"trusted": "true", "cloud": picker.LARGE, "alternate": picker.SMALL, "attempt": "1",
+                         {"trusted": "true", "cloud": picker.SMALL, "alternate": picker.LARGE, "attempt": "1",
                           "dead": "false"})
         self.assertEqual(self.run_main({}, [runner(POOL, RUNNER, status="offline")], snapshot(large=30)),
                          {"trusted": "false", "cloud": picker.SMALL, "alternate": picker.SMALL, "attempt": "1",
@@ -363,7 +371,7 @@ class Main(unittest.TestCase):
             picker.main({"GITHUB_REPOSITORY": "o/r", "ROUTE_TOKEN": "t", "SNAPSHOT_TOKEN": "s", "TRUSTED_POOL": POOL,
                          "TRUSTED_RUNNER": RUNNER, "ENABLED": "1", "GITHUB_OUTPUT": str(out)},
                         read_runners=boom, read_snapshot=boom, now=NOW)
-            self.assertIn(f"cloud={picker.LARGE}", out.read_text())
+            self.assertIn(f"cloud={picker.SMALL}", out.read_text())
 
 
 class Prepare(unittest.TestCase):
@@ -398,12 +406,12 @@ class Prepare(unittest.TestCase):
 
 class WallClock(unittest.TestCase):
     def test_the_wait_is_counted_once_without_an_injected_now(self) -> None:
-        # Busy for the whole wait; a snapshot made at the start shows 12 vCPU moving (oldest 4 min).
+        # Busy for the whole wait; a snapshot made at the start shows 6 vCPU moving (oldest 4 min).
         # Read after the 5-min wait its oldest job has waited 9 min, under the 10-min stall rule; counting
         # the wait twice (14 min) would wrongly call it stalled. The wall clock moves with the fake clock.
         clock = Clock()
         start = NOW
-        snap = {"generated_at": start.isoformat(), "pools": {picker.LARGE: {"queued": 1, "oldest_queued_minutes": 4}}}
+        snap = {"generated_at": start.isoformat(), "pools": {picker.SMALL: {"queued": 1, "oldest_queued_minutes": 4}}}
         with tempfile.TemporaryDirectory() as directory:
             out = Path(directory) / "out"
             picker.main({"GITHUB_REPOSITORY": "o/r", "ROUTE_TOKEN": "t", "SNAPSHOT_TOKEN": "s", "TRUSTED_POOL": POOL,
@@ -411,7 +419,7 @@ class WallClock(unittest.TestCase):
                         read_runners=lambda token, repo: [runner(POOL, RUNNER, busy=True)],
                         read_snapshot=lambda token, repo: snap, sleep=clock.sleep, clock=clock,
                         wall=lambda: start + dt.timedelta(seconds=clock()))
-            self.assertIn(f"cloud={picker.LARGE}", out.read_text())
+            self.assertIn(f"cloud={picker.SMALL}", out.read_text())
             self.assertIn("trusted=false", out.read_text())
 
 

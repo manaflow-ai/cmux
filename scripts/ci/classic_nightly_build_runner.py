@@ -14,8 +14,9 @@ This reads the pinned runner live once, before the build is queued:
   the rescue still watches it), with a warning.
 
 `blacksmith` is the Blacksmith macOS 26 label whose queue moves, by simple_pool_picker's one stall
-rule over the queue janitor's snapshot: 12 vCPU first (the build's old default), then 6 vCPU; with
-both stalled, 6 vCPU (more slots); with no fresh snapshot, 12 vCPU. A re-run of failed jobs keeps
+rule over the queue janitor's snapshot: 6 vCPU first, then 12 vCPU as overflow (runners.json's macos_26_large
+order since #39585: 12 vCPU starves behind 6 vCPU jobs in Blacksmith's shared macOS vCPU pool); with
+both stalled, 6 vCPU (more slots); with no fresh snapshot, 6 vCPU. A re-run of failed jobs keeps
 these outputs, so attempt 2 on takes `cloud`. Nothing here routes to any owned label other
 than the pinned pair, so the ci-cache-writer keys and the Sentry token stay on the trusted mini.
 FIRST (a label among those two, or its size, `6vcpu` or `12vcpu`) puts that label ahead: the sign
@@ -60,7 +61,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import simple_pool_picker as picker  # noqa: E402
 
 LARGE, SMALL = "blacksmith-12vcpu-macos-26", "blacksmith-6vcpu-macos-26"
-CANDIDATES = (LARGE, SMALL)
+CANDIDATES = (SMALL, LARGE)
 SIZES = {"12vcpu": LARGE, "6vcpu": SMALL}
 # The pinned mini's previous nightly usually ends inside this; past it a cold Blacksmith build
 # (about 60 min) starts sooner than the wait the 2026-10-27 runs saw.
