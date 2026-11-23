@@ -151,17 +151,17 @@ public struct AppSymbolMap: Sendable {
     private static func expand(_ block: [UInt8], count: Int) -> [UInt8]? {
         guard count >= 0, block.count >= count else { return nil }
         let noHash = Array("17h0000000000000000E".utf8)
+        var rests = block.dropFirst(count).split(separator: 0, omittingEmptySubsequences: false).makeIterator()
         var names: [UInt8] = []
         names.reserveCapacity(block.count * 3)
         var previous: [UInt8] = []
-        var at = count
-        for index in 0..<count {
-            let shared = Int(block[index])
-            guard shared <= previous.count, let end = block[at...].firstIndex(of: 0) else { return nil }
-            previous.removeSubrange(shared...)
-            previous.append(contentsOf: block[at..<end])
-            at = end + 1
-            if index != 0 { names.append(0) }
+        var first = true
+        for shared in block.prefix(count) {
+            guard let rest = rests.next(), previous.count >= Int(truncatingIfNeeded: shared) else { return nil }
+            previous.removeSubrange(Int(truncatingIfNeeded: shared)...)
+            previous.append(contentsOf: rest)
+            if !first { names.append(0) }
+            first = false
             if previous.last == 1 {
                 names.append(contentsOf: previous.dropLast())
                 names.append(contentsOf: noHash)
