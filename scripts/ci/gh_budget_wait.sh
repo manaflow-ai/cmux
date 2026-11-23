@@ -116,7 +116,7 @@ wait_for_budget() {
     return 1
   }
   log_wait "$why; waiting ${want}s $until (${spent}s waited in this job so far)"
-  sleep "$want"
+  sleep "$want"  # sleep-ok: waiting out the API rate-limit reset is the point
 }
 
 if [ "${1:-}" = "--install" ]; then

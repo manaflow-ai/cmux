@@ -172,7 +172,7 @@ class WrapperTests(unittest.TestCase):
         self.assertEqual(h.waited(), 0)
 
     def test_a_refused_spare_moves_to_the_next_pool_before_any_wait(self) -> None:
-        # Run 45060092627 (2026-11-22 19:22Z): the hot verify hand-off's github.token hour read 0 left and the job
+        # Run 45060092627 (2026-11-22 19:22Z): the hot verify dispatch's github.token hour read 0 left and the job
         # failed. Each App installation has its own hour, so a refused pool hands the call to the next one.
         h = self.harness(refusals=3, GH_BUDGET_WAIT_MAX_SECONDS="0", GH_TOKEN="workflow", SPARE="pool3",
                          GH_TOKEN_SPARE="bot", GH_TOKEN_SPARES="pool3 pool4")
@@ -192,9 +192,10 @@ class WrapperTests(unittest.TestCase):
         self.assertEqual(h.calls(), ["call api x", "call api x", "call api x", "rate_limit", "call api x"])
         self.assertEqual(h.waited(), 1)
 
-    def test_the_hot_verify_hand_off_dispatches_with_a_spare_pool(self) -> None:
+    def test_the_hot_verify_dispatch_goes_out_with_a_spare_pool(self) -> None:
+        # The dispatch is the plan job's last step since #51558 (the hand-off job is gone).
         text = (ROOT / ".github" / "workflows" / "cmux-next-hot-verify.yml").read_text()
-        hand_off = text[text.index("  hand-off:\n"):text.index("\n  target:\n")]
+        hand_off = text[text.index("  plan:\n"):text.index("\n  target:\n")]
         self.assertIn("bash scripts/ci/gh_budget_wait.sh --install", hand_off)
         self.assertIn("GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}", hand_off)
         self.assertIn("continue-on-error: true", hand_off)
