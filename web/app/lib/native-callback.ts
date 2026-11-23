@@ -65,16 +65,22 @@ export function isAllowedNativeScheme(
   return isLocalRequest(request) && localAllowedNativeSchemes().has(scheme);
 }
 
-export function isLocalRequest(request: NextRequest): boolean {
+/** The staging deployment of cmux.com; it signs in against the development sign-in project. */
+export const STAGING_WEB_HOST = "cmux-staging.vercel.app";
+
+/** The request's host name, lowercased, without a port. */
+export function requestHostname(request: NextRequest): string {
   const hostHeader = request.headers.get("host");
-  const host = (hostHeader?.split(":")[0] ?? request.nextUrl.hostname).toLowerCase();
+  return (hostHeader?.split(":")[0] ?? request.nextUrl.hostname).toLowerCase();
+}
+
+export function isLocalRequest(request: NextRequest): boolean {
+  const host = requestHostname(request);
   return host === "localhost" || host === "127.0.0.1" || host === "::1";
 }
 
-function isStagingRequest(request: NextRequest): boolean {
-  const hostHeader = request.headers.get("host");
-  const host = (hostHeader?.split(":")[0] ?? request.nextUrl.hostname).toLowerCase();
-  return host === "cmux-staging.vercel.app";
+export function isStagingRequest(request: NextRequest): boolean {
+  return requestHostname(request) === STAGING_WEB_HOST;
 }
 
 function localAllowedNativeSchemes(): Set<string> {
