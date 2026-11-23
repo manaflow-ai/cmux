@@ -2,8 +2,8 @@
 //! 305 left send p95 at 123 ms and no peer dropped, so host150 cannot show a fix working).
 //!
 //! - CPU, by pinning: the daemon's threads (and its children) are pinned to
-//!   `ACPMUX_DURESS_STARVE_CORES` cores (default 2), and `ACPMUX_DURESS_STARVE_X` busy loops a
-//!   core (default 20, so the daemon's cores hold 10x and more) plus the fork storm run pinned to
+//!   `ACPMUX_DURESS_STARVE_CORES` cores (default 1), and `ACPMUX_DURESS_STARVE_X` busy loops a
+//!   core (default 40: at 1 core x40 send p95 crossed 500 ms on an 8-CPU runner; at 2 cores x20 it did not) plus the fork storm run pinned to
 //!   the same cores. `ACPMUX_DURESS_STARVE_IDLE=1` also puts the daemon's threads in SCHED_IDLE
 //!   (they run only when its cores have nothing else to run). Pinning, not a CPU limit, because
 //!   it needs no cgroup; `ACPMUX_DURESS_STARVE_CPU_MAX` (e.g. `50000 1000000`) adds a cgroup
@@ -261,8 +261,8 @@ impl Starved {
         stressors: &mut Vec<Stressor>,
         notes: &mut Vec<String>,
     ) -> Self {
-        let n_cores = env_or("ACPMUX_DURESS_STARVE_CORES", 2usize).max(1);
-        let x = env_or("ACPMUX_DURESS_STARVE_X", 20usize).max(1);
+        let n_cores = env_or("ACPMUX_DURESS_STARVE_CORES", 1usize).max(1);
+        let x = env_or("ACPMUX_DURESS_STARVE_X", 40usize).max(1);
         let idle = env_or("ACPMUX_DURESS_STARVE_IDLE", 0u8) == 1;
         let high = std::env::var("ACPMUX_DURESS_STARVE_MEMORY_HIGH")
             .ok()
