@@ -561,26 +561,27 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
     // The listing goes to the store in the background: the chat is already running, and a resume
     // fetches it from there instead of sending it over this Mac's uplink.
     let published: Published = Arc::new(Mutex::new(None));
-    if super::store::on() {
-        let (published, manifest, pair) =
-            (Arc::clone(&published), listed.manifest.clone(), pair_of(&name));
-        std::thread::spawn(move || match super::store::publish(&manifest, &pair) {
-            Ok(done) => {
-                eprintln!(
-                    "cmux link project: the listing is in the store: {} pieces, {} bytes sent",
-                    done.pieces, done.sent
-                );
-                if let Ok(mut slot) = published.lock() {
-                    *slot = Some(done.root);
+    let mut revisions = Revisions { published: Arc::clone(&published), resent: 0 };
+    std::thread::scope(|scope| {
+        if super::store::on() {
+            let pair = pair_of(&name);
+            scope.spawn(|| match super::store::publish(&listed.manifest, &pair) {
+                Ok(done) => {
+                    eprintln!(
+                        "cmux link project: the listing is in the store: {} pieces, {} bytes sent",
+                        done.pieces, done.sent
+                    );
+                    if let Ok(mut slot) = published.lock() {
+                        *slot = Some(done.root);
+                    }
                 }
-            }
-            Err(error) => {
-                eprintln!("cmux link project: the listing stays off the store: {error:#}")
-            }
-        });
-    }
-    let mut revisions = Revisions { published, resent: 0 };
-    serve_until_gone(&socket, &name, &at, &encoded, &listed, stream, &mut revisions);
+                Err(error) => {
+                    eprintln!("cmux link project: the listing stays off the store: {error:#}");
+                }
+            });
+        }
+        serve_until_gone(&socket, &name, &at, &encoded, &listed, stream, &mut revisions);
+    });
     Ok(Value::Null)
 }
 

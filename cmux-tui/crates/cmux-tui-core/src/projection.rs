@@ -114,12 +114,15 @@ fn fetch_revision(revision: &RevisionRef) -> Result<cmux_projection::manifest::M
     let grant = revision.grant.clone();
     let root = revision.root.clone();
     // Its own thread: the blocking HTTP client cannot run inside an async runtime.
-    std::thread::spawn(move || {
-        let http = cmux_projection::peers::Http::new()?;
-        let store = cmux_projection::revision::Store { origin, grant, http: &http };
-        cmux_projection::revision::assemble(&root, &store)
+    std::thread::scope(|scope| {
+        scope
+            .spawn(|| {
+                let http = cmux_projection::peers::Http::new()?;
+                let store = cmux_projection::revision::Store { origin, grant, http: &http };
+                cmux_projection::revision::assemble(&root, &store)
+            })
+            .join()
     })
-    .join()
     .map_err(|_| unavailable("reading the revision panicked".into()))?
     .map_err(|error| unavailable(format!("{error:#}")))
 }
