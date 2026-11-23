@@ -1,6 +1,6 @@
 import { Plugin } from "@milkdown/kit/prose/state";
 import type { EditorView } from "@milkdown/kit/prose/view";
-import { FIELD_GROWTH_EVENT, type FieldGrowthDetail } from "./fieldGrowthEvent";
+import { FIELD_GROWTH_EVENT, TILE_SHAPE_EVENT, type FieldGrowthDetail } from "./fieldGrowthEvent";
 import { experimentArm } from "../../../experiments/experiment";
 import { SETTLING_SCROLLER_ATTRIBUTE } from "../../../scrollers";
 import { MOTION_SPRINGS, springCurve, type SpringParameters } from "../../../files-panel-motion";
@@ -43,9 +43,10 @@ import { fieldGrowthMotion, type FieldGrowthArm } from "./fieldGrowth.experiment
 // flash of the thumb scrollbar"). A move to the field's cap keeps its thumb: the text overflows.
 //
 // An edit that places or removes an attachment moves on the same spring (composer-attach-no-jump.test.ts,
-// Leo's #38155). Open: a tile whose image decodes after the paste still grows the field in one frame
-// (composer-geometry-stable.test.ts, attachment add); following the text's resize at rest regressed
-// composer-attach-no-jump and composer-shell-alignment, so the fix is the tile's final size at insert.
+// Leo's #38155), and so does a tile that changes size with no edit: its header read after the paste,
+// its chip dropped before its node goes. Only the tiles are watched at rest, not the text: following
+// every resize of the text regressed composer-attach-no-jump and composer-shell-alignment (a rewrap
+// from the pane's width is not an edit's motion).
 //
 // An edit that lands while the field moves retargets from the height drawn, keeping the motion's
 // end. A value set from outside (a send clearing the prompt, a chat's draft), Reduce Motion and
@@ -172,6 +173,10 @@ export function fieldGrowth(external: () => boolean): Plugin {
       // window's cap) by the field's own observer, which delivers after the edit that changes it.
       let shown = -1;
       let restObserver: ResizeObserver | undefined;
+      // Each attachment tile's own size: a tile changes size with no edit (its header read, its
+      // picture arriving, its chip dropped before its node goes), which moves the field at rest.
+      let tileObserver: ResizeObserver | undefined;
+      const tileSizes = new WeakMap<Element, { width: number; height: number }>();
       // The field's fixed edge, read once: the bottom (the dock grows upward) unless its CSS says
       // it grows downward from a fixed top (New Tab).
       let growsDown = false;
@@ -181,10 +186,40 @@ export function fieldGrowth(external: () => boolean): Plugin {
         growsDown = getComputedStyle(scroller).getPropertyValue("--acpmux-field-grows").trim() === "down";
         shown = scroller.getBoundingClientRect().height;
         const field = scroller;
+        // Made before the field's observer, so it is told first in a frame both see: `shown` is still
+        // the height drawn before the tile changed, and the move starts from it in that frame.
+        tileObserver = new ResizeObserver((entries) => {
+          let changed = false;
+          for (const entry of entries) {
+            const { width, height } = entry.target.getBoundingClientRect();
+            const before = tileSizes.get(entry.target);
+            tileSizes.set(entry.target, { width, height });
+            if (before && (Math.abs(before.width - width) > 0.5 || Math.abs(before.height - height) > 0.5))
+              changed = true;
+          }
+          // A move already running (the tile's commit started it) is left alone: restarted here, after
+          // the frame's layout, its animation would apply only from the next frame, and this one would
+          // paint the end height (29 px at once, composer-geometry-stable.test.ts). Its own observer
+          // of the text retargets it.
+          if (changed && !moving.has(field)) follow();
+        });
+        observeTiles();
         restObserver = new ResizeObserver(() => {
           if (!moving.has(field)) shown = field.getBoundingClientRect().height;
         });
         restObserver.observe(field);
+      };
+      /** Watches the tiles the text holds now (observe is a no-op for one already watched). */
+      const observeTiles = () => {
+        if (!tileObserver) return;
+        for (const tile of view.dom.querySelectorAll("[data-inline-attachment]")) {
+          if (tileSizes.has(tile)) continue;
+          // Its size when the text took it, read in the edit's own layout (follow read it just now): the
+          // observer's first report comes a frame later, maybe after the tile already took its size.
+          const { width, height } = tile.getBoundingClientRect();
+          tileSizes.set(tile, { width, height });
+          tileObserver.observe(tile);
+        }
       };
       const land = (field: HTMLElement) => {
         const motion = moving.get(field);
@@ -248,6 +283,9 @@ export function fieldGrowth(external: () => boolean): Plugin {
         const cssHeight = Number.parseFloat(getComputedStyle(field).height);
         const scale = cssHeight > 0 ? to / cssHeight : 1;
         const reveal = capped || (running?.reveal ?? false);
+        // A tile that took its size after the edit grows like an edit's: the tile is drawn in its final
+        // slot from the first frame (composer-attach-no-jump.test.ts), the line over it covered by the
+        // top edge and uncovered as it rises. Riding the top edge instead slid the new tile up 37 px.
         const holdsTop = growsDown || to < from;
         const now = performance.now();
         const { keyframes, duration, easing, progress } = growthFrames(
@@ -301,12 +339,24 @@ export function fieldGrowth(external: () => boolean): Plugin {
         field.dispatchEvent(new CustomEvent(FIELD_GROWTH_EVENT, { bubbles: true, detail }));
       };
       attach();
+      // A tile's new shape, told in its render's commit: the move starts before this frame's layout.
+      // The tiles' observer above is the fallback for a change no render tells (a picture decoding).
+      const shaped = () => {
+        observeTiles();
+        follow();
+      };
+      view.dom.addEventListener(TILE_SHAPE_EVENT, shaped);
       return {
         update(next, previous) {
           if (!scroller) attach();
-          if (!next.state.doc.eq(previous.doc)) follow();
+          if (!next.state.doc.eq(previous.doc)) {
+            follow();
+            observeTiles();
+          }
         },
         destroy() {
+          view.dom.removeEventListener(TILE_SHAPE_EVENT, shaped);
+          tileObserver?.disconnect();
           restObserver?.disconnect();
           if (scroller) land(scroller);
         },

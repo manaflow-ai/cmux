@@ -131,6 +131,15 @@ await requireBrowserLane("composer-attach-no-jump.test.ts", async () => {
         const fresh = all.filter((tile) => !probe.before.has(tile));
         const old = [...probe.before].find((tile) => tile.isConnected);
         const tile = fresh[0];
+        {
+          const chain: string[] = [];
+          for (let el: Element | null = box; el && chain.length < 9; el = el.parentElement) {
+            const r = el.getBoundingClientRect();
+            chain.push(`${el.className.toString().split(" ")[0]}:${Math.round(r.top)}-${Math.round(r.bottom)}`);
+          }
+          const sib = box.parentElement ? [...box.parentElement.children].map((c) => `${c.className.toString().split(" ")[0]}:${Math.round(c.getBoundingClientRect().top)}-${Math.round(c.getBoundingClientRect().bottom)}`) : [];
+          ((window as any).__chain ??= []).push(chain.join(" < ") + " || sibs " + sib.join(", "));
+        }
         probe.frames.push({
           box: box.getBoundingClientRect().height,
           top: box.getBoundingClientRect().top,
@@ -285,7 +294,7 @@ await requireBrowserLane("composer-attach-no-jump.test.ts", async () => {
     const summary = shown
       .map(
         (frame) =>
-          `${frame.where}@${Math.round(frame.tile!.x)},${Math.round(frame.tile!.y)} ${Math.round(frame.tile!.width)}x${Math.round(frame.tile!.height)} box=${Math.round(frame.box)}`,
+          `${frame.where}@${Math.round(frame.tile!.x)},${Math.round(frame.tile!.y)} ${Math.round(frame.tile!.width)}x${Math.round(frame.tile!.height)} box=${Math.round(frame.box)} bottom=${Math.round(frame.top + frame.box)}`,
       )
       .filter((line, index, all) => index === 0 || line !== all[index - 1]);
     console.log(`composer-attach-no-jump ${label}: ${summary.join(" | ")}`);

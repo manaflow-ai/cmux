@@ -37,6 +37,8 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 type Edge = { top: number; bottom: number };
 /** One painted frame of the composer. */
 type Sample = {
+  /** performance.now() at the frame's callback. */
+  at: number;
   boxTop: number;
   boxBottom: number;
   boxHeight: number;
@@ -50,7 +52,7 @@ type Sample = {
   textTop: number | null;
   chips: number;
 };
-type Shift = { value: number; hadRecentInput: boolean; maxMove: number };
+type Shift = { value: number; hadRecentInput: boolean; maxMove: number; mover?: string };
 type Probe = { samples: Sample[]; stable: number; stop: () => void; shifts: Shift[]; observer?: PerformanceObserver };
 type ProbeWindow = Window & { __geometry?: Probe; cmuxAcpmuxComposer?: (settings: Record<string, unknown>) => void };
 type Selectors = { box: string; field: string; md: string; parts: Record<string, string> };
@@ -164,15 +166,28 @@ await requireBrowserLane("composer-geometry-stable.test.ts", async () => {
         for (const entry of entries as Entry[]) {
           if (entry.startTime < start) continue;
           let maxMove = 0;
+          // The node that moved most, named in the failure (its tag and classes, its rects).
+          let mover: string | undefined;
           for (const source of entry.sources ?? []) {
             if (!source.node || !box.contains(source.node)) continue;
-            maxMove = Math.max(
-              maxMove,
+            const move = Math.max(
               Math.abs(source.currentRect.y - source.previousRect.y),
               Math.abs(source.currentRect.x - source.previousRect.x),
             );
+            if (move <= maxMove) continue;
+            maxMove = move;
+            const element = source.node instanceof Element ? source.node : source.node.parentElement;
+            const name = element ? `${element.tagName.toLowerCase()}.${[...element.classList].join(".")}` : "text";
+            const rect = (each: DOMRectReadOnly) =>
+              `${each.x.toFixed(1)},${each.y.toFixed(1)} ${each.width.toFixed(1)}x${each.height.toFixed(1)}`;
+            mover = `${name} ${rect(source.previousRect)} -> ${rect(source.currentRect)} at ${entry.startTime.toFixed(1)} ms`;
           }
-          probe.shifts.push({ value: entry.value, hadRecentInput: entry.hadRecentInput, maxMove });
+          probe.shifts.push({
+            value: entry.value,
+            hadRecentInput: entry.hadRecentInput,
+            maxMove,
+            ...(mover ? { mover } : {}),
+          });
         }
       };
       const observer = new PerformanceObserver((list) => take(list.getEntries()));
@@ -246,6 +261,7 @@ await requireBrowserLane("composer-geometry-stable.test.ts", async () => {
         boxTop: outer.top,
         boxBottom: outer.bottom,
         boxHeight: outer.height,
+        at: performance.now(),
         visible: {
           top: own.top + parseFloat(style.borderTopWidth) + parseFloat(style.paddingTop),
           bottom: own.bottom - parseFloat(style.borderBottomWidth) - parseFloat(style.paddingBottom),
@@ -364,7 +380,11 @@ await requireBrowserLane("composer-geometry-stable.test.ts", async () => {
       const step = Math.abs(after.boxHeight - before.boxHeight);
       if (step > 0.25) steps++;
       maxStep = Math.max(maxStep, step);
-      if (before.textTop !== null && after.textTop !== null) {
+      // A line the top edge covers in either frame is not drawn there: a growth draws every line in
+      // its final place and uncovers the top one as the edge rises (fieldGrowth.ts), so only a line
+      // shown in both frames can jump.
+      const shown = (sample: Sample) => sample.textTop !== null && sample.textTop >= sample.visible.top - 0.5;
+      if (shown(before) && shown(after)) {
         const excess = Math.abs(after.textTop - before.textTop) - Math.abs(after.boxTop - before.boxTop);
         if (excess > textJump) {
           textJump = excess;
@@ -499,6 +519,10 @@ await requireBrowserLane("composer-geometry-stable.test.ts", async () => {
           const heights = samples
             .map((sample) => fmt(sample.boxHeight))
             .filter((height, index, all) => index === 0 || height !== all[index - 1]);
+          if (process.env.GEOMETRY_TIMES)
+            console.log(
+              `${label} frames: ${samples.map((each) => `${each.at.toFixed(1)}:${fmt(each.boxHeight)}`).join(" ")}`,
+            );
           console.log(
             `composer-geometry-stable ${label}: ${moved.steps} frames of height change, chips ${samples[0]!.chips}->${samples.at(-1)!.chips}, heights ${heights.join(" ")}` +
               `${moved.jumpAt ? `; worst text move ${moved.jumpAt}` : ""}`,
@@ -525,7 +549,7 @@ await requireBrowserLane("composer-geometry-stable.test.ts", async () => {
           if (observed)
             fail(
               shiftMove <= smooth,
-              `${label}: a layout shift moved part of the composer ${fmt(shiftMove)} px in one frame (${shifts.length} entries, sum ${sum.toFixed(4)})`,
+              `${label}: a layout shift moved part of the composer ${fmt(shiftMove)} px in one frame (${shifts.length} entries, sum ${sum.toFixed(4)}; ${shifts.find((each) => each.maxMove === shiftMove)?.mover ?? "no node"})`,
             );
         }
         expect(failures).toEqual([]);
