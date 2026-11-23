@@ -47,10 +47,13 @@ use helper::{Prepared, Signing, WantedHelper};
 use live::{Change, Daemon, LivePayload, Phases, Store, Wanted};
 
 mod copy;
+mod daemon_updates;
 mod helper;
 mod live;
 mod resolve;
 mod share;
+
+pub(crate) use daemon_updates::spawn as spawn_daemon_updates;
 
 pub(crate) use share::Command as ShareCommand;
 pub(super) use share::{parse as parse_share, run as run_share};
