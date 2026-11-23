@@ -405,31 +405,39 @@ pub(super) fn apply(
 /// `0` (else `ACPMUX_UPDATE_IDLE_RESTART` in the timer's environment).
 pub(crate) const IDLE_RESTART_FILE: &str = "update.idle-restart";
 
-/// The file in [`REMOTE_HOME`] that holds the [`RESTART_STAMP`] an idle
-/// restart was made under: the window that stamp opened has had its one
-/// early restart.
+/// The file in [`REMOTE_HOME`] that holds when (the host's `date +%s`) the
+/// last idle restart was made.
 pub(crate) const IDLE_RESTARTED_FILE: &str = "update.idle-restarted";
 
-/// Starts the lines [`idle_state`] reads.
+/// Starts the line [`idle_state`] reads.
 const IDLE_STATE: &str = "ACPMUX_IDLE_STATE=";
 
-/// The host's idle-restart switch, restart stamp, and the stamp an idle
-/// restart was made under, as one line `off|on stamp spent`.
-fn idle_state(remote: &dyn Remote) -> Option<(bool, String, String)> {
+/// The host's idle-restart switch, restart stamp, and whether an idle
+/// restart is due (none yet, or the last one at least the window ago, the
+/// window as the restart window's own file, then the timer's
+/// [`RESTART_WINDOW_ENV`], else [`RESTART_WINDOW_SECS`]; a time from the
+/// future counts as due): `(off, due, stamp)`.
+fn idle_state(remote: &dyn Remote) -> Option<(bool, bool, String)> {
     let script = format!(
         r#"v=$(cat {REMOTE_HOME}/{IDLE_RESTART_FILE} 2>/dev/null | tr -cd '0-9a-z')
 [ -n "$v" ] || v=$(printf '%s' "${{ACPMUX_UPDATE_IDLE_RESTART-}}" | tr -cd '0-9a-z')
 [ "$v" = 0 ] && o=off || o=on
 s=$(cat {REMOTE_HOME}/{RESTART_STAMP} 2>/dev/null | tr -cd '0-9')
 d=$(cat {REMOTE_HOME}/{IDLE_RESTARTED_FILE} 2>/dev/null | tr -cd '0-9')
-echo "{IDLE_STATE}$o ${{s:-0}} ${{d:-0}}"
+w=$(cat {REMOTE_HOME}/{RESTART_WINDOW_FILE} 2>/dev/null | tr -cd '0-9')
+[ -n "$w" ] || w=$(printf '%s' "${{{RESTART_WINDOW_ENV}-}}" | tr -cd '0-9')
+[ -n "$w" ] || w={RESTART_WINDOW_SECS}
+n=$(date +%s); due=due
+if [ -n "$d" ] && [ "$d" -le "$n" ] && [ $((n - d)) -lt "$w" ]; then due=wait; fi
+echo "{IDLE_STATE}$o $due ${{s:-0}}"
 "#
     );
     let out = remote.exec(&script, None).ok()?;
     let line = out.stdout.lines().find_map(|l| l.strip_prefix(IDLE_STATE))?;
     let mut words = line.split(' ');
     let off = words.next()? == "off";
-    Some((off, words.next()?.to_owned(), words.next()?.to_owned()))
+    let due = words.next()? == "due";
+    Some((off, due, words.next()?.to_owned()))
 }
 
 /// The restart window held the daemon (`up`, busy `restartWindow`): the
@@ -441,17 +449,17 @@ echo "{IDLE_STATE}$o ${{s:-0}} ${{d:-0}}"
 /// the window's forced restart applies as before, and a later run that finds
 /// the daemon idle takes this path again. This path always installs the
 /// channel's newest build, so moves that landed while it waited are one
-/// restart. At most one idle restart per window: a restart made this way
-/// writes [`IDLE_RESTARTED_FILE`] with the new stamp, and the next idle
-/// restart waits for a restart that is not one (a forced one after the
-/// window). Off with `0` in [`IDLE_RESTART_FILE`] or `ACPMUX_UPDATE_IDLE_RESTART`.
+/// restart. Idle restarts are at least a window apart: one writes the host's
+/// time to [`IDLE_RESTARTED_FILE`] (the early restart stamps the window too,
+/// so counting from the stamp would let one restart follow another), and
+/// the next waits until a window has passed since. Together with the
+/// window (measured from the last restart of any kind) that is at most one
+/// restart per host per hour amortized, and 2 in any rolling hour. Off with
+/// `0` in [`IDLE_RESTART_FILE`] or `ACPMUX_UPDATE_IDLE_RESTART`.
 fn idle_restart(remote: &dyn Remote, opts: &UpdateOptions, held: PeerUpdate) -> PeerUpdate {
-    let Some((false, stamp, spent)) = idle_state(remote) else {
+    let Some((false, true, stamp)) = idle_state(remote) else {
         return held;
     };
-    if stamp == spent {
-        return held;
-    }
     let early = UpdateOptions {
         binary_dir: opts.binary_dir.clone(),
         if_idle: true,
@@ -461,14 +469,12 @@ fn idle_restart(remote: &dyn Remote, opts: &UpdateOptions, held: PeerUpdate) -> 
         now: true,
     };
     let up = update_peer(remote, &early);
-    if let Some((_, after, _)) = idle_state(remote)
+    if let Some((_, _, after)) = idle_state(remote)
         && after != stamp
     {
         let file = format!("{REMOTE_HOME}/{IDLE_RESTARTED_FILE}");
-        let _ = remote.exec(
-            &format!("(umask 077 && echo {after} > {file}.$$ && mv -f {file}.$$ {file})"),
-            None,
-        );
+        let write = format!("(umask 077 && date +%s > {file}.$$ && mv -f {file}.$$ {file})");
+        let _ = remote.exec(&write, None);
     }
     match (up.outcome, up.reason.as_deref()) {
         // Mid-turn: the window's answer stands, as it reads to the person.

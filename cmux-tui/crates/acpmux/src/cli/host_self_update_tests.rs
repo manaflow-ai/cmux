@@ -640,10 +640,14 @@ async fn a_window_that_holds_an_idle_daemon_restarts_it_once() {
     restarted_ago(&peer, 5 * 60);
     let up = windowed_apply(&peer, NEW).await;
     assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(NEW)), "{up:?}");
-    let stamp = peer.read(".acpmux/update.restarted");
-    assert_eq!(peer.read(".acpmux/update.idle-restarted").trim(), stamp.trim());
+    let early: u64 = peer.read(".acpmux/update.idle-restarted").trim().parse().unwrap();
+    assert!((clock() - 60..=clock()).contains(&early), "the early restart is timed");
 
-    // A newer build a few minutes on: coalesced into the window's forced restart.
+    // A newer build ten minutes on, idle: the early restart made one
+    // stamp, but the guard counts from the early restart itself, so no
+    // cascade; coalesced into the window's forced restart.
+    restarted_ago(&peer, 10 * 60);
+    peer.write(".acpmux/update.idle-restarted", &format!("{}\n", clock() - 10 * 60));
     let newer = "b2c3d4e5f 2026-10-22";
     let installed = peer.read(".local/bin/acpmux");
     let up = windowed_apply(&peer, newer).await;
