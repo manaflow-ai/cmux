@@ -350,6 +350,21 @@ impl Mux {
                     Err(refusal) => refuse(refusal).await,
                 }
             }
+            // A move's pages, served in process as on a plain circuit; both end together, as
+            // there: the carry's end shuts `ours`, and the server's end drops `theirs`.
+            Ok(CircuitService::TransferSource) => {
+                match incoming.admit_transfer(from.as_deref()).await {
+                    Ok(gate) => {
+                        let (ours, theirs) = tokio::io::duplex(DUPLEX_BYTES);
+                        let from = from.unwrap_or_default();
+                        tokio::join!(
+                            gate.serve(from, theirs),
+                            self.carry_admitted(id, ours, events, credit)
+                        );
+                    }
+                    Err(refusal) => refuse(refusal).await,
+                }
+            }
             // The acpmux listener keeps its own circuits (it sends no hello).
             Ok(CircuitService::Acpmux) => {
                 refuse(ServiceRefusal::new("service.unknown", "no such service")).await
