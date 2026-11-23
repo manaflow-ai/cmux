@@ -129,12 +129,44 @@ extension WorkspaceTabsSource {
     /// tab's own id so a new chat of the tab is a new store.
     func terminalChatStore(_ tab: WorkspaceTab, in workspace: Workspace, chatSession: String, faces: TerminalChatFaces) -> AgentChatStore {
         let harness = faces.harness ?? tab.harness ?? "claude"
-        return sessions.store(for: AgentSessionSummary(
+        let store = sessions.store(for: AgentSessionSummary(
             id: "\(tab.id)#chat:\(chatSession)", name: tab.title, harness: harness,
             agentName: harness == "codex" ? "Codex" : "Claude", cwd: tab.subtitle ?? workspace.directory,
             workspaceTitle: workspace.title, macName: macName, branch: workspace.branch,
             status: tab.agentStatus.map { $0 == .waiting ? .waiting : .running } ?? .idle,
             macID: workspace.macID, acpmuxSessionID: chatSession))
+        if store.terminalInput == nil { store.terminalInput = terminalChatInput(tabID: tab.id, store: store) }
+        return store
+    }
+
+    /// The chat face's composer, when its chat shows (the accessory row's, as an agent tab's).
+    func terminalChatFaceStore(_ tab: WorkspaceTab, in workspace: Workspace) -> AgentChatStore? {
+        let faces = pairFaces(tab, in: workspace)
+        guard faces.offered, faces.chatEnabled, let chat = terminalChatSessionID(tab, in: workspace) else { return nil }
+        return terminalChatStore(tab, in: workspace, chatSession: chat, faces: faces)
+    }
+
+    /// Where the chat face's composer sends: the terminal of tab `tabID`, as Rust routes a
+    /// chat face's prompt (`terminal_chat_prompt`). Its chat is a View Only watch, which acpmux
+    /// refuses a prompt; the agent in the terminal takes it as typed, and the chat shows the turn.
+    private func terminalChatInput(tabID: String, store: AgentChatStore) -> AgentChatStore.TerminalChatInput {
+        AgentChatStore.TerminalChatInput(send: { [weak self, weak store] text in
+            guard let self, let workspace = self.workspace, let tab = self.workspaceTab(tabID) else { return false }
+            switch terminalChatPrompt(facts: self.terminalChatFacts(tab, in: workspace), text: text) {
+            case .nothing:
+                return false
+            case .terminal(let prompt):
+                ConnectTimeline.shared.event("terminal_chat_send", detail: tabID)
+                return self.terminal.submitPrompt(prompt, for: tab, in: workspace) { [weak store] in
+                    guard let store else { return }
+                    store.clientError = AgentChatStore.terminalNotSentNotice
+                    store.returnedDraft = AgentChatStore.ReturnedDraft(text: prompt, attachments: [], promptID: nil)
+                }
+            }
+        }, interrupt: { [weak self] in
+            guard let self, let workspace = self.workspace, let tab = self.workspaceTab(tabID) else { return }
+            self.terminal.interrupt(tab, in: workspace)
+        })
     }
 
     /// The chat face needs a chat no chat of the Mac is: ask the Mac for its View Only chat, once
@@ -227,10 +259,42 @@ extension WorkspaceTabsSource {
         let faces = pairFaces(tab, in: workspace)
         guard faces.offered else { return [] }
         let other: TabFace = face(of: tab, faces: faces) == .chat ? .terminal : .chat
-        return [TabsKitMenuItem(id: "tab.toggleTerminalChat", title: other == .chat ? "Show Chat" : "Show Terminal",
+        return [TabsKitMenuItem(id: Self.toggleTerminalChatID, title: other == .chat ? "Show Chat" : "Show Terminal",
                                 systemImage: other == .chat ? "bubble.left" : "terminal") { [weak self] in
             self?.swapTerminalChat(tab.id, to: other)
         }]
+    }
+
+    /// The Show Chat / Show Terminal button beside the Tabs button (the page menu's row,
+    /// one tap away), on half of a pair, in the DEBUG `.toolbar` placement. Nil elsewhere:
+    /// the default puts the toggle in the key row (`placeKeyBarChatToggle`, `ShowTerminalKey`).
+    func terminalChatToolbarAction(_ tab: WorkspaceTab, in workspace: Workspace) -> TabsKitTrailingAction? {
+        let faces = pairFaces(tab, in: workspace)
+        guard faces.offered else { return nil }
+        let chatShown = face(of: tab, faces: faces) == .chat
+        guard TerminalChatTogglePlacement.current == .toolbar else { return nil }
+        return chatShown
+            ? TabsKitTrailingAction(id: Self.toggleTerminalChatID, title: "Show Terminal", systemImage: "terminal")
+            : TabsKitTrailingAction(id: Self.toggleTerminalChatID, title: "Show Chat", systemImage: "bubble.left")
+    }
+
+    func performTerminalChatToolbarAction(_ action: TabsKitTrailingAction, in tabID: String) {
+        guard action.id == Self.toggleTerminalChatID, let workspace, let tab = workspaceTab(tabID) else { return }
+        swapTerminalChat(tabID, to: showsChatFace(tab, in: workspace) ? .terminal : .chat)
+    }
+
+    static let toggleTerminalChatID = "tab.toggleTerminalChat"
+
+    /// The terminal face's Show Chat key: pinned beside the composer key (the default), or a
+    /// DEBUG placement's first or last scroller key; none in the `.toolbar` placement.
+    func placeKeyBarChatToggle(_ tab: WorkspaceTab, in workspace: Workspace, offered: Bool) {
+        let placement = TerminalChatTogglePlacement.current
+        let tabID = tab.id
+        var action: (@MainActor () -> Void)?
+        if offered && placement != .toolbar {
+            action = { [weak self] in self?.swapTerminalChat(tabID, to: .chat) }
+        }
+        terminal.setKeyBarChatToggle(placement.keyBarSlot ?? .pinned, action: action, for: tab, in: workspace)
     }
 
     /// Whether terminal `tab` shows its chat face now (its key bar and keyboard stay away then).
@@ -267,7 +331,9 @@ struct TerminalChatPair<Terminal: View, Chat: View>: View {
 
 /// A terminal tab's page with its chat face (`WorkspaceTabPage`): the pair and the one request a
 /// chat face may need (`openTerminalChatIfNeeded`). The page menu's Show Chat / Show Terminal row
-/// swaps the faces; the page has no floating Chat | Terminal control (Aziz, 2026-11-16).
+/// and the toolbar's face button swap the faces; the page has no floating Chat | Terminal control
+/// (Aziz, 2026-11-16). The chat face takes prompts: its composer is the agent chat's own
+/// (`AgentChatBottomStack`, in the accessory row), and what it sends goes to the terminal.
 struct TerminalChatPage<Terminal: View>: View {
     let source: WorkspaceTabsSource
     let tab: WorkspaceTab
@@ -304,7 +370,72 @@ struct TerminalChatPage<Terminal: View>: View {
         // Runs again when another chat shows the session, so the pairing kept on disk follows it.
         .task(id: "\(tab.linkIDs?.harnessSession ?? "")|\(faces.offered)|\(chatSession ?? "")") {
             if faces.offered { source.openTerminalChatIfNeeded(tab.id) }
+            source.placeKeyBarChatToggle(tab, in: workspace, offered: faces.offered)
         }
     }
 }
 #endif
+
+/// Where the terminal and chat toggle goes. Release: `.pinned`, a key beside the terminal
+/// face's composer key and the same key over the chat face's composer. DEBUG builds read
+/// `CMUX_TERMINAL_CHAT_TOGGLE` (`pinned`, `keybar-first`, `keybar-last`, `toolbar`) so the
+/// placements can be recorded side by side. The chat face has no key bar: every key bar
+/// placement puts its Show Terminal key over the composer.
+public enum TerminalChatTogglePlacement: String, Sendable {
+    case pinned
+    case keyBarFirst = "keybar-first"
+    case keyBarLast = "keybar-last"
+    /// The address capsule's trailing slot, beside the Tabs button, on both faces.
+    case toolbar
+
+    public static var current: TerminalChatTogglePlacement {
+        #if DEBUG
+        ProcessInfo.processInfo.environment["CMUX_TERMINAL_CHAT_TOGGLE"].flatMap(Self.init(rawValue:)) ?? .pinned
+        #else
+        .pinned
+        #endif
+    }
+
+    var keyBarSlot: TerminalChatKeySlot? {
+        switch self {
+        case .pinned: .pinned
+        case .keyBarFirst: .first
+        case .keyBarLast: .last
+        case .toolbar: nil
+        }
+    }
+}
+
+/// Where in the terminal face's key row Show Chat goes.
+public enum TerminalChatKeySlot: Sendable {
+    /// Pinned, right after the composer key.
+    case pinned
+    /// The scroller's first key.
+    case first
+    /// The scroller's last key.
+    case last
+}
+
+/// The chat face's Show Terminal key, over its composer: the key row's look (a 28 pt glass
+/// key with its label), where the terminal face pins Show Chat.
+struct ShowTerminalKey: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label("Terminal", systemImage: "terminal")
+                .labelStyle(.titleAndIcon)
+                .font(.system(size: 14, weight: .medium))
+                .lineLimit(1)
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 8)
+                .frame(height: 28)
+                .contentShape(.rect(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .accessibilityLabel("Show Terminal")
+        .accessibilityIdentifier("terminal.key.showTerminal")
+        .accessibilityIdentifier("terminal.chat.showTerminal")
+    }
+}

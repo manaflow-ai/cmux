@@ -66,6 +66,7 @@ struct TerminalKeyBar: View {
                     Joystick(engine: model.joystickEngine)
                     KeyCap(key: .composer, model: model)
                         .accessibilityLabel(model.composerPresented ? "Hide Text Field" : "Show Text Field")
+                    if let toggle = model.keyBarChatToggle, toggle.slot == .pinned { ChatToggleKey(toggle: toggle) }
                 }
                 .padding(.leading, TerminalDockMetrics.horizontalInset)
             }
@@ -113,9 +114,11 @@ struct KeyBarScrollerKeys: View {
     var body: some View {
         GlassEffectContainer(spacing: 0) {
             HStack(spacing: TerminalDockMetrics.keySpacing) {
+                if let toggle = model.keyBarChatToggle, toggle.slot == .first { ChatToggleKey(toggle: toggle) }
                 ForEach(layout.scroller, id: \.self) { key in
                     KeyBarScrollerKey(key: key, model: model, clipped: clipped)
                 }
+                if let toggle = model.keyBarChatToggle, toggle.slot == .last { ChatToggleKey(toggle: toggle) }
             }
             .padding(.trailing, TerminalDockMetrics.horizontalInset)
         }
@@ -135,7 +138,7 @@ struct KeyBarScrollerKey: View {
                 // The system paste control: no "Allow Paste" prompt (Codex QA F14).
                 // It draws its own cap: no glass over it (`PasteKeyCap`).
                 PasteKeyCap(model: model)
-                    .frame(width: TerminalDockMetrics.minKeyWidth, height: TerminalDockMetrics.keyRowHeight)
+                    .frame(height: TerminalDockMetrics.keyRowHeight)
                     .clipShape(RoundedRectangle(cornerRadius: KeyRowGlass.cornerRadius, style: .continuous))
             } else {
                 KeyCap(key: key, model: model)
@@ -224,6 +227,38 @@ struct KeyCap: View {
     }
 }
 
+/// Show Chat, for a terminal tab that also has a chat face: pinned after the composer key
+/// (the default), or a DEBUG placement's first or last scroller key.
+struct ChatToggleKey: View {
+    let toggle: KeyBarChatToggle
+
+    var body: some View {
+        Button(action: toggle.action) {
+            Label("Chat", systemImage: "bubble.left")
+                .labelStyle(.titleAndIcon)
+                .font(.system(size: 14, weight: .medium))
+                .lineLimit(1)
+                .foregroundStyle(.primary)
+        }
+        .buttonStyle(KeyCapStyle())
+        .keyGlass(armed: false)
+        .accessibilityLabel("Show Chat")
+        .accessibilityIdentifier("terminal.key.showChat")
+    }
+}
+
+/// The key row's Show Chat key: where it goes and what a tap does.
+public struct KeyBarChatToggle {
+    public enum Slot: Sendable { case pinned, first, last }
+    public var slot: Slot
+    public var action: @MainActor () -> Void
+
+    public init(slot: Slot, action: @escaping @MainActor () -> Void) {
+        self.slot = slot
+        self.action = action
+    }
+}
+
 /// The system keyboard's click (Settings → Terminal → Key clicks). The key
 /// row is not the keyboard's input view, so `UIDevice.playInputClick` stays
 /// silent for it; this plays the same system sound, which follows the
@@ -295,7 +330,9 @@ struct PasteKeyCap: UIViewRepresentable {
 
     func makeUIView(context: Context) -> UIPasteControl {
         let configuration = UIPasteControl.Configuration()
-        configuration.displayMode = .iconOnly
+        // Icon and "Paste": icon-only, it was the one key with no label, and greyed out
+        // (nothing to paste) it looked like a button that did nothing (Leo, 2026-11-22).
+        configuration.displayMode = .iconAndLabel
         configuration.cornerStyle = .medium
         // Opaque, near the dark glass keys over the terminal's black.
         configuration.baseBackgroundColor = KeyRowGlass.pasteBackground
@@ -308,6 +345,13 @@ struct PasteKeyCap: UIViewRepresentable {
 
     func updateUIView(_ control: UIPasteControl, context: Context) {
         if control.target == nil { control.target = model.controller?.surface }
+    }
+
+    /// The control's own width for its localized label, at the row's height.
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView control: UIPasteControl, context: Context) -> CGSize? {
+        let fitted = control.systemLayoutSizeFitting(CGSize(width: UIView.layoutFittingCompressedSize.width,
+                                                            height: TerminalDockMetrics.keyRowHeight))
+        return CGSize(width: max(TerminalDockMetrics.minKeyWidth, ceil(fitted.width)), height: TerminalDockMetrics.keyRowHeight)
     }
 }
 #endif

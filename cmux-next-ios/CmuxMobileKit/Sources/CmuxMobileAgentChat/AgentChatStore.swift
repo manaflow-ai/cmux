@@ -312,6 +312,28 @@ public final class AgentChatStore {
     /// A prompt that was not sent, for the composer to put back (then cleared).
     public var returnedDraft: ReturnedDraft?
 
+    /// Set on a terminal tab's chat face (`TerminalChatPage`): its chat is a View Only watch of
+    /// the terminal's agent, which acpmux refuses a prompt (`watch.read_only`), so Send types the
+    /// prompt into that terminal (cmux-mobile-link-ffi `terminal_chat_prompt`) and Stop presses
+    /// Escape there, as the person would on the terminal face. Send answers false when the
+    /// terminal could not take it: the draft comes back, with why.
+    @ObservationIgnored public var terminalInput: TerminalChatInput?
+
+    /// Where a terminal tab's chat face sends (`terminalInput`).
+    public struct TerminalChatInput {
+        public var send: @MainActor (String) -> Bool
+        public var interrupt: @MainActor () -> Void
+        public init(send: @escaping @MainActor (String) -> Bool, interrupt: @escaping @MainActor () -> Void) {
+            self.send = send
+            self.interrupt = interrupt
+        }
+    }
+
+    /// The terminal could not take a chat face's prompt (`terminalInput`).
+    public static let terminalNotSentNotice = "Not sent: the terminal isn't connected. Your message is back in the field."
+    /// Files go from the terminal face (its composer uploads them and pastes their paths).
+    public static let terminalAttachmentsNotice = "Not sent: attach files from the terminal face, which uploads them to the Mac."
+
     public struct ReturnedDraft: Hashable, Sendable {
         public var id = UUID()
         public var text: String
@@ -559,6 +581,14 @@ public final class AgentChatStore {
         let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || !attachments.isEmpty else { return }
         clientError = nil
+        if let terminalInput {
+            // A terminal's chat face: the prompt goes where the terminal's own typing goes.
+            if !attachments.isEmpty || !terminalInput.send(text) {
+                clientError = attachments.isEmpty ? Self.terminalNotSentNotice : Self.terminalAttachmentsNotice
+                returnedDraft = ReturnedDraft(text: text, attachments: attachments, promptID: nil)
+            }
+            return
+        }
         if denyingPermission, let permission = pendingPermission {
             let options = permission.request.phoneOptions
             let deny = options.first { $0.kind == .rejectOnce } ?? options.first { !$0.isAllow }
@@ -625,7 +655,10 @@ public final class AgentChatStore {
 
     private var retryRequested = false
 
-    public func cancel() { source.send(.cancel) }
+    public func cancel() {
+        if let terminalInput { return terminalInput.interrupt() }
+        source.send(.cancel)
+    }
 
     public func respond(to request: ACPPermissionRequest, option: ACPPermissionOption?) {
         // A refusal is about the previous answer ("Approve this on your Mac"):

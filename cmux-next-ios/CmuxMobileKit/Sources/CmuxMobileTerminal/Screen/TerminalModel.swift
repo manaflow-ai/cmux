@@ -101,6 +101,8 @@ public final class TerminalModel {
     /// The composer is shown (classic cmux iOS: open by default, closed with
     /// the compose key for this page's life).
     public internal(set) var composerPresented = true
+    /// The key row's Show Chat key (nil: none; set on half of a terminal and chat pair).
+    public var keyBarChatToggle: KeyBarChatToggle?
     /// Hide Toolbar took the key row and the composer away until the next terminal tap.
     public internal(set) var chromeHidden = false
     /// Attachments are being sent; the composer waits.
@@ -663,6 +665,31 @@ public final class TerminalModel {
         composerSendRefused = false
         heldComposerSend = connectionState.isAttached || composerText.isEmpty
             ? nil : (composerText, ProcessInfo.processInfo.systemUptime)
+    }
+
+    /// The tab's chat face's Send (`AgentChatStore.terminalInput`): `text` reaches the program
+    /// as the composer's Send takes a draft (one paste plus Return through the Mac's terminal
+    /// when the session can, else typed through the mirror), without touching the terminal's
+    /// own draft. False when nothing was sent (not attached, refused, or no page yet), so the
+    /// chat face puts the text back; `notSent` hears a send the Mac drops or refuses later.
+    @discardableResult
+    public func submitPrompt(_ text: String, notSent: (@MainActor () -> Void)? = nil) -> Bool {
+        guard !text.isEmpty, connectionState.composerNotSentNotice == nil else { return false }
+        let submit = ComposerSubmit(text: text, pressReturn: true, fullScreenApp: isTUI)
+        if submit.steps.first == .paste(text), session.sendPasteAndSubmit(text, notSent: { [weak self] in
+            self?.composerNotice = TerminalConnectionState.composerSendNotSentNotice
+            notSent?()
+        }) {
+            return true
+        }
+        guard let controller else { return false }
+        controller.surface.sendText(text, pressReturn: true, fullScreenApp: isTUI)
+        return true
+    }
+
+    /// The tab's chat face's Stop: Escape to the program (Claude Code and Codex stop the turn).
+    public func pressEscape() {
+        keyBar(.escape)
     }
 
     /// Voice mode's prompt: the user's words typed into the terminal with

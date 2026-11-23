@@ -474,6 +474,24 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         model.focusComposer()
     }
 
+    func submitPrompt(_ text: String, for tab: WorkspaceTab, in workspace: Workspace,
+                      notSent: @escaping @MainActor () -> Void) -> Bool {
+        host(for: tab, in: workspace).model.submitPrompt(text, notSent: notSent)
+    }
+
+    func interrupt(_ tab: WorkspaceTab, in workspace: Workspace) {
+        host(for: tab, in: workspace).model.pressEscape()
+    }
+
+    func setKeyBarChatToggle(_ slot: TerminalChatKeySlot, action: (@MainActor () -> Void)?, for tab: WorkspaceTab, in workspace: Workspace) {
+        let keySlot: KeyBarChatToggle.Slot = switch slot {
+        case .pinned: .pinned
+        case .first: .first
+        case .last: .last
+        }
+        host(for: tab, in: workspace).model.keyBarChatToggle = action.map { KeyBarChatToggle(slot: keySlot, action: $0) }
+    }
+
     /// Each tab's card view, made once per slot: a card body is a lookup.
     private var cardViews: [String: (slot: ObjectIdentifier, view: AnyView)] = [:]
 

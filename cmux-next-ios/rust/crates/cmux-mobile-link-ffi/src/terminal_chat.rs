@@ -253,6 +253,34 @@ pub fn terminal_chat_harness(agent: String) -> Option<String> {
     family_of(&agent).map(str::to_owned)
 }
 
+/// Where a prompt typed in a tab's chat face goes.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
+pub enum TerminalChatPrompt {
+    /// Not sent: only whitespace, or the tab is not a terminal with a chat face. A chat
+    /// tab's own composer sends to its own acpmux chat, as before.
+    Nothing,
+    /// Typed into the tab's terminal the way the terminal face's own composer sends a
+    /// prompt (one paste, then Return), so the agent running there takes it as typed and
+    /// the chat face shows the turn as the agent writes it.
+    Terminal { text: String },
+}
+
+/// What Send does with `text` in tab `facts`' chat face (Leo, 2026-11-22: "dont have it read
+/// only. just do it properly."). A terminal's chat face is a View Only chat of its session,
+/// which acpmux refuses a prompt (`hub/watch.rs` `watch.read_only`): the prompt goes to the
+/// terminal running the session instead, where the person's own typing goes.
+#[uniffi::export]
+pub fn terminal_chat_prompt(facts: TerminalChatFacts, text: String) -> TerminalChatPrompt {
+    if !facts.terminal || !terminal_chat_faces(facts).offered {
+        return TerminalChatPrompt::Nothing;
+    }
+    let text = text.trim();
+    if text.is_empty() {
+        return TerminalChatPrompt::Nothing;
+    }
+    TerminalChatPrompt::Terminal { text: text.to_owned() }
+}
+
 /// The acpmux family of a chat's harness: a profile (`claude-cr`) is its family's.
 fn family_of(harness: &str) -> Option<&'static str> {
     tabs::harness(Some(harness)).or_else(|| {
@@ -284,6 +312,42 @@ mod tests {
             running,
             ..TerminalChatFacts::default()
         }
+    }
+
+    #[test]
+    fn a_terminal_chat_face_prompt_goes_to_the_terminal() {
+        let facts = terminal(Some("claude"), Some("s1"));
+        assert_eq!(
+            terminal_chat_prompt(facts.clone(), "  fix the test\n".to_owned()),
+            TerminalChatPrompt::Terminal { text: "fix the test".to_owned() }
+        );
+        // Several lines stay one prompt (the terminal pastes them as one).
+        assert_eq!(
+            terminal_chat_prompt(facts.clone(), "one\ntwo".to_owned()),
+            TerminalChatPrompt::Terminal { text: "one\ntwo".to_owned() }
+        );
+        assert_eq!(terminal_chat_prompt(facts, " \n ".to_owned()), TerminalChatPrompt::Nothing);
+    }
+
+    #[test]
+    fn only_a_terminal_pair_routes_a_chat_prompt() {
+        // Toggle off: the terminal has no chat face to type in.
+        let off = TerminalChatFacts { toggle_on: false, ..terminal(Some("claude"), Some("s1")) };
+        assert_eq!(terminal_chat_prompt(off, "hi".to_owned()), TerminalChatPrompt::Nothing);
+        // No agent session, or an agent acpmux does not adopt: no chat face.
+        assert_eq!(
+            terminal_chat_prompt(terminal(Some("claude"), None), "hi".to_owned()),
+            TerminalChatPrompt::Nothing
+        );
+        assert_eq!(
+            terminal_chat_prompt(terminal(Some("aider"), Some("s1")), "hi".to_owned()),
+            TerminalChatPrompt::Nothing
+        );
+        // A chat tab sends to its own chat.
+        assert_eq!(
+            terminal_chat_prompt(chat("claude", Some("s1"), true), "hi".to_owned()),
+            TerminalChatPrompt::Nothing
+        );
     }
 
     fn candidate(

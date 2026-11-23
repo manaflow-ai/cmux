@@ -5371,6 +5371,88 @@ public func FfiConverterTypeTabFace_lower(_ value: TabFace) -> RustBuffer {
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
+ * Where a prompt typed in a tab's chat face goes.
+ */
+
+public enum TerminalChatPrompt: Equatable, Hashable {
+    
+    /**
+     * Not sent: only whitespace, or the tab is not a terminal with a chat face. A chat
+     * tab's own composer sends to its own acpmux chat, as before.
+     */
+    case nothing
+    /**
+     * Typed into the tab's terminal the way the terminal face's own composer sends a
+     * prompt (one paste, then Return), so the agent running there takes it as typed and
+     * the chat face shows the turn as the agent writes it.
+     */
+    case terminal(text: String
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension TerminalChatPrompt: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTerminalChatPrompt: FfiConverterRustBuffer {
+    typealias SwiftType = TerminalChatPrompt
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TerminalChatPrompt {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .nothing
+        
+        case 2: return .terminal(text: try FfiConverterString.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: TerminalChatPrompt, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .nothing:
+            writeInt(&buf, Int32(1))
+        
+        
+        case let .terminal(text):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(text, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalChatPrompt_lift(_ buf: RustBuffer) throws -> TerminalChatPrompt {
+    return try FfiConverterTypeTerminalChatPrompt.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalChatPrompt_lower(_ value: TerminalChatPrompt) -> RustBuffer {
+    return FfiConverterTypeTerminalChatPrompt.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
  * What a tap on face `to` does.
  */
 
@@ -6229,6 +6311,20 @@ public func terminalChatPairing(chats: [TerminalChatCandidate], listedWhole: Boo
 })
 }
 /**
+ * What Send does with `text` in tab `facts`' chat face (Leo, 2026-11-22: "dont have it read
+ * only. just do it properly."). A terminal's chat face is a View Only chat of its session,
+ * which acpmux refuses a prompt (`hub/watch.rs` `watch.read_only`): the prompt goes to the
+ * terminal running the session instead, where the person's own typing goes.
+ */
+public func terminalChatPrompt(facts: TerminalChatFacts, text: String) -> TerminalChatPrompt  {
+    return try!  FfiConverterTypeTerminalChatPrompt_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_terminal_chat_prompt(
+        FfiConverterTypeTerminalChatFacts_lower(facts),
+        FfiConverterString.lower(text),$0
+    )
+})
+}
+/**
  * The chat among `chats` that already shows `harness` session `session`, if any: a View
  * Only chat first (it follows the terminal), else one that resumed it and is not closed.
  * acpmux would answer an adopt of the session with the same chat
@@ -6354,6 +6450,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_chat_pairing() != 6333) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_chat_prompt() != 8354) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_chat_session() != 14930) {

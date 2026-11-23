@@ -67,6 +67,15 @@ public protocol TerminalTabContent: AnyObject {
     /// New Tab from Text's `!command`: the command waits in the terminal's composer, typed and
     /// not run (the Mac's `newTab.submit` types it into the new terminal), with the keyboard up.
     func draft(_ text: String, for tab: WorkspaceTab, in workspace: Workspace)
+    /// The tab's chat face's Send: `text` typed into the terminal with Return, as its composer
+    /// sends a draft, the terminal's own draft untouched. False when the terminal could not take
+    /// it now; `notSent` hears a send the Mac drops or refuses afterwards.
+    func submitPrompt(_ text: String, for tab: WorkspaceTab, in workspace: Workspace,
+                      notSent: @escaping @MainActor () -> Void) -> Bool
+    /// The tab's chat face's Stop: Escape to the terminal's program.
+    func interrupt(_ tab: WorkspaceTab, in workspace: Workspace)
+    /// Puts Show Chat in the tab's key bar (`action` nil: takes it out).
+    func setKeyBarChatToggle(_ slot: TerminalChatKeySlot, action: (@MainActor () -> Void)?, for tab: WorkspaceTab, in workspace: Workspace)
     /// Replaces the title pill's subtitle (the working directory) while the
     /// tab's state matters more, e.g. "Reattaching…" after a slow reattach
     /// (design/terminal P5). Nil keeps the directory. Read during view
@@ -92,6 +101,10 @@ extension TerminalTabContent {
     public func overviewScrollingChanged(_ scrolling: Bool) {}
     public func focusInput(for tab: WorkspaceTab, in workspace: Workspace) {}
     public func draft(_ text: String, for tab: WorkspaceTab, in workspace: Workspace) {}
+    public func submitPrompt(_ text: String, for tab: WorkspaceTab, in workspace: Workspace,
+                             notSent: @escaping @MainActor () -> Void) -> Bool { false }
+    public func interrupt(_ tab: WorkspaceTab, in workspace: Workspace) {}
+    public func setKeyBarChatToggle(_ slot: TerminalChatKeySlot, action: (@MainActor () -> Void)?, for tab: WorkspaceTab, in workspace: Workspace) {}
     public func statusSubtitle(for tab: WorkspaceTab) -> String? { nil }
     public func sceneActiveChanged(_ active: Bool) {}
     public func observeOutput(_ owner: AnyObject, _ handler: @escaping @MainActor (String?, String) -> Void) {}

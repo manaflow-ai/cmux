@@ -491,7 +491,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 address: .title(tab.title, subtitle: status ?? directory, monospaced: status == nil),
                 navigation: TabsKitNavigationState(canGoBack: true),
                 features: [.history, .pageMenu],
-                statusBarStyle: .lightContent
+                statusBarStyle: .lightContent,
+                trailingAction: terminalChatToolbarAction(tab, in: workspace)
             )
         case .browser:
             let model: (any BrowserTabState)? = native.model(tab: tab.id, macID: workspace.macID)
@@ -1373,6 +1374,10 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     public func reloadOrStop(_ id: TabsKitTab.ID) {
         if let tab = workspaceTab(id), tab.kind == .browser { browser(tab).reloadOrStop() }
+    }
+
+    public func performTrailingAction(_ action: TabsKitTrailingAction, in id: TabsKitTab.ID) {
+        performTerminalChatToolbarAction(action, in: id)
     }
 
     public func navigate(_ id: TabsKitTab.ID, to text: String) {
@@ -2471,8 +2476,18 @@ struct WorkspaceTabAccessory: View {
             case .agent:
                 AgentChatBottomStack(store: source.chatStore(tab, workspace), surface: source.surface(tab.id))
             case .terminal where source.showsChatFace(tab, in: workspace):
-                // A View Only chat takes no prompt: no key bar over it (the terminal face has it).
-                EmptyView()
+                // The agent chat's own composer (Leo, 2026-11-22: "dont have it read only"): what
+                // it sends is typed into the terminal (`terminalChatInput`). No key bar over it.
+                if let store = source.terminalChatFaceStore(tab, in: workspace) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        // The toggle as a key beside where the terminal face pins its composer key.
+                        if TerminalChatTogglePlacement.current != .toolbar {
+                            ShowTerminalKey { source.swapTerminalChat(tab.id, to: .terminal) }
+                                .padding(.leading, 16)
+                        }
+                        AgentChatBottomStack(store: store, surface: source.surface("\(tab.id)#chat"))
+                    }
+                }
             case .terminal:
                 let context = context
                 source.terminal.accessory(for: tab, in: workspace, context: TerminalTabContext(
