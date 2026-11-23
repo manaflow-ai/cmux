@@ -13,6 +13,7 @@ import table from "./generated/strings.json";
 import { MockCloudProvider } from "./mockProvider";
 import { parseLayout } from "./model";
 import { PAGE_COMMAND } from "./ops";
+import { pageStorage } from "./machineCache";
 import { CloudStore, parseView } from "./store";
 // The shared popup and dialog surface (ui.css imports it; this page loads no ui.css): the sheet role
 // rule `.ui-dialog.ui-glass` draws this page's dialogs.
@@ -24,7 +25,8 @@ import { appPopupHost } from "../shared/pagePopupHost";
 export function mountCloudPage(root: HTMLElement, client: PageClient | null = defaultClient()): CloudStore {
   const params = new URLSearchParams(location.search);
   const layout = parseLayout(document.documentElement.dataset.cloudMachinesLayout ?? params.get("layout"));
-  const store = new CloudStore(client, { layout, view: parseView(location.hash) });
+  // The page keeps its last machine list (machineCache.ts), so the next open draws it at once.
+  const store = new CloudStore(client, { layout, view: parseView(location.hash), cache: pageStorage() });
   // `#/get` opens the storefront; the host or a link may set it on an open page.
   window.addEventListener("hashchange", () => store.setView(parseView(location.hash)));
   // The fragment follows the view, so a later `#/get` link changes the hash and opens the storefront.
