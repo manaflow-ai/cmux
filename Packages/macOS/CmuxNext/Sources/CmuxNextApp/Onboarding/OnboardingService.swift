@@ -167,8 +167,7 @@ final class OnboardingService {
     }
     /// After it (``AppEnvironment/launchSteps``): for `.windows` the first-run windows, then this Mac's first launch is finished.
     func showFirstRunSteps(_ route: FirstRunSetup.Route?, isFirstRun: Bool) async {
-        guard await presenter.showLaunchSteps(services.environment.launchSteps, isFirstRun: isFirstRun) else { return }
-        guard route == .windows else { return }
+        guard await presenter.showLaunchSteps(services.environment.launchSteps, isFirstRun: isFirstRun), route == .windows else { return }
         await presenter.showFirstRunSteps(isFirstRun: isFirstRun, source: signInHarnesses) {
             UserDefaults.standard.set(true, forKey: OnboardingWindowPresenter.historyShownKey)
         }
