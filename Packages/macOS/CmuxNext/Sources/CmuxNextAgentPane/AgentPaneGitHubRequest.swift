@@ -102,11 +102,27 @@ public nonisolated enum AgentPaneGitHubRequest: Equatable, Sendable {
         }
     }
 
-    /// `{state, repos_scope, reason}`: `reason` (`signed_out`, `not_configured`, `unreachable`) only when unavailable,
-    /// so the picker can still offer Connect GitHub.
+    /// `{state, repos_scope, reason, problem, message}`: `reason` (`signed_out`, `not_configured`, `unreachable`) only when
+    /// unavailable, so the picker can still offer Connect GitHub. A not-connected state that needs more than "Connect" says
+    /// so in `problem` (`needs_reauth`, `linking`, `error`, `link_refused`) and `message`, the words the Connect row shows;
+    /// both are null otherwise.
     @MainActor static func statusReply(_ status: CloudGitHubPicker.Status) -> [String: Any] {
         AgentPaneReply.success(["state": status.state, "repos_scope": status.reposScope.map { $0 as Any } ?? NSNull(),
-                                "reason": status.reason.map { $0.rawValue as Any } ?? NSNull()])
+                                "reason": status.reason.map { $0.rawValue as Any } ?? NSNull(),
+                                "problem": status.problem.map { $0 as Any } ?? NSNull(),
+                                "message": message(for: status).map { $0 as Any } ?? NSNull()])
+    }
+
+    /// The words for a Connect GitHub state that is not a plain "not connected": the server's reason or the API's own when
+    /// it gave one, else the app's.
+    @MainActor static func message(for status: CloudGitHubPicker.Status) -> String? {
+        switch status {
+        case .needsReauth(let detail): detail ?? AgentPaneModel.gitHubReauthMessage
+        case .linking: AgentPaneModel.gitHubConnectPendingMessage
+        case .error: AgentPaneModel.gitHubConnectionErrorMessage
+        case .linkRefused(let reason): reason ?? AgentPaneModel.gitHubLinkExpiredMessage
+        case .ready, .notConnected, .unavailable: nil
+        }
     }
 
     /// Connect GitHub where GitHub is unavailable: `github.signed_out`, `github.not_configured` or `github.unavailable`.

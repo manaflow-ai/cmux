@@ -46,9 +46,11 @@ def routed(path: str, patterns: list[str]) -> bool:
 
 
 def pull_request_paths(workflow_text: str) -> list[str]:
-    """The `on.pull_request.paths` list, read without a YAML library (the runner's python3 has none)."""
+    """The `on.pull_request.paths` list, read without a YAML library (the runner's python3 has none), or the
+    `on.push.paths` list when the workflow has no pull_request trigger (gallery health renders feat-cmux-next
+    pushes only since 2026-11-21; both lists are the same when both exist)."""
     lines = workflow_text.splitlines()
-    start = lines.index("  pull_request:")
+    start = lines.index("  pull_request:") if "  pull_request:" in lines else lines.index("  push:")
     paths: list[str] = []
     inside = False
     for line in lines[start + 1:]:
@@ -65,7 +67,7 @@ def pull_request_paths(workflow_text: str) -> list[str]:
                 break
             paths.append(item.group(1))
     if not paths:
-        raise SystemExit("unplaced.py: no pull_request paths in the workflow")
+        raise SystemExit("unplaced.py: no pull_request or push paths in the workflow")
     return paths
 
 

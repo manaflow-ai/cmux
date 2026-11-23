@@ -72,6 +72,7 @@ fn snapshot(home: &Path, tmp: &Path) -> Result<migrate::Manifest, String> {
     migrate::create_private_dir(memory_to.parent().unwrap_or(tmp))?;
     migrate::vacuum_into(&memory_from, &memory_to)?;
     let memory = migrate::memory_counts(Some(&migrate::table_counts(&memory_to)?));
+
     let conv_from = home
         .join("tui")
         .join(&session_dir)

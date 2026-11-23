@@ -14,9 +14,10 @@ import { Plugin, PluginKey } from "@milkdown/kit/prose/state";
 import type { EditorView } from "@milkdown/kit/prose/view";
 import { $prose } from "@milkdown/kit/utils";
 import { markPointerDown } from "./pointerSelect";
+import { intl } from "../../ui/intl";
 
 const paddingSelectKey = new PluginKey("cmuxMarkdownPaddingSelect");
-const WORDS = new Intl.Segmenter(undefined, { granularity: "word" });
+const WORDS = intl.Segmenter(undefined, { granularity: "word" });
 /** How far past the scroller's edge the pointer is before a drag scrolls at full speed. */
 const SCROLL_RAMP = 60;
 /** Pixels per frame at full speed. */

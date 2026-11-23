@@ -23,7 +23,9 @@ public import os
 ///
 /// ```swift
 /// let provider = FreeTierAttestProvider(environment: acpmux, attest: AppleDeviceAttest(service: .shared, device: .current),
-///                                       keys: KeychainAttestKeyStore(service: "...", account: "key"), logger: logger)
+///                                       keys: KeychainAttestKeyStore(service: "...", account: "key",
+///                                                                   withoutUI: { loginKeychain.withoutUI($0) }),
+///                                       logger: logger)
 /// await provider.start(origin: "https://cloud-api.cmux.dev", enabled: true, managed: false)
 /// ```
 public actor FreeTierAttestProvider {

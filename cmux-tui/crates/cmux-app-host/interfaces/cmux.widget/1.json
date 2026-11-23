@@ -11,7 +11,7 @@
     "render": "scene"
   },
   "events": [],
-  "nodes": ["VStack", "HStack", "ZStack", "Group", "ForEach", "Text", "Icon", "Image", "Spacer", "Divider", "Badge", "Row", "Button", "ProgressView", "EmptyState", "Toggle", "TextField", "Circle", "Capsule", "Rectangle", "RoundedRectangle", "Panel"],
+  "nodes": ["VStack", "HStack", "ZStack", "Group", "ForEach", "Text", "Icon", "Image", "Spacer", "Divider", "Badge", "Row", "Button", "ProgressView", "EmptyState", "Toggle", "TextField", "Circle", "Capsule", "Rectangle", "RoundedRectangle", "Line", "Panel"],
   "maxNodes": 256,
   "options": {
     "type": "object",

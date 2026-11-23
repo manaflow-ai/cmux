@@ -6,6 +6,7 @@ import CmuxNextHome
 import CmuxNextPages
 import CmuxNextScreenshots
 import CmuxNextTabs
+import WebKit
 
 /// One of this app's main windows as on screen, for `cmux window|pane|tab
 /// screenshot`: the window server's image of the window and its Chromium
@@ -41,16 +42,16 @@ struct AppWindowImage {
     /// or Leave site) shows the not-captured stripes there, never the window server's blank pixels (a black page,
     /// while the screen shows the page behind the dialog). A page asking Leave site is not asked: no image comes.
     /// - Returns: The layers, how many pages there are, and how many gave no image.
-    static func pageLayers(in window: NSWindow, services: AppServices) async -> (layers: [WindowImageLayer], pages: Int, failed: Int) {
+    static func pageLayers(in window: NSWindow, services: AppServices, skip: Bool = false) async -> (layers: [WindowImageLayer], pages: Int, failed: Int) {
         var layers: [WindowImageLayer] = [], pages = 0, failed = 0
-        for (page, rect) in DebugWindowSnapshot.chromiumPages(in: window, services: services) {
+        for (page, rect) in skip ? [] : DebugWindowSnapshot.chromiumPages(in: window, services: services) {
             let image = page.pendingPrompts.contains { $0.kind.isBeforeUnload } ? nil : try? await page.snapshot()
             pages += 1; if image == nil { failed += 1 }
             let holes = page.pageWindowHoles.map { page.contentView.convert($0, to: nil) }
             layers += WindowImageLayer.chromiumPage(image, rect, holes: holes, clip: page.pageWindowClip, devTools: await page.dockedDevToolsPicture())
         }
         // React pages on the Chromium engine (the agent page, Settings) draw the same way.
-        for (page, rect) in PageRegistry.shownChromiumPages(in: window) {
+        for (page, rect) in skip ? [] : PageRegistry.shownChromiumPages(in: window) {
             let image = await page.chromiumImage()
             pages += 1; if image == nil { failed += 1 }
             layers += WindowImageLayer.chromiumPage(image, rect, holes: page.chromiumWindowHoles, clip: page.chromiumWindowClip, devTools: await page.chromiumDevTools()) // a chat leaves its pane's tabs uncovered
@@ -64,9 +65,10 @@ struct AppWindowImage {
     /// pages (their pixels are only in their child windows), then the app's own Chromium pages
     /// painted in, then the masks on top. It fails closed: a mask that cannot be painted, or a
     /// window that keeps animating or resizing, refuses the capture instead of giving its pixels.
-    /// - Returns: The image and how many areas it masks.
+    /// - Returns: The image, how many areas it masks, and each area's name and frame in window
+    ///   coordinates (``ScreenshotMask/Rules/name``), so the result can say what is grey.
     /// - Throws: ``WindowScreenshotFailure`` or ``ScreenshotMask/Failure``.
-    static func maskedCapture(_ window: NSWindow) async throws -> (image: CGImage, masked: Int) {
+    static func maskedCapture(_ window: NSWindow) async throws -> (image: CGImage, masked: Int, areas: [ScreenshotMask.Area]) {
         for _ in 0..<ScreenshotMask.attempts {
             let sampler = ScreenshotMask.Sampler(window: window, rules: .app)
             defer { sampler.stop() }
@@ -83,10 +85,10 @@ struct AppWindowImage {
             guard mask.isSettled else { continue }
             layers += mask.regions.map(WindowImageLayer.mask)
             guard let image = WindowImageLayer.composite(base: base, window: window, layers: layers) else {
-                if mask.regions.isEmpty { return (base, 0) }
+                if mask.regions.isEmpty { return (base, 0, []) }
                 throw ScreenshotMask.Failure.unmaskable
             }
-            return (image, mask.regions.count)
+            return (image, mask.regions.count, mask.areas)
         }
         throw ScreenshotMask.Failure.unsettled
     }
@@ -121,8 +123,27 @@ extension ScreenshotMask.Rules {
             return launch
         },
         isAppPage: { $0 is PageWebView },
-        coversContents: { $0 is BrowserChromeView }
+        coversContents: { $0 is BrowserChromeView },
+        name: ScreenshotMask.areaName
     )
+}
+
+extension ScreenshotMask {
+    /// What a masked area is, as the capture's `masked_areas` names it: `home` for every Home view,
+    /// `chat` for an agent chat or its launch frame, `browser` for a browser pane, its page or a
+    /// stray web view, `tab-strip` for a pane's tab strip, `page:<id>` for an app page.
+    static func areaName(_ view: NSView) -> String {
+        if let page = view as? PageWebView { return "page:\(page.descriptor.id)" }
+        if let tab = view as? InternalPageView { return tab.page == .homeDock || tab.page == .homeTab ? "home" : "page:\(tab.page.rawValue)" }
+        if view is HomeHostView || view is TopHomePageView || view is HomeNewMessageView || view is HomeDockSwitchView
+            || view is HomeSidebarView || view is HomeNativeTranscriptView { return "home" }
+        if view is AgentPaneView { return "chat" }
+        if view is TabStripView { return "tab-strip" }
+        if view is BrowserChromeView || BrowserChromeView.isPageContent(view) || view is WKWebView { return "browser" }
+        // A pane's launch image is the only other area (``Rules/app``): a chat's last frame.
+        if sequence(first: view, next: \.superview).contains(where: { ($0 as? PaneContentView)?.launchImageView === view }) { return "chat" }
+        return "area"
+    }
 }
 
 extension ScreenshotMask {

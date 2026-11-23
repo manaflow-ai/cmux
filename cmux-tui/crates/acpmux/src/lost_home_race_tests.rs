@@ -495,6 +495,37 @@ fn removing_a_tree_refuses_a_file_and_removes_only_a_link() {
     );
 }
 
+/// A Unix socket an earlier daemon left under the held home reads as a socket, and is removed, so
+/// the next daemon binds its own there. On macOS the held read opened the name for events only,
+/// which a socket refuses (`EOPNOTSUPP`): the old `share-host/device.sock` read as "nothing",
+/// stayed, the bind failed, and the app never reached the daemon's device (one Mac, two device
+/// rows). Leo: "i cant connect from air blue to cosmic gray even after turning on tons of shit".
+#[cfg(unix)]
+#[test]
+fn a_left_socket_is_read_and_removed() {
+    isolated(
+        module_path!(),
+        "a_left_socket_is_read_and_removed",
+        |home| {
+            use std::os::unix::fs::FileTypeExt;
+            crate::config::hold_home();
+            let folder = home.join("share-host");
+            std::fs::create_dir(&folder).unwrap();
+            let path = folder.join("device.sock");
+            // Bound by its name in the folder: a temp path can pass the socket path limit.
+            std::env::set_current_dir(&folder).unwrap();
+            drop(std::os::unix::net::UnixListener::bind("device.sock").unwrap());
+            let meta = crate::home_fs::symlink_metadata(&path).expect("a left socket reads");
+            assert!(meta.file_type().is_socket(), "it read as {:?}", meta.file_type());
+            crate::home_fs::remove_file(&path).unwrap();
+            assert!(std::fs::symlink_metadata(&path).is_err(), "the left socket stayed");
+            std::os::unix::net::UnixListener::bind("device.sock")
+                .expect("the next bind takes the path");
+        },
+        |_, _| {},
+    );
+}
+
 /// Windows (and any platform): a writer under the held home checks the home's identity again
 /// right before each step (`home_fs`; on Windows the file id, its volume serial and file index).
 /// The same home passes; a replaced one is refused and gets nothing.

@@ -436,7 +436,6 @@ export default componentEntry<Props>({
         height: 640,
         intro: chiefIntroText("askFocus", strings),
         agents: GLANCES,
-        memoryOffer: "Bring your memory from Claude Code",
         petShown: true,
       },
     },
@@ -467,15 +466,6 @@ export default componentEntry<Props>({
         context: { isChief: true },
         states: [{ id: "rightSidebar", isOn: true, shortcut: "⌥⌘B" }],
         enabled: true,
-      },
-    },
-    "header-sharing": {
-      note: "Sharing the screen with Chief: lit; the other toggles off by the Debug switch.",
-      props: {
-        card: "header",
-        context: { isChief: true },
-        states: [{ id: "screenShare", isOn: true }],
-        enabled: false,
       },
     },
     "header-person": {

@@ -9,8 +9,7 @@ ask whether the job needed macOS. This module asks.
 
 * `job_classes`: what kind of work a job does, and whether that kind of work
   needs macOS (`"needs": "macos"`), runs on Linux (`"needs": "linux"`), or
-  runs anywhere (`"needs": "any"`: fleet Linux first, then a free owned mini,
-  Blacksmith Linux last, through scripts/ci/portable_job_placement.py).
+  runs anywhere (`"needs": "any"`: it takes cmux-linux).
 * `macos_jobs`: every workflow job whose `runs-on:` can route to macOS,
   as `"<workflow file>#<job id>"`, mapped to its class.
 
@@ -81,7 +80,7 @@ MACOS_HINT = re.compile(
     r"|early_(?!(?:linux|mini)_runner)[a-z_]+_runner",
     re.IGNORECASE,
 )
-NON_MAC_HINT = re.compile(r"ubuntu|linux|windows", re.IGNORECASE)
+NON_MAC_HINT = re.compile(r"ubuntu|linux|windows|cmux-gcp-", re.IGNORECASE)  # cmux-gcp-*-x64: GCP Linux VMs
 
 NEEDS = ("macos", "linux", "any")
 
@@ -102,6 +101,7 @@ NIGHTLY_MINI = re.compile(r"needs\.(?:build-nightly-app\.outputs\.light_mini_run
 NIGHTLY_LINUX = ("needs.build-nightly-app.outputs.light_linux_runner", "needs.decide.outputs.early_linux_runner")
 NIGHTLY_SLOT = re.compile(r"vars\.CI_NIGHTLY_NEXT_BUILD_RUNNER$")
 BLACKSMITH_LINUX = re.compile(r"^'blacksmith-\d+vcpu-ubuntu-2404'$")
+ONE_LINUX_LABEL = "'cmux-linux'"
 POOL_REFERENCE = re.compile(r"^fromJSON\(vars\.RUNNER_POOLS\)\.([A-Za-z0-9_]+)$")
 
 
@@ -125,8 +125,14 @@ def blacksmith_linux_term(term: str, pools: dict[str, list[str]] | None = None,
     if match is None or (allowed_pools is not None and match.group(1) not in allowed_pools):
         return False
     members = (pool_members() if pools is None else pools).get(match.group(1), [])
-    return bool(members) and all(re.fullmatch(r"blacksmith-\d+vcpu-ubuntu-\d+(?:-arm)?", member)
-                                  for member in members)
+    blacksmith = [member for member in members if re.fullmatch(r"blacksmith-\d+vcpu-ubuntu-\d+(?:-arm)?", member)]
+    # Every x64 Linux pool leads with our own fleet label (#47803); the variable may name it or a Blacksmith size,
+    # and the pool's Blacksmith members are the overflow it moves to. Any other member is not this overflow.
+    return bool(blacksmith) and all(member in blacksmith or member in POOL_FLEET_MEMBERS for member in members)
+
+
+# The owned Linux label a declared x64 pool may lead with (.github/runners.json, #47803).
+POOL_FLEET_MEMBERS = ("cmux-fleet-linux-x64",)
 
 
 # Nightlies never run on Blacksmith (user, 2026-10-30): a nightly route's overflow is our own
@@ -227,6 +233,9 @@ def portable_order(runs_on: str, nightly: bool = False, pools: dict[str, list[st
         return "it takes the mini before fleet Linux"
     if nightly:
         return "" if nightly_overflow_term(terms[-1]) else "it does not end on an overflow that is never Blacksmith"
+    # The one Linux label (scripts/ci/one_linux_label.py) is the owned Linux overflow after the mini.
+    if terms[-1] == ONE_LINUX_LABEL:
+        return ""
     if not blacksmith_linux_term(terms[-1], pools) or not any(
             blacksmith_linux_term(term, pools) for term in terms[mini + 1:]):
         return "it does not end on a Blacksmith Linux label after the mini"
@@ -507,7 +516,7 @@ def referenced_secrets(value: Any) -> set[str]:
 FORK_PR_BLACKSMITH = re.compile(
     r"github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != github\.repository"
     r" && 'blacksmith-\d+vcpu-ubuntu-2404'")
-# The CI_TRUSTED_RUNNER selector (scripts/ci/validate-cla-policy.rb), split at its top-level `||`. A
+# The CI_TRUSTED_RUNNER selector (main's scripts/ci/validate-cla-policy.rb), split at its top-level `||`. A
 # secretless declared light job whose workflow cannot read RUNNER_POOLS may retry on it.
 TRUSTED_SELECTOR_TAIL = [
     "contains(fromJSON('[\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), "

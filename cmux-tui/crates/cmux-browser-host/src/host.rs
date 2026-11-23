@@ -36,7 +36,11 @@ pub mod bundle {
 /// factory page-agent.js reads.
 pub fn agent_bundle() -> String {
     let source = |name: &str| {
-        bundle::AGENT_SCRIPTS.iter().find(|(file, _)| *file == name).map(|(_, s)| *s).unwrap_or("")
+        bundle::AGENT_SCRIPTS
+            .iter()
+            .find(|(file, _)| *file == name)
+            .map(|(_, s)| s.get())
+            .unwrap_or("")
     };
     format!(
         "(() => {{\nconst module = {{}};\n{}\n;const __cmuxInjectedScriptFactory = module.exports.InjectedScript;\n{}\n}})()",
@@ -365,12 +369,12 @@ impl Host {
             capabilities,
             scripts: bundle::REPL_SCRIPTS
                 .iter()
-                .map(|(f, s)| ((*f).to_owned(), (*s).to_owned()))
+                .map(|(f, s)| ((*f).to_owned(), s.get().to_owned()))
                 .collect(),
             resources: bundle::REPL_SCRIPTS
                 .iter()
                 .chain(bundle::AGENT_SCRIPTS.iter())
-                .map(|(f, s)| ((*f).to_owned(), (*s).to_owned()))
+                .map(|(f, s)| ((*f).to_owned(), s.get().to_owned()))
                 .chain(std::iter::once(("guide.md".to_owned(), bundle::GUIDE.to_owned())))
                 .collect(),
         };
