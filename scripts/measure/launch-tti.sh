@@ -6,7 +6,7 @@
 #   cmux-ci run --class exclusive --measurement --label measure --display \
 #     --script scripts/measure/launch-tti.sh --ref <landed sha> [--arg=dmg=nightly|URL|build] [--arg=build=SHA] \
 #     [--arg=config=bench|Release|Debug] [--arg=input=auto|posted|in_app] [--arg=plan=warm:terminal,warm:browser,warm:chat] \
-#     [--arg=load=none|busy] [--arg=chats=6] [--arg=workspaces=120] [--arg=launch=open|exec] [--arg=control=500] \
+#     [--arg=load=none|busy] [--arg=chats=6] [--arg=workspaces=120] [--arg=launch=open|exec] [--arg=control=500] [--arg=session=auto|own] \
 #     --artifact .build/launch-tti/report.tgz --timeout 2400
 #   dmg=nightly  the newest build the NIGHTLY feed offers (default); dmg=https://... one DMG
 #   dmg=build    a tagged app built from this checkout (scripts/reload.sh, config=bench by default: Release
@@ -26,6 +26,11 @@
 #                1-5000), then launch_tti_control.py prints CONTROL delta_ms=X expected=MS pass|fail per metric
 #                (first_frame per kind, first_chat_paint, launch_to_interaction per front) and the run fails unless
 #                every delta is within 30% of MS. A build older than the knob shows no delta and fails.
+#   session=     whose GUI session runs the app (console-session.sh's CONSOLE_SESSION): auto hops into the console
+#                user's session with sudo; own runs in the invoking user's own GUI login with no sudo (a person's Mac
+#                whose console is an agent screen account, e.g. air-blue)
+# A non-zero exit ends with one TTI-FAIL line: the exit code and the reason (a CONSOLE-SESSION-FAIL, sudo refusal,
+# traceback or the log's last line), so a bare "exit 1" never comes back.
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 3
 out="$PWD/.build/launch-tti"
@@ -42,6 +47,7 @@ for arg in "$@"; do
     plan=*) extra+=(--plan "${arg#plan=}") ;;
     workspaces=*) extra+=(--workspaces "${arg#workspaces=}") ;;
     chats=*) extra+=(--chats "${arg#chats=}") ;;
+    session=auto|session=own) export CONSOLE_SESSION="${arg#session=}" ;;
     control=*) control="${arg#control=}"
       [[ "$control" =~ ^[1-9][0-9]{0,3}$ ]] && (( control <= 5000 )) || { echo "control=MS takes 1-5000 ms" >&2; exit 2; } ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
@@ -129,6 +135,11 @@ else
   rc=$control_rc
   (( base_rc != 0 )) && rc=$base_rc
   (( delayed_rc != 0 )) && rc=$delayed_rc
+fi
+if [ "$rc" -ne 0 ]; then
+  reason="$(grep -E 'CONSOLE-SESSION-FAIL|sudo: |LR-FAIL|Traceback|Error|error:' "$out/run.log" | head -3 | tr '\n' ' ')"
+  [ -n "$reason" ] || reason="$(grep -v '^TTI-HOST ' "$out/run.log" | tail -1)"
+  echo "TTI-FAIL rc=$rc reason=${reason:-no output from launch_tti_check.py}" | tee -a "$out/run.log"
 fi
 rm -f "$out/in.dmg"
 tar -czf "$out/report.tgz" -C "$out" --exclude report.tgz --exclude tti-marks.fifo . 2>/dev/null || true
