@@ -32,6 +32,7 @@ import argparse, glob, json, os, shutil, signal, socket, statistics, subprocess,
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp, bundle_id  # noqa: E402
+from state_wait import wait_stable, wait_until  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -104,6 +105,24 @@ def window_key():
     return ((rpc("debug.windows") or {}).get("windows") or [{}])[0].get("id")
 
 
+def tab_cwds():
+    """Every tab's folder in the app's published topology (snapshot.get)."""
+    topology = (rpc("snapshot.get") or {}).get("topology") or {}
+    return {os.path.realpath(tab["cwd"]) for ws in topology.get("workspaces") or [] for screen in ws.get("screens") or []
+            for pane in screen.get("panes") or [] for tab in pane.get("tabs") or [] if tab.get("cwd")}
+
+
+def wait_cwd(folder):
+    """Until a terminal's shell is in `folder` (its tab reports it), best effort as the old fixed wait was."""
+    if not wait_until(lambda: os.path.realpath(folder) in tab_cwds(), f"a tab in {folder}", timeout=15, raise_on_timeout=False):
+        print(f"setup: no tab reported {folder} after 15 s; going on", flush=True)
+
+
+def settle_panes(what):
+    """Until the panes the next step reads stop changing."""
+    wait_stable(lambda: json.dumps(panes(), sort_keys=True), what, timeout=10, interval=0.1, raise_on_timeout=False)
+
+
 def make_project():
     os.makedirs(PROJECT, exist_ok=True)
     subprocess.run(["git", "init", "-q", PROJECT], capture_output=True, timeout=30)
@@ -114,10 +133,10 @@ def setup_workspace():
     """A workspace with a terminal in PROJECT and, focused beside it, a terminal at the home folder."""
     rpc("action.run", {"action": "newTab", "args": {"focus": True, "name": "start-state-bench", "cwd": PROJECT}, "wait": True})
     wait(lambda: (focused() or {}).get("kind") == "terminal", 30, step=0.25)
-    time.sleep(1)  # test harness: the shell starts in its folder
+    wait_cwd(PROJECT)
     rpc("action.run", {"action": "splitRight", "args": {"cwd": os.environ["HOME"]}, "wait": True})
     ok = wait(lambda: len(panes()) >= 2 and (focused() or {}).get("kind") == "terminal", 30, step=0.25)
-    time.sleep(1)  # test harness: shell prompt
+    wait_cwd(os.environ["HOME"])
     print(f"setup: panes={json.dumps(panes())[:600]}", flush=True)
     return ok
 
@@ -134,7 +153,8 @@ def open_busy_chats():
     rpc("debug.new_tab", {"action": "capacity", "count": 0})
     for _ in range(opts.busy_chats):
         rpc("debug.new_tab", {"action": "bench_create", "command": "new_tab"}, timeout=20)
-        time.sleep(0.5)  # test harness: the page loads and connects to acpmux
+        # The page loaded and connected to acpmux: its handshake mark is in (the load it adds is best effort).
+        wait_until(lambda: "handshakeReady_ms" in agent_marks(), "a busy chat's handshake", timeout=20, interval=0.1, raise_on_timeout=False)
 
 
 def start_load():
@@ -144,7 +164,14 @@ def start_load():
     loop = f'while :; do "{CLI}" workspace list >/dev/null 2>&1; "{CLI}" tree >/dev/null 2>&1; done'
     for _ in range(opts.storm):
         LOAD.append(subprocess.Popen(["/bin/sh", "-c", loop], env=CLI_ENV, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
-    time.sleep(3)  # test harness: let the load ramp
+    # The load is on: every `yes` alive and every storm loop running a CLI call.
+    def loaded():
+        if any(proc.poll() is not None for proc in LOAD):
+            return False
+        loops = LOAD[-opts.storm:] if opts.storm else []
+        return all(subprocess.run(["pgrep", "-P", str(proc.pid)], capture_output=True).returncode == 0 for proc in loops)
+    if not wait_until(loaded, "the busy load (yes and the CLI storm) running", timeout=15, interval=0.1, raise_on_timeout=False):
+        print("busy: the load did not all come up in 15 s; going on", flush=True)
 
 
 def stop_load():
@@ -176,7 +203,9 @@ def one(arm, index, window):
     pressed = time.time() * 1000
     created = rpc("debug.new_tab", {"action": "bench_create", "command": command}, timeout=20) or {}
     marks = wait(lambda: (lambda m: m if "handshakeReady_ms" in m and "start_state_final_ms" in m else None)(agent_marks()), 20, 0.1)
-    time.sleep(opts.settle)  # test harness: whatever the handshake and the daemon's lists change shows
+    # sleep-ok: --settle is the observation window for a start that changes late (after the handshake, when the
+    # daemon's lists arrive); "nothing more will change" has no signal, the bench measures whether one comes.
+    time.sleep(opts.settle)
     marks = agent_marks() if marks else {"error": "no handshake or start mark"}
     row = {"arm": arm, "run": index, "visible_ms": created.get("visible_ms"), **marks}
     if isinstance(row.get("start_state_final_epoch_ms"), (int, float)):
@@ -192,7 +221,7 @@ def one(arm, index, window):
         rpc("debug.key", {"key": "w", "modifiers": ["command"], "window": window})
         wait(lambda: len(panes()) <= before, 10)
     wait(lambda: (focused() or {}).get("kind") == "terminal", 10)
-    time.sleep(0.3)
+    settle_panes("the panes after the tab closed")
     return row
 
 
@@ -248,8 +277,8 @@ def main():
         app = launcher.process
     SOCKET = launcher.socket
     CLI_ENV["CMUX_SOCKET_PATH"] = SOCKET
-    time.sleep(2)  # test harness: shell prompt
-    window = window_key()
+    window = wait_until(window_key, "the app's first window", timeout=30)
+    settle_panes("the first window's panes")
     make_project()
     arms = [a for a in opts.arms.split(",") if a]
     if "busy" in arms:

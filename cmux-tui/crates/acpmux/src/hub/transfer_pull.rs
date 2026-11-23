@@ -126,6 +126,7 @@ fn named_folder(
         branch: branch.to_owned(),
         subdir: subdir.to_owned(),
         dirty: false,
+        snapshot: false,
     })
 }
 

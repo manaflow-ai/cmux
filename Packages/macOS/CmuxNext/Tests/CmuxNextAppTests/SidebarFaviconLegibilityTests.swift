@@ -152,8 +152,8 @@ import Testing
         let image = try #require(drawn.image)
         let ink = try #require(SidebarGlyphInk.shared.box(of: image, glyph: "legibility-mono-\(dark)"))
         let drawnExtent = SidebarOpticalGlyph.fittedExtent(ink.size) * f.width / image.size.width
-        #expect(abs(drawnExtent - SidebarStyle.rowGlyphOpticalSide) <= 0.5,
-                "the favicon ink is \(drawnExtent) pt, expected \(SidebarStyle.rowGlyphOpticalSide) pt")
+        #expect(abs(drawnExtent - SidebarStyle.rowFaviconOpticalSide) <= 0.5,
+                "the favicon ink is \(drawnExtent) pt, expected \(SidebarStyle.rowFaviconOpticalSide) pt")
     }
 
     /// A band item draws its favicon through the same favicon path as a workspace row: on the dark sidebar a dark mono

@@ -1,0 +1,4 @@
+# A push to feat-cmux-next that changes this file runs .github/workflows/cloud-surge-proof.yml (cloud-journey.ts
+# --surge on development: preview, create 2 machines for 300 s, replay, conflict, then delete them). Change the line
+# below to ask for a run.
+2026-11-22 first run: cmux-platform#1594 and #1620 (CLOUD_SURGE_TEAMS on development)

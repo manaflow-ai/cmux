@@ -213,8 +213,14 @@ impl Moving<'_> {
         let (id, leave_dirty) = (id.to_owned(), args.leave_dirty);
         let to = json!({"hub": daemon, "host": host});
         let running = (args.interrupt, args.after_turn);
-        let begun =
-            super::super::transfer::begin_staged(src, &id, Some(to), running, staged).await?;
+        use super::super::transfer as t;
+        let begun = match t::begin_move(src, &id, Some(to.clone()), running, None, staged).await {
+            // The target's copy diverged from what was staged: send the whole chat.
+            Err(e) if staged.is_some() && t::refused_diverged(&e) => {
+                t::begin_move(src, &id, Some(to), running, None, None).await?
+            }
+            begun => begun?,
+        };
         let made = async {
             // Read again now that the chat is frozen: it may have changed before the freeze.
             let checkout = checkout_unless_named(cwd, args, &Source::Here).await?;
@@ -295,6 +301,7 @@ mod tests {
             branch: "lane/x".into(),
             subdir: "sub".into(),
             dirty: false,
+            snapshot: false,
         };
         assert_eq!(
             folder_value(&tree, home, false).unwrap(),
