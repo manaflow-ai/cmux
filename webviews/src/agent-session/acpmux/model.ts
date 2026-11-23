@@ -962,6 +962,10 @@ export type AcpmuxActivity = {
     /// The harness metadata that names a built-in tool. Titles are user-visible labels and are
     /// not sufficient to identify plumbing calls with names such as ToolSearch.
     provenance?: { claudeTool?: string; claudeCodeToolName?: string };
+    /// The name of the subagent a SendMessage call goes to, as the daemon's subagent list names
+    /// it (`_meta.acpmux.recipient`, acpmux subagents.rs `recipient`): the "Sent to" row reads it
+    /// when the page holds no row of the subagent's Agent call.
+    recipient?: string;
   };
 };
 

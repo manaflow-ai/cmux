@@ -133,6 +133,7 @@ pub(super) fn validate(bytes: &[u8]) -> Result<(), Error> {
     super::bounded(&msg.old_message_id)?;
     if let Some(params) = msg.params {
         super::bounded(&params.meta.acpmux.segment)?;
+        super::bounded(&params.meta.acpmux.recipient)?;
         if let Some(raw) = params.update {
             let update: Update<'_> = input::value(raw)?;
             super::bounded(&update.session_update)?;
@@ -411,6 +412,7 @@ fn agent(
                 ("kind", u.kind.as_ref()),
                 ("status", u.status.as_ref()),
                 ("tool", u.meta.claude.tool.as_ref()),
+                ("recipient", params.acpmux.recipient.as_ref()),
             ] {
                 if !v.is_empty() {
                     metadata.push((k, v));
