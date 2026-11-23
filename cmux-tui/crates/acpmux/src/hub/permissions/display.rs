@@ -271,7 +271,7 @@ impl Hub {
         let pair = (parent.to_owned(), handle.to_owned());
         let (mut gone, mut stale) = (Vec::new(), Vec::new());
         let local = self.child_tags.local(&pair).into_iter().find_map(|id| {
-            let found = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&id).cloned();
+            let found = self.session_get(&id);
             let Some(s) = found else {
                 gone.push(id);
                 return None;
