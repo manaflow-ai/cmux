@@ -214,17 +214,24 @@ struct Up {
 }
 
 async fn dial_relayed(mac: &Mac, radio: &Radio) -> Option<Up> {
+    dial_relayed_on(mac, radio, Timeline::default()).await
+}
+
+/// `dial_relayed`, marking `timeline` (`signaling_connected`, then the dial's own marks).
+async fn dial_relayed_on(mac: &Mac, radio: &Radio, timeline: Timeline) -> Option<Up> {
     let options = DialOptions {
         include_loopback: true,
         relay_only: true,
         ice_servers: vec![radio.turn.clone()],
         timeout: WAIT,
+        timeline: timeline.clone(),
         ..DialOptions::default()
     };
     let attempt = async {
         let phone_id = uuid::Uuid::new_v4().to_string();
         let phone =
             SignalingClient::connect(&radio.signaling_url, "user:alice", "team", &phone_id).await.ok()?;
+        timeline.mark("signaling_connected");
         let connected =
             dial::connect(&phone, &mac.mac_id, TransportKind::WireGuard, &options, LinkConfig::default())
                 .await
@@ -450,11 +457,27 @@ async fn roundtrip(profile: &LinkProfile, cell: &LinkProfile, path: &str, run: u
     // is still raced (the app does not know the LAN is gone), on the dead Wi-Fi address.
     let dropped = Instant::now();
     wifi.leave();
-    let on_cell = dial_named(&mac, &cellular, lan_on(&wifi)).await;
+    // The relayed dial's stages, timed from the drop.
+    let stages = Timeline::starting_at(dropped.into_std());
+    let relayed = dial_relayed_on(&mac, &cellular, stages.clone());
+    let on_cell = match lan_on(&wifi) {
+        Some(addr) => first_up_named(dial_lan(&mac, addr), relayed).await,
+        None => relayed.await.map(|up| (up, "relayed")),
+    };
     let (value, won) = match &on_cell {
         Some((again, won)) => (first_echo(&again.connected.link, dropped).await, *won),
         None => (None, "none"),
     };
+    stages.mark("first_echo");
+    let marks: Vec<_> = stages
+        .marks()
+        .into_iter()
+        .map(|(name, at)| json!([name, (at.as_secs_f64() * 10000.0).round() / 10.0]))
+        .collect();
+    println!(
+        "STAGES {}",
+        json!({"phase": tag("to_cell"), "run": run, "ok": value.is_some(), "marks": marks})
+    );
     emit(profile, &tag(&format!("to_cell_{won}")), "switch_ms", value, run, seed);
     drop(up);
     let Some((cell_up, _)) = on_cell else { return };
