@@ -16822,10 +16822,13 @@ class OneJobNameAtThreeCheckRuns(unittest.TestCase):
         self.assertEqual([job["id"] for job in jobs], [137452469910])
         self.assertTrue(any("'lane-gh-broker tests'" in line and "137452469910" in line for line in audit), audit)
 
-    def test_the_bare_name_is_the_one_check_run_of_it_that_failed(self):
-        jobs, audit = self.found("tests")
-        self.assertEqual([job["id"] for job in jobs], [137452467640])
-        self.assertTrue(any("that failed" in line and "137452467640" in line for line in audit), audit)
+    def test_the_bare_name_does_not_choose_the_only_failure(self):
+        with self.assertRaisesRegex(excuse.Refused, "unknown"):
+            self.found("tests")
+
+    def test_all_green_workflows_do_not_choose_the_newest(self):
+        with self.assertRaisesRegex(excuse.Refused, "unknown"):
+            self.found("tests", conclusions={key: "success" for key in self.CHECKS})
 
     def test_two_reds_of_one_name_are_refused_naming_every_candidate(self):
         with self.assertRaises(excuse.Refused) as caught:
@@ -16840,9 +16843,42 @@ class OneJobNameAtThreeCheckRuns(unittest.TestCase):
             self.assertIn(str(run), said)
         self.assertEqual([route for route in gh.routes if "/actions/runs/4510" in route], [], gh.routes)
 
-    def test_a_prefix_no_workflow_answers_to_falls_back_to_the_red(self):
-        jobs, _ = self.found("some other workflow / tests")
-        self.assertEqual([job["id"] for job in jobs], [137452467640])
+    def test_a_prefix_no_workflow_answers_to_never_falls_back_to_the_red(self):
+        with self.assertRaises(excuse.Refused):
+            self.found("some other workflow / tests")
+
+    def test_missing_run_links_keep_every_candidate(self):
+        checks = [dict(self.check(key), details_url="") for key in self.CHECKS]
+        gh = self.Fake(self, {})
+        kept = excuse.head_check_runs(REPO, self.SHA, gh, {"checks": checks})
+        self.assertEqual({check["id"] for check in kept}, set(self.CHECKS))
+        with self.assertRaisesRegex(excuse.Refused, "unknown"):
+            excuse.named_check(REPO, self.SHA, "tests", kept, gh, {})
+
+    def test_an_unread_workflow_cannot_be_discarded_for_a_known_prefix(self):
+        gh = self.Fake(self, {})
+        checks = [self.check(key) for key in self.CHECKS]
+        def workflow(repo, check, github, seen):
+            return "fleet-reconcilers tests" if check["id"] == 137452467640 else ""
+        with unittest.mock.patch.object(excuse, "check_workflow", side_effect=workflow):
+            with self.assertRaisesRegex(excuse.Refused, "unknown"):
+                excuse.named_check(REPO, self.SHA, "fleet-reconcilers tests / tests", checks, gh, {})
+
+    def test_proven_workflow_retries_keep_the_newest_verdict(self):
+        gh = self.Fake(self, {})
+        checks = [self.check(key) for key in self.CHECKS]
+        runs = {run: {"path": ".github/workflows/tests.yml"} for run in self.RUNS}
+        with unittest.mock.patch.object(excuse, "head_runs", return_value=runs):
+            check, _ = excuse.named_check(REPO, self.SHA, "tests", checks, gh, {})
+        self.assertEqual(check["id"], max(self.CHECKS))
+
+    def test_duplicate_job_names_in_one_run_are_not_retries(self):
+        gh = self.Fake(self, {})
+        checks = [dict(self.check(key), details_url=f"https://github.com/{REPO}/actions/runs/7/job/{key}")
+                  for key in self.CHECKS]
+        with unittest.mock.patch.object(excuse, "head_runs", return_value={7: {"path": ".github/workflows/tests.yml"}}):
+            with self.assertRaisesRegex(excuse.Refused, "unknown"):
+                excuse.named_check(REPO, self.SHA, "tests", checks, gh, {})
 
 class CheckoutNarrowingIsNotAFailure(unittest.TestCase):
     """A step that did not fail printed 54 error annotations, and they refused a red the base was failing too.
