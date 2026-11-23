@@ -185,19 +185,48 @@ pub(super) async fn cwd_refused(cwd: &str) -> RpcError {
     e
 }
 
-/// `cwd` outside the roots, refused; for a proven peer (`told`: the configured roots) told the configured roots (`roots`, and
-/// in the message) and `tryCwd`, a folder in the first one a start may use: `ROOT/<cwd's last
-/// name>` when nothing is there yet or it is a real folder (no link), else `ROOT` itself.
-pub(super) async fn outside_told(cwd: &str, told: &Option<Vec<PathBuf>>) -> RpcError {
+/// `cwd` outside the roots, refused. A configured `webRoots` entry that `guarded_roots` leaves
+/// out is said to be left out, and why, with the setting to change: the owner set webRoots and
+/// still saw the refusal, with nothing saying the entry was the machine's own home folder
+/// (cmuxterm-hq#7557). A proven peer (`peer`) is also told the usable roots (`roots`, and in
+/// the message), the entries left out (`leftOut`), and `tryCwd`, a folder in the first root a
+/// start may use: `ROOT/<cwd's last name>` when nothing is there yet or it is a real folder (no
+/// link), else `ROOT` itself. The Web is not told this machine's folders, only that an entry
+/// is left out.
+pub(super) async fn outside_told(
+    hub: &std::sync::Arc<crate::hub::Hub>,
+    cwd: &str,
+    peer: bool,
+) -> RpcError {
     let mut e = super::outside_roots("cwd");
-    // The Web is not told this machine's folders.
-    let Some(roots) = told.as_deref() else { return e };
+    let (roots, ignored) = split_roots(hub.config.read().await.web_roots.clone()).await;
+    if !peer {
+        if !ignored.is_empty() {
+            e.message.push_str(
+                "; a webRoots entry that is this machine's home folder, a folder holding it, or no folder here is left out: list an existing folder below the home folder in webRoots in acpmux's config.json",
+            );
+        }
+        return e;
+    }
     let listed: Vec<String> = roots.iter().map(|r| r.to_string_lossy().into_owned()).collect();
-    e.message.push_str(&if listed.is_empty() {
-        "; this machine has no webRoots".to_owned()
-    } else {
-        format!("; this machine's webRoots: {}", listed.join(", "))
+    e.message.push_str(&match (listed.is_empty(), ignored.is_empty()) {
+        (true, true) => "; this machine has no webRoots".to_owned(),
+        (true, false) => "; this machine has no usable webRoots".to_owned(),
+        (false, _) => format!("; this machine's webRoots: {}", listed.join(", ")),
     });
+    for left_out in &ignored {
+        e.message.push_str(&format!(
+            "; webRoots entry {} is left out: {}",
+            left_out.entry, left_out.why
+        ));
+    }
+    if !ignored.is_empty() {
+        let config = crate::config::Config::path();
+        e.message.push_str(&format!(
+            "; list an existing folder below the home folder in webRoots in {}",
+            config.display()
+        ));
+    }
     e.message.push_str(" (with no folder at all, a scratch folder is made for the session)");
     let mut pick = roots.first().cloned();
     if let (Some(root), Some(leaf)) = (roots.first(), Path::new(cwd).file_name()) {
@@ -212,6 +241,12 @@ pub(super) async fn outside_told(cwd: &str, told: &Option<Vec<PathBuf>>) -> RpcE
     }
     if let Some(data) = e.data.as_mut() {
         data["roots"] = Value::from(listed);
+        if !ignored.is_empty() {
+            data["leftOut"] = ignored
+                .iter()
+                .map(|i| serde_json::json!({"entry": i.entry, "why": i.why}))
+                .collect();
+        }
         if let Some(pick) = pick {
             data["tryCwd"] = Value::from(pick.to_string_lossy().into_owned());
         }
@@ -219,29 +254,44 @@ pub(super) async fn outside_told(cwd: &str, told: &Option<Vec<PathBuf>>) -> RpcE
     e
 }
 
-/// `webRoots` from config.json, under `web_roots`' guards, in config order.
-pub(super) async fn configured_web_roots(hub: &std::sync::Arc<crate::hub::Hub>) -> Vec<PathBuf> {
-    let raw = hub.config.read().await.web_roots.clone();
-    guarded_roots(raw).await
+/// A `webRoots` entry `guarded_roots` leaves out, and why, in words.
+pub(super) struct LeftOut {
+    pub(super) entry: String,
+    pub(super) why: &'static str,
 }
 
 /// Each folder of `raw` in the filesystem's own spelling, once, without `/`, the home
 /// directory or any ancestor of it.
 pub(super) async fn guarded_roots(raw: Vec<String>) -> Vec<PathBuf> {
+    split_roots(raw).await.0
+}
+
+/// `guarded_roots`, and the entries of `raw` it leaves out (a repeat is no entry left out).
+async fn split_roots(raw: Vec<String>) -> (Vec<PathBuf>, Vec<LeftOut>) {
     let home = match dirs::home_dir() {
         Some(h) => fs_spelling(&h.to_string_lossy()).await.unwrap_or(h),
         None => std::path::PathBuf::from("/"),
     };
-    let mut roots = Vec::new();
+    let (mut roots, mut left_out) = (Vec::new(), Vec::new());
     for r in raw {
-        if let Some(root) = fs_spelling(&r).await
-            && !home.starts_with(&root)
-            && !roots.contains(&root)
-        {
-            roots.push(root);
-        }
+        let why = match fs_spelling(&r).await {
+            Some(root) if root == home => {
+                "it is this machine's home folder, which is never a root, so ~/.ssh stays closed"
+            }
+            Some(root) if home.starts_with(&root) => {
+                "it holds this machine's home folder, which is never inside a root"
+            }
+            Some(root) => {
+                if !roots.contains(&root) {
+                    roots.push(root);
+                }
+                continue;
+            }
+            None => "it names no folder on this machine (an absolute path to an existing folder)",
+        };
+        left_out.push(LeftOut { entry: r, why });
     }
-    roots
+    (roots, left_out)
 }
 
 #[cfg(all(test, unix))]
