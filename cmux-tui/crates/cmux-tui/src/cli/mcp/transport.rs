@@ -165,8 +165,9 @@ pub(super) fn resource(
     ) {
         return opened.map_err(|failure| app_open_failure(failure, key.as_deref()));
     }
-    // `agents workspace create` from a cmux terminal against an older
-    // daemon: sent without `created_by`, as `cmux workspace create` is.
+    // A create from an agent session names it (`created_by_stamp.rs`); against an older
+    // daemon, only the `created_by` it takes, as `cmux workspace create` sends.
+    wire::stamp_created_by(&mut request);
     wire::drop_unsupported_created_by(&mut reader, &socket, &mut request);
     super::super::launch_credential::attach(&mut reader, &socket, &mut request);
     let encoded = resolve::encode_request_bytes(&request)

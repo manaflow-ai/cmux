@@ -28,6 +28,8 @@ use tokio::sync::{Semaphore, broadcast, mpsc};
 #[cfg(windows)]
 pub use windows_socket::{UnixListener, bind_unix, router_admin, serve_unix};
 
+mod app_assets;
+pub(crate) mod browser_workspaces;
 pub(crate) mod dual_requests;
 mod ws_peek;
 mod ws_shutdown;
@@ -187,6 +189,9 @@ pub struct Conn {
     /// Per-session preparation cancellation; no capability or owner token is retained.
     preparation_cancels: StdMutex<HashMap<String, tokio::sync::watch::Sender<bool>>>,
     subs: StdMutex<HashMap<String, SubOpts>>,
+    /// Where each attached chat's live stream stands, so a lap of the event ring is read back
+    /// from the store (`stream_cursor.rs`).
+    stream_cursors: stream_cursor::StreamCursors,
     /// The chats a `session/load` replayed here: their message notices go once.
     message_notices: StdMutex<MessageNoticeBook>,
     /// Server-derived mailbox identities for this connection's local attachments.
@@ -262,6 +267,19 @@ pub struct Conn {
     /// This link carries the v2 list stream: its `initialize` reply names `listStream`
     /// (`link_v2.rs`).
     pub(crate) list_stream: bool,
+    /// A browser's own enrolled device on the mesh hub (`web_device.rs`): set once, only by
+    /// `_acpmux/device_hello` on a web connection the listener token proved, and dropped for
+    /// good when the hub revokes it. Its hub reads and prompts go with this client's credential,
+    /// never with this daemon's identity (`mesh_read.rs` `read_hub`). The credential lives only
+    /// here, in memory, and is wiped when the client is dropped.
+    pub(super) device_mesh: StdMutex<web_device::Slot>,
+    /// The Origin of the page that opened this `/app/ws` socket, as the upgrade's listener
+    /// policy admitted it; None on every other transport. A browser sign-in is bound to it.
+    pub(super) page_origin: Option<String>,
+    /// This connection's one pending browser email-code sign-in (`web_device.rs`): a new
+    /// `_acpmux/browser_sign_in_start` replaces it, `_complete` takes it before it awaits.
+    /// Dropped with the connection.
+    pub(super) browser_sign_in: StdMutex<Option<cmux_stack_auth::BrowserSignIn>>,
     /// Its fan-out's drain, which a turn's answer waits on (`fanout::Flush`).
     fan_flush: fanout::Flush,
 }
@@ -414,6 +432,32 @@ impl Conn {
         {
             cancel.send_replace(true);
         }
+    }
+
+    /// The proof this connection holds now: its `auth`, or [`ConnAuth::WebDevice`] once a
+    /// browser presented its own device (`web_device.rs`). Every rule still reads `auth`.
+    pub(super) fn proof(&self) -> ConnAuth {
+        if matches!(self.auth, ConnAuth::ListenerToken | ConnAuth::BrowserApp)
+            && matches!(
+                *self.device_mesh.lock().unwrap_or_else(|e| e.into_inner()),
+                web_device::Slot::Device(_)
+            )
+        {
+            return ConnAuth::WebDevice;
+        }
+        self.auth
+    }
+
+    /// A browser on the web listener that presented its own device on this connection
+    /// (`web_device.rs`), whether the hub still takes it or revoked it since: its prompts to a
+    /// hub-listed chat go to `mesh_read.rs` `prompt`, which answers `device.revoked` for a
+    /// revoked one.
+    pub(super) fn presented_web_device(&self) -> bool {
+        matches!(self.auth, ConnAuth::ListenerToken | ConnAuth::BrowserApp)
+            && !matches!(
+                *self.device_mesh.lock().unwrap_or_else(|e| e.into_inner()),
+                web_device::Slot::Empty
+            )
     }
 
     /// Whether this connection is the person (`hub/person.rs`).
@@ -590,7 +634,23 @@ impl Conn {
     // perf-hot: 1us acpmux-token-fanout (every streamed token, per attached connection)
     fn send_line(&self, line: &str) {
         self.raise_gate();
+        if crate::perf_watch::on() {
+            self.perf_bytes(|| crate::rpc::method::SESSION_UPDATE.to_owned(), line.len());
+        }
         self.out.push(line.to_owned());
+    }
+
+    /// The perf watch's meter (`perf_watch.rs`, on only): `what` went to this client.
+    fn perf_bytes(&self, what: impl FnOnce() -> String, bytes: usize) {
+        crate::perf_watch::bytes(
+            crate::perf_watch::channel_of(self.origin),
+            || {
+                let name = self.name.lock_or_recover();
+                let client = if name.is_empty() { "(unnamed)" } else { name.as_str() };
+                format!("{} \u{2192} {client}", what())
+            },
+            bytes,
+        );
     }
 
     /// [`Self::send`] of the reply to a request whose method is `reply_to`: the size watch names
@@ -619,6 +679,12 @@ impl Conn {
         // a notification is left out and the client reads again from its last record.
         match msg.bounded_line_replying(reply_to) {
             Ok(line) => {
+                if crate::perf_watch::on() {
+                    self.perf_bytes(
+                        || crate::wire_size::What::of(msg, reply_to).label(),
+                        line.len(),
+                    );
+                }
                 if reply_to == Some(controls::METHOD) {
                     self.controls.reply(self, msg, line);
                 } else {
@@ -692,6 +758,11 @@ impl Conn {
         // client keeps each row with the higher `listSeq` (`hub/row_log.rs`); order does not matter.
         if !queue.push_in(line, outbound::method_lane(method)) {
             return false;
+        }
+        // The perf watch's meter after the queue's lock: its tail-file append is no wait for the queue.
+        drop(queue);
+        if crate::perf_watch::on() {
+            self.perf_bytes(|| what.label(), bytes);
         }
         whole
     }
@@ -1126,6 +1197,8 @@ pub async fn serve_ws_until(
             // A ticket or a paired machine's credential (`pairing.rs`).
             let admitted: Arc<StdMutex<pairing::Admitted>> = Arc::default();
             let (record_admitted, pairing_hub) = (admitted.clone(), hub.clone());
+            let browser_app = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let record_browser_app = browser_app.clone();
             let callback = move |req: &tokio_tungstenite::tungstenite::handshake::server::Request,
                                  resp: tokio_tungstenite::tungstenite::handshake::server::Response| {
                 let values = |name: &str| {
@@ -1157,9 +1230,19 @@ pub async fn serve_ws_until(
                 let presented =
                     ws_auth::presented(&values("authorization"), &values("sec-websocket-protocol"))
                         .map_err(refuse)?;
-                let tickets = values(crate::pairing::TICKET_HEADER);
-                let proof = pairing::admit(&pairing_hub, peer, presented.token, &tickets, &expected);
-                *record_admitted.lock().unwrap_or_else(|e| e.into_inner()) = proof.map_err(refuse)?;
+                if req.uri().path() == "/app/ws" {
+                    // This capability is useful only here. No dashboard token, pairing ticket,
+                    // device credential or extra native proof can admit or promote this socket.
+                    cmux_local_auth::check_token(
+                        presented.token,
+                        &ws_auth::browser_app_token(&expected),
+                    ).map_err(refuse)?;
+                    record_browser_app.store(true, std::sync::atomic::Ordering::Relaxed);
+                } else {
+                    let tickets = values(crate::pairing::TICKET_HEADER);
+                    let proof = pairing::admit(&pairing_hub, peer, presented.token, &tickets, &expected);
+                    *record_admitted.lock().unwrap_or_else(|e| e.into_inner()) = proof.map_err(refuse)?;
+                }
                 let mut resp = resp;
                 if presented.answer_protocol {
                     resp.headers_mut().insert(
@@ -1228,7 +1311,7 @@ pub async fn serve_ws_until(
                 wire.clone(),
             ));
             children.track(&writer);
-            // The handshake above checked the listener token: every
+            // The handshake above checked the endpoint's credential: every
             // connection past it is authenticated (`conn_auth.rs`).
             let mut proof = ConnAuth::ListenerToken;
             // The first frame decides LocalApp; it reaches the protocol handler without the token.
@@ -1236,7 +1319,9 @@ pub async fn serve_ws_until(
             let mut first = None;
             let presented =
                 std::mem::take(&mut *seen_peer.lock().unwrap_or_else(|e| e.into_inner()));
-            if let Some(device) = &device {
+            if browser_app.load(std::sync::atomic::Ordering::Relaxed) {
+                proof = ConnAuth::BrowserApp;
+            } else if let Some(device) = &device {
                 (origin, proof) = pairing::origin_of(device);
             } else if peer_auth.as_ref().is_some_and(|a| a.is_peer(peer, &presented)) {
                 origin = Origin::Peer;
@@ -1343,6 +1428,17 @@ pub async fn serve_ws_until(
             if let Some(watcher) = &watcher {
                 children.track(watcher);
             }
+            // The page that opened `/app/ws`: its one Origin header, which `policy.check` admitted
+            // above. A browser's sign-in is bound to it (`web_device.rs`); no other socket has one.
+            let page_origin = if browser_app.load(std::sync::atomic::Ordering::Relaxed) {
+                let origins = seen_origins.lock().unwrap_or_else(|e| e.into_inner());
+                match origins.as_slice() {
+                    [one] if one.len() <= web_device::MAX_ORIGIN_BYTES => Some(one.clone()),
+                    _ => None,
+                }
+            } else {
+                None
+            };
             let (origin, proof, device) = match device {
                 Some(device) => {
                     let (origin, proof) = pairing::origin_of(&device);
@@ -1364,6 +1460,7 @@ pub async fn serve_ws_until(
                 None,
                 Some(uploads),
                 slot,
+                page_origin,
             )
             .await;
             if let Some(watcher) = watcher {
@@ -1439,7 +1536,7 @@ async fn refuse_http(mut stream: tokio::net::TcpStream, refusal: Refusal) {
 }
 
 /// Minimal HTTP for the dashboard. The whole head passes the listener rule
-/// first; then GET / serves the page, and anything else is 404. The page is
+/// first; then GET / serves the dashboard and /app/ the shipped NEXT pane. The page is
 /// static and holds no secret: it reads the token from its URL fragment,
 /// which never reaches a server, and its WebSocket presents it.
 async fn serve_http(
@@ -1459,19 +1556,23 @@ async fn serve_http(
     let target = parts.next().unwrap_or("/");
     let path = target.split_once('?').map_or(target, |(path, _)| path);
     let (status, body, ctype) = if !method_.eq_ignore_ascii_case("get") {
-        ("405 Method Not Allowed", "method not allowed".to_owned(), "text/plain")
+        ("405 Method Not Allowed", b"method not allowed".to_vec(), "text/plain")
     } else if path == "/health" {
-        ("200 OK", "ok".to_owned(), "text/plain")
+        ("200 OK", b"ok".to_vec(), "text/plain")
     } else if path == "/" || path == "/index.html" {
-        ("200 OK", INDEX_HTML.inflate(), "text/html; charset=utf-8")
+        ("200 OK", INDEX_HTML.inflate().into_bytes(), "text/html; charset=utf-8")
+    } else if path.starts_with("/app/") {
+        app_assets::serve(path).await
     } else {
-        ("404 Not Found", "not found".to_owned(), "text/plain")
+        ("404 Not Found", b"not found".to_vec(), "text/plain")
     };
     let response = format!(
-        "HTTP/1.1 {status}\r\ncontent-type: {ctype}\r\ncontent-length: {}\r\ncache-control: no-store\r\nreferrer-policy: no-referrer\r\nconnection: close\r\n\r\n{body}",
+        "HTTP/1.1 {status}\r\ncontent-type: {ctype}\r\ncontent-length: {}\r\ncache-control: no-store\r\nreferrer-policy: no-referrer\r\nx-content-type-options: nosniff\r\nconnection: close\r\n\r\n",
         body.len()
     );
-    let _ = stream.write_all(response.as_bytes()).await;
+    if stream.write_all(response.as_bytes()).await.is_ok() {
+        let _ = stream.write_all(&body).await;
+    }
     let _ = stream.shutdown().await;
 }
 
@@ -1524,6 +1625,7 @@ pub(super) async fn serve_outbox_connection(
         None,
         None,
         None,
+        None,
     )
     .await
 }
@@ -1547,6 +1649,7 @@ pub async fn serve_connection_authed(
         None,
         false,
         SocketPeer::Unknown,
+        None,
         None,
         None,
         None,
@@ -1578,6 +1681,7 @@ pub(crate) async fn serve_peer_link(
         None,
         None,
         Some(slot),
+        None,
     )
     .await;
 }
@@ -1607,6 +1711,7 @@ pub(crate) async fn serve_device_link(
         None,
         None,
         Some(slot),
+        None,
     )
     .await;
 }
@@ -1636,6 +1741,7 @@ async fn serve_connection_from(
     carrier: Option<carrier::Attested>,
     uploads: Option<upload_frames::Replies>,
     link: Option<Arc<crate::link_v2::Slot>>,
+    page_origin: Option<String>,
 ) {
     // A carrier proof comes with the person the carrier socket read, and only with it.
     let carried = matches!(auth, ConnAuth::CarrierOwner | ConnAuth::CarrierTeam);
@@ -1684,6 +1790,7 @@ async fn serve_connection_from(
         out,
         gate,
         subs: StdMutex::new(HashMap::new()),
+        stream_cursors: Default::default(),
         message_notices: StdMutex::new(MessageNoticeBook::default()),
         mailbox_bindings: StdMutex::new(HashMap::new()),
         controls: Default::default(),
@@ -1722,8 +1829,16 @@ async fn serve_connection_from(
         wire,
         dual_principal,
         list_stream: link_v2.is_some(),
+        device_mesh: StdMutex::new(web_device::Slot::Empty),
+        page_origin: page_origin.filter(|_| web_device::keeps_page_origin(origin, auth)),
+        browser_sign_in: StdMutex::new(None),
         fan_flush,
     });
+    if auth == ConnAuth::BrowserApp && !web_device::admit(&hub, &conn, &mut inbound).await {
+        return;
+    }
+    let device_ended = web_device::credential_ended(&hub, &conn);
+    tokio::pin!(device_ended);
     queue_gauge::register(&conn);
     tracing::debug!(conn = %conn.id, "client connected");
 
@@ -1760,6 +1875,7 @@ async fn serve_connection_from(
         let line = tokio::select! {
             biased;
             () = conn.out.closed() => None,
+            () = &mut device_ended => None,
             ended = &mut fan => {
                 fanout::ended(&conn, ended);
                 None
@@ -1875,6 +1991,7 @@ async fn serve_connection_from(
                 let hub = hub.clone();
                 let conn = conn.clone();
                 owner.scope.spawn_named("conn-request", async move {
+                    let perf_started = crate::perf_watch::request_started();
                     let mut first = match dual_requests::before_run(dual).await {
                         Ok(first) => first,
                         Err(answer) => {
@@ -1888,6 +2005,14 @@ async fn serve_connection_from(
                             return;
                         }
                     };
+                    // Read after the daemon's stop drained this connection's requests
+                    // (`shutdown_drain.rs`): not served, answered as the drained ones were.
+                    if ticket.refused() {
+                        let answer = Err(shutdown_drain::restarting_error());
+                        dual_requests::finish(first, Some(&answer));
+                        conn.send_replying(&dual_requests::reply(id, answer), Some(&m));
+                        return;
+                    }
                     let route = || {
                         chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null), sender_token)
                     };
@@ -1954,6 +2079,7 @@ async fn serve_connection_from(
                     } else {
                         dual_requests::finish(first, None);
                     }
+                    crate::perf_watch::request_done(perf_started, &m, conn.origin);
                     if let Some(from) = attach_from {
                         crate::gauges::attach_latency().record(from.elapsed());
                     }
@@ -2409,6 +2535,10 @@ mod in_flight;
 #[cfg(test)]
 #[path = "latency_gauges_tests.rs"]
 mod latency_gauges_tests;
+pub(crate) mod shutdown_drain;
+#[cfg(test)]
+#[path = "shutdown_drain_tests.rs"]
+mod shutdown_drain_tests;
 pub(crate) use crate::clock_text::{civil_from_days, iso};
 pub(crate) use change_kind::session_change_kind;
 mod change_kind;
@@ -2426,6 +2556,10 @@ mod media_forward;
 mod mesh_control_send;
 pub mod mesh_relay;
 pub(super) mod mesh_send;
+mod stream_cursor;
+#[cfg(test)]
+#[path = "stream_cursor_tests.rs"]
+mod stream_cursor_tests;
 mod team;
 mod trigger_authority;
 mod trigger_chat;
@@ -2450,6 +2584,7 @@ mod memory_inbox;
 mod models_fanout;
 mod new_worktree;
 mod outbound;
+pub(crate) use outbound::is_cheap_read;
 pub(crate) mod outbox;
 mod pairing;
 mod plan_build;
@@ -2495,6 +2630,7 @@ mod routes;
 mod secrets;
 mod share_host;
 mod vault;
+mod web_device;
 pub(crate) use vault::reply as vault_reply;
 mod races;
 mod session_auth;

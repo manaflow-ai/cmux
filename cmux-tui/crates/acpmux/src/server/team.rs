@@ -177,15 +177,18 @@ async fn team_page(
         .map_err(inbox_failure)
 }
 
-/// An inbox read that failed, in words for how: a hub that is down (5xx, 408, 429) is
-/// unavailable, no connection did not answer, a 4xx is the hub's refusal, and a refusal with no
-/// status is this daemon's own (no token command), made before it asked the hub.
+/// An inbox read that failed, in words for where it failed (`HubError::source`): a hub that is
+/// down (5xx, 408, 429) is unavailable; any other answer of the hub's (a 4xx, a revoked
+/// credential, two tokens refused, an answer not the shape of the contract) is its refusal; no
+/// connection did not answer; and a failure this daemon made before it asked (no token command,
+/// one that failed) says so. `reason` and `retryable` do not depend on the words.
 fn inbox_failure(e: crate::mesh::HubError) -> RpcError {
-    let what = match (e.refused, e.status) {
-        (false, Some(_)) => "the mesh hub is unavailable",
-        (false, None) => "the mesh hub did not answer",
-        (true, Some(_)) => "the mesh hub refused the inbox read",
-        (true, None) => "this daemon could not ask the mesh hub for the inbox",
+    use crate::mesh::HubErrorSource;
+    let what = match (e.source, e.status) {
+        (_, Some(_)) if !e.refused => "the mesh hub is unavailable",
+        (_, Some(_)) | (HubErrorSource::Hub, None) => "the mesh hub refused the inbox read",
+        (HubErrorSource::NoAnswer, None) => "the mesh hub did not answer",
+        (HubErrorSource::Daemon, None) => "this daemon could not ask the mesh hub for the inbox",
     };
     RpcError::internal(format!("{what}: {e}")).with_data(json!({
         "reason": e.code.as_deref().unwrap_or("mesh.unavailable"),
@@ -220,10 +223,7 @@ async fn read(
             .into_iter()
             .find(|message| message.message_id == id && may_read(conn, &message.to))
         {
-            let receipt =
-                crate::mesh_retry::retry(false, || mesh.read(&id)).await.map_err(|e| {
-                    RpcError::internal(format!("the mesh hub did not mark it read: {e}"))
-                })?;
+            let receipt = mark_read(mesh, &id).await?;
             message.state = Some(receipt.state.clone());
             return Ok(json!({"message": message, "receipt": receipt}));
         }
@@ -232,6 +232,23 @@ async fn read(
             _ => return Err(forbidden()),
         }
     }
+}
+
+/// Marks `id` read at the hub, tried again on a failure that passes, all within `READ_WAIT`: the
+/// bound of a read through the hub a person waits on (`mesh_relay::read`), so `acpmux inbox read`
+/// waits no longer than `acpmux last HOST/NAME`. Before it, three tries of the HTTP client's 30 s
+/// and their backoff could hold the caller 92 s. A failure once the bound has passed (a try it
+/// cut short among them) is a read the hub did not answer, worded and retryable as that read's.
+async fn mark_read(mesh: &Arc<dyn MeshHub>, id: &str) -> Result<crate::mesh::Receipt, RpcError> {
+    let deadline = tokio::time::Instant::now() + super::mesh_relay::read::READ_WAIT;
+    crate::mesh_retry::retry_within(false, deadline, || mesh.read(id)).await.map_err(|e| {
+        if tokio::time::Instant::now() >= deadline {
+            RpcError::new(-32000, "the mesh hub did not answer the read of the team message")
+                .with_data(json!({"reason": "mesh.read_unanswered", "retryable": true}))
+        } else {
+            RpcError::internal(format!("the mesh hub did not mark it read: {e}"))
+        }
+    })
 }
 
 async fn ack(

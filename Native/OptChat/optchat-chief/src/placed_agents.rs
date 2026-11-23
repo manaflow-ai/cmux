@@ -219,6 +219,9 @@ impl AgentPort for PlacedPort {
     fn find(&self, name: &str) -> Result<Option<String>, String> {
         self.home.find(name)
     }
+    fn session_names(&self) -> Result<Vec<String>, String> {
+        self.home.session_names()
+    }
     fn session(&self, id: &str) -> Result<Option<SessionSummary>, String> {
         self.port(id).session(id)
     }

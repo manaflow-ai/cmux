@@ -39,6 +39,10 @@ BUILDER_SCRIPT = "cmux-next-ios/scripts/testflight-build.sh"
 # commit on BUILDER_REF: failures on an older builder do not hold the first build on the new one.
 FAILURE_BACKOFF_START = dt.timedelta(minutes=30)
 FAILURE_BACKOFF_MAX = dt.timedelta(hours=6)
+# At most one upload per MIN_UPLOAD_GAP, counted from the newest successful or in-flight build's dispatch. Every
+# upload mails App Store Connect's notices to the team (2026-11-22: eight cmux INTERNAL uploads in five hours, each
+# an ITMS-90725 email). A person's dispatch (force) skips the gap.
+MIN_UPLOAD_GAP = dt.timedelta(hours=3)
 
 # Paths that change the iPhone app besides the local packages CmuxMobileKit names.
 STATIC_PREFIXES = (
@@ -126,13 +130,17 @@ def failure_backoff(streak: int) -> dt.timedelta:
     return min(FAILURE_BACKOFF_MAX, FAILURE_BACKOFF_START * 2 ** min(streak - 2, 16))
 
 
+# A run that has not started: a newer run in the builder's concurrency group replaces it.
+WAITING_STATUSES = frozenset({"queued", "pending", "waiting", "requested"})
+
+
 def plan(head: str, runs: list[dict], changed: list[str] | None, has_cmux_next_ios: bool,
          now: dt.datetime, prefixes: tuple[str, ...], builder_ready: bool = True,
          since_failure: list[str] | None = None, force: bool = False,
          builder_sha: str | None = None) -> Decision:
     """Whether to dispatch a build of `head`.
 
-    runs: this builder's runs, newest first: {id, sha, status, conclusion, created_at}.
+    runs: this builder's runs, newest first: {id, sha, status, conclusion, created_at, submittable}.
     changed: files changed from the last uploaded SHA to head; None when unknown.
     since_failure: files changed from the newest failed run's SHA to head; None when unknown or not failing.
     force: a person dispatched the trigger; the failure backoff does not apply.
@@ -153,6 +161,13 @@ def plan(head: str, runs: list[dict], changed: list[str] | None, has_cmux_next_i
         return Decision(False, f"{head[:12]} is already in cmux INTERNAL", base)
     if any(r["sha"] == head and r.get("status") != "completed" for r in runs):
         return Decision(False, f"a build of {head[:12]} is already queued or running", base)
+    # The builder's concurrency group keeps one waiting run, and a newer dispatch cancels it. A person's
+    # submittable build (an App Store candidate) waiting there would be replaced by the next push's nightly
+    # (run 45037765374, 2026-11-22, cancelled in under 3 min), so no nightly is dispatched until it starts.
+    waiting = next((r for r in runs if r.get("submittable") and r.get("status") in WAITING_STATUSES), None)
+    if waiting:
+        return Decision(False, f"submittable build run {waiting.get('id')} of {waiting['sha'][:12]} is waiting to "
+                               "start; a dispatch now would replace it", base)
     stale = last_ok is None or now - _parse(last_ok["created_at"]) >= FALLBACK_AFTER
     def on_older_builder(r: dict) -> bool:
         return bool(builder_sha and r.get("builder") and r["builder"] != builder_sha)
@@ -179,6 +194,11 @@ def plan(head: str, runs: list[dict], changed: list[str] | None, has_cmux_next_i
         if not moved and now - failed_at < wait:
             return Decision(False, f"BLOCKED: {streak} builds failed in a row (newest run {run_id}); backing off "
                                    f"{wait} after it, until {(failed_at + wait).isoformat()}", base)
+    recent = next((r for r in runs if r.get("conclusion") == "success" or r.get("status") != "completed"), None)
+    if recent and not force and now - _parse(recent["created_at"]) < MIN_UPLOAD_GAP:
+        due = _parse(recent["created_at"]) + MIN_UPLOAD_GAP
+        return Decision(False, f"run {recent.get('id')} of {recent['sha'][:12]} started under {MIN_UPLOAD_GAP} ago; "
+                               f"the next upload waits until {due.isoformat()}", base)
     if last_ok is None:
         return Decision(True, "no upload yet from this builder", base)
     if changed is None:
@@ -258,7 +278,8 @@ def builder_runs(runner=subprocess.run, sleep=time.sleep) -> list[dict]:
         if m:
             runs.append({"id": r["id"], "sha": m.group(1), "status": r["status"],
                          "conclusion": r.get("conclusion"), "created_at": r["created_at"],
-                         "builder": r.get("head_sha")})
+                         "builder": r.get("head_sha"),
+                         "submittable": "(submittable)" in (r.get("display_title") or "")})
     return runs
 
 

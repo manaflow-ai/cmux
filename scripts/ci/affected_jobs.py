@@ -123,7 +123,7 @@ class Route:
 # skips them, unless it carries the full-ci label; the push that lands it runs them (the safety net), and a red
 # there names the pull requests in its range. `check` holds each one to that: the job's `if:` carries PR_SKIP_IF,
 # its workflow starts on a feat-cmux-next push, and no job that needs it would be skipped with it.
-PR_SKIP_IF = "(github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci'))"
+PR_SKIP_IF = "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))"
 # A job that runs on a pull request only when its change touches the push paths: the workflow's `changes` job runs
 # cmux-tui-spec-changed.py, which reads the push trigger's own `paths:`, so the push covers every change it runs on.
 PUSH_PATHS_GATE = "needs.changes.outputs.run == 'true'"
@@ -237,7 +237,7 @@ def route(tree: git_tree.GitTree | None, changed: list[str] | None, *, event: st
         jobs_here = jobs
     result = Route()
     for key in skipped_here:
-        result.pr_skip[key] = event != "pull_request" or base_ref != SKIP_BASE or FULL_LABEL in (labels or [])
+        result.pr_skip[key] = event != "pull_request" or not base_ref.startswith(SKIP_BASE) or FULL_LABEL in (labels or [])
 
     def everything(why: str) -> Route:
         result.everything = why
@@ -547,6 +547,7 @@ def check(root: Path, tree: git_tree.GitTree) -> list[str]:
                                 f"the job's inputs in {MAP}")
     problems += check_pr_skip(root, load_pr_skip((root / MAP).read_text(encoding="utf-8")),
                               {(job.workflow, job.id) for job in jobs})
+    problems += check_follows(root, (root / MAP).read_text(encoding="utf-8"))
     return sorted(set(problems))
 
 
@@ -616,6 +617,34 @@ def post_merge_batch_paths(root: Path, workflow: str) -> list[str] | None:
         if suite.get("workflow") == Path(workflow).name:
             return list(suite.get("paths") or [])
     return None
+
+
+def check_follows(root: Path, map_text: str) -> list[str]:
+    """Each pull_request_skip.follows gate: the job it follows is in pull_request_skip, and its workflow sets the gate,
+    every time, to that job's skip clause (PR_SKIP_IF) verbatim, so the repair and the check run on the same heads."""
+    data = json.loads(map_text).get("pull_request_skip", {})
+    listed = {(workflow, job_id) for workflow, entry in data.get("workflows", {}).items() for job_id in entry}
+    problems = []
+    for workflow, gates in data.get("follows", {}).items():
+        if workflow == "//":
+            continue
+        path = root / workflow
+        if not path.exists():
+            problems.append(f"{MAP} pull_request_skip.follows names {workflow}, which does not exist")
+            continue
+        text = path.read_text(encoding="utf-8")
+        for gate, followed in gates.items():
+            target = tuple(followed.split(" ", 1))
+            if target not in listed:
+                problems.append(f"{workflow}: {gate} follows {followed}, which pull_request_skip does not list")
+            values = re.findall(rf"(?m)^\s+{re.escape(gate)}:\s*(.*?)\s*$", text)
+            if not values:
+                problems.append(f"{workflow} never sets {gate} ({MAP} pull_request_skip.follows)")
+            for value in values:
+                if value != "${{ " + PR_SKIP_IF + " }}":
+                    problems.append(f"{workflow}: {gate} is {value}, not {followed}'s skip clause "
+                                    f"${{{{ {PR_SKIP_IF} }}}}, so the two would run on different heads")
+    return problems
 
 
 def fail_open_reads(if_text: str, job_id: str) -> list[str]:
