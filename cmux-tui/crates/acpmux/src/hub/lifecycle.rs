@@ -5,7 +5,7 @@ use super::policy_mode::refusal_record;
 use super::*;
 
 use super::adoption::{Adoption, adopted_in, start_folder};
-use super::new_request::{claude_resume_refusal, unique_name_among};
+use super::new_request::{claude_resume_refusal, suffixed_name_among, unique_name_among};
 // `turns.rs` names it here.
 pub(super) use super::new_request::profile_takes_model_at_spawn;
 use super::resolve::{Draft, Resolved, draft_meta};
@@ -93,6 +93,7 @@ impl Hub {
             harness,
             preset,
             name,
+            suffix_taken_name,
             cwd,
             policy,
             model,
@@ -118,7 +119,15 @@ impl Hub {
             throwaway,
             require_asking,
             credential,
+            create_key,
         } = req;
+        // A create sent again after a restart cut its reply: the session the first one made
+        // answers it, on this daemon or the one before (`create_key.rs`).
+        if let Some(key) = create_key.as_deref()
+            && let Some(made) = self.created_with_key(key).await
+        {
+            return Ok(made);
+        }
         // The proven agent session that asked for this one, as it is now; never for a remote
         // chat, and never one a remote connection started (`remote_origin`).
         let starter = starter
@@ -395,6 +404,12 @@ impl Hub {
             if caller_selected_id {
                 refuse_stored_fixed_id(self.store.as_ref(), &id)?;
             }
+            // Two creates with one key at once get one session.
+            if let Some(made) =
+                create_key.as_deref().and_then(|key| super::create_key::made_in(&sessions, key))
+            {
+                return Ok(made);
+            }
             // Checked again under the insert lock: two concurrent adopts of
             // one id get one session.
             if let Some(a) = adopt.as_ref().filter(|_| fork_from.is_none())
@@ -405,11 +420,18 @@ impl Hub {
             }
             meta.name = match name {
                 Some(n) => {
-                    if sessions.values().any(|s| s.read_meta(|m| m.name == n)) {
+                    let taken = sessions.values().any(|s| s.read_meta(|m| m.name == n));
+                    // A placed or forwarded start keeps its name, suffixed (`NAME-2`), never the
+                    // agent's; any other start is refused, so `new --reuse` finds the one running.
+                    let n = if taken && suffix_taken_name {
+                        suffixed_name_among(&sessions, &n)
+                    } else if taken {
                         return Err(RpcError::invalid_params(format!(
                             "session name {n:?} is taken"
                         )));
-                    }
+                    } else {
+                        n
+                    };
                     // The name is a handle (a lane's): the chat is still titled (`titles.rs`).
                     meta.title_source = Some(super::titles::LAUNCHED.to_owned());
                     meta.name_given = true;
@@ -426,6 +448,7 @@ impl Hub {
             };
             meta.wait_start = wait_start;
             meta.throwaway = throwaway;
+            meta.create_key = create_key;
             let session = self.make_session(meta);
             *session.codex_answer_asked.lock().unwrap_or_else(|e| e.into_inner()) = asked;
             session.person.store(person, Ordering::SeqCst);
@@ -1241,9 +1264,11 @@ impl Hub {
         // Cleared only once the fork has started; a failed start retries it.
         let fork_from = session.fork_from.lock().unwrap().clone();
         // Resume a Claude conversation only from a store that has it: one
-        // that never finished a turn may not be stored at all, and one that
+        // that never finished a turn may not be stored at all, one that
         // another profile ran lives in that profile's store (a failover onto
-        // a fallback with its own CLAUDE_CONFIG_DIR). Else a fresh one starts
+        // a fallback with its own CLAUDE_CONFIG_DIR), and a transcript can be
+        // gone from its own profile's store (the compactor deletes one it
+        // folded; a store can be pruned or deleted). Else a fresh one starts
         // with the restored transcript, never a turn failed on `--resume`.
         if is_claude
             && fork_from.is_none()
@@ -1634,6 +1659,11 @@ impl Hub {
                     }
                     Err(e) => {
                         tracing::warn!(session = %session.id, "session/load failed: {e}");
+                        if let Some(e) = super::adoption::unavailable_resume(&e) {
+                            self.note_load_failed(session, &e);
+                            self.end_cold_start(session).await;
+                            return Err(e);
+                        }
                         self.note_load_failed(session, &e);
                         if meta.harness == "cmux-harness" {
                             return Err(Self::explain_start_failure(session, e).await);
@@ -1958,6 +1988,10 @@ mod stop_fence_tests;
 #[cfg(test)]
 #[path = "probe_off_tests.rs"]
 mod probe_off_tests;
+
+#[cfg(test)]
+#[path = "taken_name_tests.rs"]
+mod taken_name_tests;
 
 /// The agent messages of a `session/load` (or a Claude fork's prime) never reach the session's
 /// preview, so its `lastMessage` stays the chat's own newest reply, as `wait --print` reads it

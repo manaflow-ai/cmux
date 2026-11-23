@@ -57,14 +57,41 @@ DAEMON_KINDS = re.compile(r"^(acpmux-.*|tui-daemon.*|terminal-host|optchat-chief
 SAMPLE_KINDS = re.compile(r"^(acpmux-.*|tui-daemon.*|optchat-chief)$")
 
 
+# The bench's Chromium runs without its component updater. A fresh home (every run's) downloads and unpacks every
+# Chromium component in its first minutes; on one build on cmux20-bench, 2 runs with it and 2 without, it was about
+# half the app's idle CPU (0.47-0.54 % against 0.24-0.28 %) and of the renderer's (0.37-0.45 % against 0.13-0.18 %),
+# and runs of one build varied with it. 'none' turns it back on.
+BENCH_CEF_SWITCHES = "disable-component-update"
+
+
 def with_cef_switches(prepare, switches: str):
     """`prepare` (the launch smoke's PREPARE_HOME), then the extra Chromium switches into the launch env."""
     def run(env: dict) -> None:
         prepare(env)
-        if switches:
+        if switches and switches != "none":
             env["CMUX_NEXT_CEF_EXTRA_SWITCHES"] = switches
             log(f"idle-cpu: CMUX_NEXT_CEF_EXTRA_SWITCHES={switches}")
     return run
+
+
+def chromium_dirs(home: Path) -> list[dict]:
+    """Each top-level entry of the app's Chromium root cache (`<Application Support>/<bundle id>/Chromium`, its
+    components among them) with its size in bytes, biggest first: what the component updater put on disk."""
+    rows: dict = {}
+    for root in (home / "Library/Application Support").glob("*/Chromium"):
+        for entry in root.iterdir():
+            size = 0
+            if entry.is_symlink() or not entry.is_dir():
+                size = entry.lstat().st_size
+            else:
+                for folder, _, files in os.walk(entry):
+                    for name in files:
+                        try:
+                            size += os.lstat(os.path.join(folder, name)).st_size
+                        except OSError:
+                            pass
+            rows[entry.name] = rows.get(entry.name, 0) + size
+    return [{"name": name, "bytes": size} for name, size in sorted(rows.items(), key=lambda item: (-item[1], item[0]))]
 
 
 def log(message: str) -> None:
@@ -212,7 +239,7 @@ def page_activity(call, seconds: float = 10.0) -> list[dict]:
         except (KeyError, TypeError, ValueError):
             entry["idle_probe"] = {"error": reply}
     before = {entry["browser"]: metrics(entry["browser"]) for entry in out}
-    time.sleep(seconds)  # the probed window: the pages run with no call into them
+    time.sleep(seconds)  # sleep-ok: the measured window: the pages run with no call into them
     for entry in out:
         first, last = before[entry["browser"]], metrics(entry["browser"])
         if first and last:
@@ -482,7 +509,7 @@ def bench_line(rows: list[dict], samples: dict) -> dict:
     return line
 
 
-def main(argv: list[str] | None = None) -> int:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--artifact", help="sha256:HEX of a fleet build's app zip (cmux-ci status JOB: artifact)")
@@ -504,11 +531,19 @@ def main(argv: list[str] | None = None) -> int:
                         help="after each window: one IDLE-CPU-WINDOW line per daemon and `sample` of the busiest process")
     parser.add_argument("--budget-cpu", type=float, default=1.0, help="CPU %% of one core per daemon process")
     parser.add_argument("--budget-wakeups", type=float, default=1.0, help="wakeups per second per daemon process")
-    parser.add_argument("--cef-switches", default="",
+    parser.add_argument("--cef-switches", default=BENCH_CEF_SWITCHES,
                         help="extra Chromium switches, colon-separated (CMUX_NEXT_CEF_EXTRA_SWITCHES; development "
-                             "bundles of DEBUG builds), e.g. disable-component-update for an arm without the updater")
+                             f"bundles of DEBUG builds); default {BENCH_CEF_SWITCHES} (see BENCH_CEF_SWITCHES), "
+                             "'none' for none (the component updater on, as a person's app runs)")
     parser.add_argument("--out")
     args = parser.parse_args(argv)
+    args.parser = parser
+    return args
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    parser = args.parser
     if (args.windows < 1 or args.window <= 0 or args.minutes < 0 or args.chats < 0 or args.history < 0
             or not math.isfinite(args.writers) or not math.isfinite(args.window) or not math.isfinite(args.minutes)
             or args.writers < 0 or args.history_prompt_kb < 0 or (args.writers > 0 and args.history <= 0)):
@@ -542,7 +577,7 @@ def main(argv: list[str] | None = None) -> int:
                 return []
         result["chats_made"] = made
         log(f"idle-cpu: idle {args.minutes:g} min from now, no call into the app")
-        time.sleep(args.minutes * 60)  # the idle period itself
+        time.sleep(args.minutes * 60)  # sleep-ok: the idle period itself (--minutes, no call into the app)
         if process.poll() is not None:
             verdict.update(status=1, why=f"the app exited during the idle period (status {process.returncode})")
             return [verdict["why"]]
@@ -567,6 +602,8 @@ def main(argv: list[str] | None = None) -> int:
         result["pages"] = page_activity(lambda method, params=None: client.call(method, params, timeout=30))
         for entry in result["pages"]:
             log("IDLE-CPU-PAGE " + json.dumps(entry, sort_keys=True))
+        result["chromium_dirs"] = chromium_dirs(Path(env["HOME"]))
+        log("IDLE-CPU-CHROMIUM-DIRS " + json.dumps(result["chromium_dirs"][:24]))
         for index, groups in enumerate(threads):
             log(f"IDLE-CPU-THREADS {index + 1}/{args.windows} app " + " ".join(
                 f"{entry['name']!r}x{entry['threads']}={entry['cpu_ms_per_s']}" for entry in groups[:16]))
