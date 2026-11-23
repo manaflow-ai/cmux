@@ -36,6 +36,7 @@ interfaces! {
     "cmux.section/1" => "cmux.section",
     "cmux.session.info.section/1" => "cmux.session.info.section",
     "cmux.sidebar.rows/1" => "cmux.sidebar.rows",
+    "cmux.signal.source/1" => "cmux.signal.source",
     "cmux.status/1" => "cmux.status",
     "cmux.terminal.backend/1" => "cmux.terminal.backend",
     "cmux.terminal.connector/1" => "cmux.terminal.connector",
