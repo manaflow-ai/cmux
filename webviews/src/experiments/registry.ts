@@ -27,6 +27,7 @@ import { compactingLine } from "../agent-session/acpmux/conversation/compactingL
 import { liveLineTimes } from "../agent-session/acpmux/conversation/liveLineTimes.experiment";
 import { liveTurnClock } from "../agent-session/acpmux/conversation/liveTurnClock.experiment";
 import { runScroll } from "../agent-session/acpmux/conversation/runScroll.experiment";
+import { compoundMotion } from "../agent-session/acpmux/conversation/compoundMotion.experiment";
 import { thumbMotion } from "../agent-session/acpmux/conversation/thumbMotion.experiment";
 import { oneRowPerCall } from "../agent-session/acpmux/conversation/oneRowPerCall.experiment";
 import { backgroundHintRoom } from "../agent-session/acpmux/conversation/backgroundHintRoom.experiment";
@@ -95,6 +96,7 @@ import { sentMessageLook } from "../agent-session/acpmux/conversation/sentMessag
 import { readingLook } from "../agent-session/acpmux/readingLook.experiment";
 import { highContrastLook } from "../agent-session/acpmux/highContrastLook.experiment";
 import { contextRingLook } from "../agent-session/acpmux/contextRingLook.experiment";
+import { shortcutKeycaps } from "../agent-session/acpmux/shortcutKeycaps.experiment";
 import { glassToolbarLook } from "../agent-session/acpmux/header/glassToolbar.experiment";
 import { contextRingMotion } from "../agent-session/acpmux/contextRingMotion.experiment";
 import { planUsageLook } from "../agent-session/acpmux/planUsageLook.experiment";
@@ -184,6 +186,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   liveLineTimes,
   liveTurnClock,
   runScroll,
+  compoundMotion,
   thumbMotion,
   oneRowPerCall,
   backgroundHintRoom,
@@ -234,6 +237,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   composerDockMotion,
   teamAudit,
   jumpPairLook,
+  shortcutKeycaps,
   holdToApprove,
   holdToApproveDuration,
   jumpLatestPlace,
