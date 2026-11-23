@@ -130,12 +130,13 @@ fn diff(old: &Shape, new: &Value) -> Option<Value> {
 fn splice(held: &[u64], hashes: &[u64], now: &[Value]) -> Option<Value> {
     let first = *hashes.first()?;
     let from = held.iter().position(|h| *h == first)?;
-    let keep = held[from..].iter().zip(hashes).take_while(|(a, b)| a == b).count();
+    let keep = held.get(from..)?.iter().zip(hashes).take_while(|(a, b)| a == b).count();
     // Only the items after the run go out; a run of one or two saves nothing worth the form.
     if keep < 3 {
         return None;
     }
-    Some(json!({"$splice": [from, keep, &now[keep..]]}))
+    let after = now.get(keep..)?;
+    Some(json!({"$splice": [from, keep, after]}))
 }
 
 /// The last row of a chat one connection was sent.
@@ -222,6 +223,16 @@ pub(super) fn forget(conn: &Conn, key: &str) {
     if conn.session_delta.load(Ordering::SeqCst) {
         conn.sent_rows.lock_or_recover().forget(key);
     }
+}
+
+/// Whether a connection hears row changes as patches: it asked in its `initialize`
+/// (`_meta.acpmux.sessionChangedDelta: true`) and reads raw text. A patch is diffed from the raw
+/// row, and the peer masker (`peer_text.rs`) knows a summary only whole, so a masked connection
+/// always gets whole, masked rows.
+pub(super) fn allowed(initialize: &Value, raw_text: bool) -> bool {
+    raw_text
+        && initialize.pointer("/_meta/acpmux/sessionChangedDelta").and_then(Value::as_bool)
+            == Some(true)
 }
 
 #[cfg(test)]
@@ -336,5 +347,15 @@ mod tests {
             rows.change(&format!("c{i}"), true, &json!({}));
         }
         assert!(rows.rows.len() <= MAX_ROWS);
+    }
+    /// A peer link's rows are masked whole (`peer_text.rs`); a patch of the raw row would skip
+    /// the masker, so a masked connection never gets patches even when it asks.
+    #[test]
+    fn only_a_raw_text_connection_gets_patches() {
+        let asks = json!({"_meta": {"acpmux": {"sessionChangedDelta": true}}});
+        let raw = |o| !crate::server::peer_text::masks(o);
+        assert!(!allowed(&asks, raw(crate::server::Origin::Peer)));
+        assert!(allowed(&asks, raw(crate::server::Origin::Local)));
+        assert!(!allowed(&json!({}), raw(crate::server::Origin::Local)));
     }
 }

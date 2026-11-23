@@ -1045,8 +1045,6 @@ pub fn listener_policy(
     extra_origins: &[String],
     extra_hosts: &[String],
 ) -> ListenerPolicy {
-    let mut policy =
-        ListenerPolicy::for_bind_keeping_host_rule(address).with_origin(AGENT_PANE_ORIGIN);
     if !address.ip().is_loopback() && extra_hosts.is_empty() {
         tracing::warn!(
             "websocket.listen {address} is not loopback: clients may connect by IP address only; list host names in websocket.allowedHosts"
@@ -1057,14 +1055,47 @@ pub fn listener_policy(
             tracing::warn!(
                 "websocket.allowed_origins: ignoring {origin:?} (not scheme://host[:port])"
             );
-            continue;
         }
-        policy = policy.with_origin(origin);
+    }
+    policy_with(address, extra_origins, extra_hosts)
+}
+
+/// [`listener_policy`] without its warnings: an origin that does not parse is skipped.
+fn policy_with(
+    address: std::net::SocketAddr,
+    extra_origins: &[String],
+    extra_hosts: &[String],
+) -> ListenerPolicy {
+    let mut policy =
+        ListenerPolicy::for_bind_keeping_host_rule(address).with_origin(AGENT_PANE_ORIGIN);
+    for origin in extra_origins {
+        if cmux_local_auth::parse_origin(origin).is_some() {
+            policy = policy.with_origin(origin);
+        }
     }
     for host in extra_hosts {
         policy = policy.with_host(host);
     }
     policy
+}
+
+/// The origins and hosts the config adds to the listener now: `websocket.allowedOrigins` (with
+/// this run's `--allow-dev-origin`s) and `websocket.allowedHosts`.
+async fn configured_extras(hub: &Hub) -> (Vec<String>, Vec<String>) {
+    let config = hub.config.read().await;
+    let (mut origins, hosts) = config
+        .websocket
+        .as_ref()
+        .map(|w| (w.allowed_origins.clone(), w.allowed_hosts.clone()))
+        .unwrap_or_default();
+    origins.extend(config.dev_origins.iter().cloned());
+    (origins, hosts)
+}
+
+/// [`listener_policy`] as the config has it at this moment, without its start warnings.
+async fn configured_policy(hub: &Hub, address: std::net::SocketAddr) -> ListenerPolicy {
+    let (extra_origins, extra_hosts) = configured_extras(hub).await;
+    policy_with(address, &extra_origins, &extra_hosts)
 }
 
 /// Validate a `--allow-dev-origin` value: only a loopback `http` origin with
@@ -1156,17 +1187,13 @@ pub async fn serve_ws_until(
         return Ok(());
     }
     let bound = listener.local_addr()?;
-    let (extra_origins, extra_hosts) = {
-        let config = hub.config.read().await;
-        let (mut origins, hosts) = config
-            .websocket
-            .as_ref()
-            .map(|w| (w.allowed_origins.clone(), w.allowed_hosts.clone()))
-            .unwrap_or_default();
-        origins.extend(config.dev_origins.iter().cloned());
-        (origins, hosts)
-    };
-    let policy = Arc::new(listener_policy(listener.local_addr()?, &extra_origins, &extra_hosts));
+    // Said once, at start; each connection reads the policy again (`configured_policy`), so a
+    // `websocket.allowedHosts` or `allowedOrigins` edit (`acpmux web --tailnet`) applies at the
+    // next `_acpmux/reload_config`, with no restart.
+    {
+        let (extra_origins, extra_hosts) = configured_extras(&hub).await;
+        listener_policy(bound, &extra_origins, &extra_hosts);
+    }
     // Each handshake checks the token current at that moment: a rotation
     // (`hub/web_token.rs`) applies from the next one on. The daemon set it
     // already; a caller that did not (tests) gets `token`.
@@ -1205,7 +1232,6 @@ pub async fn serve_ws_until(
         // Read and subscribed before the handshake, so a rotation during it
         // still closes a connection that presented the old token.
         let (token, rotated) = hub.web_token.watch();
-        let policy = policy.clone();
         let local_app = auth.local_app.clone();
         let peer_auth = auth.peer.clone();
         let shutdown = shutdown.clone();
@@ -1241,6 +1267,7 @@ pub async fn serve_ws_until(
                     return;
                 }
             };
+            let policy = Arc::new(configured_policy(&hub, bound).await);
             if !head.to_ascii_lowercase().contains("upgrade: websocket") {
                 serve_http(stream, &head, &policy, peer).await;
                 return;
@@ -2391,7 +2418,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             let full = attached || conn.watch_tools.load(Ordering::SeqCst);
             let session = if full { hub.session_summary(&s) } else { hub.session_list_summary(&s) };
             let notice = json!({"sessionId": ev.session_id, "kind": ev.record.kind, "recordKind": ev.record.kind, "seq": s.meta().last_seq, "listSeq": ev.list_seq});
-            // A patch builds on the row sent before it, so its lines are never coalesced.
+            // A patch names the row it builds on, so it is never replaced in the queue.
             if session_patch::send_row(conn, &ev.session_id, full, &session, notice) {
                 return;
             }
@@ -2662,7 +2689,7 @@ mod cancel_prompt_tests;
 #[path = "chatgpt_import_tests.rs"]
 mod chatgpt_import_tests;
 mod client_request;
-mod computer_use_relay;
+pub(crate) mod computer_use_relay;
 #[cfg(test)]
 #[path = "connection_token_tests.rs"]
 mod connection_token_tests;

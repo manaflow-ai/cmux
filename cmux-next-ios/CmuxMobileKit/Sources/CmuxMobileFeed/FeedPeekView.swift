@@ -34,7 +34,7 @@ struct FeedPeekView: View {
     /// The row's place header: who, and where it happened.
     private var header: some View {
         HStack(spacing: 10) {
-            Image(systemName: FeedRowCell.avatarSymbol(item.harness))
+            Image(systemName: AgentAvatarMark.fallbackSymbol(item.harness))
                 .font(.system(size: 13, weight: .semibold))
                 .frame(width: 30, height: 30)
                 .background(Color.cmuxMobileSurfaceRaised, in: Circle())
