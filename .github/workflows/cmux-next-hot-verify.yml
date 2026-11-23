@@ -399,6 +399,9 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+      pull-requests: read
+      # Starts the head's cmux-tui tree build below (a push no longer builds it: cmux_tui_superseded_push.py).
+      actions: write
     outputs:
       key: ${{ steps.key.outputs.key }}
     steps:
@@ -429,6 +432,31 @@ jobs:
           [[ "$key" =~ ^[0-9a-f]{40,64}$ ]] || { echo "::error::no cmux-tui tree key for ${HEAD_SHA:0:12}"; exit 1; }
           echo "key=$key" >> "$GITHUB_OUTPUT"
           echo "cmux-tui tree of ${HEAD_SHA:0:12}: https://files.cmux.com/cmux-tui/tree/$key/ (the look is queued once it is published)" >> "$GITHUB_STEP_SUMMARY"
+      # Build on request (ci-min-per-pr-30, Leo: "de facto, im asking for 99% fewer minutes of ci time, period."):
+      # a pull request head's push builds no tree, since three ~28-min target builds per head cost 25.8 runner-min
+      # per merged PR for trees only this look reads. The look that needs one asks for it here: one dispatch of
+      # cmux-tui-artifacts.yml on the PR's branch, none when the tree is already published (the same completion
+      # file the look waits for). A dispatch is never superseded; its tree-preflight skips a published tree.
+      - name: Ask for the head's tree when it is not published
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ needs.target.outputs.pr }}
+          HEAD_SHA: ${{ needs.target.outputs.head }}
+          KEY: ${{ steps.key.outputs.key }}
+        run: |
+          set -euo pipefail
+          if curl --fail --silent --max-time 15 -o /dev/null "https://files.cmux.com/cmux-tui/tree/$KEY/completion.json?hotverify=$GITHUB_RUN_ID"; then
+            echo "cmux-tui tree $KEY is published: no build requested" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          info="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq '[.head.ref, .head.sha, .head.repo.full_name] | @tsv')"
+          IFS=$'\t' read -r branch pr_sha repo <<<"$info"
+          if [[ "$repo" != "$GITHUB_REPOSITORY" || "$pr_sha" != "$HEAD_SHA" ]]; then
+            echo "#$PR moved past ${HEAD_SHA:0:12} or is a fork: no build requested" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          gh workflow run cmux-tui-artifacts.yml --repo "$GITHUB_REPOSITORY" --ref "$branch"
+          echo "requested the cmux-tui tree build of ${HEAD_SHA:0:12} on $branch (cmux-tui-artifacts.yml dispatch)" >> "$GITHUB_STEP_SUMMARY"
 
   # The look's request. The job runs nothing: its NAME is the request, and the build fleet controller reads it from
   # the workflow_job webhook when it ends green (cmuxterm-hq build-fleet/cmd/controller/hot_verify_look.go). The
