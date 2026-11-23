@@ -332,7 +332,9 @@ export type PaneSnapshotArgs = {
   snapshotRef: React.RefObject<AcpmuxSnapshot | undefined>;
   /// Whether a prompt naming `@computer-use` waits for Computer Use setup (App.tsx
   /// `holdsForComputerUseSetup`, #48541): `/side` forks nothing while it holds.
-  holdsForComputerUseSetupRef: React.RefObject<(text: string, toast?: boolean, place?: ComputerUsePlace) => boolean>;
+  holdsForComputerUseSetupRef: React.RefObject<
+    (text: string, toast?: boolean, place?: ComputerUsePlace, opensSetup?: boolean) => boolean
+  >;
   readSendAgain: () => SendPromptAgainState;
   readInterruptedResume: () => InterruptedResumeState;
   opensSideChat: React.RefObject<boolean>;
@@ -2273,7 +2275,7 @@ export function paneSnapshotEffect({
                 ? "cloud"
                 : "machine";
             const gate = computerUseGate(prompt, computerUseState(), place);
-            if (gate !== "free" && holdsForComputerUseSetupRef.current(prompt, false, place))
+            if (gate !== "free" && holdsForComputerUseSetupRef.current(prompt, false, place, false))
               throw new CmuxCommandRefused(translate(computerUseHoldText(gate).title));
           }
           // The chat it is beside, read before the fork (the reader may open another chat meanwhile).
@@ -2288,6 +2290,9 @@ export function paneSnapshotEffect({
           // acpmux's own refusal shows in the side chat; one the host made never reached it.
           const sidePromptRefused = (error: unknown) => {
             const code = (error as { code?: unknown } | null)?.code;
+            // Held at dispatch for Computer Use (direct.ts `sendHold`): the reason, as a send's bubble says it.
+            if (code === "computer_use_held")
+              return notices.failed(translate("prompt.notSent", { reason: (error as Error).message }));
             if (typeof code === "string" && code.startsWith("transport."))
               notices.failed(
                 translate("prompt.notSent", { reason: knownRefusalText(error) ?? translate("transport.refused") }),
@@ -2323,6 +2328,10 @@ export function paneSnapshotEffect({
           }
           const text = typeof prompt === "string" ? prompt.trim() : "";
           if (!text && !files.length) return;
+          // Asked again once the fork is open (CMUX-682): Computer Use may have stopped meanwhile. The
+          // composer keeps `/side <prompt>` and its files, the side chat opens empty, and the chat says why.
+          const lateHold = text ? client.sendHold?.(text) : undefined;
+          if (lateHold) throw new CmuxCommandRefused(lateHold);
           void client.promptSide(sessionId, text, files, held).catch(sidePromptRefused);
         },
         // An offer's Start (cx-807da): the offered chat starts beside this one, which stays shown.
@@ -2680,7 +2689,7 @@ export function paneSnapshotEffect({
       client.sendHold = (text) => {
         const place = chatPlace(client);
         const gate = computerUseGate(text, computerUseState(), place);
-        if (gate === "free" || !holdsForComputerUseSetupRef.current(text, false, place)) return undefined;
+        if (gate === "free" || !holdsForComputerUseSetupRef.current(text, false, place, false)) return undefined;
         return translate(computerUseHoldText(gate).title);
       };
       acpmuxPerf.markAgent("composerReady");
@@ -2703,7 +2712,12 @@ export function paneSnapshotEffect({
       // why (CMUX-682). The native New Tab and a palette prompt seed one that would go by itself.
       const heldForComputerUse =
         !!prompt &&
-        holdsForComputerUseSetupRef.current(prompt, false, host.peer || client.startsOnSend ? "machine" : "here");
+        holdsForComputerUseSetupRef.current(
+          prompt,
+          false,
+          host.peer || client.startsOnSend ? "machine" : "here",
+          false,
+        );
       if (heldForComputerUse) restorePrompt(prompt, attachments);
       const hasPrompt = !heldForComputerUse && Boolean(prompt || attachments.length);
       const harness = pendingHarness;

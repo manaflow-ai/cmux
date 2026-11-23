@@ -95,6 +95,9 @@ type Props = NewTabCommandActions & {
     attachments?: ComposerAttachment[],
     chat?: NewTabChat,
   ): void | Promise<unknown>;
+  /// True: an agent prompt may not go now (`@computer-use` while Computer Use is not ready, CMUX-682);
+  /// the pane opened setup or said why. Asked on Return's own key press, before a wait for files.
+  holdsSend?(text: string): boolean;
   /// Go to an open tab or workspace instead of opening a duplicate.
   onJump?(target: "tab" | "workspace", id: string): void;
   onOpenSession(sessionId: string): void;
@@ -131,6 +134,7 @@ export function NewTabPage({
   location,
   projects = [],
   onSubmit,
+  holdsSend,
   onCmuxCommand,
   onImportFile,
   importError,
@@ -490,6 +494,8 @@ export function NewTabPage({
   const submit = (event?: React.FormEvent) => {
     event?.preventDefault();
     if (kind === "agent" && command.intercept(query.trim(), harness, attachments.length, true)) return;
+    // Held for Computer Use on this key press, before a screenshot still being read can outlast it.
+    if (kind === "agent" && query.trim() && holdsSend?.(query.trim())) return;
     if (holdForAttachments(() => submitNow.current())) return;
     submitNow.current();
   };

@@ -1174,15 +1174,22 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// page (Lucas 2026-11-21: "when they hit send, we want to show the computer use setup page"; its one
   /// grant credit, unspent, since nothing was sent), and the message stays. Turned off by the
   /// organization, a chat off this Mac, or a host that did not open the page: the chat says why, and
-  /// `toast` too where no notice slot shows (New Tab).
-  const holdsForComputerUseSetup = (text: string, toast = false, place: ComputerUsePlace = "here"): boolean => {
+  /// `toast` too where no notice slot shows (New Tab). `opensSetup` false: a check after the send's own
+  /// key press or click (after an upload, a fork, a handshake, a seeded prompt): it holds and says why,
+  /// and never opens the setup page, which would spend whatever key the person pressed since.
+  const holdsForComputerUseSetup = (
+    text: string,
+    toast = false,
+    place: ComputerUsePlace = "here",
+    opensSetup = true,
+  ): boolean => {
     const gate = computerUseGate(text, computerUseState(), place);
     if (gate === "free") return false;
     const say = () => {
       setComputerUseAsked(place);
       if (toast) notices.transient(translate(computerUseHoldText(gate).title), "computerUseSetup");
     };
-    if (!holdOpensSetup(gate)) say();
+    if (!opensSetup || !holdOpensSetup(gate)) say();
     else {
       setComputerUseAsked(undefined);
       void callNative("action.run", { id: "palette.computerUse.setup" }).catch(say);
@@ -3585,6 +3592,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     () =>
       turnActionsFrom({
         showCall,
+        holdsRetry: (prompt) => {
+          const summary = snapshotRef.current?.summary;
+          const place: ComputerUsePlace =
+            summary?.hostKind === "cloud" ? "cloud" : summary?.host || summary?.peer ? "machine" : "here";
+          return holdsForComputerUseSetupRef.current(prompt, false, place);
+        },
         restartChat,
         queuedMessageActionsRef,
         stableBranches,
@@ -6643,9 +6656,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (snapshot.sessionId && !isSideSession && !quick) enabledCmuxActions.add("btw");
     const withCommands = {
       ...snapshot,
-      commands: withExtensionCommands(
-        withToolCommands(mergedCommands(snapshot.commands, enabledCmuxActions), toolCommands),
-        extensionCommands,
+      commands: withToolCommands(
+        withExtensionCommands(mergedCommands(snapshot.commands, enabledCmuxActions), extensionCommands),
+        toolCommands,
       ),
       ...(keptStopping && { stopping: true as const }),
       // The Quick Composer's send never forks (it has no review to show), so its model menu
@@ -8062,7 +8075,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // `@computer-use` starts nothing while Computer Use is not ready on this Mac, nor on another
     // machine, which has no Computer Use tools (`holdsForComputerUseSetup`, #48541): decided before a
     // folder grant or anything else spends the send's gesture, and the page keeps its text.
-    if (text && holdsForComputerUseSetup(text, true, directClient.current?.startsOnSend ? "machine" : "here")) return;
+    // After the handshake wait: it holds and says why; the submit's own key press asked first (pageSubmit.ts).
+    if (text && holdsForComputerUseSetup(text, true, directClient.current?.startsOnSend ? "machine" : "here", false))
+      return;
     const generation = ++newTabStartGeneration.current;
     const isCurrent = () => newTabStartGeneration.current === generation;
     const inherited = newTab?.cwd;

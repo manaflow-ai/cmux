@@ -1474,15 +1474,19 @@ function ComposerFrame({
   );
   // A chat whose folder cannot be searched (a remote chat) opens the picker only on a matching
   // row; it never hints at a file search.
-  // A short word with no row opens nothing, so Return still sends: only a specific word holds the
-  // picker open while its files are on their way.
-  const mentionAt =
-    mentions.length > 0 || (searchFiles && mentionWord !== undefined && mentionWantsFiles(mentionWord))
-      ? mentionTyped
-      : undefined;
   // The word's files are still on their way: asked, or about to be once typing settles.
   const mentionPending =
     !!searchFiles && !!fileWord?.trim() && (mentionSearch.kind === "idle" || mentionSearch.kind === "searching");
+  // A short word whose lookups settled with no row opens nothing, so Return still sends. While an
+  // answer is on its way (an exact file for `@go`, a provider's items for `@pr`) the picker holds
+  // Return, so a quick Return never sends the bare word; a specific word holds it for its files.
+  const mentionAt =
+    mentions.length > 0 ||
+    mentionPending ||
+    mentionProviderAsked ||
+    (searchFiles && mentionWord !== undefined && mentionWantsFiles(mentionWord))
+      ? mentionTyped
+      : undefined;
   const mentionSelected = mentionSelection(mentions, mentionActive, mentionPending, mentionProviderAsked);
   useEffect(() => setMentionActive(undefined), [mentionWord]);
   // `:` and two letters at a word start list emoji by shortcode; a text emoticon (`:)`, `:DD`,
