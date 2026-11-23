@@ -49,9 +49,52 @@ async fn the_harness_plan_stays_on_the_chat_after_its_turn_ends() {
     let row = rows["sessions"].as_array().unwrap().iter().find(|s| s["sessionId"] == id).unwrap();
     let row = row.pointer("/_meta/acpmux").unwrap_or(row);
     assert_eq!(row["taskList"]["done"], 1, "{row:#}");
-    // And the next turn, which writes no plan, keeps it.
+    // The next turn, which writes no plan, ends without touching it: it has expired
+    // (`TaskList::current`; Leo, 2026-11-22: "we need to figure out how to do better plans and
+    // have them expired").
     c.request(method::SESSION_PROMPT, prompt(&id, "hello", None)).await.unwrap();
-    assert_eq!(hub.session_summary(&session)["taskList"]["total"], 3);
+    assert_eq!(hub.session_summary(&session)["taskList"], Value::Null);
+}
+
+/// A replayed coordinator: Claude Code's list of 120 ops notes written in its first turn, then
+/// turns from other sessions that never touch it. Leo, 2026-11-22, on "Earlier plan · 0 of 1"
+/// in the hat and "limit 0/1" in the sidebar row: "if we ever EVER FUCKING WANT SOME BULLSHIT LIKE
+/// THIS, WE FUCKING DO IT PROPERLY". Once a turn that never touched it ends, no summary, row or
+/// `task_list/get` carries the list; the agent's next plan is the chat's plan again.
+#[tokio::test]
+async fn a_stale_120_step_list_expires_from_every_view_after_an_untouched_turn() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "coordinator").await;
+    let session = hub.resolve(&id).unwrap();
+    let notes: Vec<Value> = (0..120)
+        .map(|n| json!({"content": format!("08:{:02}Z merge cmux#{} pinned (bg-{n}); then close #{} as included", n % 60, 45000 + n, 46000 + n), "status": if n < 3 { "completed" } else { "pending" }}))
+        .collect();
+    c.request(method::SESSION_PROMPT, prompt(&id, &plan(Value::Array(notes)), None)).await.unwrap();
+    // Between turns, right after the turn that wrote it: still the chat's plan (MAX_ITEMS kept).
+    let list = hub.session_summary(&session)["taskList"].clone();
+    assert_eq!((list["done"].as_u64(), list["total"].as_u64()), (Some(3), Some(100)), "{list:#}");
+
+    for turn in 0..3 {
+        c.request(method::SESSION_PROMPT, prompt(&id, &format!("status {turn}"), None))
+            .await
+            .unwrap();
+        assert_eq!(hub.session_summary(&session)["taskList"], Value::Null, "turn {turn}");
+        let rows = c.request(method::MUX_SESSIONS, json!({})).await.unwrap();
+        let row =
+            rows["sessions"].as_array().unwrap().iter().find(|s| s["sessionId"] == id).unwrap();
+        let row = row.pointer("/_meta/acpmux").unwrap_or(row);
+        assert!(row.get("taskList").is_none_or(Value::is_null), "the row still counts it: {row:#}");
+        assert_eq!(c.request(GET, json!({"sessionId": id})).await.unwrap(), Value::Null);
+    }
+
+    // The agent's next plan is the chat's plan again.
+    let fresh = json!([{"content": "Land the expiry", "status": "in_progress"}]);
+    c.request(method::SESSION_PROMPT, prompt(&id, &plan(fresh), None)).await.unwrap();
+    let list = hub.session_summary(&session)["taskList"].clone();
+    assert_eq!(
+        (list["total"].as_u64(), list["current"].as_str()),
+        (Some(1), Some("Land the expiry"))
+    );
 }
 
 #[tokio::test]

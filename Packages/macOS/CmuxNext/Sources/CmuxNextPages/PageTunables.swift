@@ -44,5 +44,12 @@ public nonisolated struct PageTunables {
         "cloud.machines.layout", section, "Cloud machines layout", help: "Machine list of the Cloud page: dense rows or cards. New pages use it.",
         default: .rows, code: "PageTunables.cloudMachinesLayout")
 
-    public static var all: [TunableDescriptor] { [coderouter.descriptor, cloudMachinesLayout.descriptor] }
+    /// The App Store opens as the native AppKit store (Today, Discover, Categories, Updates,
+    /// Installed) instead of the React page. Web stays the default until the native store reaches
+    /// parity; nothing flips it but the owner's word.
+    public static let appStore = Tunable<PageImplementation>.choice(
+        "apps.store.surface", section, "App Store page", help: "Opens the App Store as the native store instead of the React page. New App Store tabs use it.",
+        default: .web, code: "PageTunables.appStore")
+
+    public static var all: [TunableDescriptor] { [coderouter.descriptor, cloudMachinesLayout.descriptor, appStore.descriptor] }
 }

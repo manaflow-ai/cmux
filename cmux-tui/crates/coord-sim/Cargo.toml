@@ -18,6 +18,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Child processes with an owner (the repo's spawn-owner rule): the daemon and `acpmux send`.
 cmux-process = { path = "../cmux-process" }
+# getrusage of the reaped relay process (surfaces/relay.rs).
+libc = "0.2"
 
 [profile.release]
 debug = 1

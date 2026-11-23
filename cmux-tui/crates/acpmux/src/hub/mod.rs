@@ -9,6 +9,8 @@ mod claim_check;
 mod control_asks;
 
 mod activity;
+// Opt-in team usage sharing: one record per turn (`cmux-usage-share`).
+mod usage_share;
 // A foreground shell still running after a minute goes to the background (Claude Code).
 mod auto_background;
 pub use auto_background::AUTO_BACKGROUND_ENV;
@@ -25,6 +27,7 @@ mod prompt_coach;
 // The person's prompts to a held chat wait to go in together (`person_hold.rs`).
 mod person_hold;
 pub use person_hold::PromptTriager;
+pub(crate) mod restricted;
 mod rolling_summary;
 pub(crate) mod stop_condition;
 mod surge_triage;
@@ -51,11 +54,13 @@ mod exit_reason;
 mod fallback_start;
 pub(crate) mod session_auth;
 pub(crate) mod settled_view;
+mod subagent_expiry;
 pub(crate) mod subagent_resume;
 pub(crate) mod subagent_retry;
 pub(crate) use crate::turn_errors;
 pub(crate) use lane_reports::TAG as REPORTS_TO_TAG;
 pub(crate) use policy_mode::SetRequest;
+pub(crate) use route_switch::is_chief;
 mod audit_entries;
 pub(crate) mod audit_log;
 mod bookmarks;
@@ -197,10 +202,12 @@ pub(crate) use log_load::AdoptionReady;
 mod model_options;
 mod new_request;
 pub use model_options::{
-    current_effort, current_model, current_option, resolve_config_id, web_url, web_url_for_session,
+    current_effort, current_model, current_option, resolve_config_id, spawn_effort, web_url,
+    web_url_for_session,
 };
 pub mod ledger;
 mod list_order;
+mod model_alias;
 mod model_hint;
 mod model_probe;
 mod models_view;
@@ -249,6 +256,7 @@ pub(crate) mod reply_fit;
 pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender, on_peer_host};
 pub(crate) use queue::approved_prompts_error;
 pub use queue::{Approver, QueuedPrompt, Withdrawn, supersede::key as supersede_key};
+pub(crate) use transfer_out::TOOL_IN_FLIGHT;
 mod credentials;
 mod live_name;
 mod profile_respawn;
@@ -430,6 +438,7 @@ pub(crate) mod outbox;
 mod outbox_open_tests;
 #[cfg(test)]
 pub(crate) mod outbox_oracle;
+pub(crate) mod pause;
 pub(crate) mod release_to_watch;
 mod restore_point;
 pub mod rules;
@@ -1197,6 +1206,9 @@ pub struct Hub {
     pub(super) surge_triage_due: StdMutex<HashMap<String, bool>>,
     /// What answers surge triage instead of the small model (tests; `surge_triage.rs`).
     pub(super) surge_triager: StdMutex<Option<surge_triage::SurgeTriager>>,
+    /// Whether surge admission holds messages, set by tests; `None` reads Settings >
+    /// Experimental > Labs > Show Preview Features (`inbox_surge.rs` `surge_inbox_on`).
+    pub(super) surge_inbox: StdMutex<Option<bool>>,
     /// Each chat's surge triage state between passes (`surge_triage.rs` `Journal`).
     pub(super) surge_triage_journals: StdMutex<HashMap<String, surge_triage::Journal>>,
     /// The thread owners every chat subscribed itself to (`surge_triage.rs`).
@@ -1630,6 +1642,7 @@ impl Hub {
             coach_rewriter: StdMutex::new(None),
             surge_triage_due: StdMutex::new(HashMap::new()),
             surge_triager: StdMutex::new(None),
+            surge_inbox: StdMutex::new(None),
             surge_triage_journals: StdMutex::new(HashMap::new()),
             surge_subscribers: StdMutex::new(None),
             surge_digest_pace: StdMutex::new(HashMap::new()),
@@ -2833,6 +2846,7 @@ impl Hub {
         kept: log_deferral::Kept,
         notify: bool,
     ) -> (EventRecord, bool) {
+        let started = std::time::Instant::now();
         let seq = session.seq.fetch_add(1, Ordering::SeqCst) + 1;
         let at = at.unwrap_or_else(now_ms);
         // Record a harmless mux receipt instead of ambiguous completion metadata.
@@ -2866,6 +2880,7 @@ impl Hub {
         }
         // A stub goes in without the record's recovery mark (`restore_writer.rs`).
         let stub = matches!(kept, log_deferral::Kept::Stub(_)) && !fenced;
+        let appending = std::time::Instant::now();
         let appended = match kept {
             // A fenced record keeps its receipt.
             log_deferral::Kept::Stub(msg) if !fenced => self.store.append(
@@ -2874,6 +2889,7 @@ impl Hub {
             ),
             _ => self.store.append(&session.id, &record),
         };
+        let store_time = appending.elapsed();
         let stored = match appended {
             Ok(()) => true,
             Err(e) => {
@@ -3023,6 +3039,7 @@ impl Hub {
                 self.events.send_row(session, event)
             };
         }
+        crate::gauges::record_writes().note(store_time, started.elapsed());
         (record, stored)
     }
 
@@ -3369,6 +3386,19 @@ impl Hub {
         #[cfg(test)]
         log_load::catch_up_note(&log_load::NOTE_BEFORE_REPLAY_SCAN, "scans the log");
         self.store.scan(id, after, &mut |record| record.seq <= last && visit(record))
+    }
+
+    /// Where a replay of chat `id`'s newest `n` records starts ([`crate::store::NewestWindow`]),
+    /// read up to the same `last_seq` [`Self::scan_events`] stops at: `scan_events` from its
+    /// `after` sends those `n` and the few appended since. Costs `n` line heads read back from
+    /// the end however long the log is.
+    pub fn newest_window(&self, id: &str, n: u64) -> Result<crate::store::NewestWindow> {
+        let live = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
+        let Some(session) = live else { return self.store.newest_window(id, u64::MAX, n) };
+        self.warm_chat(&session);
+        self.catch_up_tail(&session);
+        let last = session.meta().last_seq;
+        self.store.newest_window(id, last.saturating_add(1), n)
     }
 
     /// Counts `session`'s log tail past its saved `lastSeq` if no one has yet ([`Self::catch_up`]):

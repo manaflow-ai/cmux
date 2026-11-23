@@ -21,9 +21,9 @@ extension PinCommands {
 
     /// Whether `workspace` shows pinned, in the model the sidebar draws.
     func isWorkspacePinned(_ workspace: WorkspaceModel) -> Bool {
-        // The sidebar document: at the top level of Pinned, or pinned inside its group (pinning-DESIGN.md).
-        if let store = doc.store, store.isActive, let item = doc.item(workspace: workspace.id) {
-            return store.records.isPinned(item: item)
+        // The sidebar document (pinning-DESIGN.md); a workspace it does not place yet: the daemon flag `setWorkspacePinned` sets.
+        if let store = doc.store, store.isActive {
+            return doc.item(workspace: workspace.id).map { store.records.isPinned(item: $0) } ?? workspace.pinned
         }
         guard pinsAreTiles else { return workspace.pinned }
         return refs.ref(forWorkspace: workspace.id).map(layout.document.isPinned) ?? false

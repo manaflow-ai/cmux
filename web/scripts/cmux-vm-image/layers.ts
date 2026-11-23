@@ -25,7 +25,7 @@ import { DEVBOX_WORK_HOME } from "../../services/vms/images/workUser";
 import { CURRENT_BIN, STORE_DIR } from "./lock";
 
 /** Lock programs that belong to the app layer; every other program belongs to the agents layer. */
-export const APP_PROGRAMS = ["cmux-tui", "cmux-tui-hook"] as const;
+export const APP_PROGRAMS = ["cmux-tui", "cmux-tui-hook", "optchat-chief"] as const;
 
 export type LayerName = "system" | "agents";
 
