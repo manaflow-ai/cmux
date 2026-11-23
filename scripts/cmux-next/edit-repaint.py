@@ -6,6 +6,8 @@ customize folder, never the account's; or, with `--attach-socket`, an app alread
 instance of an installed NIGHTLY: scripts/measure/ext-reload-nightly.sh):
 - `theme`: cmux-next.json `appearance.themeFile` flips between two shipped theme files (phosphor, charcoal).
 - `sidebar`: cmux-next.json `sidebar.density` flips between compact and expanded (four workspaces listed).
+- `twotone`: cmux-next.json `appearance.twoTone` flips between off and auto (the intro walk's Two-Tone Studio pick).
+- `twotone-pairing`: `appearance.twoTone` flips between off and the `inkSakura` pairing, a change of every surface.
 - `extension`: the customize folder's `main.js` (local/customize) is saved with a new headline in its
   `cmux.section/1` sidebar section; the daemon's watcher reloads it and the app redraws the section.
 - `rows`: the same script saved with a new badge on every workspace row (`cmux.sidebar.rows/1`).
@@ -67,7 +69,8 @@ APP_ID = "local/customize"
 CUSTOMIZE_CASES = ("extension", "rows", "pane")
 READBACK_CASES = ("command", "shortcut")  # nothing changes on screen for these until a person acts
 INTERFACES = {"extension": "cmux.section/1", "rows": "cmux.sidebar.rows/1", "pane": "cmux.pane/1"}
-ALL_CASES = ("theme", "sidebar") + CUSTOMIZE_CASES + READBACK_CASES
+TWOTONE_CASES = {"twotone": ["auto", "off"], "twotone-pairing": ["inkSakura", "off"]}
+ALL_CASES = ("theme", "sidebar") + tuple(TWOTONE_CASES) + CUSTOMIZE_CASES + READBACK_CASES
 
 MANIFEST = {
     "manifestVersion": 2, "id": APP_ID, "name": "Edit repaint", "version": "1.0.0",
@@ -319,6 +322,12 @@ def key_resolves(app, keys, command):
     return isinstance(reply, dict) and "error" not in reply and command in json.dumps(reply)
 
 
+def p95(values):
+    """Nearest-rank p95: the intro walk's budget is pick to paint under 50 ms at p95."""
+    ordered = sorted(values)
+    return ordered[max(0, -(-len(ordered) * 95 // 100) - 1)]
+
+
 def summary(rows):
     upper = [r["upper_ms"] for r in rows if "upper_ms" in r]
     lower = [r["lower_ms"] for r in rows if "lower_ms" in r]
@@ -326,6 +335,7 @@ def summary(rows):
         return {"n": 0, "missed": len(rows)}
     out = {"n": len(upper), "missed": len(rows) - len(upper),
            "upper_median_ms": round(statistics.median(upper), 1), "upper_max_ms": max(upper),
+           "upper_p95_ms": round(p95(upper), 1),
            "lower_median_ms": round(statistics.median(lower), 1), "lower_max_ms": max(lower)}
     snaps = [r["snap_ms"] for r in rows if r.get("snap_ms")]
     if snaps:
@@ -433,6 +443,9 @@ def main():
                 if case == "theme":
                     name = ["phosphor", "charcoal"][i % 2]
                     write = save_config(lambda c, n=name: c.setdefault("appearance", {}).__setitem__("themeFile", n))
+                elif case in TWOTONE_CASES:
+                    tone = TWOTONE_CASES[case][i % 2]
+                    write = save_config(lambda c, t=tone: c.setdefault("appearance", {}).__setitem__("twoTone", t))
                 elif case == "sidebar":
                     density = ["expanded", "compact"][i % 2]
                     write = save_config(lambda c, d=density: c.setdefault("sidebar", {}).__setitem__("density", d))
@@ -476,6 +489,9 @@ def main():
             print("EDIT_REPAINT " + json.dumps({"case": case, **stats}), flush=True)
             if case == "theme":  # the next cases run on the default look
                 save_config(lambda c: c.get("appearance", {}).pop("themeFile", None))()
+                time.sleep(2)
+            if case in TWOTONE_CASES:
+                save_config(lambda c: c.get("appearance", {}).pop("twoTone", None))()
                 time.sleep(2)
             if case == "command":
                 save_config(lambda c: c.get("actions", {}).pop(COMMAND_ACTION, None))()
