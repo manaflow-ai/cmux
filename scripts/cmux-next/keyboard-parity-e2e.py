@@ -35,6 +35,7 @@ Usage: CMUX_SOCKET_PATH=... APP_PID=... keyboard-parity-e2e.py [--foci terminal,
 import argparse, http.server, json, os, socket, subprocess, sys, tempfile, threading, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", default=os.environ.get("CMUX_SOCKET_PATH"))
@@ -129,6 +130,12 @@ def state():
             "overlays": model.get("overlays") or [], "responder": appkit.get("first_responder"),
             "classified": appkit.get("classified"), "tabs": tabs, "tab_ids": {t.split(":")[0] for t in tabs},
             "palette": ((report.get("context") or {}).get("palette_open")) is True}
+
+
+def settle_focus(what):
+    """The keyboard's place held still (resolved focus, tab, responder, palette) for 0.3 s; best effort."""
+    wait_stable(lambda: (lambda s: (s["resolved"], s["tab"], s["classified"], s["responder"], s["palette"]))(state()),
+                what, timeout=10, interval=0.1, reads=4, raise_on_timeout=False)
 
 
 def sidebar():
@@ -402,7 +409,7 @@ def prepare(name, focus, ctx):
         run("browserBack" if focus == "page" else "focusHistoryBack")
         if focus == "page":
             wait(lambda: fetched("/shown/a", since) or None, 5)
-        time.sleep(0.5)  # test harness: the focus move settles
+        settle_focus("the focus move")
     elif name == "Esc":
         run("commandPalette")
         wait(lambda: state()["palette"] or None, 5)
@@ -414,7 +421,7 @@ def refocus(focus, ctx):
         wait(lambda: state().get("resolved") == "sidebar" or None, 5)
     elif focus == "newtab":
         wait(lambda: (rpc("debug.new_tab", {"action": "field"}) or {}).get("focused") is True, 5)
-    time.sleep(0.4)  # test harness
+    settle_focus(f"the keyboard back in {focus}")
 
 
 KEYS = [
