@@ -29,7 +29,9 @@
 //! or lost finish is settled by asking the target (`agent-transfer-
 //! receive-abort` of the receive, which also forgets the move there so a
 //! late finish can never land it): landed commits, not landed aborts, no
-//! answer leaves the chat frozen and reports `move_unresolved`.
+//! answer leaves the chat frozen and reports `move_unresolved`. "Cannot say
+//! yet" (the target's finish of that receive still runs) is asked again until
+//! the finish's own bound has passed.
 //!
 //! A Mac source names no target acpmux could ask on its own, so the move is
 //! recorded under the state folder until it ends ([`record`]); running the
@@ -123,7 +125,7 @@ mod daemon;
 mod record;
 
 use std::path::PathBuf;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
@@ -929,18 +931,48 @@ fn copy_file(
     Ok(size)
 }
 
+/// How long a pump waits between questions while the target is still finishing the receive.
+const FINISHING_PAUSE: Duration = Duration::from_millis(250);
+
 /// Asks the target whether the chat landed, forgetting the move there so a
-/// late finish can never land it: `None` when it cannot say.
+/// late finish can never land it: `None` when it cannot say. While the
+/// target answers "cannot say yet" (its finish of this receive is still
+/// running, after a finish answer was lost or a rerun came in during it),
+/// the pump asks again until that finish's own bound has passed: a cut
+/// connection that dropped only the answer otherwise left the chat open
+/// there and frozen here until someone ran the move again.
 fn ask_landed(record: &Record) -> Option<bool> {
-    let receive_id = record.receive_id.as_deref()?;
+    let deadline = Instant::now() + FINISH_TIMEOUT + CALL_TIMEOUT;
+    loop {
+        match ask_landed_once(record) {
+            Asked::Settled(landed) => return Some(landed),
+            Asked::Finishing if Instant::now() < deadline => std::thread::sleep(FINISHING_PAUSE),
+            Asked::Finishing | Asked::NoAnswer => return None,
+        }
+    }
+}
+
+enum Asked {
+    Settled(bool),
+    /// The target answered and cannot say yet: nothing was forgotten there.
+    Finishing,
+    NoAnswer,
+}
+
+fn ask_landed_once(record: &Record) -> Asked {
+    let Some(receive_id) = record.receive_id.as_deref() else { return Asked::NoAnswer };
     let params = json!({"receive_id": receive_id});
-    let answer =
-        call_once(&record.to_socket, "agent-transfer-receive-abort", params, CALL_TIMEOUT).ok()?;
+    let Ok(answer) =
+        call_once(&record.to_socket, "agent-transfer-receive-abort", params, CALL_TIMEOUT)
+    else {
+        return Asked::NoAnswer;
+    };
     match (answer["landed"].as_bool(), answer["forgotten"].as_bool()) {
-        (Some(true), _) => Some(true),
+        (Some(true), _) => Asked::Settled(true),
         // Only a forgotten move stays not landed.
-        (Some(false), Some(true)) => Some(false),
-        _ => None,
+        (Some(false), Some(true)) => Asked::Settled(false),
+        (None, Some(false)) => Asked::Finishing,
+        _ => Asked::NoAnswer,
     }
 }
 
