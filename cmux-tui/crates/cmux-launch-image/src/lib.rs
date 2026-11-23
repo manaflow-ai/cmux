@@ -61,6 +61,10 @@ pub const TMP_SUFFIX: &str = ".tmp";
 pub const PRUNE_GRACE: Duration = Duration::from_millis(ffi::CMUX_LAUNCH_IMAGE_PRUNE_GRACE_MS);
 /// How many generations a publish tries when another publish took its name.
 const PUBLISH_ATTEMPTS: u64 = 8;
+/// The hidden file a publish holds an exclusive lock on while it names, links and caps, so
+/// concurrent publishes (threads or processes) never prune a path another one is returning.
+/// Never parsed as an image and never pruned.
+pub const LOCK_NAME: &str = ".publish.lock";
 
 /// The longest window id used as its own key.
 pub const MAX_PLAIN_KEY: usize = 64;
@@ -234,10 +238,6 @@ impl Store {
         }
         let (pixel_width, pixel_height) = png_pixel_size(png).ok_or(PublishError::NotPng)?;
         let key = window_key(window_id);
-        let entries = self.entries();
-        let newest =
-            entries.iter().filter(|e| e.key == key).map(|e| e.generation).max().unwrap_or(0);
-        let first = now_nanos.max(newest.saturating_add(1));
         let longest = self.dir.join(format!("{key}.{}.{EXTENSION}", u64::MAX));
         if longest.as_os_str().len() > MAX_PATH_BYTES {
             return Err(PublishError::PathTooLong);
@@ -250,6 +250,19 @@ impl Store {
             let _ = fs::remove_file(&tmp);
             return Err(error.into());
         }
+        // Naming, linking and capping run under the folder's lock (the costly write above does
+        // not), so this publish's generation is the newest its window has when it links, and no
+        // other publish's caps run between that link and the return.
+        let _lock = match self.lock() {
+            Ok(lock) => lock,
+            Err(error) => {
+                let _ = fs::remove_file(&tmp);
+                return Err(error.into());
+            }
+        };
+        let newest =
+            self.entries().iter().filter(|e| e.key == key).map(|e| e.generation).max().unwrap_or(0);
+        let first = now_nanos.max(newest.saturating_add(1));
         // A hard link never replaces: a name another publish took is skipped, so a published path
         // never gets other bytes.
         let mut published = None;
@@ -278,13 +291,28 @@ impl Store {
         // The rename is durable once the folder is synced; a failure here only risks the newest
         // image after a power loss, which reads as the previous one or none.
         let _ = File::open(&self.dir).and_then(|dir| dir.sync_all());
-        self.enforce_caps(&key);
+        let name = format!("{key}.{generation}.{EXTENSION}");
+        self.enforce_caps(&key, &name);
         Ok(Image { path, generation, pixel_width, pixel_height, bytes })
     }
 
+    /// Takes the folder's exclusive publish lock ([`LOCK_NAME`]); it is released when the file
+    /// drops.
+    fn lock(&self) -> io::Result<File> {
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(self.dir.join(LOCK_NAME))?;
+        file.lock()?;
+        Ok(file)
+    }
+
     /// Drops each window's images past [`Caps::keep_per_window`], then whole windows past
-    /// [`Caps::max_windows`] (least recently published first, never `just_published`).
-    fn enforce_caps(&self, just_published: &str) {
+    /// [`Caps::max_windows`] (least recently published first, never `just_published`). The file
+    /// `published_name` (the image the caller is about to return) is never removed.
+    fn enforce_caps(&self, just_published: &str, published_name: &str) {
         let entries = self.entries();
         let mut windows: Vec<&str> = Vec::new();
         let mut kept: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
@@ -309,7 +337,7 @@ impl Store {
         doomed.extend(
             entries.iter().filter(|e| evict.contains(&e.key.as_str())).map(|e| e.name.as_str()),
         );
-        for name in doomed {
+        for name in doomed.into_iter().filter(|n| *n != published_name) {
             let _ = fs::remove_file(self.dir.join(name));
         }
     }
@@ -419,6 +447,57 @@ mod tests {
         assert_eq!(parse_name("abc.png"), None);
         assert_eq!(parse_name("abc.x1.png"), None);
         assert_eq!(parse_name("notes.txt"), None);
+    }
+
+    #[test]
+    fn caps_never_remove_the_image_being_returned() {
+        // A publish that linked an older generation than a concurrent one (its folder read came
+        // first) must not prune its own file, even when keep_per_window drops it.
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-launch-image-unit-{}-{}",
+            std::process::id(),
+            now_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let store = Store::new(&dir, Caps { keep_per_window: 1, ..Caps::default() });
+        for name in ["win.9000.png", "win.100.png"] {
+            fs::write(dir.join(name), b"x").unwrap();
+        }
+        store.enforce_caps("win", "win.100.png");
+        assert!(dir.join("win.100.png").exists());
+        assert!(dir.join("win.9000.png").exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_publish_waits_for_the_folder_lock() {
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-launch-image-lock-{}-{}",
+            std::process::id(),
+            now_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let store = Store::new(&dir, Caps::default());
+        let held = store.lock().unwrap();
+        let done = std::sync::atomic::AtomicBool::new(false);
+        std::thread::scope(|scope| {
+            let handle = scope.spawn(|| {
+                let mut png = vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13];
+                png.extend_from_slice(b"IHDR");
+                png.extend_from_slice(&1_u32.to_be_bytes());
+                png.extend_from_slice(&1_u32.to_be_bytes());
+                png.extend_from_slice(&[8, 6, 0, 0, 0]);
+                let image = store.publish("win", &png).unwrap();
+                done.store(true, Ordering::SeqCst);
+                image
+            });
+            std::thread::sleep(Duration::from_millis(100));
+            assert!(!done.load(Ordering::SeqCst), "publish ran while the lock was held");
+            drop(held);
+            let image = handle.join().unwrap();
+            assert!(image.path.exists());
+        });
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
