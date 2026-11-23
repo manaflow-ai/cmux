@@ -560,6 +560,8 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     /// The visible-spare mutant (FeedParkedSpareUITests) keeps its spare this long after the plant.
     static let mutantHold: CFTimeInterval = 4
     private var mutantHoldUntil: CFTimeInterval = 0
+    /// The visible-spare mutant planted its spare: only then are takes traced with their asker.
+    private var mutantPlanted = false
     #endif
 
     /// The parked spare and its holder (tests: hidden from accessibility, off screen, not in the table).
@@ -592,15 +594,19 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     private func takeSpare(for id: String, at indexPath: IndexPath) -> FeedRowCell? {
         guard let cell = spare else { return nil }
         #if DEBUG
-        // Who asked, in the trace: the row, whether it is on screen, whether an accessibility walk
-        // asked (spare-ui-4 d0b40ace: the planted spare went 60 ms after it was made, and the trace
-        // could not say to what).
-        let onScreen = collectionView.map { $0.rectForRow(at: indexPath).intersects($0.bounds) } ?? false
-        let axWalk = Thread.callStackSymbols.contains { $0.contains("Accessibility") || $0.contains("AXRuntime") }
-        let asker = "row=\(indexPath.row) id=\(id) onScreen=\(onScreen) ax=\(axWalk)"
-        if CACurrentMediaTime() < mutantHoldUntil {
-            trace("spare held (mutant) " + asker)
-            return nil
+        // Under the visible-spare mutant only (never on a measured path: a stack's symbols cost
+        // milliseconds on the frame that needs the cell), who asked goes in the trace: the row,
+        // whether it is on screen, whether an accessibility walk asked (spare-ui-4 d0b40ace: the
+        // planted spare went 60 ms after it was made, and the trace could not say to what).
+        var asker: String?
+        if mutantPlanted {
+            let onScreen = collectionView.map { $0.rectForRow(at: indexPath).intersects($0.bounds) } ?? false
+            let axWalk = Thread.callStackSymbols.contains { $0.contains("Accessibility") || $0.contains("AXRuntime") }
+            asker = "row=\(indexPath.row) id=\(id) onScreen=\(onScreen) ax=\(axWalk)"
+            if CACurrentMediaTime() < mutantHoldUntil {
+                trace("spare held (mutant) " + (asker ?? ""))
+                return nil
+            }
         }
         #endif
         spare = nil
@@ -610,7 +616,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         cell.prepareForReuse()
         sparesTaken += 1
         #if DEBUG
-        trace("spare taken " + asker)
+        if let asker { trace("spare taken " + asker) } else { trace("spare taken") }
         #else
         trace("spare taken")
         #endif
@@ -726,6 +732,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
             // row cell asked for in its first seconds gets a new cell instead (spare-ui-4: one
             // asked 60 ms after the plant, so the screenshot showed nothing to catch). The test
             // checks from the trace that the take came after its screenshot.
+            mutantPlanted = true
             mutantHoldUntil = CACurrentMediaTime() + Self.mutantHold
         }
         #endif
