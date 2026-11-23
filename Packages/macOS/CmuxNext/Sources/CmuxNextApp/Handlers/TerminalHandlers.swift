@@ -22,7 +22,7 @@ enum TerminalHandlers {
         bindKeep(registry, ctx)
         bindCopyMode(registry, ctx)
         TextBoxHandlers.bind(into: registry, context: ctx)
-        TerminalCommentHandlers.bind(into: registry, context: ctx)
+        bindComments(into: registry, context: ctx)
     }
 
     /// Runs a Ghostty binding action on the targeted or focused terminal.
@@ -149,20 +149,16 @@ enum TerminalHandlers {
 /// mode sends to) with `keep: true`, so it stays as a thread whose reply shows in a card over the
 /// terminal (``TerminalCommentThreads``). Without comment-threads-v1 the row stays the placeholder
 /// (``TerminalToChatPlaceholders``): out of the menus and refused with its reason.
-enum TerminalCommentHandlers {
-    static let id: ActionID = "terminal.sendSelectionToChat"
-
-    static func bind(into registry: ActionRegistry, context ctx: AppActionContext) {
+extension TerminalHandlers {
+    static func bindComments(into registry: ActionRegistry, context ctx: AppActionContext) {
+        let id: ActionID = "terminal.sendSelectionToChat"
         let threads = TerminalCommentThreads()
         registry.bindEffect(id, effect: { invocation in
             guard invocation.isPersonsOwnRun else { return .refused(TerminalCommentStrings.gesture) }
-            let target: TerminalCommentThreads.Target
-            switch resolve(invocation, ctx) {
-            case .success(let found): target = found
-            case .failure(let reason): return .refused(reason.text)
-            }
+            let (found, reason) = commentTarget(invocation, ctx)
+            guard let target = found else { return .refused(reason ?? TerminalToChatPlaceholders.reason) }
             guard let entry = ctx.terminal(invocation) else { return .done }
-            guard let quote = TerminalHandlers.selection(of: entry) else { return .refused(RefusalStrings.nothingSelected) }
+            guard let quote = selection(of: entry) else { return .refused(RefusalStrings.nothingSelected) }
             let anchor = entry.session.surfaceView
             guard let window = anchor.window else { return .refused(RefusalStrings.notATerminal) }
             // ChatQuote titles a source by its last path component; a terminal title is not a path.
@@ -173,37 +169,23 @@ enum TerminalCommentHandlers {
                 }
             return .done
         })
-        ActionTargetVisibility.gate(id, in: registry, reason: { invocation in
-            if case .failure(let reason) = resolve(invocation, ctx) { return reason.text }
-            return nil
-        })
+        ActionTargetVisibility.gate(id, in: registry, reason: { commentTarget($0, ctx).refusal })
         ActionTargetTitles.set(id, in: registry) { _ in TerminalCommentStrings.menuTitle }
     }
 
-    /// Why a terminal cannot take a comment.
-    enum Unavailable: Error {
-        case notATerminal, noChat, noThreads
-
-        var text: String {
-            switch self {
-            case .notATerminal: RefusalStrings.notATerminal
-            case .noChat: TerminalCommentStrings.noChat
-            case .noThreads: TerminalToChatPlaceholders.reason
-            }
-        }
-    }
-
     /// The terminal `invocation` names, the workspace chat it sends to and that chat's session host
-    /// (which must keep threads). Reads no live view and selects nothing, so a menu can ask it.
-    static func resolve(_ invocation: ActionInvocation, _ ctx: AppActionContext) -> Result<TerminalCommentThreads.Target, Unavailable> {
+    /// (which must keep threads), else why not. Reads no live view and selects nothing, so a menu can ask it.
+    static func commentTarget(_ invocation: ActionInvocation, _ ctx: AppActionContext) -> (target: TerminalCommentThreads.Target?, refusal: String?) {
         let services = ctx.services
-        guard let (tab, pane) = ctx.daemonTab(invocation), tab.kind == .pty || tab.kind == .remoteTerminal else { return .failure(.notATerminal) }
+        guard let (tab, pane) = ctx.daemonTab(invocation), tab.kind == .pty || tab.kind == .remoteTerminal else { return (nil, RefusalStrings.notATerminal) }
         guard let chat = services.workspaceAgentChat(near: pane), let session = chat.tab.agentSession?.session, !session.isEmpty else {
-            return .failure(.noChat)
+            return (nil, TerminalCommentStrings.noChat)
         }
-        guard let link = services.viewers.diffPages.gitLink(for: chat.tab), link.keepsCommentThreads else { return .failure(.noThreads) }
-        guard let root = NewTerminalStart.folder(of: chat.tab, services: services) ?? tab.cwd, root.hasPrefix("/") else { return .failure(.noChat) }
+        guard let link = services.viewers.diffPages.gitLink(for: chat.tab), link.keepsCommentThreads else { return (nil, TerminalToChatPlaceholders.reason) }
+        guard let root = NewTerminalStart.folder(of: chat.tab, services: services) ?? tab.cwd, root.hasPrefix("/") else {
+            return (nil, TerminalCommentStrings.noChat)
+        }
         let terminal = CommentedTerminal(id: tab.id, title: tab.displayTitle, cwd: tab.cwd)
-        return .success(.init(terminal: terminal, acpSession: session, link: link, root: root))
+        return (TerminalCommentThreads.Target(terminal: terminal, acpSession: session, link: link, root: root), nil)
     }
 }
