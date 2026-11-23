@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 668,
+  "count": 673,
   "sections": [
     {
       "id": "general",
@@ -1614,6 +1614,18 @@
           ]
         },
         {
+          "key": "tabs.shellIconTheme",
+          "title": "Shell Tab Icons",
+          "help": "Machines shows each shell tab with the icon of the machine it runs on.",
+          "kind": "choice",
+          "default": "default",
+          "group": "Tabs",
+          "values": [
+            "default",
+            "machine"
+          ]
+        },
+        {
           "key": "tabs.swapCmdTAndCmdN",
           "title": "Swap Cmd-T and Cmd-N",
           "help": "Cmd-T opens a workspace and Cmd-N opens a tab.",
@@ -2404,14 +2416,9 @@
           "key": "agentPane.display.width",
           "title": "Chat Text Width",
           "help": "The widest the chat's column gets. On a wider pane the chat stays centered.",
-          "kind": "number",
+          "kind": "choice_or_number",
           "default": 800,
-          "group": "Agent Chat",
-          "range": {
-            "min": 480,
-            "max": 4000,
-            "unit": "points"
-          }
+          "group": "Agent Chat"
         },
         {
           "key": "app.uiScale",
@@ -2707,6 +2714,14 @@
             "max": 1,
             "unit": "fraction"
           }
+        },
+        {
+          "key": "appearance.backgroundRecents",
+          "title": "Recent Backgrounds",
+          "help": "The backgrounds shown before, newest first, so one click goes back.",
+          "kind": "string_list",
+          "default": null,
+          "group": "Window Background"
         },
         {
           "key": "appearance.backgroundRotation",
@@ -4536,6 +4551,14 @@
           "group": "Sidebar"
         },
         {
+          "key": "sidebar.showAutomaticSessions",
+          "title": "Show Automatic Sessions",
+          "help": "Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
           "key": "sidebar.showChats",
           "title": "Show All Chats on New Tab",
           "help": "New Tab lists every agent chat on this computer, not only recent ones.",
@@ -5920,7 +5943,7 @@
           "title": "Suggestions Shown",
           "help": "",
           "kind": "number",
-          "default": 8,
+          "default": 6,
           "group": "Address Bar",
           "range": {
             "min": 3,
@@ -7242,6 +7265,14 @@
           "group": "Experiments"
         },
         {
+          "key": "experiments.toastsV2",
+          "title": "Toasts v2",
+          "help": "Spinner toasts that turn into their result in place, and an Undo after closing a tab or workspace or archiving a chat.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Experiments"
+        },
+        {
           "key": "labs.agentCustomization",
           "title": "Claude Code and Codex Customization",
           "help": "Show and edit the MCP servers, skills and commands Claude Code and Codex use, in their own config files.",
@@ -7269,6 +7300,14 @@
           "key": "labs.machineJoin",
           "title": "Screen Sharing for Joined Machines",
           "help": "Shows Screen sharing and Control in Settings > Devices once this Mac joins.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Labs"
+        },
+        {
+          "key": "labs.pauseAgentMachines",
+          "title": "Pause Agent Machines",
+          "help": "Pause a new agent machine after 15 idle minutes; it resumes when work arrives.",
           "kind": "toggle",
           "default": false,
           "group": "Labs"

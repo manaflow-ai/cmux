@@ -659,6 +659,28 @@ fn a_rejected_token_is_refreshed_once_before_asking_for_a_sign_in() {
     );
 }
 
+/// A tool whose name is no identifier (`resolve-library-id`) is declared and
+/// hinted in a form code can call: a quoted method, bracket access.
+#[test]
+fn a_tool_with_a_dash_is_declared_and_hinted_as_code_can_call_it() {
+    use optchat_chief::mcp_hub::codemode::{declarations, member};
+    let tools = vec![
+        json!({"name": "resolve-library-id", "inputSchema": {"type": "object"}}),
+        json!({"name": "get_docs", "inputSchema": {"type": "object"}}),
+    ];
+    let d = declarations("docs", &tools, &[], None);
+    assert!(d.contains("const docs: {"), "{d}");
+    assert!(d.contains("\"resolve-library-id\"(args?"), "{d}");
+    assert!(!d.contains("function \"resolve"), "{d}");
+    assert_eq!(member("resolve-library-id"), "[\"resolve-library-id\"]");
+    assert_eq!(member("get_docs"), ".get_docs");
+    let plain = declarations("fake", &tools[1..], &[], None);
+    assert!(
+        plain.contains("declare namespace mcp.fake {") && plain.contains("function get_docs("),
+        "{plain}"
+    );
+}
+
 /// Sets who may see the shared record `name` (what acpmux's connect card
 /// writes for the person's scope).
 fn set_scope(shared: &Path, name: &str, scope: &str, owner: Option<&str>) {

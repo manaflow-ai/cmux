@@ -900,6 +900,33 @@
           ]
         },
         {
+          "key": "appearance.backgroundRecents",
+          "name": "recents",
+          "note": "The backgrounds shown before, newest first (Leo, 2026-11-22: \"it was cumbersome back then to switch back\"): each an appearance.background value (a rotating folder, daily, desktop, a picture or a mode), at most 8, each once. The daemon's settings write (cmux-config) puts the replaced value first whenever appearance.background changes, from every surface; Switch to Previous Background, Recent Backgrounds\u2026, cmux wallpaper back|recent and the Settings page's Recent strip read it.",
+          "title": {
+            "key": "settings.appearance.backgroundRecents",
+            "text": "Recent Backgrounds"
+          },
+          "help": {
+            "key": "settings.appearance.backgroundRecents.help",
+            "text": "The backgrounds shown before, newest first, so one click goes back."
+          },
+          "kind": "string_list",
+          "swift_owner": {
+            "type": "BackdropSelectionSetting",
+            "prefixed": true
+          },
+          "default": null,
+          "keywords": [
+            "wallpaper",
+            "background",
+            "recent",
+            "previous",
+            "history",
+            "folder"
+          ]
+        },
+        {
           "key": "appearance.displayBackgrounds",
           "name": "displayBackgrounds",
           "title": {
