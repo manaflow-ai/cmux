@@ -171,14 +171,25 @@ public struct CustomSidebarValidator {
         "branch": .string("main"),
     ])
 
+    /// A pull request with no branch; the builder adds `branch` only when the pull request has one.
+    private static let sampleBranchlessPullRequest: SwiftValue = .object([
+        "number": .int(5790),
+        "label": .string("PR 5790"),
+        "url": .string("https://github.com/manaflow-ai/cmux/pull/5790"),
+        "status": .string("merged"),
+        "stale": .bool(false),
+    ])
+
     /// Representative data context used when validating Swift sidebars outside a live render.
     ///
     /// Every field present carries the type CustomSidebarDataContextBuilder emits
     /// for a real render: the populated workspace sample uses the builder's
     /// object/int shapes for its workspace-level optionals, and the quiet workspace
     /// omits every optional the builder omits when absent, so validation exercises
-    /// both paths (#7944). The sample has no `agents`, `emoji` or `group` and no
-    /// tabs, so per-agent and per-tab shapes are not exercised.
+    /// both paths (#7944). The linked workspace's pull request has no `branch`,
+    /// which the builder also omits when a pull request has none. The sample has no
+    /// `agents`, `emoji` or `group` and no tabs, so per-agent and per-tab shapes are
+    /// not exercised.
     public static let defaultDataContext: [String: SwiftValue] = [
         "workspaces": .array([
             .object([
@@ -199,17 +210,7 @@ public struct CustomSidebarValidator {
                 "branch": .string("main"),
                 "dirty": .bool(true),
                 "pr": samplePullRequest,
-                "prs": .array([
-                    samplePullRequest,
-                    // The builder adds branch only when a pull request has one.
-                    .object([
-                        "number": .int(5790),
-                        "label": .string("PR 5790"),
-                        "url": .string("https://github.com/manaflow-ai/cmux/pull/5790"),
-                        "status": .string("merged"),
-                        "stale": .bool(false),
-                    ]),
-                ]),
+                "prs": .array([samplePullRequest]),
                 "progress": .object([
                     "value": .double(0.42),
                     "label": .string("Running tests"),
@@ -237,6 +238,22 @@ public struct CustomSidebarValidator {
                 "tabs": .array([]),
                 "tabCount": .int(0),
             ]),
+            .object([
+                "id": .string("workspace-linked"),
+                "title": .string("Linked Workspace"),
+                "selected": .bool(false),
+                "pinned": .bool(false),
+                "index": .int(2),
+                "directory": .string("~/linked"),
+                "ports": .array([]),
+                "portCount": .int(0),
+                "unread": .int(0),
+                "status": .string("todo"),
+                "tabs": .array([]),
+                "tabCount": .int(0),
+                "pr": sampleBranchlessPullRequest,
+                "prs": .array([sampleBranchlessPullRequest]),
+            ]),
         ]),
         "groups": .array([
             .object([
@@ -247,7 +264,7 @@ public struct CustomSidebarValidator {
                 "anchorId": .string("workspace-sample"),
             ])
         ]),
-        "workspaceCount": .int(2),
+        "workspaceCount": .int(3),
         "selectedTitle": .string("Sample Workspace"),
         "selectedId": .string("workspace-sample"),
         "unreadTotal": .int(2),
