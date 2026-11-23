@@ -13,7 +13,8 @@
  *
  *   bun scripts/cmux-next/zero-to-going.ts --documented                    # the counted steps only, no network
  *   bun scripts/cmux-next/zero-to-going.ts --backend staging --out DIR      # counted, and the Cloud part timed
- *   bun scripts/cmux-next/zero-to-going.ts --backend staging --model real   # the reply from a real Claude login
+ *   bun scripts/cmux-next/zero-to-going.ts --backend staging --model real   # the person's Claude login on the machine
+ *   bun scripts/cmux-next/zero-to-going.ts --backend staging --model stub   # the Cloud part alone, by hand, never the headline
  *   bun scripts/cmux-next/zero-to-going.ts --backend staging --cleanup-tag zg-…  # a workflow's always() step
  *
  * A step is one of the kinds vm-hassle.ts counts: a command (typed by the person, or by the agent or Chief working
@@ -33,10 +34,13 @@
  * counted, not timed, and says so. The level's seconds are the sum of its timed steps, so they are the Cloud part
  * only, without a person's think time; the table says which steps are not in it.
  *
- * The model: a fresh account's machine has no model route until the person connects Claude for Cloud by hand. The
- * harness does that step for them (the login as the agent's launch credential, as the app gives it), and every row
- * names which model replied: `stubbed model` (the default, the Cloud journey's stub on the machine, so the time is
- * the Cloud part without model latency) or a real Claude login with --model real (CLAUDE_CODE_OAUTH_TOKEN).
+ * The model, one run per path, each its own rows:
+ *   none  the newcomer: a fresh account and no Claude login on the machine. The default. Where the first reply is
+ *         refused, the row is the refusal's own text, and RECOVERY is what it then takes to get a reply.
+ *   real  the person who signs in to Claude on the machine: the login goes as the agent's launch credential, the
+ *         transfer cloud-journey-prod.yml uses (CLAUDE_CODE_OAUTH_TOKEN, a `claude setup-token` login).
+ *   stub  the Cloud journey's model stub on the machine: the Cloud part without model latency. By hand only; its
+ *         rows say "stubbed model" and are never the headline.
  *
  * Output: lines on stdout, and with --out DIR, zero-to-going.json ({meta, rows, steps, levels}) and summary.md (the
  * table and each level's steps). The machine this run made is deleted at the end, pass, fail or SIGTERM, by its
@@ -60,6 +64,7 @@ import {
   passwordSignIn,
   readEnvFile,
   resolveBackend,
+  runPreclaimChat,
   scrub,
   sleep,
   validLogin,
@@ -271,20 +276,24 @@ const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 const STUB_DIR = "/home/cmux/.cmux";
 const STUB_LOG = `${STUB_DIR}/zero-to-going-model-stub.log`;
 
-/**
- * Where the first reply's model comes from. A fresh account's Cloud machine has no model route of its own: the
- * person connects Claude for Cloud first (the refusal "This Cloud machine's Claude has no model route", run
- * 45087298817), and the app then gives that login to the chat's agent when it starts (cmux#40159). The harness
- * does that hand step for the person, the Cloud journey's way (launchCredentialStartProgram):
- *   stub  the Cloud journey's model stub on the machine (`--model stub`, cloud-journey-pr.yml) and a made-up
- *         setup-token shape as the login. The time is the Cloud part without model latency. The default.
- *   real  CLAUDE_CODE_OAUTH_TOKEN (a `claude setup-token` login), as cloud-journey-prod.yml passes it.
- */
-export type ModelRoute = "stub" | "real";
+/** Where the first reply's model comes from: see the header. `none` is the newcomer and the default. */
+export type ModelRoute = "none" | "real" | "stub";
 export const MODEL_LABEL: Record<ModelRoute, string> = {
+  none: "newcomer, no Claude login",
+  real: "the person's Claude login on the machine",
   stub: "stubbed model",
-  real: "real Claude login, delivered by the harness (a newcomer connects it by hand first)",
 };
+
+/**
+ * What a newcomer does after the first reply is refused for a model connection, as the Start page gives it
+ * (the agent's "If the start is refused" step): counted like every other step.
+ */
+export const RECOVERY: { kind: StepKind; by: "person" | "agent"; what: string }[] = [
+  { kind: "command", by: "agent", what: "read the refusal, or run `cmux cloud diagnostics` when it names nothing" },
+  { kind: "physical", by: "person", what: "open the card or Settings page it names" },
+  { kind: "physical", by: "person", what: "sign in to Claude there (a browser), or paste an API key" },
+  { kind: "command", by: "agent", what: "run the same `cmux chat --on vm ... --wait` again" },
+];
 
 type Ctx = {
   api: Api;
@@ -398,6 +407,13 @@ async function chatOp(ctx: Ctx): Promise<OpResult> {
     harnessMs = Date.now() - s0;
     stubNote = `; the stub's start (${harnessMs} ms, 127.0.0.1:${port}) is harness time, left out`;
   }
+  if (ctx.model === "none") {
+    // The newcomer: no login on the machine, the session started the plain way. A refusal is the row.
+    const chat = await runPreclaimChat(ctx.exec, ctx.session, PROMPT, REPLY_BUDGET_MS);
+    const byPerson = RECOVERY.filter((s) => s.by === "person").length;
+    if (chat.replyMs === null) throw new Error(`refused: ${chat.replyNotJudged}. To recover: ${RECOVERY.length} more steps, ${byPerson} by the person. Before it: running ${runningMs} ms, first exec ${execMs} ms, agent start ${chat.chatMs} ms`);
+    return { detail: `${ctx.machine}: running ${runningMs} ms, first exec ${execMs} ms, agent start ${chat.chatMs} ms, first reply ${chat.replyMs} ms after the send (${MODEL_LABEL.none})` };
+  }
   const a0 = Date.now();
   const started = await ctx.exec(`${GUEST}${launchCredentialStartProgram(ctx.session, "claude", "CLAUDE_CODE_OAUTH_TOKEN", ctx.login)}`, 120_000);
   if (started.code !== 0 || !/@@session \S+/.test(started.stdout)) throw new Error(`agent start refused: ${scrub(started.stdout.slice(-300) || started.stderr.slice(-300), [ctx.login])}`);
@@ -484,6 +500,7 @@ function write(outDir: string | null, timings: OpTiming[] | null, meta: Record<s
     "",
     `steps: every step of the level as the Start page gives it (${START_PAGE}), the conditional ones included. by the person: the steps only the person can do or that the person types; the rest the agent or Chief runs. fewest steps: the app installed and running, already signed in, nothing refused. Cloud part: the level's timed steps (sign-in, then the routes behind \`cmux chat --on vm ... --wait\`, then Chief's second turn) on the backend as the agent test account, without a person's think time; never the Mac or phone steps. source names the model that replied: with the stubbed model the time has no model latency; either way the harness gave the agent its Claude login, a step a fresh account does by hand first (connect Claude for Cloud).`,
     "",
+    ...(meta.backend ? [`After a first reply refused for a model connection: ${RECOVERY.length} more steps, ${RECOVERY.filter((r) => r.by === "person").length} by the person (${RECOVERY.map((r) => `${r.by}: ${r.what}`).join("; ")}).`, ""] : []),
     "<details><summary>The steps of each level</summary>",
     "",
     levelsMarkdown(),
@@ -491,7 +508,7 @@ function write(outDir: string | null, timings: OpTiming[] | null, meta: Record<s
     "",
   ].join("\n");
   if (outDir) {
-    writeFileSync(path.join(outDir, "zero-to-going.json"), `${JSON.stringify({ meta, rows, steps: timings ?? [], levels: LEVELS }, null, 2)}\n`);
+    writeFileSync(path.join(outDir, "zero-to-going.json"), `${JSON.stringify({ meta, rows, steps: timings ?? [], recovery: RECOVERY, levels: LEVELS }, null, 2)}\n`);
     writeFileSync(path.join(outDir, "summary.md"), md);
   }
   return md;
@@ -532,11 +549,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
 
   const tag = argValue("--tag", argv) ?? `zg-${Date.now().toString(36)}`;
-  // --model real needs a `claude setup-token` login; the default is the stub, which every PR run can reach.
-  const model: ModelRoute = argValue("--model", argv) === "real" ? "real" : "stub";
-  const login = model === "stub" ? `sk-ant-oat01-zerotogoingstub-${randomBytes(24).toString("hex")}` : (process.env.CLAUDE_CODE_OAUTH_TOKEN ?? creds.CLAUDE_CODE_OAUTH_TOKEN ?? "").trim();
+  const modelArg = argValue("--model", argv) ?? "none";
+  if (modelArg !== "none" && modelArg !== "real" && modelArg !== "stub") throw new Error(`--model ${modelArg}: none, real or stub`);
+  const model: ModelRoute = modelArg;
+  const login = model === "none" ? "" : model === "stub" ? `sk-ant-oat01-zerotogoingstub-${randomBytes(24).toString("hex")}` : (process.env.CLAUDE_CODE_OAUTH_TOKEN ?? creds.CLAUDE_CODE_OAUTH_TOKEN ?? "").trim();
   if (model === "real" && !validLogin("claude", login)) throw new Error("--model real: CLAUDE_CODE_OAUTH_TOKEN is not a `claude setup-token` login");
-  secrets.push(login);
+  if (login) secrets.push(login);
   const health = await http("GET", `${backend.api}/v1/health`, undefined, {}).catch(() => null);
   const meta = { backend: backend.name, api: backend.api, tag, commit: String(health?.body?.commit ?? health?.body?.version ?? "?"), team: team ?? "(personal)", model: MODEL_LABEL[model] };
   log(`zero to going on ${backend.name} (${backend.api}), tag ${tag}, ${MODEL_LABEL[model]}`);

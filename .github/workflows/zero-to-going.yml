@@ -14,7 +14,9 @@ name: Zero to going (staging)
 # Secrets: the staging agent test account, CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD in cmux-next-vm-image-dev, the pair
 # cloud-journey-pr.yml reads on pull requests. (vm-hassle.yml's cmux-next-cloud-journey pair reaches no lane pull
 # request: its run 44956448419 wrote the documented path only.) Same-repo pull requests only. Without the pair the
-# script writes the counted steps and passes.
+# script writes the counted steps and passes. The second path reads the repository's CLAUDE_CODE_OAUTH_TOKEN, the
+# login cloud-harness-matrix.yml copies to its machine; it goes to the agent as its launch credential and is
+# scrubbed from every line the script writes.
 
 on:
   pull_request:
@@ -54,13 +56,23 @@ jobs:
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           ZG_TAG: ${{ steps.tag.outputs.tag }}
         run: |
           set -o pipefail
           out="$RUNNER_TEMP/zero-to-going"
           status=0
-          bun scripts/cmux-next/zero-to-going.ts --backend staging --tag "$ZG_TAG" --out "$out" </dev/null || status=$?
-          cat "$out/summary.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "(no summary written)" >> "$GITHUB_STEP_SUMMARY"
+          # Two paths, each its own machine and its own rows: the newcomer with no Claude login, then the person
+          # who signs in to Claude on the machine (skipped, and said so, where the run has no Claude login).
+          login="${CLAUDE_CODE_OAUTH_TOKEN:-}"
+          CLAUDE_CODE_OAUTH_TOKEN="" bun scripts/cmux-next/zero-to-going.ts --backend staging --model none --tag "${ZG_TAG}a" --out "$out/newcomer" </dev/null || status=$?
+          cat "$out/newcomer/summary.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "(newcomer: no summary written)" >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$login" ] && [ -n "${CMUX_DOGFOOD_STACK_EMAIL:-}" ]; then
+            bun scripts/cmux-next/zero-to-going.ts --backend staging --model real --tag "${ZG_TAG}b" --out "$out/claude-login" </dev/null || status=$?
+            cat "$out/claude-login/summary.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "(Claude login: no summary written)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "The Claude login path did not run: this run has no CLAUDE_CODE_OAUTH_TOKEN or no agent test account." >> "$GITHUB_STEP_SUMMARY"
+          fi
           exit "$status"
       - name: Delete what a cut-off run left
         if: always()
@@ -70,7 +82,11 @@ jobs:
           ZG_TAG: ${{ steps.tag.outputs.tag }}
         run: |
           if [ -z "${CMUX_DOGFOOD_STACK_EMAIL:-}" ] || [ -z "$ZG_TAG" ]; then exit 0; fi
-          bun scripts/cmux-next/zero-to-going.ts --backend staging --cleanup-tag "$ZG_TAG" </dev/null
+          status=0
+          for t in "${ZG_TAG}a" "${ZG_TAG}b"; do
+            bun scripts/cmux-next/zero-to-going.ts --backend staging --cleanup-tag "$t" </dev/null || status=$?
+          done
+          exit "$status"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:

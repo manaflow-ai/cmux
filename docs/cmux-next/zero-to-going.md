@@ -87,10 +87,21 @@ Cloud part on staging, run 45087298817 (2026-11-23, on its pull request):
 | `chat`: first reply | refused | "Claude is not signed in here. This Cloud machine's Claude has no model route" |
 | `send` | not run | |
 
-So no level has a full Cloud number yet. The agent test account on staging has no model connection that serves
-Cloud. A real person gets the same refusal: it is the "refused for a model connection" branch every level counts.
-That puts the agent level at 13 steps and Chief at 14 or more before a first reply. Giving the account a Cloud
-model connection, or pointing the run at the model stub the Cloud journey uses, turns the `chat` row into a number.
+So the newcomer has no Cloud number yet: a fresh account's machine has no Claude login and no model route, and the
+first reply is refused. That run is the newcomer path. A real person gets the same refusal: it is the "refused for
+a model connection" branch every level counts.
+
+The workflow measures two paths, each on its own machine with its own rows:
+
+| path | `--model` | what it is |
+|---|---|---|
+| newcomer | `none` (the default) | a fresh account, no Claude login on the machine. Today the row is the refusal's text. |
+| the person's Claude login | `real` | the person has signed in to Claude on the machine: the login goes to the agent as its launch credential, as the Cloud journey's production run does. |
+
+After the refusal the newcomer has 4 more steps before a reply, 2 of them the person's (`RECOVERY` in the script):
+read the refusal or run `cmux cloud diagnostics`, open the card or Settings page it names, sign in to Claude there
+or paste an API key, run the same chat command again. The script also takes `--model stub` by hand (the Cloud part
+without model latency); its rows say "stubbed model" and are never the headline.
 
 The workflow can be started by hand (workflow_dispatch) only once this file is on `feat-cmux-next`; on its pull
 request it runs on each change to the script or the workflow. It reads the agent test account from the
