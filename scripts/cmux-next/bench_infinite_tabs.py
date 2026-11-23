@@ -99,7 +99,7 @@ def renderer_footprints(pid: int, bundle: str) -> list[float]:
     return sorted((r["footprint_mb"] for r in rows if r["kind"] == "cef-renderer"), reverse=True)
 
 
-def chat_heap(app: bm.App, pid: int, bundle: str, label: str) -> list[dict]:
+def chat_heap(app: bm.App, pid: int, bundle: str, label: str, away: str | None = None, back: str | None = None) -> list[dict]:
     """What the renderer of cmux's own pages holds in JS, and what a full collection and then a purge give back.
 
     One cmux page per renderer (cmux pages share one renderer per site, so every page of it answers for the whole
@@ -109,7 +109,11 @@ def chat_heap(app: bm.App, pid: int, bundle: str, label: str) -> list[dict]:
     pages) and the same reads, with every renderer's footprint at each step. Read after the measured window: it
     collects and purges, so it runs where no number after it is a memory number of this phase.
     Settles whether a hibernated chat's memory is still reachable (used stays high, or documents stay above the
-    live pages) or garbage the renderer keeps mapped (used drops, footprint does not)."""
+    live pages) or garbage the renderer keeps mapped (used drops, footprint does not).
+    With `away` (a workspace that shows no cmux page), it then goes there for 20 s and reads again (step `away`),
+    then back to `back`: on the Linux stand-in (webviews/bench/chat-pages-memory.bench.ts PURGE_EXPERIMENT=1) the
+    garbage 30 closed chats left (blink_gc 85 -> 16 MB, malloc 95 -> 77 MB) went back only once the renderer had
+    no visible page; a collection and a critical notice with one shown gave back nothing."""
     pages = (app.call("debug.cef_pages", timeout=30) or {}).get("pages")
     if not isinstance(pages, list):
         print(f"INFTABS-CHATHEAP label={label} error=no-debug.cef_pages", flush=True)
@@ -155,9 +159,21 @@ def chat_heap(app: bm.App, pid: int, bundle: str, label: str) -> list[dict]:
     steps["purge"] = renderer_footprints(pid, bundle)
     for browser, row in rows:
         row["purge"] = read(browser)
+    order = ["before", "gc", "purge"]
+    if away and rows:
+        app.action("goToWorkspace", workspace=away)
+        time.sleep(20)  # test script: the renderer with no page shown lets its free pages go (seconds, on Linux)
+        steps["away"] = renderer_footprints(pid, bundle)
+        shown = (app.call("debug.cef_pages", timeout=30) or {}).get("pages") or []
+        hidden = {p.get("browser"): bool(p.get("hidden")) for p in shown if isinstance(p, dict)}
+        for browser, row in rows:
+            row["away"] = {**read(browser), "hidden_pages": sum(1 for p in by_renderer[row["renderer"]] if hidden.get(p["browser"]))}
+        order.append("away")
+        if back:
+            app.action("goToWorkspace", workspace=back)
     out = []
     for browser, row in rows:
-        fields = " ".join(f"{step}_{key}={value}" for step in ("before", "gc", "purge")
+        fields = " ".join(f"{step}_{key}={value}" for step in order
                           for key, value in row[step].items() if value is not None)
         print(f"INFTABS-CHATHEAP label={label} renderer={row['renderer']} browser={browser} pages={row['pages']} "
               f"hidden={row['hidden']} paths={','.join(row['paths'])} {fields}", flush=True)
@@ -410,7 +426,8 @@ def run(argv: list[str]) -> int:
         bm.print_vmmap(full, "app,cef-renderer,tui-daemon")
         # After full's window and its vmmap, before the switches: what the chat renderer still holds, and what a
         # collection and a purge give back (the switches after it start from a collected renderer).
-        report["chat_heap_full"] = chat_heap(app, pid, bundle, "full")
+        away = next((entry["workspace"] for entry in made if entry["kind"] == "terminal"), None)
+        report["chat_heap_full"] = chat_heap(app, pid, bundle, "full", away=away, back=front)
         with_pages = [entry for entry in made if entry["pages"]]
         step = max(1, len(with_pages) // max(1, args.wake))
         for entry in with_pages[::step][: args.wake]:
