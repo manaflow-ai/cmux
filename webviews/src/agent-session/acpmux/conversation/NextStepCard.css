@@ -170,6 +170,7 @@
   opacity: 0;
 }
 .acpmux-next-step--closable:hover .acpmux-next-step__close,
+.acpmux-next-step--closable:has([data-popup-open]) .acpmux-next-step__close,
 .acpmux-next-step--closable:focus-within .acpmux-next-step__close {
   opacity: 1;
 }

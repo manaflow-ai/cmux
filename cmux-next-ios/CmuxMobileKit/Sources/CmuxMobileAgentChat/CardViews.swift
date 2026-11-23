@@ -562,7 +562,7 @@ struct NextStepCard: View {
                                 .frame(width: 32, height: 32)
                                 .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.cmuxPressFill)
                         .padding(.vertical, -8)
                         .padding(.trailing, -8)
                         .accessibilityLabel("Dismiss")

@@ -23,7 +23,17 @@ let dom: JSDOM | undefined;
 let root: Root | undefined;
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
-const GLOBALS = ["window", "document", "navigator", "Node", "HTMLElement", "Element", "KeyboardEvent", "localStorage", "IS_REACT_ACT_ENVIRONMENT"];
+const GLOBALS = [
+  "window",
+  "document",
+  "navigator",
+  "Node",
+  "HTMLElement",
+  "Element",
+  "KeyboardEvent",
+  "localStorage",
+  "IS_REACT_ACT_ENVIRONMENT",
+];
 
 function installDom(): HTMLElement {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
@@ -76,7 +86,13 @@ const withQuestion: NextStepAsk = {
   options: [{ label: "Merge" }],
 } as unknown as NextStepAsk;
 
-const card = (id: string, ask: NextStepAsk): AcpmuxRow => ({ id, version: 1, at: 1, kind: NEXT_STEP, nextStep: { ask } });
+const card = (id: string, ask: NextStepAsk): AcpmuxRow => ({
+  id,
+  version: 1,
+  at: 1,
+  kind: NEXT_STEP,
+  nextStep: { ask },
+});
 const reply = (id: string): AcpmuxRow => ({ id, version: 1, at: 1, kind: "assistant", text: "Done." });
 
 test("a summary with nothing to answer draws a × that closes it", async () => {

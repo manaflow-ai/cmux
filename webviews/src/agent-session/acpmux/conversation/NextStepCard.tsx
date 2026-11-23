@@ -109,6 +109,7 @@ export const NextStepCard = memo(function NextStepCard({
     if (!recap) return null;
     if (!onDismiss) return <div className="acpmux-next-step acpmux-next-step--recap">{recap}</div>;
     return (
+      // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Esc closes the summary while focus is in it; its × does the same by pointer and keyboard.
       <div
         className="acpmux-next-step acpmux-next-step--recap acpmux-next-step--closable"
         role="note"
