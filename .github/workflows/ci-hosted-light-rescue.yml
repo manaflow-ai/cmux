@@ -27,7 +27,7 @@ env:
 jobs:
   rescue:
     if: github.repository == 'manaflow-ai/cmux' && vars.CI_HOSTED_LIGHT_RESCUE_DISABLED != '1'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_QUEUE_RESERVED == '1' && 'cmux-gcp-queue-jit-x64' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: Actions write stays on a fresh one-job VM; the owned fleet first (off the pool it drains), never a persistent owned machine
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_QUEUE_RESERVED == '1' && 'cmux-gcp-queue-jit-x64' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: Actions write stays on a fresh one-job VM; the owned fleet first (off the pool it drains), never a persistent owned machine
     timeout-minutes: 8
     permissions:
       actions: write

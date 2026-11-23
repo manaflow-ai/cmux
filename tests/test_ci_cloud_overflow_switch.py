@@ -1276,7 +1276,7 @@ class RepoVariableCheckTests(unittest.TestCase):
     REFUSED = "glaeda-side-std-xcode-26.6"
 
     def env(self, label: str = REFUSED, **extra: str) -> dict[str, str]:
-        return {"CMUX_CI_RUNNER_VARIABLES": f"MACOS_RUNNER_PR={label}\nLINUX_RUNNER=ubuntu-24.04\n",
+        return {"CMUX_CI_RUNNER_VARIABLES": f"MACOS_RUNNER_PR={label}\nLINUX_RUNNER=blacksmith-4vcpu-ubuntu-2404\n",
                 "CI_OWNED_POOL_SLOTS": "", "CMUX_CI_XCODE_APP_PR": PIN, **extra}
 
     def test_an_owned_pull_request_pool_is_no_drift_without_the_record(self) -> None:

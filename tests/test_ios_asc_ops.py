@@ -242,6 +242,9 @@ class FakeAsc:
             sid = self._new_sub(rels["group"]["data"]["id"], attrs["productId"], len(self.subs) + 1)
             return {"data": self._sub_json(sid)}
         if method == "PATCH" and parts[:2] == ["v1", "subscriptions"]:
+            if self.subs[parts[2]]["state"] in ("WAITING_FOR_REVIEW", "IN_REVIEW", "PENDING_BINARY_APPROVAL"):
+                raise SystemExit(f"PATCH {path}: HTTP 409: {{\"errors\":[{{\"code\":"
+                                 f"\"ENTITY_ERROR.ATTRIBUTE.INVALID.UNMODIFIABLE\"}}]}}")
             self.subs[parts[2]].update(attrs)
             return {}
         if base.endswith("/subscriptionLocalizations") and method == "GET":
@@ -334,6 +337,63 @@ class PriceBookTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(writes(asc), [])
         self.assertEqual(out["result"]["log"], [])
+
+    def test_sync_skips_levels_of_subscriptions_in_review(self):
+        # Run 45106915214: max and pro were WAITING_FOR_REVIEW, so their level PATCH got HTTP 409 UNMODIFIABLE.
+        asc = FakeAsc()
+        state = {"com.cmux.app.max.monthly": "WAITING_FOR_REVIEW", "com.cmux.app.pro.monthly": "IN_REVIEW",
+                 "com.cmux.app.go.monthly": "PENDING_BINARY_APPROVAL"}
+        for sub in asc.subs.values():
+            sub["state"] = state[sub["productId"]]
+        code, out = run(["price-book-sync", "--app", "6783338052"], asc)
+        result = out["result"]
+        self.assertEqual(code, 0, result["errors"])
+        self.assertEqual(result["errors"], [])
+        self.assertTrue(result["after"]["priceBookLive"])
+        patched = {p for m, p, _ in asc.calls if m == "PATCH" and p.startswith("/v1/subscriptions/")}
+        by_pid = {v["productId"]: k for k, v in asc.subs.items()}
+        # Known locked states are not even tried; an unknown state's 409 UNMODIFIABLE is a skip too.
+        self.assertNotIn(f"/v1/subscriptions/{by_pid['com.cmux.app.max.monthly']}", patched)
+        self.assertNotIn(f"/v1/subscriptions/{by_pid['com.cmux.app.pro.monthly']}", patched)
+        self.assertIn(f"/v1/subscriptions/{by_pid['com.cmux.app.go.monthly']}", patched)
+        self.assertEqual([s.split(":")[0] for s in result["skipped"]],
+                         ["com.cmux.app.max.monthly level 4", "com.cmux.app.pro.monthly level 5",
+                          "com.cmux.app.go.monthly level 6"])
+        self.assertIn("com.cmux.app.max.monthly level 4 skipped: WAITING_FOR_REVIEW", result["log"])
+        after = {s["productId"]: s for g in result["after"]["groups"] for s in g["subscriptions"]}
+        self.assertEqual(after["com.cmux.app.max.monthly"]["groupLevel"], 1)
+        for pid, usd, level in (("next_max", "299.99", 1), ("next_pro", "74.99", 2), ("next_plus", "29.99", 3)):
+            self.assertEqual(after[f"com.cmux.app.{pid}.monthly"]["usPrice"], usd)
+            self.assertEqual(after[f"com.cmux.app.{pid}.monthly"]["groupLevel"], level)
+            self.assertEqual(after[f"com.cmux.app.{pid}.monthly"]["territoriesPriced"], 3)
+
+    def test_sync_still_fails_on_other_level_errors_and_a_missing_price(self):
+        asc = FakeAsc()
+        real = asc.call
+
+        def call(method, path, body=None):
+            if method == "PATCH" and path.startswith("/v1/subscriptions/"):
+                raise SystemExit(f"PATCH {path}: HTTP 409: ENTITY_ERROR.ATTRIBUTE.INVALID")
+            return real(method, path, body)
+        asc.call = call
+        code, out = run(["price-book-sync", "--app", "6783338052"], asc)
+        self.assertEqual(code, 1)
+        self.assertTrue(out["result"]["errors"])
+        self.assertEqual(out["result"]["skipped"], [])
+
+        asc = FakeAsc()
+        for sub in asc.subs.values():
+            sub["state"] = "WAITING_FOR_REVIEW"
+        real = asc.call
+
+        def no_prices(method, path, body=None):
+            if method == "POST" and path == "/v1/subscriptionPrices":
+                return {}
+            return real(method, path, body)
+        asc.call = no_prices
+        code, out = run(["price-book-sync", "--app", "6783338052"], asc)
+        self.assertEqual(code, 1)
+        self.assertFalse(out["result"]["after"]["priceBookLive"])
 
     def test_internal_app_gets_a_new_group(self):
         asc = FakeAsc(app="6791408425", legacy=False)

@@ -10,7 +10,7 @@ import {
   AGENT_REQUIRED_PARAMS,
   agentLink,
   agentLinkModel,
-  agentReference,
+  agentOpenHref,
 } from "./deeplink-agent";
 import { SCREEN_ALLOWED_PARAMS, SCREEN_REQUIRED_PARAMS, screenLink } from "./deeplink-screen";
 
@@ -365,6 +365,8 @@ type AddressedLink = {
   missing: string[];
   invalid: string[];
   duplicates: string[];
+  /** The link the Open button follows; null when the link cannot open. */
+  openHref: string | null;
   /** The native link when the link cannot open. */
   bareHref: string;
   ignoredMessage: "ignoredParams" | "screen.ignoredParams";
@@ -373,11 +375,21 @@ type AddressedLink = {
 /** The kinds that are addresses, not commands, read leniently; null for the strict kinds. */
 function addressedLink(kind: LinkKind, params: SearchParams): AddressedLink | null {
   if (kind === "agent") {
-    return { ...agentLink(params), bareHref: "cmux://agent", ignoredMessage: "ignoredParams" };
+    const link = agentLink(params);
+    // The session's native link, else a public footer's opaque reference handed to the
+    // app as `cmux://agent?id=` (agentOpenHref); null when the link can't open.
+    return {
+      ...link,
+      openHref: agentOpenHref(link.model, params),
+      bareHref: "cmux://agent",
+      ignoredMessage: "ignoredParams",
+    };
   }
   if (kind === "screen") {
+    const link = screenLink(params);
     return {
-      ...screenLink(params),
+      ...link,
+      openHref: link.model?.href ?? null,
       bareHref: "cmux://mac-screen",
       ignoredMessage: "screen.ignoredParams",
     };
@@ -404,11 +416,6 @@ export default async function DeeplinkPage({
   // opens (schemas/deeplinks/agent-link.json). The other kinds carry commands
   // and stay strict.
   const addressed = addressedLink(kind, resolvedSearchParams);
-  // A private reference in place of a session: say what it is, offer no Open.
-  const reference =
-    kind === "agent" && addressed && !addressed.model
-      ? agentReference(resolvedSearchParams)
-      : null;
   const issues: LinkIssues = addressed
     ? {
         unsupported: [],
@@ -420,21 +427,19 @@ export default async function DeeplinkPage({
     : strictIssues(kind, resolvedSearchParams);
   // Never echo unvalidated input into a link.
   const href = addressed
-    ? (addressed.model?.href ?? addressed.bareHref)
+    ? (addressed.openHref ?? addressed.bareHref)
     : nativeHref(kind, resolvedSearchParams);
   const canOpen = addressed
-    ? addressed.model !== null
+    ? addressed.openHref !== null
     : Object.values(issues).every((names) => names.length === 0);
   // Only when the link opens: the sentence says the session still opens, and a
   // link that cannot open shows the one problem the reader has to fix instead.
   const ignoredMessage =
-    canOpen && addressed && addressed.ignored.length > 0
+    canOpen && addressed?.model && addressed.ignored.length > 0
       ? t(addressed.ignoredMessage, { params: addressed.ignored.join(", ") })
       : null;
   const issue = firstIssue(issues);
-  const errorMessage = reference
-    ? t("agent.reference")
-    : t(issue.message, { params: issue.params });
+  const errorMessage = t(issue.message, { params: issue.params });
 
   return (
     <div className="min-h-screen">
@@ -495,22 +500,18 @@ export default async function DeeplinkPage({
           </div>
         )}
 
-        {reference ? null : (
-          <>
-            <div className="rounded-lg border border-border">
-              <div className="border-b border-border px-4 py-3 text-[13px] font-medium text-muted">
-                {t("nativeURL")}
-              </div>
-              <pre className="overflow-x-auto p-4 text-[13px] leading-relaxed">
-                <code>{href}</code>
-              </pre>
-            </div>
+        <div className="rounded-lg border border-border">
+          <div className="border-b border-border px-4 py-3 text-[13px] font-medium text-muted">
+            {t("nativeURL")}
+          </div>
+          <pre className="overflow-x-auto p-4 text-[13px] leading-relaxed">
+            <code>{href}</code>
+          </pre>
+        </div>
 
-            <p className="mt-5 text-[14px] leading-6 text-muted">
-              {canOpen ? t(`${kind}.fallback`) : t("fixParams")}
-            </p>
-          </>
-        )}
+        <p className="mt-5 text-[14px] leading-6 text-muted">
+          {canOpen ? t(`${kind}.fallback`) : t("fixParams")}
+        </p>
 
         <p className="mt-6 text-[14px] leading-6 text-muted">
           {t("examplePrefix")}{" "}

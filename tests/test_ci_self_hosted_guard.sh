@@ -1501,18 +1501,6 @@ PY_LIGHT
     # The packages' attestations are verified with --deny-self-hosted-runners,
     # so they must be signed on a GitHub-hosted runner.
     "cmux-tui-build-package.yml:    runs-on: ubuntu-latest # github-hosted-required: artifact attestations need GitHub OIDC"
-    # The queue repair job must not depend on the pools it repairs: the queue
-    # janitor's sweep judges the owned labels (glaeda-*, cmux-fleet-linux-x64)
-    # and moves the Blacksmith pools, so a busy pool would hold back the job
-    # that relieves it (a sweep waited 77 minutes on 2026-11-20). It runs on
-    # GitHub-hosted Ubuntu, with the fleet label behind a repository variable
-    # (hq docs/handbook/repair-path-on-the-pool-it-repairs.md;
-    # check_queue_janitor_runs_off_the_pools_it_judges).
-    "ci-queue-janitor.yml:    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_QUEUE_JANITOR_ON_FLEET == '1' && 'cmux-fleet-linux-x64' || 'ubuntu-24.04' }}"
-    # Its watchdog runs off the label the sweep runs on, so it is hosted Ubuntu
-    # exactly when CI_QUEUE_JANITOR_ON_FLEET=1 puts the sweep on the fleet label
-    # (tests/test_ci_janitor_watchdog_route.py).
-    "ci-queue-janitor-watchdog.yml:    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_QUEUE_JANITOR_ON_FLEET != '1' && 'cmux-fleet-linux-x64' || 'ubuntu-24.04' }}"
   )
   # The declared hosted light jobs' exact runs-on lines (validated above).
   local light_line
