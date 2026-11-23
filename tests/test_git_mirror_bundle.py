@@ -76,16 +76,17 @@ class Contract(unittest.TestCase):
         self.assertEqual(DOC["concurrency"]["group"], "git-mirror-bundle-${{ github.ref }}")
         self.assertFalse(DOC["concurrency"]["cancel-in-progress"])
         self.assertEqual(JOB["needs"], "probe")
-        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_4", runs_on_text(JOB, "bundle"))
+        self.assertTrue(runs_on_text(JOB, "bundle").endswith("'cmux-linux' }}"))
 
-    def test_cheap_probe_is_separate_from_the_32_vcpu_bundle_writer(self) -> None:
+    def test_cheap_probe_is_separate_from_the_bundle_writer(self) -> None:
         # Frequent pushes require only a HEAD/read; the full 2.36 GB bundle
-        # remains on the larger runner and only starts when the probe says due.
+        # only starts when the probe says due. Both take the one Linux label
+        # (scripts/ci/one_linux_label.py), which sizes itself.
         self.assertEqual(PROBE["permissions"], {})
         self.assertEqual(PROBE["outputs"]["due"], "${{ steps.due.outputs.due }}")
-        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_2", runs_on_text(PROBE, "probe"))
-        self.assertNotIn("vars.LINUX_RUNNER", runs_on_text(PROBE, "probe"))
-        self.assertIn("vars.LINUX_RUNNER", runs_on_text(JOB, "bundle"))
+        self.assertTrue(runs_on_text(PROBE, "probe").endswith("'cmux-linux' }}"))
+        self.assertNotRegex(runs_on_text(PROBE, "probe"), r"vars\.LINUX_RUNNER(?![A-Z_])|RUNNER_POOLS\)\.linux")
+        self.assertNotRegex(runs_on_text(JOB, "bundle"), r"vars\.LINUX_RUNNER(?![A-Z_])|RUNNER_POOLS\)\.linux")
         self.assertNotIn("Fetch the mirrored branches", PROBE_STEPS)
         self.assertNotIn("Publish the bundle", PROBE_STEPS)
         self.assertNotIn("Is a bundle due", STEPS)
