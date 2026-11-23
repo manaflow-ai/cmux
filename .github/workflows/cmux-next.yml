@@ -3475,6 +3475,8 @@ jobs:
         uses: ./.github/actions/cache-restore
         env:
           CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-552
+          CMUX_LAN_CACHE_TIMEOUT: "480"
         with:
           backend: r2
           path: ${{ format('{0}/Packages/macOS/CmuxNext/.build', steps.spm-root.outputs.root || github.workspace) }}
@@ -3498,6 +3500,8 @@ jobs:
         uses: ./.github/actions/cache-restore
         env:
           CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-552
+          CMUX_LAN_CACHE_TIMEOUT: "480"
         with:
           backend: r2
           path: ${{ format('{0}/Packages/Shared/CmuxHomeRender/.build', steps.spm-root.outputs.root || github.workspace) }}
@@ -4044,6 +4048,8 @@ jobs:
         uses: ./.github/actions/cache-restore
         env:
           CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-552
+          CMUX_LAN_CACHE_TIMEOUT: "480"
         with:
           backend: r2
           path: Packages/macOS/CmuxNext/.build
@@ -4603,6 +4609,8 @@ jobs:
         uses: ./.github/actions/cache-restore
         env:
           CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-552
+          CMUX_LAN_CACHE_TIMEOUT: "480"
         with:
           backend: r2
           path: Packages/macOS/CmuxNext/.build
@@ -5055,6 +5063,8 @@ jobs:
         uses: ./.github/actions/cache-restore
         env:
           CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-552
+          CMUX_LAN_CACHE_TIMEOUT: "480"
         with:
           backend: r2
           path: ${{ format('{0}/Packages/macOS/CmuxNext/.build', steps.spm-root.outputs.root || github.workspace) }}

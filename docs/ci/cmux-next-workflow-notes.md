@@ -4907,3 +4907,14 @@ instead (cmuxterm-hq cmux_next_tip_debounce.go), skips its fleet compile and the
 the preflight already found superseded does. The branch head is read again first; a head that has not
 moved, or one that cannot be read, compiles as before. 2026-11-22 05-09Z: 120 pushes, 97 push-tip checks
 (432 machine-min), 91 of them inside the 10-minute window, each queued by its own push run's read.
+
+## note-552
+
+Above `CMUX_LAN_CACHE_TIMEOUT: "480"` in `.github/workflows/cmux-next.yml`.
+
+A base seed restore waits at most 8 minutes for the LAN cache host, then downloads the seed itself.
+lan_cache_fetch.py's own bound is 5,420 s, longer than the 60-minute jobs that restore a seed. On
+2026-11-22 a stalled cache host held fast-tier seed restores 14 minutes before the broker gave up
+("LAN cache host unavailable (...: stalled)"), and the direct download then took 9 more: restores of
+1,289-1,600 s, in jobs cancelled at the 60-minute limit while still building CmuxNext. A healthy host
+serves the 3.6 GB seed in about 40 s, or 343 s when it first fills it from the bucket (wait 304 s).
