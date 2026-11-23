@@ -6,7 +6,7 @@
 //! `[no text]` note that names them, so a next turn writes the words; that
 //! turn is not nudged again, so a silent Chief never loops.
 
-use super::{Brain, Source};
+use super::Brain;
 
 /// The first word of the note a silent spawn turn leaves.
 pub const NO_TEXT_TAG: &str = "[no text]";
@@ -45,11 +45,32 @@ impl Brain {
             return;
         }
         (self.log)(&format!(
-            "turn {key} started {} and posted no text; queuing a {NO_TEXT_TAG} note",
+            "turn {key} started {} and posted no text; host-posting the start",
             spawned.join(", ")
         ));
         self.spawn_text_nudged = true;
-        self.queue(no_text_note(&spawned), Source::Note);
+        let lines = spawned
+            .iter()
+            .map(|id| {
+                let title = self
+                    .state
+                    .sub(id)
+                    .map(|(_, s)| s.title.trim().to_owned())
+                    .filter(|title| !title.is_empty())
+                    .unwrap_or_else(|| "the requested task".to_owned());
+                format!("[{id}] started: {title}")
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        self.host_post(
+            format!(
+                "{}{}",
+                super::outcome_ledger::HOST_SPAWN_KEY,
+                spawned.join(",")
+            ),
+            lines,
+            None,
+        );
     }
 }
 
