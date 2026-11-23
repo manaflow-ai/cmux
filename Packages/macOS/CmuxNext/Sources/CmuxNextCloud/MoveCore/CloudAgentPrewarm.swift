@@ -1,5 +1,6 @@
 public import CmuxNextDaemon
 public import Foundation
+public import os
 
 /// A composer Cloud send's agent, warmed on its machine before the chat's page asks for it (cmux#45953).
 ///
@@ -12,16 +13,17 @@ public import Foundation
 /// follows takes it. A machine whose daemon does not serve it, a prewarm that fails, or a start that ends up different
 /// (another agent or model picked) starts cold, as before: the prewarm decides nothing and nothing waits for it.
 public struct CloudAgentPrewarm: Sendable, Equatable {
-    public let cwd: String
+    /// The start's folder; nil for a chat with none of its own, which the machine's daemon warms in the chat's own `~/chats/<tab id>`, the folder its start then runs in.
+    public let cwd: String?
     public let harness: String?
     public let model: String?
     public let mode: String?
 
-    /// What the chat's page's first send will start: the seed's agent, model and mode in the copied folder `cwd`. Nil when
-    /// there is nothing to warm: no absolute folder there (the start makes its own `~/chats/<id>`), or a daemon that does
-    /// not serve the verb (`served`, ``AgentSessionAttachClient/prewarmCapability``).
+    /// What the chat's page's first send will start: the seed's agent, model and mode in the folder `cwd` (nil: the chat's
+    /// own `~/chats/<tab id>`, which the daemon resolves as the start does). Nil when there is nothing to warm: a folder that
+    /// is not absolute, or a daemon that does not serve the verb (`served`, ``AgentSessionAttachClient/prewarmCapability``).
     public init?(cwd: String?, harness: String?, model: String?, mode: String?, served: Bool) {
-        guard served, let cwd, cwd.hasPrefix("/") else { return nil }
+        guard served, cwd?.hasPrefix("/") != false else { return nil }
         (self.cwd, self.harness, self.model, self.mode) = (cwd, harness, model, mode)
     }
 
@@ -32,6 +34,16 @@ public struct CloudAgentPrewarm: Sendable, Equatable {
                       done: @escaping @Sendable (String) -> Void) {
         // task-owner: one hint, never awaited by the start; it ends with its answer
         Task { done(await send(surface: surface, endpoint: endpoint, ownerLink: ownerLink, permissionMode: permissionMode, credentials: await credentials())) }
+    }
+
+    /// ``begin(surface:endpoint:ownerLink:permissionMode:credentials:done:)`` with its outcome and time logged to `logger` under
+    /// `label` (a background step, kept off the start's own steps).
+    public func begin(_ label: String, logger: Logger, surface: UInt64, endpoint: @escaping AgentSessionAttachClient.EndpointProvider, ownerLink: @escaping AgentSessionAttachClient.OwnerLink,
+                      permissionMode: String?, credentials: @escaping @MainActor @Sendable () async -> [String: String]?) {
+        let began = ContinuousClock.now
+        begin(surface: surface, endpoint: endpoint, ownerLink: ownerLink, permissionMode: permissionMode, credentials: credentials) { outcome in
+            logger.info("\(label, privacy: .public) prewarm: \(outcome, privacy: .public) in \(CloudStartSteps.milliseconds(began.duration(to: .now)), privacy: .public) ms")
+        }
     }
 
     /// Sends the prewarm for the chat tab `surface` over the owner answer of its link (`ownerLink`), with the start's

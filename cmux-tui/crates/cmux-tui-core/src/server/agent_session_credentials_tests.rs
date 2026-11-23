@@ -211,17 +211,45 @@ fn a_prewarm_is_refused_anywhere_but_the_owners_own_cloud_vm() {
     }
 }
 
+/// A chat with no folder of its own (a Cloud chat with no project, `cmux cloud start-session` with
+/// no `--cwd`) starts in `~/chats/<tab id>`, which the start made only as it ran, so its agent was
+/// never warmed. The prewarm now resolves that same folder (made as the start makes it), and the
+/// start that follows runs there, so acpmux's keys match and the start takes the warmed agent.
 #[test]
-fn a_prewarm_for_a_bound_tab_or_with_no_folder_is_refused() {
+fn a_prewarm_with_no_folder_warms_the_chats_own_folder_the_start_runs_in() {
+    let mut chat = connect("prewarm-no-folder", AgentStartHost::OwnerCloud, false);
+    let frame = |cmd: &str, surface: u64| {
+        json!({"cmd":cmd,"surface":surface,"harness":"claude","vm_kind":"owner",
+               "credentials":env(TOKEN)})
+    };
+    let warmed = chat.client.request(frame("agent-session-prewarm", chat.surface));
+    assert_eq!(warmed["ok"], json!(true), "{warmed}");
+    let hints = chat.sent("_acpmux/prewarm");
+    assert_eq!(hints.len(), 1, "{hints:?}");
+    let hint = &hints[0]["params"];
+    let folder = hint["cwd"].as_str().expect("the hint names a folder").to_owned();
+    assert!(
+        folder.ends_with(&format!("/chats/{}", chat.surface)),
+        "the chat's own folder, keyed by its tab: {folder}"
+    );
+    assert!(std::path::Path::new(&folder).is_dir(), "made as the start makes it");
+    let started = chat.client.request(frame("agent-session-start", chat.surface));
+    assert_eq!(started["ok"], json!(true), "{started}");
+    let new = chat.sent("session/new");
+    assert_eq!(new.len(), 1, "{new:?}");
+    assert_eq!(new[0]["params"]["cwd"], hint["cwd"], "the start runs where the agent was warmed");
+    assert_eq!(new[0]["params"]["_meta"]["acpmux"]["credentials"], hint["credentials"]);
+}
+
+#[test]
+fn a_prewarm_for_a_bound_tab_is_refused() {
     let mut chat = connect("prewarm-bound", AgentStartHost::OwnerCloud, false);
-    let mut no_folder = json!({"cmd":"agent-session-prewarm","surface":chat.surface,
-        "harness":"claude","vm_kind":"owner"});
-    assert_code(&chat.client.request(no_folder.clone()), "agent_session.bad_request");
     let started = chat.start(env(TOKEN), json!("owner"));
     assert_eq!(started["ok"], json!(true), "{started}");
     let _ = chat.sent("session/new");
-    no_folder["cwd"] = json!(chat.cwd);
-    assert_eq!(chat.client.request(no_folder)["ok"], json!(false), "a bound tab warms nothing");
+    let warm = json!({"cmd":"agent-session-prewarm","surface":chat.surface,"cwd":chat.cwd,
+        "harness":"claude","vm_kind":"owner"});
+    assert_eq!(chat.client.request(warm)["ok"], json!(false), "a bound tab warms nothing");
     assert!(chat.sent("_acpmux/prewarm").is_empty());
 }
 

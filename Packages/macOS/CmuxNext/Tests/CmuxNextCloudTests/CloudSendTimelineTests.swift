@@ -88,7 +88,7 @@ import Testing
 
     @Test func nothingIsWarmedWithoutTheVerbOrAFolderThere() {
         #expect(CloudAgentPrewarm(cwd: "/home/cmux/chats/app-1", harness: "claude", model: nil, mode: nil, served: false) == nil)
-        #expect(CloudAgentPrewarm(cwd: nil, harness: "claude", model: nil, mode: nil, served: true) == nil)
+        #expect(CloudAgentPrewarm(cwd: nil, harness: "claude", model: nil, mode: nil, served: true)?.cwd == .some(nil)) // the chat's own `~/chats/<tab id>`, resolved by the daemon
         #expect(CloudAgentPrewarm(cwd: "chats/app-1", harness: "claude", model: nil, mode: nil, served: true) == nil)
     }
 }

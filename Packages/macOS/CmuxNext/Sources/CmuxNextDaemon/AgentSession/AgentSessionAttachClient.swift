@@ -279,7 +279,7 @@ public actor AgentSessionAttachClient {
     /// exactly the params that start would (``startParams``), so the machine's acpmux keys the warmed agent as that start's
     /// `session/new`; a start that differs starts cold, as before. Binds nothing and answers whether acpmux took the hint.
     /// Only over the owner answer of the link (``ownedConnection(_:check:)``), as the start: never to a teammate's machine.
-    public func prewarm(cwd: String, harness: String?, ownerLink: @escaping OwnerLink, model: String? = nil, permissionMode: String? = nil,
+    public func prewarm(cwd: String?, harness: String?, ownerLink: @escaping OwnerLink, model: String? = nil, permissionMode: String? = nil,
                         startMode: String? = nil, credentials: [String: String]? = nil) async throws -> Bool {
         guard mode == .attach else { return false }
         let (transport, served, callerOwnsVM) = try await ownedConnection(ownerLink) { served in

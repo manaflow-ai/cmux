@@ -15,9 +15,14 @@
 //! before; the credential is never written anywhere and only the same credential takes the agent.
 //!
 //! Gated as the start is, and narrower: only on the caller's own Cloud VM (never a Mac, an SSH
-//! host, a team VM or a phone's channel), only for an unbound agent tab of this store, only in an
-//! explicit folder the home rule allows, and only in a folder whose trust answer lets the agent
-//! start. It changes no tab and binds nothing; acpmux's hidden session ends by itself when no
+//! host, a team VM or a phone's channel), only for an unbound agent tab of this store, only in the
+//! folder the start would pick (an explicit one the home rule allows, or the chat's own
+//! `~/chats/<tab id>` for a chat with none, made here as the start would make it), and only in a
+//! folder whose trust answer lets the agent start.
+//!
+//! A chat with no folder of its own (a Cloud chat with no project, `cmux cloud start-session`
+//! with no `--cwd`) was never warmed: the prewarm wanted an explicit folder, and the start made
+//! `~/chats/<id>` only as it ran, so its Claude Code boot was always on the first reply's path. It changes no tab and binds nothing; acpmux's hidden session ends by itself when no
 //! start takes it (`pool.idleMinutes`).
 
 use super::*;
@@ -71,8 +76,18 @@ pub(in crate::server::agent_session_attach) fn prewarm(
     if let Err(refusal) = startable(mux, params.surface) {
         return refuse(writer, id, refusal);
     }
-    // An explicit folder only: the start's own `~/chats/<id>` does not exist yet.
-    let Some(cwd) = params.cwd.clone() else {
+    // The folder the start will run in: a chat with no folder of its own (or the home folder
+    // the person did not choose) gets its `~/chats/<tab id>` now, made here as the start would
+    // make it. It is keyed by the tab, so the start that follows resolves the same folder and
+    // takes the agent warmed in it.
+    let cwd = super::super::agent_session_trust::owner_cloud_cwd(
+        own,
+        params.cwd.as_deref(),
+        params.home_confirmed,
+        params.surface,
+    )
+    .or_else(|| params.cwd.clone());
+    let Some(cwd) = cwd else {
         return super::super::bad_field::refuse_field(writer, id, Some("cwd"));
     };
     if let Err(refusal) = super::super::agent_session_trust::home_rule(&cwd, params.home_confirmed)

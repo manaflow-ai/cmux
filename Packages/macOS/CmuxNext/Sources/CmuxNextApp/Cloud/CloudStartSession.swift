@@ -275,6 +275,8 @@ struct CloudStartSession {
             try Self.failed(account, now: services.cloud.account, request.asked(machine: name), CloudStartSessionStrings.notConnected(name, id: id, agent: agent))
         }
         steps.done("anchor")
+        let prewarmCredentials = services.agentTabs.cloudCredentials, prewarmKey = opened.key, prewarmModel = request.model // the start below's agent, warmed beside the trust and the tab's listing, with the start's own values (no folder: the chat's own `~/chats/<tab id>`)
+        CloudAgentPrewarm(cwd: cwd, harness: agent, model: prewarmModel, mode: nil, served: daemon.supports(AgentSessionAttachClient.prewarmCapability))?.begin("cloud start-session", logger: services.cloud.logger, surface: opened.surface.rawValue, endpoint: AgentTabRemoteHost.endpoint(on: daemon), ownerLink: CloudMachineLinks(appLink: session.appLink).ownerLink, permissionMode: services.agentTabs.startPermissionMode()) { (try? await prewarmCredentials?.launchCredential(chat: prewarmKey, machine: id, harness: agent, model: prewarmModel))?.env }
         try still(name)
         let started: AgentTabRemoteStart.Started, tabKey = opened.key
         do {
