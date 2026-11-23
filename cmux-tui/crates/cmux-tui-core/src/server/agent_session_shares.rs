@@ -263,12 +263,14 @@ const MAX_GUESTS_PER_ACCOUNT: usize = 4;
 /// An account (an email address or a cmux `@handle`), in bytes.
 const MAX_ACCOUNT_BYTES: usize = 320;
 
-/// What an invited account may do: `view` watches, `talk` also prompts (held) and types.
+/// What an invited account may do: `view` watches, `talk` prompts (held) and types, and `drive`
+/// prompts and cancels without owner approval. Drive is accepted only for named invites.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub(super) enum Role {
     View,
     Talk,
+    Drive,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -575,9 +577,12 @@ fn role_of(guest: &Guest) -> Role {
 /// names the guest's account (often an email): that stays in the owner's own `-list`. A
 /// signed-in guest's profile picture goes as `avatar` (acpmux's provenance `fromAvatar`).
 fn author_of(share: &LinkShare, guest: &Guest) -> Value {
+    let role = role_of(guest);
     let mut author = json!({"id": format!("{GUEST_PREFIX}{}.{}", share.share_id, guest.guest_id),
-        "name": guest.name, "approval": "owner"});
-    author.set("role", json!(role_of(guest)));
+        "name": guest.name, "role": role});
+    if role != Role::Drive {
+        author.set("approval", json!("owner"));
+    }
     if let Some(avatar) = &guest.avatar_url {
         author.set("avatar", json!(avatar));
     }
@@ -586,7 +591,16 @@ fn author_of(share: &LinkShare, guest: &Guest) -> Value {
 
 /// Whether a bound guest's author may only watch: any role but `talk` (none included).
 pub(super) fn view_only(author: &Value) -> bool {
-    author.get("role") != Some(&json!(Role::Talk))
+    !matches!(author.get("role"), Some(role) if role == &json!(Role::Talk) || role == &json!(Role::Drive))
+}
+
+/// Whether a named invited guest may run prompts without owner approval and cancel its turn.
+pub(super) fn can_drive(author: &Value) -> bool {
+    is_guest_author(author) && author.get("role") == Some(&json!(Role::Drive))
+}
+
+fn is_guest_author(author: &Value) -> bool {
+    author.get("id").and_then(Value::as_str).is_some_and(|id| id.starts_with(GUEST_PREFIX))
 }
 
 #[derive(Deserialize)]

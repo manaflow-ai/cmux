@@ -50,7 +50,7 @@ impl NewIds {
 
 /// A create's or an invite-chat's terms, checked: a TTL of 1 minute to 7 days, 1 to 8 uses (to
 /// 1000 for a link made with a role, `view` or `talk`), and a `create_id` of 1 to 64 bytes when
-/// there is one.
+/// there is one. Drive is never a link role.
 fn terms(
     ttl_secs: u64,
     uses: u32,
@@ -60,7 +60,9 @@ fn terms(
 ) -> Result<ShareTerms, &'static str> {
     let id_ok =
         create_id.as_ref().is_none_or(|id| !id.is_empty() && id.len() <= MAX_CREATE_ID_BYTES);
-    if !(MIN_TTL_SECS..=MAX_TTL_SECS).contains(&ttl_secs)
+    if role == Some(Role::Drive)
+        || signed_in_role == Some(Role::Drive)
+        || !(MIN_TTL_SECS..=MAX_TTL_SECS).contains(&ttl_secs)
         || !(1..=if role.is_some() { MAX_LINK_USES } else { MAX_USES }).contains(&uses)
         || !id_ok
     {

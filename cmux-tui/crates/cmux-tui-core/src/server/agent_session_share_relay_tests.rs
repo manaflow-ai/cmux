@@ -1,7 +1,7 @@
 use super::*;
 
 fn link(out: mpsc::UnboundedSender<Out>, write: OwnedWriteHalf) -> Link {
-    let mut link = Link::new(("s", "g"), 1, out, write, Held::default());
+    let mut link = Link::new(("s", "g"), 1, out, write, Held::default(), false);
     link.next_id = 2;
     link
 }

@@ -50,6 +50,7 @@ export function ShareDialogBody({
   const roles = [
     { value: "view", label: t("share.role.view") },
     { value: "talk", label: t("share.role.talk") },
+    { value: "drive", label: t("share.role.drive") },
   ];
   const canInvite = !busy && isAccount(account);
   const submit = (event: FormEvent) => {

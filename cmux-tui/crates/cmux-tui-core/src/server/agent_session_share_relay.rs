@@ -2,7 +2,7 @@
 //! whose browser is in the room, the bridge opens a same-user connection to this daemon, served by
 //! the real connection path, binds it with `agent-session-proxy-bind {link_guest}` on its first
 //! line, and attaches. So every frame is the bound guest's and passes the daemon's per-frame
-//! checks (its share and guest live, the guest verbs only, every prompt held for the owner), and
+//! checks (its share and guest live, the guest verbs only, with Talk prompts held for the owner), and
 //! revoke, kick and expiry end the connection at the daemon first.
 //!
 //! What the relay sends the room names this guest only: a `snapshot` first (the newest records
@@ -261,6 +261,7 @@ pub(super) fn start(
     generation: u64,
     out: mpsc::UnboundedSender<Out>,
     held: Held,
+    drive: bool,
 ) -> Option<Relay> {
     let permit = claim_connection(mux.connection_stats())?;
     let (ours, daemons) = std::os::unix::net::UnixStream::pair().ok()?;
@@ -274,7 +275,7 @@ pub(super) fn start(
     std::thread::Builder::new().name("mux-share-guest".into()).spawn(serve).ok()?;
     let (asks, receiver) = mpsc::channel(MAX_ASKS);
     let (read, write) = ours.into_split();
-    let link = Link::new(ids, generation, out, write, held);
+    let link = Link::new(ids, generation, out, write, held, drive);
     tokio::spawn(run(BufReader::new(read), link, receiver));
     Some(Relay { asks, generation, sockets: Some(1), tries: 0 })
 }
@@ -356,6 +357,8 @@ struct Link {
     early_bytes: usize,
     /// This guest's prompts (kept by the bridge across relays and host sockets).
     held: Held,
+    /// A named Drive invite's prompts run without owner approval. Link guests never set this.
+    drive: bool,
 }
 
 impl Link {
@@ -365,6 +368,7 @@ impl Link {
         out: mpsc::UnboundedSender<Out>,
         write: OwnedWriteHalf,
         held: Held,
+        drive: bool,
     ) -> Self {
         Self {
             share_id: ids.0.to_owned(),
@@ -379,6 +383,7 @@ impl Link {
             early: VecDeque::new(),
             early_bytes: 0,
             held,
+            drive,
         }
     }
 
@@ -478,9 +483,10 @@ impl Link {
                 self.busy(Ask::Older(0));
                 true
             }
-            // Held unless acpmux's records said otherwise first (a retried prompt it ran).
+            // A talk guest is held. A Drive guest is accepted without owner approval, regardless
+            // of whether an older acpmux includes its awaiting-owner marker in the response.
             Pending::Prompt(prompt) if ok => {
-                self.note(&prompt, "held", None);
+                self.note(&prompt, if self.drive { "approved" } else { "held" }, None);
                 true
             }
             Pending::Prompt(prompt) => {

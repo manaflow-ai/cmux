@@ -41,6 +41,9 @@ pub const MAX_NAME_CHARS: usize = 64;
 pub const MAX_AVATAR_BYTES: usize = 1024;
 /// The one `approval` value: the owner approves each of the person's prompts.
 pub const APPROVAL_OWNER: &str = "owner";
+/// The one guest role that runs without owner approval. This marker is stamped by the trusted
+/// sharing daemon for a named invite and is never accepted from a link URL or Web client.
+pub const DRIVE_ROLE: &str = "drive";
 /// A link guest's id: on no tailnet and with no account (`cmux-tui-core`
 /// `agent_session_shares.rs` binds `guest:<share_id>.<guest_id>`). Every prompt of theirs waits
 /// for the owner, `approval` or not: a guest's prompt never runs unapproved.
@@ -66,6 +69,8 @@ pub struct Author {
     pub avatar: Option<String>,
     /// `approval: "owner"`: each prompt waits for the owner's approval (`hub/queue_approve.rs`).
     pub awaits_owner: bool,
+    /// A trusted named invite with Drive. Kept so its persisted provenance stays unheld.
+    pub drive: bool,
 }
 
 impl Author {
@@ -83,6 +88,9 @@ impl Author {
         }
         if self.awaits_owner {
             p.set("approval", json!(APPROVAL_OWNER));
+        }
+        if self.drive {
+            p.set("role", json!(DRIVE_ROLE));
         }
         p
     }
@@ -163,14 +171,19 @@ pub fn author(params: &Value) -> Result<Option<Author>, RpcError> {
         }
     };
     let required = |key: &str| field(key)?.ok_or_else(|| value_refused(key));
+    let id = required("id")?;
+    let drive = match raw.get("role") {
+        None | Some(Value::Null) => false,
+        Some(Value::String(value)) if value == DRIVE_ROLE && is_guest(&id) => true,
+        _ => return Err(value_refused("role")),
+    };
     let awaits_owner = match raw.get("approval") {
         None | Some(Value::Null) => false,
         Some(Value::String(value)) if value == APPROVAL_OWNER => true,
         _ => return Err(value_refused("approval")),
     };
-    let id = required("id")?;
     // A link guest's prompt waits for the owner even when its sender left `approval` off.
-    let awaits_owner = awaits_owner || is_guest(&id);
+    let awaits_owner = awaits_owner || (is_guest(&id) && !drive);
     Ok(Some(Author {
         id,
         name: required("name")?,
@@ -178,6 +191,7 @@ pub fn author(params: &Value) -> Result<Option<Author>, RpcError> {
         node: field("node")?,
         avatar: field("avatar")?,
         awaits_owner,
+        drive,
     }))
 }
 
@@ -373,6 +387,11 @@ mod tests {
         let unmarked = json!({"kind": "person_message", "from": "guest:k3x9", "fromName": "Cy"});
         assert!(awaits_owner(Some(&unmarked)));
         assert!(!awaits_owner(Some(&json!({"kind": "agent_message", "from": "guest:k3x9"}))));
+        let drive = author(&with(json!({"id": "guest:k3x9", "name": "Cy", "role": "drive"})))
+            .unwrap()
+            .unwrap();
+        assert!(!drive.awaits_owner);
+        assert_eq!(drive.provenance().get("role").and_then(Value::as_str), Some(DRIVE_ROLE));
         assert_eq!(of_provenance(Some(&json!({"kind": "agent_message", "from": "acp:x"}))), None);
         assert_eq!(of_provenance(None), None);
         let named = |p: Value| listed(Some(&p)).map(|a| (a.id, a.name));
@@ -493,6 +512,7 @@ mod tests {
             node: None,
             avatar: None,
             awaits_owner: false,
+            drive: false,
         };
         let device = json!({"device": "phone-1", "feedItem": "f-1"});
         assert_eq!(answered_by(None, None), None);

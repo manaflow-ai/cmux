@@ -22,8 +22,8 @@ const ID = /^[A-Za-z0-9_-]{8,128}$/;
 /** `invite`: an account invite (`/i/<id>`), joined by the signed-in account instead of a secret. */
 export type GuestLink = { shareId: string; secret?: string; invite?: true };
 
-/** An invitee's role: `view` watches only, `talk` may also send messages (each held for the owner). */
-export type GuestRole = "view" | "talk";
+/** An invitee's role: `view` watches, `talk` sends held messages, and `drive` sends immediately. */
+export type GuestRole = "view" | "talk" | "drive";
 
 /** How a tab joined: by the link's secret (an anonymous guest) or by an invite's accept (the account). */
 export type JoinedVia = "link" | "invite";
@@ -78,7 +78,10 @@ const KNOWN: ReadonlySet<string> = new Set([
 
 const key = (shareId: string, what: "secret" | "attempt" | "joined" | "name" | "role" | "via") =>
   `cmux.guest.${shareId}.${what}`;
-const role = (value: unknown): GuestRole | undefined => (value === "view" || value === "talk" ? value : undefined);
+const role = (value: unknown, invite: boolean): GuestRole | undefined => {
+  if (value === "view" || value === "talk") return value;
+  return invite && value === "drive" ? "drive" : undefined;
+};
 
 /**
  * Reads the share id from `/g/<id>` and the secret from the fragment, removes the fragment from
@@ -143,7 +146,7 @@ export const joinedName = (shareId: string, storage: Storage) => storage.getItem
 export const joinedRole = (shareId: string, storage: Storage, invite = false): GuestRole | undefined => {
   const via = joinedVia(shareId, storage);
   if (invite && via !== "invite") return undefined;
-  const kept = role(storage.getItem(key(shareId, "role")));
+  const kept = role(storage.getItem(key(shareId, "role")), via === "invite");
   // A link guest watches unless the redeem named `talk` (a signed-in account on a talk link); the
   // daemon refuses an anonymous guest's messages whatever this tab kept.
   if (via === "link" && storage.getItem(key(shareId, "joined")) !== null) return kept ?? "view";
@@ -193,7 +196,7 @@ const join =
     }
     const body = (await response.json().catch(() => ({}))) as Record<string, any>;
     if (response.ok && typeof body.guest_id === "string") {
-      const joinedAs = role(body.role);
+      const joinedAs = role(body.role, path === "accept");
       return { ok: true, guestId: body.guest_id, ...(joinedAs ? { role: joinedAs } : {}) };
     }
     const code = String(body.error?.code ?? body.error ?? body.code ?? "");

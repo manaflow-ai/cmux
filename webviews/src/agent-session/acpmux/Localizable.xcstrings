@@ -420535,6 +420535,18 @@
         }
       }
     },
+    "share.role.drive": {
+      "comment": "Agent pane: Share dialog role: may send messages and cancel without owner approval, for a named invited person",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can drive"
+          }
+        }
+      }
+    },
     "share.invite": {
       "comment": "Agent pane: Share dialog button that invites the typed account",
       "extractionState": "manual",

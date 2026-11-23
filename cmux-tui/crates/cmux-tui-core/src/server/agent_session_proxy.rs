@@ -9,7 +9,9 @@ pub(super) mod shares;
 
 // The verbs of a teammate, a talking guest and a viewer: one source with acpmux's Cloud carrier
 // rules (`cmux_agent_pane_policy::share_roles`).
-use cmux_agent_pane_policy::share_roles::{GUEST_VERBS, TEAMMATE_VERBS, VIEWER_VERBS};
+use cmux_agent_pane_policy::share_roles::{
+    DRIVER_VERBS, GUEST_VERBS, TEAMMATE_VERBS, VIEWER_VERBS,
+};
 
 /// A Cloud team member on a teammate's team machine (`member.rs`): the chat's own verbs, its
 /// steer, typing and view. Never start, trust, media, children, permission, a queue decision,
@@ -60,11 +62,12 @@ pub(super) fn scope(
         let guest = is_guest(author);
         // `agent-session-permission` is in the member's list only so it is answered
         // `agent_session.owner_only` (`run_on_worker`), not a bare not-trusted.
-        let verbs: &[&str] = match (guest, shares::view_only(author)) {
-            (true, true) => &VIEWER_VERBS,
-            (true, false) => &GUEST_VERBS,
-            (false, _) if is_member(author) => &MEMBER_VERBS,
-            (false, _) => &TEAMMATE_VERBS,
+        let verbs: &[&str] = match (guest, shares::view_only(author), shares::can_drive(author)) {
+            (true, true, _) => &VIEWER_VERBS,
+            (true, false, true) => &DRIVER_VERBS,
+            (true, false, false) => &GUEST_VERBS,
+            (false, _, _) if is_member(author) => &MEMBER_VERBS,
+            (false, _, _) => &TEAMMATE_VERBS,
         };
         if !verbs.contains(&cmd.as_str()) {
             let refusal = if guest { Refusal::ScopeNotGranted } else { Refusal::NotTrusted };

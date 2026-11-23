@@ -571,7 +571,7 @@ export function LiveChat({
         <div className="guest-live__dock">
           <GuestMessages prompts={mine} me={me} owner={ownerName} />
           {/* Only a `talk` guest sends; no role (an answer that named none) or `view` watches. */}
-          {role === "talk" ? (
+          {role === "talk" || role === "drive" ? (
             <GuestComposer
               initialText={prompts.draft()}
               onSend={send}

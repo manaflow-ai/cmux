@@ -1288,6 +1288,95 @@ fn a_default_link_guest_is_refused_and_an_invited_talker_is_held() {
     );
 }
 
+#[test]
+fn drive_is_rejected_for_link_roles_and_link_guests_never_get_promoted() {
+    let fake = FakeAcpmux::start("share-drive-link");
+    let mux = mux_with(&fake, "share-drive-link");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut owner = Client::connect(&mux, "share-drive-link-owner");
+    for extra in [json!({"role":"drive"}), json!({"signed_in_role":"drive"})] {
+        let mut frame = json!({"cmd":"agent-session-share-create", "surface":surface});
+        frame.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        assert_code(&owner.request(frame), "share.bad_request");
+    }
+    let share = create(&mut owner, surface, json!({"uses":3}));
+    let anon = redeem(&mut owner, &share, "Anon", "a1");
+    assert_eq!(anon["data"]["role"], "view", "an unauthenticated link guest stays a viewer");
+    let signed_in = redeem_signed_in(&mut owner, &share, "eve@example.com", "e1");
+    assert_eq!(signed_in["data"]["role"], "talk", "a link account gets the link default");
+    assert_ne!(anon["data"]["role"], "drive");
+    assert_ne!(signed_in["data"]["role"], "drive");
+}
+
+#[test]
+fn drive_is_granted_to_one_named_account_and_not_to_anonymous_guests() {
+    let fake = FakeAcpmux::start("share-drive-account");
+    let mux = mux_with(&fake, "share-drive-account");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut owner = Client::connect(&mux, "share-drive-account-owner");
+    let share = create(&mut owner, surface, json!({"uses":2}));
+    let invited = invite(&mut owner, &share, "ann@example.com", Some("drive"));
+    assert_eq!(invited["data"]["account"], "ann@example.com");
+    assert_eq!(invited["data"]["role"], "drive");
+    let ann = redeem_as(&mut owner, &share, "ann@example.com", "a1");
+    assert_eq!(ann["data"]["role"], "drive");
+    let anonymous = redeem(&mut owner, &share, "Anon", "a2");
+    assert_eq!(anonymous["data"]["role"], "view");
+}
+
+#[test]
+fn revoking_drive_closes_the_guest_before_a_lower_role_can_join() {
+    let fake = FakeAcpmux::start("share-drive-revoke");
+    let mux = mux_with(&fake, "share-drive-revoke");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut owner = Client::connect(&mux, "share-drive-revoke-owner");
+    let share = create(&mut owner, surface, json!({}));
+    invite(&mut owner, &share, "ann@example.com", Some("drive"));
+    let ann = redeem_as(&mut owner, &share, "ann@example.com", "a1");
+    let (mut client, bound) = bind(&mux, &share, &ann, "share-drive-revoke-ann");
+    assert_eq!(bound["ok"], true, "{bound}");
+    assert_eq!(
+        owner.request(json!({"cmd":"agent-session-share-uninvite",
+        "share_id":share["share_id"], "account":"ann@example.com"}))["ok"],
+        true
+    );
+    wait_unbound(&mux, 0);
+    assert!(client.ends_within(WAIT), "the revoked Drive guest's connection ends");
+    assert_code(
+        &bind(&mux, &share, &ann, "share-drive-revoke-again").1,
+        "agent_session.share_ended",
+    );
+    invite(&mut owner, &share, "ann@example.com", Some("talk"));
+    let lowered = redeem_as(&mut owner, &share, "ann@example.com", "a2");
+    assert_eq!(lowered["data"]["role"], "talk");
+}
+
+#[test]
+fn drive_prompts_are_approved_and_can_cancel_while_talk_prompts_are_held() {
+    let fake = FakeAcpmux::start("share-drive-prompt");
+    let mux = mux_with(&fake, "share-drive-prompt");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut owner = Client::connect(&mux, "share-drive-prompt-owner");
+    let share = create(&mut owner, surface, json!({"uses":2}));
+    invite(&mut owner, &share, "ann@example.com", Some("drive"));
+    let ann = redeem_as(&mut owner, &share, "ann@example.com", "a1");
+    let (mut drive, bound) = bind(&mux, &share, &ann, "share-drive-prompt-ann");
+    assert_eq!(bound["ok"], true, "{bound}");
+    assert_eq!(drive.request(json!({"cmd":"agent-session-attach", "surface":surface}))["ok"], true);
+    fake.frame();
+    assert_eq!(
+        drive.request(json!({"cmd":"agent-session-prompt", "surface":surface,
+        "client_id":"c1", "text":"run it"}))["ok"],
+        true
+    );
+    let prompt = fake.frame();
+    let author = &prompt["params"]["_meta"]["acpmux"]["author"];
+    assert_eq!(author["role"], "drive");
+    assert!(author.get("approval").is_none(), "Drive has no owner approval marker");
+    assert_eq!(drive.request(json!({"cmd":"agent-session-cancel", "surface":surface}))["ok"], true);
+    assert_eq!(fake.frame()["method"], "session/cancel");
+}
+
 /// A link made with a role, `view` or `talk`, may admit up to 1000 guests (the Share dialog's
 /// "Anyone with the link"); a link with no role keeps its 8.
 #[test]
