@@ -246,6 +246,33 @@ import Testing
         await #expect(throws: (any Error).self) { _ = try await write.value }
     }
 
+    /// A channel replaced while the stalled read's probe waits (another recovery, or the link's own
+    /// reconnect, bound a fresh one) is not recovered a second time: the read is asked again on
+    /// the new channel, and `onStall` never runs (#49130 F1).
+    @Test func aRebindDuringTheProbeIsNotFollowedByASecondRecovery() async throws {
+        let hub = hub(steady: true)
+        await hub.bind(BenchMac(.quiet))
+        var stalls = 0
+        hub.onStall = { stalls += 1; await hub.bind(BenchMac(.healthy)) }
+        let write = Task { @MainActor in
+            try await hub.request("session/new", .object([:]), timeout: .seconds(3))
+        }
+        // The stall watch fires at 600 ms and probes for up to 600 ms more; the rebind lands inside it.
+        let rebind = Task { @MainActor in
+            try await Task.sleep(for: .milliseconds(900))
+            await hub.bind(BenchMac(.healthy))
+        }
+        await Task.yield()
+        var outcome = Outcome()
+        await read(hub, into: &outcome)
+        try await rebind.value
+        // Past the probe's bound: a second recovery, if any, has run by now.
+        try await Task.sleep(for: .milliseconds(800))
+        #expect(stalls == 0, "the channel was already replaced: no second recovery")
+        #expect(outcome.answered == 1)
+        _ = try? await write.value
+    }
+
     /// A prompt answered before its `reply(to:)` is asked for is no longer in flight: it never
     /// keeps a later stalled read from recovering the channel.
     @Test func anAnsweredSubmitIsNoLongerAWriteInFlight() async throws {

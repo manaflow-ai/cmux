@@ -10,6 +10,7 @@ async fn chat(answer: Option<&'static str>) -> (Arc<Hub>, Arc<Session>) {
     cfg.store.mode = StoreMode::Memory;
     let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg, store);
+    hub.set_surge_inbox(Some(true));
     let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
     let session = hub.new_session(req).await.unwrap();
     hub.set_surge_triager(Some(Arc::new(move |_| answer.map(str::to_owned))));
@@ -45,7 +46,7 @@ async fn a_pass_journals_every_held_message_and_sends_one_digest_once() {
     hold(&hub, &s, "m1", "runners", "fyi", "runner queued 12 min");
     hold(&hub, &s, "m2", "review", "result", "review asks you to pick a base");
     hold(&hub, &s, "m3", "landed", "result", "landed #12");
-    hold(&hub, &s, "m4", "ask", "question", "which base?");
+    hold(&hub, &s, "m4", "ask", "question", "which base? the person decides");
     assert_eq!(hub.surge_triage_pass(&s).await.unwrap(), PassEnd::Done);
     assert!(
         hub.surge_triage_journals.lock().unwrap()[&s.id].cursor > 0,
@@ -73,7 +74,8 @@ async fn a_pass_journals_every_held_message_and_sends_one_digest_once() {
         ],
         "the question first, with no model"
     );
-    assert_eq!(triaged[1]["surge"]["needYou"], 2, "two open threads");
+    // Two open threads, one of them the person's: m2 is the agent's to act on.
+    assert_eq!(triaged[1]["surge"]["needYou"], 1, "only the question to the person");
     assert!(sent(&hub, &s, &digest) >= 1, "the digest went to the chat");
     let text = events
         .iter()
@@ -230,6 +232,36 @@ async fn a_restored_inbox_resumes_the_held_backlog() {
     let ids: usize =
         records(&events, triage::RECORD_KIND).map(|r| triage::triaged_ids(r).count()).sum();
     assert_eq!(ids, 2, "the backlog was triaged");
+}
+
+/// A restart with more undecided held messages than the inbox keeps in memory
+/// (`inbox::KEEP`) triages every one of them: the backlog is read from the journal, never from
+/// the in-memory projection that keeps only the newest.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_restart_triages_a_held_backlog_larger_than_the_inbox_keeps() {
+    let (hub, s) = chat(None).await;
+    // Every numbered message in the prompt is noise: nothing is delivered, all is decided.
+    hub.set_surge_triager(Some(Arc::new(|prompt: String| {
+        let n = prompt.matches("<<<end>>>").count();
+        Some((1..=n).map(|i| format!("{i} noise")).collect::<Vec<_>>().join("\n"))
+    })));
+    let total = super::super::inbox::KEEP + 20;
+    for i in 0..total {
+        hold(&hub, &s, &format!("m{i}"), "runners", "fyi", &format!("runner {i} queued"));
+    }
+    hub.surge_triage_journals.lock().unwrap().clear();
+    *s.inbox() = Default::default();
+    // The restore itself resumes the backlog (`resume_after_restore`), with no new arrival.
+    scheduled(&hub, &s);
+    hub.restore_inbox(&s);
+    assert!(s.inbox().items.len() <= super::super::inbox::KEEP, "memory keeps only the newest");
+    wait_idle(&hub, &s).await;
+    let events = hub.events(&s.id, 0, 1_000_000).unwrap();
+    let ids: BTreeSet<String> = records(&events, triage::RECORD_KIND)
+        .flat_map(|r| triage::triaged_ids(r).collect::<Vec<_>>())
+        .collect();
+    assert_eq!(ids.len(), total, "every held message was triaged, the oldest too");
+    assert!(ids.contains("m0"));
 }
 
 /// Waits until `s` has no triage pass due or running.
@@ -509,7 +541,8 @@ async fn a_repeated_observation_wakes_no_one_twice_across_passes_and_restarts() 
     assert!(item(&events, "m4").get("repeatOf").is_none(), "{}", item(&events, "m4"));
     assert_eq!(digested(&hub, &s.id), [json!(["m1"]), json!(["m4"])]);
     let last = records(&events, triage::RECORD_KIND).filter(|r| r.get("surge").is_some()).last();
-    assert_eq!(last.unwrap()["surge"]["needYou"], 1, "one open thread, not four messages");
+    // Status reports, however many, need the agent, not the person (Leo, 2026-11-23).
+    assert_eq!(last.unwrap()["surge"]["needYou"], 0, "runner reports never need the person");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

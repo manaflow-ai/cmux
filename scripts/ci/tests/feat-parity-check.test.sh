@@ -258,6 +258,16 @@ status=0; out=$(run CMUX_CI_STEP_KEY=k 2>&1) || status=$?
 printf '{"devEngines": {"packageManager": {"name": "bun", "version": "1.4.4"}}}\n' >"$W/webviews/package.json"
 ARGS=(web extra)
 run CMUX_CI_STEP_KEY=k >/dev/null && fail "web accepted an argument"
+# A BASE neither origin nor github.com serves is no verdict (exit 3, the pool poster's setup fault), never
+# exit 1, which the poster reads as the change's red. github.com is pointed at a path that does not exist.
+for mode in clippy-changed react-doctor; do
+  ARGS=("$mode" 0123456789abcdef0123456789abcdef01234567)
+  : >"$TMP/calls"
+  status=0; out=$(run CMUX_CI_STEP_KEY=k GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="url.file://$TMP/no-such-repo/.insteadOf" GIT_CONFIG_VALUE_0=https://github.com/) || status=$?
+  [[ "$status" == 3 ]] || fail "$mode with an unfetchable BASE must exit 3 (no verdict), got $status: $out"
+  grep -q 'base: cannot fetch' <<<"$out" || fail "$mode did not say BASE is missing: $out"
+  [[ ! -s "$TMP/calls" ]] || fail "$mode ran tools with no BASE: $(calls)"
+done
 ARGS=(deploy)
 run CMUX_CI_STEP_KEY=k >/dev/null && fail "accepted an unknown mode"
 [[ -z "$(calls)" ]] || fail "tools ran for a refused request: $(calls)"
