@@ -213,11 +213,15 @@ test("Send steers the running turn, as the button does", async () => {
   expect(menu()).toBeNull();
 });
 
-// The slot's rules and the gallery read Send's place (`.acpmux-composer-actions > .acpmux-send +
-// .acpmux-fit-mic`): the menu adds nothing around Send or after it. (This test's chat has no mic.)
-test("the menu draws no element around Send or after it: Send stays the action slot's own child", async () => {
+// The slot's rules and the gallery read Send's place: Send stands alone in the send slot's reserved
+// cell (composer/SendSlotGlyph.tsx SendSlot), and that cell is the action row's own child. The menu
+// adds nothing around Send or after it. (This test's chat has no mic.)
+test("the menu draws no element around Send or after it: Send stays alone in the send slot's cell", async () => {
   const { send } = await composer(working(), "Also cover the timeout path");
-  expect(send().parentElement?.classList.contains("acpmux-composer-actions")).toBe(true);
+  const cell = send().parentElement;
+  expect(cell?.classList.contains("acpmux-send-slot")).toBe(true);
+  expect(cell?.parentElement?.classList.contains("acpmux-composer-actions")).toBe(true);
+  expect(cell?.children.length).toBe(1);
   expect(send().nextElementSibling).toBeNull();
 });
 

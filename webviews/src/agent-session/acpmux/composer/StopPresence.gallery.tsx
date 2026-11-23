@@ -159,7 +159,7 @@ function Timeline() {
           position: "relative",
           height: 14,
           background: "color-mix(in srgb, var(--agent-muted) 12%, transparent)",
-          borderRadius: 3,
+          borderRadius: 4,
         }}
       >
         {items
@@ -175,7 +175,7 @@ function Timeline() {
                 left: `${x(span.from)}%`,
                 width: `${x(span.to - span.from)}%`,
                 background: color,
-                borderRadius: 3,
+                borderRadius: 4,
               }}
             />
           ))}
@@ -187,10 +187,11 @@ function Timeline() {
               style={{
                 position: "absolute",
                 top: -4,
-                left: `calc(${x(at)}% - 3px)`,
+                left: `${x(at)}%`,
+                transform: "translateX(-50%)",
                 width: 6,
                 height: 22,
-                borderRadius: 3,
+                borderRadius: 4,
                 background: "var(--agent-accent, var(--agent-text))",
               }}
             />
@@ -202,8 +203,11 @@ function Timeline() {
     <div style={{ display: "grid", gap: "var(--ds-space-2)", marginTop: "var(--ds-space-5)" }}>
       {lane(running, "Turn running", "var(--agent-muted)")}
       {lane(shown, "Stop drawn", "var(--agent-text)")}
-      <div style={{ color: "var(--agent-muted)", fontSize: "var(--text-caption)", marginLeft: 124 }}>
-        {SPAN_MS / 1000} s. Bars under "Stop drawn" are the only times the slot changes; ticks are pulses.
+      <div style={{ display: "grid", gridTemplateColumns: "112px 1fr", gap: "var(--ds-space-3)" }}>
+        <span />
+        <div style={{ color: "var(--agent-muted)", fontSize: "var(--text-caption)" }}>
+          {SPAN_MS / 1000} s. Bars under "Stop drawn" are the only times the slot changes; ticks are pulses.
+        </div>
       </div>
     </div>
   );
