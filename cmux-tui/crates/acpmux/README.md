@@ -1556,6 +1556,11 @@ so an agent messages another lane or session with a tool call instead of piping 
   title or peer; the list stops at `limit` (default 100, at most 500) and says how many more match.
 - `acpmux_last {name, count?}`: a session's last replies.
 - `acpmux_info {name}`: a session's state, as `cmux agent session info`.
+- `acpmux_machine_read {machine, path, op?}`, `acpmux_machine_edit {machine, path, text | edits
+  | patch}`, `acpmux_machine_exec {machine, command | argv}`: one file or command action on
+  another of the person's signed-in machines, for an agent whose loop runs on a VM and needs
+  something that exists only on the person's Mac. That machine's grant and policy decide each
+  call. [Per-call tool placement](docs/tool-placement.md) has the rule and the limits.
 
 Each tool is the request the agent's own `acpmux` CLI makes, on this daemon's socket, with the
 session's caller token. The tools can do nothing that CLI can't, and the receiver's chat
