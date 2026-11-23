@@ -277,17 +277,14 @@ final class CloudService {
             // `cloud.link.changed` arrives on the local daemon as an app server event.
             let machines = machines, changes = changes
             linkEvents = machines.local.store.sideEvents.subscribe { event in
-                changes.machineState(event)
-                guard let change = CloudLinkChange(event) else { return }
+                guard let change = CloudLinkChange(event) else { changes.machineState(event); return }
                 machines.session(change.key.machine)?.linkChanged(change)
             }
             // task-owner: observers; cancelled in stop()
             observers.append(Task {
                 // A reconnected local connection is a new daemon client: subscribe it again.
                 for await state in ObservationStream({ machines.local.store.connectionState }) {
-                    guard case .connected = state else { continue }
-                    changes.rewatch()
-                    guard !machines.cloud.isEmpty else { continue }
+                    guard case .connected = state else { continue }; changes.rewatch(); guard !machines.cloud.isEmpty else { continue }
                     await CloudAppLinks.resubscribe(local: machines.local)
                 }
             })
