@@ -26,6 +26,7 @@ enum UpdateHandlers {
             guard let registry, registry.isCapturingWork else { return }
             registry.track(result: result(updater.checkAnswer()))
         })
+        UpdateStatusAction.bind(into: registry, updater: updater)
         for id: ActionID in ["palette.applyUpdateIfAvailable", "palette.attemptUpdate"] {
             registry.bind(id, unavailable: { updater.installUnavailableReason }, invoke: { [weak registry] _ in
                 // Taken before the request: only a phase the request reached answers a CLI run.
@@ -64,14 +65,7 @@ enum UpdateHandlers {
         // task-owner: the action run; ends with `answer`.
         Task {
             switch await answer.value {
-            case .answered(let fields):
-                .success(fields.mapValues { field in
-                    switch field {
-                    case .string(let text): .string(text)
-                    case .bool(let flag): .bool(flag)
-                    case .double(let number): .double(number)
-                    }
-                })
+            case .answered(let fields): .success(UpdateStatusAction.values(fields))
             case .refused(let reason): .failure(ActionWorkFailure(refusal: .unavailable, reason: reason))
             case .failed(let message): .failure(ActionWorkFailure(message))
             }
