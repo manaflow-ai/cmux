@@ -407,9 +407,10 @@ pub(super) fn listing(dir: &std::path::Path, manifest: &Value) -> Listing {
     }
     let design_file = super::design_system::FILE;
     let (system, problem, note) = if shipped(manifest, design_file) {
-        let resolved = super::design_layers::Resolved::from_sources(&[
-            super::design_layers::Source::folder(dir),
-        ]);
+        let resolved =
+            super::design_layers::Resolved::from_sources(&[super::design_layers::Source::folder(
+                dir,
+            )]);
         (resolved.system, resolved.problems.into_iter().next(), None)
     } else {
         let note = dir.join(design_file).is_file().then(|| {
