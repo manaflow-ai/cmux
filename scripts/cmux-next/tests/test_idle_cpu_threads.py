@@ -105,6 +105,35 @@ class CefSwitches(unittest.TestCase):
         idle_cpu.with_cef_switches(lambda e: None, "")(env)
         self.assertNotIn("CMUX_NEXT_CEF_EXTRA_SWITCHES", env)
 
+    def test_the_bench_runs_without_the_component_updater_by_default(self):
+        # A fresh home installs every Chromium component in its first minutes (about 0.25 % app CPU and a third of
+        # the renderer's idle cost on cmux20-bench, 2 on and 2 off runs of one build): runs varied with it.
+        args = idle_cpu.parse_args(["--app", "/x.app"])
+        self.assertEqual(args.cef_switches, "disable-component-update")
+        env = {"HOME": "/tmp/h"}
+        idle_cpu.with_cef_switches(lambda e: None, args.cef_switches)(env)
+        self.assertEqual(env["CMUX_NEXT_CEF_EXTRA_SWITCHES"], "disable-component-update")
+
+    def test_none_keeps_the_updater_on(self):
+        env = {"HOME": "/tmp/h"}
+        idle_cpu.with_cef_switches(lambda e: None, "none")(env)
+        self.assertNotIn("CMUX_NEXT_CEF_EXTRA_SWITCHES", env)
+
+
+class ChromiumDirs(unittest.TestCase):
+    def test_each_top_level_entry_of_the_chromium_root_with_its_size(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as home:
+            root = Path(home) / "Library/Application Support/dev.cmux.next.tag/Chromium"
+            (root / "CertificateRevocation/1").mkdir(parents=True)
+            (root / "CertificateRevocation/1/crl-set").write_bytes(b"x" * 3000)
+            (root / "Default").mkdir()
+            (root / "Local State").write_bytes(b"y" * 10)
+            dirs = idle_cpu.chromium_dirs(Path(home))
+        self.assertEqual(dirs, [{"name": "CertificateRevocation", "bytes": 3000},
+                                {"name": "Local State", "bytes": 10}, {"name": "Default", "bytes": 0}])
+
 
 if __name__ == "__main__":
     unittest.main()

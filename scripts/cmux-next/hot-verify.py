@@ -188,7 +188,9 @@ def log(message: str) -> None:
 
 # A line where a tool says why it failed: cargo's and git's `error:`/`fatal:`, rustc's `error[E0425]:`, and a
 # compiler's `path:line:col: error: ...` (Zig, Swift, clang).
-ERROR_LINE = re.compile(r"(?:error(?:\[\w+\])?|fatal):\s|:\d+:\d+: error: ")
+# Also a script's thrown error (`TypeError: ...`, Node's `ENOENT: no such file or directory, scandir ...`): bun's
+# "error: postinstall script ... exited with 1" alone hid that a sparse checkout lacked release-notes/ (2026-11-22).
+ERROR_LINE = re.compile(r"(?:error(?:\[\w+\])?|fatal):\s|:\d+:\d+: error: |(?:^|\s)(?:[A-Z]\w*Error|E[A-Z]{2,}):\s")
 
 
 def why_failed(output: str, most: int = 300) -> str:
@@ -211,6 +213,13 @@ def why_failed(output: str, most: int = 300) -> str:
         kept.append(line)
         size += len(line) + 3
     return " | ".join(reversed(kept))[:most] if kept else text[-most:]
+
+
+def why_exited(done: subprocess.CompletedProcess, most: int = 300) -> str:
+    """Why a step failed, never empty: its own words (why_failed of stderr, else stdout), else its exit status and
+    that it printed nothing (an empty "web-overlay.sh server --local:" said nothing at all, 2026-11-22)."""
+    said = why_failed(done.stderr or done.stdout, most)
+    return said or f"exited {done.returncode} and printed nothing"
 
 
 def git(repo: Path, *args: str, check: bool = True, env: dict | None = None, timeout: float = GIT_SECONDS) -> str:
@@ -1362,6 +1371,44 @@ def web_checkout(repo: Path, head: str, scratch: Path) -> Path:
     return tree
 
 
+# Besides the bundles' inputs, what webviews/dev-server and vite.config.ts read at start: the markdown viewer's
+# shell (plugins.ts), the gallery's fixtures and themes (galleryHost.ts), the looks, and the Swift design tunables.
+DEV_SERVER_READS = ["schemas", "Resources/markdown-viewer", "Resources/cmux-themes", "Resources/ghostty/themes",
+                    "examples", "Packages/macOS/CmuxNext/Sources/CmuxNextDesign"]
+
+
+def widen_sparse(tree: Path) -> None:
+    """A sparse checkout (wt's default) gets the files its webviews read (web-bundle-key.py --inputs: the string
+    catalogs, release-notes highlights, schemas), so its dev server's install and string tables find them: from
+    a wt checkout with only /scripts/ and /webviews/, `cmux app try .` stopped at bun's postinstall
+    (gen-strings.mjs: ENOENT release-notes/next/highlights, 2026-11-22). Adding is all it does; nothing leaves."""
+    if git(tree, "config", "--bool", "core.sparseCheckout", check=False).strip() != "true":
+        return
+    done = subprocess.run([sys.executable, str(tree / "scripts/cmux-next/web-bundle-key.py"), str(tree), "--inputs"],
+                          capture_output=True, text=True, timeout=120)
+    if done.returncode != 0:
+        raise LookError(f"web-bundle-key.py --inputs: {why_exited(done)}")
+    cone = git(tree, "config", "--bool", "core.sparseCheckoutCone", check=False).strip() == "true"
+    patterns = []
+    for name in [*done.stdout.split(), *DEV_SERVER_READS]:
+        name = name.removeprefix(":(glob)").strip("/")
+        if cone:  # cone mode takes directories only: the part before the first wildcard, else the file's folder
+            glob = re.search(r"[*?\[]", name)
+            name = name[:glob.start()].rstrip("/") if glob else (name if (tree / name).is_dir() else str(Path(name).parent))
+            if name in ("", "."):
+                continue
+        entry = name if cone else f"/{name}"
+        if name and entry not in patterns:
+            patterns.append(entry)
+    if not patterns:
+        return
+    listed = set(git(tree, "sparse-checkout", "list", check=False).split())
+    missing = [p for p in patterns if p not in listed]
+    if missing:
+        log(f"sparse checkout: adding the files its web UI reads ({len(missing)} paths: {' '.join(missing[:4])}...)")
+        git(tree, "sparse-checkout", "add", *missing)
+
+
 def tree_web_key(tree: Path) -> str | None:
     """TREE's web source key as it is on disk, edits and untracked files included (web-bundle-key.py hashes
     every file git sees under the bundle inputs), when CI published bundles for exactly that key; else None."""
@@ -1431,7 +1478,7 @@ def apply_web(repo: Path, planned: dict, src_tree: Path | None, side: Side, scra
         done = subprocess.run([str(HERE / "web-overlay.sh"), "install", str(bundles), "--commit", head], env=env,
                               capture_output=True, text=True, timeout=300)
         if done.returncode != 0:
-            raise LookError(f"web-overlay.sh install: {why_failed(done.stderr, 300)}")
+            raise LookError(f"web-overlay.sh install: {why_exited(done)}")
         applied = {"how": "published bundles", "key": key}
         if src_tree is not None:
             applied["dev_server_starter_pid"] = start_dev_server_behind(src_tree, side, env)
@@ -1439,6 +1486,8 @@ def apply_web(repo: Path, planned: dict, src_tree: Path | None, side: Side, scra
     if not shutil.which("bun"):
         raise LookError("no web bundles are published for the head and no bun here serves its webviews")
     tree = src_tree
+    if tree is not None:
+        widen_sparse(tree)
     if tree is None:
         # A dev server runs the head's own code here: only a head on a branch of origin or already merged.
         tips = git(repo, "ls-remote", "--heads", "origin", check=False).split()
@@ -1453,7 +1502,7 @@ def apply_web(repo: Path, planned: dict, src_tree: Path | None, side: Side, scra
     done = subprocess.run([str(HERE / "web-overlay.sh"), "server", "--local", "--worktree", str(tree), "--port",
                            str(port)], env=env, capture_output=True, text=True, timeout=APPLY_SECONDS)
     if done.returncode != 0:
-        raise LookError(f"web-overlay.sh server --local: {why_failed(done.stderr or done.stdout, 300)}")
+        raise LookError(f"web-overlay.sh server --local: {why_exited(done)}")
     return {"how": "dev server", "port": port}
 
 
