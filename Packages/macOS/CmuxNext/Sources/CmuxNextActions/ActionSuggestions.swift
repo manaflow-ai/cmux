@@ -70,4 +70,6 @@ public nonisolated struct ActionSuggestions: Sendable, Hashable {
     /// The hosts New Remote Group offers (its `destination`): connected machines, online Tailscale
     /// peers, then `~/.ssh/config` aliases, each once, by SSH destination.
     public static let remoteHosts = "remoteHosts"
+    /// The code editors installed on this Mac, the default first (Open In ▸'s `app`; the App lists them).
+    public static let editors = "editors"
 }

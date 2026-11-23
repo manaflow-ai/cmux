@@ -24,6 +24,10 @@ struct BoundActionCatalogTests {
         // Edit Chief…, Set Chief Model…, Set Chief Effort… and Make Agent a Chief… (ChiefRegistryPaletteTests) land with their
         // Rust rows; the pinned app FFI gains them on re-pin.
         "home.editChief", "home.setChiefModel", "home.setChiefEffort", "home.adoptChief",
+        // #46896 (the Priority view's Archived fold) adds this row to the Rust catalog
+        // (cmux-action-catalog sidebar_priority.rs) and binds it in the same pull request: until the
+        // re-pin carries it, Restore on an archived row does nothing.
+        "sidebar.priority.restore",
         // Adjust Background…, Fill and Fit (PR #49748, step B) bind before their step A catalog rows
         // (cmux-action-catalog backdrop.rs) re-pin: until then they do nothing.
         "appearance.adjustBackground", "appearance.background.fill", "appearance.background.fit",
