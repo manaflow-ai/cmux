@@ -126,9 +126,14 @@ export function ComputeCardView({ model, layout, busy = false, error = null, onS
 
 type PartProps = { model: ComputeModel; busy: boolean; onSet(run: AllotmentSet): void };
 
+// Equal columns, each as wide as the widest figure, so every figure sits centred under its own button.
 function Dial({ model, busy, onSet }: PartProps) {
   return (
-    <fieldset aria-label="Allotment" className="m-0 flex gap-1 border-0 p-0" data-compute-dial="">
+    <fieldset
+      aria-label="Allotment"
+      className="m-0 grid auto-cols-fr grid-flow-col gap-3 border-0 p-0"
+      data-compute-dial=""
+    >
       {model.options.map((option) => (
         <DialButton key={option.position} option={option} busy={busy} locked={model.locked} onSet={onSet} />
       ))}
@@ -148,7 +153,7 @@ function DialButton({
   onSet(run: AllotmentSet): void;
 }) {
   return (
-    <div className="flex flex-col items-center gap-1" data-compute-option={option.position}>
+    <div className="flex flex-col items-stretch gap-1" data-compute-option={option.position}>
       <Button
         variant={option.proposed ? "solid" : "subtle"}
         disabled={busy || locked || option.disabled}
@@ -157,7 +162,7 @@ function DialButton({
       >
         {option.label}
       </Button>
-      <span className="row-help" data-compute-figure="">
+      <span className="row-help text-center whitespace-nowrap" data-compute-figure="">
         {option.figure}
       </span>
     </div>
