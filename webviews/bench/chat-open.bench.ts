@@ -27,7 +27,15 @@
 // chat_open.calibration_ms (chat_open.god.calibration_ms when FIXTURE=god), and each chat's
 // chat_open.<rail>.attach_to_latest_per_calibration is the median of each round's attach_to_latest over that round's
 // calibration, unit x: the page's own work in units of the runner's speed, which holds where the raw ms tracks the
-// runner. The raw ms rows stay as they were.
+// runner. The raw ms rows stay as they were. With PAIRED=1 each chat also has chat_open_paired[.god].<rail>.*: the
+// same rounds' attach_to_latest (ms) and its median over each load's own DOMContentLoaded (attach_per_dcl, unit x).
+// COMPOSER=1 (goal startup-every-path; Leo 2026-11-22: "percieved time and percieved interactive time") also types one
+// letter into the chat's composer as soon as its field is in the document and editable, and marks, from navigation start:
+//   composer_ready        the field is first in the document and editable (a MutationObserver from the first byte);
+//   composer_interactive  the frame after the letter echoed in the field (its text holds it), so the key was accepted.
+// The letter lands mid-load, so layout shifts in the 500 ms after it are the browser's hadRecentInput ones and leave the
+// shift sum: the web-ui part runs without it. Its rows (and dom_content_loaded and first_row) also carry `samples`, each
+// round's value, which cmuxterm-hq's web-startup probe reads for its p50 and p95.
 // PROFILE=1 adds a CPU profile of one load and prints the functions with the most self time between
 // navigation and the newest message plus 500 ms. The build is then unminified (so functions keep their
 // names) and every timed round runs on it, so the stage times are not the production build's.
@@ -58,6 +66,13 @@ if (PAIRED && FIXTURE !== "god")
 const CALIBRATION_PATH = "/__calibration.html";
 /// The stage rows marked with nextFrame (in the page script below), whose measure changed in version 3.
 const NEXT_FRAME_STAGES: ReadonlySet<string> = new Set(["first_row", "latest", "attach_to_latest"]);
+/// COMPOSER=1: the stage rows that carry each round's value (`samples`), for the web-startup probe's p50 and p95.
+const SAMPLED_STAGES: ReadonlySet<string> = new Set([
+  "dom_content_loaded",
+  "first_row",
+  "composer_ready",
+  "composer_interactive",
+]);
 /// LATENCY=ms delays every answer, as a busy daemon or the app's bridge does (chat-switch.bench.ts):
 /// the open's serial round trips before its newest message show as multiples of it.
 const LATENCY = Number(process.env.LATENCY ?? 0);
@@ -70,6 +85,12 @@ if (REMOTE_TAIL !== undefined && REMOTE_TAIL !== "present" && REMOTE_TAIL !== "a
 const PEER_CONNECT_MS = REMOTE_TAIL ? Number(process.env.PEER_CONNECT_MS ?? 2000) : 0;
 if (!Number.isFinite(PEER_CONNECT_MS) || PEER_CONNECT_MS < 0) throw new Error("PEER_CONNECT_MS must be non-negative");
 const REVEAL = process.env.REVEAL === "1";
+const COMPOSER = process.env.COMPOSER === "1";
+/// The chat's composer field (composer-typing.bench.ts's PROMPT).
+const COMPOSER_FIELD =
+  ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
+/// The letter COMPOSER=1 types; the field's text must hold it.
+const COMPOSER_KEY = "q";
 if (REVEAL && FIXTURE === "god")
   throw new Error("REVEAL=1 reveals a row of the TURNS-turn chat; run it without FIXTURE=god");
 if (PAIRED && REMOTE_TAIL) throw new Error("PAIRED=1 measures local chats; run REMOTE_TAIL without it");
@@ -303,6 +324,8 @@ try {
       byClass: Record<string, number>;
       log: string[];
     };
+    composerReady: number;
+    composerInteractive: number;
   };
   const open = async (rail = "compact"): Promise<Round> => {
     const page = await browser.newPage({
@@ -312,6 +335,27 @@ try {
     await page.addInitScript((rail) => {
       localStorage.setItem("cmux.experiments", JSON.stringify({ "thread-minimap-layout": rail }));
     }, rail);
+    if (COMPOSER)
+      await page.addInitScript(
+        ([field, key]) => {
+          const marks = { ready: 0, interactive: 0 };
+          (window as unknown as { __composer: typeof marks }).__composer = marks;
+          const check = () => {
+            const editable = document.querySelector(field);
+            if (!marks.ready && editable) marks.ready = performance.now();
+            if (!marks.interactive && editable?.textContent?.includes(key))
+              requestAnimationFrame(() => (marks.interactive ||= performance.now()));
+          };
+          new MutationObserver(check).observe(document, {
+            subtree: true,
+            childList: true,
+            characterData: true,
+            attributes: true,
+            attributeFilter: ["contenteditable"],
+          });
+        },
+        [COMPOSER_FIELD, COMPOSER_KEY] as const,
+      );
     await page.addInitScript(
       ([latestText, instrument, hostLatency, remoteTail, diskSnapshot]) => {
         if (hostLatency > 0)
@@ -517,7 +561,20 @@ try {
     calls = [];
     socketOpenedAt = 0;
     const started = Date.now();
-    await page.goto(url);
+    // COMPOSER=1: the letter goes in as soon as the field exists, while the page still loads.
+    const typed = COMPOSER
+      ? page.goto(url, { waitUntil: "commit" }).then(async () => {
+          const field = await page.waitForSelector(COMPOSER_FIELD, { timeout: 120_000 });
+          await field.focus();
+          await page.keyboard.type(COMPOSER_KEY);
+          await page.waitForFunction(
+            () => (window as unknown as { __composer: { interactive: number } }).__composer.interactive > 0,
+            null,
+            { timeout: 60_000 },
+          );
+        })
+      : page.goto(url);
+    await typed;
     await page.waitForFunction(
       (remoteTail) => {
         const state = (window as unknown as { __open: { latest: number; activity: number } }).__open;
@@ -564,6 +621,10 @@ try {
         origin: performance.timeOrigin,
         forced,
         dcl: nav.domContentLoadedEventEnd,
+        composer: (window as unknown as { __composer?: { ready: number; interactive: number } }).__composer ?? {
+          ready: 0,
+          interactive: 0,
+        },
         scriptKiB: scripts.reduce((sum, r) => sum + r.decodedBodySize, 0) / 1024,
         scripts: scripts
           .map((r) => `${r.name.split("/").pop()} ${(r.decodedBodySize / 1024).toFixed(0)} KiB`)
@@ -679,6 +740,8 @@ try {
       scriptKiB: got.scriptKiB,
       scripts: got.scripts as unknown as string[],
       forced: got.forced as Round["forced"],
+      composerReady: got.composer.ready,
+      composerInteractive: got.composer.interactive,
     };
   };
 
@@ -935,6 +998,12 @@ try {
         ["attach_to_latest", (r: Round) => r.latest - r.attach, undefined],
         ["dom_content_loaded", (r: Round) => r.dcl, undefined],
         ["long_ms", (r: Round) => r.longMs, undefined],
+        ...(COMPOSER
+          ? ([
+              ["composer_ready", (r: Round) => r.composerReady, undefined],
+              ["composer_interactive", (r: Round) => r.composerInteractive, TARGET_MS.load],
+            ] as const)
+          : []),
       ] as const)
         // Version 2: the pane's build loads English plus the page's language, as the app does
         // (scripts/agent-pane/paneLocales.mjs), no longer all 21 locales before the socket opens.
@@ -946,6 +1015,7 @@ try {
           p95: median(pick),
           target,
           version: NEXT_FRAME_STAGES.has(stage) ? 3 : 2,
+          ...(COMPOSER && SAMPLED_STAGES.has(stage) ? { samples: rounds.map(pick) } : {}),
         });
       // The page's own work in units of this runner's speed: each round's attach_to_latest over that round's calibration
       // (runnerCalibration.ts), the median of them. It holds across runners where the ms row above tracks the runner.
@@ -964,6 +1034,28 @@ try {
           unit: "x",
           version: CALIBRATION_VERSION,
         });
+      // PAIRED=1: the rows NOW's chat_attach_p95_ms reads (cmuxterm-hq goal chat-attach-p95, re-plan 2026-11-17).
+      // chat_open_paired[.god].<rail>.attach_per_dcl is the median of each round's attach_to_latest over that same
+      // load's own DOMContentLoaded, unit x: the same code read 100 to 185 ms across runners while this ratio held at
+      // 6.2 to 6.35. attach_to_latest beside it is the same rounds' median ms, the value shown against the ms target.
+      // Their own prefix keeps the small chat's paired rows apart from the web-ui part's unpaired chat_open.compact.*.
+      if (PAIRED) {
+        const perDcl = perCalibration(
+          rounds.map((r) => r.latest - r.attach),
+          rounds.map((r) => r.dcl),
+        );
+        console.log(
+          `paired ${chat.scale}: attach_to_latest / DOMContentLoaded per round ${rounds.map((r) => ((r.latest - r.attach) / r.dcl).toFixed(2)).join(" ")}; median ${perDcl}`,
+        );
+        perfRow({
+          name: `chat_open_paired.${arm}.attach_to_latest`,
+          p50: median((r) => r.latest - r.attach),
+          p95: median((r) => r.latest - r.attach),
+          version: 3,
+        });
+        if (Number.isFinite(perDcl))
+          perfRow({ name: `chat_open_paired.${arm}.attach_per_dcl`, p50: perDcl, p95: perDcl, unit: "x", version: 1 });
+      }
       // The script the page downloaded and parsed by the time the chat settled (decoded KiB): the open's
       // cost that grows with every eager import, so the perf cron names the week it grows (it grew 29%,
       // 8302 to 10722 KiB, from 2026-11-02 to 11-09 with no row to say so).

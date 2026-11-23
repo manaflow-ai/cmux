@@ -38,11 +38,14 @@ extension UpdaterService {
         // This launch counts toward the one-time GitHub star ask (``StarPromptCenter``).
         starPrompt.recordLaunch()
         if tipsEnabled != nil { refreshTip() }
+        checkInstalledBuild()
         activationObservation?.cancel()
         activationObservation = Task { [weak self] in
             for await _ in NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification) {
                 self?.refreshTip()
                 self?.refreshUpdateSnooze()
+                // An update installed meanwhile (Sparkle, or by hand) while this build still runs.
+                self?.checkInstalledBuild()
                 // The person is back: a staged update's Restart to Update is likely next, so its
                 // feed and pulled-list reads happen now rather than after the click.
                 self?.prefetchForInstallClick()

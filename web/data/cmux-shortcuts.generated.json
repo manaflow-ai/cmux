@@ -655,7 +655,7 @@
                   ]
                 }
               ],
-              "when": "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
+              "when": "topPage == home || surfaceKind == home || surfaceKind == home-dock"
             },
             {
               "keys": [
@@ -667,7 +667,7 @@
                   ]
                 }
               ],
-              "when": "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
+              "when": "topPage == home || surfaceKind == home || surfaceKind == home-dock"
             }
           ]
         },
@@ -708,7 +708,7 @@
                   ]
                 }
               ],
-              "when": "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
+              "when": "topPage == home || surfaceKind == home || surfaceKind == home-dock"
             }
           ]
         },
@@ -749,7 +749,7 @@
                   ]
                 }
               ],
-              "when": "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
+              "when": "topPage == home || surfaceKind == home || surfaceKind == home-dock"
             }
           ]
         },
@@ -7059,6 +7059,121 @@
           "shortcut": {
             "key": "/",
             "modifiers": []
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
+          "id": "diffViewerZoomIn",
+          "title": {
+            "en": "Diff: Zoom In",
+            "ar": "الفروقات: تكبير",
+            "bs": "Diff: uvećaj",
+            "da": "Diff: Zoom ind",
+            "de": "Diff: Vergrößern",
+            "es": "Diff: acercar",
+            "fr": "Diff : zoom avant",
+            "it": "Diff: ingrandisci",
+            "ja": "差分: 拡大",
+            "km": "Diff៖ ពង្រីក",
+            "ko": "Diff: 확대",
+            "no": "Diff: Zoom inn",
+            "pl": "Diff: Powiększ",
+            "pt-BR": "Diff: Ampliar",
+            "ru": "Diff: увеличить",
+            "th": "Diff: ซูมเข้า",
+            "tr": "Diff: Yakınlaştır",
+            "uk": "Diff: збільшити",
+            "vi": "Diff: Phóng to",
+            "zh-CN": "差异：放大",
+            "zh-TW": "差異：放大"
+          },
+          "shortcut": {
+            "key": "=",
+            "modifiers": [
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "=",
+                  "modifiers": [
+                    "shift",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "diffViewerFocused"
+            }
+          ]
+        },
+        {
+          "id": "diffViewerZoomOut",
+          "title": {
+            "en": "Diff: Zoom Out",
+            "ar": "الفروقات: تصغير",
+            "bs": "Diff: umanji",
+            "da": "Diff: Zoom ud",
+            "de": "Diff: Verkleinern",
+            "es": "Diff: alejar",
+            "fr": "Diff : zoom arrière",
+            "it": "Diff: riduci",
+            "ja": "差分: 縮小",
+            "km": "Diff៖ បង្រួម",
+            "ko": "Diff: 축소",
+            "no": "Diff: Zoom ut",
+            "pl": "Diff: Pomniejsz",
+            "pt-BR": "Diff: Reduzir",
+            "ru": "Diff: уменьшить",
+            "th": "Diff: ซูมออก",
+            "tr": "Diff: Uzaklaştır",
+            "uk": "Diff: зменшити",
+            "vi": "Diff: Thu nhỏ",
+            "zh-CN": "差异：缩小",
+            "zh-TW": "差異：縮小"
+          },
+          "shortcut": {
+            "key": "-",
+            "modifiers": [
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
+          "id": "diffViewerZoomReset",
+          "title": {
+            "en": "Diff: Actual Size",
+            "ar": "الفروقات: الحجم الفعلي",
+            "bs": "Diff: stvarna veličina",
+            "da": "Diff: Faktisk størrelse",
+            "de": "Diff: Originalgröße",
+            "es": "Diff: tamaño real",
+            "fr": "Diff : taille réelle",
+            "it": "Diff: dimensioni reali",
+            "ja": "差分: 実寸表示",
+            "km": "Diff៖ ទំហំពិត",
+            "ko": "Diff: 실제 크기",
+            "no": "Diff: Faktisk størrelse",
+            "pl": "Diff: Rzeczywisty rozmiar",
+            "pt-BR": "Diff: Tamanho Real",
+            "ru": "Diff: фактический размер",
+            "th": "Diff: ขนาดจริง",
+            "tr": "Diff: Gerçek Boyut",
+            "uk": "Diff: реальний розмір",
+            "vi": "Diff: Kích thước thực",
+            "zh-CN": "差异：实际大小",
+            "zh-TW": "差異：實際大小"
+          },
+          "shortcut": {
+            "key": "0",
+            "modifiers": [
+              "cmd"
+            ]
           },
           "chord": null,
           "aliases": []

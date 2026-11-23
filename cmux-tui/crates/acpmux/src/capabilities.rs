@@ -34,6 +34,12 @@ pub const HOLD_ATTACH: &str = "attach-hold-v1";
 /// `closedListed` (`server/requests/info.rs` `rows`).
 pub const INFO_ROWS: &str = "info-rows-v1";
 
+/// A client that sends `initialize` with `_meta.acpmux.peerRowBatches: true` hears a burst of one
+/// peer's rows (more than 32, a peer's list) as one `_acpmux/peer_rows_changed`, and follows the
+/// list for them (`hub/list_guard.rs` `send_remote_batch`). Every other client hears each row's
+/// `_acpmux/session_changed`, as before.
+pub const PEER_ROW_BATCHES: &str = "peer-row-batches-v1";
+
 /// Session summaries carry `hasDraft` and `workingBelow` (absent means false only with this id).
 pub const SESSION_IDLE_FACTS: &str = "session-idle-facts-v1";
 
@@ -105,9 +111,14 @@ pub const CAPABILITIES: &[Capability] = &[
     // `_acpmux/sessions {pendingOnly: true}`: only the chats with a pending ask, without the
     // list's pace (the app's dialog list). Older daemons would answer the whole list.
     Capability { id: "session-list-pending-v1", wire: &[method::MUX_SESSIONS] },
+    // `_acpmux/usage`: every listed chat's `usageStats` and nothing else, `unchanged` while the
+    // digest the client holds is current (Session Info's Usage). Older daemons: the client reads
+    // the list's pages with `usage: true`.
+    Capability { id: "session-usage-v1", wire: &[method::MUX_USAGE] },
     // Each local session summary says `hasDraft` and `workingBelow`, omitted when false
-    // (`protocol/session.rs`, `Hub::holds_work_below`). Only from a daemon that lists this id does a
-    // missing field mean false; the app's Update When Idle holds on any other (absent is unknown).
+    // (`protocol/session.rs`, `Hub::holds_work_below_read`). Only from a daemon that lists this
+    // id does a missing field mean false; the app's Update When Idle holds on any other (absent
+    // is unknown).
     Capability { id: SESSION_IDLE_FACTS, wire: &[method::MUX_SESSIONS] },
     // `_acpmux/info {sessionIds, row: true}`: the session list's rows of up to 100 chats by key,
     // the bytes `_acpmux/sessions` lists, and `_acpmux/status`'s `closedListed`. A list caller
@@ -122,6 +133,10 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability {
         id: crate::hub::row_log::CAPABILITY,
         wire: &[method::MUX_WATCH, method::MUX_SESSION_CHANGED],
+    },
+    Capability {
+        id: PEER_ROW_BATCHES,
+        wire: &[method::INITIALIZE, method::MUX_WATCH, method::MUX_PEER_ROWS_CHANGED],
     },
     Capability { id: "machine.join.stdin.v1", wire: &[] },
     // `acpmux machine vault pull|status|forget` (crate::vault): the CLI, which
@@ -143,6 +158,12 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability {
         id: "machine-enroll-v1",
         wire: &[method::MUX_MACHINE_ENROLL, method::MUX_MACHINE_LEAVE_IF_AUTO],
+    },
+    // Door A: a machine this computer reaches by ssh joins through the hub in one call, and the
+    // ones it reaches but has not added are listed (`server/machine_join_ssh.rs`).
+    Capability {
+        id: crate::cli::ssh_join::CAPABILITY,
+        wire: &[method::MUX_MACHINE_JOIN_SSH, method::MUX_MACHINE_CANDIDATES],
     },
     // The app reports only who is signed in; acpmux decides the enroll, its retry and the leave
     // (`server/sign_in_follow.rs`). A literal id, which the app's reference check reads.
@@ -338,6 +359,9 @@ pub const CAPABILITIES: &[Capability] = &[
             method::MUX_AGENT_LOGIN_API_KEY,
         ],
     },
+    // A turn's before and after picture of the chat's page, for its edited-files card
+    // (`hub/turn_shots.rs`).
+    Capability { id: "turn-shots-v1", wire: &[method::MUX_TURN_SHOTS] },
 ];
 
 /// The ids of [`CAPABILITIES`], in its order.

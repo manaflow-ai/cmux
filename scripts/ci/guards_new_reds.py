@@ -41,6 +41,9 @@ shard was never retried. #27710 (run 41525196343) went red on three gallery-fram
 budget left to retry; the base push after it merged passed all three. A file that fails again, or is missing from
 the re-run, stays the change's.
 
+A base result may name the files its replay never reached (`_cmux_unreached`, webviews_test_results.py
+--mark-unreached): a red in one of them has no base result (unknown), even in an otherwise finished replay.
+
 A file-level red (`FILE: false`: the file timed out, or failed without naming a test) that the base has no
 file-level entry for is red on the base too when every test the head names red in that file is red on the base,
 and there is at least one. The base side is often per-test only (the history's known verdicts, or a replay whose
@@ -95,6 +98,16 @@ def result_complete(path: str) -> bool:
     except (OSError, ValueError):
         return False
     return bool(found.get("_cmux_complete", True)) if isinstance(found, dict) else False
+
+
+def unreached_files(path: str) -> set[str]:
+    """The files a cut replay never reached (webviews_test_results.py --mark-unreached): no base result for them."""
+    try:
+        found = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return set()
+    listed = found.get("_cmux_unreached") if isinstance(found, dict) else None
+    return {str(file) for file in listed} if isinstance(listed, list) else set()
 
 
 def flaky_names(path: str) -> set[str]:
@@ -241,6 +254,7 @@ def main(argv: list[str]) -> int:
         return 1 if red else 0
     base = load(argv[1])
     base_complete = result_complete(argv[1])
+    unreached = unreached_files(argv[1])
     if base is None:
         # Not on stdout under --new-files: ci-web.yml reads every stdout line there as a file to re-run.
         print(f"no base results in {argv[1]}: every red step is unresolved until the merge gate reads the base run",
@@ -253,6 +267,9 @@ def main(argv: list[str]) -> int:
         """Whether BASE has any result that can speak to STEP."""
         if step in base:
             return True
+        if test_file(step) in unreached:
+            # The replay was cut before this file: its absence is no verdict, so the red is unknown, not the change's.
+            return False
         if base_complete:
             # A completed replay that has no matching key means this step is new to the base checkout.
             return True
