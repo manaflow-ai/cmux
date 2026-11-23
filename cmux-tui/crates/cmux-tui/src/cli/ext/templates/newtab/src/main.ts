@@ -1,4 +1,4 @@
-// A whole New Tab page, built on cmux-extension-sdk (the copy in ./sdk is the one this cmux ships).
+// A New Tab view: it draws over cmux's own composer, built on cmux-extension-sdk (the copy in ./sdk is the one this cmux ships).
 // It shows once you pick it: `cmux settings set tabs.newTabApp local/{{NAME}}`. Save this file while
 // `cmux ext dev` runs: cmux redraws the page. DESIGN.md says how a view should look; this page
 // follows it: a title and where the tab starts, then cards of rows.
