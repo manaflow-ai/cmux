@@ -108,6 +108,8 @@ impl Overlay {
             // half of a wide glyph) change together, as one set: a blank written or erased over
             // the right half alone erases the glyph in the viewer's terminal (a right half that
             // looks blank, as one with only a foreground does, would otherwise go as a clear).
+            // The right half of a wide glyph has the glyph's style (the daemon's grid gives it),
+            // so the two go in one span; a blank right of a narrow glyph keeps its own style.
             for x in 0..changes.len().saturating_sub(1) {
                 let (Some(glyph), Some(right)) = (cell_at(real, y, x), cell_at(real, y, x + 1))
                 else {
@@ -119,23 +121,16 @@ impl Overlay {
                 let keep = |c: &Change| matches!(c, Change::Keep);
                 if paired && !(keep(&changes[x]) && keep(&changes[x + 1])) {
                     changes[x] = Change::Set(glyph.clone());
-                    changes[x + 1] = Change::Set(Cell { text: String::new(), style: glyph.style });
+                    changes[x + 1] = Change::Set(right.clone());
                 }
             }
             let mut open: Option<Span> = None;
-            let mut right_half = false;
             for (x, change) in changes.into_iter().enumerate() {
                 let Ok(col) = u16::try_from(x) else { break };
-                let joins = std::mem::replace(&mut right_half, false);
-                if let Change::Set(cell) = &change {
-                    right_half = !cell.text.is_empty()
-                        && !matches!(cell.text.as_bytes(), [b] if (0x20..=0x7e).contains(b));
-                }
                 match (change, &mut open) {
                     (Change::Clear, Some(Span::Clear { len, .. })) => *len += 1,
                     (Change::Set(cell), Some(Span::Set { cells, .. }))
-                        if joins
-                            || cells.first().is_some_and(|first| first.style == cell.style) =>
+                        if cells.first().is_some_and(|first| first.style == cell.style) =>
                     {
                         cells.push(cell);
                     }
@@ -414,8 +409,7 @@ mod tests {
         let drawn = Grid::blank(20, 4);
         let mut overlay = Overlay::new(20, 4);
         overlay.apply(&overlay.diff(&drawn, &grid(&[&[("ab", Style::PLAIN)]])));
-        let mut real = grid(&[&[("漢", Style::fg(174))]]);
-        real.cells[0][1].style = Style::PLAIN;
+        let real = grid(&[&[("漢", Style::fg(174))]]);
         let spans = overlay.diff(&drawn, &real);
         assert_eq!(spans.len(), 1, "{spans:?}");
         let Span::Set { row: 0, col: 0, cells } = &spans[0] else { panic!("{spans:?}") };
