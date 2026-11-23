@@ -289,9 +289,15 @@ extension TwoToneSetting {
 }
 
 extension CornerFlushSetting {
-    /// `appearance.cornerFlush`: How the selected tab meets the content card (CornerFlush, CmuxNextDesign). A missing key is the default, flush with no goo, drawn only over the stock chrome (CornerFlush.defaultFits); a set value draws over any chrome, as a Debug Settings pick of chrome.cornerFlush does, which still overrides it in DEV and NIGHTLY. Compact density keeps the pill under every value. Leo 2026-11-13: "lawrence wanted no goo by default"; Leo 2026-11-18: the gooey look is a toggle a theme or a setup can pick.
+    /// `appearance.cornerFlush`: How the selected tab meets the content card (CornerFlush, CmuxNextDesign). A missing key is the default, flush with no goo, drawn only over the stock chrome (CornerFlush.defaultFits); a set value draws over any chrome, as a Debug Settings pick of chrome.cornerFlush does, which still overrides it in DEV and NIGHTLY. Compact density keeps the pill under every value. Leo 2026-11-13: "lawrence wanted no goo by default"; Leo 2026-11-18: the gooey look is a toggle a theme or a setup can pick. flush-goo also runs the sidebar's selected row into the card on a block appearance.tabShape (CornerFlush.sidebarRowFlows), and tones the frame under One Color too, since goo needs two tones to show (Leo 2026-11-18: "like the \"gooey\" is each tab looking like it's morphing into the visible pane. the two tone thing.").
     public nonisolated static let configPath = ["appearance", "cornerFlush"]
     public nonisolated static let fallback: CornerFlush = .flush
+}
+
+extension TabShapeSetting {
+    /// `appearance.tabShape`: How blocky the tabs of every tab bar and the rows of the sidebar are (TabShape, CmuxNextDesign). block (the default) draws today's tabs and rows unchanged. rounded draws the tabs and the sidebar's row fills as capsules, and the selected tab stays a capsule on its strip under every appearance.cornerFlush, never a folder into the content. The gooey look is not a third shape: it is appearance.cornerFlush flush-goo, which on a block shape also runs the sidebar's selected row into the content card (CornerFlush.sidebarRowFlows). Leo 2026-11-18: "the blockiness of tabs both horizontal the the vertical ones in the sidebar should be customized/customizable too."
+    public nonisolated static let configPath = ["appearance", "tabShape"]
+    public nonisolated static let fallback: TabShape = .block
 }
 
 extension PaneAnimationsSetting {

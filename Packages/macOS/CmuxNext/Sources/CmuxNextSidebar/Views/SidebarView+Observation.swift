@@ -63,6 +63,10 @@ extension SidebarViewComponents {
         /// a change draws every row again (WorkspaceRowView+NeedsYouGlow).
         var needsYouMark: AttentionMarkLook
         var animatesLoops: Bool
+        /// `appearance.tabShape`: a row's corners (rounded), and whether the selected row runs into the card
+        /// (``CornerFlush/sidebarRowFlows``): every row lays out again and reports to the window's chrome.
+        var tabShape: TabShape
+        var rowFlows: Bool
         /// Every token the titlebar row's width reads past the view's own inputs (the reserve, the accessory, the
         /// Priority bell, which refresh it themselves): the button, the +'s trailing inset (the trailing column at
         /// the app and sidebar density), the toolbar band's button (the reserve's source), the traffic lights'
@@ -112,6 +116,8 @@ extension SidebarViewComponents {
             rowTuning = SidebarRowTuning.signature
             needsYouMark = design.attention.mark
             animatesLoops = Motion.indicators.animatesLoops
+            tabShape = design.tabShape
+            rowFlows = CornerFlush.sidebarRowFlows
             titlebarRow = [SidebarStyle.toolbarButtonSize, SidebarStyle.titlebarPlusTrailingInset, TitlebarBandButton.side,
                            Metrics.trafficLightInset, Metrics.space1, Metrics.space2, Metrics.space3]
             switcherTokens = [Metrics.roomDotSlot, Metrics.roomDotDiameter, Metrics.smallIconSize]
@@ -177,6 +183,7 @@ extension SidebarViewComponents {
             || lastState?.pinnedRowLeading != state.pinnedRowLeading
             || lastState?.rowTuning != state.rowTuning
             || lastState?.needsYouMark != state.needsYouMark || lastState?.animatesLoops != state.animatesLoops
+            || lastState?.tabShape != state.tabShape || lastState?.rowFlows != state.rowFlows
         if lastState?.titlebarRow != state.titlebarRow {
             // The window root sets the reserve from the toolbar band, whose width follows the same tokens.
             window?.contentView?.needsLayout = true

@@ -4,6 +4,44 @@
 public import CmuxNextDesign
 
 extension AppearanceSettingsSchema {
+    static var lookMotion: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.densityMotion", "Density and Motion")
+        return [
+            SettingDescriptor(
+                PaneAnimationsSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.ui.paneAnimations", "Animate Panes"),
+                help: SettingsText.keyed("settings.ui.paneAnimations.help", "Splits, closes, moves, zooms and column scrolls slide into place."),
+                kind: .toggle,
+                default: .bool(PaneAnimationsSetting.fallback),
+                keywords: ["motion", "animation", "pane", "split", "zoom", "slide", "spring"]
+            ),
+            SettingDescriptor(
+                AnimationKindsSetting.newTabPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.ui.animations.newTab", "Animate New Tabs"),
+                help: SettingsText.keyed("settings.ui.animations.newTab.help", "A new tab grows into its place in the tab bar. Off shows it there at once."),
+                kind: .toggle,
+                default: .bool(AnimationKindsSetting.newTabDefault),
+                keywords: ["motion", "animation", "tab"]
+            ),
+            SettingDescriptor(
+                AnimationKindsSetting.newWorkspacePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.ui.animations.newWorkspace", "Animate New Workspaces"),
+                help: SettingsText.keyed("settings.ui.animations.newWorkspace.help", "A new workspace row opens in the sidebar. Off shows it there at once."),
+                kind: .toggle,
+                default: .bool(AnimationKindsSetting.newWorkspaceDefault),
+                keywords: ["motion", "animation", "workspace", "sidebar"]
+            ),
+        ]
+    }
+}
+
+extension AppearanceSettingsSchema {
     static var panes: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.panes", "Panes")
         return [

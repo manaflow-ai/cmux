@@ -335,43 +335,19 @@ extension AppearanceSettingsSchema {
                 default: .string(CornerFlushSetting.fallback.rawValue),
                 keywords: ["corner", "flush", "goo", "gooey", "folder tab", "fillet", "pill", "selected tab", "tab shape", "card", "material"]
             ),
-        ]
-    }
-}
-
-extension AppearanceSettingsSchema {
-    static var lookMotion: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.densityMotion", "Density and Motion")
-        return [
             SettingDescriptor(
-                PaneAnimationsSetting.configPath,
+                TabShapeSetting.configPath,
                 section: .appearance,
                 group: group,
-                title: SettingsText.keyed("settings.ui.paneAnimations", "Animate Panes"),
-                help: SettingsText.keyed("settings.ui.paneAnimations.help", "Splits, closes, moves, zooms and column scrolls slide into place."),
-                kind: .toggle,
-                default: .bool(PaneAnimationsSetting.fallback),
-                keywords: ["motion", "animation", "pane", "split", "zoom", "slide", "spring"]
-            ),
-            SettingDescriptor(
-                AnimationKindsSetting.newTabPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.ui.animations.newTab", "Animate New Tabs"),
-                help: SettingsText.keyed("settings.ui.animations.newTab.help", "A new tab grows into its place in the tab bar. Off shows it there at once."),
-                kind: .toggle,
-                default: .bool(AnimationKindsSetting.newTabDefault),
-                keywords: ["motion", "animation", "tab"]
-            ),
-            SettingDescriptor(
-                AnimationKindsSetting.newWorkspacePath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.ui.animations.newWorkspace", "Animate New Workspaces"),
-                help: SettingsText.keyed("settings.ui.animations.newWorkspace.help", "A new workspace row opens in the sidebar. Off shows it there at once."),
-                kind: .toggle,
-                default: .bool(AnimationKindsSetting.newWorkspaceDefault),
-                keywords: ["motion", "animation", "workspace", "sidebar"]
+                title: SettingsText.keyed("settings.appearance.tabShape", "Tab Shape"),
+                help: SettingsText.keyed("settings.appearance.tabShape.help", "The tabs and the sidebar's rows: blocks with the tab's corner, or rounded capsules."),
+                summary: SettingsText.keyed("settings.appearance.tabShape.summary", "Block or rounded tabs and sidebar rows"),
+                kind: .choice([
+                    SettingChoice(TabShape.block.rawValue, SettingsText.keyed("settings.choice.tabShape.block", "Block")),
+                    SettingChoice(TabShape.rounded.rawValue, SettingsText.keyed("settings.choice.tabShape.rounded", "Rounded")),
+                ]),
+                default: .string(TabShapeSetting.fallback.rawValue),
+                keywords: ["tab", "tabs", "shape", "corners", "block", "blocky", "rounded", "pill", "capsule", "sidebar", "row", "selection"]
             ),
         ]
     }
