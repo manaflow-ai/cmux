@@ -105,6 +105,9 @@ struct CmuxMobileApp: App {
                 AgentCLIHybridBenchRoot()
             } else if TerminalDemoRoot.isRequested || DeveloperOptions.launchDemo == "terminal" {
                 TerminalDemoRoot()
+            } else if FoldSimulatorFrame<RootView>.isRequested {
+                // A live fold and unfold inside one simulator window (UITests/FoldResizeUITests).
+                FoldSimulatorFrame { RootView(auth: auth, store: .mock()) }
             } else {
                 RootView(auth: auth, store: .mock())
             }
@@ -129,6 +132,9 @@ struct CmuxMobileApp: App {
             // App Shortcut's own perform() at launch, as the system would on a tap (a headless
             // simulator's Spotlight opens the app without running an app's intents).
             .task { await NewAgentChatIntent.runFromLaunchArguments() }
+            // `-cmux-mobile-kbd-pin-trace` for every root, not only RootView's (TerminalDemoRoot's
+            // terminal for the keyboard motion bench); it starts once.
+            .task { KeyboardPinTrace.startIfRequested() }
             #endif
         }
     }
