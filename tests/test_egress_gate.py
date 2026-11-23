@@ -14,7 +14,7 @@ finds every place the code makes an HTTP client or socket by hand:
 GATES are the gate's own files, where the one real client is made. Every other site is listed in UNGATED
 (tests/egress_ungated.json), file by file with a count per form. The list may only shrink: a new site fails (make
 the client through the gate instead), and a site that left the code fails until its entry is removed (run
-`--write`), so the count NOW reads (code_shape.egress) is exact. The scan scope is the host guard's (SCAN), with
+`--write`), so the count (`--json`) is exact. The scan scope is the host guard's (SCAN), with
 comments, tests, mocks and Rust #[cfg(test)] modules left out the same way.
 
 Run it: python3 tests/test_egress_gate.py. Rewrite the list after moving sites to the gate: --write.

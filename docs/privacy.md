@@ -48,12 +48,13 @@ deletes them.
 
 ## Egress gate
 
-The host list below is enforced at run time, not only in CI. Every HTTP client and socket the app makes for itself
-goes through one egress gate per runtime: the daemon's Rust (`cmux-egress`), the Mac and iPhone apps' Swift, and
-the web pages' Content Security Policy. In nightly and dev builds the gate refuses a connection to a host with no
-`connects` row, and logs the host and the call site. Hosts you configure yourself (a self-hosted server, an API
-endpoint, an SSH or git host) pass because you named them. `tests/test_egress_gate.py` finds every client the code
-makes by hand; `tests/egress_ungated.json` lists the ones not moved to the gate yet, and that list may only shrink.
+The host list below is checked in CI (`tests/test_outbound_hosts.py`), and is being moved to a run-time check too:
+one egress gate per runtime (the daemon's Rust, the Mac and iPhone apps' Swift, the web pages' Content Security
+Policy) through which every HTTP client and socket the app makes for itself goes. In nightly and dev builds the gate
+refuses a connection to a host with no `connects` row and logs the host and the call site. Hosts you configure
+yourself (a self-hosted server, an API endpoint, an SSH or git host) pass because you named them.
+`tests/test_egress_gate.py` finds every client the code makes by hand; `tests/egress_ungated.json` lists the ones
+not moved to the gate yet (163 today), and that list may only shrink.
 
 ## Hosts
 
