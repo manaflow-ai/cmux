@@ -40,7 +40,7 @@ use serde_json::json;
 static ONE_WAY_MS: [AtomicU64; 4] = [const { AtomicU64::new(0) }; 4];
 
 /// Every tunnel datagram arrives `ONE_WAY_MS[SLOT]` late.
-fn impair<const SLOT: usize>(_via_turn: bool, _from: &SocketAddr) -> Option<Duration> {
+fn impair<const SLOT: usize>(_via_turn: bool, _from: &SocketAddr, _len: usize) -> Option<Duration> {
     Some(Duration::from_millis(ONE_WAY_MS[SLOT].load(Ordering::Relaxed)))
 }
 
