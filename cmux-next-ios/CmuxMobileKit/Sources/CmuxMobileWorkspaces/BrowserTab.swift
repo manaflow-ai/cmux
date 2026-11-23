@@ -22,6 +22,7 @@ public final class BrowserTabModel: BrowserTabState {
     public private(set) var isLoading = false
     public private(set) var progress: Double = 1
     public private(set) var snapshot: UIImage?
+    @ObservationIgnored private var pendingSnapshot: Task<Void, Never>?
     /// Why the phone's page shows no page (a tab opened on the iPhone from the Mac):
     /// an address only the Mac can open, or a host this iPhone could not reach.
     public private(set) var problem: Problem?
@@ -207,8 +208,24 @@ public final class BrowserTabModel: BrowserTabState {
         return components?.url
     }
 
-    /// Refreshes the grid card's snapshot of what is on screen.
-    public func takeSnapshot() {
+    /// Refreshes the grid card's snapshot of what is on screen. `settleDelay`: wait that long first
+    /// (the grid's zoom). WebKit renders the snapshot with a synchronous call to the render server
+    /// on the main thread (20-30 ms in the simulator, `CARenderServerSnapshot` in the hitch stacks
+    /// of BrowserButtonMotionBenchUITests), which landed inside the zoom's first frames.
+    public func takeSnapshot(settleDelay: TimeInterval = 0) {
+        if settleDelay > 0 {
+            pendingSnapshot?.cancel()
+            // task-owner: this model; cancelled by the next snapshot request
+            pendingSnapshot = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(settleDelay))
+                guard !Task.isCancelled else { return }
+                self?.pendingSnapshot = nil
+                self?.takeSnapshot()
+            }
+            return
+        }
+        pendingSnapshot?.cancel()
+        pendingSnapshot = nil
         guard webView.window != nil else { return }
         webView.takeSnapshot(with: nil) { [weak self] image, _ in
             MainActor.assumeIsolated {

@@ -1237,7 +1237,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
         let inactive = (workspace?.tabs ?? []).filter { $0.kind == .terminal && $0.id != activeTabID }
         if !inactive.isEmpty { terminal.overviewWillAppear(inactive: inactive) }
         guard let id = activeTabID else { return }
-        if let tab = workspaceTab(id), tab.kind == .browser { browser(tab).takeSnapshot() }
+        if let tab = workspaceTab(id), tab.kind == .browser {
+            // A card that already has a picture keeps it through the zoom; the refresh waits for the zoom to land.
+            let model = browser(tab)
+            model.takeSnapshot(settleDelay: model.snapshot == nil ? 0 : 0.7)
+        }
         if let tab = workspaceTab(id), tab.kind == .simulator { simulator(tab)?.takeSnapshot() }
         if let tab = workspaceTab(id), tab.kind == .terminal { terminal.overviewWillAppear(active: tab) }
     }
