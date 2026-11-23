@@ -6,7 +6,7 @@ deploys from main, `rc/**` and `v*`. ios-asc-ops.yml runs from main, decodes the
 calls this script with one fixed operation. Nothing here prints the key; review-detail reads drop the demo account's
 password before printing.
 
-  ios_asc_ops.py OP [--app ID] [--version STRING] [--attributes JSON] [--path PATH]
+  ios_asc_ops.py OP [--app ID] [--version STRING] [--attributes JSON] [--path PATH] [--locale LOCALE]
 
 Operations (reads first; every write prints the object it wrote, read back after the write):
   app-info            the app, its appInfos (state, age rating) and its App Store versions
@@ -18,6 +18,9 @@ Operations (reads first; every write prints the object it wrote, read back after
   age-rating-patch    PATCH the editable appInfo's ageRatingDeclaration with --attributes JSON, then read it back
   review-detail-sync  set the review detail's attributes (notes, contact, demo account) from --attributes JSON on
                       --version (else the editable one); creates the detail when the version has none
+  version-localization-patch
+                      PATCH one App Store version localization (--locale, default en-US) of --version (else the
+                      editable one) with --attributes JSON; only whatsNew and promotionalText, then read it back
 
 Needs ASC_KEY_ID, ASC_ISSUER_ID, ASC_PRIVATE_KEY_PATH. Stock python3 and openssl; no packages.
 """
@@ -51,7 +54,10 @@ REVIEW_DETAIL_KEYS = ("contactFirstName", "contactLastName", "contactPhone", "co
 REDACT = ("demoAccountPassword",)
 PATH_RE = re.compile(r"/v[12]/[A-Za-z0-9_/.\-]+(\?[A-Za-z0-9_=&%\[\],.\-]*)?")
 READS = ("app-info", "versions", "age-rating", "review-detail", "submissions", "get")
-WRITES = ("age-rating-patch", "review-detail-sync")
+VERSION_LOCALIZATION_KEYS = ("whatsNew", "promotionalText")
+VERSION_LOCALIZATION_FIELDS = "locale,whatsNew,promotionalText,description,keywords"
+LOCALE_RE = re.compile(r"[A-Za-z]{2,3}(-[A-Za-z0-9]{2,4})?")
+WRITES = ("age-rating-patch", "review-detail-sync", "version-localization-patch")
 
 
 # ---- the JWT (same shape as scripts/ci/ios_internal_notes.py on feat-cmux-next) ----
@@ -175,6 +181,18 @@ def review_detail(client: Client, version_id: str) -> dict | None:
     return {"id": data["id"], **data.get("attributes", {})} if data else None
 
 
+def version_localizations(client: Client, version_id: str) -> list[dict]:
+    q = urllib.parse.urlencode({"limit": "50", "fields[appStoreVersionLocalizations]": VERSION_LOCALIZATION_FIELDS})
+    return [{"id": loc["id"], **loc.get("attributes", {})} for loc in
+            client.get(f"/v1/appStoreVersions/{version_id}/appStoreVersionLocalizations?{q}").get("data", [])]
+
+
+def version_localization(client: Client, loc_id: str) -> dict:
+    q = urllib.parse.urlencode({"fields[appStoreVersionLocalizations]": VERSION_LOCALIZATION_FIELDS})
+    data = client.get(f"/v1/appStoreVersionLocalizations/{loc_id}?{q}").get("data") or {}
+    return {"id": data.get("id", loc_id), **data.get("attributes", {})}
+
+
 def run(op: str, args, client: Client) -> dict:
     app = args.app
     if op == "app-info":
@@ -223,6 +241,30 @@ def run(op: str, args, client: Client) -> dict:
                 "type": "appStoreReviewDetails", "attributes": attributes,
                 "relationships": {"appStoreVersion": {"data": {"type": "appStoreVersions", "id": version["id"]}}}}})
         return {"version": version, "before": before, "after": review_detail(client, version["id"])}
+    if op == "version-localization-patch":
+        unknown = sorted(set(attributes) - set(VERSION_LOCALIZATION_KEYS))
+        if unknown:
+            raise SystemExit(f"unknown version localization attributes {unknown}; allowed: "
+                             f"{list(VERSION_LOCALIZATION_KEYS)}")
+        if any(not isinstance(v, str) or len(v) > 4000 for v in attributes.values()):
+            raise SystemExit("version localization attributes must be strings of at most 4000 characters")
+        locale = args.locale or "en-US"
+        if not LOCALE_RE.fullmatch(locale):
+            raise SystemExit(f"--locale must be a locale like en-US, not {locale!r}")
+        version = editable_version(client, app, args.version)
+        if version.get("appStoreState") not in EDITABLE_STATES:
+            raise SystemExit(f"version {version.get('versionString')} is {version.get('appStoreState')}, not editable")
+        found = [loc for loc in version_localizations(client, version["id"]) if loc.get("locale") == locale]
+        if not found:
+            raise SystemExit(f"version {version.get('versionString')} has no {locale} localization")
+        before = found[0]
+        client.call("PATCH", f"/v1/appStoreVersionLocalizations/{before['id']}", {"data": {
+            "type": "appStoreVersionLocalizations", "id": before["id"], "attributes": attributes}})
+        after = version_localization(client, before["id"])
+        mismatched = sorted(k for k, v in attributes.items() if after.get(k) != v)
+        if mismatched:
+            raise SystemExit(f"read back {mismatched} on {before['id']} differs from what was written: {after}")
+        return {"version": version, "locale": locale, "before": before, "after": after}
     raise SystemExit(f"unknown op {op}")
 
 
@@ -243,6 +285,7 @@ def main(argv: list[str] | None = None, client: Client | None = None) -> int:
     parser.add_argument("--version", default="")
     parser.add_argument("--attributes", default="")
     parser.add_argument("--path", default="")
+    parser.add_argument("--locale", default="")
     args = parser.parse_args(argv)
     if args.app not in APPS:
         parser.error(f"--app must be one of {sorted(APPS)} ({', '.join(APPS.values())})")
