@@ -78,6 +78,7 @@
             {"group": "settings.group.history"},
             {"group": "settings.group.workspaceHibernation"},
             {"group": "settings.group.autoArchive"},
+            {"group": "settings.group.storage", "note": "Machine cleanup: agent worktrees and build caches on this Mac (acpmux hub/worktree_care.rs)."},
             {"group": "settings.group.picker"},
             {"group": "settings.group.tasks"},
             {"group": "settings.group.announcements"}

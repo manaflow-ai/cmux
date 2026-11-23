@@ -119,7 +119,7 @@ pub(super) fn check_in(batches: &[&Value], surface: Surface, system: &System) ->
     // Depth first with what each node sits on, as the outline walks it: cmux's two surfaces
     // until a hex background covers them (a translucent one is blended over what is behind).
     let surfaces: Behind =
-        SURFACES.iter().map(|(name, rgb)| (format!("cmux's {name} surface"), *rgb)).collect();
+        SURFACES.iter().map(|(name, rgb)| (format!("cmux's {name} background"), *rgb)).collect();
     let mut stack: Vec<(String, Behind)> = vec![(root, surfaces)];
     while let Some((id, behind)) = stack.pop() {
         let Some(node) = nodes.get(&id) else { continue };
@@ -277,6 +277,9 @@ pub(super) struct Listing {
     /// Why the folder cannot be checked (no recorded scenes, a file that does not ship), or
     /// `None` when its scenes were.
     pub missing: Option<String>,
+    /// What the check used that the author may not expect: a `cmux-design.json` the package
+    /// does not ship, so the scenes were checked against cmux's system, as review will.
+    pub note: Option<String>,
 }
 
 impl Listing {
@@ -297,13 +300,14 @@ impl Listing {
         }
         let count = self.scenes.len();
         let scenes = format!("{count} recorded scene{}", if count == 1 { "" } else { "s" });
+        let note = self.note.as_ref().map(|note| format!(" ({note})")).unwrap_or_default();
         if self.ok() {
-            return format!("{scenes} ({RECORDED}), no design warning");
+            return format!("{scenes} ({RECORDED}), no design warning{note}");
         }
         let warned = self.scenes.iter().filter(|(_, f)| !f.is_empty()).count();
         let total = self.warnings();
         format!(
-            "{total} design warning{} in {warned} of {scenes}; registry review refuses a listing with any. Fix each, then cmux ext shot --record again",
+            "{total} design warning{} in {warned} of {scenes}; registry review refuses a listing with any. Fix each, then cmux ext shot --record again{note}",
             if total == 1 { "" } else { "s" }
         )
     }
@@ -327,6 +331,7 @@ impl Listing {
         json!({
             "ok": self.ok(),
             "missing": self.missing,
+            "note": self.note,
             "warnings": self.warnings(),
             "scenes": self.scenes.iter().map(|(scene, findings)| json!({
                 "scene": scene,
@@ -362,15 +367,19 @@ fn surface_of(name: &str, drawn: Option<&str>) -> Surface {
 
 /// Registry review's design check of the folder `dir` with `manifest`: every scene in
 /// `preview/scenes.json`, against the folder's `cmux-design.json` over cmux's system (a file
-/// that does not read is a `system` warning on each scene). An extension that draws no view
-/// (a command) has nothing to check and passes.
+/// that does not read is a `system` warning on each scene). Only what the package ships is
+/// used, so the check here and on the unpacked release agree: an unshipped `cmux-design.json`
+/// is left out (and the listing says so). An extension that draws no view (a command, an
+/// opener) has nothing to check and passes.
 pub(super) fn listing(dir: &std::path::Path, manifest: &Value) -> Listing {
-    let drawn = super::dev::probe_interface(manifest);
-    let missing = |why: String| Listing { scenes: Vec::new(), missing: Some(why) };
+    let drawn = super::dev::view_interface(manifest);
+    let missing = |why: String| Listing { scenes: Vec::new(), missing: Some(why), note: None };
     let path = dir.join(RECORDED);
     let text = match std::fs::read_to_string(&path) {
         Ok(text) => text,
-        Err(_) if drawn.is_none() => return Listing { scenes: Vec::new(), missing: None },
+        Err(_) if drawn.is_none() => {
+            return Listing { scenes: Vec::new(), missing: None, note: None };
+        }
         Err(_) => {
             return missing(format!(
                 "no recorded scenes: run cmux ext shot --record (it writes {RECORDED}) for each size and state worth checking, so review can check its design"
@@ -396,7 +405,18 @@ pub(super) fn listing(dir: &std::path::Path, manifest: &Value) -> Listing {
             "{RECORDED} is not in the package, so review cannot read it: add \"preview/\" to the manifest's files"
         ));
     }
-    let (system, problem) = System::load(dir);
+    let design_file = super::design_system::FILE;
+    let (system, problem, note) = if shipped(manifest, design_file) {
+        let (system, problem) = System::load(dir);
+        (system, problem, None)
+    } else {
+        let note = dir.join(design_file).is_file().then(|| {
+            format!(
+                "{design_file} is not in the package, so these scenes were checked against cmux's system, as review checks the release; add \"{design_file}\" to the manifest's files to check against yours"
+            )
+        });
+        (System::cmux(), None, note)
+    };
     let scenes = scenes
         .into_iter()
         .map(|(name, ops)| {
@@ -416,7 +436,7 @@ pub(super) fn listing(dir: &std::path::Path, manifest: &Value) -> Listing {
             (name, findings)
         })
         .collect();
-    Listing { scenes, missing: None }
+    Listing { scenes, missing: None, note }
 }
 
 /// `ext design --listing DIR [--json]`: [`listing`] for a folder; exit 0 clean, 1 refused,
