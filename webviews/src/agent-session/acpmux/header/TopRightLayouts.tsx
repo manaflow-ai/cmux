@@ -196,7 +196,19 @@ function MorphControl({
     const away = (event: PointerEvent) => {
       if (!root.current?.contains(event.target as Node)) setOpen(false);
     };
+    // Escape inside the control closes the set and puts focus back on its control. It listens on the document while
+    // the set is open, so the wrapper stays a plain element with no handlers of its own.
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || !root.current?.contains(event.target as Node)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setOpen(false);
+      focusRoute(trigger.current, "person", "Escape closed the morph set: back to its control", {
+        preventScroll: true,
+      });
+    };
     doc?.addEventListener("pointerdown", away, true);
+    doc?.addEventListener("keydown", escape, true);
     // From the keyboard, the set's first icon takes focus, as a toolbar's does.
     if (byKeyboard.current)
       focusRoute(
@@ -205,7 +217,10 @@ function MorphControl({
         "the morph set opened from the keyboard: its first icon",
         { preventScroll: true },
       );
-    return () => doc?.removeEventListener("pointerdown", away, true);
+    return () => {
+      doc?.removeEventListener("pointerdown", away, true);
+      doc?.removeEventListener("keydown", escape, true);
+    };
   }, [open]);
   const pick = (tool: HeaderQuickTool, button: HTMLButtonElement) => {
     runTool(tool);
@@ -218,22 +233,7 @@ function MorphControl({
   };
   const label = t("header.topRight.panes");
   return (
-    <div
-      ref={root}
-      className="acpmux-topright-morph"
-      role="group"
-      aria-label={label}
-      data-open={open || undefined}
-      onKeyDown={(event) => {
-        if (event.key !== "Escape" || !open) return;
-        event.preventDefault();
-        event.stopPropagation();
-        setOpen(false);
-        focusRoute(trigger.current, "person", "Escape closed the morph set: back to its control", {
-          preventScroll: true,
-        });
-      }}
-    >
+    <div ref={root} className="acpmux-topright-morph" data-open={open || undefined}>
       <div
         className="acpmux-topright-morph-set"
         role="toolbar"
