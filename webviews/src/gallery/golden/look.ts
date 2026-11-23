@@ -15,6 +15,8 @@ export type GoldenScheme = {
   colors?: { background?: string; foreground?: string; selection?: string; accent?: string };
   /** `appearance.accent` (theme/appTheme.ts APP_ACCENTS). */
   accent?: string;
+  /** `appearance.selection`: `neutral` keeps the selection fill gray under any accent. */
+  selection?: "accent" | "neutral";
   /** `appearance.surfaces.sidebar.color` and `appearance.surfaces.agentPane.color`. */
   surfaces?: { sidebar?: string; agentPane?: string };
   /** `appearance.density`. */

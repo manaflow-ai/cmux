@@ -105,7 +105,7 @@ pub(super) async fn handle(
     let sender = Sender {
         name: conn.caller().map(|id| hub.session_name(id)),
         session_id: conn.caller().map(str::to_owned),
-        host: Some(crate::pairing::machine_name()),
+        host: Some(crate::pairing::mesh_host()),
         ..Sender::default()
     };
     let relay = MeshControlRelay::new(mesh.clone(), sender);

@@ -89,6 +89,7 @@ fn a_self_declared_label_has_a_distinct_thread_key_and_display() {
                 session_id: Some("dot".into()),
                 harness: Some("codex".into()),
                 relay: None,
+                display_name: None,
             }),
         ),
         Some("other"),
@@ -112,6 +113,7 @@ fn an_authenticated_message_and_reply_keep_name_threads_on_each_side() {
             session_id: Some("dot-session".into()),
             harness: Some("codex".into()),
             relay: None,
+            display_name: None,
         }),
     );
     let sender = thread_sender(Some(&authenticated), "dot");
@@ -1017,6 +1019,7 @@ fn a_relayed_sender_is_named_plainly_and_its_preview_is_the_message() {
                 machine: "gcp-agent-lane-2".into(),
                 session: Some("lock-proof-routes".into()),
             }),
+            display_name: None,
         }),
     );
     let verified = crate::prompt_provenance::sender_record(Some(&relayed), None, None);
@@ -1242,6 +1245,37 @@ fn a_peers_forward_of_an_unclassified_relay_message_goes_to_the_inbox_and_wakes_
     for urgent in [PromptClass::Block, PromptClass::Question] {
         assert!(wakes_as(&meta, urgent, false, None), "{urgent:?}");
     }
+}
+
+/// The `[inbox]` notice the agent reads names a sender with a given name by it first, with the
+/// HOST/NAME it was known by; one with none reads as before (Leo, 2026-11-23: "the send/recieve
+/// messages are still only the older names").
+#[test]
+fn an_inbox_line_names_a_sender_by_its_given_name() {
+    let stamped = crate::prompt_provenance::stamp_sender(
+        crate::prompt_provenance::session_message(
+            "coord-old-id",
+            "studio-mac/claude-sr2-coord-old",
+            "target",
+        ),
+        Some(&crate::prompt_provenance::BoundSender {
+            session_id: Some("coord-old-id".into()),
+            harness: Some("claude".into()),
+            relay: None,
+            display_name: Some("Mango".into()),
+        }),
+    );
+    let sender = crate::prompt_provenance::sender_record(Some(&stamped), None, None);
+    let from = "studio-mac/claude-sr2-coord-old";
+    assert_eq!(display_sender(&sender, from), "Mango · studio-mac/claude-sr2-coord-old");
+    let mut mango = item("p1", "from:coord-old-id", from, PromptClass::Fyi, 1, "PR is green");
+    mango.sender = sender;
+    let (text, _) = render(&[&mango]);
+    assert!(text.contains("from Mango · studio-mac/claude-sr2-coord-old"), "{text}");
+    // No given name: the old line.
+    let plain = item("p2", "from:lane-a", "lane-a", PromptClass::Fyi, 2, "PR is green");
+    let (text, _) = render(&[&plain]);
+    assert!(text.contains("from lane-a") && !text.contains(" · "), "{text}");
 }
 
 /// The row's held count is the messages still held: a triage record that decides one (digested,
