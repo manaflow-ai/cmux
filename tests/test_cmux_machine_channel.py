@@ -46,6 +46,7 @@ SPEC.loader.exec_module(channel)
 POINTER_SPEC = importlib.util.spec_from_file_location("web_ota_pointer", ROOT / "scripts/cmux-next/web-ota-pointer.py")
 pointer = importlib.util.module_from_spec(POINTER_SPEC)
 POINTER_SPEC.loader.exec_module(pointer)
+release = channel.helper_release  # scripts/ci/screen_sharing_helper_release.py, as the payload imports it
 
 COMMIT = "a" * 40
 
@@ -299,6 +300,8 @@ class EarlyUploadAndAnotherPublisher(unittest.TestCase):
 RELEASE_COMMIT = "c" * 40
 # 2026-11-09 07:00:12 UTC.
 COMMITTED_AT = 1794207612
+# 2026-11-22 11:05:00 UTC.
+PUBLISHED_AT = 1795345500
 RELEASE = ("--purpose", "linux-release", "--channel", "feat-cmux-next")
 
 
@@ -307,7 +310,9 @@ def served_linux_build(directory, generation="1"):
     directory.mkdir(parents=True, exist_ok=True)
     sha = {}
     for target in channel.LINUX_RELEASE_TARGETS:
-        for name in channel.NAMES:
+        for name in channel.LINUX_RELEASE_NAMES:
+            if name in channel.LINUX_RELEASE_MUSL_ONLY and not target.endswith("-musl"):
+                continue  # the detector is required on musl only; its glibc-named copy is optional
             data = f"{name}-{target} build {generation}".encode()
             (directory / f"{name}-{target}").write_bytes(data)
             sha[f"{name}-{target}"] = hashlib.sha256(data).hexdigest()
@@ -326,7 +331,7 @@ class LinuxReleasePayload(unittest.TestCase):
         # file does not carry.
         self.built = self.tmp / "built"
         shutil.copytree(self.served, self.built)
-        (self.built / "cmux-tui-acpmux-x86_64-unknown-linux-gnu").write_bytes(b"acpmux")
+        (self.built / "cmux-tui-cloud-server-x86_64-unknown-linux-gnu").write_bytes(b"cloud server")
         self.downloads = []
 
     def download(self, argv, check=False, **kwargs):
@@ -346,17 +351,23 @@ class LinuxReleasePayload(unittest.TestCase):
         self.assertEqual(raw, json.dumps(value, sort_keys=True, separators=(",", ":")).encode(), "not compact sorted JSON")
         return value
 
-    def test_the_payload_names_every_linux_binary_and_a_commit_time_version(self):
-        value = self.run_payload(*RELEASE, "--cargo-version", "1.0.0")
+    def test_the_payload_names_every_linux_binary_and_a_publish_order_version(self):
+        with mock.patch.object(channel.time, "time", return_value=PUBLISHED_AT):
+            value = self.run_payload(*RELEASE, "--cargo-version", "1.0.0")
         self.assertEqual(sorted(value), ["channel", "commit", "committed_at", "expires_at", "published_at", "purpose",
-                                         "schema", "targets", "version"])
+                                         "schema", "sequence", "targets", "version"])
         self.assertEqual((value["schema"], value["purpose"], value["channel"]), (1, "cmux-linux-release", "feat-cmux-next"))
-        self.assertEqual(value["version"], "1.0.0+20261109070012.cccccccccccc")
+        # sequence is the publish time, the version carries it (installers and dpkg/rpm order by it).
+        self.assertEqual(value["sequence"], 20261122110500)
+        self.assertEqual(value["version"], "1.0.0+20261122110500.cccccccccccc")
         self.assertEqual((value["commit"], value["committed_at"]), (RELEASE_COMMIT, COMMITTED_AT))
         self.assertEqual(value["expires_at"] - value["published_at"], 30 * 24 * 3600)
         self.assertEqual(sorted(value["targets"]), sorted(channel.LINUX_RELEASE_TARGETS))
         for target, files in value["targets"].items():
-            self.assertEqual(sorted(files), ["cmux-tui", "cmux-tui-hook"])
+            names = ["cmux-tui", "cmux-tui-acpmux", "cmux-tui-app-host", "cmux-tui-hook"]
+            if target.endswith("-musl"):
+                names.append("cmux-tui-agent-screen-detection")
+            self.assertEqual(sorted(files), sorted(names))
             for name, entry in files.items():
                 self.assertEqual(entry["url"], f"https://files.cmux.com/cmux-tui/{RELEASE_COMMIT}/{name}-{target}")
                 self.assertEqual(entry["sha256"], self.sha[f"{name}-{target}"])
@@ -380,9 +391,31 @@ class LinuxReleasePayload(unittest.TestCase):
         self.assertFalse((self.tmp / "payload.json").exists())
 
     def test_the_version_defaults_to_the_cmux_tui_cargo_version(self):
-        value = self.run_payload(*RELEASE)
+        with mock.patch.object(channel.time, "time", return_value=PUBLISHED_AT):
+            value = self.run_payload(*RELEASE)
         base = channel.nightly_version.next_base(str(ROOT))
-        self.assertEqual(value["version"], f"{base}+20261109070012.cccccccccccc")
+        self.assertEqual(value["version"], f"{base}+20261122110500.cccccccccccc")
+
+    def test_the_sequence_rises_above_the_channel_and_never_below_the_commit(self):
+        # A clock that would not exceed the channel's current sequence: one more than it.
+        with mock.patch.object(channel.time, "time", return_value=PUBLISHED_AT):
+            value = self.run_payload(*RELEASE, "--cargo-version", "1.0.0", "--min-sequence", "20261122120000")
+        self.assertEqual((value["sequence"], value["version"]), (20261122120000, "1.0.0+20261122120000.cccccccccccc"))
+        # A clock behind the commit: the commit time's stamp, which a phase-1 file of this commit carried.
+        with mock.patch.object(channel.time, "time", return_value=COMMITTED_AT - 60):
+            value = self.run_payload(*RELEASE, "--cargo-version", "1.0.0")
+        self.assertEqual(value["sequence"], 20261109070012)
+
+    def test_the_glibc_detector_goes_in_when_built_and_the_musl_one_is_required(self):
+        (self.built / "cmux-tui-agent-screen-detection-x86_64-unknown-linux-gnu").write_bytes(b"detector gnu")
+        (self.served / "cmux-tui-agent-screen-detection-x86_64-unknown-linux-gnu").write_bytes(b"detector gnu")
+        value = self.run_payload(*RELEASE)
+        self.assertIn("cmux-tui-agent-screen-detection", value["targets"]["x86_64-unknown-linux-gnu"])
+        self.assertNotIn("cmux-tui-agent-screen-detection", value["targets"]["aarch64-unknown-linux-gnu"])
+        (self.built / "cmux-tui-agent-screen-detection-aarch64-unknown-linux-musl").unlink()
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()) as err:
+            self.run_payload(*RELEASE)
+        self.assertIn("no sha256 for cmux-tui-agent-screen-detection-aarch64-unknown-linux-musl", err.getvalue())
 
     def test_the_cloud_machine_payload_is_unchanged(self):
         manifest = self.tmp / "musl.json"
@@ -397,6 +430,7 @@ class LinuxReleasePayload(unittest.TestCase):
             (("--purpose", "linux-release"), "needs --channel"),
             (("--purpose", "linux-release", "--channel", "every-merge"), "needs --channel"),
             (("--channel", "feat-cmux-next"), "are for --purpose linux-release"),
+            (("--min-sequence", "20261122110500"), "are for --purpose linux-release"),
             (("--purpose", "linux-release", "--channel", "nightly", "--cargo-version", "1.0"),
              "not MAJOR.MINOR.PATCH"),
         ]
@@ -477,14 +511,16 @@ class LinuxReleasePoint(unittest.TestCase):
         self.ptr = pointer
 
     def payload(self, commit=RELEASE_COMMIT, committed_at=COMMITTED_AT, published_at=1794208000, sha="d" * 64,
-                purpose="cmux-linux-release"):
-        stamp = time.strftime("%Y%m%d%H%M%S", time.gmtime(committed_at))
+                purpose="cmux-linux-release", sequence=None):
+        stamp = str(sequence) if sequence else time.strftime("%Y%m%d%H%M%S", time.gmtime(committed_at))
         value = {"schema": 1, "purpose": purpose, "channel": "feat-cmux-next",
                  "version": f"1.0.0+{stamp}.{commit[:12]}", "commit": commit, "committed_at": committed_at,
                  "published_at": published_at, "expires_at": int(time.time()) + 86400,
                  "targets": {target: {n: {"url": f"https://files.cmux.com/cmux-tui/{commit}/{n}-{target}",
                                           "sha256": sha, "size": 5} for n in channel.NAMES}
                              for target in channel.LINUX_RELEASE_TARGETS}}
+        if sequence:
+            value["sequence"] = sequence
         if purpose == "cmux-cloud-machine-update":
             value.update(channel="cloud-machine", key="e" * 64)
             del value["version"]
@@ -492,13 +528,15 @@ class LinuxReleasePoint(unittest.TestCase):
         path.write_bytes(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
         return path
 
-    def point(self, payload, run_id="1"):
+    def point(self, payload, *extra, run_id="1", release_key=None):
         scratch = pathlib.Path(tempfile.mkdtemp(dir=self.tmp))
         env = {"PATH": f"{self.bin}:{os.environ['PATH']}", "HOME": str(self.tmp), "FAKE_R2": str(self.r2),
                "FAKE_UPLOAD_LOG": str(self.tmp / "uploads.log"), "SIGNING_KEY": self.pem,
                "R2_ENDPOINT": "https://r2.invalid", "GITHUB_RUN_ID": run_id}
-        return subprocess.run(["bash", "scripts/ci/cmux-machine-channel-point.sh", str(payload), str(scratch)],
-                              cwd=self.repo, env=env, text=True, capture_output=True)
+        if release_key is not None:
+            env["LINUX_RELEASE_SIGNING_KEY"] = release_key
+        return subprocess.run(["bash", "scripts/ci/cmux-machine-channel-point.sh", str(payload), str(scratch),
+                               *extra], cwd=self.repo, env=env, text=True, capture_output=True)
 
     def served(self, key):
         path = self.r2 / key
@@ -528,6 +566,76 @@ class LinuxReleasePoint(unittest.TestCase):
         self.assert_ok(result)
         self.assertEqual(self.served(self.RELEASE), first)
         self.assertEqual(self.served(self.POINTER), first)  # same commit time: the pointer is current
+
+    def release_key(self, listed):
+        """A throwaway CMUX_LINUX_RELEASE_SIGNING_KEY; `listed` adds its public half to the key list."""
+        pem = self.tmp / f"release-{listed}.pem"
+        subprocess.run(["openssl", "genpkey", "-algorithm", "ed25519", "-out", str(pem)], check=True,
+                       capture_output=True)
+        raw = subprocess.run(["openssl", "pkey", "-in", str(pem), "-pubout", "-outform", "DER"], check=True,
+                             capture_output=True).stdout[-32:]
+        key_id = hashlib.sha256(raw).hexdigest()[:16]
+        if listed:
+            keys = self.repo / KEYS_PATH
+            value = json.loads(keys.read_text())
+            value["keys"].append({"id": key_id, "ed25519": base64.b64encode(raw).decode()})
+            keys.write_text(json.dumps(value))
+        return pem.read_text(), key_id
+
+    def signers(self, key):
+        return [s["key_id"] for s in json.loads(self.served(key))["signatures"]]
+
+    def only_linux_release(self):
+        if type(self) is not LinuxReleasePoint:  # MacLivePoint inherits these; only Linux release files dual-sign
+            self.skipTest("the release key signs Linux release files only")
+
+    def test_a_listed_release_key_dual_signs_the_linux_release_files(self):
+        self.only_linux_release()
+        pem, key_id = self.release_key(listed=True)
+        result = self.point(self.payload(), release_key=pem)
+        self.assert_ok(result)
+        for key in (self.RELEASE, self.POINTER):
+            self.assertEqual(len(self.signers(key)), 2)
+            self.assertIn(key_id, self.signers(key))
+        self.assertNotIn("CMUX_LINUX_RELEASE_SIGNING_KEY is not set", result.stdout)
+
+    def test_a_commit_only_release_file_is_dual_signed_too(self):
+        self.only_linux_release()
+        pem, key_id = self.release_key(listed=True)
+        self.assert_ok(self.point(self.payload(), "--commit-only", release_key=pem))
+        self.assertIn(key_id, self.signers(self.RELEASE))
+        self.assertEqual(len(self.signers(self.RELEASE)), 2)
+        self.assertIsNone(self.served(self.POINTER))
+
+    def test_an_unlisted_release_key_is_skipped_with_a_warning(self):
+        self.only_linux_release()
+        pem, key_id = self.release_key(listed=False)
+        result = self.point(self.payload(), release_key=pem)
+        self.assert_ok(result)
+        self.assertIn("extra signing key skipped", result.stdout + result.stderr)
+        self.assertNotIn(key_id, self.signers(self.POINTER))
+        self.assertEqual(len(self.signers(self.POINTER)), 1)
+
+    def test_no_release_key_signs_with_the_web_update_key_and_warns(self):
+        self.only_linux_release()
+        result = self.point(self.payload(), release_key="")
+        self.assert_ok(result)
+        self.assertIn("CMUX_LINUX_RELEASE_SIGNING_KEY is not set", result.stdout)
+        self.assertEqual(len(self.signers(self.POINTER)), 1)
+
+    def test_a_retry_after_the_release_file_gives_the_channel_that_file(self):
+        # The first run wrote the per-commit file and stopped before the channel; the retry signs another
+        # sequence (and so another version). The channel must name the version the commit's file holds.
+        if type(self) is not LinuxReleasePoint:
+            self.skipTest("a Linux release file's sequence")
+        self.assert_ok(self.point(self.payload(sequence=20261109080000)))
+        first = self.served(self.RELEASE)
+        (self.r2 / self.POINTER).unlink()
+        result = self.point(self.payload(published_at=1794209999, sequence=20261109090000), run_id="2")
+        self.assert_ok(result)
+        self.assertEqual(self.served(self.RELEASE), first)
+        self.assertEqual(self.served(self.POINTER), first)
+        self.assertEqual(self.verified(self.POINTER)["sequence"], 20261109080000)
 
     def test_another_build_of_a_published_commit_fails_loud(self):
         self.assert_ok(self.point(self.payload()))
@@ -635,6 +743,47 @@ class MacLivePayload(unittest.TestCase):
         with self.assertRaises(SystemExit):
             self.run_payload("--machine-path")
 
+    def helper_record(self, **change):
+        data = b"the signed helper's zip"
+        (self.served / release.ZIP).write_bytes(data)
+        value = {"schema": 1, "key": "c" * 16, "commit": "f" * 40, "zip": release.ZIP,
+                 "sha256": hashlib.sha256(data).hexdigest(), "size": len(data), "bundle_id": release.BUNDLE_ID,
+                 "team": release.TEAM, "designated_requirement": release.requirement(release.BUNDLE_ID, release.TEAM)}
+        value.update(change)
+        path = self.tmp / "helper.json"
+        path.write_text(json.dumps(value))
+        return path, value
+
+    def test_without_a_helper_record_the_payload_has_no_helper_key(self):
+        # The old CI's shape, which every CLI reads: no top-level helper key, `targets` unchanged.
+        value = self.run_payload()
+        self.assertNotIn(channel.MAC_LIVE_HELPER_KEY, value)
+        self.assertEqual(list(value["targets"]), ["aarch64-apple-darwin"])
+
+    def test_the_helper_goes_under_a_new_top_level_key_never_in_targets(self):
+        path, record = self.helper_record()
+        value = self.run_payload("--screen-sharing-helper", str(path))
+        helper = value[channel.MAC_LIVE_HELPER_KEY]
+        self.assertEqual(helper, {
+            "url": f"{channel.FILES}/{MAC_COMMIT}/{release.ZIP}", "sha256": record["sha256"],
+            "size": record["size"], "bundle_id": "com.cmuxterm.app.nightly.screen-sharing", "team": "7WLXT3NR37",
+            # ss-host-helper's ask (a): the Developer ID intermediate and leaf clauses, byte for byte.
+            "designated_requirement": 'identifier "com.cmuxterm.app.nightly.screen-sharing" and anchor apple '
+                                      "generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and "
+                                      "certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and "
+                                      'certificate leaf[subject.OU] = "7WLXT3NR37"'})
+        # `targets` holds only the bin/ names an installed CLI knows (live.rs FILES): nothing new there.
+        self.assertEqual(set(value["targets"]["aarch64-apple-darwin"]) - set(channel.MAC_LIVE_NAMES), set())
+
+    def test_a_helper_record_that_is_not_the_nightlys_identity_or_bytes_is_refused(self):
+        short = 'identifier "com.cmuxterm.app.nightly.screen-sharing" and anchor apple generic and ' \
+                'certificate leaf[subject.OU] = "7WLXT3NR37"'
+        for change in ({"designated_requirement": short}, {"team": "ABCDEFGHIJ"},
+                       {"bundle_id": "com.cmuxterm.cua"}, {"sha256": "0" * 64}, {"size": 3}):
+            path, _ = self.helper_record(**change)
+            with self.subTest(change=change), self.assertRaises(SystemExit):
+                self.run_payload("--screen-sharing-helper", str(path))
+
 
 class MacLivePoint(LinuxReleasePoint):
     """cmux-machine-channel-point.sh with a Mac live update payload: the per-commit file is written once, the
@@ -670,6 +819,26 @@ class MacLivePoint(LinuxReleasePoint):
         self.assert_ok(self.point(self.payload(), run_id="2"))
         self.assertEqual(self.verified(self.RELEASE, None, "cmux-mac-live-update", False)["commit"], RELEASE_COMMIT)
         self.assertEqual(self.verified(self.POINTER)["commit"], newer)
+
+    def test_a_pr_head_writes_its_own_file_and_leaves_the_channel(self):
+        # `cmux app try PR` reads cmux-tui/<head>/mac-live.json; a PR head never moves nightly-live.
+        self.assert_ok(self.point(self.payload()))
+        channel_before = self.served(self.POINTER)
+        head = "e" * 40
+        self.assert_ok(self.point(self.payload(commit=head, committed_at=COMMITTED_AT + 60), "--commit-only",
+                                  run_id="2"))
+        self.assertEqual(self.verified(f"cmux-tui/{head}/mac-live.json", None, "cmux-mac-live-update",
+                                       False)["commit"], head)
+        self.assertEqual(self.served(self.POINTER), channel_before)
+        # With no channel at all, none is created.
+        (self.r2 / self.POINTER).unlink()
+        self.assert_ok(self.point(self.payload(commit="f" * 40), "--commit-only", run_id="3"))
+        self.assertIsNone(self.served(self.POINTER))
+
+    def test_commit_only_is_refused_without_a_per_commit_file(self):
+        result = self.point(super().payload(purpose="cmux-cloud-machine-update"), "--commit-only")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIsNone(self.served("cmux-tui/channels/cloud-machine.json"))
 
     def test_a_cloud_machine_file_never_stands_in_for_the_pointer(self):
         self.assert_ok(self.point(super().payload(purpose="cmux-cloud-machine-update",

@@ -110,6 +110,7 @@ fn hidden_settle_discards_every_other_body_field() {
         group: None,
         at: 0,
         open: false,
+        entering: false,
         bytes: 0,
         lines: 0,
         fields: BTreeMap::from([
@@ -122,10 +123,15 @@ fn hidden_settle_discards_every_other_body_field() {
     let result = rows(home.path());
     let value: serde_json::Value = serde_json::from_slice(&result[0].1).unwrap();
     assert_eq!(value["body"], serde_json::json!({"hidden": true}));
+    assert_eq!(value["phase"], "leaving");
 }
 
+/// A turn's end does not checkpoint on the line that ends it: the checkpoint syncs the book's
+/// files on the actor's thread, and the next turn's lines, sent as soon as the reply came (a
+/// queued prompt, a script), waited for it (the agent-turn bench, back to back: the pane's change
+/// 3.3 ms after the reply, against 1.2 ms with a pause between turns).
 #[test]
-fn no_op_lines_do_not_checkpoint_and_turn_end_does() {
+fn neither_no_op_lines_nor_a_turn_end_checkpoint_on_their_line() {
     let home = tempfile::tempdir().unwrap();
     let config = fixture(home.path(), 1);
     let mut state = open_state(config).unwrap();
@@ -139,10 +145,33 @@ fn no_op_lines_do_not_checkpoint_and_turn_end_does() {
             assert_eq!(before, after, "usage-only line writes no checkpoint");
         }
         if index == 8 {
-            assert_ne!(before, after, "turn end checkpoints");
+            assert_eq!(before, after, "a turn's end checkpointed before the lines after it");
         }
         place = end;
     }
+}
+
+/// The turn's end is checkpointed all the same, once the source is quiet.
+#[test]
+fn a_running_actor_checkpoints_a_turn_end_once_its_source_is_quiet() {
+    let home = tempfile::tempdir().unwrap();
+    let config = fixture(home.path(), 1);
+    let end = fs::metadata(home.path().join("source.ndjson")).unwrap().len();
+    let actor = ChatActor::spawn(config);
+    wait_health(&actor.handle, crate::life::Health::Running);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let place = loop {
+        let place = log::saved_checkpoint(home.path())
+            .unwrap()
+            .and_then(|saved| Checkpoint::from_recovered(&saved).ok())
+            .and_then(|checkpoint| checkpoint.cursors.first().map(|cursor| cursor.place));
+        if place == Some(end) || Instant::now() >= deadline {
+            break place;
+        }
+        thread::sleep(Duration::from_millis(10));
+    };
+    actor.join();
+    assert_eq!(place, Some(end), "the running actor never checkpointed the turn's end");
 }
 
 #[test]
@@ -1010,6 +1039,7 @@ fn settle_card(state: &mut ActorState, id: u64, bodies: Vec<(BodyField, BodySour
         group: None,
         at: 0,
         open: false,
+        entering: false,
         bytes: 0,
         lines: 0,
         fields: BTreeMap::from([("tool".into(), "\"Read\"".into())]),

@@ -52,6 +52,7 @@ const ACPMUX_REFRESH_WAIT_MS = 45_000;
 function withinTime<T>(promise: Promise<T>, ms: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const late = new Promise<never>((_, reject) => {
+    // l10n-allow: a rejection the catalog loader handles, never drawn
     timer = setTimeout(() => reject(new Error(`no model catalog from acpmux in ${ms / 1000} s`)), ms);
   });
   return Promise.race([promise, late]).finally(() => clearTimeout(timer));
