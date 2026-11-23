@@ -1,6 +1,7 @@
 public import AppKit
 import CCmuxWallpaperFFI
 public import CmuxNextDesignTokens
+import CmuxNextCompat
 import CmuxNextWakeups
 import Metal
 import QuartzCore
@@ -55,6 +56,18 @@ public final class BackdropLiveView: NSView {
     private var pointer = CmuxWallpaperPointer()
     /// The pointer's recent path (`Frame.trail`), in backing pixels like ``pointer``.
     private var trail = CmuxWallpaperTrail()
+    /// The agents' activity this wallpaper draws (`Frame.activity`), fed while it reads the agents.
+    private var activity = CmuxWallpaperActivity()
+    /// Whether this view counts in ``DesignSettings/agentWallpapers``: a wallpaper with `agents`
+    /// shown in a window. While it does, it follows ``DesignSettings/agentEvents``.
+    private var readsAgents = false {
+        didSet {
+            guard readsAgents != oldValue else { return }
+            DesignSettings.shared.agentWallpapers += readsAgents ? 1 : -1
+            followAgents()
+        }
+    }
+    private var agentFollow: Task<Void, Never>?
     private var colors: LiveWallpaperColors?
     private let seed = Float.random(in: 0..<1)
     private var keyMonitor: Any?
@@ -90,6 +103,7 @@ public final class BackdropLiveView: NSView {
         setAccessibilityElement(false)
         cmux_wallpaper_pointer_reset(&pointer)
         cmux_wallpaper_trail_reset(&trail)
+        cmux_wallpaper_activity_reset(&activity)
     }
 
     @available(*, unavailable)
@@ -115,6 +129,8 @@ public final class BackdropLiveView: NSView {
         lastActivity = CACurrentMediaTime()
         cmux_wallpaper_pointer_reset(&pointer)
         cmux_wallpaper_trail_reset(&trail)
+        cmux_wallpaper_activity_reset(&activity)
+        readsAgents = wallpaper?.agents == true && window != nil
         updateTracking()
         updateKeyMonitor()
         guard let wallpaper else { return stopCoverage() }
@@ -189,8 +205,33 @@ public final class BackdropLiveView: NSView {
         input.animations_off = !Motion.panes.isEnabled
         input.interactive = wallpaper.interactive
         input.idle_after_s = wallpaper.idleAfter
+        input.agents = wallpaper.agents
+        input.seconds_since_agent_event = Double(cmux_wallpaper_activity_since_event(&activity, now))
         input.has_frame = hasFrame
         return input
+    }
+
+    /// Follows ``DesignSettings/agentEvents`` while ``readsAgents``: each new event lifts the
+    /// activity and wakes a held wallpaper, as a pointer move does. Not reading, nothing runs.
+    private func followAgents() {
+        agentFollow?.cancel()
+        agentFollow = nil
+        guard readsAgents else { return }
+        let design = DesignSettings.shared
+        // task-owner: one follower per view reading the agents; cancelled when it stops reading
+        agentFollow = Task { [weak self] in
+            var seen = design.agentEvents
+            for await events in ObservationStream({ design.agentEvents }) where events != seen {
+                seen = events
+                self?.agentEvent()
+            }
+        }
+    }
+
+    private func agentEvent() {
+        guard wallpaper?.agents == true else { return }
+        cmux_wallpaper_activity_event(&activity, CACurrentMediaTime())
+        if link == nil { update() }
     }
 
     /// Something the person did that keeps the wallpaper awake (a key, a resize, a theme change);
@@ -241,6 +282,7 @@ public final class BackdropLiveView: NSView {
         // A frame after a hold continues from where the last one stopped.
         let delta = lastFrameAt.map { Float(min(max(now - $0, 0), 0.25)) } ?? 0
         cmux_wallpaper_pointer_advance(&pointer, now)
+        cmux_wallpaper_activity_advance(&activity, now)
         let palette = colors ?? LiveWallpaperColors(themeTokens)
         colors = palette
         var frame = LiveWallpaperFrame(colors: palette)
@@ -257,6 +299,9 @@ public final class BackdropLiveView: NSView {
         frame.presence = pointer.presence
         frame.sinceMoved = cmux_wallpaper_pointer_since_moved(&pointer, now)
         frame.buttonDown = pointer.inside && NSEvent.pressedMouseButtons != 0
+        frame.activity = activity.level
+        frame.sinceAgentEvent = cmux_wallpaper_activity_since_event(&activity, now)
+        frame.agentEvents = Float(activity.count)
         frame.params = wallpaper.params
         frame.grade = Float(DesignSettings.shared.liveWallpaperGrade)
         let drawn = renderer.draw(frame.packed(trail: trail, at: now, scale: scale), pipeline: pipeline, drawableSize: CGSize(width: CGFloat(width), height: CGFloat(height))) {
@@ -373,6 +418,7 @@ public final class BackdropLiveView: NSView {
     override public func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         signals.watch(window)
+        readsAgents = wallpaper?.agents == true && window != nil
         stopLink()
         updateTracking()
         updateKeyMonitor()
@@ -430,13 +476,15 @@ public final class BackdropLiveView: NSView {
 
     /// What the view does now: `live` (the wallpaper id), `live_state` (`run` or `hold:<reason>`),
     /// `live_fps`, `live_scale`, `live_frames`, `live_gpu_s` (GPU seconds since shown),
-    /// `live_strikes` and `live_pointer_settled`; empty with no wallpaper.
+    /// `live_strikes`, `live_pointer_settled`, `live_agent_events` and `live_agents_settled`; empty with no wallpaper.
     var debugState: [String: String] {
         guard let wallpaper else { return [:] }
         let state = link != nil ? "run" : "hold:\(HoldReason.name(decision.hold_reason))"
         return ["live": wallpaper.id, "live_state": pipeline == nil ? "loading" : state, "live_fps": String(linkFPS),
                 "live_scale": String(scale), "live_frames": String(framesDrawn), "live_gpu_s": String(format: "%.4f", gpuSeconds),
-                "live_strikes": String(strikes), "live_pointer_settled": cmux_wallpaper_pointer_settled(&pointer) ? "true" : "false"]
+                "live_strikes": String(strikes), "live_pointer_settled": cmux_wallpaper_pointer_settled(&pointer) ? "true" : "false",
+                "live_agent_events": String(activity.count),
+                "live_agents_settled": cmux_wallpaper_activity_settled(&activity, CACurrentMediaTime()) ? "true" : "false"]
     }
 }
 
