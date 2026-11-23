@@ -187,8 +187,17 @@ function PersonRow({
         </span>
         <span className="share-dialog__role-value">{roles.find((role) => role.value === row.role)?.label}</span>
       </RowPicker>
-      <Button variant="ghost" danger disabled={busy} onClick={() => onRemove(row.account)}>
-        {t("share.remove")}
+      {/* Narrow, the word gives way to an x (share.css); the label always names whom it removes. */}
+      <Button
+        className="share-dialog__remove"
+        variant="ghost"
+        danger
+        disabled={busy}
+        aria-label={t("share.removeWho", { account: row.account })}
+        onClick={() => onRemove(row.account)}
+      >
+        <Icon name="action.close" className="share-dialog__remove-mark" />
+        <span className="share-dialog__remove-word">{t("share.remove")}</span>
       </Button>
     </li>
   );
