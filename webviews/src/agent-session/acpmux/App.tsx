@@ -145,7 +145,7 @@ import { hatPlanOf } from "./chatTaskList";
 import { goalHatPlace } from "./goalHat.experiment";
 import { jumpLatestPlace } from "./jumpPlace.experiment";
 import { jumpSide } from "./jumpPlace";
-import { githubFolderRepo, githubFolder } from "./githubRepos";
+import { githubFolder, githubFolderRepo } from "./githubRepos";
 import { StyleSwitch } from "./newtab/StyleSwitch";
 import { useSessionCommands } from "./newtab/useSessionCommands";
 import { screenTemplate, shownTemplate, pageStyle, pickNewTabStyle } from "./newtab/templates";
@@ -154,10 +154,11 @@ import { holdNewTabAttachments } from "./newtab/remoteAttachmentDraft";
 import { startNewTabTransition } from "./newtab/startTransition";
 import { drawPaneSnapshot, PendingPaneDraw } from "./paneSnapshotLane";
 import {
+  FolderRecency,
   folderFields,
   isAgentHome,
+  placeFields,
   projectLabel,
-  recentLocalFolders,
   SessionsBy,
   sessionTitle,
   type AcpmuxSessionEntry,
@@ -460,7 +461,7 @@ import {
 } from "./conversation/runInBackground";
 import { SkillWordsContext, useSkillWords } from "./conversation/skillWords";
 import { TranscriptChief } from "./conversation/sentFrom";
-import { trackEditableTurns, type EditableTurns, trackPromptTurns, type PromptTurns } from "./conversation/editPrompt";
+import { trackEditableTurns, trackPromptTurns, type EditableTurns, type PromptTurns } from "./conversation/editPrompt";
 import {
   CloudTurnCheckpoints,
   readyPromptKey,
@@ -7357,6 +7358,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       "resume",
       "login",
       "customize",
+      "help",
     ]);
     if (snapshot.summary) enabledCmuxActions.add("status");
     if (!quick) enabledCmuxActions.add("cd");
@@ -11631,11 +11633,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   }, [directProjects, projectsAnswered, newTab?.projects, newTab?.home]);
   // The folder lists read only where each chat works and when it was active (sessionList.ts
   // `folderFields`): another chat's status, unread, title or cost changing leaves them as they are.
-  const folderLists = useRef<{ newTab: SessionsBy; composer: SessionsBy } | null>(null);
-  folderLists.current ??= { newTab: new SessionsBy(folderFields), composer: new SessionsBy(folderFields) };
+  // The New Tab list reads the folders apart from their order: a chat on this Mac working moves its
+  // folder up (`FolderRecency`) without naming every folder again.
+  const folderLists = useRef<{ newTab: SessionsBy; composer: SessionsBy; recency: FolderRecency } | null>(null);
+  folderLists.current ??= {
+    newTab: new SessionsBy(placeFields),
+    composer: new SessionsBy(folderFields),
+    recency: new FolderRecency(),
+  };
   const newTabFolderSessions = folderLists.current.newTab.of(newTabSnapshot.sessions);
   const composerFolderSessions = folderLists.current.composer.of(composerSnapshot.sessions);
-  const newTabProjectList = useMemo(() => {
+  const newTabRecentFolders = folderLists.current.recency.of(newTabSnapshot.sessions);
+  const newTabFolders = useMemo(() => {
     const byPath = new Map<string, Project>();
     // A folder the host listed keeps its repository (projectRepos.ts) when a chat names it again.
     const listed = (cwd: string): Project => {
@@ -11653,9 +11662,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       byPath.set(session.cwd, listed(session.cwd));
     }
     if (newTab?.cwd) byPath.set(newTab.cwd, listed(newTab.cwd));
-    // The pickers list repositories in the order of their newest folder: the folder of the newest chat first.
-    return byRecentUse([...byPath.values()], recentLocalFolders(newTabFolderSessions));
+    return [...byPath.values()];
   }, [newTabFolderSessions, newTab?.cwd, newTab?.projects, directProjects]);
+  // The pickers list repositories in the order of their newest folder: the folder of the newest chat first.
+  const newTabProjectList = useMemo(
+    () => byRecentUse(newTabFolders, newTabRecentFolders),
+    [newTabFolders, newTabRecentFolders],
+  );
   // The same list while it holds the same folders in the same order (session-info/sameValue.ts): it is
   // built again from the chat list, which changes on every event of any chat that runs, and the
   // composer takes it as a prop (`projectChoices`), so a new copy of it drew the composer again four
