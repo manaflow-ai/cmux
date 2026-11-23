@@ -32,7 +32,8 @@ final class AnimationFrameBenchUITests: XCTestCase {
         let returnKey = keyboard.descendants(matching: .any).matching(NSPredicate(
             format: "label ==[c] 'return' OR identifier ==[c] 'return'"
         )).firstMatch
-        let insertLine = center(returnKey, in: app)
+        // A keyboard key can report not hittable while it is on screen; tap its frame.
+        let insertLine = center(returnKey, in: app, hittable: false)
         window("composer-grow", in: app) { insertLine.tap() }
         XCTAssertGreaterThan(field.frame.height, oneLine + 1, "inserting a newline grew the composer")
 
@@ -174,9 +175,13 @@ final class AnimationFrameBenchUITests: XCTestCase {
     }
 
     @MainActor
-    private func center(_ element: XCUIElement, in app: XCUIApplication) -> XCUICoordinate {
+    private func center(_ element: XCUIElement, in app: XCUIApplication, hittable: Bool = true) -> XCUICoordinate {
         XCTAssertTrue(element.waitForExistence(timeout: 30), element.description)
-        XCTAssertTrue(element.isHittable, element.description)
+        if hittable {
+            XCTAssertTrue(element.isHittable, element.description)
+        } else {
+            XCTAssertFalse(element.frame.isEmpty, element.description)
+        }
         let frame = element.frame
         let bounds = app.frame
         return app.coordinate(withNormalizedOffset: CGVector(
