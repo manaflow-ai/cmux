@@ -551,6 +551,9 @@ class Run:
         tree = tui.call("list-workspaces")
         listed = tree.get("workspaces", [])[-n:]
         self.workspaces = [w["id"] for w in listed]
+        # select-workspace takes the index in the session's list (a `workspace` id is ignored by it).
+        first = len(tree.get("workspaces", [])) - len(listed)
+        self.workspace_index = {w: first + i for i, w in enumerate(self.workspaces)}
         self.panes = [w["screens"][0]["panes"][0]["id"] for w in listed]
         self.browser_tabs = []
         for pane in self.panes if self.args.browser_tabs else []:
@@ -671,7 +674,7 @@ class Run:
         for step in range(steps):
             if step < a.switches and self.workspaces:
                 try:
-                    tui.call("select-workspace", workspace=rnd.choice(self.workspaces))
+                    tui.call("select-workspace", index=self.workspace_index[rnd.choice(self.workspaces)])
                 except (OSError, RuntimeError, ValueError) as exc:
                     self.error("select-workspace", exc)
             if step < a.tab_cycles and self.panes:

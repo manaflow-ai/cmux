@@ -538,6 +538,530 @@
         "vi": {"stringUnit": {"state": "translated", "value": "Huy hiệu"}}
       }
     },
+    "settings.sidebar.sections.hidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hidden Sections"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الأقسام المخفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skrivene sekcije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skjulte sektioner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ausgeblendete Bereiche"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Secciones ocultas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sections masquées"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sezioni nascoste"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "非表示のセクション"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្នែកដែលលាក់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "숨긴 섹션"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skjulte seksjoner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ukryte sekcje"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seções ocultas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скрытые разделы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ส่วนที่ซ่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gizli bölümler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Приховані розділи"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mục bị ẩn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "隐藏的分区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "隱藏的區段"
+          }
+        }
+      }
+    },
+    "settings.sidebar.sections.hidden.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar sections to hide, by id. The section of the selected workspace always shows."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أقسام الشريط الجانبي المراد إخفاؤها، حسب المعرّف. يظهر قسم مساحة العمل المحددة دائمًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sekcije bočne trake koje treba sakriti, po ID-u. Sekcija odabranog radnog prostora uvijek se prikazuje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sidepanelsektioner, der skal skjules, efter id. Sektionen med det valgte arbejdsområde vises altid."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seitenleistenbereiche, die ausgeblendet werden, nach ID. Der Bereich des ausgewählten Arbeitsbereichs wird immer angezeigt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Secciones de la barra lateral que se ocultan, por ID. La sección del espacio de trabajo seleccionado siempre se muestra."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sections de la barre latérale à masquer, par identifiant. La section de l’espace de travail sélectionné reste toujours visible."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sezioni della barra laterale da nascondere, per ID. La sezione dello spazio di lavoro selezionato è sempre visibile."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "非表示にするサイドバーのセクション（IDで指定）。選択中のワークスペースのセクションは常に表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្នែករបារចំហៀងដែលត្រូវលាក់ តាមលេខសម្គាល់។ ផ្នែកនៃកន្លែងធ្វើការដែលបានជ្រើសរើសតែងតែបង្ហាញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "숨길 사이드바 섹션(ID). 선택한 워크스페이스의 섹션은 항상 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sidefeltseksjoner som skal skjules, etter ID. Seksjonen til det valgte arbeidsområdet vises alltid."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sekcje paska bocznego do ukrycia, według identyfikatora. Sekcja wybranego obszaru roboczego jest zawsze widoczna."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seções da barra lateral a ocultar, por ID. A seção do espaço de trabalho selecionado sempre aparece."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Разделы боковой панели, которые нужно скрыть, по идентификатору. Раздел выбранного рабочего пространства показывается всегда."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ส่วนของแถบด้านข้างที่จะซ่อน ตามรหัส ส่วนของเวิร์กสเปซที่เลือกจะแสดงเสมอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gizlenecek kenar çubuğu bölümleri, kimliğe göre. Seçili çalışma alanının bölümü her zaman gösterilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розділи бічної панелі, які треба приховати, за ідентифікатором. Розділ вибраного робочого простору показується завжди."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các mục thanh bên cần ẩn, theo ID. Mục chứa không gian làm việc đang chọn luôn hiển thị."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "要隐藏的侧边栏分区，按 ID 指定。所选工作区所在的分区始终显示。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "要隱藏的側邊欄區段，依 ID 指定。所選工作區所在的區段一律顯示。"
+          }
+        }
+      }
+    },
+    "settings.sidebar.sections.order": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Section Order"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ترتيب الأقسام"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Redoslijed sekcija"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sektionsrækkefølge"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reihenfolge der Bereiche"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Orden de las secciones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ordre des sections"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ordine delle sezioni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "セクションの順序"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លំដាប់ផ្នែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "섹션 순서"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seksjonsrekkefølge"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kolejność sekcji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ordem das seções"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Порядок разделов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลำดับส่วน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bölüm sırası"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Порядок розділів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thứ tự mục"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分区顺序"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "區段順序"
+          }
+        }
+      }
+    },
+    "settings.sidebar.sections.order.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar sections to show first in their part of the sidebar, in this order, by id."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أقسام الشريط الجانبي التي تظهر أولًا في جزئها من الشريط الجانبي، بهذا الترتيب، حسب المعرّف."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sekcije bočne trake prikazane prve u svom dijelu bočne trake, ovim redom, po ID-u."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sidepanelsektioner, der vises først i deres del af sidepanelet, i denne rækkefølge, efter id."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seitenleistenbereiche, die in ihrem Teil der Seitenleiste zuerst erscheinen, in dieser Reihenfolge, nach ID."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Secciones de la barra lateral que aparecen primero en su parte de la barra, en este orden, por ID."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sections de la barre latérale affichées en premier dans leur partie de la barre, dans cet ordre, par identifiant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sezioni della barra laterale mostrate per prime nella loro parte della barra, in quest’ordine, per ID."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サイドバーの各部分で最初に表示するセクション（この順序、IDで指定）。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្នែករបារចំហៀងដែលបង្ហាញមុនគេក្នុងផ្នែករបស់វានៃរបារចំហៀង តាមលំដាប់នេះ តាមលេខសម្គាល់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사이드바의 해당 영역에서 이 순서대로 먼저 표시할 섹션(ID)."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sidefeltseksjoner som vises først i sin del av sidefeltet, i denne rekkefølgen, etter ID."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sekcje paska bocznego wyświetlane jako pierwsze w swojej części paska, w tej kolejności, według identyfikatora."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seções da barra lateral mostradas primeiro na sua parte da barra, nesta ordem, por ID."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Разделы боковой панели, которые показываются первыми в своей части панели, в этом порядке, по идентификатору."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ส่วนของแถบด้านข้างที่แสดงก่อนในส่วนของตนบนแถบด้านข้าง ตามลำดับนี้ ตามรหัส"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kenar çubuğunun kendi kısmında ilk gösterilecek bölümler, bu sırayla, kimliğe göre."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розділи бічної панелі, які показуються першими у своїй частині панелі, у цьому порядку, за ідентифікатором."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các mục thanh bên hiển thị đầu tiên trong phần của chúng trên thanh bên, theo thứ tự này, theo ID."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在侧边栏各自区域中最先显示的分区，按此顺序，以 ID 指定。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在側邊欄各自區域中最先顯示的區段，依此順序，以 ID 指定。"
+          }
+        }
+      }
+    },
     "settings.group.agentGuidance": {
       "comment": "Settings > Agents: group title for cmux's guidance and the person's skills",
       "extractionState": "manual",
@@ -2771,6 +3295,268 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "回到 Claude 聊天時，顯示一行說明目前進展。每次都是一次小型模型呼叫。"
+          }
+        }
+      }
+    },
+    "settings.chats.terminalChatWritable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Write to a Chat a Terminal Runs"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الكتابة في محادثة تشغّلها طرفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pisanje u razgovor koji pokreće terminal"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skriv i en chat, som en terminal kører"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In einen Chat schreiben, den ein Terminal ausführt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escribir en un chat que ejecuta una terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Écrire dans une discussion qu'un terminal exécute"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scrivi in una chat eseguita da un terminale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルが実行中のチャットに書き込む"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សរសេរ​ទៅ​ការ​ជជែក​ដែល​ទែមីណាល់​កំពុង​ដំណើរការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널이 실행 중인 채팅에 쓰기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skriv i en chat som en terminal kjører"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pisz do czatu uruchomionego w terminalu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escrever em um chat que um terminal executa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Писать в чат, который ведёт терминал"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เขียนถึงแชตที่เทอร์มินัลกำลังรัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir terminalin çalıştırdığı sohbete yaz"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Писати в чат, який веде термінал"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viết vào cuộc trò chuyện do terminal chạy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向终端运行的聊天发送消息"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向終端機執行的聊天傳送訊息"
+          }
+        }
+      }
+    },
+    "settings.chats.terminalChatWritable.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When Toggle Terminal and Chat moves a Claude Code or Codex chat to a terminal, keep the chat's composer: what you send goes into that terminal's session, and Stop stops its turn. Off, the chat is View Only while the terminal runs it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عندما ينقل «تبديل الطرفية والمحادثة» محادثة Claude Code أو Codex إلى طرفية، يبقى محرر الرسائل في المحادثة: ما ترسله يذهب إلى جلسة تلك الطرفية، و«إيقاف» يوقف دورها. عند الإيقاف، تكون المحادثة للعرض فقط ما دامت الطرفية تشغّلها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada Prebaci terminal i razgovor premjesti Claude Code ili Codex razgovor u terminal, zadrži polje za pisanje: ono što pošaljete ide u sesiju tog terminala, a Zaustavi zaustavlja njegov red. Isključeno, razgovor je samo za pregled dok ga terminal pokreće."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når Skift mellem terminal og chat flytter en Claude Code- eller Codex-chat til en terminal, beholder chatten sit skrivefelt: det, du sender, går ind i terminalens session, og Stop stopper dens tur. Slået fra er chatten kun til visning, mens terminalen kører den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn „Terminal und Chat wechseln“ einen Claude Code- oder Codex-Chat in ein Terminal verschiebt, behält der Chat sein Eingabefeld: Was du sendest, geht in die Sitzung dieses Terminals, und Stopp beendet dessen Zug. Aus ist der Chat schreibgeschützt, solange das Terminal ihn ausführt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuando Alternar terminal y chat mueve un chat de Claude Code o Codex a una terminal, el chat conserva su cuadro de redacción: lo que envíes va a la sesión de esa terminal y Detener detiene su turno. Desactivado, el chat es de solo lectura mientras la terminal lo ejecuta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quand Basculer entre terminal et discussion déplace une discussion Claude Code ou Codex vers un terminal, la discussion garde sa zone de saisie : ce que vous envoyez va dans la session de ce terminal, et Arrêter arrête son tour. Désactivé, la discussion est en lecture seule tant que le terminal l'exécute."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando Alterna terminale e chat sposta una chat di Claude Code o Codex in un terminale, la chat mantiene il suo campo di scrittura: ciò che invii va nella sessione di quel terminale e Interrompi ne ferma il turno. Disattivato, la chat è di sola lettura mentre il terminale la esegue."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「ターミナルとチャットを切り替え」で Claude Code または Codex のチャットをターミナルに移したとき、チャットの入力欄を残します。送信した内容はそのターミナルのセッションに届き、「停止」でそのターンを止めます。オフの場合、ターミナルが実行している間チャットは閲覧のみになります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅពេល​ប្ដូរ​ទែមីណាល់ និង​ការ​ជជែក ផ្លាស់ទី​ការ​ជជែក Claude Code ឬ Codex ទៅ​ទែមីណាល់ ការ​ជជែក​រក្សា​ប្រអប់​សរសេរ​របស់​វា៖ អ្វី​ដែល​អ្នក​ផ្ញើ​ចូល​ទៅ​វគ្គ​របស់​ទែមីណាល់​នោះ ហើយ​បញ្ឈប់​បញ្ឈប់​វេន​របស់​វា។ បិទ ការ​ជជែក​គ្រាន់តែ​មើល​បាន ខណៈ​ទែមីណាល់​កំពុង​ដំណើរការ​វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널과 채팅 전환으로 Claude Code 또는 Codex 채팅을 터미널로 옮길 때 채팅의 입력창을 유지합니다. 보낸 내용은 해당 터미널의 세션으로 전달되고, 중지를 누르면 그 차례가 멈춥니다. 끄면 터미널이 실행하는 동안 채팅은 보기 전용입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når Bytt mellom terminal og chat flytter en Claude Code- eller Codex-chat til en terminal, beholder chatten skrivefeltet sitt: det du sender, går inn i terminalens økt, og Stopp stopper turen dens. Av er chatten bare til visning mens terminalen kjører den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdy Przełącz terminal i czat przenosi czat Claude Code lub Codex do terminala, czat zachowuje pole wpisywania: to, co wyślesz, trafia do sesji tego terminala, a Zatrzymaj zatrzymuje jego turę. Po wyłączeniu czat jest tylko do odczytu, dopóki uruchamia go terminal."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando Alternar terminal e chat move um chat do Claude Code ou Codex para um terminal, o chat mantém sua caixa de escrita: o que você envia vai para a sessão desse terminal, e Parar interrompe a vez dele. Desativado, o chat fica somente leitura enquanto o terminal o executa."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда «Переключить терминал и чат» переносит чат Claude Code или Codex в терминал, у чата остаётся поле ввода: отправленное уходит в сессию этого терминала, а «Стоп» останавливает его ход. Если выключено, чат доступен только для просмотра, пока его ведёт терминал."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อสลับเทอร์มินัลและแชตย้ายแชต Claude Code หรือ Codex ไปยังเทอร์มินัล แชตจะยังมีช่องเขียนข้อความ: สิ่งที่คุณส่งจะเข้าไปในเซสชันของเทอร์มินัลนั้น และหยุดจะหยุดรอบของมัน หากปิด แชตจะเป็นแบบดูอย่างเดียวขณะที่เทอร์มินัลรันอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal ve Sohbet Arasında Geçiş bir Claude Code veya Codex sohbetini terminale taşıdığında sohbet yazma alanını korur: gönderdiğiniz şey o terminalin oturumuna gider ve Durdur onun turunu durdurur. Kapalıyken sohbet, terminal onu çalıştırdığı sürece yalnızca görüntülenebilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Коли «Перемкнути термінал і чат» переносить чат Claude Code або Codex у термінал, у чаті лишається поле введення: надіслане йде в сесію цього термінала, а «Зупинити» зупиняє його хід. Якщо вимкнено, чат лише для перегляду, поки його веде термінал."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi Chuyển đổi terminal và trò chuyện chuyển một cuộc trò chuyện Claude Code hoặc Codex sang terminal, cuộc trò chuyện vẫn giữ ô soạn thảo: nội dung bạn gửi đi vào phiên của terminal đó, và Dừng sẽ dừng lượt của nó. Khi tắt, cuộc trò chuyện chỉ để xem trong lúc terminal chạy nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当“切换终端与聊天”把 Claude Code 或 Codex 聊天移到终端时，保留聊天的输入框：你发送的内容会进入该终端的会话，“停止”会停止它的当前轮次。关闭时，终端运行期间聊天为只读。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當「切換終端機與聊天」把 Claude Code 或 Codex 聊天移到終端機時，保留聊天的輸入框：你傳送的內容會進入該終端機的工作階段，「停止」會停止它目前的回合。關閉時，終端機執行期間聊天為唯讀。"
           }
         }
       }
@@ -181012,6 +181798,530 @@
         }
       }
     },
+    "settings.updates.daemon": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live Background Updates"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحديثات الخلفية المباشرة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ažuriranja u pozadini uživo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live-opdateringer i baggrunden"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live-Hintergrundupdates"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualizaciones en segundo plano en vivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mises à jour en direct en arrière-plan"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiornamenti in background dal vivo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バックグラウンドのライブアップデート"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការធ្វើបច្ចុប្បន្នភាពផ្ទៃខាងក្រោយផ្ទាល់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "백그라운드 실시간 업데이트"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Direkteoppdateringer i bakgrunnen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktualizacje w tle na żywo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atualizações em segundo plano ao vivo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фоновые обновления на лету"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การอัปเดตเบื้องหลังแบบสด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canlı arka plan güncellemeleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фонові оновлення наживо"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cập nhật nền trực tiếp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "后台实时更新"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景即時更新"
+          }
+        }
+      }
+    },
+    "settings.updates.daemon.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every merge's background services (terminals, agents' daemon) update in place, with no restart. NIGHTLY only."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تتحدّث خدمات الخلفية (الطرفيات وخدمة الوكلاء) مع كل دمج في مكانها دون إعادة تشغيل. لإصدار NIGHTLY فقط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pozadinski servisi (terminali, servis agenata) ažuriraju se na mjestu pri svakom spajanju, bez ponovnog pokretanja. Samo NIGHTLY."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Baggrundstjenesterne (terminaler, agenternes dæmon) opdateres på stedet ved hver fletning, uden genstart. Kun NIGHTLY."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bei jedem Merge aktualisieren sich die Hintergrunddienste (Terminals, Daemon der Agenten) direkt, ohne Neustart. Nur NIGHTLY."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los servicios en segundo plano (terminales, daemon de los agentes) se actualizan in situ en cada fusión, sin reiniciar. Solo NIGHTLY."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "À chaque fusion, les services d’arrière-plan (terminaux, démon des agents) se mettent à jour sur place, sans redémarrage. NIGHTLY uniquement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A ogni merge i servizi in background (terminali, daemon degli agenti) si aggiornano sul posto, senza riavvio. Solo NIGHTLY."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マージごとに、バックグラウンドのサービス（ターミナル、エージェントのデーモン）が再起動なしでその場で更新されます。NIGHTLY のみ。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រាល់ការបញ្ចូល សេវាផ្ទៃខាងក្រោយ (ទែមីណាល់ ដេមិនរបស់ភ្នាក់ងារ) ធ្វើបច្ចុប្បន្នភាពនៅនឹងកន្លែង ដោយមិនចាំបាច់ចាប់ផ្ដើមឡើងវិញ។ សម្រាប់ NIGHTLY តែប៉ុណ្ណោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "병합할 때마다 백그라운드 서비스(터미널, 에이전트 데몬)가 다시 시작하지 않고 그 자리에서 업데이트됩니다. NIGHTLY 전용."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bakgrunnstjenestene (terminaler, agentenes demon) oppdateres på stedet ved hver sammenslåing, uten omstart. Bare NIGHTLY."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przy każdym scaleniu usługi w tle (terminale, demon agentów) aktualizują się na miejscu, bez ponownego uruchamiania. Tylko NIGHTLY."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A cada merge, os serviços em segundo plano (terminais, daemon dos agentes) se atualizam no lugar, sem reiniciar. Só NIGHTLY."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "При каждом слиянии фоновые службы (терминалы, демон агентов) обновляются на месте, без перезапуска. Только NIGHTLY."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทุกการผสาน บริการเบื้องหลัง (เทอร์มินัล, เดมอนของเอเจนต์) จะอัปเดตในที่โดยไม่ต้องรีสตาร์ต เฉพาะ NIGHTLY"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Her birleştirmede arka plan hizmetleri (terminaller, ajanların arka plan programı) yeniden başlatmadan yerinde güncellenir. Yalnızca NIGHTLY."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Після кожного злиття фонові служби (термінали, демон агентів) оновлюються на місці, без перезапуску. Лише NIGHTLY."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mỗi lần hợp nhất, các dịch vụ nền (terminal, daemon của tác tử) cập nhật tại chỗ, không cần khởi động lại. Chỉ NIGHTLY."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每次合并后，后台服务（终端、代理的守护进程）就地更新，无需重启。仅限 NIGHTLY。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每次合併後，背景服務（終端機、代理的常駐程式）就地更新，無需重新啟動。僅限 NIGHTLY。"
+          }
+        }
+      }
+    },
+    "settings.choice.updatesDaemonOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إيقاف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Isključeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desactivado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disattivato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끔"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Av"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyłączone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desativado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выкл."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapalı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вимк."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tắt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉"
+          }
+        }
+      }
+    },
+    "settings.choice.updatesDaemonEveryMerge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every Merge"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند كل دمج"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pri svakom spajanju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ved hver fletning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bei jedem Merge"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En cada fusión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "À chaque fusion"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A ogni merge"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マージごと"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រាល់ការបញ្ចូល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "병합할 때마다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ved hver sammenslåing"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przy każdym scaleniu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A cada merge"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "При каждом слиянии"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทุกการผสาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Her birleştirmede"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Після кожного злиття"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mỗi lần hợp nhất"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每次合并"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每次合併"
+          }
+        }
+      }
+    },
     "settings.choice.newTabTemplateMinimal": {
       "comment": "A New Tab Template choice: the greeting and the composer, the rest as widgets.",
       "extractionState": "manual",
@@ -197377,6 +198687,33 @@
         }
       }
     },
+    "settings.pageGroup.sidebarSections": {
+      "comment": "Settings page, Sidebar category: the title of the card with the rows that hide sidebar sections and set which come first.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Sidebar Sections"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "أقسام الشريط الجانبي"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Odjeljci bočne trake"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Sektioner i sidepanelet"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Seitenleisten-Bereiche"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Secciones de la barra lateral"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Sections de la barre latérale"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Sezioni della barra laterale"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "サイドバーのセクション"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ផ្នែករបស់របារចំហៀង"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "사이드바 섹션"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Seksjoner i sidepanelet"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Sekcje paska bocznego"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Seções da barra lateral"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Разделы боковой панели"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ส่วนของแถบด้านข้าง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kenar Çubuğu Bölümleri"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Розділи бічної панелі"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Các phần của thanh bên"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "边栏分区"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "側邊欄區段"}}
+      }
+    },
     "settings.pageGroup.sidebarExtras": {
       "extractionState": "manual",
       "localizations": {
@@ -206420,6 +207757,666 @@
           "stringUnit": {
             "state": "translated",
             "value": "關閉"
+          }
+        }
+      }
+    },
+    "settings.agents.appControl": {
+      "comment": "Settings > Agents > cmux Tools: whether agents in cmux's terminals and agent chats may change the app or only read it (agents.appControl)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents Can Change cmux"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكن للوكلاء تغيير cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenti mogu mijenjati cmux"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenter kan ændre cmux"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten dürfen cmux ändern"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los agentes pueden cambiar cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les agents peuvent modifier cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli agenti possono modificare cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントによる cmux の変更"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងារអាចផ្លាស់ប្តូរ cmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트의 cmux 변경 허용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenter kan endre cmux"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenci mogą zmieniać cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentes podem alterar o cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агенты могут изменять cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์เปลี่ยนแปลง cmux ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajanlar cmux'u değiştirebilir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агенти можуть змінювати cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tác nhân có thể thay đổi cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理可更改 cmux"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理可變更 cmux"
+          }
+        }
+      }
+    },
+    "settings.agents.appControl.change": {
+      "comment": "Settings > Agents > cmux Tools: whether agents in cmux's terminals and agent chats may change the app or only read it (agents.appControl)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Read and Change"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "القراءة والتغيير"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Čitanje i mijenjanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Læse og ændre"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lesen und ändern"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leer y cambiar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lire et modifier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leggere e modificare"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み取りと変更"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អាន និងផ្លាស់ប្តូរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "읽기 및 변경"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lese og endre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odczyt i zmiany"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ler e alterar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чтение и изменение"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อ่านและเปลี่ยนแปลง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Okuma ve değiştirme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Читання та зміна"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đọc và thay đổi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "读取和更改"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "讀取和變更"
+          }
+        }
+      }
+    },
+    "settings.agents.appControl.read": {
+      "comment": "Settings > Agents > cmux Tools: whether agents in cmux's terminals and agent chats may change the app or only read it (agents.appControl)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Read Only"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قراءة فقط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Samo čitanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kun læse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur lesen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo lectura"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lecture seule"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sola lettura"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み取りのみ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អានតែប៉ុណ្ណោះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "읽기 전용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bare lese"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tylko odczyt"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Somente leitura"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Только чтение"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อ่านอย่างเดียว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salt okunur"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лише читання"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chỉ đọc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只读"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "唯讀"
+          }
+        }
+      }
+    },
+    "settings.agents.appControl.summary": {
+      "comment": "Settings > Agents > cmux Tools: whether agents in cmux's terminals and agent chats may change the app or only read it (agents.appControl)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Whether agents in cmux may drive and change the app"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ما إذا كان يمكن للوكلاء في cmux تشغيل التطبيق وتغييره"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Om agenter i cmux må styre og ændre appen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ob Agenten in cmux die App steuern und ändern dürfen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Si los agentes en cmux pueden controlar y cambiar la app"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Si les agents dans cmux peuvent piloter et modifier l’app"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se gli agenti in cmux possono controllare e modificare l’app"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 内のエージェントがアプリを操作・変更できるかどうか"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថាតើភ្នាក់ងារក្នុង cmux អាចបញ្ជា និងផ្លាស់ប្តូរកម្មវិធីបានឬអត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 안의 에이전트가 앱을 조작하고 변경할 수 있는지 여부"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Om agenter i cmux kan styre og endre appen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czy agenci w cmux mogą sterować aplikacją i ją zmieniać"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se os agentes no cmux podem controlar e alterar o app"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Могут ли агенты в cmux управлять приложением и изменять его"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์ใน cmux ควบคุมและเปลี่ยนแปลงแอปได้หรือไม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux içindeki ajanların uygulamayı yönetip değiştirebilip değiştiremeyeceği"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чи можуть агенти в cmux керувати застосунком і змінювати його"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tác nhân trong cmux có được điều khiển và thay đổi ứng dụng hay không"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 中的代理能否操作和更改应用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 中的代理能否操作和變更 App"
+          }
+        }
+      }
+    },
+    "settings.agents.appControl.help": {
+      "comment": "Settings > Agents > cmux Tools: whether agents in cmux's terminals and agent chats may change the app or only read it (agents.appControl)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Read Only: agents in cmux’s terminals and agent chats can read cmux but not change it: no new workspaces, tabs or panes, no typing into other terminals, no settings changes."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قراءة فقط: يمكن للوكلاء في طرفيات cmux ومحادثات الوكلاء قراءة cmux دون تغييره: لا مساحات عمل أو علامات تبويب أو أجزاء جديدة، ولا كتابة في طرفيات أخرى، ولا تغيير للإعدادات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Samo čitanje: agenti u terminalima i agent chatovima cmuxa mogu čitati cmux, ali ga ne mogu mijenjati: nema novih radnih prostora, kartica ni panela, nema kucanja u druge terminale, nema promjena postavki."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kun læse: agenter i cmux’ terminaler og agentchats kan læse cmux, men ikke ændre det: ingen nye arbejdsområder, faner eller ruder, ingen indtastning i andre terminaler, ingen ændringer af indstillinger."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur lesen: Agenten in den Terminals und Agent-Chats von cmux können cmux lesen, aber nicht ändern: keine neuen Arbeitsbereiche, Tabs oder Bereiche, keine Eingaben in andere Terminals, keine Änderungen an Einstellungen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo lectura: los agentes en las terminales y los chats de agentes de cmux pueden leer cmux pero no cambiarlo: sin nuevos espacios de trabajo, pestañas ni paneles, sin escribir en otras terminales, sin cambios de ajustes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lecture seule : les agents dans les terminaux et les chats d’agents de cmux peuvent lire cmux sans le modifier : pas de nouveaux espaces de travail, onglets ni volets, pas de saisie dans d’autres terminaux, pas de modification des réglages."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sola lettura: gli agenti nei terminali e nelle chat degli agenti di cmux possono leggere cmux ma non modificarlo: niente nuovi spazi di lavoro, schede o riquadri, niente digitazione in altri terminali, nessuna modifica alle impostazioni."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み取りのみ: cmux のターミナルとエージェントチャット内のエージェントは cmux を読み取れますが、変更はできません。新しいワークスペース、タブ、ペインの作成、他のターミナルへの入力、設定の変更はできません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អានតែប៉ុណ្ណោះ៖ ភ្នាក់ងារក្នុងទែមីណាល់ និងការជជែកភ្នាក់ងាររបស់ cmux អាចអាន cmux ប៉ុន្តែមិនអាចផ្លាស់ប្តូរវាបានទេ៖ គ្មានកន្លែងធ្វើការ ផ្ទាំង ឬបន្ទះថ្មី គ្មានការវាយបញ្ចូលទៅទែមីណាល់ផ្សេង គ្មានការផ្លាស់ប្តូរការកំណត់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "읽기 전용: cmux의 터미널과 에이전트 채팅에 있는 에이전트는 cmux를 읽을 수 있지만 변경할 수 없습니다. 새 작업 공간, 탭, 패널을 만들거나 다른 터미널에 입력하거나 설정을 바꿀 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bare lese: agenter i cmux’ terminaler og agentchatter kan lese cmux, men ikke endre det: ingen nye arbeidsområder, faner eller ruter, ingen skriving i andre terminaler, ingen endringer i innstillinger."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tylko odczyt: agenci w terminalach i czatach agentów cmux mogą odczytywać cmux, ale nie mogą go zmieniać: żadnych nowych obszarów roboczych, kart ani paneli, żadnego pisania w innych terminalach, żadnych zmian ustawień."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Somente leitura: agentes nos terminais e chats de agentes do cmux podem ler o cmux, mas não alterá-lo: sem novos espaços de trabalho, abas ou painéis, sem digitar em outros terminais, sem alterar ajustes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Только чтение: агенты в терминалах и чатах агентов cmux могут читать cmux, но не изменять его: никаких новых рабочих пространств, вкладок и панелей, никакого ввода в другие терминалы, никаких изменений настроек."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อ่านอย่างเดียว: เอเจนต์ในเทอร์มินัลและแชตเอเจนต์ของ cmux อ่าน cmux ได้แต่เปลี่ยนแปลงไม่ได้ ไม่มีพื้นที่ทำงาน แท็บ หรือบานหน้าต่างใหม่ ไม่มีการพิมพ์ลงเทอร์มินัลอื่น และไม่มีการเปลี่ยนการตั้งค่า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salt okunur: cmux terminallerindeki ve ajan sohbetlerindeki ajanlar cmux'u okuyabilir ama değiştiremez: yeni çalışma alanı, sekme veya bölme yok, başka terminallere yazma yok, ayar değişikliği yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лише читання: агенти в терміналах і чатах агентів cmux можуть читати cmux, але не змінювати його: жодних нових робочих просторів, вкладок чи панелей, жодного введення в інші термінали, жодних змін налаштувань."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chỉ đọc: tác nhân trong terminal và cuộc trò chuyện tác nhân của cmux có thể đọc cmux nhưng không thay đổi được: không tạo không gian làm việc, tab hay khung mới, không gõ vào terminal khác, không đổi cài đặt."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只读：cmux 终端和代理聊天中的代理可以读取 cmux，但不能更改它：不能新建工作区、标签页或窗格，不能在其他终端中输入，不能更改设置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "唯讀：cmux 終端機和代理聊天中的代理可以讀取 cmux，但不能變更它：不能新增工作區、分頁或窗格，不能在其他終端機中輸入，不能變更設定。"
           }
         }
       }
@@ -231158,128 +233155,128 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "معرّف إضافة ترسم صفحة علامة التبويب الجديدة، مثل \"local/showcase-newtab\". إذا لم يُضبط: صفحة cmux الخاصة."
+            "state": "translated",
+            "value": "إضافة ترسم فوق مربع الكتابة في صفحة علامة التبويب الجديدة، بمعرّفها، مثل \"local/showcase-newtab\". يبقى مربع الكتابة دائمًا. لا تستخدمها صفحة علامة التبويب الجديدة الأصلية."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ID proširenja koje crta novu karticu, npr. \"local/showcase-newtab\". Bez vrijednosti: cmuxova vlastita."
+            "state": "translated",
+            "value": "Proširenje koje crta preko polja za pisanje na stranici nove kartice, po svom ID-u, npr. \"local/showcase-newtab\". Polje za pisanje uvijek ostaje. Izvorna stranica nove kartice ga ne koristi."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Et udvidelses-id, der tegner Ny fane, fx \"local/showcase-newtab\". Uden værdi: cmux' egen."
+            "state": "translated",
+            "value": "En udvidelse, der tegner over skrivefeltet på siden Ny fane, angivet med sit id, fx \"local/showcase-newtab\". Skrivefeltet bliver altid. Den indbyggede side Ny fane bruger den ikke."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Eine Erweiterungs-ID, die „Neuer Tab“ zeichnet, etwa \"local/showcase-newtab\". Ohne Wert: die eigene Seite von cmux."
+            "state": "translated",
+            "value": "Eine Erweiterung, die über dem Eingabefeld der Seite „Neuer Tab“ zeichnet, angegeben mit ihrer ID, etwa \"local/showcase-newtab\". Das Eingabefeld bleibt immer erhalten. Die native Seite „Neuer Tab“ verwendet sie nicht."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "An extension id that draws New Tab, such as \"local/showcase-newtab\". Unset: cmux's own."
+            "value": "An extension that draws over the New Tab composer, by its id, such as \"local/showcase-newtab\". The composer always stays. Not used by the native New Tab page."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Un id de extensión que dibuja Nueva pestaña, como \"local/showcase-newtab\". Sin valor: la propia de cmux."
+            "state": "translated",
+            "value": "Una extensión que dibuja sobre el redactor de Nueva pestaña, indicada por su id, como \"local/showcase-newtab\". El redactor siempre permanece. La página Nueva pestaña nativa no la usa."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Un identifiant d’extension qui dessine Nouvel onglet, comme \"local/showcase-newtab\". Sans valeur : la page de cmux."
+            "state": "translated",
+            "value": "Une extension qui dessine par-dessus la zone de saisie de Nouvel onglet, désignée par son identifiant, par exemple \"local/showcase-newtab\". La zone de saisie reste toujours. La page Nouvel onglet native ne l’utilise pas."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "L'id di un'estensione che disegna Nuova scheda, ad esempio \"local/showcase-newtab\". Se non impostato: la pagina di cmux."
+            "state": "translated",
+            "value": "Un'estensione che disegna sopra il compositore di Nuova scheda, indicata dal suo id, ad esempio \"local/showcase-newtab\". Il compositore resta sempre. La pagina Nuova scheda nativa non la usa."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "新規タブを描く拡張機能の ID（例: \"local/showcase-newtab\"）。未設定: cmux 自身のページ。"
+            "state": "translated",
+            "value": "新規タブの入力欄の上に描画する拡張機能を ID で指定します（例: \"local/showcase-newtab\"）。入力欄は常に残ります。ネイティブの新規タブページでは使われません。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ID ផ្នែកបន្ថែមដែលគូរផ្ទាំងថ្មី ដូចជា \"local/showcase-newtab\"។ មិនកំណត់៖ ទំព័ររបស់ cmux ផ្ទាល់។"
+            "state": "translated",
+            "value": "ផ្នែកបន្ថែមដែលគូរពីលើប្រអប់សរសេរនៃផ្ទាំងថ្មី តាម ID របស់វា ដូចជា \"local/showcase-newtab\"។ ប្រអប់សរសេរនៅតែមានជានិច្ច។ ទំព័រផ្ទាំងថ្មីដើមមិនប្រើវាទេ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "새 탭을 그리는 확장 프로그램 ID입니다(예: \"local/showcase-newtab\"). 설정하지 않으면 cmux 자체 페이지를 씁니다."
+            "state": "translated",
+            "value": "새 탭 입력창 위에 그리는 확장 프로그램을 ID로 지정합니다(예: \"local/showcase-newtab\"). 입력창은 항상 유지됩니다. 기본 새 탭 페이지에서는 사용하지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "En utvidelses-ID som tegner Ny fane, for eksempel \"local/showcase-newtab\". Uten verdi: cmux sin egen."
+            "state": "translated",
+            "value": "En utvidelse som tegner over skrivefeltet på siden Ny fane, angitt med ID-en sin, for eksempel \"local/showcase-newtab\". Skrivefeltet blir alltid værende. Den innebygde siden Ny fane bruker den ikke."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Identyfikator rozszerzenia, które rysuje nową kartę, np. \"local/showcase-newtab\". Bez wartości: strona cmux."
+            "state": "translated",
+            "value": "Rozszerzenie, które rysuje nad polem tworzenia nowej karty, wskazane przez swój identyfikator, np. \"local/showcase-newtab\". Pole tworzenia zawsze zostaje. Natywna strona nowej karty go nie używa."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "O id de uma extensão que desenha a Nova aba, como \"local/showcase-newtab\". Sem valor: a do próprio cmux."
+            "state": "translated",
+            "value": "Uma extensão que desenha sobre o editor da Nova aba, indicada pelo seu id, como \"local/showcase-newtab\". O editor sempre permanece. A página Nova aba nativa não a usa."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ID расширения, которое рисует новую вкладку, например \"local/showcase-newtab\". Если не задано — своя страница cmux."
+            "state": "translated",
+            "value": "Расширение, которое рисует поверх поля ввода новой вкладки, по его ID, например \"local/showcase-newtab\". Поле ввода всегда остаётся. Встроенная страница новой вкладки его не использует."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ID ส่วนขยายที่วาดหน้าแท็บใหม่ เช่น \"local/showcase-newtab\" หากไม่ได้ตั้งค่า: ใช้หน้าของ cmux เอง"
+            "state": "translated",
+            "value": "ส่วนขยายที่วาดทับช่องเขียนของแท็บใหม่ ระบุด้วย ID เช่น \"local/showcase-newtab\" ช่องเขียนจะยังคงอยู่เสมอ หน้าแท็บใหม่แบบเนทีฟไม่ใช้ค่านี้"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Yeni Sekme'yi çizen uzantı kimliği, örneğin \"local/showcase-newtab\". Ayarlanmazsa: cmux'un kendi sayfası."
+            "state": "translated",
+            "value": "Yeni Sekme yazma alanının üzerine çizen uzantı, kimliğiyle, örneğin \"local/showcase-newtab\". Yazma alanı her zaman kalır. Yerel Yeni Sekme sayfası bunu kullanmaz."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ID розширення, що малює нову вкладку, наприклад \"local/showcase-newtab\". Якщо не задано — власна сторінка cmux."
+            "state": "translated",
+            "value": "Розширення, яке малює поверх поля вводу нової вкладки, за його ID, наприклад \"local/showcase-newtab\". Поле вводу завжди залишається. Вбудована сторінка нової вкладки його не використовує."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Id của tiện ích mở rộng vẽ Tab mới, ví dụ \"local/showcase-newtab\". Chưa đặt: trang của cmux."
+            "state": "translated",
+            "value": "Một tiện ích mở rộng vẽ lên trên ô soạn của Tab mới, theo id của nó, ví dụ \"local/showcase-newtab\". Ô soạn luôn được giữ lại. Trang Tab mới gốc không dùng nó."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "绘制新标签页的扩展 ID，例如 \"local/showcase-newtab\"。未设置：使用 cmux 自己的页面。"
+            "state": "translated",
+            "value": "按 ID 指定一个扩展，绘制在新标签页输入框之上，例如 \"local/showcase-newtab\"。输入框始终保留。原生新标签页页面不使用它。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "繪製新分頁的擴充功能 ID，例如 \"local/showcase-newtab\"。未設定：cmux 自己的頁面。"
+            "state": "translated",
+            "value": "以 ID 指定一個擴充功能，繪製在新分頁輸入框之上，例如 \"local/showcase-newtab\"。輸入框一律保留。原生新分頁頁面不會使用它。"
           }
         }
       }
@@ -231290,127 +233287,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "صفحة علامة تبويب جديدة من إضافة"
+            "value": "إضافة فوق مربع الكتابة في علامة تبويب جديدة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stranica nove kartice iz proširenja"
+            "value": "Proširenje preko polja za pisanje nove kartice"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "En udvidelses side Ny fane"
+            "value": "En udvidelse over skrivefeltet i Ny fane"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die Seite „Neuer Tab“ einer Erweiterung"
+            "value": "Eine Erweiterung über dem Eingabefeld von „Neuer Tab“"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "An extension's New Tab page"
+            "value": "An extension over the New Tab composer"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La página Nueva pestaña de una extensión"
+            "value": "Una extensión sobre el redactor de Nueva pestaña"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La page Nouvel onglet d’une extension"
+            "value": "Une extension sur la zone de saisie de Nouvel onglet"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "La pagina Nuova scheda di un'estensione"
+            "value": "Un'estensione sopra il compositore di Nuova scheda"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "拡張機能の新規タブページ"
+            "value": "新規タブの入力欄上の拡張機能"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ទំព័រផ្ទាំងថ្មីរបស់ផ្នែកបន្ថែម"
+            "value": "ផ្នែកបន្ថែមលើប្រអប់សរសេរនៃផ្ទាំងថ្មី"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "확장 프로그램의 새 탭 페이지"
+            "value": "새 탭 입력창 위의 확장 프로그램"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "En utvidelses side for ny fane"
+            "value": "En utvidelse over skrivefeltet i Ny fane"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Strona nowej karty z rozszerzenia"
+            "value": "Rozszerzenie nad polem nowej karty"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "A página Nova aba de uma extensão"
+            "value": "Uma extensão sobre o editor da Nova aba"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Страница новой вкладки из расширения"
+            "value": "Расширение поверх поля ввода новой вкладки"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "หน้าแท็บใหม่จากส่วนขยาย"
+            "value": "ส่วนขยายเหนือช่องเขียนของแท็บใหม่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bir uzantının Yeni Sekme sayfası"
+            "value": "Yeni Sekme yazma alanı üzerinde bir uzantı"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Сторінка нової вкладки з розширення"
+            "value": "Розширення поверх поля вводу нової вкладки"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Trang Tab mới của một tiện ích mở rộng"
+            "value": "Một tiện ích mở rộng trên ô soạn của Tab mới"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "扩展的新标签页页面"
+            "value": "新标签页输入框上的扩展"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "擴充功能的新分頁頁面"
+            "value": "新分頁輸入框上的擴充功能"
           }
         }
       }
@@ -237609,6 +239606,60 @@
         }
       }
     },
+    "settings.notifications.delivery.blocked": {
+      "comment": "Settings > Notifications > Delivery: row title for how cmux notifies when an agent's status turns Blocked",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Agent Blocked"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "الوكيل محظور"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Agent blokiran"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Agent blokeret"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Agent blockiert"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Agente bloqueado"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Agent bloqué"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Agente bloccato"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "エージェントがブロック中"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ភ្នាក់ងារត្រូវបានរារាំង"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "에이전트 차단됨"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Agent blokkert"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Agent zablokowany"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Agente bloqueado"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Агент заблокирован"}},
+        "th": {"stringUnit": {"state": "translated", "value": "เอเจนต์ถูกบล็อก"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Ajan engellendi"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Агент заблоковано"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Tác tử bị chặn"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "智能体被阻塞"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "代理程式被阻擋"}}
+      }
+    },
+    "settings.notifications.delivery.blocked.help": {
+      "comment": "Settings > Notifications > Delivery: help under the Agent Blocked row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "When an agent's status turns Blocked without its own approval or question alert, as screen detection and plugins report it."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "عندما تصبح حالة الوكيل محظورة دون تنبيه موافقة أو سؤال خاص به، كما يبلغ عنها اكتشاف الشاشة والإضافات."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Kada status agenta postane Blokiran bez vlastitog upozorenja o odobrenju ili pitanju, kako to javljaju detekcija ekrana i dodaci."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Når en agents status bliver Blokeret uden sin egen godkendelses- eller spørgsmålsadvarsel, som skærmgenkendelse og plugins rapporterer det."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Wenn der Status eines Agenten ohne eigene Freigabe- oder Fragemeldung zu „Blockiert“ wechselt, wie Bildschirmerkennung und Plugins es melden."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Cuando el estado de un agente pasa a Bloqueado sin su propia alerta de aprobación o pregunta, según lo informan la detección de pantalla y los plugins."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Quand le statut d’un agent passe à Bloqué sans sa propre alerte d’approbation ou de question, tel que le signalent la détection d’écran et les plugins."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Quando lo stato di un agente diventa Bloccato senza un proprio avviso di approvazione o domanda, come lo segnalano il rilevamento dello schermo e i plugin."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "承認や質問の通知を伴わずにエージェントの状態がブロック中になったとき（画面検出やプラグインが報告するもの）。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "នៅពេលស្ថានភាពភ្នាក់ងារប្តូរទៅជាត្រូវបានរារាំង ដោយគ្មានការជូនដំណឹងអនុម័ត ឬសំណួររបស់វាផ្ទាល់ ដូចដែលការរកឃើញអេក្រង់ និងកម្មវិធីជំនួយរាយការណ៍។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "승인이나 질문 알림 없이 에이전트 상태가 차단됨으로 바뀔 때(화면 감지와 플러그인이 보고하는 경우)."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Når en agents status blir Blokkert uten egen godkjennings- eller spørsmålsvarsel, slik skjermgjenkjenning og programtillegg rapporterer det."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Gdy stan agenta zmienia się na Zablokowany bez własnego alertu o zatwierdzeniu lub pytaniu, tak jak zgłaszają to wykrywanie ekranu i wtyczki."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Quando o status de um agente muda para Bloqueado sem o próprio alerta de aprovação ou pergunta, como a detecção de tela e os plugins informam."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Когда статус агента становится «Заблокирован» без собственного уведомления об одобрении или вопросе, как сообщают распознавание экрана и плагины."}},
+        "th": {"stringUnit": {"state": "translated", "value": "เมื่อสถานะของเอเจนต์เปลี่ยนเป็นถูกบล็อกโดยไม่มีการแจ้งเตือนการอนุมัติหรือคำถามของตัวเอง ตามที่การตรวจจับหน้าจอและปลั๊กอินรายงาน"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Bir ajanın durumu kendi onay veya soru uyarısı olmadan Engellendi olduğunda; ekran algılama ve eklentilerin bildirdiği şekilde."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Коли статус агента стає «Заблоковано» без власного сповіщення про схвалення чи запитання, як повідомляють розпізнавання екрана й плагіни."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Khi trạng thái của tác tử chuyển sang Bị chặn mà không có cảnh báo phê duyệt hoặc câu hỏi riêng, như phát hiện màn hình và plugin báo cáo."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "当智能体状态变为被阻塞且没有自身的批准或提问提醒时（由屏幕检测和插件报告）。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "當代理程式狀態變為被阻擋且沒有其自身的核准或提問提醒時（由螢幕偵測與外掛程式回報）。"}}
+      }
+    },
     "settings.notifications.delivery.taskComplete": {
       "extractionState": "manual",
       "localizations": {
@@ -242127,6 +244178,666 @@
         }
       }
     },
+    "settings.appearance.tabShape": {
+      "comment": "Title of the Appearance choice of how blocky the tabs and sidebar rows are: block or rounded.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab Shape"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شكل علامة التبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oblik kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faneform"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab-Form"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forma de pestaña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forme des onglets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forma delle schede"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブの形"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រាងផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭 모양"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faneform"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kształt kart"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Formato da aba"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Форма вкладок"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รูปทรงแท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekme şekli"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Форма вкладок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hình dạng tab"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标签页形状"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分頁形狀"
+          }
+        }
+      }
+    },
+    "settings.appearance.tabShape.help": {
+      "comment": "Help under the Tab Shape setting; Block and Rounded are its two choices.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tabs and the sidebar's rows: blocks with the tab's corner, or rounded capsules."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "علامات التبويب وصفوف الشريط الجانبي: كتل بزاوية علامة التبويب، أو كبسولات مستديرة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kartice i redovi bočne trake: blokovi s uglom kartice ili zaobljene kapsule."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fanerne og sidepanelets rækker: blokke med fanens hjørne eller afrundede kapsler."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Tabs und die Zeilen der Seitenleiste: Blöcke mit der Ecke des Tabs oder runde Kapseln."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las pestañas y las filas de la barra lateral: bloques con la esquina de la pestaña o cápsulas redondeadas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les onglets et les lignes de la barre latérale : des blocs avec le coin de l'onglet, ou des capsules arrondies."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le schede e le righe della barra laterale: blocchi con l'angolo della scheda o capsule arrotondate."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブとサイドバーの行：タブの角を持つブロック、または丸いカプセル。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំង និងជួររបស់របារចំហៀង៖ ប្លុកដែលមានជ្រុងផ្ទាំង ឬកន្សោមមូល។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭과 사이드바 행: 탭의 모서리를 가진 블록 또는 둥근 캡슐."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fanene og sidepanelets rader: blokker med fanens hjørne eller avrundede kapsler."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Karty i wiersze paska bocznego: bloki z narożnikiem karty albo zaokrąglone kapsułki."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As abas e as linhas da barra lateral: blocos com o canto da aba ou cápsulas arredondadas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкладки и строки боковой панели: блоки с углом вкладки или скруглённые капсулы."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แท็บและแถวของแถบด้านข้าง: บล็อกที่มีมุมของแท็บ หรือแคปซูลโค้งมน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekmeler ve kenar çubuğunun satırları: sekmenin köşesiyle bloklar ya da yuvarlak kapsüller."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкладки й рядки бічної панелі: блоки з кутом вкладки або заокруглені капсули."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các tab và hàng của thanh bên: khối với góc của tab, hoặc viên nang bo tròn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标签页和边栏行：带标签页圆角的方块，或圆角胶囊。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分頁與側邊欄列：帶分頁圓角的方塊，或圓角膠囊。"
+          }
+        }
+      }
+    },
+    "settings.appearance.tabShape.summary": {
+      "comment": "Search summary of the Tab Shape setting.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Block or rounded tabs and sidebar rows"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "علامات تبويب وصفوف شريط جانبي على شكل كتلة أو مستديرة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blok ili zaobljene kartice i redovi bočne trake"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blok- eller afrundede faner og sidepanelrækker"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Block- oder runde Tabs und Seitenleistenzeilen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pestañas y filas de barra lateral en bloque o redondeadas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Onglets et lignes de barre latérale en bloc ou arrondis"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schede e righe della barra laterale a blocco o arrotondate"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブロックまたは丸型のタブとサイドバーの行"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំង និងជួររបារចំហៀង ប្លុក ឬមូល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "블록 또는 둥근 모양의 탭과 사이드바 행"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blokk- eller avrundede faner og sidepanelrader"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blokowe lub zaokrąglone karty i wiersze paska bocznego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abas e linhas da barra lateral em bloco ou arredondadas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Блочные или скруглённые вкладки и строки боковой панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แท็บและแถวแถบด้านข้างแบบบล็อกหรือโค้งมน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blok ya da yuvarlak sekmeler ve kenar çubuğu satırları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Блокові або заокруглені вкладки й рядки бічної панелі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab và hàng thanh bên dạng khối hoặc bo tròn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "方块或圆角的标签页和边栏行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "方塊或圓角的分頁與側邊欄列"
+          }
+        }
+      }
+    },
+    "settings.choice.tabShape.block": {
+      "comment": "Tab Shape choice: today's tabs and sidebar rows, a rounded rectangle with the tab's corner (the default).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Block"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كتلة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blok"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blok"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Block"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bloque"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bloc"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocco"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブロック"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្លុក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "블록"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blokk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blok"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bloco"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Блок"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บล็อก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Блок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khối"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "方块"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "方塊"
+          }
+        }
+      }
+    },
+    "settings.choice.tabShape.rounded": {
+      "comment": "Tab Shape choice: the tabs and sidebar rows as fully rounded capsules.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rounded"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مستدير"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaobljeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afrundet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rund"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redondeado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrondi"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrotondato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "丸型"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មូល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "둥근 모양"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avrundet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaokrąglony"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arredondado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скруглённая"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โค้งมน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yuvarlak"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заокруглена"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bo tròn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "圆角"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "圓角"
+          }
+        }
+      }
+    },
     "settings.remote.screenSharingProfile": {
       "extractionState": "manual",
       "localizations": {
@@ -244593,6 +247304,138 @@
           "stringUnit": {
             "state": "translated",
             "value": "新的代理機器閒置 15 分鐘後暫停；有工作到來時恢復。"
+          }
+        }
+      }
+    },
+    "settings.category.integrations": {
+      "comment": "Settings sidebar category: linked accounts agents can act through (Stripe, GitHub).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Integrations"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عمليات الدمج"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Integracije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Integrationer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Integrationen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Integraciones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Intégrations"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Integrazioni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "連携"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការភ្ជាប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "통합"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Integrasjoner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Integracje"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Integrações"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Интеграции"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การเชื่อมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Entegrasyonlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Інтеграції"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tích hợp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "集成"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "整合"
           }
         }
       }
