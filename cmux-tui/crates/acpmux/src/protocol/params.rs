@@ -166,11 +166,11 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
 
 keyed! {
     /// `_acpmux/account/sign_in`.
-    AccountSignInParams: ["account", "family", "name"];
+    AccountSignInParams: ["account", "family", "name", "sessionId"];
     /// `_acpmux/account/sign_in.finish`.
-    AccountSignInFinishParams: ["loginId", "code"];
+    AccountSignInFinishParams: ["loginId", "code", "sessionId"];
     /// `_acpmux/account/sign_in.cancel`.
-    AccountSignInCancelParams: ["loginId"];
+    AccountSignInCancelParams: ["loginId", "sessionId"];
     /// `_acpmux/account/switch` and `_acpmux/account/remove`.
     AccountIdParams: ["account"];
     /// `_acpmux/agent_hold`.
