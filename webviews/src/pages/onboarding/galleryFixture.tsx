@@ -1,5 +1,5 @@
 // l10n-allow-file: public-safe gallery fixtures.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createStrings } from "../shared/i18n";
 import type { AgentsLook } from "./AgentsStep";
 import {
@@ -52,8 +52,14 @@ export function OnboardingGallery({
             : step === "makeItYours"
               ? makeItYoursState(makeItYours)
               : agentsState(agents);
-    return new OnboardingStore(new MockOnboardingProvider(step), state);
+    return new OnboardingStore(new MockOnboardingProvider(step, state), state);
   });
+  // Started as the app's page is (main.tsx), so a click's change comes back from the mock and the variant answers
+  // picks the way the host does (the intro walk probe, scripts/intro-walk.mjs, walks them).
+  useEffect(() => {
+    void store.start();
+    return () => store.stop();
+  }, [store]);
   const [strings] = useState(() => createStrings(table));
   return <OnboardingPage store={store} strings={strings} agentsLook={look} makeItYoursLook={makeLook} />;
 }

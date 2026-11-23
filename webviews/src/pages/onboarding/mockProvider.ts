@@ -9,9 +9,11 @@ export class MockOnboardingProvider implements PageClient {
   private state: OnboardingState;
   private readonly listeners = new Set<(state: OnboardingState) => void>();
 
-  constructor(step: string = "agents") {
+  /** `initial`: the state to open on (a gallery variant's fixture); else `step`'s first fixture. */
+  constructor(step: string = "agents", initial?: OnboardingState) {
     this.state =
-      step === "importData"
+      initial ??
+      (step === "importData"
         ? importState("idle")
         : step === "computerUse"
           ? computerUseState("fresh")
@@ -19,7 +21,7 @@ export class MockOnboardingProvider implements PageClient {
             ? agentToolsState("found")
             : step === "makeItYours"
               ? makeItYoursState("fresh")
-              : agentsState("mixed");
+              : agentsState("mixed"));
   }
 
   private change(next: OnboardingState): void {
