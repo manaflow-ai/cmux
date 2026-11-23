@@ -1681,6 +1681,9 @@ function AccessMenu({
           align="start"
           className="acpmux-access-menu"
           resize={{ id: "composer.access" }}
+          // A windowed menu mounts only the rows near its viewport, so the native panel would get a
+          // part of them: it stays in the page and scrolls (review follow-up on #46214, F1).
+          {...(menu ? { escapes: false } : {})}
           // ui-allow: 1 to 9 pick the mode in that place while the menu is open, as in Claude's mode menu.
           onKeyDown={(event) => {
             if (event.metaKey || event.ctrlKey || event.altKey || !/^[1-9]$/.test(event.key)) {
@@ -2239,6 +2242,8 @@ export function Picker({
           className={cx("acpmux-menu acpmux-picker-menu", className)}
           {...(menu ? { onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void menu.keyDown(event) } : {})}
           {...(resizeId ? { resize: { id: resizeId } } : {})}
+          // Windowed: only the mounted rows would reach the native panel; stay in the page (#46214 F1).
+          {...(menu ? { escapes: false } : {})}
         >
           {heading && (
             <div className="acpmux-menu-heading" aria-hidden="true">
