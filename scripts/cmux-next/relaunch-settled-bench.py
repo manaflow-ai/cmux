@@ -84,7 +84,8 @@ SIDEBAR_ROWS = 5
 DEV_KINDS = ("fleet",)  # a tip feed DEV build is a Release compile: no debug.* methods (#if DEBUG || CMUX_BENCH_HOOKS)
 FAKE_AGENT = ROOT / "cmux-tui/crates/acpmux/tests/fake_agent.py"
 COUNTERS = ("composer_height_changes", "replayed_animations", "chat_blank_frames", "blank_ms", "sidebar_reorders",
-            "sidebar_row_animations", "scroll_rail_renders", "rerenders", "layout_shifts", "false_disconnected_rows")
+            "sidebar_row_animations", "scroll_rail_renders", "rerenders", "layout_shifts", "false_disconnected_rows",
+            "chat_not_restored_in_front")
 
 
 def say(*parts) -> None:
@@ -105,12 +106,26 @@ def resolve_ref(ref: str) -> tuple[str, int | None]:
         pr = int(number.group(1) or number.group(2))
         git("fetch", "-q", "--no-tags", "origin", f"+refs/pull/{pr}/head:refs/remotes/origin/pr/{pr}")
         return git("rev-parse", f"refs/remotes/origin/pr/{pr}"), pr
-    git("fetch", "-q", "--no-tags", "origin", "feat-cmux-next", check=False)
+    git("fetch", "-q", "--no-tags", "origin", "+refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next", check=False)
     sha = git("rev-parse", "--verify", f"{ref}^{{commit}}", check=False)
     if not re.fullmatch(r"[0-9a-f]{40}", sha):
         git("fetch", "-q", "--no-tags", "origin", ref, check=False)
         sha = git("rev-parse", "--verify", f"{ref}^{{commit}}")
     return sha, None
+
+
+def merged_onto(sha: str, onto: str) -> str:
+    """SHA merged into ONTO (a local merge commit, never pushed): the web a PR ships once it lands on today's base,
+    so a PR branched before a base fix (#51194: the shipped pane.js never connected) measures with that fix."""
+    git("fetch", "-q", "--no-tags", "origin", "+refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next", check=False)
+    base = git("rev-parse", "--verify", f"{onto}^{{commit}}")
+    if subprocess.run(["git", "-C", str(ROOT), "merge-base", "--is-ancestor", base, sha]).returncode == 0:
+        return sha
+    tree = subprocess.run(["git", "-C", str(ROOT), "merge-tree", "--write-tree", base, sha], capture_output=True,
+                          text=True)
+    if tree.returncode != 0:
+        raise SystemExit(f"{sha[:12]} does not merge cleanly onto {onto}: {tree.stdout.strip()[-300:]}")
+    return git("commit-tree", tree.stdout.split()[0], "-p", base, "-p", sha, "-m", f"relaunch-settled: {sha[:12]} onto {onto}")
 
 
 def cached_dev_goldens(anchor: str) -> list[dict]:
@@ -399,8 +414,12 @@ def add_watch(tree: Path) -> str:
     return f"relaunch record from {mine[:12]}"
 
 
-def apply_ref(copy: Copy, sha: str, pr: int | None, web_tree: Path | None, scratch: Path) -> dict:
+def apply_ref(copy: Copy, sha: str, pr: int | None, web_tree: Path | None, scratch: Path,
+              web_sha: str | None = None) -> dict:
+    """SHA's daemon (hot-apply) and WEB_SHA's web bundles (default SHA's) into the copy."""
     applied: dict = {}
+    merged = web_sha is not None and web_sha != sha
+    web_sha = web_sha or sha
     env = {**os.environ, **copy.side.env()}
     rust = subprocess.run([sys.executable, str(HERE / "hot-apply.py"), "apply", sha, "--branch", "--parts", "rust",
                            "--app", str(copy.app), "--repo", str(ROOT), "--restart-acpmux"],
@@ -409,8 +428,8 @@ def apply_ref(copy: Copy, sha: str, pr: int | None, web_tree: Path | None, scrat
     applied["rust"] = ("ref's published daemon" if rust.returncode == 0 else
                        f"build's own daemon (hot-apply exit {rust.returncode}: {(rust.stderr or rust.stdout).strip()[-200:]})")
     # A ref without the page's relaunch record (relaunchWatch.ts: a fix measured before this landed) gets it here.
-    watched = subprocess.run(["git", "-C", str(ROOT), "cat-file", "-e", f"{sha}:{WATCH_FILE}"]).returncode == 0
-    key = None if web_tree or not watched else hv.published_web_key(ROOT, {"head": sha, "pr": pr})
+    watched = subprocess.run(["git", "-C", str(ROOT), "cat-file", "-e", f"{web_sha}:{WATCH_FILE}"]).returncode == 0
+    key = None if web_tree or not watched or merged else hv.published_web_key(ROOT, {"head": sha, "pr": pr})
     bundles = scratch / "web-bundles"
     if key:
         done = subprocess.run([str(HERE / "fetch-web-bundles.sh"), "--key", key, "--out", str(bundles)],
@@ -419,16 +438,16 @@ def apply_ref(copy: Copy, sha: str, pr: int | None, web_tree: Path | None, scrat
             raise SystemExit(f"fetch-web-bundles {key[:12]}: {done.stderr.strip()[-300:]}")
         applied["web"] = f"published bundles {key[:12]}"
     else:
-        tree = web_tree or hv.web_checkout(ROOT, sha, scratch)
+        tree = web_tree or hv.web_checkout(ROOT, web_sha, scratch)
         if not watched and not web_tree:
             applied["watch"] = add_watch(tree)
-        say(f"building the web bundles of {tree} (none published for {sha[:12]}{'' if watched else ', with the relaunch record'})")
+        say(f"building the web bundles of {tree} (none published for {sha[:12]}{'' if watched else ', with the relaunch record'}{f', merged as {web_sha[:12]}' if merged else ''})")
         done = subprocess.run([str(tree / "scripts/cmux-next/build-web-bundles.sh"), "--force", "--out-root",
                                str(bundles)], cwd=tree, capture_output=True, text=True, timeout=3600)
         if done.returncode != 0:
             raise SystemExit(f"build-web-bundles: {(done.stderr or done.stdout).strip()[-400:]}")
-        applied["web"] = f"built here from {tree}"
-    done = subprocess.run([str(HERE / "web-overlay.sh"), "install", str(bundles), "--commit", sha], env=env,
+        applied["web"] = f"built here from {web_sha[:12]}" + (f" ({sha[:12]} merged onto the base)" if merged else "")
+    done = subprocess.run([str(HERE / "web-overlay.sh"), "install", str(bundles), "--commit", web_sha], env=env,
                           capture_output=True, text=True, timeout=300)
     if done.returncode != 0:
         raise SystemExit(f"web-overlay.sh install: {done.stderr.strip()[-300:]}")
@@ -523,16 +542,26 @@ def seed(copy: Copy, files: list[Path], scratch: Path) -> dict:
     return {"session": new_id, "records": len(records), "opened": opened}
 
 
-def show_chat(copy: Copy, session: str) -> bool:
+def chat_tab(copy: Copy, session: str) -> tuple[str | None, str | None, dict]:
+    """The seeded chat's tab and pane, and what the copy has in front (its topology's focus)."""
     topo = (rpc(copy.socket, "snapshot.get") or {}).get("topology") or {}
     for ws in topo.get("workspaces", []):
-        tabs = [t for s in ws.get("screens", []) for p in s.get("panes", []) for t in p.get("tabs", [])]
-        tab = next((t for t in tabs if t.get("agent_session") == session), None)
-        if tab:
-            copy.cli("workspace", ws["id"], "focus")
-            copy.cli("tab", tab["id"], "focus")
-            return True
-    return False
+        for screen in ws.get("screens", []):
+            for pane in screen.get("panes", []):
+                for tab in pane.get("tabs", []):
+                    if tab.get("agent_session") == session:
+                        return tab["id"], pane["id"], topo.get("focus") or {}
+    return None, None, topo.get("focus") or {}
+
+
+def show_chat(copy: Copy, session: str) -> bool:
+    """The seeded chat in front (the `tab.focus` action, which selects its workspace too), checked on the topology:
+    the app restores what was in front at the quit, so every round relaunches onto the chat the person was reading."""
+    tab, _, _ = chat_tab(copy, session)
+    if tab is None:
+        return False
+    rpc(copy.socket, "action.run", {"action": "tab.focus", "target": f"tab:{tab}", "focus": True}, timeout=30)
+    return bool(hv.until("the chat in front", 20, lambda: chat_tab(copy, session)[2].get("tab") == tab))
 
 
 def page_state(copy: Copy) -> dict:
@@ -596,9 +625,15 @@ def round_(copy: Copy, n: int, out: Path, seconds: float, before: dict, session:
         raise SystemExit(f"round {n}: the relaunched copy never answered")
     answered_ms = round((time.monotonic() - began) * 1000)
     rpc(copy.socket, "debug.sidebar_rows", {"motion": "start"}, timeout=10)
+    tab, pane, front = chat_tab(copy, session)
+    restored_in_front = front.get("tab") == tab
+    if not restored_in_front:  # the relaunch put something else in front: the page is read anyway, from the chat's pane
+        say(f"round {n}: the relaunch restored {front.get('tab')} in front, not the chat {tab}")
+        show_chat(copy, session)
     time.sleep(max(0.0, seconds - (time.monotonic() - began)) + 1.5)
     motion = rpc(copy.socket, "debug.sidebar_rows", {"motion": "stop"}, timeout=30)
-    watch = rpc(copy.socket, "debug.agent_pane", {"action": "layout_watch", "ms": 200}, timeout=30)
+    watch = rpc(copy.socket, "debug.agent_pane", {"action": "layout_watch", "ms": 200, **({"pane": pane} if pane else {})},
+                timeout=30)
     after = page_state(copy)
     page = (watch or {}).get("relaunch") if isinstance(watch, dict) else None
     marks = dict(copy.marks)
@@ -618,8 +653,9 @@ def round_(copy: Copy, n: int, out: Path, seconds: float, before: dict, session:
         "rerenders": page and page["rerenders"],
         "layout_shifts": (int(web_shifts or 0) + int(geometry or 0)) if web_shifts is not None or geometry is not None else None,
         "false_disconnected_rows": len(false_gone),
+        "chat_not_restored_in_front": int(not restored_in_front),
     }
-    detail = {"round": n, "answered_ms": answered_ms, "web_layout_shifts": web_shifts, "window": window["total"],
+    detail = {"round": n, "answered_ms": answered_ms, "restored_in_front": restored_in_front, "web_layout_shifts": web_shifts, "window": window["total"],
               "sidebar": side, "false_disconnected": false_gone, "rows_before": before["rows"],
               "rows_after": after["rows"], "page": page, "marks": marks,
               "contact_sheet": contact_sheet(film, folder / "contact-sheet.jpg")}
@@ -641,6 +677,8 @@ def main() -> int:
     p.add_argument("--web-tree", type=Path, help="build the web bundles from this checkout instead of the ref's")
     p.add_argument("--build-job", help="the fleet app build to copy (a `cmux-ci build cmux` job id); default: the "
                    "nearest finished one at or behind the ref")
+    p.add_argument("--onto", default="origin/feat-cmux-next",
+                   help="measure the ref's web merged onto this base (default origin/feat-cmux-next; '' for the ref alone)")
     p.add_argument("--keep", action="store_true", help="leave the copy running at the end")
     args = p.parse_args()
     if sys.platform != "darwin":
@@ -670,7 +708,9 @@ def main() -> int:
         methods = (rpc(copy.socket, "system.identify") or {}).get("methods") or []
         if "debug.agent_pane" not in methods or "debug.updater" not in methods:
             raise SystemExit(f"{hv.describe(build)} has no debug.agent_pane / debug.updater: not a DEV compile")
-        report["applied"] = apply_ref(copy, sha, pr, args.web_tree, scratch)
+        web_sha = merged_onto(sha, args.onto) if args.onto else sha
+        report["web_ref"] = web_sha
+        report["applied"] = apply_ref(copy, sha, pr, args.web_tree, scratch, web_sha)
         say(f"applied: {report['applied']}")
         report["seed"] = seed(copy, fixture_files(args.fixtures, scratch), scratch)
         # Once with the ref's code before any measured round: the copy restarts onto its overlay and new daemon.
@@ -690,7 +730,13 @@ def main() -> int:
             hv.until("the chat page", 120, page_answers)
         except hv.LookError:
             raise SystemExit(f"the chat page never answered layout_watch: {json.dumps(asked[-1:], default=str)[:400]}")
-        # The person read it: at the bottom, settled.
+        # The person read it: the transcript drawn (a page that never connects draws no row and would count all
+        # zero), at the bottom, settled.
+        try:
+            hv.until("the transcript's rows", 90, lambda: page_state(copy)["rows"] > 0)
+        except hv.LookError:
+            state = rpc(copy.socket, "debug.agent_pane", {"action": "chat_state"}) or {}
+            raise SystemExit(f"the seeded chat drew no row: connection {str(state.get('connection'))[:200]!r}")
         time.sleep(10)
         before = page_state(copy)
         report["before"] = before
