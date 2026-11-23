@@ -3944,12 +3944,6 @@
       "title" : "Claude Code and Codex Customization",
       "type" : "boolean"
     },
-    "labs.hostsSidebar" : {
-      "default" : false,
-      "description" : "Shows your machines in the sidebar with Add Host and per-host terminal actions.",
-      "title" : "Hosts Sidebar",
-      "type" : "boolean"
-    },
     "labs.liveCode" : {
       "default" : false,
       "description" : "Swift changes you compile apply to the running app. Takes effect after cmux restarts.",

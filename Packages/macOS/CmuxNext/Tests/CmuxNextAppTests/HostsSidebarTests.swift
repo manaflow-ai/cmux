@@ -11,7 +11,7 @@ import Testing
 @MainActor
 struct HostsSidebarTests {
     @Observable @MainActor
-    final class LabsFlag {
+    fileprivate final class LabsFlag {
         var value = false
     }
 
@@ -53,12 +53,10 @@ struct HostsSidebarTests {
         hosts.bind(host: .init(rows: { machines }, add: {}, openConnected: { _ in }, openJoined: { _ in }))
 
         let expanded = hosts.rows()
-        #expect(expanded.map { $0.item.id.rawValue } == ["client.hosts:header", "client.hosts:row:local", "client.hosts:row:cloud", "client.hosts:add"])
+        #expect(expanded.map { $0.item.id.rawValue } == ["client.hosts:header", "client.hosts:add", "client.hosts:row:local", "client.hosts:row:cloud"])
         #expect(expanded[0].info.title == "Hosts" && expanded[0].info.badge == 2)
-        #expect(expanded[3].info.title == "Add Host…" && expanded[3].info.indent == 1 && expanded[3].info.caption == nil)
-        // A connected row reads nothing; only a state worth reading gets a word.
-        #expect(expanded[1].info.caption == nil && expanded[2].info.caption == "Paused")
-        #expect(expanded[1].info.accessibilityTitle == "This Mac" && expanded[2].info.accessibilityTitle == "Build VM, Paused")
+        #expect(expanded[1].info.title == "Add Host…" && expanded[1].info.indent == 1)
+        #expect(expanded[2].info.caption == "Connected" && expanded[3].info.caption == "Paused")
         #expect(expanded.dropFirst().allSatisfy { $0.after.last?.value == "client.hosts:header" || $0.info.indent == 1 })
         #expect(hosts.activate(expanded[0].item.id))
         #expect(hosts.rows().map { $0.item.id.rawValue } == ["client.hosts:header"])
@@ -70,27 +68,9 @@ struct HostsSidebarTests {
                         Self.machine("resuming", "Waking", connected: false, connecting: true, state: .resuming, kind: .cloud),
                         Self.machine("failed", "Broken", connected: false, state: .failed, kind: .server)]
         let rows = HostsSidebar.rows(machines: machines, expanded: true)
-        #expect(rows.dropFirst().map(\.info.caption) == ["Connecting…", "Offline", "Resuming…", "Failed", nil])
+        #expect(rows.dropFirst().map(\.info.caption) == ["Add Host…", "Connecting…", "Offline", "Resuming…", "Failed"])
         #expect(rows.first { $0.item.id.rawValue.hasSuffix("connecting") }?.info.activity == .working)
         #expect(rows.first { $0.item.id.rawValue.hasSuffix("offline") }?.info.isMissing == true)
-    }
-
-    @Test func everyLayoutKeepsTheSameRowsAndOnlyMovesAddHostAndTheHeader() {
-        let machines = [Self.machine("a", "Alpha"), Self.machine("b", "Beta", connected: false)]
-        func ids(_ layout: HostsSidebar.Layout) -> [String] {
-            HostsSidebar.rows(machines: machines, expanded: true, layout: layout).map { $0.item.id.rawValue }
-        }
-        #expect(ids(.addFirst) == ["client.hosts:header", "client.hosts:add", "client.hosts:row:a", "client.hosts:row:b"])
-        #expect(ids(.addLast) == ["client.hosts:header", "client.hosts:row:a", "client.hosts:row:b", "client.hosts:add"])
-        #expect(ids(.flat) == ["client.hosts:row:a", "client.hosts:row:b", "client.hosts:add"])
-        #expect(HostsSidebar.rows(machines: machines, expanded: true, layout: .flat).allSatisfy { $0.info.indent == 0 })
-        // Every layout chains each row after the one before it, so the band keeps their order.
-        for layout in HostsSidebar.Layout.allCases {
-            let rows = HostsSidebar.rows(machines: machines, expanded: true, layout: layout)
-            for (previous, row) in zip(rows, rows.dropFirst()) {
-                #expect(row.after == [LayoutItemRef(kind: "client", value: previous.item.id.rawValue)])
-            }
-        }
     }
 
     @Test func addAndHostClicksUseTheSharedMachineRows() throws {
@@ -101,8 +81,8 @@ struct HostsSidebarTests {
         hosts.bind(host: .init(rows: { [machine] }, add: { added = true }, openConnected: { opened = $0 }, openJoined: { _ in }))
         let expanded = hosts.rows()
         _ = try #require(expanded.first)
-        #expect(hosts.activate(expanded[2].item.id) && added)
-        #expect(hosts.activate(expanded[1].item.id) && opened == "m1")
+        #expect(hosts.activate(expanded[1].item.id) && added)
+        #expect(hosts.activate(expanded[2].item.id) && opened == "m1")
         #expect(!hosts.activate(LayoutItemID("client.other")))
     }
 
@@ -112,7 +92,7 @@ struct HostsSidebarTests {
         let item = try #require(items.first { $0.item.id.rawValue.hasSuffix("failed") })
         #expect(item.info.caption == "Failed")
         #expect(item.info.activity == .idle)
-        #expect(item.info.tooltip == "Broken\nFailed\nNo route")
+        #expect(item.info.tooltip == "No route")
     }
 
     @Test func offlineAndConnectingRowsUseTheOfflineOpenCallback() throws {

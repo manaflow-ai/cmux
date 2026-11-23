@@ -36,11 +36,12 @@ public final class SidebarMachineSections {
     }
 
     /// Keeps the process-wide turn feed's callback in the domain owner; the App only supplies its windows.
+    /// `also`: the App's own listener for the same push (the device list's re-read), run first.
     public static func bindPeerState(_ turns: AgentTurnStateFeed,
                                      sections: @escaping @MainActor () -> [SidebarMachineSections],
-                                     also: @escaping @MainActor (_ peer: String?, _ state: String?) -> Void = { _, _ in }) {
+                                     also: (@MainActor (_ peer: String?, _ state: String?) -> Void)? = nil) {
         turns.peerStateChanged = { peer, state in
-            also(peer, state)
+            also?(peer, state)
             sections().forEach { $0.peerStateChanged(peer: peer, state: state) }
         }
     }

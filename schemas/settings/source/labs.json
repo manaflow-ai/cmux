@@ -204,29 +204,6 @@
           ]
         },
         {
-          "key": "labs.hostsSidebar",
-          "note": "A Hosts section in the sidebar. It projects the Machines page catalog, including Add Host and per-machine terminal actions. Off by default until the sidebar surface is ready.",
-          "title": {
-            "key": "settings.labs.hostsSidebar",
-            "text": "Hosts Sidebar"
-          },
-          "help": {
-            "key": "settings.labs.hostsSidebar.help",
-            "text": "Shows your machines in the sidebar with Add Host and per-host terminal actions."
-          },
-          "kind": "toggle",
-          "default": false,
-          "keywords": [
-            "labs",
-            "hosts",
-            "sidebar",
-            "machines",
-            "remote",
-            "add",
-            "terminal"
-          ]
-        },
-        {
           "key": "labs.agentCustomization",
           "name": "agentCustomization",
           "note": "Opt-in Claude Code and Codex customization (cmux-agent-customize, `cmux agent-config`), each agent's own setup read and changed in the agent's own files: Settings > MCP Servers shows and edits the MCP servers the person gave Claude Code (~/.claude.json, .mcp.json) and Codex (~/.codex/config.toml, .codex/config.toml, plugins); Settings > Agents > Claude Code & Codex lists, edits and turns on or off their skills and slash commands. Off by default; off hides the card and shows only cmux own servers, as before. Leo 2026-11-19: \"when I say Claude Code, when I say Codex [...] I need you guys to be, like, doing the thing.\"",
@@ -253,6 +230,29 @@
             "agent",
             "agents",
             "config"
+          ]
+        },
+        {
+          "key": "labs.hostsSidebar",
+          "note": "Rex-style Hosts section in the sidebar. It projects the Machines page catalog, including Add Host and per-machine terminal actions. Off by default until the sidebar surface is ready.",
+          "title": {
+            "key": "settings.labs.hostsSidebar",
+            "text": "Hosts Sidebar"
+          },
+          "help": {
+            "key": "settings.labs.hostsSidebar.help",
+            "text": "Shows your machines in the sidebar with Add Host and per-host terminal actions."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "hosts",
+            "sidebar",
+            "machines",
+            "remote",
+            "add",
+            "terminal"
           ]
         }
       ]

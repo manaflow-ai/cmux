@@ -11,7 +11,8 @@ import Observation
 /// Updated!" card (Lawrence 2026-10-18). Agent chats on other machines never show here either: the
 /// top band holds Home and what the person put there (Lawrence 2026-10-26); those chats are in the
 /// Priority view and Home. A look's nav block (`sidebar.nav`) draws first, above Home (`SidebarTransientItem.nav`).
-/// Feature modules may add transient rows through the `additional` source; those never enter the sidebar document.
+/// The one exception is the Labs Hosts section (`labs.hostsSidebar`, off by default): feature modules add its
+/// transient rows through the `additional` source, and those rows never enter the durable sidebar document.
 extension SidebarModel {
     /// Keeps `transientTopItems` current until cancelled. `document`: the app's own sidebar document, which every
     /// window of that app draws from.

@@ -12,7 +12,7 @@ import Testing
 /// Native stills for the transient Hosts projection. The fixture is fed through the same
 /// `SidebarModel.transientTopItems` path as the app bridge, so the captures cover the real
 /// band placement and row renderer rather than a standalone row view. `CMUX_TEST_REQUIRE_GUI=1`
-/// writes light/dark PNGs of every `HostsSidebar.Layout` and `hosts-sidebar-gallery.tar` for `cmux-ci run --artifact`.
+/// writes light/dark PNGs and `hosts-sidebar-gallery.tar` for `cmux-ci run --artifact`.
 @MainActor @Suite(.serialized, .closesItsWindows) struct HostsSidebarGalleryTests {
     struct Fixture: Sendable {
         let name: String
@@ -62,11 +62,9 @@ import Testing
         try AANestedGroupsGalleryTests.input(name)
     }
 
-    static func render(_ fixture: Fixture, layout: HostsSidebar.Layout = .addLast, theme: String, dark: Bool) throws -> CGImage {
+    static func render(_ fixture: Fixture, theme: String, dark: Bool) throws -> CGImage {
         _ = NSApplication.shared
-        // A window-height sidebar: the band above the list stops at its share (`sidebar.topBandMaxShare`, a third)
-        // and scrolls, so a short still would scroll the last Hosts rows out of view.
-        let width: CGFloat = 300, height: CGFloat = 900
+        let width: CGFloat = 300, height: CGFloat = 520
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: width, height: height), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -86,9 +84,7 @@ import Testing
         let hosts = HostsSidebar(host: .init(rows: { fixture.rows }, add: {}, openConnected: { _ in }, openJoined: { _ in },
                                               enabled: { fixture.labsEnabled }))
         defer { hosts.stop() }
-        // The shipped layout goes through the app's own path; the other variants use the same projection.
-        model.transientTopItems = layout == .addLast || !fixture.labsEnabled
-            ? hosts.rows() : HostsSidebar.rows(machines: fixture.rows, expanded: true, layout: layout)
+        model.transientTopItems = hosts.rows()
         let sidebar = SidebarView(model: model)
         sidebar.frame = root.bounds
         root.addSubview(sidebar)
@@ -131,29 +127,25 @@ import Testing
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         var images: [[CGImage]] = []
         for (mode, theme, dark) in [("dark", "Soft Blue", true), ("light", "Soft Blue Light", false)] {
-            for layout in HostsSidebar.Layout.allCases {
-                var line: [CGImage] = []
-                for fixture in Self.fixtures {
-                    let image = try Self.render(fixture, layout: layout, theme: theme, dark: dark)
-                    line.append(image)
-                    try AAGroupHeaderDensityGalleryTests.write(
-                        image, to: out.appending(path: "\(layout.rawValue)-\(fixture.name)-\(mode).png"))
-                }
-                images.append(line)
+            var line: [CGImage] = []
+            for fixture in Self.fixtures {
+                let image = try Self.render(fixture, theme: theme, dark: dark)
+                line.append(image)
+                try AAGroupHeaderDensityGalleryTests.write(image, to: out.appending(path: "\(fixture.name)-\(mode).png"))
             }
+            images.append(line)
         }
         let w = images[0][0].width, h = images[0][0].height, gap = 16
         let columns = Self.fixtures.count
         let colorSpace = try #require(CGColorSpace(name: CGColorSpace.sRGB))
-        let lines = images.count
-        let ctx = try #require(CGContext(data: nil, width: columns * w + (columns - 1) * gap, height: lines * h + (lines - 1) * gap,
+        let ctx = try #require(CGContext(data: nil, width: columns * w + (columns - 1) * gap, height: 2 * h + gap,
                                          bitsPerComponent: 8, bytesPerRow: 0, space: colorSpace,
                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         ctx.setFillColor(CGColor(gray: 0.05, alpha: 1))
         ctx.fill(CGRect(x: 0, y: 0, width: ctx.width, height: ctx.height))
         for (line, row) in images.enumerated() {
             for (column, image) in row.enumerated() {
-                ctx.draw(image, in: CGRect(x: column * (w + gap), y: (lines - 1 - line) * (h + gap), width: w, height: h))
+                ctx.draw(image, in: CGRect(x: column * (w + gap), y: (1 - line) * (h + gap), width: w, height: h))
             }
         }
         try AAGroupHeaderDensityGalleryTests.write(try #require(ctx.makeImage()), to: out.appending(path: "all.png"))

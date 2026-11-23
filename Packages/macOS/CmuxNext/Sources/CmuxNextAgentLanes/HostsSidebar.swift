@@ -188,20 +188,8 @@ public final class HostsSidebar {
         return true
     }
 
-    /// How the section lays out its rows. The gallery (`HostsSidebarGalleryTests`) draws all three;
-    /// the app draws ``Layout/addLast``.
-    public enum Layout: String, CaseIterable, Sendable {
-        /// Hosts header, Add Host, then the machines (#46736's first cut).
-        case addFirst
-        /// Hosts header, the machines, then Add Host closing the list, as the Machines page ends
-        /// with Add Machine… (design/machines-section.md). Shipped.
-        case addLast
-        /// No header: the machines at the top level, then Add Host. Nothing folds or counts them.
-        case flat
-    }
-
     @MainActor
-    static func rows(machines: [MachineSectionRow], expanded: Bool, layout: Layout = .addLast) -> [SidebarTransientItem] {
+    static func rows(machines: [MachineSectionRow], expanded: Bool) -> [SidebarTransientItem] {
         var items: [SidebarTransientItem] = []
         var previous: [LayoutItemRef] = [.app("cmux/app-store"), SidebarTransientItem.channels.item.ref,
                                           SidebarLayoutDocument.homeRef, .builtIn(.home)]
@@ -210,31 +198,24 @@ public final class HostsSidebar {
             previous = [LayoutItemRef(kind: "client", value: id.rawValue)]
         }
 
-        let indent = layout == .flat ? 0 : 1
-        if layout != .flat {
-            var header = SidebarItemInfo(title: HostsSidebarStrings.title, symbol: "server.rack", badge: machines.isEmpty ? nil : machines.count)
-            header.activity = machines.contains(where: { $0.isConnecting && !$0.failed }) ? .working : .idle
-            add(Self.headerID, header)
-            guard expanded else { return items }
-        }
+        var header = SidebarItemInfo(title: "Hosts", symbol: "server.rack", badge: machines.isEmpty ? nil : machines.count)
+        header.activity = machines.contains(where: { $0.isConnecting && !$0.failed }) ? .working : .idle
+        add(Self.headerID, header)
+        guard expanded else { return items }
 
-        var addHost = SidebarItemInfo(title: HostsSidebarStrings.addHost, symbol: "plus")
-        addHost.indent = indent
-        if layout == .addFirst { add(Self.addID, addHost) }
+        var addHost = SidebarItemInfo(title: "Add Host…", symbol: "plus")
+        addHost.caption = "Add Host…"
+        addHost.indent = 1
+        add(Self.addID, addHost)
         for machine in machines {
             var info = SidebarItemInfo(title: machine.name, symbol: symbol(for: machine))
-            // A row draws no state word (design/sidebar.md: state is the spinner or the dimmed name);
-            // a tile draws its caption, and the tooltip says it with the failure when there is one.
-            let state = caption(for: machine)
-            info.caption = state
-            info.tooltip = [machine.name, state, machine.failure].compactMap { $0 }.joined(separator: "\n")
-            info.accessibilityTitle = state.map { HostsSidebarStrings.label(machine.name, $0) } ?? machine.name
-            info.indent = indent
-            info.isMissing = !machine.isConnected && !machine.isConnecting
+            info.caption = caption(for: machine)
+            info.tooltip = machine.failure
+            info.indent = 1
+            info.isMissing = !machine.isConnected && !machine.isConnecting && machine.serverState == nil
             info.activity = machine.isConnecting && !machine.failed ? .working : .idle
             add(LayoutItemID(Self.rowPrefix + machine.id), info)
         }
-        if layout != .addFirst { add(Self.addID, addHost) }
         return items
     }
 
@@ -248,34 +229,17 @@ public final class HostsSidebar {
         }
     }
 
-    /// The state word, only when there is something to read: nil for a connected machine.
-    private static func caption(for machine: MachineSectionRow) -> String? {
-        if machine.failed { return HostsSidebarStrings.failed }
+    private static func caption(for machine: MachineSectionRow) -> String {
+        if machine.failed { return "Failed" }
         if let state = machine.serverState {
-            return switch state {
-            case .paused: HostsSidebarStrings.paused
-            case .resuming: HostsSidebarStrings.resuming
-            case .failed: HostsSidebarStrings.failed
-            case .deleted: HostsSidebarStrings.deleted
+            switch state {
+            case .paused: return "Paused"
+            case .resuming: return "Resuming…"
+            case .failed: return "Failed"
+            case .deleted: return "Deleted"
             }
         }
-        if machine.isConnecting { return HostsSidebarStrings.connecting }
-        return machine.isConnected ? nil : HostsSidebarStrings.offline
-    }
-}
-
-/// The Hosts section's words, in every app language (`Localizable.xcstrings`).
-enum HostsSidebarStrings {
-    static var title: String { String(localized: "sidebar.hosts.title", defaultValue: "Hosts", bundle: .module) }
-    static var addHost: String { String(localized: "sidebar.hosts.add", defaultValue: "Add Host…", bundle: .module) }
-    static var connecting: String { String(localized: "sidebar.hosts.connecting", defaultValue: "Connecting…", bundle: .module) }
-    static var offline: String { String(localized: "sidebar.hosts.offline", defaultValue: "Offline", bundle: .module) }
-    static var failed: String { String(localized: "sidebar.hosts.failed", defaultValue: "Failed", bundle: .module) }
-    static var paused: String { String(localized: "sidebar.hosts.paused", defaultValue: "Paused", bundle: .module) }
-    static var resuming: String { String(localized: "sidebar.hosts.resuming", defaultValue: "Resuming…", bundle: .module) }
-    static var deleted: String { String(localized: "sidebar.hosts.deleted", defaultValue: "Deleted", bundle: .module) }
-    /// VoiceOver: "studio-mini, Offline".
-    static func label(_ name: String, _ state: String) -> String {
-        String(format: String(localized: "sidebar.hosts.label", defaultValue: "%1$@, %2$@", bundle: .module), name, state)
+        if machine.isConnecting { return "Connecting…" }
+        return machine.isConnected ? "Connected" : "Offline"
     }
 }
