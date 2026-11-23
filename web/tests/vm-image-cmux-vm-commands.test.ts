@@ -279,11 +279,12 @@ describe("cmux VM image apt index", () => {
       const sha256 = createHash("sha256").update(body).digest("hex");
       writeFileSync(path.join(dir, "served.deb"), body);
       const deb = { path: "pool/main/x/x/x_1_all.deb", sha256, size: body.length };
-      // The archive URL cannot answer here; the snapshot is a file:// mirror of the pool file.
+      // The archive URL cannot answer here; the snapshot is a file:// mirror of the pool file. replaceAll: the archive
+      // prefix also appears in the case that counts archive hits, and a first-match replace left the real URL (network).
       mkdirSync(path.join(dir, "mirror/pool/main/x/x"), { recursive: true });
       writeFileSync(path.join(dir, "mirror/pool/main/x/x/x_1_all.deb"), body);
       const run = async (snapshot: string, debs = { "x=1": deb }) => {
-        const command = aptDebFetchCommand(debs, ["x=1"], snapshot, path.join(dir, "out")).replace("http://archive.ubuntu.com/ubuntu/", `file://${dir}/no-archive/`);
+        const command = aptDebFetchCommand(debs, ["x=1"], snapshot, path.join(dir, "out")).replaceAll("http://archive.ubuntu.com/ubuntu/", `file://${dir}/no-archive/`);
         return runChild("sh", ["-c", command], { timeout: 20_000, env: { PATH: "/usr/bin:/bin" } });
       };
       const fetched = await run(`file://${dir}/mirror/`);
