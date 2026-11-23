@@ -40,7 +40,10 @@ pub(crate) const LOCATION_PATTERN: &str =
 /// raw values; `shader:` plus one is a background id). The test
 /// `shader_names_match_swift` holds this list to the Swift enum, so a new
 /// shader the app draws is one a theme file, a recipe or an agent may pick.
-pub(crate) const SHADERS: [&str; 5] = ["currents", "ripples", "aurora", "field", "aero"];
+pub(crate) const SHADERS: [&str; 11] = [
+    "currents", "ripples", "aurora", "field", "aero", "sakura", "sumi", "koi", "snowfall",
+    "lanterns", "rain",
+];
 
 /// The prefix of a living wallpaper's id (Swift `BackdropShader.idPrefix`).
 pub(crate) const SHADER_PREFIX: &str = "shader:";
@@ -150,7 +153,9 @@ pub(crate) fn is_when(text: &str) -> bool {
 /// longitude in -180...180, spaces around each allowed.
 pub(crate) fn is_location(text: &str) -> bool {
     let parts: Vec<&str> = text.split(',').map(trim_whitespaces).collect();
-    let [latitude, longitude] = parts.as_slice() else { return false };
+    let [latitude, longitude] = parts.as_slice() else {
+        return false;
+    };
     let number = |part: &str| part.parse::<f64>().ok().filter(|x| x.is_finite());
     number(latitude).is_some_and(|x| x.abs() <= 90.0)
         && number(longitude).is_some_and(|x| x.abs() <= 180.0)
@@ -163,7 +168,9 @@ pub(crate) fn is_location(text: &str) -> bool {
 pub(crate) fn is_memory(value: &Value) -> bool {
     value.as_object().is_some_and(|members| {
         members.iter().all(|(name, value)| {
-            let Some(text) = value.as_str() else { return false };
+            let Some(text) = value.as_str() else {
+                return false;
+            };
             match name.as_str() {
                 "rotate" => text == "daily" || is_folder(text),
                 "folder" => is_folder(text),

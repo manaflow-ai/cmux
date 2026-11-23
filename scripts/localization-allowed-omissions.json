@@ -7854,5 +7854,188 @@
       "fr": "Ultra is the profile's product name, spelled the same in this locale (the Ultra Connection Mode row's own name keeps it too); a translated entry is still required.",
       "es": "Ultra is the profile's product name, spelled the same in this locale (the Ultra Connection Mode row's own name keeps it too); a translated entry is still required."
     }
+  },
+  "backdrop.shader.sakura": {
+    "source": "Sakura",
+    "identityLocales": {
+      "bs": {
+        "reason": "Sakura is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Sakura"
+        ]
+      },
+      "da": {
+        "reason": "Sakura is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Sakura"
+        ]
+      },
+      "de": {
+        "reason": "Sakura is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Sakura"
+        ]
+      },
+      "es": {
+        "reason": "Sakura is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Sakura"
+        ]
+      },
+      "fr": {
+        "reason": "Sakura is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Sakura"
+        ]
+      },
+      "it": {
+        "reason": "Sakura is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Sakura"
+        ]
+      },
+      "nb": {
+        "reason": "Sakura is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Sakura"
+        ]
+      },
+      "pl": {
+        "reason": "Sakura is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Sakura"
+        ]
+      },
+      "pt-BR": {
+        "reason": "Sakura is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Sakura"
+        ]
+      },
+      "tr": {
+        "reason": "Sakura is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Sakura"
+        ]
+      }
+    }
+  },
+  "backdrop.shader.sumi": {
+    "source": "Sumi",
+    "identityLocales": {
+      "bs": {
+        "reason": "Sumi is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Sumi"
+        ]
+      },
+      "da": {
+        "reason": "Sumi is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Sumi"
+        ]
+      },
+      "de": {
+        "reason": "Sumi is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Sumi"
+        ]
+      },
+      "es": {
+        "reason": "Sumi is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Sumi"
+        ]
+      },
+      "fr": {
+        "reason": "Sumi is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Sumi"
+        ]
+      },
+      "it": {
+        "reason": "Sumi is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Sumi"
+        ]
+      },
+      "nb": {
+        "reason": "Sumi is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Sumi"
+        ]
+      },
+      "pl": {
+        "reason": "Sumi is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Sumi"
+        ]
+      },
+      "pt-BR": {
+        "reason": "Sumi is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Sumi"
+        ]
+      },
+      "tr": {
+        "reason": "Sumi is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Sumi"
+        ]
+      }
+    }
+  },
+  "backdrop.shader.koi": {
+    "source": "Koi",
+    "identityLocales": {
+      "bs": {
+        "reason": "Koi is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Koi"
+        ]
+      },
+      "da": {
+        "reason": "Koi is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Koi"
+        ]
+      },
+      "de": {
+        "reason": "Koi is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Koi"
+        ]
+      },
+      "es": {
+        "reason": "Koi is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Koi"
+        ]
+      },
+      "it": {
+        "reason": "Koi is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Koi"
+        ]
+      },
+      "nb": {
+        "reason": "Koi is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Koi"
+        ]
+      },
+      "pt-BR": {
+        "reason": "Koi is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Koi"
+        ]
+      },
+      "tr": {
+        "reason": "Koi is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Koi"
+        ]
+      }
+    }
   }
 }

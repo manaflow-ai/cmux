@@ -20,6 +20,18 @@ public nonisolated enum BackdropShader: String, CaseIterable, Sendable {
     case field
     /// Frutiger Aero: glass bubbles rising through a glossy sky; they drift aside from the pointer.
     case aero
+    /// Cherry-blossom petals drifting through a dusk sky; the pointer parts them like a breath of wind.
+    case sakura
+    /// Ink blooming slowly in water; a click drops more ink.
+    case sumi
+    /// Light on a pond floor with koi swimming under it; they swim clear of the pointer.
+    case koi
+    /// Snow drifting down over dark ridges; the pointer sends a gust through it.
+    case snowfall
+    /// The warm bokeh of paper lanterns rising slowly; those near the pointer glow.
+    case lanterns
+    /// Rain on a window at night, city lights soft behind the glass.
+    case rain
 
     /// The prefix of a persisted id (`shader:currents`).
     public static let idPrefix = "shader:"
@@ -41,6 +53,12 @@ public nonisolated enum BackdropShader: String, CaseIterable, Sendable {
         case .aurora: String(localized: "backdrop.shader.aurora", defaultValue: "Aurora", bundle: .localizedModule)
         case .field: String(localized: "backdrop.shader.field", defaultValue: "Dot Field", bundle: .localizedModule)
         case .aero: String(localized: "backdrop.shader.aero", defaultValue: "Aero", bundle: .localizedModule)
+        case .sakura: String(localized: "backdrop.shader.sakura", defaultValue: "Sakura", bundle: .localizedModule)
+        case .sumi: String(localized: "backdrop.shader.sumi", defaultValue: "Sumi", bundle: .localizedModule)
+        case .koi: String(localized: "backdrop.shader.koi", defaultValue: "Koi", bundle: .localizedModule)
+        case .snowfall: String(localized: "backdrop.shader.snowfall", defaultValue: "Snowfall", bundle: .localizedModule)
+        case .lanterns: String(localized: "backdrop.shader.lanterns", defaultValue: "Lanterns", bundle: .localizedModule)
+        case .rain: String(localized: "backdrop.shader.rain", defaultValue: "Rain", bundle: .localizedModule)
         }
     }
 
@@ -57,6 +75,18 @@ public nonisolated enum BackdropShader: String, CaseIterable, Sendable {
             String(localized: "backdrop.shader.field.attribution", defaultValue: "Live · the pointer pushes the dots aside", bundle: .localizedModule)
         case .aero:
             String(localized: "backdrop.shader.aero.attribution", defaultValue: "Live · bubbles drift aside from the pointer", bundle: .localizedModule)
+        case .sakura:
+            String(localized: "backdrop.shader.sakura.attribution", defaultValue: "Live · the pointer parts the petals", bundle: .localizedModule)
+        case .sumi:
+            String(localized: "backdrop.shader.sumi.attribution", defaultValue: "Live · click to drop ink", bundle: .localizedModule)
+        case .koi:
+            String(localized: "backdrop.shader.koi.attribution", defaultValue: "Live · the koi swim clear of the pointer", bundle: .localizedModule)
+        case .snowfall:
+            String(localized: "backdrop.shader.snowfall.attribution", defaultValue: "Live · the pointer sends a gust through the snow", bundle: .localizedModule)
+        case .lanterns:
+            String(localized: "backdrop.shader.lanterns.attribution", defaultValue: "Live · lanterns near the pointer glow", bundle: .localizedModule)
+        case .rain:
+            String(localized: "backdrop.shader.rain.attribution", defaultValue: "Live · rain trickles down the glass", bundle: .localizedModule)
         }
     }
 
@@ -80,6 +110,12 @@ public nonisolated enum BackdropShader: String, CaseIterable, Sendable {
         case .aurora: 63
         case .field: 9
         case .aero: 63
+        case .sakura: 31
+        case .sumi: 24
+        case .koi: 12
+        case .snowfall: 40
+        case .lanterns: 55
+        case .rain: 20
         }
     }
 
