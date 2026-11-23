@@ -1220,8 +1220,8 @@ waiting on a permission, even inside the window (the sessions are read before th
 right before the restart, and the binary goes back if a turn started). A run that finds one busy
 changes nothing (`busy`, reason `restartWindow`) and the first run after the window forces the
 restart as before. It always installs the channel's newest build, so moves that land while it waits
-are one restart, and a window gets at most one such early restart (`~/.acpmux/update.idle-restarted`
-holds the stamp it was made under; the next waits for a restart that was not one). New behaviour,
+are one restart, and early restarts are a window apart (`~/.acpmux/update.idle-restarted`
+holds the time of the last one; the next waits a full window after it). New behaviour,
 default on: `0` in `~/.acpmux/update.idle-restart`, else `ACPMUX_UPDATE_IDLE_RESTART=0` in the
 timer's environment, gives back the plain hour. The updates reach the daemon through the
 `ACPMUX_HOME` and `ACPMUX_SOCKET` that `acpmux.service` and its drop-ins set.
