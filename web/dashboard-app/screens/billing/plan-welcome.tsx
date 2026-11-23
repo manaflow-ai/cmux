@@ -5,6 +5,11 @@ import { useTranslations } from "next-intl";
 import { settingsButtonClass } from "@/dashboard-app/components/settings-ui/styles";
 import { cloudIntroOfferFacts } from "@/services/billing/cloudIntroOffer";
 import { CLOUD_TASTE_AWAKE_HOURS, CLOUD_TASTE_INCLUDED, CLOUD_TASTE_TERM_DAYS } from "@/services/billing/cloudTaste";
+import { CLOUD_INTRO_KEEP_DAYS } from "@/services/billing/cloudIntro";
+import {
+  CLOUD_INTRO_PASS_NOT_NOW,
+  type CloudIntroStatementNotice as CloudIntroStatementNoticeJson,
+} from "@/services/billing/cloudIntroStatements";
 
 export type WelcomePlan = "go" | "pro" | "max";
 
@@ -63,6 +68,52 @@ export function CloudTasteWelcome() {
           minutes: CLOUD_TASTE_INCLUDED.machineMinutes.toLocaleString("en-US"),
         })}
       </p>
+    </section>
+  );
+}
+
+/**
+ * The latest $1 pass statement on Plan & billing: the same lines as the
+ * email, built on the server. `?pass=not-now` (the statement's "Not now")
+ * confirms what happens when the pass ends.
+ */
+export function CloudIntroStatementNotice({
+  notice,
+  pass,
+}: {
+  readonly notice: CloudIntroStatementNoticeJson;
+  readonly pass?: string;
+}) {
+  const t = useTranslations("dashboard.billing");
+  const notNow = pass === CLOUD_INTRO_PASS_NOT_NOW;
+  return (
+    <section data-testid="cloud-intro-statement" aria-label={t("passStatement.label")} className="mb-3 border border-foreground p-3">
+      <h2 className="text-sm font-medium">{notice.title}</h2>
+      <ul className="mt-1 space-y-1 text-xs text-muted">
+        {notice.lines.map((line) => <li key={line}>{line}</li>)}
+      </ul>
+      {notNow ? (
+        <div data-testid="cloud-intro-statement-not-now" className="mt-3 text-xs">
+          <p className="font-medium">{t("passStatement.notNowTitle")}</p>
+          <p className="mt-1 text-muted">{t("passStatement.notNowBody", { keepDays: CLOUD_INTRO_KEEP_DAYS })}</p>
+        </div>
+      ) : null}
+      {notice.askTitle ? <p className="mt-3 text-xs font-medium">{notice.askTitle}</p> : null}
+      {notice.choices.length > 0 ? (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {notice.choices.map((choice) => (
+            <a
+              key={choice.key}
+              data-testid={`cloud-intro-statement-${choice.key}`}
+              href={choice.href}
+              className={settingsButtonClass(choice.key === "plus" ? "primary" : "secondary", "sm")}
+            >
+              {choice.label}
+            </a>
+          ))}
+        </div>
+      ) : null}
+      {notice.after && !notNow ? <p className="mt-2 text-xs text-muted">{notice.after}</p> : null}
     </section>
   );
 }

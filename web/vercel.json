@@ -86,6 +86,10 @@
     {
       "path": "/api/cron/vm-metering",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/cloud-pass-statements",
+      "schedule": "43 * * * *"
     }
   ]
 }

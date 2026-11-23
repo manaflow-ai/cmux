@@ -241,10 +241,10 @@ export type CloudIntroStatementChoice = { readonly key: "plus" | "pro" | "not_no
 export type CloudIntroStatementText = {
   readonly subject: string;
   readonly title: string;
-  readonly lines: readonly string[];
+  readonly lines: string[];
   /** Day 30: Plus, Pro, not now. */
   readonly askTitle: string | null;
-  readonly choices: readonly CloudIntroStatementChoice[];
+  readonly choices: CloudIntroStatementChoice[];
   readonly after: string | null;
   /** The link that turns the later Plus charge off, for `will_charge`. */
   readonly turnOff: { readonly label: string; readonly href: string } | null;
