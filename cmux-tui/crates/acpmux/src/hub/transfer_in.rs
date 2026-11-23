@@ -13,10 +13,14 @@
 //!   `transfer_finish` or `transfer_receive` fails, and the answer `{landed}` says whether the
 //!   chat came here.
 //!
+//! A receive of a pre-copied move names its staged prefix (`transfer_receive {manifest,
+//! stageId}`, `transfer_precopy.rs`), which its finish imports first.
+//!
 //! A receive with a `guard` (`transfer_guard.rs`) keeps it for its write and finish calls, and
 //! answers `guarded: true`.
 
 use super::transfer_guard::{Guard, bundle_path_kind};
+use super::transfer_out::transfer_precopy::names_prefix;
 use super::transfer_out::{
     DURABLE_TRANSFER_SCHEMA, MAX_FILES, MAX_PAGE, TRANSFER_SCHEMA, inside, parse_epoch,
     reject_stale_epoch, require_epoch, transfers_dir,
@@ -172,10 +176,13 @@ impl Hub {
         }
         // A move committed before `moved_to` was recorded: its log says so.
         let mut moved = false;
-        let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
-            // The daemon's own records only: an agent's update may carry any kind.
-            moved |= e.dir == "mux" && e.kind == "transferred";
-            !moved
+        // The whole log with no move: off the runtime's workers (`qos::off_worker`).
+        let _ = crate::qos::off_worker(|| {
+            self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+                // The daemon's own records only: an agent's update may carry any kind.
+                moved |= e.dir == "mux" && e.kind == "transferred";
+                !moved
+            })
         });
         moved
     }
@@ -466,6 +473,14 @@ impl Hub {
         if let Some(g) = &guard {
             self.guarded_receive_check(g, &manifest).await?;
         }
+        // A delta bundle comes with the prefix staged for it (`transfer_precopy.rs`), never alone.
+        let stage_id = params.get("stageId").and_then(Value::as_str);
+        if names_prefix(&manifest) != stage_id.is_some() {
+            return Err(transfer_error(
+                "unstaged",
+                "a manifest with a prefix needs its stageId, and only it does",
+            ));
+        }
         let _receives = RECEIVES.lock().await;
         let transfer_id = manifest["transferId"].as_str().unwrap_or("");
         let Some(mark) = forgotten(transfer_id) else {
@@ -485,6 +500,12 @@ impl Hub {
             crate::home_fs::write(dir.join("manifest.json"), serde_json::to_vec(&manifest)?)
         });
         made.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
+        if let Some(Err(e)) = stage_id
+            .map(|stage| self.take_stage(stage, &manifest, &dir, guard.as_ref().map(|g| g.control)))
+        {
+            let _ = crate::home_fs::remove_dir_all(&dir);
+            return Err(e);
+        }
         super::transfer_watch::note_activity(&dir, None);
         let mut answer = json!({"receiveId": receive_id, "sessionId": id});
         if guard.is_some() {
@@ -549,6 +570,7 @@ impl Hub {
         let incoming_floor = incoming_epoch.unwrap_or(0);
         require_epoch(incoming_floor, parse_epoch(params.get("epoch"))?)?;
         let guard = Guard::stored(&dir)?;
+        let staged = Self::staged_prefix(&dir, &manifest)?;
         let bundle = dir.join("bundle");
         for (path, size) in &files {
             let have = std::fs::metadata(inside(&bundle, path)?).map_or(0, |m| m.len());
@@ -686,7 +708,7 @@ impl Hub {
             .as_ref()
             .map(|guard| super::transfer_guard::GuardedImport { guard, replace_native });
         let session = match self
-            .import_into(&bundle, name, true, guarded, replacing_durable, true)
+            .import_into(&bundle, name, true, guarded, replacing_durable, true, staged.as_ref())
             .await
         {
             Ok(session) => {
@@ -720,6 +742,9 @@ impl Hub {
                         self.recover_staged_replacements();
                     }
                     return Err(transfer_error("store", "could not durably record transferred_in"));
+                }
+                if guard.is_none() {
+                    self.note_received(&session, &transfer_id, bundle_meta.last_seq);
                 }
                 if let Some((_, backup)) = source_store_backup.as_ref() {
                     let state = backup.with_extension("replacement-state.json");
@@ -790,9 +815,12 @@ impl Hub {
         let here = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(session_id).cloned();
         let mut landed = false;
         if let Some(session) = here {
-            let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
-                landed |= e.kind == "transferred_in" && e.msg["transferId"] == transfer_id;
-                !landed
+            // The whole log when it did not land: off the runtime's workers (`qos::off_worker`).
+            let _ = crate::qos::off_worker(|| {
+                self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+                    landed |= e.kind == "transferred_in" && e.msg["transferId"] == transfer_id;
+                    !landed
+                })
             });
         }
         Ok(json!({"transferId": transfer_id, "landed": landed}))
