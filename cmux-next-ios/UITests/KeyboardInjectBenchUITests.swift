@@ -62,6 +62,9 @@ final class KeyboardInjectBenchUITests: XCTestCase {
         prepare: { app in
             let field = app.textViews["chat.composer.field"]
             let capsule = app.descendants(matching: .any).matching(identifier: "Reply to Claude").firstMatch
+            // The bench goes to the chat itself: from a diff, the Changes
+            // screen or any pushed page, back until the composer shows.
+            guard Self.toChat(app, field: field, capsule: capsule) else { return false }
             for _ in 0..<4 where !(field.exists && app.keyboards.firstMatch.exists) {
                 if !field.exists, capsule.waitForExistence(timeout: 10) { capsule.tap() }
                 guard field.waitForExistence(timeout: 5) else { continue }
@@ -75,6 +78,25 @@ final class KeyboardInjectBenchUITests: XCTestCase {
 
     private static let draft = "Keyboard bench draft"
 
+    /// On the chat with its composer (folded or not); else back, up to 4
+    /// screens. False, in seconds, when no composer shows.
+    @MainActor
+    private static func toChat(_ app: XCUIApplication, field: XCUIElement, capsule: XCUIElement) -> Bool {
+        let composer = { field.exists || capsule.exists }
+        let launched = Date()
+        while Date().timeIntervalSince(launched) < 20 {
+            if composer() { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        }
+        for _ in 0..<4 {
+            let back = app.navigationBars.buttons["BackButton"].firstMatch
+            let close = app.buttons["Close"].firstMatch
+            if back.exists { back.tap() } else if close.exists { close.tap() } else { break }
+            if capsule.waitForExistence(timeout: 3) || composer() { return true }
+        }
+        return composer()
+    }
+
     @MainActor private static var chief: Surface { Surface(
         name: "chief",
         arguments: ["-cmux-mobile-demo", "chief-open"],
@@ -83,6 +105,10 @@ final class KeyboardInjectBenchUITests: XCTestCase {
 
     @MainActor func testSlideTerminal() throws { try run(Self.terminal, mode: "slide", rounds: 80) }
     @MainActor func testSlideChat() throws { try run(Self.chat, mode: "slide", rounds: 80) }
+    /// Five rounds (offsets 100, 200, 300, 900, 100 ms each way): a check, in
+    /// minutes of simulator time, that the bench reaches the chat and records
+    /// its steps before the 80-round arms spend hours of queue.
+    @MainActor func testSlideChatSmoke() throws { try run(Self.chat, mode: "slide", rounds: 5) }
     @MainActor func testSlideChief() throws { try run(Self.chief, mode: "slide", rounds: 80) }
     @MainActor func testTTITerminal() throws { try run(Self.terminal, mode: "tti", rounds: 20) }
     @MainActor func testTTIChat() throws { try run(Self.chat, mode: "tti", rounds: 20) }
@@ -104,7 +130,8 @@ final class KeyboardInjectBenchUITests: XCTestCase {
         // On the surface before the first round: its field exists and, where
         // the surface needs one, the field is up with its draft.
         guard ready(surface, app, name: name, label: "setup") else {
-            XCTFail("\(name): not on the \(surface.name) surface with a field to focus\n\(app.debugDescription)")
+            let bar = app.navigationBars.firstMatch
+            XCTFail("\(name): no \(surface.name) composer before round 1; on \(bar.exists ? bar.identifier : "no navigation bar"), keyboard \(keyboardUp(app) ? "up" : "down")\n\(app.debugDescription)")
             attachScreen(app, "\(name)-setup")
             attachTrace(name, path)
             return
