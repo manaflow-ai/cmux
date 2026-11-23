@@ -71,7 +71,7 @@ fi
 if [[ -x scripts/cmux-next/build-web-bundles.sh ]]; then
   scripts/cmux-next/build-web-bundles.sh
 fi
-xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Release -destination 'platform=macOS' build
+xcodebuild -skipPackagePluginValidation -project cmux.xcodeproj -scheme cmux -configuration Release -destination 'platform=macOS' build
 APP_PATH="$OWN_APP_PATH"
 if [[ ! -d "${APP_PATH}" ]]; then
   echo "cmux.app not found at ${APP_PATH}" >&2
