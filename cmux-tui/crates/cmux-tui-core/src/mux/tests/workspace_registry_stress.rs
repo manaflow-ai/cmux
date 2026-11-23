@@ -24,8 +24,8 @@
 //! env CMUX_STRESS=1 cargo test -p cmux-tui-core --release --lib registry_stress_bench -- --nocapture
 //! ```
 //!
-//! THOUSANDS form (ungated): [`open_pane_switch_and_create_cost_the_same_at_five_thousand_workspaces`]
-//! opens a pane, switches workspace and creates one at 8 and at 5,000 workspaces, and fails when
+//! THOUSANDS form (ungated): [`open_pane_switch_and_create_cost_the_same_at_four_thousand_workspaces`]
+//! opens a pane, switches workspace and creates one at 8 and at 4,000 workspaces, and fails when
 //! the counts above or the median time of any of them grow with the workspace count.
 //!
 //! A move to the end and the list are whole-set by nature (every later position changes; the list
@@ -406,9 +406,10 @@ fn a_single_workspace_change_costs_the_same_in_a_bigger_session() {
 /// (as [`a_single_workspace_change_costs_the_same_in_a_bigger_session`]), and its median time
 /// over [`TIMED_ROUNDS`] must stay within [`TIME_RATIO`] of the small session's plus
 /// [`TIME_SLACK_MS`]. A cost linear in the workspaces is hundreds of times the small one at
-/// 5,000; the ratio and slack only absorb a shared CI host's noise.
+/// 4,000 (under the registry cap, `WORKSPACE_REGISTRY_LIMIT`); the ratio and slack only absorb
+/// a shared CI host's noise.
 const FEW: usize = 8;
-const THOUSANDS: usize = 5_000;
+const THOUSANDS: usize = 4_000;
 const TIMED_ROUNDS: usize = 9;
 const TIME_RATIO: f64 = 3.0;
 const TIME_SLACK_MS: f64 = 4.0;
@@ -449,7 +450,7 @@ fn timed_costs(s: &Session) -> BTreeMap<&'static str, f64> {
 
 #[cfg(unix)]
 #[test]
-fn open_pane_switch_and_create_cost_the_same_at_five_thousand_workspaces() {
+fn open_pane_switch_and_create_cost_the_same_at_four_thousand_workspaces() {
     crate::server::skip_tree_entity_check();
     let few = session_with(FEW, 1);
     let few_counts = change_costs(&few);
