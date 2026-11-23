@@ -90,10 +90,19 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
     import("./SharedLinksCard").then(({ SharedLinksCard }) => (_focus, _workspace, reveal) => (
       <SharedLinksCard reveal={reveal} />
     )),
+  // Customization Problems draws above the library in its slot; `focus=card.customizeDoctor` opens on it.
   customizeLibrary: () =>
-    import("./CustomizeLibraryCard").then(({ CustomizeLibraryCard }) => (_focus, _workspace, reveal) => (
-      <CustomizeLibraryCard reveal={reveal} />
-    )),
+    Promise.all([import("./CustomizeLibraryCard"), import("./CustomizeDoctorCard")]).then(
+      ([{ CustomizeLibraryCard }, { CustomizeDoctorCard }]) =>
+        (focus, _workspace, reveal) => (
+          <>
+            <CustomizeDoctorCard focus={focus} />
+            <CustomizeLibraryCard reveal={reveal} />
+          </>
+        ),
+    ),
+  customizeChecklist: () =>
+    import("./CustomizeChecklist").then(({ CustomizeChecklistCard }) => () => <CustomizeChecklistCard />),
   keys: () =>
     import("./KeysCard").then(({ KeysCard }) => (_focus, _workspace, reveal) => <KeysCard reveal={reveal} />),
   mcpServers: () =>
@@ -106,6 +115,8 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
     import("./WorktreeSetupCard").then(({ WorktreeSetupCard }) => () => <WorktreeSetupCard />),
   contextMenus: () =>
     import("./ContextMenusCard").then(({ ContextMenusCard }) => (focus) => <ContextMenusCard focus={focus} />),
+  extensions: () =>
+    import("./ExtensionsCard").then(({ ExtensionsCard }) => () => <ExtensionsCard />),
 };
 
 /** The background picker. The host adds a fresh `open` token to each Change Background… request:

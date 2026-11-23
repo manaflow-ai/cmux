@@ -55,6 +55,16 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "session route",
+        &[
+            (
+                "Decide the next step for a dead session from its facts",
+                "acpmux session route --facts facts.json",
+            ),
+            ("Read the facts from stdin", "acpmux session route --facts -"),
+        ],
+    ),
+    (
         "session cancel",
         &[
             ("Cancel the turn coord is running", "acpmux session cancel coord"),
@@ -76,6 +86,29 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             (
                 "Stop a session by id through the mesh hub",
                 "acpmux session stop 3f2a9c1e-8b4d-4e2a-9f1c-7d6e5b4a3c21 --mesh --id",
+            ),
+        ],
+    ),
+    (
+        "session pause",
+        &[
+            (
+                "Pause an idle review's agent; it resumes on its next prompt",
+                "acpmux session pause review-27310",
+            ),
+            ("Pause a session on another machine", "acpmux session pause mini-3/review-27"),
+        ],
+    ),
+    (
+        "session wake",
+        &[
+            (
+                "Resume a paused session now, on the same conversation",
+                "acpmux session wake review-27310",
+            ),
+            (
+                "The same, and print how long it took as JSON",
+                "acpmux session wake review-27310 --json",
             ),
         ],
     ),

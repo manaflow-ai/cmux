@@ -8,6 +8,7 @@
 import { MutationObserver, type QueryClient } from "@tanstack/react-query";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 import { userMessage } from "../shared/userMessage";
+import { ACCOUNT_ACTIONS } from "../shared/signIn/accountSignIn";
 import { AppearanceHistory, diff, type HistoryEntry, type TargetState } from "./appearanceHistory";
 import { type AppearancePreset, presetTargets } from "./appearancePresets";
 import {
@@ -41,6 +42,7 @@ import { isBackdropRefusal, linkRefusal } from "./backdropRefusal";
 import { t } from "./strings";
 import { pageTransport, TransportError, type SettingsTransport } from "./transport";
 import { readRecipe, readSetupReply, type ResolvedWorktreeRecipe, type WorktreeRecipe } from "../../worktreeRecipe";
+import { readExtensionSettings, type ExtensionSettings } from "./extensionSettings";
 import {
   errorCode,
   newIdempotencyKey,
@@ -53,8 +55,6 @@ import {
   type ChannelsState,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
-  type LibraryListing,
-  type LibraryRun,
   type SharesState,
   type TailnetState,
   type DevicesRun,
@@ -78,24 +78,31 @@ import {
   type WireError,
   type WorkspaceBackground,
   SETTINGS_SENTENCES,
-  type CustomizeTryOn,
-  type JoinConsentSurface,
   type KeysState,
-  type ModelsRun,
-  type ModelsState,
   type AgentToolsCardRun,
   type AgentToolsCardState,
   type McpServersRun,
+  type AgentConfigAnswer,
+  type AgentConfigRun,
   type McpServersState,
   type RowNoteData,
+  type CustomizeTryOn,
+  type JoinConsentSurface,
+  type LibraryListing,
+  type LibraryRun,
+  type ModelsRun,
+  type ModelsState,
   type AgentSkillsRun,
   type AgentSkillsState,
   type AgentMcpRun,
   type AgentMcpState,
   type AgentHooksRun,
   type AgentHooksState,
-  type AgentConfigAnswer,
-  type AgentConfigRun,
+  type AccountsRunReply,
+  type AllotmentSet,
+  type AllotmentView,
+  type DoctorReport,
+  type DoctorRun,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -732,6 +739,15 @@ export class SettingsStore {
     return reply.value.error ?? null;
   }
 
+  /** One in-place sign-in gesture (shared/signIn ACCOUNT_ACTIONS) with the host's whole answer, so
+   * the card reads the login it started. Nothing of the answer is kept here: the one-time code stays
+   * in the card. The list refreshes after a gesture that changes it (a finish, use or remove). */
+  async runAccountSignIn(run: AccountsRun): Promise<Reply<AccountsRunReply>> {
+    const reply = await this.request("cmux.settings.accounts.run", run);
+    if (run.action !== ACCOUNT_ACTIONS.start) await this.refreshAccounts();
+    return reply;
+  }
+
   /** The host's calls for Agents > Chiefs (`cmux.chief.profile.*`, `cmux.chief.backend.*`): the
    * Chief editor reaches the Chief owner through the host's page relay, as Home does. */
   readonly chiefCalls = {
@@ -921,6 +937,36 @@ export class SettingsStore {
     return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
   }
 
+  /** Settings > Extensions: every installed extension whose manifest declares settings, or the
+   * host's refusal (`unavailable` when this build's host cannot reach them). */
+  async extensionSettings(): Promise<{ apps: ExtensionSettings[]; error: string | null; unavailable: boolean }> {
+    const reply = await this.request("cmux.settings.extensions.list", {});
+    if (!reply.ok)
+      return { apps: [], error: userMessage(reply.error, SETTINGS_SENTENCES), unavailable: isUnsupported(reply.error) };
+    return { apps: readExtensionSettings(reply.value), error: null, unavailable: false };
+  }
+
+  /** Changes settings of one extension (`null` resets a key): the values it now runs with, or the
+   * daemon's refusal text. The running extension hears the change at once. */
+  async setExtensionSettings(
+    app: string,
+    values: Record<string, unknown>,
+  ): Promise<{ values: Record<string, unknown> | null; error: string | null }> {
+    const reply = await this.request("cmux.settings.extensions.set", {
+      app,
+      values,
+      idempotency_key: newIdempotencyKey(),
+    });
+    if (!reply.ok) {
+      // The daemon's reason names the key and the limit in English, for the log; the row shows ours.
+      const sentences = { ...SETTINGS_SENTENCES, "cmux.apps.settings.invalid": t("settingsPage.extensions.invalid") };
+      return { values: null, error: userMessage(reply.error, sentences) };
+    }
+    const answered = (reply.value as { values?: unknown } | null)?.values;
+    const next = answered && typeof answered === "object" ? (answered as Record<string, unknown>) : null;
+    return { values: next, error: null };
+  }
+
   /** One Cloud Environments gesture, then the fresh state; the host's failure text, else null. */
   async runEnvironments(
     run: CloudEnvironmentsRun,
@@ -937,6 +983,21 @@ export class SettingsStore {
     if (verb !== "status") await this.request("cmux.settings.customize.run", { verb });
     const reply = await this.request("cmux.settings.customize.run", { verb: "status" });
     return reply.ok ? (reply.value?.try_on ?? null) : null;
+  }
+
+  /** Settings > Team > Compute: the team's Cloud allotment and the scheduler's proposal; null when
+   * the host has no Compute part or the read failed. */
+  async allotment(): Promise<AllotmentView | null> {
+    const reply = await this.request("cmux.settings.cloud.allotment.get", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** Settings > Team > Compute, an admin's one click: the view after it, or the host's refusal text. */
+  async setAllotment(run: AllotmentSet): Promise<{ view: AllotmentView | null; error: string | null }> {
+    const reply = await this.request("cmux.settings.cloud.allotment.set", run);
+    return reply.ok
+      ? { view: reply.value, error: null }
+      : { view: null, error: userMessage(reply.error, SETTINGS_SENTENCES) };
   }
 
   /** Settings > Privacy and Security > Shared Links: this Mac's chat shares; null when the host has
@@ -959,6 +1020,28 @@ export class SettingsStore {
       ? null
       : (answer.message ?? (answer.code ? t("settingsPage.customizeLibrary.notChanged") : null));
     return { library: answer.library ?? null, refusal };
+  }
+
+  /** Personalization > Customization Problems: one `cmux customize doctor` verb (or `doctor-open`,
+   * which the host runs). Answers the report after it (null when the host has no CLI, did not answer
+   * one, or for `doctor-open`), the CLI's refusal in its own words (an unknown id, a fix it does not
+   * offer), else null, and a fix's one line. */
+  async customizeDoctor(
+    run: DoctorRun,
+  ): Promise<{ doctor: DoctorReport | null; refusal: string | null; said: string | null }> {
+    const reply = await this.request("cmux.settings.customize.library", run);
+    // A host that cannot run the doctor (an older build, no CLI) shows no card and no notice.
+    if (!reply.ok)
+      return {
+        doctor: null,
+        refusal: run.verb === "doctor" ? null : userMessage(reply.error, SETTINGS_SENTENCES),
+        said: null,
+      };
+    const answer = reply.value ?? {};
+    const refused = answer.code !== undefined || answer.message !== undefined;
+    const refusal = refused ? (answer.message ?? t("settingsPage.customizeDoctor.notChanged")) : null;
+    const said = answer.fixed?.said ?? (answer.recovered ? answer.recovered.said.join(" ") : null);
+    return { doctor: answer.doctor ?? null, refusal, said: said || null };
   }
 
   /** Settings > Keys: this Mac's keys and the requests waiting for the person; null when the host

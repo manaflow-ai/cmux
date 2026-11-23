@@ -5,7 +5,15 @@
 import { queryOptions, type QueryClient } from "@tanstack/react-query";
 import { categoryById, homes, categoryOf } from "./categories";
 import { legacyPart } from "./legacyLinks";
-import type { AgentsState, ChannelsState, KeysState, SharesState, TailnetState, LibraryListing } from "./ops";
+import type {
+  AgentsState,
+  ChannelsState,
+  DoctorReport,
+  KeysState,
+  SharesState,
+  TailnetState,
+  LibraryListing,
+} from "./ops";
 import { settingsKeys } from "./queries";
 import { loadCards } from "./components/cardModules";
 import type { SettingsStore } from "./store";
@@ -92,6 +100,20 @@ export function libraryQuery(store: SettingsStore) {
 /** The library as read, and the CLI's refusal of the read in its own words. */
 export type LibraryRead = { library: LibraryListing | null; refusal: string | null };
 
+/** The customize doctor's key; each fix and dismiss answers it again. */
+export const DOCTOR_KEY = [...settingsKeys.all, "customize-doctor"] as const;
+
+/** Personalization > Customization Problems and the Settings notice: what `cmux customize doctor`
+ * finds (null: the host cannot run it). */
+export function doctorQuery(store: SettingsStore) {
+  return queryOptions<DoctorReport | null>({
+    queryKey: DOCTOR_KEY,
+    queryFn: async () => (await store.customizeDoctor({ verb: "doctor" })).doctor,
+    staleTime: SECTION_READ_FRESH_MS,
+    structuralSharing: true,
+  });
+}
+
 /** The Keys list's key; an answer, a decline, a revoke and the host's `cmux.settings.keys.changed`
  * refresh it. */
 export const KEYS_KEY = [...settingsKeys.all, "keys"] as const;
@@ -133,7 +155,10 @@ export function sectionReads(store: SettingsStore, section: string): SectionRead
     reads.push({ options: { queryKey: settingsKeys.models }, revalidate: false });
   if (cards.has("agentHarnesses")) reads.push({ options: agentsQuery(store), revalidate: true });
   if (cards.has("sharedLinks")) reads.push({ options: sharesQuery(store), revalidate: true });
-  if (cards.has("customizeLibrary")) reads.push({ options: libraryQuery(store), revalidate: true });
+  if (cards.has("customizeLibrary") || cards.has("customizeChecklist"))
+    reads.push({ options: libraryQuery(store), revalidate: true });
+  // Customization Problems draws above the library, in its slot.
+  if (cards.has("customizeLibrary")) reads.push({ options: doctorQuery(store), revalidate: true });
   if (cards.has("keys")) reads.push({ options: keysQuery(store), revalidate: true });
   if (cards.has("tailnet")) reads.push({ options: tailnetQuery(store), revalidate: true });
   if (cards.has("channels")) {
