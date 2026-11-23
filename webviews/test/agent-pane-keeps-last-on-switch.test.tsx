@@ -102,9 +102,13 @@ test("a chat with no turns keeps its hero while the pane connects", () => {
     rows: [],
     queue: [],
     isWorking: false,
+    link: "connecting",
+    emitReason: "connecting",
     connection: "connecting",
   } as unknown as Parameters<typeof isNewChat>[0];
   expect(isNewChat(snapshot)).toBe(true);
-  expect(isNewChat({ ...snapshot, connection: "disconnected" })).toBe(true);
-  expect(isNewChat({ ...snapshot, connection: "failed" })).toBe(false);
+  expect(isNewChat({ ...snapshot, link: "disconnected", emitReason: "disconnected", connection: "disconnected" })).toBe(
+    true,
+  );
+  expect(isNewChat({ ...snapshot, link: "connected", emitReason: "failed", connection: "failed" })).toBe(false);
 });

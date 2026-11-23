@@ -74,6 +74,8 @@ const chat = (count: number, tail: AcpmuxRow[], extra: Partial<AcpmuxSnapshot> =
   ({
     type: "snapshot",
     protocolVersion: 1,
+    link: "connected",
+    emitReason: "connected",
     connection: "connected",
     sessionId: SESSION,
     isWorking: true,
@@ -323,7 +325,12 @@ test("a turn that starts or ends, or a link that drops, draws at once; a streame
   expect(drawsAtOnce(idle, working), "the turn starts: the composer offers Stop at once").toBe(true);
   expect(drawsAtOnce(working, idle), "the turn ends: the composer offers Send at once").toBe(true);
   expect(
-    drawsAtOnce(working, { ...working, connection: "disconnected" } as AcpmuxSnapshot),
+    drawsAtOnce(working, {
+      ...working,
+      link: "disconnected",
+      emitReason: "disconnected",
+      connection: "disconnected",
+    } as AcpmuxSnapshot),
     "the link drops: the line above the composer says so at once",
   ).toBe(true);
   const grown = chat(10, [row("reply", "assistant", "Done. More")], { isWorking: true });
