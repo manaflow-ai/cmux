@@ -58,6 +58,7 @@ import { acpWire } from "../wire";
 import { chatPerfCapture } from "../chatPerfCapture";
 import { acpmuxPerf } from "../perf";
 import { perfReporter } from "../perfReporter";
+import { frameTally } from "../conversation/frameTally";
 import { reconciledProject } from "../newtab/startHint";
 import { streamingRow, streamingRowBlocked } from "../streamingRow";
 import { liveToolOutput, toolOutputOnly } from "../liveToolOutput";
@@ -1249,6 +1250,8 @@ export function paneSnapshotEffect({
       directClient.current = client;
       // The perf watch (perfReporter.ts): one status read on the page's first connect; off, nothing runs.
       perfReporter.attach((params) => client.perf(params));
+      // The always-on frame tally (conversation/frameTally.ts): the visible chat's frame gaps, to the daemon.
+      frameTally.attach((params) => client.perf(params));
       client.setFollowing(followingTranscript.current);
       // A reader scrolled far up keeps the rows in view and the screens under them (direct.ts `shedNewerHeld`).
       client.readerView = () => transcriptInView.current?.();
