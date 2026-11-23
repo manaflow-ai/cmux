@@ -1,16 +1,25 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
+import CmuxNextWakeups
 
 /// The hover card's miniature of a workspace's splits (``SidebarPaneShape``): one rounded tile per pane at its
-/// real share of the screen, the pane's front tab's mark in it, the focused pane outlined in the accent.
+/// real share of the screen showing the pane's front tab as it last looked (``SidebarTabThumbnails``, #51768), its
+/// kind's mark until a picture comes, the focused pane outlined in the accent.
 /// Leo 2026-11-22 (ask-890db939a2): "i have this layout. so. the preview should be able to depict that."
+///
+/// While the card shows, its pictures refresh every ``refreshInterval``; a tile keeps its picture until a newer one
+/// lands, so it never flashes back to the mark.
 final class WorkspacePaneShapeView: NSView {
     /// The miniature's height; its width is the card's text column.
     static let height: CGFloat = 64
     static let gap: CGFloat = 3
     static let cornerRadius: CGFloat = 4
     static let markSize: CGFloat = 12
+    /// The size pictures are asked at: a tile is at most the card's text column wide, at 2x.
+    static let pictureSize = CGSize(width: 640, height: 320)
+    /// How long after its last pictures a showing card asks for newer ones (a running terminal, a chat that moved on).
+    static let refreshInterval: Duration = .seconds(1)
 
     var shape: SidebarPaneShape? {
         didSet {
@@ -20,6 +29,11 @@ final class WorkspacePaneShapeView: NSView {
             setAccessibilityLabel(shape.map { Self.accessibilityText($0) })
         }
     }
+
+    /// Where the tiles' pictures come from: the hover card controller's store (a test's own).
+    var thumbnails = SidebarTabThumbnails()
+    /// The next refresh while the card shows; one-shot, scheduled again by each refresh.
+    private let refreshTimer = DemandTimer(owner: "sidebar.hover-card.pane-pictures")
 
     override var isFlipped: Bool { true }
     override var intrinsicContentSize: NSSize { NSSize(width: NSView.noIntrinsicMetric, height: Self.height) }
@@ -32,8 +46,46 @@ final class WorkspacePaneShapeView: NSView {
         setAccessibilityIdentifier("cmux.sidebar.hoverCard.paneShape")
     }
 
+    nonisolated deinit { refreshTimer.cancel() }
+
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    // MARK: Pictures
+
+    /// Asks for each tile's newest picture now and keeps asking while the card shows (the card calls this on each
+    /// show). The last pictures draw meanwhile.
+    func refreshThumbnails() {
+        guard let shape, thumbnails.provider != nil else { return stopRefreshing() }
+        for tab in shape.tabs {
+            Task { [weak self, thumbnails] in  // task-owner: one bounded picture request; a closed card ignores it
+                if await thumbnails.refresh(tab, maxPixelSize: Self.pictureSize) { self?.needsDisplay = true }
+            }
+        }
+        // hover-timing: picture refresh cadence while the card shows, not a delay
+        refreshTimer.scheduleIfIdle(after: Self.refreshInterval) { @MainActor [weak self] in self?.refreshTick() }
+    }
+
+    /// The tab whose picture tile `index` shows, when it has one (tests).
+    func thumbnail(ofTile index: Int) -> CGImage? {
+        guard let panes = shape?.frames(in: .zero, gap: 0), panes.indices.contains(index), let tab = panes[index].pane.tab else { return nil }
+        return thumbnails.image(for: tab)
+    }
+
+    private func refreshTick() {
+        // A card put away (ordered out, hidden or closed) stops asking; its next show starts again.
+        guard let window, window.isVisible, !isHiddenOrHasHiddenAncestor else { return stopRefreshing() }
+        refreshThumbnails()
+    }
+
+    private func stopRefreshing() { refreshTimer.cancel() }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil { stopRefreshing() }
+    }
+
+    // MARK: Drawing
 
     override func draw(_ dirtyRect: NSRect) {
         guard let shape else { return }
@@ -46,11 +98,13 @@ final class WorkspacePaneShapeView: NSView {
                 let path = NSBezierPath(roundedRect: frame, xRadius: Self.cornerRadius, yRadius: Self.cornerRadius)
                 fill.setFill()
                 path.fill()
+                let picture = pane.tab.flatMap { thumbnails.image(for: $0) }
+                if let picture { Self.draw(picture, filling: frame, clippedTo: path) }
                 (pane.focused ? focus : edge).setStroke()
                 path.lineWidth = pane.focused ? 1.5 : 1
                 path.stroke()
                 // A mark only where it fits with room around it, so a sliver of a pane reads as a pane, not a glyph.
-                guard let kind = pane.kind, frame.width >= Self.markSize * 2, frame.height >= Self.markSize * 2,
+                guard picture == nil, let kind = pane.kind, frame.width >= Self.markSize * 2, frame.height >= Self.markSize * 2,
                       let image = CGImage.icon(kind.iconName, size: Self.markSize, scale: window?.backingScaleFactor ?? 2, tint: markTint),
                       let context = NSGraphicsContext.current?.cgContext else { continue }
                 let mark = CGRect(x: frame.midX - Self.markSize / 2, y: frame.midY - Self.markSize / 2,
@@ -63,6 +117,29 @@ final class WorkspacePaneShapeView: NSView {
                 context.restoreGState()
             }
         }
+    }
+
+    /// Draws `image` over `frame`, scaled to fill it and kept to its top (a page's head, a chat's header), clipped to
+    /// the tile's rounded `path`. The view is flipped; a CGImage draws bottom-up.
+    private static func draw(_ image: CGImage, filling frame: CGRect, clippedTo path: NSBezierPath) {
+        guard let context = NSGraphicsContext.current?.cgContext, image.width > 0, image.height > 0 else { return }
+        let rect = fillRect(for: CGSize(width: image.width, height: image.height), in: frame)
+        context.saveGState()
+        path.addClip()
+        context.interpolationQuality = .high
+        context.translateBy(x: 0, y: rect.maxY + rect.minY)
+        context.scaleBy(x: 1, y: -1)
+        context.draw(image, in: rect)
+        context.restoreGState()
+    }
+
+    /// Where a picture of `size` draws to fill `frame` (flipped space): scaled to cover it, centered across, top on
+    /// the frame's top.
+    static func fillRect(for size: CGSize, in frame: CGRect) -> CGRect {
+        guard size.width > 0, size.height > 0 else { return frame }
+        let scale = max(frame.width / size.width, frame.height / size.height)
+        let drawn = CGSize(width: size.width * scale, height: size.height * scale)
+        return CGRect(x: frame.midX - drawn.width / 2, y: frame.minY, width: drawn.width, height: drawn.height)
     }
 
     func applyColors() { needsDisplay = true }

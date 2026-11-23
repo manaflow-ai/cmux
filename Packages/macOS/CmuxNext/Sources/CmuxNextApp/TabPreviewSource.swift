@@ -1,3 +1,4 @@
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextTabs
@@ -7,18 +8,21 @@ import CoreGraphics
 /// the last preview kept in the 32 MB LRU. The New Tab and blank pages
 /// picture nothing (a flat page in the theme background), and neither does a
 /// flat capture (a page that had not painted, a terminal with only its prompt):
-/// the card shows no thumbnail. A page tab's (Markdown, a diff, Settings) comes from ``PageTabPictures``.
+/// the card shows no thumbnail. A page tab's (Markdown, a diff, Settings) comes from ``PageTabPictures``; a chat's from ``AgentPanePictures``.
 final class TabPreviewSource: TabPreviewProvider {
     private unowned let cache: TabContentCache
     private let pages: InternalPageTabStore  // AppServices owns both; the store holds nothing of this
+    let chats: AgentPanePictures
 
-    init(cache: TabContentCache, pages: InternalPageTabStore) {
+    init(cache: TabContentCache, pages: InternalPageTabStore, chats: @escaping @MainActor (String) -> AgentPaneView?) {
         (self.cache, self.pages) = (cache, pages)
+        self.chats = AgentPanePictures(view: chats, keep: cache.previews.insert)
     }
 
     func previewImage(for tab: TabID, maxPixelSize: CGSize) async -> CGImage? {
         if let page = pages.existingView(tab.rawValue) { return await pages.pictures.picture(of: page, maxPixelSize: maxPixelSize) }
-        return await Self.shown(cache.previewImage(for: tab.rawValue, maxPixelSize: maxPixelSize), key: tab.rawValue, cache: cache)
+        let image = await chats.freshPicture(tab.rawValue, fit: maxPixelSize) ?? cache.previewImage(for: tab.rawValue, maxPixelSize: maxPixelSize)
+        return await Self.shown(image, key: tab.rawValue, cache: cache)
     }
 
     /// What a tab or screen card or a drag ghost pictures of `key`'s `image`: nothing on the

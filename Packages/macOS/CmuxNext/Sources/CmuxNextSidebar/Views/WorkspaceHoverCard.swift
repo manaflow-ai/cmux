@@ -58,6 +58,8 @@ final class WorkspaceHoverCardController: HoverCardSource {
     var customization: (any SidebarCustomization)?
     /// A workspace's history of prompts, waits and finished turns (u3320); the App injects it.
     var timelineSource: SidebarTimelineSource?
+    /// Every card's tab pictures (#51768): a card opened again draws its last at once.
+    let thumbnails = SidebarTabThumbnails()
     /// How many moments a card reads: its stats count them all, its list shows `maxRows`.
     static let timelineReadLimit = 100
     /// The shown card's custom content and its workspace; released when the card hides or moves.
@@ -157,6 +159,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
         if let group = groupID(id) { return groupCardBody(for: group, id: id) }
         guard let list, let ws = workspaceID(id), let workspace = list.hoverCardRow(ws) else { return nil }
         let body = body ?? WorkspaceHoverCardView()
+        body.paneShape.thumbnails = thumbnails
         body.widthCap = min(WorkspaceHoverCardView.maxCardWidth, list.bounds.width + WorkspaceHoverCardView.tokens.sidebarReach)
         if bodyID != id { body.resetDetails() }
         // Activation ran while the card was pending, before this body existed, so details
@@ -197,6 +200,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
               }).first,
               let workspace = list.hoverCardRow(ws) else { return nil }
         let body = WorkspaceHoverCardView()
+        body.paneShape.thumbnails = thumbnails
         body.widthCap = min(WorkspaceHoverCardView.maxCardWidth, list.bounds.width + WorkspaceHoverCardView.tokens.sidebarReach)
         self.body = body
         fill(body, with: workspace, ws, in: list)
@@ -862,10 +866,13 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
 
     /// The tab list and the summary header for `tabs`, as of `now` (their times).
     /// Shows `shape`, the workspace's splits, under the title; nil hides the miniature.
+    /// Each show asks for the tiles' newest pictures (#51768); the last ones draw meanwhile.
     func configurePaneShape(_ shape: SidebarPaneShape?) {
-        guard paneShape.shape != shape else { return }
-        contentChanged()
-        paneShape.shape = shape
+        if paneShape.shape != shape {
+            contentChanged()
+            paneShape.shape = shape
+        }
+        paneShape.refreshThumbnails()
     }
 
     func configureTabs(title: String, tabs: [SidebarTab], now: Date = Date(), machine: SidebarMachine? = nil) {
