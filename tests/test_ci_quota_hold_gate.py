@@ -131,9 +131,16 @@ def step_gated(job: dict, step_id: str | None) -> bool:
 
 def ungated_jobs(workflow: dict, listed: tuple[str, ...] = (), name: str = "") -> list[str]:
     steps = STEP_GATED.get(name, {})
-    # A step-gated job may read the hold in its `if:` for some events too; its pick step is what must hold it.
     return [job_id for job_id, job in covered_jobs(workflow, listed).items()
-            if not (step_gated(job, steps[job_id]) if job_id in steps else GATE in str(job.get("if", "")))]
+            if not (step_gated(job, steps[job_id]) and edit_gated(job) if job_id in steps
+                    else GATE in str(job.get("if", "")))]
+
+
+def edit_gated(job: dict) -> bool:
+    """A step-gated job holds in its pick step; one whose `if:` also starts it on a description edit holds there
+    too, so an edit during a hold starts no runner at all (the pick step would only drop every step on it)."""
+    condition = str(job.get("if", ""))
+    return "'edited'" not in condition or GATE in condition
 
 
 def events(workflow: dict) -> dict:
@@ -256,6 +263,19 @@ class QuotaHoldGateTests(unittest.TestCase):
             original = (WORKFLOWS / "pr-checks.yml").read_text(encoding="utf-8")
             self.assertIn(f"HOLD: {STEP_GATE_ENV}", original)
             dropped = self.write(directory, "pr-checks.yml", original.replace(f"HOLD: {STEP_GATE_ENV}", "HOLD: ''", 1))
+            others = [p for p in workflow_files() if p.name != dropped.name]
+            failures = violations(others + [dropped])
+        self.assertTrue(any("'advisory' does not gate" in f for f in failures), failures)
+
+    def test_a_dropped_edit_gate_is_reported(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            original = (WORKFLOWS / "pr-checks.yml").read_text(encoding="utf-8")
+            gate = f" && {GATE}"
+            self.assertEqual(original.count(gate), 1, "the advisory job's `if:` holds description edits")
+            dropped = self.write(directory, "pr-checks.yml", original.replace(gate, "", 1))
             others = [p for p in workflow_files() if p.name != dropped.name]
             failures = violations(others + [dropped])
         self.assertTrue(any("'advisory' does not gate" in f for f in failures), failures)
