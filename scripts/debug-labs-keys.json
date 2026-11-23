@@ -79,7 +79,7 @@
   "macScreen.devicesLook": {"case": "keep", "why": "A look comparison for the Screen Sharing page's Your Devices list (Leo 11-16, quiet rows); quiet is the default."},
   "macScreen.qualityReadout": {"case": "keep", "why": "A placement comparison for the screen-share viewer's quality readout (Leo 11-21, redesign; D10 shows the link it spends); inline is the default, chip and stats panel stay selectable."},
   "macScreen.toolbarBar": {"case": "keep", "why": "A layout comparison for the screen-share viewer's floating bar (Leo 11-22: \"this is still bad looking\" of the two-row bar); one row is the default, glyphs, controls only and the two-row bar stay selectable."},
-  "macScreen.sharingLook": {"case": "keep", "why": "A look comparison for the Screen Sharing page's This Mac section (Lawrence 11-07); the list is the default."},
+  "macScreen.sharingLook": {"case": "keep", "why": "A look comparison for the Screen Sharing page's This Mac section (Lawrence 11-07); simple (one switch, one Grant Access, Leo 11-16) is the default."},
   "macScreen.viewerLook": {"case": "keep", "why": "A look comparison for the screen-share viewer pane (Leo 11-21, redesign); look A is the default; current, B and C stay selectable."},
   "motion.pane.variant": {"case": "keep", "why": "A motion comparison for pane close and expand; the standard movement is the shipped one."},
   "newTab.layout": {"case": "keep", "why": "A design comparison for the new tab screen; design B is the default and A is still selectable."},
