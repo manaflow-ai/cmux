@@ -15961,133 +15961,395 @@
         }
       }
     },
+    "settings.editor.default": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open in Editor"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فتح في المحرر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvori u uređivaču"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbn i editor"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Im Editor öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir en el editor"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ouvrir dans l’éditeur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apri nell’editor"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エディタで開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើកក្នុងកម្មវិធីកែ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "편집기에서 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpne i redigerer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otwórz w edytorze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir no editor"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Открыть в редакторе"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดในโปรแกรมแก้ไข"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Düzenleyicide Aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкрити в редакторі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mở trong trình soạn thảo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在编辑器中打开"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在編輯器中開啟"
+          }
+        }
+      }
+    },
+    "settings.editor.default.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The app Open in Editor opens a folder or file in; Text Editor, when set, opens files and picks it here. One not installed uses the first editor found."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التطبيق الذي يفتح فيه «فتح في المحرر» مجلدًا أو ملفًا؛ محرر النصوص، عند تعيينه، يفتح الملفات ويُختار هنا. إذا لم يكن مثبتًا، يُستخدم أول محرر يُعثر عليه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aplikacija u kojoj Otvori u uređivaču otvara mapu ili datoteku; Uređivač teksta, kada je postavljen, otvara datoteke i bira se ovdje. Ako nije instalirana, koristi se prvi pronađeni uređivač."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den app, Åbn i editor åbner en mappe eller fil i; Teksteditor åbner filer, når den er angivet, og vælges her. Er den ikke installeret, bruges den første editor, der findes."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die App, in der „Im Editor öffnen“ einen Ordner oder eine Datei öffnet; ein festgelegter Texteditor öffnet Dateien und wird hier gewählt. Ist sie nicht installiert, wird der erste gefundene Editor verwendet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La app en la que Abrir en el editor abre una carpeta o un archivo; el Editor de texto, si está definido, abre los archivos y se elige aquí. Si no está instalada, se usa el primer editor encontrado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’app dans laquelle Ouvrir dans l’éditeur ouvre un dossier ou un fichier ; l’Éditeur de texte, s’il est défini, ouvre les fichiers et est choisi ici. Si elle n’est pas installée, le premier éditeur trouvé est utilisé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’app in cui Apri nell’editor apre una cartella o un file; l’Editor di testo, se impostato, apre i file e viene scelto qui. Se non è installata, si usa il primo editor trovato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「エディタで開く」でフォルダやファイルを開くアプリ。テキストエディタを設定すると、ファイルはそれで開き、ここでも選ばれます。インストールされていない場合は、最初に見つかったエディタを使います。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីដែល បើកក្នុងកម្មវិធីកែ បើកថត ឬឯកសារ។ កម្មវិធីកែអត្ថបទ ពេលកំណត់ នឹងបើកឯកសារ ហើយត្រូវបានជ្រើសនៅទីនេះ។ បើមិនបានដំឡើងទេ នឹងប្រើកម្មវិធីកែដំបូងដែលរកឃើញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "편집기에서 열기가 폴더나 파일을 여는 앱입니다. 텍스트 편집기를 설정하면 파일은 그 앱으로 열리고 여기서도 선택됩니다. 설치되어 있지 않으면 처음 찾은 편집기를 사용합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Appen Åpne i redigerer åpner en mappe eller fil i; Tekstredigerer åpner filer når den er angitt, og velges her. Er den ikke installert, brukes den første redigereren som finnes."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aplikacja, w której Otwórz w edytorze otwiera folder lub plik; ustawiony Edytor tekstu otwiera pliki i jest wybierany tutaj. Jeśli nie jest zainstalowana, używany jest pierwszy znaleziony edytor."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O app em que Abrir no editor abre uma pasta ou um arquivo; o Editor de texto, quando definido, abre os arquivos e é escolhido aqui. Se não estiver instalado, é usado o primeiro editor encontrado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Приложение, в котором «Открыть в редакторе» открывает папку или файл; заданный «Текстовый редактор» открывает файлы и выбирается здесь. Если оно не установлено, используется первый найденный редактор."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แอปที่ เปิดในโปรแกรมแก้ไข ใช้เปิดโฟลเดอร์หรือไฟล์ โปรแกรมแก้ไขข้อความ เมื่อตั้งไว้ จะเปิดไฟล์และถูกเลือกที่นี่ หากไม่ได้ติดตั้งไว้ จะใช้โปรแกรมแก้ไขแรกที่พบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Düzenleyicide Aç'ın bir klasörü veya dosyayı açtığı uygulama; Metin Düzenleyici ayarlıysa dosyaları açar ve burada seçilir. Yüklü değilse bulunan ilk düzenleyici kullanılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Застосунок, у якому «Відкрити в редакторі» відкриває папку чи файл; заданий «Текстовий редактор» відкриває файли й вибирається тут. Якщо його не встановлено, використовується перший знайдений редактор."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ứng dụng mà Mở trong trình soạn thảo dùng để mở thư mục hoặc tệp; Trình soạn thảo văn bản, khi được đặt, sẽ mở tệp và được chọn ở đây. Nếu chưa cài, trình soạn thảo đầu tiên tìm thấy sẽ được dùng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“在编辑器中打开”用来打开文件夹或文件的 App；设置了“文本编辑器”时，文件用它打开，这里也选它。未安装时，使用找到的第一个编辑器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「在編輯器中開啟」用來開啟資料夾或檔案的 App；設定了「文字編輯器」時，檔案用它開啟，這裡也選它。未安裝時，使用找到的第一個編輯器。"
+          }
+        }
+      }
+    },
     "settings.files.textEditor.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "An app name, bundle ID or app path. Empty uses your source code app."
+            "value": "An app name, bundle ID or app path. Empty uses Open in Editor's app, else your source code app."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "اسم تطبيق أو معرّف حزمة أو مسار تطبيق. الفارغ يستخدم تطبيق الشفرة المصدرية."
+            "value": "اسم تطبيق أو معرّف حزمة أو مسار تطبيق. الفارغ يستخدم تطبيق «فتح في المحرر»، وإلا تطبيق الشفرة المصدرية."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Naziv aplikacije, ID paketa ili putanja aplikacije. Prazno koristi vašu aplikaciju za izvorni kod."
+            "value": "Naziv aplikacije, ID paketa ili putanja aplikacije. Prazno koristi aplikaciju za Otvori u uređivaču, inače vašu aplikaciju za izvorni kod."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Et appnavn, et bundle-id eller en appsti. Tom bruger din app til kildekode."
+            "value": "Et appnavn, bundle-id eller en appsti. Tom bruger appen til Åbn i editor, ellers din kildekodeapp."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ein App-Name, eine Bundle-ID oder ein App-Pfad. Leer verwendet deine App für Quellcode."
+            "value": "Ein App-Name, eine Bundle-ID oder ein App-Pfad. Leer verwendet die App von „Im Editor öffnen“, sonst deine Quellcode-App."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Un nombre de app, ID de paquete o ruta de app. Vacío usa tu app de código fuente."
+            "value": "Un nombre de app, un ID de paquete o una ruta de app. Vacío usa la app de Abrir en el editor o, si no, tu app de código fuente."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Un nom d'app, un identifiant de bundle ou le chemin d'une app. Vide utilise l'app du code source."
+            "value": "Un nom d’app, un identifiant de paquet ou un chemin d’app. Vide utilise l’app d’Ouvrir dans l’éditeur, sinon votre app de code source."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Un nome di app, un ID bundle o il percorso di un'app. Vuoto usa l'app che apre il codice sorgente."
+            "value": "Un nome di app, un ID bundle o un percorso dell’app. Vuoto usa l’app di Apri nell’editor, altrimenti la tua app per il codice sorgente."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "アプリ名、バンドル ID、またはアプリのパス。空の場合はソースコードを開くアプリを使います。"
+            "value": "アプリ名、バンドル ID、またはアプリのパス。空の場合は「エディタで開く」のアプリ、なければソースコード用のアプリを使います。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ឈ្មោះកម្មវិធី លេខសម្គាល់បណ្ដុំ ឬផ្លូវរបស់កម្មវិធី។ ទទេប្រើកម្មវិធីកូដប្រភពរបស់អ្នក។"
+            "value": "ឈ្មោះកម្មវិធី លេខសម្គាល់បណ្ដុំ ឬផ្លូវកម្មវិធី។ ទទេ ប្រើកម្មវិធីរបស់ បើកក្នុងកម្មវិធីកែ បើមិនមាន ប្រើកម្មវិធីកូដប្រភពរបស់អ្នក។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "앱 이름, 번들 ID 또는 앱 경로. 비워 두면 소스 코드를 여는 앱을 사용합니다."
+            "value": "앱 이름, 번들 ID 또는 앱 경로입니다. 비워 두면 편집기에서 열기의 앱을, 없으면 소스 코드 앱을 사용합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Et appnavn, en pakke-ID eller banen til en app. Tom bruker appen for kildekode."
+            "value": "Et appnavn, en pakke-ID eller en appbane. Tom bruker appen til Åpne i redigerer, ellers kildekodeappen din."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nazwa aplikacji, identyfikator pakietu lub ścieżka aplikacji. Puste używa aplikacji do kodu źródłowego."
+            "value": "Nazwa aplikacji, identyfikator pakietu lub ścieżka aplikacji. Puste używa aplikacji z Otwórz w edytorze, a w przeciwnym razie aplikacji do kodu źródłowego."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Um nome de app, ID de pacote ou caminho de app. Vazio usa o app de código-fonte."
+            "value": "Um nome de app, ID de pacote ou caminho de app. Vazio usa o app de Abrir no editor, senão seu app de código-fonte."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Имя приложения, идентификатор пакета или путь к приложению. Пусто — приложение для исходного кода."
+            "value": "Имя приложения, идентификатор пакета или путь к приложению. Пустое значение — приложение «Открыть в редакторе», иначе приложение для исходного кода."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ชื่อแอป Bundle ID หรือพาธของแอป ว่างไว้จะใช้แอปที่เปิดซอร์สโค้ด"
+            "value": "ชื่อแอป รหัสบันเดิล หรือพาธของแอป ถ้าว่างจะใช้แอปของ เปิดในโปรแกรมแก้ไข หรือแอปซอร์สโค้ดของคุณ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bir uygulama adı, paket kimliği veya uygulama yolu. Boş bırakılırsa kaynak kodu uygulamanız kullanılır."
+            "value": "Bir uygulama adı, paket kimliği veya uygulama yolu. Boş bırakılırsa Düzenleyicide Aç'ın uygulaması, yoksa kaynak kod uygulamanız kullanılır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Назва програми, ідентифікатор пакета або шлях до програми. Порожньо — програма для вихідного коду."
+            "value": "Назва застосунку, ідентифікатор пакета або шлях до застосунку. Порожнє — застосунок «Відкрити в редакторі», інакше застосунок для вихідного коду."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tên ứng dụng, ID gói hoặc đường dẫn ứng dụng. Để trống sẽ dùng ứng dụng mở mã nguồn."
+            "value": "Tên ứng dụng, ID gói hoặc đường dẫn ứng dụng. Để trống sẽ dùng ứng dụng của Mở trong trình soạn thảo, nếu không thì ứng dụng mã nguồn của bạn."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "App 名称、Bundle ID 或 App 路径。留空则使用打开源代码的 App。"
+            "value": "App 名称、Bundle ID 或 App 路径。留空则使用“在编辑器中打开”的 App，否则使用你的源代码 App。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "App 名稱、Bundle ID 或 App 路徑。留空則使用開啟原始碼的 App。"
+            "value": "App 名稱、Bundle ID 或 App 路徑。留空則使用「在編輯器中開啟」的 App，否則使用你的原始碼 App。"
           }
         }
       }
@@ -193571,6 +193833,270 @@
         }
       }
     },
+    "settings.home.clipboardHistory": {
+      "comment": "Settings toggle (home.clipboardHistory): the Chief composer's + menu lists recently copied text and images.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clipboard History in the + Menu"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zwischenablageverlauf im +-Menü"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Historique du presse-papiers dans le menu +"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سجل الحافظة في قائمة +"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Historial del portapapeles en el menú +"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 + 選單中顯示剪貼板歷史記錄"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 + 菜单中显示剪贴板历史记录"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ 메뉴의 클립보드 기록"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ メニューのクリップボード履歴"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Historija međuspremnika u meniju +"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Udklipshistorik i +-menuen"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cronologia appunti nel menu +"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រវត្តិឃ្លីបបតក្នុងម៉ឺនុយ +"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utklippshistorikk i +-menyen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Historia schowka w menu +"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Histórico da área de transferência no menu +"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "История буфера обмена в меню +"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ประวัติคลิปบอร์ดในเมนู +"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ Menüsünde Pano Geçmişi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Історія буфера обміну в меню +"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lịch sử bảng nhớ tạm trong menu +"
+          }
+        }
+      }
+    },
+    "settings.home.clipboardHistory.help": {
+      "comment": "Help for the home.clipboardHistory toggle: what the Chief's + menu shows, that the list stays local and skips passwords, and that off means no clipboard reads.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Chief's + menu lists text and images you copied recently, so you can add one with a click. The list stays in memory on this Mac and skips passwords. When off, cmux doesn't read your clipboard for it."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das +-Menü des Chiefs listet Texte und Bilder auf, die du kürzlich kopiert hast, sodass du sie mit einem Klick hinzufügen kannst. Die Liste bleibt im Arbeitsspeicher dieses Mac und lässt Passwörter aus. Wenn deaktiviert, liest cmux deine Zwischenablage dafür nicht."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le menu + du Chief liste les textes et images que vous avez copiés récemment, pour en ajouter un d’un clic. La liste reste en mémoire sur ce Mac et ignore les mots de passe. Désactivé, cmux ne lit pas votre presse-papiers pour cela."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعرض قائمة + الخاصة بـ Chief النصوص والصور التي نسختها مؤخرًا، لتضيف أيًّا منها بنقرة. تبقى القائمة في ذاكرة هذا الـ Mac وتتجاوز كلمات المرور. عند إيقافها، لا يقرأ cmux الحافظة لهذا الغرض."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El menú + del Chief muestra el texto y las imágenes que copiaste hace poco, para añadir uno con un clic. La lista se queda en la memoria de este Mac y omite las contraseñas. Si está desactivado, cmux no lee el portapapeles para esto."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 的 + 選單會列出你最近拷貝的文字和圖片，按一下即可加入。此列表只保存在這部 Mac 的記憶體中，並會略過密碼。關閉後，cmux 不會為此讀取你的剪貼板。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 的 + 菜单会列出你最近拷贝的文本和图片，点按一下即可添加。此列表只保存在这台 Mac 的内存中，并会跳过密码。关闭后，cmux 不会为此读取你的剪贴板。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief의 + 메뉴에 최근에 복사한 텍스트와 이미지가 표시되어 클릭 한 번으로 추가할 수 있습니다. 목록은 이 Mac의 메모리에만 남고 암호는 건너뜁니다. 끄면 cmux는 이를 위해 클립보드를 읽지 않습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief の + メニューに最近コピーしたテキストと画像が表示され、クリックで追加できます。リストはこの Mac のメモリ内にのみ保持され、パスワードは除外されます。オフにすると、cmux はこのためにクリップボードを読み取りません。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Meni + Chiefa prikazuje tekst i slike koje ste nedavno kopirali, pa jedan možete dodati jednim klikom. Lista ostaje u memoriji na ovom Macu i preskače lozinke. Kada je isključeno, cmux za to ne čita vaš međuspremnik."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiefs +-menu viser tekst og billeder, du har kopieret for nylig, så du kan tilføje et med ét klik. Listen bliver i hukommelsen på denne Mac og springer adgangskoder over. Når den er slået fra, læser cmux ikke din udklipsholder til den."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il menu + del Chief elenca testo e immagini copiati di recente, così puoi aggiungerne uno con un clic. L'elenco resta in memoria su questo Mac e salta le password. Se disattivato, cmux non legge gli appunti per questo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ឺនុយ + របស់ Chief បង្ហាញអត្ថបទ និងរូបភាពដែលអ្នកបានចម្លងថ្មីៗ ដូច្នេះអ្នកអាចបន្ថែមមួយដោយចុចតែម្តង។ បញ្ជីនៅក្នុងអង្គចងចាំលើ Mac នេះ ហើយរំលងពាក្យសម្ងាត់។ ពេលបិទ cmux មិនអានឃ្លីបបតរបស់អ្នកសម្រាប់វាទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiefs +-meny viser tekst og bilder du nylig har kopiert, så du kan legge til ett med ett klikk. Listen blir i minnet på denne Macen og hopper over passord. Når den er av, leser ikke cmux utklippstavlen din for den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Menu + Chiefa pokazuje ostatnio skopiowany tekst i obrazy, więc możesz dodać jeden jednym kliknięciem. Lista pozostaje w pamięci tego Maca i pomija hasła. Gdy wyłączone, cmux nie odczytuje do tego schowka."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O menu + do Chief lista textos e imagens que você copiou recentemente, para você adicionar um com um clique. A lista fica na memória deste Mac e ignora senhas. Desativado, o cmux não lê sua área de transferência para isso."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Меню + у Chief показывает недавно скопированные текст и изображения, чтобы добавить их одним щелчком. Список хранится в памяти этого Mac и пропускает пароли. Если выключено, cmux не читает для этого буфер обмена."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เมนู + ของ Chief แสดงข้อความและรูปภาพที่คุณคัดลอกล่าสุด คุณจึงเพิ่มได้ในคลิกเดียว รายการอยู่ในหน่วยความจำบน Mac เครื่องนี้และข้ามรหัสผ่าน เมื่อปิด cmux จะไม่อ่านคลิปบอร์ดของคุณสำหรับเมนูนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief'in + menüsü yakın zamanda kopyaladığınız metin ve görüntüleri listeler, böylece birini tek tıkla ekleyebilirsiniz. Liste bu Mac'te bellekte kalır ve parolaları atlar. Kapalıyken cmux bunun için panonuzu okumaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Меню + у Chief показує нещодавно скопійовані текст і зображення, щоб додати їх одним клацанням. Список зберігається в пам'яті цього Mac і пропускає паролі. Якщо вимкнено, cmux не читає для цього буфер обміну."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Menu + của Chief liệt kê văn bản và hình ảnh bạn sao chép gần đây để bạn thêm bằng một cú nhấp. Danh sách chỉ nằm trong bộ nhớ trên máy Mac này và bỏ qua mật khẩu. Khi tắt, cmux không đọc bảng nhớ tạm của bạn cho mục này."
+          }
+        }
+      }
+    },
     "settings.sidebar.workspacesAsTabs": {
       "extractionState": "manual",
       "localizations": {
@@ -202117,6 +202643,399 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux Remote"
+          }
+        }
+      }
+    },
+    "settings.remote.agentShareIdleMinutes": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إيقاف مشاركة الوكيل بعد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dijeljenje agenta se isključuje nakon"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentdeling slås fra efter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentenfreigabe endet nach"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Sharing Turns Off After"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El uso compartido de agentes se desactiva tras"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le partage par un agent s’arrête après"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La condivisione degli agenti si disattiva dopo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントの共有をオフにするまで"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការចែករំលែករបស់ភ្នាក់ងារបិទបន្ទាប់ពី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 공유 자동 끄기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentdeling slås av etter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udostępnianie przez agenta wyłącza się po"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O compartilhamento do agente desativa após"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступ от агента выключается через"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การแชร์ของเอเจนต์ปิดหลังจาก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan paylaşımı şu süre sonra kapanır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступ від агента вимикається через"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chia sẻ của tác tử tắt sau"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能体共享关闭时间"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理共享關閉時間"
+          }
+        }
+      }
+    },
+    "settings.remote.agentShareIdleMinutes.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عندما يشغّل أحد وكلائك المشاركة لجهاز Mac هذا، تتوقف مجددًا بعد هذا العدد من الدقائق دون أن يشاهده أو يتحكم فيه أي جهاز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada jedan od vaših agenata uključi dijeljenje za ovaj Mac, ono se ponovo isključuje nakon ovoliko minuta bez uređaja koji ga gleda ili kontroliše."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når en af dine agenter slår deling til for denne Mac, slås den fra igen efter så mange minutter, uden at en enhed ser eller styrer den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn einer deiner Agenten die Freigabe für diesen Mac einschaltet, endet sie wieder nach so vielen Minuten, in denen kein Gerät zusieht oder steuert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When one of your agents turns sharing on for this Mac, it turns off again after this many minutes with no device viewing or controlling it."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuando uno de tus agentes activa el uso compartido de este Mac, se desactiva de nuevo tras estos minutos sin que ningún dispositivo lo vea ni lo controle."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quand l’un de vos agents active le partage de ce Mac, il s’arrête après ce nombre de minutes sans appareil qui le regarde ou le contrôle."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando uno dei tuoi agenti attiva la condivisione di questo Mac, si disattiva dopo questi minuti senza dispositivi che lo guardano o lo controllano."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントがこのMacの共有をオンにしたとき、この分数のあいだどのデバイスも閲覧・操作しなければ、再びオフになります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅពេលភ្នាក់ងាររបស់អ្នកបើកការចែករំលែកសម្រាប់ Mac នេះ វានឹងបិទវិញបន្ទាប់ពីចំនួននាទីនេះដែលគ្មានឧបករណ៍មើល ឬគ្រប់គ្រងវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트가 이 Mac의 공유를 켜면, 이 시간(분) 동안 보거나 제어하는 기기가 없을 때 다시 꺼집니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når en av agentene dine slår på deling for denne Macen, slås den av igjen etter så mange minutter uten at en enhet ser på eller styrer den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdy jeden z Twoich agentów włączy udostępnianie tego Maca, wyłączy się ono po tylu minutach, w których żadne urządzenie go nie ogląda ani nim nie steruje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando um dos seus agentes ativa o compartilhamento deste Mac, ele é desativado de novo após estes minutos sem nenhum dispositivo vendo ou controlando."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда один из ваших агентов открывает доступ к этому Mac, доступ выключается через столько минут, если ни одно устройство его не смотрит и не управляет им."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อเอเจนต์ของคุณเปิดการแชร์ Mac เครื่องนี้ การแชร์จะปิดอีกครั้งหลังจากไม่มีอุปกรณ์ใดดูหรือควบคุมตามจำนวนนาทีนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajanlarınızdan biri bu Mac için paylaşımı açtığında, hiçbir aygıt izlemez veya denetlemezse bu kadar dakika sonra yeniden kapanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Коли один із ваших агентів відкриває доступ до цього Mac, доступ вимикається через стільки хвилин, якщо жоден пристрій його не переглядає й не керує ним."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi một tác tử của bạn bật chia sẻ cho máy Mac này, chia sẻ sẽ tắt lại sau số phút này nếu không có thiết bị nào xem hoặc điều khiển."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当你的智能体为这台 Mac 开启共享后，如果这么多分钟内没有设备观看或控制，共享会再次关闭。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當你的代理為這台 Mac 開啟共享後，若這麼多分鐘內沒有裝置觀看或控制，共享會再次關閉。"
+          }
+        }
+      }
+    },
+    "settings.remote.agentShareIdleMinutes.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عدد الدقائق دون مشاهد قبل إيقاف مشاركة الوكيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minute bez gledalaca prije isključivanja dijeljenja agenta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minutter uden seere, før en agents deling slås fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minuten ohne Zuschauer, bis die Freigabe eines Agenten endet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minutes with no viewer before an agent's sharing turns off"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minutos sin público hasta apagar lo que compartió un agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minutes sans spectateur avant l’arrêt du partage d’un agent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minuti senza pubblico, poi si spegne la condivisione agente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントの共有がオフになるまでの視聴者なしの分数"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នាទីគ្មានអ្នកមើល មុនពេលការចែករំលែករបស់ភ្នាក់ងារបិទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 공유가 꺼지기까지 보는 사람이 없는 시간(분)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minutter uten seere før en agents deling slås av"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minuty bez widzów do wyłączenia udostępniania agenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minutos sem público até desligar o que o agente compartilhou"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Минуты без зрителей до выключения доступа от агента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จำนวนนาทีที่ไม่มีผู้ดูก่อนการแชร์ของเอเจนต์จะปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir ajanın paylaşımı kapanmadan önce izleyensiz dakika"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хвилини без глядачів до вимкнення доступу від агента"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Số phút không có người xem trước khi chia sẻ của tác tử tắt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无人观看多少分钟后关闭智能体共享"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無人觀看多少分鐘後關閉代理共享"
           }
         }
       }
@@ -234133,6 +235052,270 @@
         }
       }
     },
+    "settings.choice.groupBackgroundCard": {
+      "comment": "Group background choice: each group one rounded tinted card around its header and members.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cards"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "بطاقات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kort"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Karten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tarjetas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cartes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schede"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "カード"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កាត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "카드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kort"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cartões"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Карточки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การ์ด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kartlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Картки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thẻ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "卡片"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "卡片"
+          }
+        }
+      }
+    },
+    "settings.choice.groupBackgroundChip": {
+      "comment": "Group background choice: each group a slim colored chip on its header, a colored rail beside its members, no indent.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chips"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "شارات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Čipovi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chips"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chips"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Etiquetas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pastilles"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Etichette"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チップ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឈីប"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "칩"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brikker"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Znaczniki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Etiquetas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Метки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ชิป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Etiketler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Мітки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhãn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "标签"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "標籤"
+          }
+        }
+      }
+    },
     "settings.choice.groupBackgroundFolder": {
       "comment": "Group background choice: no background, each group a plain folder with its members indented under it.",
       "extractionState": "manual",
@@ -235766,6 +236949,138 @@
         "vi": {"stringUnit": {"state": "translated", "value": "Rộng"}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "宽"}},
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "寬"}}
+      }
+    },
+    "settings.choice.groupBackgroundTree": {
+      "comment": "Group background choice: each group a plain folder with its members indented under it and a thin guide line.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tree"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "شجرة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stablo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Træ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Baum"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Árbol"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arborescence"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Albero"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ツリー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដើមឈើ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "트리"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Drzewo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Árvore"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дерево"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ต้นไม้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ağaç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дерево"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cây"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "树状"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "樹狀"
+          }
+        }
       }
     },
     "settings.notifications.delivery.permissionRequest": {
