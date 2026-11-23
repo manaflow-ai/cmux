@@ -100,6 +100,8 @@ impl LocalStore {
         let wrote = self.append_to_open(id, line, &mut filled);
         if let Some(index) = filled {
             self.copy_filled_segment(id, index);
+            // Segment `index` is sealed: a worker may move it cold (`store/cold_segments.rs`).
+            self.note_sealed(id);
         }
         wrote
     }

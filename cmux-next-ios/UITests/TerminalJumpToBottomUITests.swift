@@ -55,6 +55,30 @@ final class TerminalJumpToBottomUITests: XCTestCase {
         XCTAssertTrue(jump.waitForNonExistence(timeout: 5), "a tap beside the pill jumps too")
     }
 
+    /// Leo, 2026-11-23: "theres also these weird dead zones in the jump to
+    /// bottom in terminal... dont add blur there". Beside the pill's target the
+    /// row is the terminal's: a drag that starts there scrolls the page (before,
+    /// it hit the row and did nothing). Dragging up from beside the pill reaches
+    /// the bottom, and the pill goes.
+    @MainActor
+    func testDragBesideThePillScrollsTheTerminal() throws {
+        let app = launch()
+        let jump = app.buttons["terminal.jumpToBottom"]
+        XCTAssertTrue(scrollUp(app, until: jump), "scrolled up: Jump to bottom shows\n\(app.debugDescription)")
+        let window = app.windows.firstMatch.frame
+        XCTAssertGreaterThan(jump.frame.minX - window.minX, 40, "room beside the target: \(jump.frame)")
+        attach(app, "beside-before")
+        // 20 pt in from the window's left edge, at the target's middle height.
+        let beside = app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: 20, dy: jump.frame.midY - window.minY))
+        for _ in 0..<12 where jump.exists {
+            beside.press(forDuration: 0.05, thenDragTo: beside.withOffset(CGVector(dx: 0, dy: -window.height * 0.5)))
+            _ = jump.waitForNonExistence(timeout: 1)
+        }
+        attach(app, "beside-after")
+        XCTAssertFalse(jump.exists, "a drag beside the pill scrolls the page to the bottom (was a dead zone)")
+    }
+
     /// Keyboard up, the stack rides the keyboard: the pill stays above the
     /// key row, centered.
     @MainActor
