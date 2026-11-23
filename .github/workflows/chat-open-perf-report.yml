@@ -13,15 +13,11 @@ on:
       - "webviews/src/agent-session/**"
       - "webviews/bench/**"
       - ".github/workflows/chat-open-perf-report.yml"
-  # Every push to feat-cmux-next measures that push against the one before it, so the branch carries a series per
-  # runner class (the series.json artifact) that NOW's chat_attach rows read.
+  # Every nightly's code (each push to nightly-next, whatever it touched) is measured against the nightly before it,
+  # so NOW's chat_attach rows read a fresh number every nightly: the series.json artifact, keyed per runner class.
   push:
     branches:
-      - feat-cmux-next
-    paths:
-      - "webviews/src/agent-session/**"
-      - "webviews/bench/**"
-      - ".github/workflows/chat-open-perf-report.yml"
+      - nightly-next
 
 permissions:
   contents: read
@@ -205,6 +201,24 @@ jobs:
                                      "base": b[k], "head": a[k], "delta_ms": round(d, 1),
                                      "base_sha": base, "head_sha": head,
                                      "event": os.environ.get("GITHUB_EVENT_NAME"), "ref": os.environ.get("GITHUB_REF")})
+              # The head's own numbers (on nightly-next, that nightly's code) and god over small, from this one job on
+              # this one runner: goal chat-attach-p95's second condition (god within 1.2x of small).
+              hs, hg = rows.get(("after", "small")), rows.get(("after", "god"))
+              if hs and hg:
+                  n = min(hs["n"], hg["n"])
+                  out += ["", "| head | n | p50 | p95 |", "|---|---|---|---|",
+                          f"| small | {hs['n']} | {hs['p50']:.1f} ms | {hs['p95']:.1f} ms |",
+                          f"| god | {hg['n']} | {hg['p50']:.1f} ms | {hg['p95']:.1f} ms |"]
+                  ratio = {k: round(hg[k] / hs[k], 3) for k in ("p50", "p95") if hs[k] > 0}
+                  for k, r in ratio.items():
+                      series.append({"series": f"chat_open.god_small_ratio.attach_to_latest.{k}@{klass}",
+                                     "runner_class": klass, "fixture": "god/small", "stat": f"ratio_{k}",
+                                     "head": r, "n": n, "head_sha": head,
+                                     "event": os.environ.get("GITHUB_EVENT_NAME"), "ref": os.environ.get("GITHUB_REF")})
+                  if ratio:
+                      out.append(f"| god / small | {n} | {ratio.get('p50', 0):.2f}x | {ratio.get('p95', 0):.2f}x |")
+                  if n < 10:
+                      out += ["", f"**Fewer than 10 opens per fixture** (n={n}): too few for a p95."]
               out += ["", "A positive delta is head slower than base. A p95 move past 10 ms and 10% of base reads as a "
                       "regression or an improvement; anything inside that, as noise. Report only: nothing here fails "
                       "the pull request."]
