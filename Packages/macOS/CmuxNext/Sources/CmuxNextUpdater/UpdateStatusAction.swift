@@ -4,7 +4,8 @@ import CmuxNextDesign
 
 /// Update Status (`updates.status`): a CLI run answers ``UpdaterService/statusAnswer(now:)``'s
 /// fields; a palette run shows its line as a toast on this turn. Reads only; nothing waits.
-public enum UpdateStatusAction {
+public struct UpdateStatusAction {
+    public init() {}
     /// Binds `updates.status` to `updater`.
     public static func bind(into registry: ActionRegistry, updater: UpdaterService) {
         registry.bindEffect("updates.status", effect: { [weak registry] _ in
