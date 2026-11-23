@@ -126,10 +126,22 @@ import Testing
 
     @Test func olderDaemonKeepsTheTerminalSignIn() async throws {
         let h = await make(missing: true)
-        // No sign-in in the answer: the page types the terminal sign-in (AccountSignInSection.tsx).
-        let start = try await h.harnesses.runSignIn("signInStart", ["action": "signInStart", "family": "codex"])
-        #expect(start == JSONValue.object([:]))
+        // A start types the terminal sign-in here, in the same call (the click still counts as the
+        // person's), and says so: the page runs no fallback of its own.
+        let start = try await h.harnesses.runSignIn("signInStart",
+            ["action": "signInStart", "family": "claude", "provider": "claude", "account": "claude-2"])
+        #expect(start == ["terminal": true])
         #expect(h.recorder.opened.isEmpty)
+        let own = try #require(h.recorder.lines.last)
+        #expect(own.hasPrefix("CLAUDE_CONFIG_DIR='/Users/alex/.cmux/accounts/claude-2' "))
+        #expect(own.contains("login"))
+        // GitHub's start is gh's own browser login.
+        let github = try await h.harnesses.runSignIn("signInStart", ["action": "signInStart", "family": "github"])
+        #expect(github == ["terminal": true])
+        #expect(h.recorder.lines.last == "gh auth login --hostname github.com --git-protocol https --web")
+        // A new login: its folder and name, then its sign-in.
+        _ = try await h.harnesses.runSignIn("signInStart", ["action": "signInStart", "family": "codex", "name": "Work"])
+        #expect(h.calls.withLock { $0 }.contains { $0.method == "_acpmux/route/add" && $0.params["name"] == "Work" })
         _ = try await h.harnesses.runSignIn("accountSignOut", ["action": "accountSignOut", "account": "claude-2"])
         #expect(h.recorder.lines.last == "CLAUDE_CONFIG_DIR='/Users/alex/.cmux/accounts/claude-2' claude auth logout")
         _ = try await h.harnesses.runSignIn("accountSwitch", ["action": "accountSwitch", "account": "claude-2"])

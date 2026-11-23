@@ -57,7 +57,15 @@ extension SettingsHarnesses {
         do {
             reply = try await callAccounts(environment, method, Self.signInParams(method, params))
         } catch let error as AcpmuxRPCError where error.isMethodMissing {
-            // An older daemon: a start answers no sign-in, so the page types the terminal sign-in.
+            // An older daemon: a start types the terminal sign-in here, inside the same call, while
+            // the click still counts as the person's (a second page call after this round trip could
+            // miss the host's one-second gesture window and do nothing). `terminal` tells the page
+            // it ran, so the page runs no fallback of its own.
+            if method == .accountSignIn {
+                let (fallback, fallbackParams) = Self.terminalSignIn(params)
+                _ = try await runAccount(fallback, fallbackParams)
+                return ["terminal": true]
+            }
             guard let fallback = Self.signInFallbacks[action] else { return .object([:]) }
             return try await runAccount(fallback, params)
         } catch let error as AcpmuxRPCError {
@@ -126,6 +134,21 @@ extension SettingsHarnesses {
             out["account"] = field("account") ?? ""
         }
         return out
+    }
+
+    /// A start's terminal sign-in for a daemon without `_acpmux/account/sign_in`, the Agents >
+    /// Harnesses way (webviews `useSettingsSignIn.ts` `terminalSignIn`): a listed account's own login
+    /// (`harness login -- <family>` with its folder), gh's `gh auth login` for GitHub, else a new
+    /// login of the family with its typed name. Settings > Models' `connectClaude` makes the same pick.
+    nonisolated static func terminalSignIn(_ params: JSONValue) -> (action: String, params: JSONValue) {
+        let field = { (key: String) -> String? in params[key]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } }
+        let family = field("family") ?? field("provider") ?? ""
+        if family != "github", let account = field("account") {
+            return ("accountSignIn", ["account": .string(account)])
+        }
+        var add: [String: JSONValue] = ["family": .string(family), "way": "new"]
+        if family != "github", let name = field("name") { add["name"] = .string(name) }
+        return ("accountAdd", .object(add))
     }
 
     /// The page a start opens beside the window: Claude's automatic page when it has one, else its
