@@ -5,6 +5,7 @@ import {
   existsSync,
   mkdtempSync,
   mkdirSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -17,6 +18,7 @@ const ignoreBuildScript = fileURLToPath(
 );
 let repository: string;
 let shallowClone: string | undefined;
+const extraDirectories: string[] = [];
 
 /** Runs git in the fixture repository and returns trimmed stdout; throws on failure. */
 async function git(...args: string[]): Promise<string> {
@@ -46,17 +48,28 @@ async function ignoreBuild(
   previous: string | undefined,
   current: string,
   root: string = repository,
+  env: Record<string, string> = {},
 ): Promise<number | null> {
   const result = await runChild("bash", [ignoreBuildScript], {
     cwd: join(root, "web"),
     env: {
       ...process.env,
+      // Never reach the real GitHub from a test: by default the public remote
+      // and the compare API both fail at once, as no network would.
+      CMUX_VERCEL_IGNORE_PUBLIC_REMOTE: unreachableRemote,
+      CMUX_VERCEL_IGNORE_GITHUB_API: "http://127.0.0.1:9",
+      GITHUB_TOKEN: "",
+      ...env,
       VERCEL_GIT_PREVIOUS_SHA: previous ?? "",
       VERCEL_GIT_COMMIT_SHA: current,
     },
   });
   return result.status;
 }
+
+const unreachableRemote = `file://${join(tmpdir(), "cmux-vercel-ignore-no-such-remote")}`;
+/** Vercel's build clone is this many commits deep. */
+const vercelCloneDepth = 10;
 
 beforeEach(async () => {
   repository = mkdtempSync(join(tmpdir(), "cmux-vercel-ignore-"));
@@ -97,6 +110,9 @@ afterEach(() => {
     rmSync(shallowClone, { recursive: true, force: true });
   }
   shallowClone = undefined;
+  for (const directory of extraDirectories.splice(0)) {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("skips commits that do not change web build inputs", async () => {
@@ -256,3 +272,174 @@ test("the deployment exclusions keep the history this script reads", async () =>
   writeFileSync(join(repository, "Sources", "App.swift"), "let app = false\n");
   expect(await ignoreBuild(base, await commit("native change"))).toBe(0);
 });
+
+test("fetches the previous deployment from the public remote when origin refuses", async () => {
+  const deployed = await commit("deployed");
+  for (let index = 0; index < vercelCloneDepth + 2; index += 1) {
+    writeFileSync(join(repository, "Sources", "App.swift"), `let app = ${index}\n`);
+    await commit(`native change ${index}`);
+  }
+  const head = await git("rev-parse", "HEAD");
+  const shallow = await vercelClone(repository);
+  // What 2026-11-15..22 looked like on Vercel: origin could not serve the
+  // previous commit, so every 10th commit since a build built again.
+  await runChildOk("git", ["remote", "set-url", "origin", unreachableRemote], { cwd: shallow });
+
+  expect(await ignoreBuild(deployed, head, shallow)).toBe(1);
+  expect(
+    await ignoreBuild(deployed, head, shallow, {
+      CMUX_VERCEL_IGNORE_PUBLIC_REMOTE: `file://${repository}`,
+    }),
+  ).toBe(0);
+
+  // A clone with no origin at all goes straight to the public remote.
+  const noOrigin = await vercelClone(repository);
+  await runChildOk("git", ["remote", "remove", "origin"], { cwd: noOrigin });
+  expect(
+    await ignoreBuild(deployed, head, noOrigin, {
+      CMUX_VERCEL_IGNORE_PUBLIC_REMOTE: `file://${repository}`,
+    }),
+  ).toBe(0);
+}, 60000);
+
+interface ReplayCase {
+  previous: string;
+  current: string;
+  commits: number;
+  webBuildInputsChanged: boolean;
+  changedPaths: string[];
+}
+
+const replay = JSON.parse(
+  readFileSync(
+    fileURLToPath(new URL("./fixtures/vercel-ignore-replay.json", import.meta.url)),
+    "utf8",
+  ),
+) as { cases: ReplayCase[] };
+
+test("the replay holds every kind of production deploy it is meant to judge", () => {
+  const skips = replay.cases.filter((replayCase) => !replayCase.webBuildInputsChanged);
+  const builds = replay.cases.filter((replayCase) => replayCase.webBuildInputsChanged);
+  expect(skips.length).toBeGreaterThanOrEqual(13);
+  expect(builds.length).toBeGreaterThanOrEqual(5);
+  expect(skips.filter((replayCase) => replayCase.commits >= vercelCloneDepth).length).toBeGreaterThanOrEqual(11);
+  expect(builds.filter((replayCase) => replayCase.commits >= vercelCloneDepth).length).toBeGreaterThanOrEqual(4);
+});
+
+for (const replayCase of replay.cases) {
+  const range = `${replayCase.previous.slice(0, 10)}..${replayCase.current.slice(0, 10)}`;
+  const verdict = replayCase.webBuildInputsChanged ? "builds" : "skips";
+  test(`replay ${range} (${replayCase.commits} commits) ${verdict} from a 10-deep clone`, async () => {
+    // Rebuild the range: one commit holding every path it touched, as many
+    // commits after it as the real range had, the last one changing every
+    // path. The answer only depends on which paths changed.
+    mkdirSync(join(repository, "web"), { recursive: true });
+    writeFileSync(join(repository, "replay-filler.txt"), "0\n");
+    for (const path of replayCase.changedPaths) {
+      mkdirSync(join(repository, path, ".."), { recursive: true });
+      writeFileSync(join(repository, path), "before\n");
+    }
+    const deployed = await commit("deployed");
+    for (let index = 1; index < replayCase.commits; index += 1) {
+      writeFileSync(join(repository, "replay-filler.txt"), `${index}\n`);
+      await commit(`between ${index}`);
+    }
+    for (const path of replayCase.changedPaths) {
+      writeFileSync(join(repository, path), "after\n");
+    }
+    const built = await commit("built");
+    expect(Number(await git("rev-list", "--count", `${deployed}..${built}`))).toBe(replayCase.commits);
+
+    // A fresh clone for each source: a fetch leaves the commit behind, and the
+    // next source would never be asked.
+    const brokenOriginClone = async (): Promise<string> => {
+      const clone = await vercelClone(repository);
+      await runChildOk("git", ["remote", "set-url", "origin", unreachableRemote], { cwd: clone });
+      const lookup = await runChild("git", ["cat-file", "-e", `${deployed}^{commit}`], { cwd: clone });
+      expect(lookup.status === 0).toBe(replayCase.commits < vercelCloneDepth);
+      return clone;
+    };
+
+    const expected = replayCase.webBuildInputsChanged ? 1 : 0;
+    // From the public remote.
+    expect(
+      await ignoreBuild(deployed, built, await brokenOriginClone(), {
+        CMUX_VERCEL_IGNORE_PUBLIC_REMOTE: `file://${repository}`,
+      }),
+    ).toBe(expected);
+
+    if (replayCase.commits < vercelCloneDepth) return;
+    // From GitHub's compare API, when no remote can serve the commit.
+    const bin = fakeCurl(
+      JSON.stringify({
+        status: "ahead",
+        files: replayCase.changedPaths.map((filename) => ({ filename, status: "modified" })),
+      }),
+    );
+    expect(
+      await ignoreBuild(deployed, built, await brokenOriginClone(), {
+        PATH: `${bin}:${process.env.PATH ?? ""}`,
+        CMUX_VERCEL_IGNORE_GITHUB_API: "https://api.github.invalid",
+      }),
+    ).toBe(expected);
+    // And with every source down, it still builds.
+    expect(await ignoreBuild(deployed, built, await brokenOriginClone())).toBe(1);
+  }, 60000);
+}
+
+test("the compare API answer is used only when complete and linear", async () => {
+  const deployed = await commit("deployed");
+  for (let index = 0; index < vercelCloneDepth + 1; index += 1) {
+    writeFileSync(join(repository, "Sources", "App.swift"), `let app = ${index}\n`);
+    await commit(`native change ${index}`);
+  }
+  const head = await git("rev-parse", "HEAD");
+  const shallow = await vercelClone(repository);
+  await runChildOk("git", ["remote", "set-url", "origin", unreachableRemote], { cwd: shallow });
+
+  const answers: Array<[unknown, number]> = [
+    [{ status: "ahead", files: [{ filename: "Sources/App.swift" }] }, 0],
+    [{ status: "identical", files: [] }, 0],
+    [{ status: "ahead", files: [{ filename: "web/tests/a.test.ts" }, { filename: "web/README.md" }] }, 0],
+    [{ status: "ahead", files: [{ filename: "web/app/page.tsx" }] }, 1],
+    [{ status: "ahead", files: [{ filename: "CHANGELOG.md" }] }, 1],
+    [{ status: "ahead", files: [{ filename: "web/lib/x.ts", previous_filename: "web/tests/x.ts" }] }, 1],
+    [{ status: "ahead", files: [{ filename: "Sources/x.swift", previous_filename: "web/app/x.ts" }] }, 1],
+    [{ status: "diverged", files: [] }, 1],
+    [{ status: "ahead", files: Array.from({ length: 300 }, (_, index) => ({ filename: `Sources/${index}` })) }, 1],
+    ["not json", 1],
+  ];
+  for (const [answer, expected] of answers) {
+    const bin = fakeCurl(typeof answer === "string" ? answer : JSON.stringify(answer));
+    expect(
+      await ignoreBuild(deployed, head, shallow, {
+        PATH: `${bin}:${process.env.PATH ?? ""}`,
+        CMUX_VERCEL_IGNORE_GITHUB_API: "https://api.github.invalid",
+      }),
+    ).toBe(expected);
+  }
+}, 60000);
+
+/** Clones `source` the way Vercel does (10 commits deep) into a directory afterEach removes. */
+async function vercelClone(source: string): Promise<string> {
+  const clone = mkdtempSync(join(tmpdir(), "cmux-vercel-clone-"));
+  extraDirectories.push(clone);
+  rmSync(clone, { recursive: true, force: true });
+  const branch = (
+    await runChildOk("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: source })
+  ).stdout.trim();
+  await runChildOk("git", [
+    "clone", "--quiet", "--depth", String(vercelCloneDepth), "--branch", branch,
+    `file://${source}`, clone,
+  ]);
+  return clone;
+}
+
+/** A directory whose `curl` prints `body`, standing in for GitHub's compare API. */
+function fakeCurl(body: string): string {
+  const bin = mkdtempSync(join(tmpdir(), "cmux-vercel-curl-"));
+  extraDirectories.push(bin);
+  writeFileSync(join(bin, "response.json"), body);
+  writeFileSync(join(bin, "curl"), `#!/bin/sh\ncat '${join(bin, "response.json")}'\n`, { mode: 0o755 });
+  return bin;
+}

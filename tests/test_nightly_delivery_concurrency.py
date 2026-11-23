@@ -296,6 +296,9 @@ def test_the_tick_is_the_only_promoter_and_the_rolling_rule_gates_its_events() -
     assert "inputs.sha == ''" in rolling["if"], "a dispatch for one commit skips the rule"
     assert rolling.get("continue-on-error") is True, "a failed rule never holds the promotion"
     assert "nightly_next_rolling.py" in rolling["run"]
+    # One build per signer Mac (design manaflow-ai/cmuxterm-hq#17011): the cap is a variable, 1 when unset.
+    assert rolling["env"]["NIGHTLY_NEXT_SLOTS"] == "${{ vars.NIGHTLY_NEXT_SLOTS || '1' }}"
+    assert '--slots "$NIGHTLY_NEXT_SLOTS"' in rolling["run"]
     assert "steps.rolling.outputs.go != 'false'" in request["if"]
     assert request["env"]["NIGHTLY_NEXT_PROMOTE"] == "1", "request-nightly-next.sh promotes only when the tick asks"
     for name, step in by_name.items():
