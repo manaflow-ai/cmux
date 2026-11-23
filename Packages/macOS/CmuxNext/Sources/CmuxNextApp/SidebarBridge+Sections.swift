@@ -117,13 +117,8 @@ extension SidebarBridge {
     static func itemInfo(for layout: SidebarLayoutDocument, registered: (ActionID) -> Bool, unread: Int = 0, homeUnread: Int = 0, showsStore: Bool = true,
                          app: (String) -> SidebarItemInfo = { SidebarItemInfo.fallback(for: .app($0)) }, shortcut: (ActionID) -> String? = { _ in nil },
                          workspace: (LayoutItemRef) -> SidebarItemInfo? = { _ in nil }, chiefFavicon: SidebarFavicon? = nil, listed: [LayoutItem] = []) -> [LayoutItemID: SidebarItemInfo] {
-        var infos = SidebarBandItems.info(for: layout, registered: registered, unread: unread, homeUnread: homeUnread, showsStore: showsStore, app: app,
-                                          shortcut: shortcut, workspace: workspace, chiefFavicon: chiefFavicon, listed: listed)
-        // A built-in that stands for a top page (Machines) opens that page, so it is never missing for want of an action.
-        for item in layout.sections.flatMap(\.items) + listed where item.ref.builtIn != nil && TopPageRoute.route(for: item.ref) != nil {
-            infos[item.id]?.isMissing = false
-        }
-        return infos
+        SidebarBandItems.info(for: layout, registered: registered, unread: unread, homeUnread: homeUnread, showsStore: showsStore, app: app,
+                              shortcut: shortcut, workspace: workspace, chiefFavicon: chiefFavicon, listed: listed)
     }
 
     /// A layout change from this sidebar (a drag, an inline edit): sent to
