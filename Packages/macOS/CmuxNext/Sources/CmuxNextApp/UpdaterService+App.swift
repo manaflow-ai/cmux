@@ -116,6 +116,6 @@ extension UpdaterService {
         configure(checkAutomatically: updates.checkAutomatically, checkInterval: updates.checkIntervalSeconds,
                   downloadAutomatically: updates.downloadAutomatically,
                   metered: UpdateMeteredMode(rawValue: updates.meteredNetwork.rawValue) ?? .deferLowData, ring: updates.channel.rawValue, idleInstall: (updates.idleInstallMaxWaitSeconds, updates.idleInstallQuietSeconds),
-                  installWhenIdleMinutes: updates.installWhenIdle ? updates.installWhenIdleMinutes : nil, liveDaemonUpdates: updates.daemon == .everyMerge)
+                  installWhenIdleMinutes: updates.installWhenIdle ? updates.installWhenIdleMinutes : nil)
     }
 }

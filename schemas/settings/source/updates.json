@@ -268,7 +268,7 @@
         },
         {
           "key": "updates.daemon",
-          "note": "Live daemon updates between app updates (Leo 2026-11-22: \"i wonder how many we can actually just ship and not even need the user to restart to update, tbh.\"): NIGHTLY and tip builds only; every 120 s while cmux is idle (the Update When Idle rule, cmux-window-rules update_idle) the app runs the bundled `cmux --json app try channel`, which checks the signed mac-live channel, swaps Contents/Resources/bin and hands the terminal daemon over. Off by default.",
+          "note": "Live daemon updates between app updates (Leo 2026-11-22: \"i wonder how many we can actually just ship and not even need the user to restart to update, tbh.\"): NIGHTLY and tip builds only. The app's own daemon reads this key (cmux-tui cli/app/try_cmd/daemon_updates.rs): at Every Merge it checks the signed mac-live channel and, while no agent works and input is quiet, runs the bundled `cmux --json app try channel`, which swaps Contents/Resources/bin and hands the terminal daemon over. Swift only shows the row. Off by default.",
           "title": {
             "key": "settings.updates.daemon",
             "text": "Live Background Updates"

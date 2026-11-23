@@ -5,9 +5,12 @@
   "name": "Phosphor",
   "description": "Green on black everywhere, bare chrome, a braille spinner.",
 
-  // The terminal theme, and its own colors.
+  // The terminal theme, and its own colors. Selected text is drawn in the theme's dim gray, so the
+  // selection is inverse video: the phosphor green itself.
   "appearance.theme": "Green Phosphor CRT",
-  "colors": { "background": "#0b0f0b", "foreground": "#33ff33", "selection": "#0a3a0a", "accent": "#33ff33" },
+  // The window, sidebar and pages take that theme too, over an App Theme of your own.
+  "appearance.appTheme": "followTerminal",
+  "colors": { "background": "#0b0f0b", "foreground": "#33ff33", "selection": "#33ff33", "accent": "#33ff33" },
   "appearance.accent": "green",
 
   // No picture, no glass, no edges: the screen is the whole window.

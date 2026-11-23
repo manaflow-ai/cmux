@@ -154,7 +154,7 @@ public final class UpdaterService {
     @ObservationIgnored var prewarmInstallWait: Duration = UpdaterService.prewarmInstallBound
     /// The last skipped pre-warm's build and reason (``prewarmStagedUpdate(trigger:)``), logged once.
     @ObservationIgnored var prewarmSkipLogged: String?
-    /// Replaces a staged build's pre-warm (``StagedUpdatePrewarm/perform(work:processes:timeout:marker:urgency:progress:)``) in tests; returns its log line.
+    /// Replaces a staged build's pre-warm (``StagedUpdatePrewarm/perform(work:processes:timeout:total:clock:marker:urgency:progress:)``) in tests; returns its log line.
     @ObservationIgnored var prewarmRunner: (@Sendable (StagedUpdatePrewarm) async -> String)?
     /// This build's own verified notes, read once when the Updated card has
     /// no change list of its record (``loadCurrentBuildNotesIfNeeded()``).
@@ -276,8 +276,6 @@ public final class UpdaterService {
     /// Stands in for the Mac's last input for Update When Idle (`debug.updater {action: "input"}` in DEV and bench
     /// builds; the update-idle harness: a fleet Mac has no person). Nil reads the real input time.
     @ObservationIgnored public var debugLastInput: Date?
-    /// Live background updates (`updates.daemon`), set with the idle gate (``useIdleGate(_:)``); nil on a build that takes none.
-    @ObservationIgnored var daemonLiveUpdates: DaemonLiveUpdates?
     /// The install in flight started by itself (the idle policy): a failure opens nothing.
     @ObservationIgnored var automaticInstallInFlight = false
     /// The build Sparkle said it installs (`updaterWillInstallUpdate`): the relaunch's focus record names it.

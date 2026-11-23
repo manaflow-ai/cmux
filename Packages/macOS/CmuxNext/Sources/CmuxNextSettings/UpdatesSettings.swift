@@ -1,5 +1,5 @@
 // The paths, defaults, ranges and the choice enums (UpdatesChannelSetting, UpdatesMeteredSetting, UpdatesNotifySetting,
-// UpdatesWebSetting, UpdatesDaemonSetting)
+// UpdatesWebSetting)
 // are generated from schemas/settings/source/updates.json (Schema/SettingsSchema+Updates*.generated.swift,
 // cx-d5b5d); this file only parses.
 
@@ -28,9 +28,6 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
     public var meteredNetwork = UpdatesSettings.meteredNetworkDefault
     /// Web UI updates between app updates (plans/cmux-next/web-ota.md); NIGHTLY builds only.
     public var web = UpdatesSettings.webDefault
-    /// Live background updates: the bundled CLI swaps in each merge's daemon binaries while cmux is idle
-    /// (`cmux app try channel`); NIGHTLY and tip builds only, off by default.
-    public var daemon = UpdatesSettings.daemonDefault
     /// Pages and agent panes load from the server or overlay `~/.config/cmux/web-dev.json` names
     /// (the live web loop, docs/cmux-next/hot-reload.md); every build, on by default.
     public var liveWebReload = UpdatesSettings.liveWebReloadDefault
@@ -65,7 +62,6 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
         }
         if let value = reader.choice("meteredNetwork", UpdatesMeteredSetting.self) { settings.meteredNetwork = value }
         if let value = reader.choice("web", UpdatesWebSetting.self) { settings.web = value }
-        if let value = reader.choice("daemon", UpdatesDaemonSetting.self) { settings.daemon = value }
         if let value = reader.bool("liveWebReload") { settings.liveWebReload = value }
         if let value = reader.number("keepPreviousVersions", range: keepPreviousVersionsRange) { settings.keepPreviousVersions = Int(value) }
         if let value = reader.bool("showWhatsNew") { settings.showWhatsNew = value }

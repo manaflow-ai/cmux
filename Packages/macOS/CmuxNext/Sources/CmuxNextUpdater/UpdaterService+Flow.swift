@@ -281,9 +281,8 @@ extension UpdaterService {
     public func configure(checkAutomatically: Bool, checkInterval: TimeInterval, downloadAutomatically: Bool,
                           metered: UpdateMeteredMode = .deferLowData, ring: String? = nil,
                           idleInstall: (maxWait: TimeInterval, quiet: TimeInterval)? = nil,
-                          installWhenIdleMinutes: TimeInterval? = nil, liveDaemonUpdates: Bool = false) {
+                          installWhenIdleMinutes: TimeInterval? = nil) {
         if let ring { follow(ring: ring) }
-        daemonLiveUpdates?.follow(enabled: liveDaemonUpdates)
         installWhenIdle = installWhenIdleMinutes.map { .seconds($0 * 60) }
         if let idleInstall {
             idleInstallQuiet = .seconds(idleInstall.quiet)
