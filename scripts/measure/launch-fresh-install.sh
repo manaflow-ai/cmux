@@ -283,7 +283,13 @@ first() {
     # shellcheck disable=SC2024
     sudo -n /usr/bin/fs_usage -w -t 70 -f filesys -f exec >"$OUT/fs-$tag.txt" 2>&1 &
     trace_pid=$!
-    sleep 1
+    # Until fs_usage is tracing: its first event is in the file (the system always has file activity), 10 s.
+    for _ in $(seq 100); do
+      [[ -s "$OUT/fs-$tag.txt" ]] && break
+      kill -0 "$trace_pid" 2>/dev/null || break
+      sleep 0.1
+    done
+    [[ -s "$OUT/fs-$tag.txt" ]] || echo "LF-WARN fs_usage logged nothing within 10 s for $tag" >&2
   fi
   # The probe makes $OUT/home-$tag/h the app's HOME (launch-premain.swift environment).
   fresh_keychain "$OUT/home-$tag/h"
@@ -327,7 +333,14 @@ print(json.dumps(r, sort_keys=True))' "$name" "$rep" "$copied_by" "$cpu_before" 
   ran="$(printf '%s' "$json" | python3 -I -c 'import json,sys; print(json.load(sys.stdin).get("ran_from") or "")')"
   pids="$(ps -axo pid=,command= | LF_A="$app/" LF_B="${ran:-$app}/" awk 'index($0, ENVIRON["LF_A"]) || index($0, ENVIRON["LF_B"]) { print $1 }')"
   [[ -n "$pids" ]] && { sudo -n kill $pids 2>/dev/null || kill $pids 2>/dev/null; }
-  sleep 1
+  # Until those processes have exited (ps, not kill -0: some run as root), 10 s.
+  if [[ -n "$pids" ]]; then
+    for _ in $(seq 100); do
+      ps -p "$(echo $pids | tr ' ' ',')" >/dev/null 2>&1 || break
+      sleep 0.1
+    done
+    ps -p "$(echo $pids | tr ' ' ',')" >/dev/null 2>&1 && echo "LF-WARN processes of $tag still up 10 s after kill: $(echo $pids)" >&2
+  fi
   # The measured open is over: a prompt still up (a press that missed, one a copy's helper raised) is not needed.
   # Cancel it now, while its copy exists; with the copy deleted under it, it stays as '"(null)" is an app downloaded
   # from the Internet'.

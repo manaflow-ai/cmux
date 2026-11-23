@@ -11,7 +11,7 @@
 //!   the join record's WireGuard key and the device's ES256 install key. The
 //!   caller (the app, which keeps both in the Keychain, or the probe runner)
 //!   owns them; this process only holds them while it runs.
-//! - `--platform` (else `CMUX_PLATFORM_URL`) is cmux-platform's origin, where
+//! - `--platform` (else `CMUX_PLATFORM_ORIGIN`, or its alias `CMUX_PLATFORM_URL`) is cmux-platform's origin, where
 //!   attach lives; the person's credential is `--cloud-token-file` or
 //!   `CMUX_CLOUD_ACCESS_TOKEN`, the team `--team` or `CMUX_CLOUD_TEAM`.
 //!   `--vm-api` (else `CMUX_VM_API_URL`, else the VM API of the deployment
@@ -41,7 +41,6 @@ use super::answer::{Credential, HttpSource};
 use super::tunnel::{self, TunnelIdentity, TunnelPlan, TunnelStatus};
 use tokio::signal::unix::{SignalKind, signal};
 
-const PLATFORM_ENV: &str = "CMUX_PLATFORM_URL";
 const VM_API_ENV: &str = "CMUX_VM_API_URL";
 const USAGE: &str = "usage: cmux carrier tunnel --machine-id machine_… --name NAME --socket PATH [--platform URL] [--vm-api URL] [--cloud-token-file PATH] [--team team_…] (keys on stdin)";
 
@@ -221,10 +220,13 @@ pub(crate) fn run(args: &[String]) -> i32 {
     let platform = args
         .platform
         .clone()
-        .or_else(|| std::env::var(PLATFORM_ENV).ok())
-        .filter(|p| !p.trim().is_empty());
+        .filter(|p| !p.trim().is_empty())
+        .or_else(cmux_cloud_client::backend::platform_origin_env);
     let Some(platform) = platform else {
-        return usage(&format!("name cmux-platform with --platform URL or {PLATFORM_ENV}"));
+        return usage(&format!(
+            "name cmux-platform with --platform URL or {}",
+            cmux_cloud_client::backend::PLATFORM_ORIGIN_ENV
+        ));
     };
     let platform = match crate::cli::secure_cloud_origin(platform.trim()) {
         Ok(origin) => origin,

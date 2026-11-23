@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { PaneBoundary } from "./PaneBoundary";
+import { PaneBoundary, paneFailureLine } from "./PaneBoundary";
 import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
@@ -64,4 +64,33 @@ test("retry invokes the caller recovery hook after a render failure", () => {
   } finally {
     console.error = originalError;
   }
+});
+
+test("a caught render error is logged with what failed, the error's own words and where", () => {
+  const originalError = console.error;
+  const logged: unknown[][] = [];
+  console.error = (...args: unknown[]) => void logged.push(args);
+  try {
+    function BrokenPane(): never {
+      throw new Error("Maximum update depth exceeded");
+    }
+    const host = mount(
+      <PaneBoundary>
+        <BrokenPane />
+      </PaneBoundary>,
+    );
+    expect(host.querySelector(".acpmux-pane-failed")).not.toBeNull();
+    const line = logged.find((args) => args[0] === "agent pane render failed: Maximum update depth exceeded");
+    expect(line, JSON.stringify(logged.map((args) => String(args[0])))).toBeDefined();
+    expect((line![1] as Error).message).toBe("Maximum update depth exceeded");
+    // Where: the component stack under the boundary (bun names the throwing function <anonymous>).
+    expect(String(line![2])).toContain("at PaneBoundary");
+  } finally {
+    console.error = originalError;
+  }
+});
+
+test("a thrown value that is not an Error still says what it was", () => {
+  expect(paneFailureLine("bad state")).toBe("agent pane render failed: bad state");
+  expect(paneFailureLine(new Error(""))).toBe("agent pane render failed: no message");
 });
