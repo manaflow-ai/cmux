@@ -480,6 +480,10 @@ pub const BROWSER_PROVIDER_CAPABILITY: &str = "browser-provider-v1";
 pub const BROWSER_PROVIDER_NATIVE_HOSTING_CAPABILITY: &str = "browser-provider-native-hosting-v1";
 /// Advertises the `server-stats` command.
 pub const SERVER_STATS_CAPABILITY: &str = "server-stats-v1";
+/// `process-census`: the terminal hosts and state this daemon and its
+/// siblings keep, from their records (`mux/process_census.rs`). Trusted local
+/// connections only.
+pub const PROCESS_CENSUS_CAPABILITY: &str = "process-census-v1";
 pub const CLIENT_FOCUS_CAPABILITY: &str = "client-focus-v1";
 pub const DAEMON_SHUTDOWN_EVENT: &str = "daemon-shutdown";
 /// A client that sends this in `set-client-info` gets `restart` on the
@@ -993,6 +997,12 @@ enum Command {
     ServerStats {
         include: Option<Vec<String>>,
     },
+    /// The terminal hosts this daemon holds and every record root it can
+    /// read, each host classified from records, leases and session guards,
+    /// never from argv (`mux/process_census.rs`; `cmux ps`). Trusted local
+    /// connections only; read-only: it saves nothing (`cmux gc` saves the
+    /// unowned-host sightings).
+    ProcessCensus,
     /// `terminal-command-history-v1`, trusted local only (server/command_history.rs).
     SetTerminalCommandHistory(command_history::SetParams),
     ListTerminalCommands(command_history::ListParams),
@@ -3149,7 +3159,19 @@ use tree_json::{ShortIds, pane_json, tree_delta_json};
 #[cfg(test)]
 pub(crate) use tree_json::{panes_built_for_test, set_entity_check_hook_for_test};
 
+/// The live runtime of tab `id`. A parked terminal tab (`relaunch.on_show`:
+/// lazy start, `park-tabs`) starts here on its first need, and the request
+/// goes on with its new shell (`mux/terminal_respawn/lazy.rs`).
 fn get_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> {
+    // A live tab costs only the lock-free route read it always did.
+    if mux.surface(id).is_none_or(|surface| surface.is_dead()) {
+        mux.wake_lazy_tab(id);
+    }
+    get_surface_without_start(mux, id)
+}
+
+/// [`get_surface`] that never starts a parked tab (closing one).
+fn get_surface_without_start(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> {
     mux.surface(id)
         .filter(|surface| !surface.is_dead())
         .ok_or_else(|| anyhow::anyhow!("unknown surface {id}"))
