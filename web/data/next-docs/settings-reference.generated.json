@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 671,
+  "count": 674,
   "sections": [
     {
       "id": "general",
@@ -1614,6 +1614,18 @@
           ]
         },
         {
+          "key": "tabs.shellIconTheme",
+          "title": "Shell Tab Icons",
+          "help": "Machines shows each shell tab with the icon of the machine it runs on.",
+          "kind": "choice",
+          "default": "default",
+          "group": "Tabs",
+          "values": [
+            "default",
+            "machine"
+          ]
+        },
+        {
           "key": "tabs.swapCmdTAndCmdN",
           "title": "Swap Cmd-T and Cmd-N",
           "help": "Cmd-T opens a workspace and Cmd-N opens a tab.",
@@ -2702,6 +2714,22 @@
             "max": 1,
             "unit": "fraction"
           }
+        },
+        {
+          "key": "appearance.backgroundRecents",
+          "title": "Recent Backgrounds",
+          "help": "The backgrounds shown before, newest first, so one click goes back.",
+          "kind": "string_list",
+          "default": null,
+          "group": "Window Background"
+        },
+        {
+          "key": "appearance.backgroundPlacement",
+          "title": "Background Placement",
+          "help": "Picture ID to fill, fit, center or stretch, with optional X Y anchor and zoom.",
+          "kind": "string_map",
+          "default": null,
+          "group": "Window Background"
         },
         {
           "key": "appearance.backgroundRotation",
