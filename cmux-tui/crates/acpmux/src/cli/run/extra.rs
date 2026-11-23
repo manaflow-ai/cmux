@@ -904,8 +904,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             Ok(())
         }
         // No daemon connection: the update must work while the daemon does not.
-        Command::Host(PeerCmd::SelfUpdate { channel, now }) => {
-            crate::cli::hosts::self_update(&channel, now, json_out).await
+        Command::Host(PeerCmd::SelfUpdate { channel, now, allow_downgrade }) => {
+            crate::cli::hosts::self_update(&channel, now, allow_downgrade, json_out).await
         }
         // A file of this machine's; the daemon, when it runs, only reloads it.
         Command::Host(PeerCmd::Approvals { cmd }) => {
@@ -1288,8 +1288,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 }
                 // Dispatched before the connect (above); kept here so the
                 // match stays total without a panic.
-                PeerCmd::SelfUpdate { channel, now } => {
-                    return crate::cli::hosts::self_update(&channel, now, json_out).await;
+                PeerCmd::SelfUpdate { channel, now, allow_downgrade } => {
+                    return crate::cli::hosts::self_update(
+                        &channel,
+                        now,
+                        allow_downgrade,
+                        json_out,
+                    )
+                    .await;
                 }
                 PeerCmd::Hold { name, reason, until, release } => {
                     return crate::cli::hosts::hold(name, reason, until, release, json_out);
