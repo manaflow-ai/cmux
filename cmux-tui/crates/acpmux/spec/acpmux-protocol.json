@@ -2913,6 +2913,43 @@
       },
       "type": "object"
     },
+    "ApprovedPlan": {
+      "description": "The plan the person last approved in a chat (`hub/plan_build.rs` `approved_plan`): Claude\nCode's ExitPlanMode, or a Grok, Cursor or Gemini plan approval, answered with an allow. The\npane keeps it in sight while the agent builds it (Leo's feature map, 2026-11-23: \"plan pane\nthat stays during the build\"); a newer approval replaces it.",
+      "properties": {
+        "at": {
+          "description": "When it was approved, Unix ms.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "edited": {
+          "description": "The person edited the plan before approving it.",
+          "type": "boolean"
+        },
+        "markdown": {
+          "description": "The plan as approved, Markdown: the person's edit when they made one.",
+          "type": "string"
+        },
+        "permissionId": {
+          "description": "The plan approval it answered.",
+          "type": "string"
+        },
+        "turn": {
+          "description": "The chat's turn count when it was approved.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "markdown",
+        "edited",
+        "permissionId",
+        "turn",
+        "at"
+      ],
+      "type": "object"
+    },
     "ApproverDecision": {
       "additionalProperties": false,
       "description": "`{approver, expiresAt, signature}`: ECDSA P-256 / SHA-256, raw `r || s` as\nlowercase hex, over the approver's message for this exact answer.",
@@ -6412,6 +6449,17 @@
             "null"
           ]
         },
+        "approvedPlan": {
+          "anyOf": [
+            {
+              "$ref": "#/types/ApprovedPlan"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The plan the person last approved in this chat (`hub/plan_build.rs`), which the pane keeps\nin sight while the agent builds it. Absent until one, and from a peer on an older acpmux."
+        },
         "attached": {
           "description": "Attached clients.",
           "format": "uint64",
@@ -7314,6 +7362,17 @@
             "string",
             "null"
           ]
+        },
+        "approvedPlan": {
+          "anyOf": [
+            {
+              "$ref": "#/types/ApprovedPlan"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The plan the person last approved in this chat (`hub/plan_build.rs`), which the pane keeps\nin sight while the agent builds it. Absent until one, and from a peer on an older acpmux."
         },
         "attached": {
           "description": "Attached clients.",
