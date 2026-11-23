@@ -6,7 +6,8 @@
 #   BASE=origin/feat-cmux-next ROWS="60:2:8 60:5:8" bash netem-before-after.sh [OUT_DIR]
 #
 # ROWS: space-separated RTT_MS:LOSS_PCT:RATE_MBIT (rate 0: no cap). ATTEMPTS, SAMPLES, WORKLOAD
-# go to the harness. Needs passwordless sudo (network namespaces, tc), Xvfb and ethtool; on
+# go to the harness. SERVE_ARGS (space-separated) go to both hosts' `cmux-rd serve`, e.g.
+# SERVE_ARGS="--resolution-ladder 1". Needs passwordless sudo (network namespaces, tc), Xvfb and ethtool; on
 # Ubuntu it installs what is missing. Writes OUT_DIR/{base,head}-RTT-LOSS-RATE.jsonl and prints
 # one summary line per run.
 set -uo pipefail
@@ -17,7 +18,9 @@ out="${1:-${FAST_CHECKS_OUT:-/tmp}/netem-before-after}"
 mkdir -p "$out"
 : "${BASE:=origin/feat-cmux-next}"
 : "${ROWS:=60:2:8 60:5:8 60:2:0}"
-: "${ATTEMPTS:=3}" "${SAMPLES:=20}" "${WORKLOAD:=motion}"
+: "${ATTEMPTS:=3}" "${SAMPLES:=20}" "${WORKLOAD:=motion}" "${SERVE_ARGS:=}"
+serve_args=()
+for a in $SERVE_ARGS; do serve_args+=(--serve-arg="$a"); done
 
 missing=()
 for tool in Xvfb ethtool tc; do command -v "$tool" >/dev/null || missing+=("$tool"); done
@@ -49,7 +52,7 @@ for row in $ROWS; do
     bin="$base_bin"; [[ $side == head ]] && bin="$head_bin"
     file="$out/$side-$rtt-$loss-$rate.jsonl"
     sudo -n python3 -I "$here/screen-share-netem.py" "$bin" --rtt "$rtt" --loss "$loss" --rate "$rate" \
-      --workload "$WORKLOAD" --attempts "$ATTEMPTS" --samples "$SAMPLES" --out "$file" >"$file.log" 2>&1
+      --workload "$WORKLOAD" --attempts "$ATTEMPTS" --samples "$SAMPLES" "${serve_args[@]}" --out "$file" >"$file.log" 2>&1
     echo "$side rtt=${rtt}ms loss=${loss}% rate=${rate}Mbit exit=$?: $(tail -n 3 "$file.log" | tr '\n' ' ')"
   done
 done
