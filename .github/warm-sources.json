@@ -34,6 +34,7 @@
     "backend.yml:deploy-production": {"class": "linux-js", "warm": ["actions-cache"]},
     "backend.yml:deploy-staging": {"class": "linux-js", "warm": ["actions-cache"]},
     "backend.yml:journey-staging": {"class": "linux-rust", "warm": ["actions-cache"]},
+    "backend.yml:api-workerd": {"class": "linux-js", "warm": ["actions-cache"]},
     "backend.yml:test": {"class": "linux-js", "warm": ["actions-cache"]},
     "backend.yml:vitess-development": {"class": "linux-js", "warm": ["actions-cache"]},
     "build-ghosttykit.yml:build-ghosttykit": {"class": "mac-build", "warm": ["actions-cache"]},

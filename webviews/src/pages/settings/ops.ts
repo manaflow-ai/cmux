@@ -1237,7 +1237,8 @@ export type DevicesState = {
   thisDevice: DevicesDevice | null;
   others: DevicesDevice[];
   /** "Allow Mac Screen on this Mac"; null until this Mac is registered. */
-  sharing: { on: boolean; busy: boolean; permissions: DevicesPermission[] } | null;
+  /** `agentsMayShare`: the account's "My agents can turn screen sharing and control on my machines" (device hub). */
+  sharing: { on: boolean; busy: boolean; permissions: DevicesPermission[]; agentsMayShare: boolean } | null;
   relays: DevicesRelay[];
   /** Newest first. */
   history: DevicesHistoryRow[];
@@ -1318,6 +1319,8 @@ export type DevicesLabels = {
   sharingSection: string;
   sharingToggle: string;
   sharingDetail: string;
+  agentsToggle: string;
+  agentsDetail: string;
   openSettings: string;
   allowed: string;
   relaysSection: string;
@@ -1380,6 +1383,7 @@ export type DevicesRun =
   | { action: "remove"; id: string }
   | { action: "setAccess"; id: string; scope: DevicesScope }
   | { action: "setSharing"; on: boolean }
+  | { action: "setAgentsMayShare"; on: boolean }
   | { action: "openPermission"; id: DevicesPermissionId }
   | { action: "saveRelay"; relay: DevicesRelayDraft }
   | { action: "checkRelay"; id?: string; relay?: DevicesRelayDraft }

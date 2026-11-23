@@ -131,6 +131,9 @@ public final class ActionRegistry {
     /// Every known value of a suggested argument (`ActionSuggestions.source`),
     /// supplied by the App.
     @ObservationIgnored public var argumentSuggestions: (@MainActor (String) -> [ActionEnumCase])?
+    /// A suggested argument's choices submenu items when the App lists them live (the installed editors of
+    /// Open In ▸) instead of the catalog's `pinned`; nil for a source it does not list, which keeps `pinned`.
+    @ObservationIgnored public var menuChoices: (@MainActor (String) -> [ActionEnumCase]?)?
     /// A suggested argument whose values are not read yet (a list the daemon has not answered):
     /// the load that answers them, which the palette's step awaits under its loading state instead
     /// of opening on an empty list. Nil, or a nil load, when ``argumentSuggestions`` already has them.

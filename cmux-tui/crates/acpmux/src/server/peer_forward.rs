@@ -1231,6 +1231,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_forwarded_start_keeps_its_name_and_asks_to_keep_a_taken_one() {
+        let mut p = json!({"_meta": {"acpmux": {
+            "peer": "far-host", "name": "slam-09", "harness": "codex",
+            "ifNameTaken": crate::hub::SUFFIX_TAKEN_NAME,
+        }}});
+        strip_new_meta(&mut p);
+        assert_eq!(p["_meta"]["acpmux"]["name"], "slam-09");
+        assert_eq!(p["_meta"]["acpmux"]["ifNameTaken"], "suffix");
+        assert!(p["_meta"]["acpmux"].get("peer").is_none());
+    }
+
+    #[test]
     fn a_peer_hold_attach_is_refused_before_forwarding() {
         let error = hold_attach_peer_refusal(&json!({"hold": true})).expect("refusal");
         assert_eq!(error.data.unwrap()["reason"], "attach_hold.peer_refused");

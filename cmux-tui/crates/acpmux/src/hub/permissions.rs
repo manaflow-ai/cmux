@@ -289,6 +289,17 @@ impl Hub {
                 // `initialize` holds the spawn lock that check takes (review 1 of #26059), unless a
                 // reattach replaced the link since (review 2).
                 Inbound::LinkBroken { agent } => {
+                    let child =
+                        session.child.lock().await.clone().filter(|c| c.generation == agent);
+                    if let Some(child) = child.filter(|c| c.is_broken()) {
+                        // An entry from its host could not be stored: every request open on it is
+                        // answered now, with the store's refusal (`disk.full` on a full disk) or
+                        // the link's own error, never left to the client's limit. The next request
+                        // reattaches; the host keeps the entry for it.
+                        let full = self.store.durability().and_then(|d| (d.full)());
+                        let why = full.as_deref().unwrap_or(crate::agent::LINK_UNLOGGED);
+                        child.fail_pending_if_unheard_with(why).await;
+                    }
                     if self.full_access_managed_off() {
                         let child = session.child.lock().await.clone();
                         if let Some(child) = child.filter(|c| c.generation == agent) {

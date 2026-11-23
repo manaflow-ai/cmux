@@ -181,6 +181,34 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     ("race stop", &[("Stop a race's agents, keeping its results", "acpmux race stop RACE_ID")]),
     ("race ls", &[("List this chat's races", "acpmux race ls")]),
     ("race stats", &[("Wins per model in this chat", "acpmux race stats")]),
+    (
+        "fork-run",
+        &[
+            (
+                "Fork a Cloud machine three ways",
+                "acpmux fork-run start --workspace WS --machine vm_ID --harness claude,codex,pi",
+            ),
+            ("Keep the codex fork", "acpmux fork-run select RUN_ID CHILD_ID --workspace WS"),
+        ],
+    ),
+    (
+        "fork-run start",
+        &[(
+            "One fork per harness, each continuing a chat",
+            "acpmux fork-run start --workspace WS --machine vm_ID --harness claude --harness codex --session S",
+        )],
+    ),
+    (
+        "fork-run status",
+        &[(
+            "Wait up to 3 minutes for the forks",
+            "acpmux fork-run status RUN_ID --workspace WS --wait 180",
+        )],
+    ),
+    (
+        "fork-run select",
+        &[("Keep one ready fork", "acpmux fork-run select RUN_ID CHILD_ID --workspace WS")],
+    ),
     ("group ls", &[("List sidebar groups as JSON", "acpmux group ls --json")]),
     ("group move", &[("Put a session in the Leads group", "acpmux group move coord Leads")]),
     (

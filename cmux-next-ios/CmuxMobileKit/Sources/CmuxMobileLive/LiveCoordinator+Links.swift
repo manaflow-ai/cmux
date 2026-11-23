@@ -603,6 +603,9 @@ extension LiveCoordinator {
         })
         terminal.macName = owner.name
         terminal.scrollFramesSink = { [weak self] pan in await self?.sendScrollFrames(pan, macID: macID) }
+        terminal.paintSink = { [weak self] samples, program in
+            await self?.sendPaint(samples, program: program, macID: macID)
+        }
         // Its channel died or went silent: the link is checked at once too.
         terminal.onLinkSuspect = { [weak self] in self?.sessions[macID]?.link.suspect() }
         owner.terminals.removeAll { $0.session == nil }
@@ -632,6 +635,44 @@ extension LiveCoordinator {
         _ = try? await LinkDeadline.run(
             timeout: .seconds(10),
             operation: { try await channel.send(line) },
+            onCancel: { await channel.close(code: "eof", reason: "phone-frames expired") }
+        )
+        await channel.close(code: "eof", reason: "")
+    }
+
+    /// Sends painted redraws to the Mac (`phone-frames` `paint`): a few clock probes first, so
+    /// hostd puts the phone's times on its clock (the probe with the shortest round trip).
+    func sendPaint(_ samples: [TerminalPaintTally.Sample], program: String?, macID: String) async {
+        guard store.macCapabilities[macID]?.contains("phone-frames-v1") == true,
+              let owner = session(macID: macID), let link = owner.servedLink else { return }
+        let rtt: Int? = if case .connected(_, _, let measured) = owner.link.phase {
+            measured.map(Int.init)
+        } else {
+            nil
+        }
+        guard let channel = try? await LinkDeadline.run(
+            timeout: .seconds(10),
+            operation: { try await link.openChannel(service: "phone-frames", args: [:]) },
+            onDiscard: { await $0.close(code: "eof", reason: "phone-frames expired") }
+        ) else { return }
+        _ = try? await LinkDeadline.run(
+            timeout: .seconds(10),
+            operation: {
+                var clock: [[Double]] = []
+                for _ in 0..<4 {
+                    try await channel.send(TerminalPaintReport.clockProbe(t0: TerminalPaintReport.nowMs))
+                    // A Mac without clock probes closes or ignores it: report without an offset.
+                    guard let answer = try await channel.receive() else { break }
+                    if let sample = TerminalPaintReport.clockSample(answer: answer, t3: TerminalPaintReport.nowMs) {
+                        clock.append(sample)
+                    }
+                }
+                let report = TerminalPaintReport(
+                    program: program, samples: samples, clock: clock, rttMs: rtt,
+                    agentCLIHybrid: DaemonTerminalSession.agentCLIHybridEnabled()
+                )
+                if let line = report.line() { try await channel.send(line) }
+            },
             onCancel: { await channel.close(code: "eof", reason: "phone-frames expired") }
         )
         await channel.close(code: "eof", reason: "")
