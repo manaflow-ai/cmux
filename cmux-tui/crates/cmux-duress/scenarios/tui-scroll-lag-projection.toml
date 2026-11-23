@@ -8,6 +8,9 @@ sources = [
 ]
 spec = "idle,link=lte"
 headless = true
+# Added failing by #51584 (scroll_to_paint_ms p95 150 > 80, mac_queue_ms p95 21.8 > 16 on feat-cmux-next
+# 097ddbd6f, run 45221463725); it kept every cmux-duress run red, so no run was ever a baseline.
+known_failing = "Leo's TUI scroll lag on the projection path is open (Agent CLI Screen Changes on); the fix lanes are #51214 and #51766"
 path = "projection"
 cols = 50
 rows = 40
