@@ -9,7 +9,8 @@ import Foundation
 /// The engine is read when each dictation starts, so a change applies to the next one.
 /// Leo, 2026-11-22: "people should be able to add their own api keys/whatever and toggle that
 /// voice mode and whatever to link up to their provider of choice. just like our mic thing."
-public enum DictationProviderEngine {
+public struct DictationProviderEngine {
+    public init() {}
     /// Has the surfaces that share `claims`' microphone dictate with the engine `settings` names.
     /// - Parameter environment: The app's acpmux, asked as each dictation starts (nil: on-device).
     @MainActor
