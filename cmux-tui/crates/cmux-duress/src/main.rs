@@ -232,9 +232,17 @@ fn run_scenarios(
         let (json, text, pass) =
             cmux_duress::replay::run_and_report(scenario, &inputs, commit.as_deref())?;
         eprint!("{text}");
-        eprintln!("  verdict: {}", if pass { "PASS" } else { "FAIL" });
+        match (pass, scenario.known_failing.as_deref()) {
+            (true, None) => eprintln!("  verdict: PASS"),
+            (false, None) => eprintln!("  verdict: FAIL"),
+            (false, Some(why)) => eprintln!("  verdict: FAIL, known failing ({why})"),
+            (true, Some(_)) => eprintln!(
+                "  verdict: PASS, and it was known failing: drop known_failing from scenarios/{}.toml",
+                scenario.name
+            ),
+        }
         println!("{json}");
-        all_pass &= pass;
+        all_pass &= pass || scenario.known_failing.is_some();
     }
     Ok(all_pass)
 }
