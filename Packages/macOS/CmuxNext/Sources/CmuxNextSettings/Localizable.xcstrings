@@ -221016,6 +221016,534 @@
         }
       }
     },
+    "settings.appearance.backgroundPlacement": {
+      "comment": "Settings > Appearance > Window Background: title of the hidden setting that keeps where each background picture lies (CLI and docs only)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Background Placement"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景の配置"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "موضع الخلفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Položaj pozadine"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Baggrundens placering"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hintergrundplatzierung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posición del fondo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Position de l’arrière-plan"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posizione dello sfondo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទីតាំងផ្ទៃខាងក្រោយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "배경 배치"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bakgrunnsplassering"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Położenie tła"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posição do fundo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Расположение фона"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตำแหน่งพื้นหลัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arka Plan Yerleşimi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розташування фону"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vị trí hình nền"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景位置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景位置"
+          }
+        }
+      }
+    },
+    "settings.appearance.backgroundPlacement.help": {
+      "comment": "Settings > Appearance > Window Background: help of the hidden Background Placement setting; fill, fit, center and stretch are literal values",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Picture ID to fill, fit, center or stretch, with optional X Y anchor and zoom."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像IDごとに fill、fit、center、stretch を指定し、任意で X Y アンカーとズームを付けます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "معرّف الصورة إلى fill أو fit أو center أو stretch، مع مرساة X Y وتكبير اختياريين."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ID slike na fill, fit, center ili stretch, uz opcionalno X Y sidro i zum."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Billed-id til fill, fit, center eller stretch med valgfrit X Y-anker og zoom."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bild-ID zu fill, fit, center oder stretch, optional mit X-Y-Anker und Zoom."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ID de imagen a fill, fit, center o stretch, con ancla X Y y zoom opcionales."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ID d’image vers fill, fit, center ou stretch, avec ancre X Y et zoom facultatifs."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ID immagine su fill, fit, center o stretch, con ancoraggio X Y e zoom facoltativi."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លេខសម្គាល់រូបភាពទៅ fill, fit, center ឬ stretch ជាមួយយុថ្កា X Y និងការពង្រីកស្រេចចិត្ត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그림 ID별 fill, fit, center 또는 stretch와 선택적 X Y 기준점 및 확대/축소."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bilde-ID til fill, fit, center eller stretch, med valgfritt X Y-anker og zoom."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ID obrazu na fill, fit, center lub stretch, z opcjonalną kotwicą X Y i powiększeniem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ID da imagem para fill, fit, center ou stretch, com âncora X Y e zoom opcionais."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ID изображения на fill, fit, center или stretch с необязательными якорем X Y и масштабом."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รหัสภาพเป็น fill, fit, center หรือ stretch พร้อมจุดยึด X Y และการซูมที่ไม่บังคับ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resim kimliğinden fill, fit, center veya stretch'e; isteğe bağlı X Y çapası ve yakınlaştırma."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ID зображення на fill, fit, center або stretch з необов’язковими якорем X Y і масштабом."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ID ảnh thành fill, fit, center hoặc stretch, kèm neo X Y và thu phóng tùy chọn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "图片 ID 对应 fill、fit、center 或 stretch，可选 X Y 锚点和缩放。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "圖片 ID 對應 fill、fit、center 或 stretch，可選 X Y 錨點與縮放。"
+          }
+        }
+      }
+    },
+    "settings.appearance.backgroundRecents.help": {
+      "comment": "Settings > Appearance > Window Background: help for the hidden setting that keeps the backgrounds shown before",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الخلفيات المعروضة سابقًا، الأحدث أولًا، للعودة إليها بنقرة واحدة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ranije prikazane pozadine, najnovije prve, da se jednim klikom vratite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De baggrunde, der blev vist før, nyeste først, så ét klik går tilbage."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die zuvor gezeigten Hintergründe, neueste zuerst, damit ein Klick zurückführt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The backgrounds shown before, newest first, so one click goes back."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los fondos mostrados antes, el más reciente primero, para volver con un clic."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les fonds affichés auparavant, du plus récent au plus ancien, pour revenir en un clic."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli sfondi mostrati prima, dal più recente, per tornare indietro con un clic."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前に表示した背景(新しい順)。クリック1回で戻せます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទៃខាងក្រោយដែលបានបង្ហាញពីមុន ថ្មីបំផុតមុនគេ ដើម្បីត្រឡប់ក្រោយដោយចុចតែម្តង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이전에 표시된 배경을 최신순으로 보여 주어 한 번의 클릭으로 되돌아갈 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bakgrunnene som ble vist før, nyeste først, så ett klikk går tilbake."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wcześniej wyświetlane tła, od najnowszego, aby wrócić jednym kliknięciem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os fundos mostrados antes, do mais recente, para voltar com um clique."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фоны, показанные раньше, сначала новые, чтобы вернуться одним щелчком."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พื้นหลังที่เคยแสดง เรียงจากล่าสุด เพื่อย้อนกลับได้ในคลิกเดียว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Daha önce gösterilen arka planlar, en yenisi önce; tek tıkla geri dönün."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фони, показані раніше, спершу новіші, щоб повернутися одним клацанням."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các hình nền đã hiển thị trước đó, mới nhất trước, để quay lại chỉ bằng một cú nhấp."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "之前显示过的背景,最新的在前,点一下即可返回。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "之前顯示過的背景,最新的在前,按一下即可返回。"
+          }
+        }
+      }
+    },
+    "settings.appearance.backgroundRecents": {
+      "comment": "Settings > Appearance > Window Background: title of the hidden setting that keeps the backgrounds shown before (CLI and docs only)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الخلفيات الأخيرة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nedavne pozadine"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seneste baggrunde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zuletzt verwendete Hintergründe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recent Backgrounds"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fondos recientes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fonds récents"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sfondi recenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近の背景"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទៃខាងក្រោយថ្មីៗ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최근 배경"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nylige bakgrunner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ostatnie tła"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fundos recentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недавние фоны"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พื้นหลังล่าสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Son arka planlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нещодавні фони"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hình nền gần đây"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近的背景"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近的背景"
+          }
+        }
+      }
+    },
     "settings.default.fromTimeZone": {
       "comment": "Settings default label: the sun location comes from the time zone.",
       "extractionState": "manual",
