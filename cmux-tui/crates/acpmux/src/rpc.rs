@@ -823,6 +823,17 @@ pub mod method {
     pub const MUX_ACCOUNTS: &str = "_acpmux/accounts";
     pub const MUX_ACCOUNT_SET: &str = "_acpmux/account/set";
     pub const MUX_ACCOUNT_USAGE: &str = "_acpmux/account/usage";
+    // Signing an account in, adding one, switching and removing, for Codex, Claude and GitHub
+    // (server/account_sign_in.rs): the unix socket and the local app. Never Web or peer.
+    pub const MUX_ACCOUNT_SIGN_IN: &str = "_acpmux/account/sign_in";
+    pub const MUX_ACCOUNT_SIGN_IN_FINISH: &str = "_acpmux/account/sign_in.finish";
+    pub const MUX_ACCOUNT_SIGN_IN_CANCEL: &str = "_acpmux/account/sign_in.cancel";
+    pub const MUX_ACCOUNT_SWITCH: &str = "_acpmux/account/switch";
+    pub const MUX_ACCOUNT_REMOVE: &str = "_acpmux/account/remove";
+    /// Signs an account out with its CLI's own logout (GitHub: `gh auth logout`); its row stays.
+    pub const MUX_ACCOUNT_SIGN_OUT: &str = "_acpmux/account/sign_out";
+    /// Whether GitHub, Codex and Claude are each installed and signed in, for onboarding.
+    pub const MUX_ACCOUNT_READINESS: &str = "_acpmux/account/readiness";
     // Model connections: the person's ordered ways to pay for a model, for Settings > Models and
     // the inference gateway (server/connections.rs, cmux-tui/docs/model-connections.md). The list:
     // also the local app; every change and every ChatGPT call: the unix socket only.
