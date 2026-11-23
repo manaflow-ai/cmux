@@ -59,7 +59,8 @@ import { AuthorChip } from "./multiplayer/Faces";
 import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SlashCommand } from "./slashCommands";
 import { useSkillWords } from "./conversation/skillWords";
 import { withSkillWords } from "./conversation/withSkillWords";
-import { type QueuedEntry, shownText } from "./composerQueueModel";
+import { claimedReply } from "./conversation/waitingAskStore";
+import { heldReason, type QueuedEntry, shownText } from "./composerQueueModel";
 import { acpmuxPerf } from "./perf";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 import { focusRoute } from "../../ui/focusRoute";
@@ -1006,7 +1007,10 @@ export const ComposerQueue = React.memo(function ComposerQueue({
     <>
       {!entry.next && (
         <span className="acpmux-hidden-label">
-          {t(entry.waking ? "composer.heldForWake" : entry.held ? "composer.heldForTrust" : "composer.queued")}
+          {t(
+            { wait: "composer.heldForWake", trust: "composer.heldForTrust" }[heldReason(entry) ?? "queued"] ??
+              "composer.queued",
+          )}
         </span>
       )}
       {editing === entry.id ? (
@@ -1052,7 +1056,13 @@ export const ComposerQueue = React.memo(function ComposerQueue({
               </>
             ) : (
               // A skill's `/name`, and the command it starts with, draw as in the prompt's bubble (SkillWord.tsx).
-              withSkillWords(withoutSkillDollars(entry.prompt, skills), skills.words, undefined, skills.leading)
+              // An answer a card sent reads as the answer, not its quote of the ask (`claimedReply`).
+              withSkillWords(
+                withoutSkillDollars(claimedReply(entry.prompt) ?? entry.prompt, skills),
+                skills.words,
+                undefined,
+                skills.leading,
+              )
             )}
           </span>
         </button>
@@ -1144,14 +1154,14 @@ export const ComposerQueue = React.memo(function ComposerQueue({
         {visible.flatMap((entry, index) => [
           // The prompts the folder's trust holds follow one note that says so (trustHeld.ts); those
           // a waking Cloud machine holds, one that says it wakes (cloudWake.ts).
-          entry.held && (!visible[index - 1]?.held || !visible[index - 1]?.waking !== !entry.waking) && (
+          heldReason(entry) && heldReason(entry) !== heldReason(visible[index - 1] ?? {}) && (
             <li
-              key={entry.waking ? "held-for-wake" : "held-for-trust"}
+              key={heldReason(entry) === "wait" ? "held-for-wake" : "held-for-trust"}
               className="acpmux-queue-paused acpmux-queue-held"
-              data-held-for={entry.waking ? "wake" : "trust"}
+              data-held-for={heldReason(entry) === "wait" ? "wake" : "trust"}
               aria-hidden="true"
             >
-              {entry.waking ? (
+              {heldReason(entry) === "wait" ? (
                 wakeNoteShown && <span data-enter="fade">{t("composer.heldForWake")}</span>
               ) : (
                 <span>{t("composer.heldForTrust")}</span>

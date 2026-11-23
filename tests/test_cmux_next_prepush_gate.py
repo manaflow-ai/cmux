@@ -222,6 +222,9 @@ class PrePushGateTests(unittest.TestCase):
             "scripts/ci/workflow_job_bounds.py",
             "scripts/ci/github_release_download.py",
             "scripts/ci/deadline_http.py",
+            # The generated-file check the gate runs (GENERATED_CHECK) and the helper it imports from beside itself.
+            "scripts/ci/generated_files_guard.py",
+            "scripts/ci/ci_process_tree.py",
             "scripts/web-lint.sh",
             "scripts/merge-xcstrings.py",
             "scripts/merge-pbxproj.py",
@@ -574,8 +577,9 @@ class PrePushGateTests(unittest.TestCase):
         self.assertIn("2 own commit(s)", output)
 
     def test_a_push_nothing_bounds_is_refused_with_what_to_fetch(self):
-        # No ref of the remote at all in this clone: the gate cannot tell the push's own commits, so it refuses
-        # on purpose (one line per ref, no traceback) instead of judging HEAD~1 alone.
+        # No ref of the remote at all in this clone: nothing can tell the push's own commits (one line per ref, no
+        # traceback), and nothing judges HEAD~1 alone. The cmux-next gate now warns and passes here (Leo 2026-11-22:
+        # refuse only for the pusher's own diff); the web lint, which runs first, still refuses it.
         for ref in self.git("for-each-ref", "--format=%(refname)", "refs/remotes/").stdout.split():
             self.git("update-ref", "-d", ref)
         self.git("checkout", "--quiet", "-b", "fresh")
@@ -593,6 +597,7 @@ class PrePushGateTests(unittest.TestCase):
         self.assertNotIn("Traceback", output)
 
     def test_a_snapshot_without_push_range_refuses_the_push_and_says_how_to_fix_it(self):
+        # The web lint, which runs first, refuses; the cmux-next gate alone would warn and pass (CannotDecide).
         snapshot = Path(self.git("config", "--get", "core.hooksPath").stdout.strip()) / "cmux-next-checks"
         (snapshot.resolve() / "push_range.py").unlink()
         self.kit("Fresh", NEW_CLEAN)
@@ -607,9 +612,10 @@ class PrePushGateTests(unittest.TestCase):
 
     STALE = "the installed hook is older than the checks this push needs: rerun scripts/install-git-hooks.sh"
 
-    def test_a_stale_install_refuses_and_never_runs_the_pushed_check(self):
-        # The hook never runs code the push controls. A reviewed copy older than a check must refuse with how to fix
-        # it, never fall back to the pushed head's copy of that check.
+    def test_a_stale_install_warns_and_never_runs_the_pushed_check(self):
+        # The hook never runs code the push controls. A reviewed copy older than a check says how to fix it and never
+        # falls back to the pushed head's copy of that check; the stale install is the clone's, not the push's diff,
+        # so the push goes through with that warning (Leo 2026-11-22).
         snapshot = Path(self.git("config", "--get", "core.hooksPath").stdout.strip()) / "cmux-next-checks"
         marker = self.root / "pushed-code-ran"
         payload = f"open({str(marker)!r}, 'w').close()\n"
@@ -632,9 +638,10 @@ class PrePushGateTests(unittest.TestCase):
 
                 output = result.stdout + result.stderr
                 self.assertFalse(marker.exists(), f"the hook ran the pushed {name}")
-                self.assertNotEqual(result.returncode, 0, output)
-                self.assertEqual(self.remote_head(), before)
+                self.assertEqual(result.returncode, 0, output)
+                self.assertNotEqual(self.remote_head(), before)
                 self.assertIn(self.STALE, output)
+                self.assertIn("goes through UNCHECKED", output)
                 self.assertNotIn("Traceback", output)
 
     def test_a_stale_install_never_takes_the_tool_pins_from_the_checkout(self):
@@ -667,9 +674,10 @@ class PrePushGateTests(unittest.TestCase):
         output = result.stdout + result.stderr
         self.assertFalse(marker.exists(), "the hook ran a binary the pushed lock named")
         self.assertFalse(tools.exists() and any(tools.iterdir()), "the hook downloaded what the pushed lock named")
-        self.assertNotEqual(result.returncode, 0, output)
-        self.assertEqual(self.remote_head(), before)
+        self.assertEqual(result.returncode, 0, output)
+        self.assertNotEqual(self.remote_head(), before)
         self.assertIn(self.STALE, output)
+        self.assertIn("goes through UNCHECKED", output)
         self.assertNotIn("Traceback", output)
 
     def test_a_merge_cannot_use_an_upstream_removal_to_pay_for_the_branch_s_own_debt(self):
@@ -1771,6 +1779,36 @@ let package = Package(
         self.assertEqual(self.remote_head(), before, "the conflicted file must not reach origin")
         self.assertIn("Merge conflict markers", output)
         self.assertIn("MergedTests.swift:2: <<<<<<< HEAD", output)
+
+    def test_push_that_commits_a_file_a_build_time_generator_writes_is_refused(self):
+        # 2026-11-22: #49757 committed SettingsSchema+Appearance5.generated.swift after #50929 moved the settings
+        # sources into a SwiftPM build plugin (generated-files.json: settings-sources, status "build"), and the
+        # package stopped compiling (two definitions of each setting). The guard that knew (cmux-next-guards.yml,
+        # "cmux-next no new generated files") runs on a feat-cmux-next pull request only with full-ci and on a
+        # push once per 30-minute window, so nothing judged the merge before it landed.
+        output = f"{PKG}/Sources/CmuxNextSettings/Schema/SettingsSchema+Appearance5.generated.swift"
+        shutil.copyfile(SOURCE / "scripts/ci/generated-files.json", self.repo / "scripts/ci/generated-files.json")
+        self.commit("the generated-files manifest")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        before = self.remote_head()
+        self.write(output, "// GENERATED by settings-sources. Do not edit.\nenum Appearance5 {}\n")
+        self.commit("commits a build-time output")
+
+        result = self.push()
+
+        text = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, text)
+        self.assertEqual(self.remote_head(), before, "the generated file must not reach origin")
+        self.assertIn("No new committed generated files", text)
+        self.assertIn(f"{output}: a new committed generated file", text)
+        self.assertIn("settings-sources, status build", text)
+
+        # The same push without the generated file goes through: only the file is refused.
+        self.git("rm", "--quiet", output)
+        self.write(f"{PKG}/Sources/CmuxNextSettings/Schema/Appearance5.swift", "enum Appearance5Source {}\n")
+        self.commit("the source only")
+        result = self.push()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def cargo_workspace(self):
         """A two-crate cmux-tui workspace with a matching Cargo.lock; the push env cargo needs under this HOME."""
