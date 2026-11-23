@@ -121,10 +121,15 @@ final class CmuxMobileGhosttyApp {
         Self.themedConfig(theme, fontSize: fontSize, base: config)
     }
 
-    /// `base` with `theme` over every terminal theme key, at `fontSize`.
+    /// `base` with `theme` over every terminal theme key, at `fontSize`. A theme that lets the
+    /// Mac's wallpaper through (``CmuxMobileTerminalTheme/seesThrough``) draws no background: the
+    /// page behind the surface paints the picture under the theme's background at its opacity, as
+    /// the Mac's surfaces draw none over the window's tint (`GhosttyRuntimeSurfacePolicy`), so the
+    /// tint is laid once, under the rows and around them alike.
     static func themedConfig(_ theme: CmuxMobileTerminalTheme, fontSize: Double, base: ghostty_config_t) -> ghostty_config_t? {
         guard let themed = ghostty_config_clone(base) else { return nil }
-        let text = theme.configText + "font-size = \(fontSize)\n"
+        let clear = theme.seesThrough ? "\(CmuxMobileTerminalTheme.opacityKey) = 0\n" : ""
+        let text = theme.configText + clear + "font-size = \(fontSize)\n"
         text.withCString { ghostty_config_load_string(themed, $0, UInt(text.utf8.count), "cmux-mac-terminal-theme") }
         ghostty_config_finalize(themed)
         return themed

@@ -33,10 +33,12 @@ extension CmuxMobileMacTheme {
         case "mocha-wallpaper":
             let picture = Self.fixturePicture()
             let id = SHA256.hash(data: picture).map { String(format: "%02x", $0) }.joined()
-            apply(CmuxMobileMacAppearance(
+            let appearance = CmuxMobileMacAppearance(
                 theme: Self.fixtureMocha, wallpaper: .init(id: id, bytes: picture.count, tintOpacity: 0.45),
-                chat: .init(background: "#1e1e2e", foreground: "#cdd6f4", backgroundOpacity: 0.45, wallpaper: id)),
-                  chatWallpaper: picture)
+                chat: .init(background: "#1e1e2e", foreground: "#cdd6f4", backgroundOpacity: 0.45, wallpaper: id))
+            apply(appearance, chatWallpaper: picture)
+            // The terminal shows the picture under the same tint (ask-a6804c4472).
+            CmuxMobileTerminalThemes.shared.applyFixture(appearance)
         case "solarized-bubbles":
             apply(CmuxMobileMacAppearance(theme: Self.fixtureSolarized, chat: .init(
                 background: "#fdf6e3", foreground: "#657b83",

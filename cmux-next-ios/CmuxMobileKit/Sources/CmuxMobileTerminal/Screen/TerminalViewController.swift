@@ -4,6 +4,7 @@ import CmuxMobileDesign
 import CmuxMobileSupport
 import GhosttyNextKit
 import SwiftUI
+import Observation
 import UIKit
 import OSLog
 
@@ -75,10 +76,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// the page's clip, so a panned or wider grid reaches the side padding.
     private let tuiAreaClip = UIView()
     private let bottomStack = UIView()
-    private let bottomBacking = UIView()
+    private let bottomBacking = TerminalWallpaperView()
     /// 24 pt fade above the composer card, shown only while rows are scrolled
     /// under it, so the row the card's edge cuts reads as "more below" (R2-6).
     private let bottomFade = GradientView()
+    /// The Mac's wallpaper under the whole page (``applyWallpaper``).
+    private let backdrop = TerminalWallpaperView()
+    /// Where the picture comes from: Match Mac theme and the Mac's last appearance.
+    private let macTheme = CmuxMobileMacTheme.shared
     /// The last frame, held over the surface while a resize's mirror reset
     /// and replay are drawn, so the page never shows a black frame (R2-3).
     private var freezeView: UIView?
@@ -109,7 +114,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// composer: while the keyboard hides, the gap that opens below the old
     /// (shorter) grid shows nothing live or stale (the surface reaches below
     /// the area).
-    private let tuiBelowCover = UIView()
+    private let tuiBelowCover = TerminalWallpaperView()
 
     /// Rows of the local grid: the screen plus the largest keyboard, so the
     /// surface covers the old and new visible ranges during a keyboard animation.
@@ -443,21 +448,66 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private func terminalThemeDidChange(_ theme: CmuxMobileTerminalTheme) {
         model.hostTheme = theme
         guard isViewLoaded else { return }
-        let base = theme.backgroundColor
-        view.backgroundColor = base
+        view.backgroundColor = theme.backgroundColor
         overrideUserInterfaceStyle = theme.interfaceStyle
         composerHost?.overrideUserInterfaceStyle = theme.interfaceStyle
-        bottomBacking.backgroundColor = base
-        tuiBelowCover.backgroundColor = base
-        bottomFade.gradient.colors = [base.withAlphaComponent(0).cgColor, base.cgColor]
+        applyWallpaper()
+    }
+
+    /// The Mac's wallpaper behind the terminal (ask-a6804c4472; Leo, 2026-11-22: "i still dont see
+    /// the background image and the transparency"): with Match Mac theme on and a terminal theme
+    /// that lets it through (``CmuxMobileTerminalTheme/seesThrough``), the page, the bottom chrome's
+    /// backing and the TUI's cover show the picture under the theme's background at the Mac's tint,
+    /// and the surface draws no background over it. Otherwise (the switch off, an opaque theme, or
+    /// before the picture is on this phone) all of them paint the plain background, as before.
+    private func applyWallpaper() {
+        guard isViewLoaded else { return }
+        let theme = surface.hostTheme
+        let base = terminalBackground
+        let opacity = theme?.backgroundOpacity ?? 1
+        let picture = theme?.seesThrough == true ? macTheme.wallpaper?.image : nil
+        for ground in [backdrop, bottomBacking, tuiBelowCover] {
+            ground.show(picture, background: base, opacity: opacity)
+        }
+        backdrop.isHidden = picture == nil
+        model.showsMacWallpaper = picture != nil
+        // Over the picture the fades end in the tint, not the opaque background.
+        let edge = picture == nil ? base : base.withAlphaComponent(opacity)
+        bottomFade.gradient.colors = [edge.withAlphaComponent(0).cgColor, edge.cgColor]
         if statusScrim.superview != nil {
-            statusScrim.gradient.colors = [base.cgColor, base.cgColor, base.withAlphaComponent(0).cgColor]
+            statusScrim.gradient.colors = [edge.cgColor, edge.cgColor, edge.withAlphaComponent(0).cgColor]
+        }
+    }
+
+    /// Shows the Mac's picture once it is on this phone, and again on each change (Observation).
+    private func followWallpaper() {
+        withObservationTracking {
+            _ = macTheme.wallpaper
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.applyWallpaper()
+                self?.followWallpaper()
+            }
         }
     }
 
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = terminalBackground
+        // The Mac's wallpaper, under everything (``applyWallpaper``).
+        backdrop.page = view
+        backdrop.isHidden = true
+        backdrop.accessibilityIdentifier = "terminal.macBackdrop"
+        backdrop.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(backdrop)
+        NSLayoutConstraint.activate([
+            backdrop.topAnchor.constraint(equalTo: view.topAnchor),
+            backdrop.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            backdrop.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            backdrop.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+        ])
+        bottomBacking.page = view
+        tuiBelowCover.page = view
         // Chrome, glass and the keyboard follow the terminal theme (its Mac's look).
         overrideUserInterfaceStyle = terminalInterfaceStyle
         view.clipsToBounds = true
@@ -598,6 +648,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
         scrollToBottomButton.configuration?.image = UIImage(systemName: "arrow.down", withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold))
         scrollToBottomButton.configuration?.cornerStyle = .capsule
+        applyWallpaper()
+        followWallpaper()
         scrollToBottomButton.tintColor = .label
         scrollToBottomButton.accessibilityLabel = "Scroll to bottom"
         scrollToBottomButton.alpha = 0
@@ -1431,6 +1483,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        // A backing that only moved (the keyboard) lines its slice of the picture up again.
+        if backdrop.showsPicture { bottomBacking.setNeedsLayout(); tuiBelowCover.setNeedsLayout() }
         keyboardDock.refresh()
         measured("layout-terminal") { layoutTerminal() }
         if !started, surface.surface != nil, cell.height > 0 {
@@ -4405,7 +4459,8 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if tuiHeader.frame != frame { tuiHeader.frame = frame }
-        tuiHeader.backgroundColor = surface.backgroundColor
+        // Opaque even over the Mac's wallpaper: the rows under the header must not read through it.
+        tuiHeader.backgroundColor = surface.hostTheme?.backgroundColor ?? surface.backgroundColor
         tuiHeader.layer.contents = contents
         tuiHeader.layer.contentsRect = unit
         let hairline = 1 / (view.window?.screen.scale ?? surface.renderScale)

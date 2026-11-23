@@ -124,6 +124,27 @@ import UIKit
         #expect(terminals.theme(for: "mac-b")?.background == "#2b0b3f")
     }
 
+    /// Leo, 2026-11-23: "i still dont see the background image and the transparency". A Mac with
+    /// a wallpaper: its terminals see through at the window's tint (hostd's `background-opacity`
+    /// line, or the wallpaper's tint from an older hostd); with Match Mac theme off, stock and opaque.
+    @Test func aMacsWallpaperMakesItsTerminalsSeeThroughUntilTheSwitchIsOff() async {
+        let theme = Self.theme()
+        let terminals = CmuxMobileTerminalThemes(cached: nil, macTheme: theme)
+        let feed = MacAppearanceFeed(theme: theme, terminalThemes: terminals)
+        feed.focus(macID: "mac-a")
+        var frame = String(decoding: Self.frame(background: "#1e1e2e", wallpaper: ("ab", 3)), as: UTF8.self)
+        frame.removeLast()
+        feed.apply(Data((frame + ##","terminal":["background = #1e1e2e","foreground = #cdd6f4","background-opacity = 0.45"]}"##).utf8), macID: "mac-a")
+        feed.apply(Self.frame(background: "#202020", wallpaper: ("cd", 3)), macID: "mac-b")
+        #expect(terminals.theme(for: "mac-a")?.backgroundOpacity == 0.45)
+        #expect(terminals.theme(for: "mac-b")?.backgroundOpacity == 0.6) // an older hostd: the tint
+        feed.apply(Self.frame(background: "#202020"), macID: "mac-b")
+        #expect(terminals.theme(for: "mac-b")?.seesThrough == false) // no picture: opaque
+        theme.matchesMac = false
+        #expect(terminals.theme(for: "mac-a") == .stock)
+        #expect(terminals.theme(for: "mac-a")?.seesThrough == false)
+    }
+
     /// Leo, 2026-11-22: "the theming seemed to disappear maybe for the terminal/background". An
     /// `appearance` channel that ends while its link lives is opened again, so the Mac's next
     /// theme still reaches the phone; the read stops only when the link refuses a channel.

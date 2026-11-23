@@ -166,7 +166,7 @@ public final class CmuxMobileTerminalThemes {
     private var byMac: [String: CmuxMobileTerminalTheme] = [:]
     /// The last Mac theme on disk (``CmuxMobileMacAppearanceCache``): a terminal shows it until its
     /// own Mac's first frame, so a cold launch does not flash the phone's default colors.
-    private let cached: CmuxMobileTerminalTheme?
+    private var cached: CmuxMobileTerminalTheme?
 
     /// Whether terminals show their Mac's theme (Match Mac theme).
     private let followsMac: @MainActor () -> Bool
@@ -194,6 +194,15 @@ public final class CmuxMobileTerminalThemes {
         guard followsMac() else { return .stock }
         return macID.flatMap { byMac[$0] } ?? cached
     }
+
+    #if DEBUG
+    /// A launch fixture's Mac (``CmuxMobileMacTheme/applyLaunchFixture(arguments:)``): every
+    /// terminal with no frame of its own shows it, as the cached Mac's would.
+    public func applyFixture(_ appearance: CmuxMobileMacAppearance) {
+        cached = CmuxMobileTerminalTheme(showing: appearance)
+        NotificationCenter.default.post(name: Self.didChange, object: self)
+    }
+    #endif
 
     /// `macID`'s newest appearance frame.
     public func apply(_ appearance: CmuxMobileMacAppearance, macID: String) {

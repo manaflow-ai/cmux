@@ -63,4 +63,35 @@ import Testing
         let older = frame.replacingOccurrences(of: ##","terminal":["background = #2b0b3f","foreground = #f9e79f"]"##, with: "")
         #expect(try #require(CmuxMobileMacAppearance.decode(Data(older.utf8))).terminal == nil)
     }
+
+    /// Over the Mac's wallpaper hostd ends the lines with the window's tint as the background
+    /// opacity (ask-a6804c4472): the config keeps that line, and the theme lets the picture through.
+    @Test func theWallpapersTintRidesTheConfig() throws {
+        let theme = try #require(CmuxMobileTerminalTheme(lines: Self.macLines + ["background-opacity = 0.45"]))
+        #expect(theme.lines.last == "background-opacity = 0.45")
+        #expect(theme.configText.hasSuffix("background-opacity = 0.45\n"))
+        #expect(theme.configText.contains("\nbackground-opacity =\n")) // reset first, like every key
+        #expect(theme.backgroundOpacity == 0.45)
+        #expect(theme.seesThrough)
+        let opaque = try #require(CmuxMobileTerminalTheme(lines: Self.macLines))
+        #expect(opaque.backgroundOpacity == 1)
+        #expect(!opaque.seesThrough)
+        #expect(!CmuxMobileTerminalTheme.stock.seesThrough)
+    }
+
+    /// A frame with a wallpaper from a hostd that writes no opacity: the phone takes the tint itself,
+    /// so the picture shows behind the terminal whatever Mac build sent it. Without a picture it is
+    /// opaque, and hostd's own line wins.
+    @Test func aWallpaperFrameSeesThroughAtItsTint() throws {
+        var appearance = CmuxMobileMacAppearance(
+            theme: .init(background: "#1e1e2e", foreground: "#cdd6f4", palette: (0..<8).map { _ in "#000000" }),
+            terminal: ["background = #1e1e2e", "foreground = #cdd6f4"])
+        #expect(try #require(CmuxMobileTerminalTheme(showing: appearance)).backgroundOpacity == 1)
+        appearance.wallpaper = .init(id: "ab", bytes: 3, tintOpacity: 0.45)
+        let shown = try #require(CmuxMobileTerminalTheme(showing: appearance))
+        #expect(shown.backgroundOpacity == 0.45)
+        #expect(shown.lines.filter { $0.hasPrefix("background-opacity") }.count == 1)
+        appearance.terminal?.append("background-opacity = 0.3")
+        #expect(try #require(CmuxMobileTerminalTheme(showing: appearance)).backgroundOpacity == 0.3)
+    }
 }

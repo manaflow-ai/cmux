@@ -131,6 +131,82 @@ import UIKit
         Attachment.record(png, named: "terminal-\(name).png")
     }
 
+    /// Over the Mac's wallpaper (ask-a6804c4472) the terminal is see-through: hostd sends the
+    /// window's tint as `background-opacity`, the surface draws no background of its own, and the
+    /// page behind it (``TerminalWallpaperView``) shows the picture under the theme's color at that
+    /// tint, as the Mac's window does.
+    @Test func overTheMacsWallpaperTheTerminalIsSeeThrough() async throws {
+        let macID = "mac-\(UUID().uuidString)"
+        let mocha = ["background = #1e1e2e", "foreground = #cdd6f4", "palette = 1=#f38ba8", "palette = 4=#89b4fa"]
+        CmuxMobileTerminalThemes.shared.apply(Self.appearance(mocha + ["background-opacity = 0.45"]), macID: macID)
+        let rig = Rig(macID: macID)
+        try #require(rig.surface.surface != nil)
+        let theme = try #require(rig.surface.hostTheme)
+        #expect(theme.seesThrough && theme.backgroundOpacity == 0.45)
+        #expect(rig.surface.backgroundColor == .clear)
+        #expect(!rig.surface.isOpaque)
+        _ = try CmuxMobileGhosttyApp.shared()
+        let base = try #require(ghostty_config_new())
+        defer { ghostty_config_free(base) }
+        ghostty_config_finalize(base)
+        let themed = try #require(CmuxMobileGhosttyApp.themedConfig(theme, fontSize: 11, base: base))
+        defer { ghostty_config_free(themed) }
+        #expect(double(themed, "background-opacity") == 0)
+
+        // The page: a picture-backed pixel is not the solid background.
+        let page = TerminalWallpaperView(frame: CGRect(x: 0, y: 0, width: 390, height: 800))
+        let background = theme.backgroundColor
+        page.show(nil, background: background, opacity: theme.backgroundOpacity)
+        let solid = Self.pixel(page)
+        page.show(Self.picture(page.bounds.size), background: background, opacity: theme.backgroundOpacity)
+        #expect(page.showsPicture)
+        let backed = Self.pixel(page)
+        #expect(abs(solid.0 - 0x1e) <= 2 && abs(solid.1 - 0x1e) <= 2 && abs(solid.2 - 0x2e) <= 2)
+        #expect(abs(backed.0 - solid.0) > 40) // the orange picture shows through the 0.45 tint
+
+        // The PR's picture: the page under the terminal's frame, as the phone composites them.
+        var text = "\u{1B}[2J\u{1B}[H~/project $ ls --color\r\n"
+        text += "\u{1B}[34mSources\u{1B}[0m  \u{1B}[31mcore.dump\u{1B}[0m\r\n~/project $ "
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            rig.surface.feed(Data(text.utf8), completion: { done.resume() })
+        }
+        try? await Task.sleep(for: .milliseconds(200))
+        let frame = try #require(rig.framePNG().flatMap(UIImage.init(data:)))
+        let composite = UIGraphicsImageRenderer(bounds: page.bounds).image { context in
+            page.layer.render(in: context.cgContext)
+            frame.draw(in: CGRect(origin: .zero, size: rig.surface.bounds.size))
+        }
+        Attachment.record(try #require(composite.pngData()), named: "terminal-mocha-wallpaper.png")
+    }
+
+    /// Match Mac theme off: the stock theme, opaque, whatever the Mac shows.
+    @Test func theStockThemeIsOpaque() {
+        #expect(!CmuxMobileTerminalTheme.stock.seesThrough)
+        #expect(TerminalSurfaceView.backing(.stock) != .clear)
+    }
+
+    /// The page's pixel at its middle, 8-bit RGB.
+    static func pixel(_ view: UIView) -> (Int, Int, Int) {
+        view.layoutIfNeeded()
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let image = UIGraphicsImageRenderer(bounds: view.bounds, format: format).image { view.layer.render(in: $0.cgContext) }
+        var rgba = [UInt8](repeating: 0, count: 4)
+        let context = CGContext(data: &rgba, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        let cg = image.cgImage!
+        context?.draw(cg, in: CGRect(x: -CGFloat(cg.width) / 2, y: -CGFloat(cg.height) / 2, width: CGFloat(cg.width), height: CGFloat(cg.height)))
+        return (Int(rgba[0]), Int(rgba[1]), Int(rgba[2]))
+    }
+
+    /// A plain orange picture.
+    static func picture(_ size: CGSize) -> UIImage {
+        UIGraphicsImageRenderer(size: size).image { context in
+            UIColor(red: 0.98, green: 0.55, blue: 0.35, alpha: 1).setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+        }
+    }
+
     /// Another Mac's theme change leaves this terminal as it is.
     @Test func anotherMacsThemeDoesNotRecolorThisTerminal() async throws {
         let macID = "mac-\(UUID().uuidString)"

@@ -84,8 +84,9 @@ final class TerminalSurfaceView: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        backgroundColor = CmuxMobileTerminalThemes.shared.theme(for: nil)?.backgroundColor ?? CmuxMobileGhosttyApp.background
-        isOpaque = true
+        let theme = CmuxMobileTerminalThemes.shared.theme(for: nil)
+        backgroundColor = theme.map(Self.backing) ?? CmuxMobileGhosttyApp.background
+        isOpaque = theme?.seesThrough != true
         isAccessibilityElement = true
         accessibilityLabel = "Terminal"
         accessibilityTraits = .allowsDirectInteraction
@@ -261,17 +262,28 @@ final class TerminalSurfaceView: UIView {
     /// Gives the surface its Mac's terminal theme: the app config with every theme key reset and
     /// the Mac's lines over it, applied on the output queue (Ghostty's manual-IO surfaces take a
     /// config change in order with the output they parse).
+    /// What the view paints under Ghostty's frame: the theme's background, or nothing for a theme
+    /// that lets the Mac's wallpaper through (the page behind paints it, ``TerminalWallpaperView``).
+    static func backing(_ theme: CmuxMobileTerminalTheme) -> UIColor {
+        theme.seesThrough ? .clear : theme.backgroundColor
+    }
+
     func applyHostTheme() {
         guard let theme = CmuxMobileTerminalThemes.shared.theme(for: themeMacID) else { return }
         if theme != hostTheme {
             hostTheme = theme
-            backgroundColor = theme.backgroundColor
+            backgroundColor = Self.backing(theme)
+            isOpaque = !theme.seesThrough
             prediction?.setColors(background: theme.backgroundColor, foreground: theme.foregroundColor)
             onHostTheme?(theme)
         }
         guard theme != surfaceTheme, let surface, let app,
               let config = app.themedConfig(theme, fontSize: Double(fontSize)) else { return }
         surfaceTheme = theme
+        // Ghostty's frame layer composites its clear pixels only when not marked opaque (it is
+        // made under the launch config, which may have been opaque). Never set back: the other
+        // sublayers (prediction's overlay) are see-through by design.
+        if theme.seesThrough { for frame in layer.sublayers ?? [] { frame.isOpaque = false } }
         let ref = SurfaceRef(surface)
         let themed = ConfigRef(config)
         outputQueue.async {

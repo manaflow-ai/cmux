@@ -187,9 +187,11 @@ struct TerminalComposer: View {
         }
     }
 
-    /// The pane's background: the Mac's terminal theme, else the app default.
+    /// The pane's background: the Mac's terminal theme, else the app default. Over the Mac's
+    /// wallpaper it is the theme's tint, so the picture reads through the card as through the page.
     private var themeBackground: Color {
-        Color(uiColor: model.hostTheme?.backgroundColor ?? CmuxMobileGhosttyApp.background)
+        if model.showsMacWallpaper, let theme = model.hostTheme { return Color(uiColor: theme.tintColor) }
+        return Color(uiColor: model.hostTheme?.backgroundColor ?? CmuxMobileGhosttyApp.background)
     }
 
     private var fieldRow: some View {

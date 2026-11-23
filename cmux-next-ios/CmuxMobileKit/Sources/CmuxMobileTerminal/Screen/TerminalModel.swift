@@ -30,6 +30,9 @@ public final class TerminalModel {
     /// The terminal theme the surface shows now (its card paints the same background); nil until
     /// a Mac ever sent one.
     public internal(set) var hostTheme: CmuxMobileTerminalTheme?
+    /// Whether the page shows the Mac's wallpaper behind the terminal (Match Mac theme on, a theme
+    /// that lets it through, the picture on this phone): the composer then fills with the tint.
+    public internal(set) var showsMacWallpaper = false
     /// Alternate screen: the program owns scrolling; the frame pins to the composer.
     public internal(set) var isTUI = false
     public internal(set) var keyboardVisible = false
