@@ -495,6 +495,7 @@ async fn a_send_through_the_hub_from_no_session_carries_its_relay_record() {
         model: None,
         agent_session_id: None,
         host_build: None,
+        handle: None,
     };
     fake.with(|s| {
         s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })
