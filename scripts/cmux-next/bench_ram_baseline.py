@@ -57,8 +57,14 @@ HISTORY_PROMPT = " ".join(
     f"old key, then compare the two logs line by line and list every difference." for n in range(120))
 
 
-def tree(root: int) -> list[dict]:
-    """`root`, its descendants and the processes it is responsible for, with their footprints."""
+def tree(root: int, webkit_before: set[int] | None = None) -> list[dict]:
+    """`root`, its descendants and the processes it is responsible for, with their footprints.
+
+    `webkit_before` (a peer this script launched): the WebKit processes that ran before the launch.
+    A child of this script is not the responsible process of its WebKit processes (macOS holds the
+    script's own responsible process responsible for both), so a WebKit process started since the
+    launch with the same responsible process as `root` is root's too, as bench_memory.webkit_owned
+    counts one after a direct launch (review of #38549, F2)."""
     rows = bench_memory.process_table()
     children: dict[int, list[int]] = {}
     for pid, ppid, _ in rows:
@@ -71,6 +77,10 @@ def tree(root: int) -> list[dict]:
             stack.extend(children.get(pid, []))
     if bench_memory._responsible is not None:
         found |= {pid for pid, _, _ in rows if pid != root and bench_memory._responsible(pid) == root}
+        if webkit_before is not None:
+            owner = bench_memory._responsible(root)
+            found |= {pid for pid, _, cmd in rows if pid != root and "com.apple.WebKit." in cmd
+                      and pid not in webkit_before and bench_memory._responsible(pid) == owner}
     command = {pid: cmd for pid, _, cmd in rows}
     out = []
     for pid in found:
@@ -86,10 +96,10 @@ def median(values: list[float]) -> float | None:
     return ordered[len(ordered) // 2] if ordered else None
 
 
-def sample_tree(root: int, samples: int, gap: float = 10) -> dict:
+def sample_tree(root: int, samples: int, gap: float = 10, webkit_before: set[int] | None = None) -> dict:
     totals, rows = [], []
     for index in range(samples):
-        rows = tree(root)
+        rows = tree(root, webkit_before)
         if not rows:
             break
         totals.append(round(sum(row["footprint_mb"] for row in rows), 1))
@@ -111,6 +121,7 @@ def peer_idle(bundle: str, settle: float, samples: int) -> dict:
     log = open(os.path.join(scratch, "app.log"), "w")
     # --user-data-dir keeps an Electron or Chromium app apart from a copy already running (its
     # single-instance lock is per data dir); a native app ignores the argument.
+    webkit_before = {pid for pid, _, cmd in bench_memory.process_table() if "com.apple.WebKit." in cmd}
     child = subprocess.Popen([binary, f"--user-data-dir={home}/user-data"], env=env, stdout=log, stderr=log,
                              stdin=subprocess.DEVNULL, start_new_session=True)
     result = {"bundle": bundle, "version": info.get("CFBundleShortVersionString"), "signed_in": False}
@@ -123,7 +134,7 @@ def peer_idle(bundle: str, settle: float, samples: int) -> dict:
             with open(os.path.join(scratch, "app.log"), errors="replace") as handle:
                 result["error"] = f"the app exited ({child.returncode}): {handle.read()[-400:]}"
             return result
-        result.update(sample_tree(child.pid, samples))
+        result.update(sample_tree(child.pid, samples, webkit_before=webkit_before))
         return result
     finally:
         for sig, grace in ((signal.SIGTERM, 8), (signal.SIGKILL, 0)):

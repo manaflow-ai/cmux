@@ -62,7 +62,7 @@ Fleet (an owned mini with a console; the step builds the app):
 import argparse, csv, glob, json, math, os, re, shlex, socket, statistics, subprocess, sys, tempfile, threading, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import load_modes  # noqa: E402
-from bench_launch import BenchApp, LaunchError, tag_state_root  # noqa: E402
+from bench_launch import BenchApp, LaunchError, tag_of as bench_tag_of, tag_state_root  # noqa: E402
 from state_wait import wait_until, wait_stable  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -177,6 +177,8 @@ ROUND = 0
 # LAUNCH_ARM is the arm this whole launch was started with, for a key read once at startup.
 ARM = None
 LAUNCH_ARM = None
+# This launch's (ok, detail) switch proof for a launch-time --ab key, read once per launch (`launch_switch_once`).
+LAUNCH_SWITCH = None
 # The mode being measured, when --modes is given: its id, its `native` knobs and what it cannot express here.
 MODE = None
 
@@ -199,15 +201,31 @@ def launch_arm_key():
     return opts.ab if opts.ab in LAUNCH_TIME_TUNABLES else None
 
 
-def write_launch_tunable(tag, key, value):
+def launch_tunables_path():
+    """The override file the bench's own build reads at launch.
+
+    The tag comes off the bundle (`bench_launch.tag_of`), never off `--tag`: `BenchApp` names its state root that
+    way too, so a `--tag` that does not match the bundle would write the file one build reads and launch another
+    (review F2 on cmux#48152). `--tag` only labels the report."""
+    return os.path.join(tag_state_root(bench_tag_of(APP)), "debug-tunables.json")
+
+
+def write_launch_tunable(key, value):
     """Sets a launch-time key in the build's own override file, read at the next launch. The app must be down: its
-    coalesced writer would race this."""
-    path = os.path.join(tag_state_root(tag), "debug-tunables.json")
+    coalesced writer would race this.
+
+    `value=None` removes the key instead of storing a null: the store reads a stored null as a value that is set,
+    so writing one leaves the key overridden after the arms are done rather than back on the build's default."""
+    path = launch_tunables_path()
     try:
         data = json.load(open(path))
     except (OSError, ValueError):
         data = {"version": 1, "values": {}}
-    data.setdefault("values", {})[key] = value
+    values = data.setdefault("values", {})
+    if value is None:
+        values.pop(key, None)
+    else:
+        values[key] = value
     os.makedirs(os.path.dirname(path), exist_ok=True)
     json.dump(data, open(path, "w"), indent=2, sort_keys=True)
     return path
@@ -232,8 +250,13 @@ def set_arm(arm):
 
 
 def reset_arm():
-    """--ab's key back to the build's default, so a later launch or surface measures the build as it is."""
-    if opts.ab:
+    """--ab's key back to the build's default, so a later launch or surface measures the build as it is.
+
+    A launch-time key is not reset here: this process already parsed its command line, so a live set changes
+    nothing in it, and the override file is what the next launch reads (`write_launch_tunable(key, None)` at the
+    end of the arms removes it). Sending the set anyway recorded a reset that never happened (review F3 on
+    cmux#48152)."""
+    if opts.ab and not launch_arm_key():
         rpc("debug.tunables", {"action": "set", "key": opts.ab, "value": None}, timeout=10)
 
 
@@ -304,6 +327,18 @@ def launch_switch_proof(key, arm):
     got = sorted(report.get("launch_switches") or [])
     want = sorted(expected) if arm else []
     return got == want, {"key": key, "arm": bool(arm), "expected": want, "launched_with": got}
+
+
+def launch_switch_once():
+    """This launch's switch proof, read once and shared by every row of the launch (`LAUNCH_SWITCH`).
+
+    What Chromium was launched with cannot change inside a launch, so one `debug.cef` read answers every row. It
+    used to be read per row, which put a 20 s-timeout RPC between a surface's setup and its keys on every row of
+    every mode (review F1 on cmux#48152)."""
+    global LAUNCH_SWITCH
+    if LAUNCH_SWITCH is None:
+        LAUNCH_SWITCH = launch_switch_proof(launch_arm_key(), LAUNCH_ARM) if launch_arm_key() else (None, None)
+    return LAUNCH_SWITCH
 
 
 def start_burners():
@@ -701,9 +736,8 @@ def measure_agentpane(phase, pid, pane, streams=()):
         target["target"] = "page"
     frames_before = draw_on_input_frames()
     # For a launch-time --ab key, what this launch actually passed Chromium: the row carries it so no cell is read
-    # as an arm's number before its switch is proven to have landed (`launch_switch_proof`).
-    switch_ok, switch_detail = (launch_switch_proof(launch_arm_key(), LAUNCH_ARM)
-                                if launch_arm_key() else (None, None))
+    # as an arm's number before its switch is proven to have landed (`launch_switch_once`, one read per launch).
+    switch_ok, switch_detail = launch_switch_once()
     cpu_start = (time.monotonic(), cpu_seconds(pid), cpu_seconds(WINDOW_SERVER))
     stats_before = rpc("debug.agent_pane", {"action": "typing_stats", "pane": pane}, timeout=10) or {}
     before_keys = stats_before.get("keys", 0) if isinstance(stats_before, dict) else 0
@@ -1216,8 +1250,9 @@ SURFACES = {"terminal": surface_terminal, "home": surface_home, "dock": surface_
 def run_session(session, phases=None, backdrop="default"):
     """One launch of the app (scripts/cmux-next/bench_launch.py): the light session, or STRESS (built first); every
     surface and phase in it (`phases`, default --phases), --rounds times, with the window's `backdrop` (BACKDROPS)."""
-    global app, SESSION, SOCKET, CONFIG
+    global app, SESSION, SOCKET, CONFIG, LAUNCH_SWITCH
     SESSION = session if backdrop == "default" else f"{session}/{backdrop}"
+    LAUNCH_SWITCH = None  # one switch proof per launch, read by the first row of this one
     LOAD.clear()
     LOAD.update({"made": False, "workspaces": [], "chat_panes": []})
     env = {"CMUX_NEXT_TYPING_PROBE": PROBE, "CMUX_NEXT_HANG_THRESHOLD_MS": "8"}
@@ -1325,11 +1360,11 @@ def main():
                         order = [False, True] if index % 2 == 0 else [True, False]
                         for arm in order:
                             LAUNCH_ARM = arm
-                            path = write_launch_tunable(TAG, opts.ab, arm)
+                            path = write_launch_tunable(opts.ab, arm)
                             note(f"mode {mode['id']} arm {opts.ab}={arm}: wrote {path} for the next launch")
                             run_session(native["session"], [phase], backdrop)
                         LAUNCH_ARM = None
-                        write_launch_tunable(TAG, opts.ab, None)
+                        write_launch_tunable(opts.ab, None)
                     else:
                         run_session(native["session"], [phase], backdrop)
             MODE = None
@@ -1344,11 +1379,11 @@ def main():
                         order = [False, True] if index % 2 == 0 else [True, False]
                         for arm in order:
                             LAUNCH_ARM = arm
-                            path = write_launch_tunable(TAG, opts.ab, arm)
+                            path = write_launch_tunable(opts.ab, arm)
                             note(f"session {session} arm {opts.ab}={arm}: wrote {path} for the next launch")
                             run_session(session, backdrop=backdrop)
                         LAUNCH_ARM = None
-                        write_launch_tunable(TAG, opts.ab, None)
+                        write_launch_tunable(opts.ab, None)
                     else:
                         run_session(session, backdrop=backdrop)
     finally:

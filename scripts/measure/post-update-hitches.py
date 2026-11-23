@@ -626,7 +626,7 @@ class App:
         self.diagnostics = None  # Diagnostics, set per phase: kept when a control call goes unanswered
 
     def env(self, marks_path, activate):
-        env = smoke.fresh_env(self.root, self.sock, 0)
+        env = smoke.fresh_env(self.root, self.sock, 0, updater=True)  # this measures a real Sparkle update
         env.pop("CMUX_NEXT_LAUNCH_MARKS_FD")
         env["CMUX_NEXT_LAUNCH_MARKS_PATH"] = str(marks_path)
         env["CMUX_NEXT_SKIP_ONBOARDING"] = "1"
