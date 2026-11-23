@@ -9889,12 +9889,35 @@
       }
     },
     "request:home-inbox": {
+      "/ids": {
+        "ty": "array",
+        "nullable": true
+      },
+      "/ids/*": {
+        "ty": "string"
+      },
+      "/limit": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/offset": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/owners": {
         "ty": "array",
         "nullable": true
       },
       "/owners/*": {
         "ty": "string"
+      },
+      "/scope": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/since": {
+        "ty": "uint64",
+        "nullable": true
       }
     },
     "request:identify": {
@@ -17788,9 +17811,27 @@
         "ty": "string",
         "required": true
       },
+      "/data/full": {
+        "ty": "boolean"
+      },
       "/data/me": {
         "ty": "string",
         "required": true
+      },
+      "/data/offset": {
+        "ty": "uint64"
+      },
+      "/data/order": {
+        "ty": "string"
+      },
+      "/data/removed": {
+        "ty": "array"
+      },
+      "/data/removed/*": {
+        "ty": "string"
+      },
+      "/data/revision": {
+        "ty": "uint64"
       },
       "/data/rows": {
         "ty": "array",
@@ -17817,6 +17858,9 @@
       "/data/rows/*/id": {
         "ty": "string",
         "required": true
+      },
+      "/data/rows/*/index": {
+        "ty": "uint64"
       },
       "/data/rows/*/kind": {
         "ty": "enum",
@@ -17860,6 +17904,12 @@
       "/data/rows/*/unread": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/total": {
+        "ty": "uint64"
+      },
+      "/data/window": {
+        "ty": "boolean"
       }
     },
     "response:identify": {

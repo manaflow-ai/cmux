@@ -268,7 +268,7 @@ try:
                 latencies.append((time.monotonic() - t0) * 1000)
                 next_at = started + step * period
                 if next_at > time.monotonic():
-                    time.sleep(next_at - time.monotonic())
+                    time.sleep(max(0.0, next_at - time.monotonic()))
             rpc("debug.mouse", {"action": "up", "x": x0 + dx, "y": y0 + dy})
             time.sleep(0.5)
             rounds.append({"before": before, "after": size(), "wall_s": round(time.monotonic() - started, 2),
