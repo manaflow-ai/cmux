@@ -4937,3 +4937,17 @@ lan_cache_fetch.py's own bound is 5,420 s, longer than the 60-minute jobs that r
 ("LAN cache host unavailable (...: stalled)"), and the direct download then took 9 more: restores of
 1,289-1,600 s, in jobs cancelled at the 60-minute limit while still building CmuxNext. A healthy host
 serves the 3.6 GB seed in about 40 s, or 343 s when it first fills it from the bucket (wait 304 s).
+
+## note-553
+
+Above `macos-placement: CI_FAST_TIER_FLEET_SPILL` in `.github/workflows/cmux-next.yml`.
+
+With Blacksmith macOS off, a FLEET_CLIENT_JOBS job (the fast tier) that no idle mini took is listed in
+fleet_jobs, so its build-fleet client runs it on an idle gateway runner instead of waiting on the owned
+label (next_macos_cascade.fleet_spill()). 2026-11-23 09-11Z the fast tier queued 46 to 65 min on
+glaeda-side-std-xcode-26.6 before starting; at 11:33Z the label had 173 jobs queued (87 of them fast tier,
+76 over 10 min), oldest 318 min, and all 31 of its slots busy, while placement logged idle gateway runners.
+fleet_gateway() still keeps the job only with an idle gateway runner of its own, and a fleet verdict
+`queued` hands it back, which with the switch off waits on the owned route rather than a Blacksmith label
+no runner serves (side_lane_placement.handback()). `vars.CI_FAST_TIER_FLEET_SPILL` set to `0` turns the
+spill off; unset or any other value leaves it on.
