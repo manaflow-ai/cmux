@@ -32,6 +32,10 @@ public struct LinkPairing: Sendable {
     /// (SECURITY.md "Dev auto-approve"). Every other Mac ignores it. Nil sends none.
     public var bundleID: String? = Bundle.main.bundleIdentifier
 
+    /// This app's build number (CFBundleVersion), sent with `auth` as `appBuild` so the Mac's log
+    /// says which build connected. Nil sends none.
+    public var appBuild: String? = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+
     // Network exchange and the Mac's Allow prompt have different budgets.
     static let defaultHandshakeTimeout: Duration = .seconds(15)
     static let defaultApprovalTimeout: Duration = .seconds(180)
@@ -163,6 +167,7 @@ public struct LinkPairing: Sendable {
             let pushArgs = macID.flatMap { pushKeyArgs(mac: $0) }
             if let pushArgs { args.merge(pushArgs) { a, _ in a } }
             if let bundleID, !bundleID.isEmpty { args["bundleId"] = bundleID }
+            if let appBuild, !appBuild.isEmpty { args["appBuild"] = appBuild }
             let channelArgs = args
             let channel = try await LinkDeadline.run(
                 timeout: handshakeTimeout,
