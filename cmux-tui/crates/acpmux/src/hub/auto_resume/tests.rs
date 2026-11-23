@@ -120,6 +120,7 @@ async fn exact_prompt_stop_fences_waiting_and_late_retry_without_touching_person
                 trust_gate: false,
                 error: "HTTP 503",
                 not_before: None,
+                slash: None,
             }),
         );
         assert!(
