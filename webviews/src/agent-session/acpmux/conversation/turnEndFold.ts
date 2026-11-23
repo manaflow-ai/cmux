@@ -721,9 +721,14 @@ function recapEntrance(recap: TurnEndRecap, from: number, height: number): Keyfr
 }
 
 /// The replace looks' clocks. `snapshot` dissolves on the settle; `wipe` and `defer` run their edge over the
-/// large step on `glide`'s soft-start curve; `sprout` runs its edge over the standard step and fades each
+/// large step on the house ease-out; `sprout` runs its edge over the standard step and fades each
 /// row over the micro step as the edge passes it.
-const WIPE = GLIDE;
+///
+/// The edge runs on a house curve (`MOTION_EASE_OUT`), set as the animations' own easing over keyframes
+/// sampled evenly along the run, not baked into the keyframes under `linear`: the motion detector
+/// (test/support/transcriptMotion.ts) reads a geometry animation's easing, and a `linear` clip riding a
+/// curve of its own is off the house curves (the fuzzer's `off-curve` on every wipe seed).
+const WIPE = { ms: MOTION_MS.large, easing: MOTION_EASE_OUT };
 const SPROUT_TRAVEL_MS = MOTION_MS.standard;
 const SPROUT_FADE_MS = MOTION_MS.micro;
 /// `defer`: the longest the old frame stays drawn with no reader's gesture.
@@ -812,7 +817,6 @@ function playReplace(
   const now = () => (typeof timeline?.currentTime === "number" ? timeline.currentTime : performance.now());
   const settleMs = settle(thread).ms;
   const ms = look === "snapshot" ? settleMs : look === "sprout" ? SPROUT_TRAVEL_MS + SPROUT_FADE_MS : WIPE.ms;
-  const edgeAt = curveProgress(WIPE.easing) ?? ((x: number) => x);
   const was = new Map(capture.rows.filter((row) => !row.copy).map((row) => [row.id, row]));
   const gone = capture.rows.filter((row) => row.copy);
   /// The old frame: each element, and the top it was drawn at (in the view, as `layoutTops`).
@@ -921,7 +925,7 @@ function playReplace(
     /// point puts the edge past every box (`top`, `height`), so the new frame ends wholly drawn and the
     /// old wholly gone on the edge's last step, with nothing left for the animation's end to settle.
     const edgeY = (step: number, top: number, height: number) => {
-      const y = wipeEdge(spans, edgeAt(step / WIPE_POINTS), up);
+      const y = wipeEdge(spans, step / WIPE_POINTS, up);
       if (step < WIPE_POINTS) return y;
       return up ? Math.min(y, top) : Math.max(y, top + height);
     };
@@ -956,7 +960,7 @@ function playReplace(
             Array.from({ length: WIPE_POINTS + 1 }, (_, step) => ({
               clipPath: clipAt(true, top, height, edgeY(step, top, height)),
             })),
-            { easing: "linear" },
+            { easing: WIPE.easing },
           ],
         ]);
     }
@@ -987,7 +991,7 @@ function playReplace(
                 (up ? y <= lands.top : y >= lands.top + lands.height);
               return { clipPath: drawnThere ? clipAt(false, top, height, y) : clipTop(0) };
             }),
-            { easing: "linear", fill: "both" },
+            { easing: WIPE.easing, fill: "both" },
           ],
         ]);
     }
