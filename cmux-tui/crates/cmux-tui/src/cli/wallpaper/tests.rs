@@ -242,6 +242,37 @@ fn backgrounds_map_to_settings_ids() {
     assert!(id("not-a-thing", Use::Main).unwrap_err().contains("not a file, folder, painting"));
 }
 
+/// A YouTube address, `youtube:` id or bare video id is a background like a file
+/// (`set`, `follow-appearance`, `schedule`): its canonical `youtube:` id.
+#[test]
+fn youtube_videos_map_to_their_youtube_id() {
+    let fixture = Fixture::new("youtube");
+    let env = fixture.env();
+    let id = |arg: &str, usage| background_id(arg, &env, usage);
+    for usage in [Use::Main, Use::Fixed] {
+        assert_eq!(
+            id("https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=90s", usage).as_deref(),
+            Ok("youtube:dQw4w9WgXcQ?start=90")
+        );
+        assert_eq!(id("youtu.be/dQw4w9WgXcQ", usage).as_deref(), Ok("youtube:dQw4w9WgXcQ"));
+        assert_eq!(
+            id("youtube:dQw4w9WgXcQ?quality=720", usage).as_deref(),
+            Ok("youtube:dQw4w9WgXcQ?quality=720")
+        );
+        assert_eq!(id("dQw4w9WgXcQ", usage).as_deref(), Ok("youtube:dQw4w9WgXcQ"));
+    }
+    assert!(
+        id("https://www.youtube.com/playlist?list=PL1", Use::Main)
+            .unwrap_err()
+            .contains("playlist")
+    );
+    let plan = plan(&Request::Set { background: "https://youtu.be/dQw4w9WgXcQ".into() }, &env)
+        .expect("a plan");
+    assert_eq!(plan.edits, vec![Edit::Set(BACKGROUND, json!("youtube:dQw4w9WgXcQ"))]);
+    assert_eq!(validate(&plan.edits), Ok(()));
+    assert!(USAGE.contains("YouTube"));
+}
+
 #[test]
 fn painting_ids_come_from_the_schema() {
     let fixture = Fixture::new("paintings");

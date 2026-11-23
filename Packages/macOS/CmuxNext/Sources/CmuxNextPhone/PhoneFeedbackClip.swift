@@ -25,9 +25,9 @@ public struct PhoneFeedbackClip: Sendable, Hashable {
         let device = recording.device
         let taps = recording.events.filter { $0.kind == "tap" }.count
         var lines: [String] = []
-        let title = String(localized: "phone.feedback.title", defaultValue: "Phone feedback", bundle: .module)
+        let title = String(localized: "phone.feedback.title", defaultValue: "Phone feedback", bundle: .localizedModule)
         lines.append("**\(title)**: \(device.name) (\(device.model), \(device.osVersion)) · \(clock(recording.duration)) · "
-            + String(format: String(localized: "phone.feedback.inputs", defaultValue: "%lld inputs, %lld taps", bundle: .module),
+            + String(format: String(localized: "phone.feedback.inputs", defaultValue: "%lld inputs, %lld taps", bundle: .localizedModule),
                      Int64(recording.events.count), Int64(taps)))
         let notes = recording.notes.trimmingCharacters(in: .whitespacesAndNewlines)
         if !notes.isEmpty {
@@ -36,19 +36,19 @@ public struct PhoneFeedbackClip: Sendable, Hashable {
         }
         if !recording.events.isEmpty {
             lines.append("")
-            lines.append(String(localized: "phone.feedback.steps", defaultValue: "Steps:", bundle: .module))
+            lines.append(String(localized: "phone.feedback.steps", defaultValue: "Steps:", bundle: .localizedModule))
             for event in recording.events.prefix(30) { lines.append("- \(clock(event.at)) \(describe(event))") }
             if recording.events.count > 30 { lines.append("- …") }
         }
         if let logTail, !logTail.lines.isEmpty {
             lines.append("")
-            lines.append(String(localized: "phone.feedback.logErrors", defaultValue: "Log errors:", bundle: .module))
+            lines.append(String(localized: "phone.feedback.logErrors", defaultValue: "Log errors:", bundle: .localizedModule))
             lines.append("```")
             for line in logTail.lines { lines.append("[\(line.level)] \(line.process): \(line.message)") }
             lines.append("```")
         }
         lines.append("")
-        lines.append(String(localized: "phone.feedback.folder", defaultValue: "Recording folder:", bundle: .module)
+        lines.append(String(localized: "phone.feedback.folder", defaultValue: "Recording folder:", bundle: .localizedModule)
             + " [\(recording.id)](\(recording.folder.absoluteString))")
         return lines.joined(separator: "\n")
     }

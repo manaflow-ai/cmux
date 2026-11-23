@@ -69,6 +69,7 @@ writes the same lines as plain text into the build's appcast <description>.
 """
 import argparse, base64, hashlib, json, os, re, subprocess, sys, tempfile, time
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 HIGHLIGHTS = "release-notes/next/highlights"
@@ -484,6 +485,21 @@ def rev_range(since, head):
     return f"{since}..{head}" if since else head
 
 
+def require_whole_span(since, head):
+    """Refuses a span that a shallow clone cut short. A cut commit inside since..head reads as a root, so git log
+    calls every file in its tree added: build 4485813982701 shipped all 425 highlight files ever written (the
+    real span added 2). No notes beat wrong notes: the next build's span starts at the newest published notes."""
+    if not since or git("rev-parse", "--is-shallow-repository").strip() != "true":
+        return
+    shallow = Path(git("rev-parse", "--git-path", "shallow").strip())
+    cut = set(shallow.read_text().split()) if shallow.is_file() else set()
+    inside = cut.intersection(git("rev-list", f"{since}..{head}").split())
+    if inside:
+        raise SystemExit(f"release notes: the span {since[:12]}..{head[:12]} is cut short at shallow commit(s) "
+                         f"{', '.join(sorted(c[:12] for c in inside))}; deepen the fetch "
+                         "(scripts/cmux-next/fetch-release-notes-span.sh) and run again")
+
+
 def front_matter(text):
     """A highlight file's front matter (lines before the first blank line) and its body."""
     head, _, body = text.partition("\n\n")
@@ -557,8 +573,12 @@ def reannounced(since, head, added):
 # file merges, and a nightly cut in between shows it with none. A highlight of the last LATE_PICTURE_DAYS
 # whose newest published notes (the public feed, newest LATE_PICTURE_BUILDS builds) showed it without its
 # pictures rides along with the next build that finds them, once: that build's notes show it pictured.
+# An older one (of the last CLIP_REANNOUNCE_DAYS) rides along too while its showing is one of the newest
+# LATE_PICTURE_WINDOW builds, the window NOW whats_new judges: nightlies stalled for a day (2026-11-18), and
+# new-tab-run-command aged past LATE_PICTURE_DAYS before a nightly could carry its late before.
 LATE_PICTURE_DAYS = 2
 LATE_PICTURE_BUILDS = 30
+LATE_PICTURE_WINDOW = 10
 NOTES_FEED = os.environ.get("CMUX_RELEASE_NOTES_FEED", "https://files-next.cmux.com/nightly-next/notes/")
 
 
@@ -574,14 +594,15 @@ def pictured(highlight):
 def late_pictures(head, skip, deadline, fixture):
     """{path: whether its newest appearance had media} of the New and Improved highlights not in `skip`, with
     no clip line, whose newest appearance in the published notes was not pictured (one of the last
-    LATE_PICTURE_DAYS), or did not show a recorded clip that is published now (one with a spec, of the last
+    LATE_PICTURE_DAYS, or of the last CLIP_REANNOUNCE_DAYS shown in one of the newest LATE_PICTURE_WINDOW
+    builds), or did not show a recorded clip that is published now (one with a spec, of the last
     CLIP_REANNOUNCE_DAYS: a clip recorded after the highlight shipped with its gallery stills, or with none,
     replaces them; late_clip). An Improved one with a clip line and a spec counts too, for its recorded
     before alone. A feed read that fails gives none."""
     head_time = int(git("show", "-s", "--format=%ct", head).strip())
     days = max(LATE_PICTURE_DAYS, CLIP_REANNOUNCE_DAYS)
     since = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(head_time - days * 86400))
-    wanted, metas, recent, specs, born = {}, {}, set(), set(), head_time
+    wanted, metas, recent, specs, windowed, born = {}, {}, set(), set(), set(), head_time
     for line in git("log", "--diff-filter=A", "--name-only", "--format=time %ct", f"--since={since}", head,
                     "--", HIGHLIGHTS).splitlines():
         if line.startswith("time "):
@@ -603,7 +624,7 @@ def late_pictures(head, skip, deadline, fixture):
         has_spec = subprocess.run(["git", "cat-file", "-e", f"{head}:{CLIPS}/{highlight['id']}.json"],
                                   capture_output=True).returncode == 0
         is_recent = head_time - born <= LATE_PICTURE_DAYS * 86400 and not clip_line
-        if not (is_recent or has_spec):
+        if not (is_recent or has_spec or not clip_line):
             continue
         wanted[highlight["id"]] = path
         metas[highlight["id"]] = front_matter(text)[0]
@@ -611,16 +632,23 @@ def late_pictures(head, skip, deadline, fixture):
             recent.add(highlight["id"])
         if has_spec:
             specs.add(highlight["id"])
+        if not clip_line and not is_recent:
+            windowed.add(highlight["id"])
+    # One that counts only when shown in the window is not looked for past it.
+    dated = set(wanted) - (windowed - specs)
     shown = {}
     try:
         index = json.loads(pr_download(NOTES_FEED + "index.json", fixture) or b"{}")
-        for entry in (index.get("builds") or [])[:LATE_PICTURE_BUILDS]:
-            if len(shown) == len(wanted) or time.monotonic() > deadline:
+        for position, entry in enumerate((index.get("builds") or [])[:LATE_PICTURE_BUILDS]):
+            looked_for = set(wanted) if position < LATE_PICTURE_WINDOW else dated
+            if looked_for <= shown.keys() or time.monotonic() > deadline:
                 break
             notes = json.loads(pr_download(f"{NOTES_FEED}{entry['build']}.json", fixture) or b"{}")
             for highlight in notes.get("highlights") or []:
-                if isinstance(highlight, dict) and highlight.get("id") in wanted:
-                    shown.setdefault(highlight["id"], highlight)
+                if isinstance(highlight, dict) and highlight.get("id") in looked_for and highlight["id"] not in shown:
+                    shown[highlight["id"]] = highlight
+                    if highlight["id"] in windowed and position < LATE_PICTURE_WINDOW:
+                        recent.add(highlight["id"])
     except Exception as error:
         print(f"late pictures: {type(error).__name__}: {error}; none ride along", file=sys.stderr)
         return {}
@@ -772,6 +800,7 @@ PR_MEDIA_SIGNATURES = (b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff", b"GIF87a", b"GIF89
 PR_MEDIA_TIMEOUT = 10
 PR_MEDIA_BUDGET = 120
 PR_DESCRIPTION_BUDGET = 120
+PR_DESCRIPTION_READERS = 8
 
 
 def pr_media_picture(data):
@@ -1082,6 +1111,7 @@ def prs(args):
 
 
 def build(args):
+    require_whole_span(args.since, args.head)
     span = rev_range(args.since, args.head)
     commits = span_commits(args.since, args.head)
     changes = [subject for subject, _, _ in commits]
@@ -1091,6 +1121,11 @@ def build(args):
         fixture_path = os.environ.get("CMUX_RELEASE_NOTES_PR_FIXTURE")
         fixture = json.loads(Path(fixture_path).read_text()) if fixture_path else None
         description_deadline = time.monotonic() + PR_DESCRIPTION_BUDGET
+        numbers = list(dict.fromkeys(int(m["pr"]) for m in (PR_SUFFIX.match(s) for s, _, _ in commits) if m))
+        # Read PR_DESCRIPTION_READERS bodies at a time: one after another, 107 of them took 48 s of the
+        # nightly's critical path (run 44893172356, 2026-11-21). The order of the notes is the commits'.
+        with ThreadPoolExecutor(max_workers=PR_DESCRIPTION_READERS) as pool:
+            bodies = dict(zip(numbers, pool.map(lambda n: pr_body(n, fixture, description_deadline), numbers)))
         for subject, _, _ in commits:
             match = PR_SUFFIX.match(subject)
             if not match:
@@ -1099,7 +1134,7 @@ def build(args):
             if number not in pr_descriptions:
                 fallback = summary_entry(match["title"])
                 fallback_title = fallback[1] if fallback else match["title"]
-                pr_descriptions[number] = pr_description(pr_body(number, fixture, description_deadline), fallback_title)
+                pr_descriptions[number] = pr_description(bodies.get(number, ""), fallback_title)
             descriptions[subject] = pr_descriptions[number]
     items = [change_item(subject, author, paths, pr_descriptions if args.pr_descriptions else None)
              for subject, author, paths in commits]

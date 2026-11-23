@@ -51,6 +51,8 @@ open class PopupRowView: NSView {
         didSet {
             titleLabel.ink = isEnabled ? .primary : .tertiary
             (leadingView as? ThemedLabel)?.ink = isEnabled ? .primary : .tertiary
+            // VoiceOver says "dimmed", as for a disabled menu item or button.
+            setAccessibilityEnabled(isEnabled)
             needsDisplay = true
         }
     }

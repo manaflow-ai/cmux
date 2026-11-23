@@ -391,6 +391,14 @@ impl Store for ForkView {
     fn kept_parked(&self, id: &str) -> Result<Option<Vec<u8>>> {
         self.inner.kept_parked(id)
     }
+    /// The held tool output bodies of a chat (`store/deferred.rs`): the store's own, beside its
+    /// log, a fork's beside its own.
+    fn keep_held(&self, id: &str, slot: &str, held: Option<&[u8]>) -> Result<()> {
+        self.inner.keep_held(id, slot, held)
+    }
+    fn kept_held(&self, id: &str) -> Result<Vec<(String, Vec<u8>)>> {
+        self.inner.kept_held(id)
+    }
     /// A fork's lines are its chat's history lines through the seq it was forked through, then
     /// its own, as `scan` shows them. A chunk ends where the history does.
     fn read_log(
@@ -584,6 +592,17 @@ impl Store for ForkView {
         let (own, own_last) = self.inner.tail_after(id, after.max(r.through_seq))?;
         Ok((count + own, if own > 0 { own_last } else { last }))
     }
+    /// A fork's own log alone takes its store's read; one that shows its chat's history reads
+    /// the joined view back (`scan_back`).
+    fn newest_window(&self, id: &str, before: u64, n: u64) -> Result<NewestWindow> {
+        {
+            let _held = self.shared();
+            if self.reference(id)?.is_none() {
+                return self.inner.newest_window(id, before, n);
+            }
+        }
+        newest_window_by_scan(self, id, before, n)
+    }
     fn scan_kinds(
         &self,
         id: &str,
@@ -710,6 +729,34 @@ impl Store for ForkView {
         }
         self.inner.scan_heads(id, &mut |head| head.seq <= r.through_seq || visit(head))
     }
+    fn search_records(&self, id: &str, visit: &mut dyn FnMut(EventRecord)) -> Result<()> {
+        let _held = self.shared();
+        let Some(r) = self.reference(id)? else { return self.inner.search_records(id, visit) };
+        self.search_records(&r.session, &mut |rec| {
+            if rec.seq <= r.through_seq {
+                visit(rec);
+            }
+        })?;
+        self.inner.search_records(id, &mut |rec| {
+            if rec.seq > r.through_seq {
+                visit(rec);
+            }
+        })
+    }
+
+    fn conversation_entries(
+        &self,
+        id: &str,
+        visit: &mut dyn FnMut(crate::session_search::Entry),
+    ) -> Result<()> {
+        // A commit to cold storage or a fork's materialization cannot cross the read.
+        let _held = self.shared();
+        if self.reference(id)?.is_none() {
+            return self.inner.conversation_entries(id, visit);
+        }
+        crate::session_search::project_records(|feed| self.search_records(id, feed), visit)
+    }
+
     fn text_entries(
         &self,
         id: &str,

@@ -143,16 +143,20 @@ public nonisolated struct AgentSessionPage: Sendable, Equatable {
     public var beforeSeq: UInt64?
     public var limit: Int?
     public var kinds: [String]?
+    /// The page's byte budget (the pane's `maxBytes`), sent where the daemon serves
+    /// `agent-session-page-bytes-v1`; nil leaves acpmux's default.
+    public var maxBytes: Int?
     /// The page's `_acpmux/watch` read: the wire answers it as a sessions list, so the page never
     /// gets its records. Never sent to the daemon.
     public var listing: Bool
 
     public init(afterSeq: UInt64? = nil, beforeSeq: UInt64? = nil, limit: Int? = nil, kinds: [String]? = nil,
-                listing: Bool = false) {
+                maxBytes: Int? = nil, listing: Bool = false) {
         self.afterSeq = afterSeq
         self.beforeSeq = beforeSeq
         self.limit = limit
         self.kinds = kinds
+        self.maxBytes = maxBytes
         self.listing = listing
     }
 }
