@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 671,
+  "count": 674,
   "sections": [
     {
       "id": "general",
@@ -2714,6 +2714,22 @@
             "max": 1,
             "unit": "fraction"
           }
+        },
+        {
+          "key": "appearance.backgroundRecents",
+          "title": "Recent Backgrounds",
+          "help": "The backgrounds shown before, newest first, so one click goes back.",
+          "kind": "string_list",
+          "default": null,
+          "group": "Window Background"
+        },
+        {
+          "key": "appearance.backgroundPlacement",
+          "title": "Background Placement",
+          "help": "Picture ID to fill, fit, center or stretch, with optional X Y anchor and zoom.",
+          "kind": "string_map",
+          "default": null,
+          "group": "Window Background"
         },
         {
           "key": "appearance.backgroundRotation",
@@ -5927,7 +5943,7 @@
           "title": "Suggestions Shown",
           "help": "",
           "kind": "number",
-          "default": 6,
+          "default": 8,
           "group": "Address Bar",
           "range": {
             "min": 3,
@@ -7148,6 +7164,14 @@
           "kind": "toggle",
           "default": false,
           "group": "Cloud Workspaces"
+        },
+        {
+          "key": "macScreen.onlyPersonStartsViewing",
+          "title": "Only Your Click Starts Viewing a Screen",
+          "help": "On, a Screen Sharing tab an agent or the cmux CLI opens waits until you choose View Only or Full Control. Off, it starts viewing your own devices at once and says who started it. A device someone else owns always asks first.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Screen Sharing"
         },
         {
           "key": "phone.cloudDesktop",
