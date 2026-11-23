@@ -47,14 +47,15 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
     public let density: DensityTokens?
 
     /// Keys a theme file reads that are not settings.
-    static let reservedKeys: Set<String> = ["name", "description", "$schema", "colors", "ghostty", "density"]
+    static let reservedKeys: Set<String> = ["name", "description", "$schema", "colors", "ghostty", "density", "slots"]
     /// Look keys that are no part of a look: the theme file itself, the star list and its rotation,
     /// per-machine and per-display maps, the sun location (where this Mac is), what each background mode
-    /// last showed, and the saved custom densities.
+    /// last showed and the backgrounds shown before, and the saved custom densities.
     static let excludedKeys: Set<String> = [
         ThemeFileSetting.configPath.joined(separator: "."), "appearance.favoriteThemes", "appearance.rotateFavoriteThemes",
         "appearance.machineColors", "appearance.displayBackgrounds", "appearance.displayBackgroundRotations",
         "appearance.customDensities", "appearance.backgroundLocation", "appearance.backgroundMemory",
+        "appearance.backgroundPlacement", "appearance.backgroundRecents",
         ThemeFileExceptionsSetting.configPath.joined(separator: "."),
     ]
     /// Look key prefixes; `agentPane.display.font.` is the agent chat's typography (a font pack's
@@ -63,9 +64,10 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
                                "ui.reducedBackgrounds", "browser.omnibar.glass", "app.uiScale"]
     /// Look keys outside those prefixes: the terminal font and the chat code font; the sidebar's shape, edges,
     /// text, group headers and buttons, and the sidebar look (`SidebarLookPreset`); the tab strip's and titlebar's
-    /// buttons and inactive tabs; pane corners; and the agent chat's text sizes, sender marks and Session Info
+    /// buttons and inactive tabs; pane corners; the agent chat's text sizes, sender marks and Session Info
     /// (Leo, 2026-11-18: "you guys should be customizing the tabs/sidebars a lot deeper too. prob likewise the
-    /// session info and the top right buttons as well"). Keep in step with cmux-config's `LOOK_KEYS`.
+    /// session info and the top right buttons as well"); and the transcript look and its tokens
+    /// (docs/cmux-next/transcript-customization.md). Keep in step with cmux-config's `LOOK_KEYS`.
     static let lookKeys: Set<String> = [
         "terminal.fontFamily", "agentPane.display.code.family", "terminal.fontSize",
         "sidebar.style", "sidebar.border", "sidebar.borderWidth", "sidebar.sectionLook", "sidebar.look",
@@ -78,7 +80,7 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
         "agentPane.display.sessionInfo.placement", "agentPane.display.font.preset", "agentPane.display.font.ui",
         "agentPane.display.font.size", "agentPane.display.font.lineHeight", "agentPane.display.code.scale",
         "agentPane.display.senderIcon.lead", "agentPane.display.senderIcon.badge", "agentPane.display.senderIcon.corner",
-        "agentPane.display.trayHandle",
+        "agentPane.display.trayHandle", "agentPane.display.transcriptLook", "agentPane.display.transcriptTokens",
     ]
 
     /// Whether a theme file may set `descriptor`: a look setting an agent may set too.
