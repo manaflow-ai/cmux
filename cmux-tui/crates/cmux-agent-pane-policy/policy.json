@@ -92,7 +92,7 @@
   "setting_methods": ["session/set_mode", "session/set_config_option"],
   "known_params": {
     "initialize": {"params": ["protocolVersion", "clientInfo", "clientCapabilities", "_meta"], "acpmux": ["peerRowBatches"]},
-    "session/new": {"params": ["cwd", "mcpServers", "additionalDirectories", "_meta"], "acpmux": ["harness", "adopt", "peer", "noProject", "model"]},
+    "session/new": {"params": ["cwd", "mcpServers", "additionalDirectories", "_meta"], "acpmux": ["harness", "adopt", "peer", "noProject", "model", "restricted"]},
     "chat.fix_from_link": {"params": ["url", "cwd", "harness", "model", "_meta"], "acpmux": []},
     "chat.fix_from_link.prepare": {"params": ["url", "cwd", "harness", "model"], "acpmux": []},
     "session/prompt": {"params": ["sessionId", "prompt", "_meta"], "acpmux": ["promptId", "steer", "interrupt", "context", "surface", "inlineParts", "promptSuggestion"]},
@@ -173,7 +173,7 @@
     "_acpmux/agent_login/finish": {"params": ["loginId", "code", "sessionId"], "acpmux": []},
     "_acpmux/agent_login/api_key": {"params": ["agent", "key", "sessionId"], "acpmux": []},
     "_acpmux/agent_login/cancel": {"params": ["loginId", "sessionId"], "acpmux": []},
-    "_acpmux/process/list": {"params": ["sessionId", "cursor", "limit", "recent"], "acpmux": []},
+    "_acpmux/process/list": {"params": ["sessionId", "cursor", "limit", "recent", "endedWithin", "calls"], "acpmux": []},
     "_acpmux/process/tail": {"params": ["processId", "maxBytes"], "acpmux": []},
     "_acpmux/process/kill": {"params": ["sessionId", "processId"], "acpmux": []},
     "_acpmux/process/background": {"params": ["sessionId", "toolCallId"], "acpmux": []},

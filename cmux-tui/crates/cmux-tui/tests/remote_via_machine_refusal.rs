@@ -228,6 +228,8 @@ fn a_transient_failure_redials_and_says_so_every_few_seconds() {
     let mut progress = Vec::new();
     while let Some(left) = watched.checked_sub(started.elapsed()) {
         match lines.recv_timeout(left) {
+            // The one-time reminder of how to stop rides with a progress line; it is not one.
+            Ok(line) if line.contains("Ctrl-C stops waiting") => {}
             Ok(line) if line.starts_with("remote connect:") => {
                 progress.push((started.elapsed(), line));
             }

@@ -129,6 +129,7 @@ async fn a_prompt_to_a_watched_desktop_chat_is_delivered_and_its_answer_shown() 
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
     let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
+    hub.set_surge_inbox(Some(true));
     hub.harness_homes.lock().unwrap().claude = config.clone();
     let session = hub
         .new_session(crate::hub::NewRequest { cwd: Some(config.clone()), ..Default::default() })
@@ -215,6 +216,7 @@ async fn a_resend_after_the_daemon_forgot_the_delivery_is_not_delivered_again() 
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
     let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
+    hub.set_surge_inbox(Some(true));
     hub.harness_homes.lock().unwrap().claude = config.clone();
     let session = hub
         .new_session(crate::hub::NewRequest { cwd: Some(config.clone()), ..Default::default() })
@@ -281,6 +283,7 @@ async fn a_watched_chat_with_no_live_app_is_still_read_only() {
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
     let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
+    hub.set_surge_inbox(Some(true));
     hub.harness_homes.lock().unwrap().claude = config.clone();
     let session = hub
         .new_session(crate::hub::NewRequest { cwd: Some(config.clone()), ..Default::default() })
@@ -314,6 +317,7 @@ async fn a_registered_chat_whose_app_is_not_running_waits_instead_of_failing() {
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
     let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
+    hub.set_surge_inbox(Some(true));
     hub.harness_homes.lock().unwrap().claude = config.clone();
     let session = hub
         .new_session(crate::hub::NewRequest { cwd: Some(config.clone()), ..Default::default() })
@@ -389,6 +393,7 @@ async fn a_registered_chat_with_no_token_from_its_process_waits_for_register() {
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
     let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
+    hub.set_surge_inbox(Some(true));
     hub.harness_homes.lock().unwrap().claude = config.clone();
     let session = hub
         .new_session(crate::hub::NewRequest { cwd: Some(config.clone()), ..Default::default() })
@@ -453,6 +458,7 @@ async fn a_registered_chat_two_processes_claim_names_the_contest() {
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
     let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
+    hub.set_surge_inbox(Some(true));
     hub.harness_homes.lock().unwrap().claude = config.clone();
     let session = hub
         .new_session(crate::hub::NewRequest { cwd: Some(config.clone()), ..Default::default() })
@@ -507,6 +513,7 @@ async fn a_watched_chat_the_bridge_did_not_list_is_still_read_only() {
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
     let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
+    hub.set_surge_inbox(Some(true));
     hub.harness_homes.lock().unwrap().claude = config.clone();
     let session = hub
         .new_session(crate::hub::NewRequest { cwd: Some(config.clone()), ..Default::default() })
@@ -662,6 +669,7 @@ async fn a_send_from_the_desktop_apps_process_tree_is_its_bridged_chats() {
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
     let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
+    hub.set_surge_inbox(Some(true));
     hub.harness_homes.lock().unwrap().claude = config.clone();
     let session = hub
         .new_session(crate::hub::NewRequest { cwd: Some(config.clone()), ..Default::default() })
@@ -757,6 +765,7 @@ async fn a_prompt_to_a_watched_codex_desktop_chat_is_queued_and_its_answer_shown
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
     let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
+    hub.set_surge_inbox(Some(true));
     hub.harness_homes.lock().unwrap().codex = home.clone();
     let session = hub
         .new_session(crate::hub::NewRequest { cwd: Some(home.clone()), ..Default::default() })
@@ -831,6 +840,7 @@ async fn a_watched_codex_chat_with_no_live_thread_is_still_read_only() {
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
     let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
+    hub.set_surge_inbox(Some(true));
     hub.harness_homes.lock().unwrap().codex = home.clone();
     let session = hub
         .new_session(crate::hub::NewRequest { cwd: Some(home.clone()), ..Default::default() })
@@ -872,6 +882,7 @@ async fn a_prompt_awaiting_the_owners_approval_never_reaches_the_app() {
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
     let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
+    hub.set_surge_inbox(Some(true));
     hub.harness_homes.lock().unwrap().claude = config.clone();
     let session = hub
         .new_session(crate::hub::NewRequest { cwd: Some(config.clone()), ..Default::default() })
@@ -922,6 +933,7 @@ async fn a_prompt_awaiting_the_owners_approval_never_reaches_the_codex_thread() 
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
     let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
+    hub.set_surge_inbox(Some(true));
     hub.harness_homes.lock().unwrap().codex = home.clone();
     let session = hub
         .new_session(crate::hub::NewRequest { cwd: Some(home.clone()), ..Default::default() })
@@ -967,6 +979,7 @@ async fn a_prompt_the_dispatch_gate_refuses_never_reaches_the_app() {
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
     let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
+    hub.set_surge_inbox(Some(true));
     hub.harness_homes.lock().unwrap().claude = config.clone();
     let session = hub
         .new_session(crate::hub::NewRequest { cwd: Some(config.clone()), ..Default::default() })
@@ -1055,6 +1068,7 @@ async fn a_desktop_chat_the_rate_limit_stopped_holds_its_messages_and_sends_them
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
     let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
+    hub.set_surge_inbox(Some(true));
     hub.harness_homes.lock().unwrap().claude = config.clone();
     let session = hub
         .new_session(crate::hub::NewRequest { cwd: Some(config.clone()), ..Default::default() })

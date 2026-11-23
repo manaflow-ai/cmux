@@ -200,6 +200,16 @@ extension AppearanceSettingsSchema {
                 keywords: ["border", "hairline", "separator", "outline", "line"]
             ),
             SettingDescriptor(
+                LiquidGlassSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.liquidGlass", "Liquid Glass"),
+                help: SettingsText.keyed("settings.appearance.liquidGlass.help", "Off draws the composer, menus, popovers and cards as solid surfaces with a plain border."),
+                kind: .toggle,
+                default: .bool(LiquidGlassSetting.fallback),
+                keywords: ["glass", "liquid glass", "blur", "frost", "translucent", "transparency", "solid", "plain", "material"]
+            ),
+            SettingDescriptor(
                 PaneFocusSettings.focusIndicatorPath,
                 section: .appearance,
                 group: group,
