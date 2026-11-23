@@ -144,9 +144,10 @@ impl Agent {
         let log = t.root.join("agent.log");
         let script = format!(
             "n=0; while [ $n -lt {FILES} ]; do \
+               t0=$(date +%s%N); \
                if out=$(cat p/d$n/f 2>&1) && echo \"read $n\" >> notes.txt; then \
-                 echo \"$(date +%s%N) ok $n\" >> {log}; \
-               else echo \"$(date +%s%N) err $n $out\" >> {log}; fi; \
+                 echo \"$(date +%s%N) ok $n $t0\" >> {log}; \
+               else echo \"$(date +%s%N) err $n $t0 $out\" >> {log}; fi; \
                n=$((n+1)); sleep 0.05; done",
             log = log.display()
         );
@@ -167,18 +168,20 @@ impl Agent {
         vec![format!("-{}", self.child.id())]
     }
 
-    /// Each read: when (ns), whether it worked, and the error it read.
-    fn reads(&self) -> Vec<(u128, bool, String)> {
+    /// Each read: when it ended (ns), whether it worked, how long it took (ms), and its error.
+    fn reads(&self) -> Vec<(u128, bool, u128, String)> {
         let Ok(file) = fs::File::open(&self.log) else { return Vec::new() };
         BufReader::new(file)
             .lines()
             .map_while(Result::ok)
             .filter_map(|line| {
-                let mut parts = line.splitn(4, ' ');
-                let at = parts.next()?.parse().ok()?;
+                let mut parts = line.splitn(5, ' ');
+                let at: u128 = parts.next()?.parse().ok()?;
                 let ok = parts.next()? == "ok";
                 let _n = parts.next();
-                Some((at, ok, parts.next().unwrap_or("").to_owned()))
+                let started: u128 = parts.next()?.parse().ok()?;
+                let took = at.saturating_sub(started) / 1_000_000;
+                Some((at, ok, took, parts.next().unwrap_or("").to_owned()))
             })
             .collect()
     }
@@ -222,6 +225,7 @@ fn paused_under_an_agent(
     // The agent reads a while with the link up.
     std::thread::sleep(Duration::from_secs(2));
     let mut first_reads_ms = Vec::new();
+    let mut longest_reads_ms = Vec::new();
     let mut failures = Vec::new();
     for _ in 0..pauses {
         let machine = machine_pids(&t.machine.side.state);
@@ -239,20 +243,27 @@ fn paused_under_an_agent(
         std::thread::sleep(AWAY_WAIT + Duration::from_secs(3));
         let after: Vec<_> = agent.reads().into_iter().filter(|(at, ..)| *at >= resumed).collect();
         let first_ok =
-            after.iter().find(|(_, ok, _)| *ok).map(|(at, ..)| (at - resumed) / 1_000_000);
+            after.iter().find(|(_, ok, ..)| *ok).map(|(at, ..)| (at - resumed) / 1_000_000);
         first_reads_ms.push(first_ok);
-        failures.extend(after.iter().filter(|(_, ok, _)| !ok).map(|(_, _, error)| error.clone()));
+        longest_reads_ms.push(after.iter().map(|(_, _, took, _)| *took).max());
+        failures.extend(
+            after
+                .iter()
+                .filter(|(_, ok, ..)| !ok)
+                .map(|(_, _, took, error)| format!("{took} ms: {error}")),
+        );
     }
     agent.stop();
     let reads = agent.reads();
-    let worked = reads.iter().filter(|(_, ok, _)| *ok).count();
+    let worked = reads.iter().filter(|(_, ok, ..)| *ok).count();
     eprintln!(
         "pause-numbers: {}",
         serde_json::json!({
             "case": case, "quiet": quiet, "hold_ms": hold.as_millis(), "pauses": pauses,
             "carrier_delay_ms": carrier_delay.as_millis(),
             "reads": reads.len(), "reads_ok": worked,
-            "first_read_after_resume_ms": first_reads_ms, "failures_after_resume": failures,
+            "first_read_after_resume_ms": first_reads_ms, "longest_read_after_resume_ms": longest_reads_ms,
+            "failures_after_resume": failures,
         })
     );
     assert!(failures.is_empty(), "reads failed after a resume: {failures:?}");
@@ -301,5 +312,17 @@ fn a_cloud_machine_whose_carrier_is_slow_after_resume_reads_without_failing() {
         Duration::from_secs(3),
         1,
         Duration::from_secs(9),
+    );
+}
+
+/// The slowest carrier reconnect seen on Cloud is 13.7 s: 15 s.
+#[test]
+fn a_cloud_machine_whose_carrier_takes_15_s_after_resume_reads_without_failing() {
+    paused_under_an_agent(
+        "pause-slower-carrier",
+        true,
+        Duration::from_secs(3),
+        1,
+        Duration::from_secs(15),
     );
 }
