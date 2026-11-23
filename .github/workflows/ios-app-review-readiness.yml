@@ -61,16 +61,19 @@ jobs:
         run: |
           set -euo pipefail
           # One refused read must not turn the push run red with no verdict (run
-          # 43618862433): each call gets 5 tries a minute apart. A dispatch whose
-          # reply was lost and is sent again makes at most one extra gate run.
-          # gh api prints a refused call's error body to stdout, so only the
-          # successful try's output is passed on.
+          # 43618862433): each call gets 5 tries, 30, 60, 120 and 240 s apart. A
+          # dispatch whose reply was lost and is sent again makes at most one
+          # extra gate run. gh api prints a refused call's error body to stdout,
+          # so only the successful try's output is passed on; a failed try's body
+          # goes into its warning (run 45101415966 failed 5 times and said
+          # nothing about why).
           ghr() {
-            local out
+            local out err delay=30
+            err="$(mktemp)"
             for try in 1 2 3 4 5; do
-              out="$(gh api "$@")" && { printf '%s\n' "$out"; return 0; }
-              echo "::warning::gh api $1 failed (try $try of 5)" >&2
-              [[ $try -lt 5 ]] && sleep 60
+              out="$(gh api "$@" 2>"$err")" && { printf '%s\n' "$out"; return 0; }
+              echo "::warning::gh api $1 failed (try $try of 5): $(cat "$err" - <<<"$out" | tr '\n' ' ' | cut -c1-300)" >&2
+              [[ $try -lt 5 ]] && { sleep "$delay"; delay=$((delay * 2)); }
             done
             return 1
           }
@@ -84,8 +87,12 @@ jobs:
           # The repository's run list, matched on each run's workflow path: the
           # gate's file exists only on feat-cmux-next, not in this branch's
           # .github/workflows.
-          run_id="$(ghr "repos/$GITHUB_REPOSITORY/actions/runs?event=workflow_dispatch&branch=feat-cmux-next&head_sha=$sha&per_page=100" \
-            --jq '[.workflow_runs[] | select(.path == ".github/workflows/ios-review-gate.yml" and .actor.login == "github-actions[bot]" and .conclusion != "cancelled")][0].id // empty')"
+          # The lookup only saves a gate run, so a lookup GitHub keeps refusing
+          # dispatches a new one instead of turning the push run red with no
+          # verdict (readiness run 45101415966: the list read failed 5 times).
+          run_id="$(ghr "repos/$GITHUB_REPOSITORY/actions/runs?event=workflow_dispatch&branch=feat-cmux-next&head_sha=$sha&per_page=30" \
+            --jq '[.workflow_runs[] | select(.path == ".github/workflows/ios-review-gate.yml" and .actor.login == "github-actions[bot]" and .conclusion != "cancelled")][0].id // empty')" \
+            || { echo "::warning::could not list gate runs for $sha; dispatching one" >&2; run_id=""; }
           if [[ -z "$run_id" ]]; then
             # return_run_details: the reply names the run this dispatch made, so a
             # concurrent dispatch is never mistaken for it. No inputs.ref: the gate
