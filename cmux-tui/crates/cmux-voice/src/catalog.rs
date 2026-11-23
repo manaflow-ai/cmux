@@ -33,14 +33,14 @@ pub enum KeyUse {
     Required,
 }
 
-/// What a provider can do. Only `DictationBatch` is implemented; the others are reserved so a
-/// streaming or real-time provider can be added without changing callers (see the crate doc).
+/// What a provider can do. `RealtimeVoice` is reserved so a real-time provider can be added
+/// without changing callers (see the crate doc).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Capability {
     /// Record, then send the whole recording; the words arrive on stop.
     DictationBatch,
-    /// Reserved: words arrive while the person speaks.
+    /// Words arrive while the person speaks ([`crate::stream`]).
     DictationStreaming,
     /// Reserved: a spoken conversation with a model.
     RealtimeVoice,
@@ -74,6 +74,10 @@ impl Provider {
 pub const ON_DEVICE: &str = "onDevice";
 
 const BATCH: &[Capability] = &[Capability::DictationBatch];
+/// Batch, and the streaming wire ([`crate::stream`]): the OpenAI-style realtime transcription
+/// mode on the same origin and key.
+const BATCH_AND_STREAMING: &[Capability] =
+    &[Capability::DictationBatch, Capability::DictationStreaming];
 
 /// Every provider, in the order Settings lists them.
 pub const PROVIDERS: &[Provider] = &[
@@ -95,7 +99,7 @@ pub const PROVIDERS: &[Provider] = &[
         key: KeyUse::Required,
         default_url: "https://api.openai.com/v1",
         default_model: "gpt-4o-mini-transcribe",
-        capabilities: BATCH,
+        capabilities: BATCH_AND_STREAMING,
     },
     Provider {
         id: "groq",
@@ -206,10 +210,10 @@ mod tests {
     }
 
     #[test]
-    fn every_provider_dictates_in_batch_only_for_now() {
+    fn every_provider_dictates_in_batch_and_only_openai_streams() {
         for p in PROVIDERS {
             assert!(p.supports(Capability::DictationBatch), "{}", p.id);
-            assert!(!p.supports(Capability::DictationStreaming), "{}", p.id);
+            assert_eq!(p.supports(Capability::DictationStreaming), p.id == "openai", "{}", p.id);
             assert!(!p.supports(Capability::RealtimeVoice), "{}", p.id);
         }
     }

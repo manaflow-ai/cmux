@@ -3202,11 +3202,13 @@ name = "cmux-voice"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "futures-util",
  "reqwest",
  "rustls",
  "serde",
  "serde_json",
  "tokio",
+ "tokio-tungstenite",
  "url",
 ]
 

@@ -12,14 +12,16 @@
 //! - [`audio`]: the recording as the caller hands it over (a path or base64), capped.
 //! - [`state`]: the JSON the acpmux `_acpmux/voice/*` methods answer.
 //!
-//! Adding streaming dictation or a real-time voice mode later: each catalog entry lists its
-//! [`catalog::Capability`]s (`dictationBatch` today; `dictationStreaming` and `realtimeVoice` are
-//! reserved). A streaming provider (a WebSocket wire) becomes a new [`catalog::Wire`] variant and a
-//! new implementation of [`provider::DictationProvider`]; the trait gains a `stream` method with a
-//! default body that answers `not_configured`, so every existing implementation and caller stays
-//! as it is. A caller asks [`catalog::Provider::supports`] before it offers a mode. Real-time voice
-//! is a separate trait beside this one (a duplex session, not a request), picked by the same
-//! capability list. Only the batch path exists now.
+//! - [`session`]: the streaming dictation session as a pure reducer (events in, effects out):
+//!   the one lifecycle every surface draws.
+//! - [`stream`]: the streaming wire (a WebSocket: audio up as it is spoken, partial and final
+//!   words back), driving [`session`].
+//!
+//! Each catalog entry lists its [`catalog::Capability`]s: `dictationBatch` for all,
+//! `dictationStreaming` for a provider with the streaming wire ([`stream::stream_url`]), and
+//! `realtimeVoice` reserved. A caller asks [`catalog::Provider::supports`] before it offers a
+//! mode. Real-time voice is a separate session beside these (a duplex conversation), picked by
+//! the same capability list.
 
 pub mod audio;
 pub mod catalog;
@@ -27,14 +29,18 @@ pub mod endpoint;
 pub mod error;
 pub mod multipart;
 pub mod provider;
+pub mod session;
 pub mod state;
+pub mod stream;
 
 pub use audio::{Audio, AudioError, MAX_AUDIO_BYTES};
 pub use catalog::{Capability, KeyUse, Kind, PROVIDERS, Provider, Wire};
 pub use endpoint::{Endpoint, Resolved, Settings, key_account, resolve};
 pub use error::{ErrorCode, VoiceError};
 pub use provider::{BatchRequest, DictationProvider, Http, Transcript, provider_for};
+pub use session::{Effect, Event, Phase, Session, Shown};
 pub use state::{State, check_reply, state, transcribe_reply};
+pub use stream::{Command, stream_url};
 
 /// The Keychain service every dictation key is saved under (a generic password).
 pub const KEY_SERVICE: &str = "cmux-voice-key";

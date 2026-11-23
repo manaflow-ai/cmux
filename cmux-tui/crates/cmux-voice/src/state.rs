@@ -3,7 +3,7 @@
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use crate::catalog::{KeyUse, Kind, PROVIDERS, Provider, Wire};
+use crate::catalog::{Capability, KeyUse, Kind, PROVIDERS, Provider, Wire};
 use crate::endpoint::Resolved;
 use crate::error::VoiceError;
 use crate::provider::Transcript;
@@ -25,6 +25,9 @@ pub struct State {
     pub key_account: Option<String>,
     pub key_service: &'static str,
     pub has_key: bool,
+    /// Words arrive while the person speaks ([`crate::stream`]): the app streams the audio
+    /// instead of recording it for a stop.
+    pub streaming: bool,
     /// Why the chosen engine cannot be used as set (`not_configured`, `bad_endpoint`), else
     /// `None`. Always `None` for the on-device engine.
     pub error: Option<VoiceError>,
@@ -48,6 +51,7 @@ pub fn state(resolved: &Resolved, has_key: bool) -> State {
         url,
         model: resolved.model.clone(),
         has_key: has_key && key_account.is_some(),
+        streaming: error.is_none() && p.supports(Capability::DictationStreaming),
         key_account,
         key_service: crate::KEY_SERVICE,
         error,
@@ -92,7 +96,7 @@ mod tests {
                 "engine": "openai", "label": "OpenAI", "kind": "cloud", "wire": "openaiTranscriptions",
                 "key": "required", "url": "https://api.openai.com/v1", "model": "gpt-4o-mini-transcribe",
                 "keyAccount": "openai@https://api.openai.com", "keyService": "cmux-voice-key",
-                "hasKey": true, "error": null,
+                "hasKey": true, "streaming": true, "error": null,
             })
         );
     }
