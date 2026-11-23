@@ -96,13 +96,19 @@ impl Gateway {
             if unsafe { libc::kill(-old, libc::SIGTERM) } == 0 {
                 // Its lock must be free before a new gateway takes it: wait, then kill.
                 end_group(old, Duration::from_secs(10));
-                log(format!("{}: ended the gateway an earlier host left (pid {old})", spec.name));
+                log(format!(
+                    "{}: ended the gateway an earlier host left (pid {old})",
+                    spec.name
+                ));
             }
         }
         if let Some(dir) = spec.log_file.parent() {
             std::fs::create_dir_all(dir)?;
         }
-        let logfile = std::fs::OpenOptions::new().create(true).append(true).open(&spec.log_file)?;
+        let logfile = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&spec.log_file)?;
         let keep: Vec<(String, OsString)> = GATEWAY_ENV
             .iter()
             .filter_map(|k| std::env::var_os(k).map(|v| ((*k).to_owned(), v)))
@@ -119,7 +125,10 @@ impl Gateway {
             .spawn()?;
         write_if_changed(&spec.pid_file, child.id().to_string().as_bytes())?;
         log(format!("{}: gateway pid {}", spec.name, child.id()));
-        Ok(Gateway { child, pid_file: spec.pid_file })
+        Ok(Gateway {
+            child,
+            pid_file: spec.pid_file,
+        })
     }
 
     /// The gateway's process id (its process group).
@@ -176,7 +185,11 @@ impl Drop for Gateway {
 /// for instead of starting another).
 fn lock_held(lock: &Path) -> bool {
     use std::os::fd::AsRawFd as _;
-    let Ok(file) = std::fs::OpenOptions::new().read(true).write(true).open(lock) else {
+    let Ok(file) = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(lock)
+    else {
         return false;
     };
     // SAFETY: flock(2) on a file descriptor this function owns; no memory access.
@@ -248,7 +261,10 @@ fn start_hermes_now(hermes: &Path, home: &Path, log: &dyn Fn(String)) -> io::Res
                 // Hermes serves every profile of an OS user from one gateway found here: the
                 // Chief's own dir, the one acpmux gives the Chief's `hermes acp` viewer
                 // (chief_builtins.rs brain_side_env), never the user's own Hermes gateway.
-                ("HERMES_GATEWAY_LOCK_DIR".to_owned(), home.join(HERMES_LOCK_DIR).into_os_string()),
+                (
+                    "HERMES_GATEWAY_LOCK_DIR".to_owned(),
+                    home.join(HERMES_LOCK_DIR).into_os_string(),
+                ),
                 ("DO_NOT_TRACK".to_owned(), "1".into()),
             ],
             pid_file: home.join("chief-gateway.pid"),
