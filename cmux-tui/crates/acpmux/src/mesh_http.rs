@@ -12,7 +12,8 @@
 //! minute before `expires_at` or until the hub answers 401, then the command runs again.
 
 use crate::mesh::{
-    Ack, Heartbeat, HeartbeatReply, HubError, InMessage, MeshHub, OutMessage, Receipt, TeamPage,
+    Ack, Capacity, Heartbeat, HeartbeatReply, HubError, InMessage, MeshHub, OutMessage, Receipt,
+    TeamPage,
 };
 use futures::future::BoxFuture;
 use serde::Deserialize;
@@ -313,17 +314,7 @@ impl HttpHub {
                 }
             }
 
-            let mut bytes = Vec::new();
-            while let Some(chunk) = response
-                .chunk()
-                .await
-                .map_err(|e| HubError::unavailable(format!("the hub: {}", e.without_url())))?
-            {
-                if bytes.len() + chunk.len() > MAX_ANSWER_BYTES {
-                    return Err(HubError::unavailable("the hub's answer is too large").from_hub());
-                }
-                bytes.extend_from_slice(&chunk);
-            }
+            let bytes = body_of(&mut response).await?;
             if status == 401 && self.device {
                 // No other token to try: the device is cut off, and nothing more is sent.
                 let refusal = answer(status, &bytes);
@@ -341,6 +332,22 @@ impl HttpHub {
         }
         Err(HubError::unavailable("the hub refused two tokens").from_hub())
     }
+}
+
+/// An answer's body, at most [`MAX_ANSWER_BYTES`].
+async fn body_of(response: &mut reqwest::Response) -> Result<Vec<u8>, HubError> {
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|e| HubError::unavailable(format!("the hub: {}", e.without_url())))?
+    {
+        if bytes.len() + chunk.len() > MAX_ANSWER_BYTES {
+            return Err(HubError::unavailable("the hub's answer is too large").from_hub());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
 }
 
 /// The refusal of a device credential the hub already refused: sent nowhere.
@@ -373,6 +380,9 @@ const KNOWN_CODES: &[&str] = &[
     "mesh.not_found",
     "mesh.carrier_unconfigured",
     "machine.not_found",
+    "machine.unauthorized",
+    "machine.invalid_heartbeat",
+    "machine.unavailable",
     "team.messaging_disabled",
     "team.forbidden",
     "team.unknown_recipient",
@@ -534,6 +544,27 @@ impl MeshHub for HttpHub {
             let wait = wait.min(Duration::from_secs(25));
             let path = format!("/v1/mesh/messages/{id}?waitSeconds={}", wait.as_secs());
             decode(self.call(reqwest::Method::GET, &path, None, wait + CALL_WAIT).await?)
+        })
+    }
+
+    /// One try, never through `call`: a 401 here is the capacity route refusing (an older hub, a
+    /// registry that is off), not the join credential revoked, so it neither marks the record
+    /// revoked nor runs a token command again. The relay's heartbeat decides that.
+    fn capacity<'a>(&'a self, report: &'a Capacity) -> BoxFuture<'a, Result<(), HubError>> {
+        Box::pin(async move {
+            self.registers()?;
+            let token = self.token(false).await?;
+            let mut response = self
+                .http
+                .post(format!("{}/v1/machines/joined/heartbeat", self.origin))
+                .bearer_auth(token.as_str())
+                .timeout(CALL_WAIT)
+                .json(report)
+                .send()
+                .await
+                .map_err(|e| HubError::unavailable(format!("the hub: {}", e.without_url())))?;
+            let status = response.status().as_u16();
+            answer(status, &body_of(&mut response).await?).map(|_| ())
         })
     }
 }
