@@ -941,7 +941,13 @@ pub fn run(opts: &Opts) -> Res<()> {
     };
     let mut v = Viewer {
         io,
-        reassembler: Reassembler::new(opts.num_or("deadline-ms", 200u64)? * 1000),
+        reassembler: {
+            let mut r = Reassembler::new(opts.num_or("deadline-ms", 200u64)? * 1000);
+            // `--rtt-nack-retry 1`: NACK retries a measured repair round trip apart
+            // instead of every 50 ms (design D6). Off by default.
+            r.set_rtt_nack_retry(opts.num_or("rtt-nack-retry", 0u8)? == 1);
+            r
+        },
         decoder: Decoder::new()?,
         h264_gate: Default::default(),
         h264_gate_said: false,
