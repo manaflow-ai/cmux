@@ -1129,6 +1129,9 @@ pub(super) async fn handle_request(
     } else {
         heap(|| dispatch_request(hub, conn, m, params, resolved)).await
     };
+    // A session only the hub reaches, for a verb the hub does not carry: said so, never
+    // `no session` (`mesh_read.rs`).
+    super::mesh_relay::read::explain_no_session(hub, conn, m, key.as_deref(), &mut reply);
     super::remote_guard::after(hub, conn.origin, m, key.as_deref(), &mut reply);
     if let (Some(mut fields), Err(e)) = (crossing, &reply) {
         // Never the error's text, which may quote the message: its code only.
@@ -3298,7 +3301,11 @@ async fn dispatch_request_with_identity(
                 method::MUX_INBOX_THREADS => Ok(hub.inbox_threads(&s)),
                 method::MUX_INBOX_THREAD => {
                     let mark = params.get("markRead").and_then(Value::as_bool).unwrap_or(false);
-                    Ok(hub.inbox_thread(&s, thread()?, mark))
+                    let (hub, thread) = (Arc::clone(hub), thread()?.to_owned());
+                    // Held messages that left memory are read from the log (`inbox_surge.rs`).
+                    tokio::task::spawn_blocking(move || hub.inbox_thread_whole(&s, &thread, mark))
+                        .await
+                        .map_err(|e| RpcError::internal(format!("inbox read stopped: {e}")))?
                 }
                 _ => {
                     let text = text_of("text")

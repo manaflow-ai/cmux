@@ -2550,6 +2550,7 @@ mod chat_windows;
 pub use chat_windows::live_tasks as live_chat_window_tasks;
 pub mod carrier;
 mod chats;
+pub(crate) use chats::usage_upload_loop;
 pub mod conn_auth;
 mod durable_gate;
 mod ephemeral;
