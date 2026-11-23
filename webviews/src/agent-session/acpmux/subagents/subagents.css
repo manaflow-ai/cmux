@@ -2816,5 +2816,5 @@ button.cv-subagent > :last-child {
   background: var(--ds-surface-inset);
   /* glass-raw-blur-allow: an 8 px soften under the hat's fanned faces so the header's words blur out, a backing inside the hat's glass, not a glass surface */
   -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px); /* glass-raw-blur-allow: the same soften, unprefixed */
 }
