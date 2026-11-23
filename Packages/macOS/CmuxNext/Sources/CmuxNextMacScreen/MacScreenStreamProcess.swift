@@ -41,7 +41,7 @@ nonisolated final class MacScreenStreamProcess: Sendable {
 
     /// The helper's arguments that start this app's executable as the stream host.
     static func helperArguments(appExecutable: URL) -> [String] {
-        ["__webrtc-host", appExecutable.path, MacScreenStreamChild.flag]
+        ["__webrtc-host", appExecutable.path]
     }
 
     /// Starts the child through the staged Screen Sharing helper. Off the caller's actor: staging

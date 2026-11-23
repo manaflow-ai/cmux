@@ -60,7 +60,8 @@ import Testing
     /// The helper starts the app's executable in its stream host mode; anything else is the app.
     @Test func theChildModeIsOnlyItsOwnArgument() {
         let arguments = MacScreenStreamProcess.helperArguments(appExecutable: URL(fileURLWithPath: "/Applications/cmux NIGHTLY.app/Contents/MacOS/cmux NIGHTLY"))
-        #expect(arguments == ["__webrtc-host", "/Applications/cmux NIGHTLY.app/Contents/MacOS/cmux NIGHTLY", "--screen-stream-host"])
+        // The helper adds the one child argument itself: no caller picks it.
+        #expect(arguments == ["__webrtc-host", "/Applications/cmux NIGHTLY.app/Contents/MacOS/cmux NIGHTLY"])
         #expect(MacScreenStreamChild(arguments: Array(arguments.dropFirst())) != nil)
         #expect(MacScreenStreamChild(arguments: ["/x/cmux"]) == nil)
         #expect(MacScreenStreamChild(arguments: ["/x/cmux", "--screen-stream-host", "extra"]) == nil)
@@ -178,5 +179,21 @@ import Testing
             try await Task.sleep(for: .milliseconds(10))
         }
         throw CancellationError()
+    }
+
+    @Test func onlyTheHelperMayStartTheStreamHost() {
+        // SECURITY: launchd (an `open --args` launch, or an orphan) and an unknown parent never pass.
+        #expect(!MacScreenStreamParent(pid: 1).isHelper(appBundleID: "com.cmuxterm.app.nightly", ownTeam: "ABCDE12345"))
+        #expect(!MacScreenStreamParent(pid: 0).isHelper(appBundleID: "com.cmuxterm.app.nightly", ownTeam: nil))
+        // This test runner's parent is no team-signed helper.
+        #expect(!MacScreenStreamParent(pid: getppid()).isHelper(appBundleID: "com.cmuxterm.app.nightly", ownTeam: "ABCDE12345"))
+        #expect(!MacScreenStreamParent(pid: getppid()).isHelper(appBundleID: nil, ownTeam: "ABCDE12345"))
+    }
+
+    @Test func theRequirementNamesTheHelpersIdentifierAndTeam() {
+        #expect(MacScreenStreamParent.requirement(team: "ABCDE12345", identifier: "com.cmuxterm.app.nightly.screen-sharing")
+            == "identifier \"com.cmuxterm.app.nightly.screen-sharing\" and anchor apple generic and certificate leaf[subject.OU] = \"ABCDE12345\"")
+        #expect(MacScreenStreamParent.requirement(team: "ABCDE\" or 1", identifier: "a.screen-sharing") == nil)
+        #expect(MacScreenStreamParent.requirement(team: "ABCDE12345", identifier: "a\" or 1") == nil)
     }
 }

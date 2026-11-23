@@ -5,6 +5,7 @@ import CmuxScreenKit
 import CoreGraphics
 import CoreFoundation
 public import Foundation
+import Security
 
 /// The windows a child's capture leaves out (SECURITY: the app's windows only the person at this Mac
 /// may see, `CaptureExcludedWindows`, read by the app and sent as `exclude_windows`), and who hears a
@@ -204,8 +205,17 @@ nonisolated public struct MacScreenStreamChild: Sendable, Equatable {
         guard arguments.count == 2, arguments[1] == Self.flag else { return nil }
     }
 
-    /// Serves the session and exits.
+    /// Serves the session and exits; exits at once, serving nothing, when its parent is not this
+    /// app's Screen Sharing helper.
     public func run() -> Never {
+        // SECURITY: only the helper may start this mode. Any other launcher (`open --args`, a shell, a
+        // terminal under the daemon) would make this process its own or the app's responsibility, so it
+        // would capture and inject input under the app's grants for whoever holds its stdio.
+        guard MacScreenStreamParent(pid: getppid()).isHelper(appBundleID: Bundle.main.bundleIdentifier,
+                                                              ownTeam: MacScreenStreamParent.ownTeam()) else {
+            try? FileHandle.standardError.write(contentsOf: Data("cmux screen stream host: refused: not started by this app's Screen Sharing helper\n".utf8))
+            exit(64)
+        }
         // A write to an app that ended fails with EPIPE instead of killing the child mid-cleanup.
         signal(SIGPIPE, SIG_IGN)
         let output = FileHandle.standardOutput
@@ -283,5 +293,66 @@ nonisolated final class MacScreenStreamChildHost: MacScreenStreamServing {
 
     func disconnectViewer() {
         host.disconnectViewer()
+    }
+}
+
+/// The process that started a stream host child, read by pid (the child's parent is alive while it
+/// runs; an orphan's parent is launchd, which never passes).
+nonisolated struct MacScreenStreamParent {
+    let pid: pid_t
+
+    /// The helper's executable name (MacScreenHelper.executableName) and identifier suffix
+    /// (bundle-screen-sharing-helper.sh: `<app id>.screen-sharing`).
+    static let helperExecutable = "cmux-screen-sharing"
+    static let helperSuffix = ".screen-sharing"
+
+    /// This process's Team ID; nil for an ad hoc (local) build.
+    static func ownTeam() -> String? {
+        var code: SecCode?
+        guard SecCodeCopySelf([], &code) == errSecSuccess, let code else { return nil }
+        var staticCode: SecStaticCode?
+        guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
+        var info: CFDictionary?
+        guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
+              let dict = info as? [String: Any] else { return nil }
+        return dict[kSecCodeInfoTeamIdentifier as String] as? String
+    }
+
+    /// A team-signed build: the parent is Apple-anchored, signed by this build's team, with the
+    /// identifier `<app id>.screen-sharing`. An ad hoc build (no team, its grants a dev build's own):
+    /// the parent runs the helper's executable.
+    func isHelper(appBundleID: String?, ownTeam: String?) -> Bool {
+        guard pid > 1 else { return false }
+        guard let ownTeam else { return executableName == Self.helperExecutable }
+        guard let appBundleID, let requirement = Self.requirement(team: ownTeam, identifier: appBundleID + Self.helperSuffix)
+        else { return false }
+        return satisfies(requirement)
+    }
+
+    /// The requirement text, or nil when the team or identifier holds a character with no place in one.
+    static func requirement(team: String, identifier: String) -> String? {
+        let plain = { (text: String) in
+            !text.isEmpty && text.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "-" || $0 == "_") }
+        }
+        guard plain(team), plain(identifier) else { return nil }
+        return "identifier \"\(identifier)\" and anchor apple generic and certificate leaf[subject.OU] = \"\(team)\""
+    }
+
+    private var executableName: String? {
+        var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
+        let path = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+        return URL(fileURLWithPath: path).lastPathComponent
+    }
+
+    private func satisfies(_ text: String) -> Bool {
+        var code: SecCode?
+        guard SecCodeCopyGuestWithAttributes(nil, [kSecGuestAttributePid: pid] as CFDictionary, [], &code) == errSecSuccess,
+              let code else { return false }
+        var requirement: SecRequirement?
+        guard SecRequirementCreateWithString(text as CFString, [], &requirement) == errSecSuccess, let requirement else {
+            return false
+        }
+        return SecCodeCheckValidity(code, [], requirement) == errSecSuccess
     }
 }

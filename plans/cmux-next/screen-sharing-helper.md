@@ -140,11 +140,13 @@ ScreenCaptureKit capture and CGEvent input use the helper's grants:
 
 ```
 cmux NIGHTLY (app)                      MacScreenRdHost.serveWebRTC -> MacScreenStreamProcess
-  └ disclaimed spawn: cmux-screen-sharing __webrtc-host <app executable> --screen-stream-host
+  └ disclaimed spawn: cmux-screen-sharing __webrtc-host <app executable>
        (the helper; its own responsible process)
-       └ posix_spawn, suspended: <app executable> --screen-stream-host
-            runs only when its code is signed by the helper's own Team ID (SecCodeCheckValidity);
-            the helper's ordinary child, so macOS checks the helper's grants
+       └ posix_spawn, suspended: <app executable> --screen-stream-host  (the helper adds the flag;
+            it takes no other argument), runs only when its code is the helper's own Team ID and the
+            app's identifier (SecCodeCheckValidity); the helper's ordinary child, so macOS checks the
+            helper's grants. The child serves only when its parent is the helper (identifier
+            `<app id>.screen-sharing`, same team; an ad hoc build: the helper's executable name)
             MacScreenStreamChild: ScreenStreamHost + ScreenCaptureBackend, no NSApplication
 ```
 

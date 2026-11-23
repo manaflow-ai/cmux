@@ -1,4 +1,4 @@
-//! `cmux-screen-sharing __webrtc-host <executable> [args...]`: runs the iPhone viewer's WebRTC
+//! `cmux-screen-sharing __webrtc-host <executable>`: runs the iPhone viewer's WebRTC
 //! screen host (the cmux app's own executable in its `--screen-stream-host` mode; Swift,
 //! `MacScreenStreamChild` in CmuxNextMacScreen) as this helper's ordinary child, on this
 //! helper's stdin, stdout and stderr, and exits with its status.
@@ -11,21 +11,30 @@
 //!
 //! SECURITY: the child gets this helper's grants. When this helper is signed by a team (every
 //! NIGHTLY, RC and release), the child is started suspended and runs only when its running code
-//! satisfies `anchor apple generic` and this helper's own Team ID; otherwise it is killed before it
-//! runs an instruction. An ad hoc (local) helper has no team to compare and runs the child as is:
+//! satisfies `anchor apple generic`, this helper's own Team ID and, when this helper's identifier is
+//! `<app id>.screen-sharing`, exactly `<app id>`; otherwise it is killed before it runs an
+//! instruction. The child always gets exactly one argument, [`CHILD_FLAG`]: no caller picks what a
+//! team-signed program runs under the helper's grants. An ad hoc (local) helper has no team to compare and runs the child as is:
 //! its grants are keyed to its own cdhash, so they are a dev build's alone.
 
 /// The hidden mode word (the app's `MacScreenStreamProcess`).
 pub const MODE: &str = "__webrtc-host";
+/// The one argument the child gets (`MacScreenStreamChild.flag`).
+pub const CHILD_FLAG: &str = "--screen-stream-host";
+/// The helper's identifier is the app's with this suffix (bundle-screen-sharing-helper.sh).
+const HELPER_SUFFIX: &str = ".screen-sharing";
 
 /// Runs the child to its end; the process exit code.
 pub fn run(args: &[String]) -> i32 {
-    let Some((executable, rest)) = args.split_first().filter(|(path, _)| path.starts_with('/'))
-    else {
-        eprintln!("usage: cmux-screen-sharing {MODE} /path/to/executable [args...]");
+    let [executable] = args else {
+        eprintln!("usage: cmux-screen-sharing {MODE} /path/to/executable");
         return 2;
     };
-    match platform::run(executable, rest) {
+    if !executable.starts_with('/') {
+        eprintln!("usage: cmux-screen-sharing {MODE} /path/to/executable");
+        return 2;
+    }
+    match platform::run(executable, &[CHILD_FLAG.to_string()]) {
         Ok(code) => code,
         Err(e) => {
             eprintln!("cmux-screen-sharing {MODE}: {e}");
@@ -90,6 +99,7 @@ mod platform {
     unsafe extern "C" {
         static kSecGuestAttributePid: CFTypeRef;
         static kSecCodeInfoTeamIdentifier: CFTypeRef;
+        static kSecCodeInfoIdentifier: CFTypeRef;
         fn SecCodeCopySelf(flags: u32, code: *mut CFTypeRef) -> OSStatus;
         fn SecCodeCopyStaticCode(code: CFTypeRef, flags: u32, out: *mut CFTypeRef) -> OSStatus;
         fn SecCodeCopySigningInformation(
@@ -142,10 +152,11 @@ mod platform {
     /// Spawns `executable` suspended on this process's stdio, checks its code, lets it run and
     /// waits for it; its exit code (128 + the signal for a child a signal ended).
     pub(super) fn run(executable: &str, args: &[String]) -> Result<i32, String> {
-        let team = own_team()?;
+        let (team, identifier) = own_signing()?;
+        let app = identifier.as_deref().and_then(app_identifier);
         let pid = spawn_suspended(executable, args)?;
         if let Some(team) = team.as_deref() {
-            if let Err(e) = check_child(pid, team) {
+            if let Err(e) = check_child(pid, team, app) {
                 // SAFETY: `pid` is our unreaped child; the kill cannot reach another process.
                 unsafe { libc::kill(pid, libc::SIGKILL) };
                 let _ = wait(pid);
@@ -222,7 +233,8 @@ mod platform {
     }
 
     /// This helper's own Team ID; None when it has none (ad hoc).
-    fn own_team() -> Result<Option<String>, String> {
+    /// This helper's Team ID (None when ad hoc) and signing identifier.
+    fn own_signing() -> Result<(Option<String>, Option<String>), String> {
         let mut code: CFTypeRef = ptr::null();
         // SAFETY: the out-pointer is valid.
         status(unsafe { SecCodeCopySelf(0, &raw mut code) }, "SecCodeCopySelf")?;
@@ -251,11 +263,25 @@ mod platform {
         // and copied before `information` drops.
         let team =
             unsafe { string(CFDictionaryGetValue(information.0, kSecCodeInfoTeamIdentifier)) };
+        // SAFETY: as above.
+        let identifier =
+            unsafe { string(CFDictionaryGetValue(information.0, kSecCodeInfoIdentifier)) };
         match team {
-            Some(team) if plain_team(&team) => Ok(Some(team)),
+            Some(team) if plain_team(&team) => Ok((Some(team), identifier)),
             Some(team) => Err(format!("unexpected Team ID {team:?}")),
-            None => Ok(None),
+            None => Ok((None, identifier)),
         }
+    }
+
+    /// The app's identifier from this helper's (`<app id>.screen-sharing`); None for any other
+    /// identifier, or one with a character that has no place in a requirement.
+    pub(super) fn app_identifier(helper: &str) -> Option<&str> {
+        let app = helper.strip_suffix(super::HELPER_SUFFIX)?;
+        let plain = !app.is_empty()
+            && app
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-' || b == b'_');
+        plain.then_some(app)
     }
 
     /// A Team ID is ten upper-case letters or digits; anything else never goes into a requirement.
@@ -264,7 +290,7 @@ mod platform {
     }
 
     /// The suspended child's running code satisfies Apple's anchor and `team`.
-    fn check_child(pid: libc::pid_t, team: &str) -> Result<(), String> {
+    fn check_child(pid: libc::pid_t, team: &str, app: Option<&str>) -> Result<(), String> {
         let value: i32 = pid;
         // SAFETY: `value` is live for the call; CFNumber copies it.
         let number = Owned::new(
@@ -295,7 +321,11 @@ mod platform {
             "SecCodeCopyGuestWithAttributes",
         )?;
         let guest = Owned::new(guest, "SecCodeCopyGuestWithAttributes")?;
-        let text = format!("anchor apple generic and certificate leaf[subject.OU] = \"{team}\"");
+        let mut text =
+            format!("anchor apple generic and certificate leaf[subject.OU] = \"{team}\"");
+        if let Some(app) = app {
+            text = format!("identifier \"{app}\" and {text}");
+        }
         // SAFETY: the bytes are live for the call; CFString copies them.
         let text = Owned::new(
             unsafe {
@@ -349,7 +379,26 @@ mod tests {
     #[test]
     fn a_relative_or_missing_executable_is_refused_before_anything_starts() {
         assert_eq!(run(&[]), 2);
-        assert_eq!(run(&["cmux".into(), "--screen-stream-host".into()]), 2);
+        assert_eq!(run(&["cmux".into()]), 2);
+    }
+
+    #[test]
+    fn a_caller_never_picks_the_childs_arguments() {
+        // SECURITY: the child always runs with CHILD_FLAG alone; extra arguments are refused.
+        assert_eq!(run(&["/bin/sh".into(), "-c".into(), "exit 7".into()]), 2);
+        assert_eq!(run(&["/usr/bin/true".into(), CHILD_FLAG.into()]), 2);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_apps_identifier_comes_from_the_helpers() {
+        assert_eq!(
+            platform::app_identifier("com.cmuxterm.app.nightly.screen-sharing"),
+            Some("com.cmuxterm.app.nightly")
+        );
+        assert_eq!(platform::app_identifier("cmux-screen-sharing"), None);
+        assert_eq!(platform::app_identifier(".screen-sharing"), None);
+        assert_eq!(platform::app_identifier("a\" or 1.screen-sharing"), None);
     }
 
     #[cfg(target_os = "macos")]
@@ -364,7 +413,7 @@ mod tests {
     #[test]
     fn a_child_runs_on_this_process_stdio_and_its_status_comes_back() {
         // The test binary is ad hoc signed (no team): the child runs unchecked.
-        assert_eq!(run(&["/bin/sh".into(), "-c".into(), "exit 7".into()]), 7);
+        assert_eq!(platform::run("/bin/sh", &["-c".into(), "exit 7".into()]), Ok(7));
         assert_eq!(run(&["/usr/bin/true".into()]), 0);
     }
 }
