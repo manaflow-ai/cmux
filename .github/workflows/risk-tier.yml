@@ -46,7 +46,9 @@ jobs:
         with:
           ref: ${{ github.workflow_sha }}
           persist-credentials: false
-          sparse-checkout: scripts/ci/risk_tier.py
+          sparse-checkout: |
+            scripts/ci/risk_tier.py
+            scripts/ci/ui_review_advisory.py
           sparse-checkout-cone-mode: false
       # The base's last 9 days of history, for the check that flags taking back a change another
       # pull request merged recently (a stale base). A fresh repository with full blobs, not the
@@ -77,7 +79,24 @@ jobs:
           NUMBER: ${{ github.event.pull_request.number }}
         run: |
           python3 scripts/ci/risk_tier.py pr --repo "$REPO" --number "$NUMBER" ${BASE_HISTORY:+--repo-dir "$BASE_HISTORY"} \
-            --event "$GITHUB_EVENT_PATH" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+            --event "$GITHUB_EVENT_PATH" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY" \
+            --files-out "$RUNNER_TEMP/changed-files.json"
+      # A UI pull request opens before its diff is read (the Mastra Factory reading note): one with no try command
+      # gets `Try: cmux app try N` written into its description. It adds and never refuses; a pull request that
+      # already names a try command, or says `Try: none, <why>`, costs no call. A write by this token starts no new run.
+      - name: Add the try line to a UI pull request
+        if: always() && hashFiles('scripts/ci/ui_review_advisory.py') != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          [ -f "$RUNNER_TEMP/changed-files.json" ] || { echo "no changed-file list; skipped"; exit 0; }
+          printf '%s' "$BODY" > "$RUNNER_TEMP/body.md"
+          python3 scripts/ci/ui_review_advisory.py --add-try "$REPO" --pr "$NUMBER" \
+            --body-file "$RUNNER_TEMP/body.md" --files-json "$RUNNER_TEMP/changed-files.json"
       # The label is a convenience; the check's verdict is the gate, so a label API error never fails it.
       - name: Set the risk label
         # An ungraded run (a GitHub rate limit, risk_tier.py's RateLimited) sets no label and leaves the old one.
