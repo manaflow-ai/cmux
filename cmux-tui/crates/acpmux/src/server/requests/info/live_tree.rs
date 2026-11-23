@@ -50,7 +50,7 @@ fn project(raw: &Value, now: f64) -> Value {
     let lanes: Vec<Value> = ["rust", "webviews", "swift"]
         .into_iter()
         .map(|name| {
-            let lane = &raw["lanes"][name];
+            let lane = raw.get("lanes").and_then(|lanes| lanes.get(name)).unwrap_or(&Value::Null);
             let current = !stale
                 && raw["pending"].as_u64() == Some(0)
                 && lane["seq"].as_u64() == Some(seq)
