@@ -92,8 +92,17 @@ pub const MAX_FRAME_LEAD: u32 = 4096;
 /// Released frames a recovery frame may reference.
 pub const RECOVERY_WINDOW: usize = 64;
 
+/// Longest a frame may wait from its first shard, however its shards keep coming.
+///
+/// The deadline runs from the newest shard, not the first: a 1080p motion keyframe is
+/// 400 to 550 datagrams, and on a path of a few Mbit/s it is still arriving 200 ms after
+/// its first shard. Counted from the first shard it expired mid-arrival every time, the
+/// viewer asked for another keyframe, and no frame was shown (hq#19915, Linux host to Mac
+/// viewer at 6 Mbit/s: none released in 15 s).
+pub const MAX_FRAME_WAIT_US: u64 = 1_000_000;
+
 impl Reassembler {
-    /// `deadline_us`: how long a frame may wait for missing shards.
+    /// `deadline_us`: how long a frame may wait for missing shards after its newest shard.
     pub fn new(deadline_us: u64) -> Self {
         Self {
             deadline_us,
@@ -265,8 +274,16 @@ impl Reassembler {
         self.pending
             .values()
             .filter(|p| !Self::decodable(p))
-            .map(|p| p.first_seen_us.saturating_add(self.deadline_us).saturating_add(1))
+            .map(|p| self.expires_after_us(p).saturating_add(1))
             .min()
+    }
+
+    /// The last instant an incomplete frame may still wait: `deadline_us` after its
+    /// newest shard, at most [`MAX_FRAME_WAIT_US`] (or the deadline, if longer) after
+    /// its first.
+    fn expires_after_us(&self, p: &Pending) -> u64 {
+        let cap = p.first_seen_us.saturating_add(MAX_FRAME_WAIT_US.max(self.deadline_us));
+        p.last_seen_us.saturating_add(self.deadline_us).min(cap)
     }
 
     fn decodable(p: &Pending) -> bool {
@@ -277,9 +294,7 @@ impl Reassembler {
         let expired: Vec<u32> = self
             .pending
             .iter()
-            .filter(|(_, p)| {
-                !Self::decodable(p) && now_us.saturating_sub(p.first_seen_us) > self.deadline_us
-            })
+            .filter(|(_, p)| !Self::decodable(p) && now_us > self.expires_after_us(p))
             .map(|(&f, _)| f)
             .collect();
         for frame in expired {
