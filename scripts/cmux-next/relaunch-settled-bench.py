@@ -113,6 +113,24 @@ def resolve_ref(ref: str) -> tuple[str, int | None]:
     return sha, None
 
 
+def cached_dev_goldens(anchor: str) -> list[dict]:
+    """DEV apps already in hot-verify's golden cache whose commit is ANCHOR or behind it, nearest first."""
+    found = []
+    root = hv.golden_root()
+    for ready in root.glob(f"*/{hv.GOLDEN_READY}") if root.is_dir() else []:
+        try:
+            build = json.loads(ready.read_text())
+        except ValueError:
+            continue
+        commit = build.get("commit") or ""
+        if build.get("kind") not in DEV_KINDS or not commit:
+            continue
+        if subprocess.run(["git", "-C", str(ROOT), "merge-base", "--is-ancestor", commit, anchor]).returncode:
+            continue
+        found.append((int(git("rev-list", "--count", f"{commit}..{anchor}") or 0), build))
+    return [build for _, build in sorted(found, key=lambda pair: pair[0])]
+
+
 def pick_dev_golden(sha: str) -> dict:
     """The nearest published DEV build at or behind SHA's merge base with feat-cmux-next."""
     anchor = hv.golden_anchor(ROOT, sha)
@@ -122,6 +140,10 @@ def pick_dev_golden(sha: str) -> dict:
         if builds:
             break
         time.sleep(20 * (attempt + 1))
+    if not builds:  # the feed moved past the ref: a DEV app already downloaded here at or behind it still serves
+        builds = cached_dev_goldens(anchor)
+        if builds:
+            say(f"golden copy: the feed has no DEV build at or behind {anchor[:12]}; using the cached {builds[0]['commit'][:12]}")
     if not builds:
         raise SystemExit(f"no published DEV build at or behind {anchor[:12]}: {notes}")
     build = builds[0]
@@ -450,8 +472,11 @@ def seed(copy: Copy, files: list[Path], scratch: Path) -> dict:
         raise SystemExit(f"_acpmux/import: {json.dumps(imported)[:300]}")
     for n in range(SIDEBAR_ROWS):
         copy.cli("workspace", "create", "--name", f"settled-{n + 1}")
-    opened = rpc(copy.socket, "action.run", {"action": "agent.openSessionWorkspace", "session": new_id,
-                                             "name": "settled long chat"}, timeout=90)
+    named = {"session": new_id, "name": "settled long chat"}
+    opened = rpc(copy.socket, "action.run", {"action": "agent.openSessionWorkspace", "arguments": named, **named},
+                 timeout=90)
+    if not isinstance(opened, dict) or "error" in opened:
+        opened = copy.cli("agent", "open", new_id)
     say(f"seeded {len(records)} records as {new_id}: {json.dumps(opened)[:200]}")
     return {"session": new_id, "records": len(records), "opened": opened}
 
@@ -615,7 +640,7 @@ def main() -> int:
         say(f"before the first quit: {before['rows']} rows, {len(before['disconnected'])} disconnected")
         for n in range(1, args.rounds + 1):
             report["rounds"].append(round_(copy, n, out, args.seconds, before, report["seed"]["session"]))
-            time.sleep(20 * (attempt + 1))
+            time.sleep(5)
     finally:
         (out / "report.json").write_text(json.dumps(report, indent=2))
         if not args.keep:
