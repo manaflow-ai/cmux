@@ -1,6 +1,7 @@
 //! Part of `Hub`; see `hub/mod.rs`.
 
 use super::exit_reason::explains_exit;
+use super::transcript::REPLAY_CHARS;
 use super::*;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -261,7 +262,7 @@ impl Hub {
             let prior = opts.on_accepted.take();
             opts.on_accepted = Some(Box::new(move |mut v| {
                 if let Some(message) = message.as_ref() {
-                    record_message_context(&hub, &target_id, message);
+                    record_message_context(&hub, &target_id, message, &v);
                     name_message(&mut v, message);
                 }
                 if let Some(prior) = prior {
@@ -272,6 +273,12 @@ impl Hub {
         };
         let duplicate = |v: Value| {
             let mut answer = json!({"sessionId": session.id, "promptId": prompt_id, "duplicate": true, "queued": false, "turnId": v.pointer("/_meta/acpmux/turnId")});
+            if v.pointer("/_meta/acpmux/surgeHeld").and_then(Value::as_bool) == Some(true) {
+                let thread = v.pointer("/_meta/acpmux/threadId").cloned().unwrap_or(Value::Null);
+                crate::surge_triage::set_key(&mut answer, "inbox", json!(true));
+                crate::surge_triage::set_key(&mut answer, "surgeHeld", json!(true));
+                crate::surge_triage::set_key(&mut answer, "threadId", thread);
+            }
             name_kept_message(&mut answer, session, &prompt_id);
             answer
         };
@@ -293,7 +300,18 @@ impl Hub {
                     // this copy then knows the prompt was taken. With none yet, the first run
                     // may still be held or refused, and only its answer says.
                     let (turn, queued) = pending_turn(session, &prompt_id).unzip();
-                    let mut notice = duplicate(json!({"_meta": {"acpmux": {"turnId": turn}}}));
+                    let previous = first
+                        .borrow()
+                        .as_ref()
+                        .and_then(|r| r.as_ref().ok())
+                        .filter(|v| {
+                            v.pointer("/_meta/acpmux/surgeHeld").and_then(Value::as_bool)
+                                == Some(true)
+                        })
+                        .cloned();
+                    let mut notice = duplicate(
+                        previous.unwrap_or_else(|| json!({"_meta": {"acpmux": {"turnId": turn}}})),
+                    );
                     if queued == Some(true) {
                         notice.set("queued", json!(true));
                     }
@@ -363,7 +381,7 @@ impl Hub {
             opts.on_accepted = Some(Box::new(move |mut v| {
                 accepted.store(true, Ordering::SeqCst);
                 if let Some(message) = message.as_ref() {
-                    record_message_context(&hub, &target_id, message);
+                    record_message_context(&hub, &target_id, message, &v);
                     keep_message(&kept_in, &kept_id, message);
                     name_message(&mut v, message);
                 }
@@ -374,10 +392,10 @@ impl Hub {
             let hub = self.clone();
             let target_id = session.id.clone();
             let (kept_in, kept_id) = (session.clone(), prompt_id.clone());
-            opts.on_accepted = Some(Box::new(move |_| {
+            opts.on_accepted = Some(Box::new(move |v| {
                 accepted.store(true, Ordering::SeqCst);
                 if let Some(message) = message.as_ref() {
-                    record_message_context(&hub, &target_id, message);
+                    record_message_context(&hub, &target_id, message, &v);
                     keep_message(&kept_in, &kept_id, message);
                 }
             }));
@@ -460,7 +478,7 @@ impl Hub {
         // Stop can arrive during dispatch setup, before session.turn is installed. Keep
         // that epoch through the write checks instead of sampling it after startup.
         let mut cancels = session.cancels.load(Ordering::SeqCst);
-        let prompt_id = opts.prompt_id.unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
+        let prompt_id = opts.prompt_id.take().unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
         // A held agent message released, or a queued one sent now, may still name its uploads.
         let mut blocks = blocks;
         let web = opts.control == Control::Web;
@@ -492,6 +510,14 @@ impl Hub {
                     None,
                 )
                 .map_err(|e| RpcError::invalid_params(e.to_string()))?;
+        }
+        if let Some(receipt) =
+            self.hold_surge_message(session, &prompt_id, client, &blocks, &opts)?
+        {
+            if let Some(accept) = opts.on_accepted.take() {
+                accept(receipt.clone());
+            }
+            return Ok(json!({"stopReason":"end_turn","_meta":{"acpmux":receipt}}));
         }
         let mut on_accepted = self.with_host_pressure(opts.on_accepted);
         // The prompts this one replaced (`supersede.rs`), named in its acceptance: set where it
@@ -604,18 +630,18 @@ impl Hub {
         // running turn, as no notice does (`inbox.rs`): it kept that turn going past the person's
         // queued prompt (Leo, 2026-10-29: "but even if im just queueing, your turn should still be
         // ending"). It queues behind the prompt, and one sent with `interrupt` stops nothing. The
-        // person's own steer and Send now still go in, and so does an inbox digest asked to steer
-        // (`inbox_digest.rs`): its drain asked for it. Checked again as the steer is written
-        // (`steer_end.rs`).
-        let prompt_held = from_agent
-            && running.is_some()
-            && !super::digest::inbox_digest::is_digest(opts.provenance.as_ref())
-            && super::inbox::persons_prompt_waits(session);
-        // Other agents wait until the person's own turn ends; family replies still enter it.
+        // person's own steer and Send now still go in; an inbox digest does not (its drain never
+        // asks to steer then, `inbox_digest.rs`; this holds one whose prompt came after the
+        // drain). Checked again as the steer is written (`steer_end.rs`).
+        let prompt_held =
+            from_agent && running.is_some() && super::inbox::persons_prompt_waits(session);
+        // Other agents wait until the person's own turn ends; family replies, and the reports
+        // of the chat's own lanes (`lane_reports.rs`), still enter it.
         let persons_held = from_agent
             && running.as_ref().is_some_and(|t| t.persons)
             && !super::digest::inbox_digest::is_digest(opts.provenance.as_ref())
-            && !super::subsession_guard::is_family_prompt(opts.provenance.as_ref());
+            && !super::subsession_guard::is_family_prompt(opts.provenance.as_ref())
+            && !self.own_lane_report(session, opts.provenance.as_ref());
         // The person's own steer goes into any running turn, one another agent's message started
         // too (Leo, 2026-11-05: "WHY THE FUCK ARE MY MESSAGES BEING QUEUED INSTEAD OF STEERING").
         let trigger = crate::prompt_provenance::is_trigger(opts.provenance.as_ref());
@@ -967,8 +993,13 @@ impl Hub {
             let head =
                 super::digest::Part { prompt_id: prompt_id.clone(), sender, run: run.clone() };
             let parts: Vec<_> = std::iter::once(head).chain(parts).collect();
-            provenance = Some(super::digest::digest_provenance(&parts));
-            let blocks = super::digest::digest_blocks(&parts);
+            // The person's prompts a hold gathered stay the person's words (`person_hold.rs`).
+            let blocks = if run.agent.is_none() {
+                super::person_hold::person_blocks(&parts)
+            } else {
+                provenance = Some(super::digest::digest_provenance(&parts));
+                super::digest::digest_blocks(&parts)
+            };
             let text = prompt_text(&blocks);
             display_parts = None;
             (blocks, text)
@@ -1028,7 +1059,7 @@ impl Hub {
         // turn left: only a local turn the person or a client starts does.
         let family = super::subsession_guard::is_family_prompt(run.provenance.as_ref());
         if control == Control::Web || !family {
-            session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
+            session.floor.mark_last_turn(control == Control::Web, device.clone());
         }
         session
             .floor
@@ -1066,6 +1097,10 @@ impl Hub {
         // The prompt is recorded and acknowledged above before the agent is started again (it
         // died, or the daemon restarted), so a client hears prompt_accepted at once.
         self.wake_cause(session, "prompt");
+        // A start for this turn asks for suggestions only when a person's prompt starts it.
+        session
+            .start_for
+            .store(super::host_level::start_for(&run, provenance.as_ref()), Ordering::SeqCst);
         // Boxed: two starts and the fallback check inline overflowed a debug build's 2 MiB
         // worker stack (`fatal runtime error: stack overflow` in every prompt after #27484).
         let mut started = Box::pin(self.child_for_since(session, stops)).await;
@@ -1190,9 +1225,15 @@ impl Hub {
             || (team_enabled && self.has_team_work(session, &team_prompt_ids))
             || super::inbox::is_notice(provenance.as_ref());
         if session.rehydrate.swap(false, Ordering::SeqCst)
-            && let Some(transcript) = self.transcript(session, 24_000, &prompt_id)
+            && let Some(transcript) = self.transcript(session, REPLAY_CHARS, &prompt_id)
         {
+            // The whole transcript covers what an older agent session lacked too.
+            session.meta.lock().unwrap_or_else(|e| e.into_inner()).agent_behind_seq = None;
             blocks.insert(0, restored_transcript(session, &transcript));
+        } else if let Some(block) = self.missed_turns(session, REPLAY_CHARS) {
+            // The agent resumed an older copy of its own session (`journal_restore.rs`): only
+            // the turns after it.
+            blocks.insert(0, block);
         }
         // The forum rules this session was not told yet (`hub/forum.rs`).
         let mut told = self.forum_context(session, pushed.clone(), &mut blocks).await;
@@ -1204,9 +1245,11 @@ impl Hub {
                 session,
                 "mux",
                 "turn_started",
-                json!({"prompt": short_text(&text, 200), "promptLine": super::auto_resume::shown_line(&line), "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str(), "trustGate": trust_gate, "persons": persons, "trigger": trigger, "cloudMobile": run.cloud_mobile}),
+                json!({"prompt": short_text(&text, 200), "promptLine": super::auto_resume::shown_line(&line), "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str(), "trustGate": trust_gate, "persons": persons, "trigger": trigger, "cloudMobile": run.cloud_mobile, "device": device.as_deref().filter(|_| control == Control::Web)}),
             )
             .seq;
+        // The chat's page before the turn changes it (`turn_shots.rs`), off the turn's path.
+        super::turn_shots::turn_began(session, &turn_id);
         // The prompt as the agent gets it, before the checks below: making its model-sized copies
         // may take a moment, in which a Stop or a remote device may come (`model_copies.rs`).
         let wire = agent_blocks(self, session, &blocks).await;
@@ -1287,8 +1330,6 @@ impl Hub {
         // summary worth a model call (`rolling_summary.rs`).
         self.recap_turn_started(session, person);
         self.summary_turn_started(session, person);
-        // A host below the level suggests a next prompt after any turn unless told (`host_level.rs`).
-        self.old_host_suggestions(session, &child, &agent_sid, person).await;
         let mut result = super::steer_end::agent_prompt_hook(
             session,
             &child,
@@ -1457,7 +1498,8 @@ impl Hub {
                         // attempt's blocks, whose write may have failed before it was confirmed.
                         let rules_in_message = rules_owed || rules_owed_here;
                         if session.rehydrate.swap(false, Ordering::SeqCst)
-                            && let Some(transcript) = self.transcript(session, 24_000, &prompt_id)
+                            && let Some(transcript) =
+                                self.transcript(session, REPLAY_CHARS, &prompt_id)
                         {
                             blocks.insert(0, restored_transcript(session, &transcript));
                             // The new agent session gets every rule again.
@@ -1702,8 +1744,25 @@ impl Hub {
         }
         // A turn Claude answered is in its store: a respawn resumes it.
         if result.is_ok() {
-            let was_unstored = std::mem::take(&mut session.meta.lock().unwrap().claude_unstored);
+            let was_unstored = {
+                let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                m.claude_unstored_work = false;
+                std::mem::take(&mut m.claude_unstored)
+            };
             if was_unstored {
+                self.save_meta(session);
+            }
+        } else if let Err(e) = &result
+            && session.meta().claude_unstored
+            && self.unstored_turn_worked(session, &e.message)
+        {
+            // A failed turn whose agent did work keeps the unstored conversation awake
+            // (`SessionMeta::claude_unstored_work`); one that only got agent errors does not.
+            let marked = {
+                let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                !std::mem::replace(&mut m.claude_unstored_work, true)
+            };
+            if marked {
                 self.save_meta(session);
             }
         }
@@ -2043,6 +2102,8 @@ impl Hub {
         joined: &super::digest::DigestTurn,
     ) {
         self.fail_unstarted_turn(session, prompt_id, turn_id, e, joined);
+        // Its before picture has no after coming (`turn_shots.rs`).
+        super::turn_shots::turn_refused(session, turn_id);
         if session.status() == SessionStatus::Disconnected {
             self.set_status(session, SessionStatus::Ready);
         }
@@ -2173,6 +2234,8 @@ impl Hub {
         }
         // Every turn's end passes here once: its parent hears it (`subsession_results.rs`).
         self.subsession_turn_ended(session, turn_result);
+        // Opt-in team usage sharing (`usage_share.rs`): nothing while it is off.
+        super::usage_share::turn_ended(session, turn_result);
     }
 
     /// Whether the failover onto profile `to` is skipped because it runs through the local
@@ -2255,9 +2318,6 @@ impl Hub {
         let asked_option = (m == method::SESSION_SET_CONFIG_OPTION)
             .then(|| super::full_access_bound::asked_option(&params))
             .flatten();
-        if m == method::SESSION_SET_CONFIG_OPTION {
-            self.person_set_suggestions(session, &params);
-        }
         let res = match child.request(m, params).await {
             Ok(v) => v,
             Err(mut e) => {
@@ -2393,6 +2453,15 @@ impl Hub {
         let _ = self.child_for(session).await?;
         let config_id = resolve_config_id(&session.meta(), config_id);
         let config_id = config_id.as_str();
+        // A model the option does not list exactly, as the catalog names it (`model_alias.rs`).
+        let value = match value.as_str() {
+            Some(model)
+                if config_id == "model" && !super::model_alias::option_lists(session, model) =>
+            {
+                Value::String(self.rewrite_session_model(session, model, "set_config").await?)
+            }
+            _ => value,
+        };
         let r = self
             .forward_as(
                 session,
@@ -2417,6 +2486,10 @@ impl Hub {
         session: &Arc<Session>,
         model_id: &str,
     ) -> Result<Value, RpcError> {
+        // Every switch (ACP `session/set_model`, `acpmux session set model=`, a fork's or a
+        // start's model) as the catalog names it: `fable-5.2` runs as `claude-fable-5-2`.
+        let model_id = &self.rewrite_session_model(session, model_id, "set_model").await?;
+        let model_id = model_id.as_str();
         // A harness that takes its model on the command line or in env
         // gets it at the next spawn: record it and drop the current process.
         // Same test as `new_session`: the profile, its defaults' env, or the
@@ -2763,6 +2836,7 @@ impl Hub {
                 let cwd = session.meta().cwd.clone();
                 let _ = tokio::task::spawn_blocking(move || {
                     super::file_uploads::remove_session(&id);
+                    super::turn_shots::remove_session(&id);
                     // And the PDFs it saved in its project (`acp_prompt_blocks`).
                     remove_pdf_attachments(&cwd, &id);
                 })

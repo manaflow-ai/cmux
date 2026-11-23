@@ -692,6 +692,7 @@ impl Brain {
     /// [`PER_AGENT`](crate::subagents::PER_AGENT) each subagent gets its
     /// own VM, `chief-sub-<id>`, at `size` or the size its task needs; a
     /// task that needs the Mac stays here unless `place` is `cloud`.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn register_spawn_sized(
         &mut self,
         tasks: &[String],
@@ -700,6 +701,7 @@ impl Brain {
         size: Option<&str>,
         machines: &[crate::place_route::Machine],
         family: crate::acpmux::Family,
+        taken: &[u64],
     ) -> Result<SpawnPlan, String> {
         if let Some(s) = size
             && !crate::subagents::SIZES.contains(&s)
@@ -768,10 +770,13 @@ impl Brain {
         // Never below an id already handed out: a reset or unreadable
         // counter must not give `a<N>` twice (persistent-ids-DESIGN.md).
         let prior = self.state.next_subagent;
-        let first = self
-            .state
-            .next_subagent
-            .max(highest_subagent(&self.state.spawns) + 1);
+        let first = free_subagent_run(
+            self.state
+                .next_subagent
+                .max(highest_subagent(&self.state.spawns) + 1),
+            tasks.len() as u64,
+            taken,
+        );
         let ids: Vec<String> = (0..tasks.len() as u64)
             .map(|k| format!("a{}", first + k))
             .collect();
@@ -855,6 +860,7 @@ impl Brain {
                     .map(|(conversation, _)| conversation.clone())
                     .or_else(|| self.state.conversation.clone()),
             },
+            by_automation: self.turn_from_automation,
             answers: match self.state.turn.as_ref() {
                 Some(turn) => turn.answers.clone(),
                 None => self.state.last_answers.clone(),
@@ -1552,6 +1558,32 @@ impl Brain {
         }
         self.mark_workspace(id, true);
         self.deliver(&spawn);
+        // A run whose report reaches the Chief is an `agent_done` event
+        // (automations.rs); a quiet or held one is not done yet. Never for a
+        // subagent another person's turn started (its report runs under the
+        // ask floor, an automation's note would not), nor for one an
+        // automation's own turn started (it would fire itself again).
+        let (title, ask, by_automation) = self.state.sub(id).map_or_else(
+            || (String::new(), true, true),
+            |(spawn, s)| {
+                (
+                    s.title.clone(),
+                    report_requires_approval(s.policy.as_deref()),
+                    self.state
+                        .spawns
+                        .get(spawn)
+                        .is_some_and(|r| r.by_automation),
+                )
+            },
+        );
+        if !held && !stopped && !ask && !by_automation {
+            self.automation_event(crate::automations::Event::AgentDone {
+                id: id.to_owned(),
+                title,
+                run_ms,
+                report: report.clone(),
+            });
+        }
         // A tell that could not reach its run goes as its next prompt.
         self.flush_inbox(id);
         self.start_queued();
@@ -3836,6 +3868,22 @@ fn user_text(msg: &serde_json::Map<String, Value>) -> String {
         .filter_map(|b| b.get("text").and_then(Value::as_str))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// The first of `count` numbers in a row, from `from` on, none of which is
+/// `taken` (an `a<N>` whose acpmux session name exists): acpmux refuses a
+/// session name it holds, so a counter that restarted below the old
+/// sessions (memory deleted, sessions kept) would fail every spawn.
+pub(crate) fn free_subagent_run(from: u64, count: u64, taken: &[u64]) -> u64 {
+    let mut first = from;
+    while let Some(hit) = taken
+        .iter()
+        .filter(|&&n| n >= first && n < first + count)
+        .max()
+    {
+        first = hit + 1;
+    }
+    first
 }
 
 /// The highest `a<N>` any recorded spawn gave, 0 when none did.

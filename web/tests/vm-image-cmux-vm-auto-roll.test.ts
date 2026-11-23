@@ -476,7 +476,8 @@ describe("auto-roll workflows", () => {
       expect(runsOn).toContain("vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 ||");
     }
     const bake = load("cloud-vm-image-bake.yml") as unknown as { jobs: Record<string, { "runs-on"?: string }> };
-    expect(bake.jobs["bake"]!["runs-on"]).toContain("vars.LINUX_RUNNER");
+    // The bake takes the one Linux label (scripts/ci/one_linux_label.py), never a size.
+    expect(bake.jobs["bake"]!["runs-on"]).toMatch(/\|\| 'cmux-linux' }}$/);
   });
 
   test("platform mode mints its scoped token, checks out main and passes the split checkout", () => {
@@ -730,12 +731,18 @@ describe("auto-roll scripts", () => {
       expect(pinnedNow).toBe(newer);
     }), 60_000);
 
-  test("the promote job checks out full history for the never-older check", () => {
+  // Roll 44956612935 (2026-11-21): the checkout's single full-history fetch got an HTTP 408 and promote failed; a
+  // retried blobless fetch after a shallow checkout gives the never-older check the same history.
+  test("the promote job fetches full history for the never-older check, with retries", () => {
     const { YAML } = (globalThis as unknown as { Bun: { YAML: { parse(text: string): unknown } } }).Bun;
-    const roll = YAML.parse(readFileSync(new URL("../../.github/workflows/cloud-vm-image-roll.yml", import.meta.url), "utf8")) as { jobs: Record<string, { steps: Array<{ uses?: string; with?: Record<string, unknown> }> }> };
+    const roll = YAML.parse(readFileSync(new URL("../../.github/workflows/cloud-vm-image-roll.yml", import.meta.url), "utf8")) as { jobs: Record<string, { steps: Array<{ name?: string; run?: string; uses?: string; with?: Record<string, unknown> }> }> };
+    const steps = roll.jobs["promote"]!.steps;
     // This repository's checkout (a reused-workspace cleanup step may come before it; cmux-platform's come after).
-    const own = roll.jobs["promote"]!.steps.find((s) => s.uses?.startsWith("actions/checkout@") && !s.with?.repository);
-    expect(own!.with).toMatchObject({ "fetch-depth": 0, filter: "blob:none" });
+    const own = steps.findIndex((s) => s.uses?.startsWith("actions/checkout@") && !s.with?.repository);
+    const fetch = steps.findIndex((s) => s.run?.includes("--filter=blob:none") && s.run.includes("refs/heads/feat-cmux-next"));
+    expect(fetch).toBeGreaterThan(own);
+    expect(steps[fetch]!.run).toContain("for try in 1 2 3");
+    expect(steps[fetch]!.run).toContain("--unshallow");
   });
 
   // Production, 2026-11-20: cmux-platform's pin was an auto-rolled id a roll trimmed (image_withdrawn). Every step that
