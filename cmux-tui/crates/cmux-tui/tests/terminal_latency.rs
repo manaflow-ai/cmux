@@ -335,8 +335,8 @@ fn open_pty(cols: u16, rows: u16) -> (fs::File, std::os::fd::OwnedFd) {
     let mut master: libc::c_int = -1;
     let mut slave: libc::c_int = -1;
     let mut size = libc::winsize { ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0 };
-    // SAFETY: `openpty` writes two descriptors into the out params on success. The null and
-    // `&mut` arguments fit both libc signatures (`*const` on Linux, `*mut` on macOS).
+    // SAFETY: `openpty` writes two descriptors into the out params on success. macOS's libc takes `termp` and
+    // `winp` as `*mut` (Linux's as `*const`, which a `*mut` coerces to), so both are passed mutable.
     let opened = unsafe {
         libc::openpty(
             &mut master,

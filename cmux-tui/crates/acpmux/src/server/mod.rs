@@ -209,6 +209,10 @@ pub struct Conn {
     /// one peer's rows as one `_acpmux/peer_rows_changed` (`Events::send_remote_batch`) and
     /// follow the list for them, not one `session_changed` per row.
     peer_row_batches: AtomicBool,
+    /// The client asked, in its `initialize` (`_meta.acpmux.sessionChangedDelta`), to hear a chat's
+    /// row changes after the first as `_acpmux/session_patch`; `sent_rows` keeps what it holds.
+    session_delta: AtomicBool,
+    sent_rows: StdMutex<session_patch::SentRows>,
     watch_inventory: StdMutex<bool>,
     /// The unix socket peer's audit token, read at accept (macOS); what
     /// `_acpmux/person_enroll` checks. None for WebSocket connections.
@@ -1041,8 +1045,6 @@ pub fn listener_policy(
     extra_origins: &[String],
     extra_hosts: &[String],
 ) -> ListenerPolicy {
-    let mut policy =
-        ListenerPolicy::for_bind_keeping_host_rule(address).with_origin(AGENT_PANE_ORIGIN);
     if !address.ip().is_loopback() && extra_hosts.is_empty() {
         tracing::warn!(
             "websocket.listen {address} is not loopback: clients may connect by IP address only; list host names in websocket.allowedHosts"
@@ -1053,14 +1055,47 @@ pub fn listener_policy(
             tracing::warn!(
                 "websocket.allowed_origins: ignoring {origin:?} (not scheme://host[:port])"
             );
-            continue;
         }
-        policy = policy.with_origin(origin);
+    }
+    policy_with(address, extra_origins, extra_hosts)
+}
+
+/// [`listener_policy`] without its warnings: an origin that does not parse is skipped.
+fn policy_with(
+    address: std::net::SocketAddr,
+    extra_origins: &[String],
+    extra_hosts: &[String],
+) -> ListenerPolicy {
+    let mut policy =
+        ListenerPolicy::for_bind_keeping_host_rule(address).with_origin(AGENT_PANE_ORIGIN);
+    for origin in extra_origins {
+        if cmux_local_auth::parse_origin(origin).is_some() {
+            policy = policy.with_origin(origin);
+        }
     }
     for host in extra_hosts {
         policy = policy.with_host(host);
     }
     policy
+}
+
+/// The origins and hosts the config adds to the listener now: `websocket.allowedOrigins` (with
+/// this run's `--allow-dev-origin`s) and `websocket.allowedHosts`.
+async fn configured_extras(hub: &Hub) -> (Vec<String>, Vec<String>) {
+    let config = hub.config.read().await;
+    let (mut origins, hosts) = config
+        .websocket
+        .as_ref()
+        .map(|w| (w.allowed_origins.clone(), w.allowed_hosts.clone()))
+        .unwrap_or_default();
+    origins.extend(config.dev_origins.iter().cloned());
+    (origins, hosts)
+}
+
+/// [`listener_policy`] as the config has it at this moment, without its start warnings.
+async fn configured_policy(hub: &Hub, address: std::net::SocketAddr) -> ListenerPolicy {
+    let (extra_origins, extra_hosts) = configured_extras(hub).await;
+    policy_with(address, &extra_origins, &extra_hosts)
 }
 
 /// Validate a `--allow-dev-origin` value: only a loopback `http` origin with
@@ -1152,17 +1187,13 @@ pub async fn serve_ws_until(
         return Ok(());
     }
     let bound = listener.local_addr()?;
-    let (extra_origins, extra_hosts) = {
-        let config = hub.config.read().await;
-        let (mut origins, hosts) = config
-            .websocket
-            .as_ref()
-            .map(|w| (w.allowed_origins.clone(), w.allowed_hosts.clone()))
-            .unwrap_or_default();
-        origins.extend(config.dev_origins.iter().cloned());
-        (origins, hosts)
-    };
-    let policy = Arc::new(listener_policy(listener.local_addr()?, &extra_origins, &extra_hosts));
+    // Said once, at start; each connection reads the policy again (`configured_policy`), so a
+    // `websocket.allowedHosts` or `allowedOrigins` edit (`acpmux web --tailnet`) applies at the
+    // next `_acpmux/reload_config`, with no restart.
+    {
+        let (extra_origins, extra_hosts) = configured_extras(&hub).await;
+        listener_policy(bound, &extra_origins, &extra_hosts);
+    }
     // Each handshake checks the token current at that moment: a rotation
     // (`hub/web_token.rs`) applies from the next one on. The daemon set it
     // already; a caller that did not (tests) gets `token`.
@@ -1201,7 +1232,6 @@ pub async fn serve_ws_until(
         // Read and subscribed before the handshake, so a rotation during it
         // still closes a connection that presented the old token.
         let (token, rotated) = hub.web_token.watch();
-        let policy = policy.clone();
         let local_app = auth.local_app.clone();
         let peer_auth = auth.peer.clone();
         let shutdown = shutdown.clone();
@@ -1237,6 +1267,7 @@ pub async fn serve_ws_until(
                     return;
                 }
             };
+            let policy = Arc::new(configured_policy(&hub, bound).await);
             if !head.to_ascii_lowercase().contains("upgrade: websocket") {
                 serve_http(stream, &head, &policy, peer).await;
                 return;
@@ -1854,6 +1885,8 @@ async fn serve_connection_from(
         watch_all: AtomicBool::new(false),
         watch_tools: AtomicBool::new(false),
         peer_row_batches: AtomicBool::new(false),
+        session_delta: AtomicBool::new(false),
+        sent_rows: StdMutex::default(),
         watch_inventory: StdMutex::new(false),
         peer,
         socket_peer,
@@ -2382,11 +2415,13 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         if (attached || conn.watch_all.load(Ordering::SeqCst))
             && let Ok(s) = hub.resolve(&ev.session_id)
         {
-            let session = if attached || conn.watch_tools.load(Ordering::SeqCst) {
-                hub.session_summary(&s)
-            } else {
-                hub.session_list_summary(&s)
-            };
+            let full = attached || conn.watch_tools.load(Ordering::SeqCst);
+            let session = if full { hub.session_summary(&s) } else { hub.session_list_summary(&s) };
+            let notice = json!({"sessionId": ev.session_id, "kind": ev.record.kind, "recordKind": ev.record.kind, "seq": s.meta().last_seq, "listSeq": ev.list_seq});
+            // A patch names the row it builds on, so it is never replaced in the queue.
+            if session_patch::send_row(conn, &ev.session_id, full, &session, notice) {
+                return;
+            }
             let msg = Message::notification(
                 method::MUX_SESSION_CHANGED,
                 json!({"sessionId": ev.session_id, "session": session, "kind": ev.record.kind, "recordKind": ev.record.kind, "seq": s.meta().last_seq, "listSeq": ev.list_seq}),
@@ -2548,12 +2583,21 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                 let tools = attached || conn.watch_tools.load(Ordering::SeqCst);
                 let session: Value = serde_json::from_str(&remote.summary.changed_text(tools))
                     .unwrap_or(Value::Null);
+                let qualified = remote.qualified_id(&ev.session_id);
+                if rec.kind == "purged" {
+                    session_patch::forget(conn, &qualified);
+                } else if session.is_object() {
+                    let notice = json!({"sessionId": sid, "qualifiedSessionId": qualified, "kind": rec.kind, "recordKind": rec.kind, "seq": rec.seq, "peer": remote.peer, "listSeq": ev.list_seq});
+                    if session_patch::send_row(conn, &qualified, tools, &session, notice) {
+                        return;
+                    }
+                }
                 let row =
                     if attached { outbound::Row::None } else { outbound::Row::Latest(row_key()) };
                 conn.send_row(
                     &Message::notification(
                         method::MUX_SESSION_CHANGED,
-                        json!({"sessionId": sid, "qualifiedSessionId": remote.qualified_id(&ev.session_id), "session": session, "kind": rec.kind, "recordKind": rec.kind, "seq": rec.seq, "peer": remote.peer, "listSeq": ev.list_seq}),
+                        json!({"sessionId": sid, "qualifiedSessionId": qualified, "session": session, "kind": rec.kind, "recordKind": rec.kind, "seq": rec.seq, "peer": remote.peer, "listSeq": ev.list_seq}),
                     ),
                     row,
                 );
@@ -2561,6 +2605,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             return;
         }
         if rec.dir == "mux" && rec.kind == "purged" {
+            session_patch::forget(conn, &ev.session_id);
             // `replaced`: the same chat came back under this id (`Session::replaced`).
             let mut params = json!({"sessionId": ev.session_id, "session": {"sessionId": ev.session_id}, "kind": "purged", "recordKind": "purged", "seq": rec.seq, "listSeq": ev.list_seq});
             if rec.msg.get("replaced") == Some(&Value::Bool(true)) {
@@ -2589,14 +2634,18 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             Some(if full { hub.session_summary(&s) } else { hub.session_list_summary(&s) })
         });
         if let Some(summary) = summary {
-            let row = if attached { outbound::Row::None } else { outbound::Row::Latest(row_key()) };
-            conn.send_row(
-                &Message::notification(
-                    method::MUX_SESSION_CHANGED,
-                    json!({"sessionId": ev.session_id, "session": *summary, "kind": kind, "recordKind": rec.kind, "seq": rec.seq, "listSeq": ev.list_seq}),
-                ),
-                row,
-            );
+            let notice = json!({"sessionId": ev.session_id, "kind": kind, "recordKind": rec.kind, "seq": rec.seq, "listSeq": ev.list_seq});
+            if !session_patch::send_row(conn, &ev.session_id, full, &summary, notice) {
+                let row =
+                    if attached { outbound::Row::None } else { outbound::Row::Latest(row_key()) };
+                conn.send_row(
+                    &Message::notification(
+                        method::MUX_SESSION_CHANGED,
+                        json!({"sessionId": ev.session_id, "session": *summary, "kind": kind, "recordKind": rec.kind, "seq": rec.seq, "listSeq": ev.list_seq}),
+                    ),
+                    row,
+                );
+            }
         }
         // A watcher that is not attached still learns a permission is waiting, after the row
         // that recorded it.
@@ -2661,6 +2710,7 @@ pub(crate) use crate::clock_text::{civil_from_days, iso};
 pub(crate) use change_kind::session_change_kind;
 mod change_kind;
 mod chat_windows;
+pub(crate) mod session_patch;
 pub use chat_windows::live_tasks as live_chat_window_tasks;
 pub mod carrier;
 mod chats;
