@@ -6,7 +6,7 @@ import { useEscapingList } from "../../ui/popupHost";
 import { useScrollEdges } from "../../ui/scrollEdges";
 // AgentMark and KindIcon live in tabMarks.tsx: chat lists draw them, and importing them from here
 // would pull this New Tab screen into the chat page's first script.
-import { KindIcon, StrokeIcon as Icon } from "./tabMarks";
+import { KindIcon, StrokeIcon as Icon, AgentMark } from "./tabMarks";
 import { agentDisplayName } from "./agents";
 import { useLastPick } from "./lastPick";
 import { ArrowUpIcon } from "./ComposerPickers";
