@@ -30,12 +30,11 @@
 //! machine; its view stays there, and `cmux link project back --socket S --at REMOTE FOLDER`
 //! brings its writes back later.
 
-use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use anyhow::{Context as _, bail};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use super::Back;
 use super::remote::Remote;
@@ -64,7 +63,8 @@ pub(crate) const USAGE: &str =
 
 pub(crate) fn parse(args: &[String]) -> anyhow::Result<Args> {
     let split = args.iter().position(|word| word == "--").context(USAGE)?;
-    let (options, command) = (&args[..split], &args[split + 1..]);
+    let (options, rest) = args.split_at(split);
+    let command = rest.get(1..).unwrap_or_default();
     let (mut socket, mut at, mut folder, mut keep) = (None, None, None, false);
     let mut words = options.iter();
     while let Some(word) = words.next() {
@@ -174,7 +174,10 @@ fn offload(parsed: &Args, started: Instant) -> anyhow::Result<(i32, Value)> {
     let mut machine = Remote::connect(socket)?;
     let identity = machine.call("identify", json!({}))?;
     let serves = |name: &str| {
-        identity["capabilities"].as_array().is_some_and(|all| all.iter().any(|c| c == name))
+        identity
+            .get("capabilities")
+            .and_then(Value::as_array)
+            .is_some_and(|all| all.iter().any(|c| c == name))
     };
     if !serves(SHELL_RUNS) {
         bail!("the machine runs no commands for this link ({SHELL_RUNS}); update it");
@@ -213,45 +216,48 @@ fn offload(parsed: &Args, started: Instant) -> anyhow::Result<(i32, Value)> {
         Ok(code) => json!(code),
         Err(_) => Value::Null,
     };
-    let mut line = json!({
-        "ok": false,
-        "exit": exit,
-        "at": at,
-        "phases": {"view_ms": view_ms, "run_ms": run_ms, "publish_ms": publish_ms},
-    });
+    let mut line = Map::new();
+    line.insert("ok".into(), json!(false));
+    line.insert("exit".into(), exit);
+    line.insert("at".into(), json!(at));
+    line.insert(
+        "phases".into(),
+        json!({"view_ms": view_ms, "run_ms": run_ms, "publish_ms": publish_ms}),
+    );
     let published = match back {
         Back::Done(summary) => {
-            line["published"] = summary;
+            line.insert("published".into(), summary);
             true
         }
         Back::Conflict(conflicts, reasons) => {
-            line["error_code"] = json!("sync_conflict");
-            line["error"] = json!(format!(
+            line.insert("error_code".into(), json!("sync_conflict"));
+            let error = format!(
                 "{}: nothing was brought back ({})",
                 conflicts.join(", "),
                 reasons.join("; ")
-            ));
-            line["conflicts"] = json!(conflicts);
+            );
+            line.insert("error".into(), json!(error));
+            line.insert("conflicts".into(), json!(conflicts));
             false
         }
         Back::Failed { code, error } => {
-            line["error_code"] = json!(code);
-            line["error"] = json!(error);
+            line.insert("error_code".into(), json!(code));
+            line.insert("error".into(), json!(error));
             false
         }
     };
     let code = match ran {
         Ok(code) => code,
         Err(error) => {
-            line["error_code"] = json!("run_failed");
-            line["error"] = json!(format!("{error:#}"));
+            line.insert("error_code".into(), json!("run_failed"));
+            line.insert("error".into(), json!(format!("{error:#}")));
             1
         }
     };
-    line["ok"] = json!(published && code == 0);
-    line["total_ms"] = json!(ms(started));
+    line.insert("ok".into(), json!(published && code == 0));
+    line.insert("total_ms".into(), json!(ms(started)));
     let code = if code == 0 && !published { 1 } else { code };
-    Ok((code, line))
+    Ok((code, Value::Object(line)))
 }
 
 /// The machine's home: the last line its login shell prints for `$HOME` (a profile may print
