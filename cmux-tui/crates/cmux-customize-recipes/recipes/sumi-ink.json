@@ -1,0 +1,10 @@
+{
+  "cmuxProfile": 1,
+  "name": "sumi-ink",
+  "description": "Black ink on rice paper and one seal-red mark: no picture, a hairline sidebar, serif pages.",
+  "settings": {
+    "appearance.themeFile": "sumi-ink",
+    "markdown.font.preset": "serif",
+    "agentPane.display.font.preset": "serif"
+  }
+}

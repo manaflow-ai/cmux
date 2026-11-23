@@ -102,18 +102,19 @@ export const handleBillingSync = async (request: Request, env: Env): Promise<Res
   if (!timingSafeEqual(presented, key)) return json({ error: "unauthorized" }, 401)
   const raw = await readRawBody(request, MAX_BODY)
   if (!raw.ok) return json({ error: raw.message }, raw.status)
-  let body: { subscription?: unknown } = {}
+  let body: { subscription?: unknown; dry_run?: unknown } = {}
   if (raw.text.trim()) {
     try {
-      body = JSON.parse(raw.text) as { subscription?: unknown }
+      body = JSON.parse(raw.text) as { subscription?: unknown; dry_run?: unknown }
     } catch {
       return json({ error: "body must be JSON" }, 400)
     }
     if (!body || typeof body !== "object" || Array.isArray(body)) return json({ error: "body must be a JSON object" }, 400)
   }
   if (body.subscription !== undefined && (typeof body.subscription !== "string" || !/^sub_[A-Za-z0-9]{1,64}$/.test(body.subscription))) return json({ error: "subscription must be a subscription id" }, 400)
+  if (body.dry_run !== undefined && typeof body.dry_run !== "boolean") return json({ error: "dry_run must be a boolean" }, 400)
   const { syncUsage } = await import("./billing-usage-sync.ts")
-  const report = await syncUsage(env, typeof body.subscription === "string" ? { subscription: body.subscription } : undefined).catch((e: unknown) => {
+  const report = await syncUsage(env, { ...(typeof body.subscription === "string" ? { subscription: body.subscription } : {}), ...(body.dry_run === true ? { dryRun: true } : {}) }).catch((e: unknown) => {
     console.error(JSON.stringify({ msg: "billing.usage_sync.run_failed", error: String(e).slice(0, 200) }))
     return null
   })
