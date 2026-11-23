@@ -401,7 +401,8 @@ impl Hub {
         prompt_id: &str,
     ) -> Result<(), RpcError> {
         let running = self.stop_prompt_retry(session, prompt_id)?;
-        self.cancel_matching(session, None, Some(running.as_deref().unwrap_or(prompt_id)), false).await
+        self.cancel_matching(session, None, Some(running.as_deref().unwrap_or(prompt_id)), false)
+            .await
     }
 
     /// A `session/prompt` its client cancelled with `$/cancel_request` (`server/prompt_cancel.rs`):

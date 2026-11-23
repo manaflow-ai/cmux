@@ -434,7 +434,10 @@ impl Hub {
             q.preview = short_text(super::inbox::relay_body(&text), 200);
             // An agent's message the person's Stop held is the person's now: it keeps waiting for
             // them to send it, listed `heldByStop` as their own (`cancel.rs`).
-            if was_agent && q.held && session.stop_hold.load(std::sync::atomic::Ordering::SeqCst) != 0 {
+            if was_agent
+                && q.held
+                && session.stop_hold.load(std::sync::atomic::Ordering::SeqCst) != 0
+            {
                 q.held_by_stop = true;
             }
             // Its author's edit of a prompt that waits for the owner is a new revision: an

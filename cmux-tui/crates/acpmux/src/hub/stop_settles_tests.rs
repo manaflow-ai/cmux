@@ -327,7 +327,8 @@ async fn a_persons_stop_keeps_their_queued_prompt_until_they_send_it() {
     assert_eq!(written(&hub, &s, "then the tests"), 0, "the held prompt ran after the next turn");
     // The person's Resume sends it.
     assert!(hub.resume_queue(&s));
-    let answer = tokio::time::timeout(WAIT, queued).await.expect("the held prompt answers").unwrap();
+    let answer =
+        tokio::time::timeout(WAIT, queued).await.expect("the held prompt answers").unwrap();
     assert!(answer.is_ok(), "{answer:?}");
     assert_eq!(written(&hub, &s, "then the tests"), 1);
 }
@@ -367,7 +368,8 @@ async fn a_persons_stop_holds_the_automatic_retry_of_their_queued_prompt() {
     assert!(s.queue().iter().all(|q| q.held && q.held_by_stop), "{:?}", s.queue());
     // The person's Resume sends it.
     assert!(hub.resume_queue(&s));
-    let answer = tokio::time::timeout(WAIT, queued).await.expect("the held prompt answers").unwrap();
+    let answer =
+        tokio::time::timeout(WAIT, queued).await.expect("the held prompt answers").unwrap();
     assert!(answer.is_ok(), "{answer:?}");
     assert_eq!(written(&hub, &s, "then the tests"), 1);
 }
