@@ -473,7 +473,11 @@ describe("auto-roll workflows", () => {
       const runsOn = roll.jobs[job]!["runs-on"]!;
       expect(runsOn).not.toContain("vars.LINUX_RUNNER");
       expect(runsOn).toMatch(/\|\| fromJSON\(vars\.RUNNER_POOLS\)\.linux_4 }}$/);
-      expect(runsOn).toContain("vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 ||");
+      // report holds a contents: write token, so it never reads linux_8 (its first member is the persistent owned
+      // label; tests/test_ci_ephemeral_pool_readers.py). The other control jobs take linux_8 when overflow is saved.
+      const overflow = "vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 ||";
+      if (job === "report") expect(runsOn).not.toContain(overflow);
+      else expect(runsOn).toContain(overflow);
     }
     const bake = load("cloud-vm-image-bake.yml") as unknown as { jobs: Record<string, { "runs-on"?: string }> };
     // The bake takes the one Linux label (scripts/ci/one_linux_label.py), never a size.
