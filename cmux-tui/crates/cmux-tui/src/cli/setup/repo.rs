@@ -514,6 +514,13 @@ pub(super) fn card_text(card: &Value) -> String {
         let replaces = if file["replaces"] == json!(true) { ", replaces yours" } else { "" };
         lines.push(format!("  file {path} ({what}{replaces})"));
     }
+    for font in setup["fonts"].as_array().into_iter().flatten() {
+        lines.push(format!(
+            "  font {} ({}, copied into your fonts folder)",
+            font.as_str().unwrap_or_default(),
+            setup["font_license"].as_str().unwrap_or_default()
+        ));
+    }
     for action in setup["actions"].as_array().into_iter().flatten() {
         let replaces = if action["replaces"] == json!(true) { " (replaces yours)" } else { "" };
         lines.push(format!(

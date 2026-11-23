@@ -255,6 +255,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
         .coordinateSpace(.named(TabsScreenSpace.name))
         .gesture(ZoomPinchGesture { handlePinch($0) })
         .onChange(of: size.width, initial: true) { _, w in zoomDriver.span = Double(w - overviewLayout.cardWidth) }
+        .onChange(of: GridShape(width: size.width, columns: overviewColumns)) { old, _ in keepGridPlace(from: old) }
         .onChange(of: overviewVisible) { _, visible in source.overviewVisibilityChanged(visible) }
         // Leaving the foreground cancels the touches without ending their
         // gestures: a swipe up left part-way would keep the bar untouchable.
@@ -612,6 +613,26 @@ struct TabsScreen<Source: TabsDataSource>: View {
         }
     }
 
+    /// A foldable folding or unfolding under the settled grid changes its
+    /// width and column count: the card that led the screen leads it again,
+    /// instead of the old scroll offset landing on other tabs in the reflowed
+    /// grid. Every shape change keeps the place, so a host that changes the
+    /// width and the column count in two updates still lands on the same card.
+    /// (Off the grid, `prepareOverview` reveals the active card on the way in.)
+    private func keepGridPlace(from old: GridShape) {
+        guard zoomState.phase == .overview else { return }
+        let resized = overviewLayout
+        var before = resized
+        before.size.width = old.width
+        before.columns = old.columns
+        let offset = before.offset(keepingPlace: overviewScroll, in: resized)
+        guard abs(offset - overviewScroll) > 0.5 else { return }
+        var t = Transaction()
+        t.disablesAnimations = true
+        withTransaction(t) { overviewPosition = ScrollPosition(y: offset) }
+        gridScroll.offset = offset
+    }
+
     /// Tabs button: page -> grid, or reverse a zoom that is heading to the page.
     private func openOverview() {
         if chrome.editing { endEditing() }
@@ -914,5 +935,10 @@ struct BarCutout: View {
         }
         .compositingGroup()
     }
+}
+/// The grid's width and column count, which change together when a foldable folds or unfolds.
+private struct GridShape: Equatable {
+    var width: CGFloat
+    var columns: Int
 }
 #endif

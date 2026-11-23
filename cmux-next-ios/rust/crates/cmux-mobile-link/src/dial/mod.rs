@@ -281,6 +281,40 @@ pub fn turn_url_count(servers: &[IceServer]) -> usize {
         .count()
 }
 
+/// The peer address a direct path's bytes go to, for telling the LAN from the internet:
+/// `None` on a relayed path, before a route, or where the transport does not say.
+pub type PeerAddr = watch::Receiver<Option<std::net::IpAddr>>;
+
+/// A peer address on this network: private, link-local or loopback (IPv4, or IPv6 unique-local
+/// and link-local). Tailnet and CGNAT addresses are routed, so they are not.
+pub fn is_lan(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => v4.is_private() || v4.is_link_local() || v4.is_loopback(),
+        std::net::IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+            Some(v4) => is_lan(std::net::IpAddr::V4(v4)),
+            None => {
+                let first = v6.segments()[0];
+                v6.is_loopback()
+                    || (first & 0xffc0) == 0xfe80
+                    || ((first & 0xfe00) == 0xfc00 && !is_cgnat(ip))
+            }
+        },
+    }
+}
+
+/// The route a link's bytes take, as one word: `direct-lan` (a peer address on this network),
+/// `direct-wan` (routed: the internet, a tailnet, CGNAT), `direct` (direct, address unknown),
+/// `relay` (a TURN server, over UDP, TCP or TLS) or `none`.
+pub fn route_name(path: LinkPath, peer: Option<std::net::IpAddr>) -> &'static str {
+    match (path, peer) {
+        (LinkPath::Direct, Some(ip)) if is_lan(ip) => "direct-lan",
+        (LinkPath::Direct, Some(_)) => "direct-wan",
+        (LinkPath::Direct, None) => "direct",
+        (LinkPath::Turn | LinkPath::TurnTls, _) => "relay",
+        (LinkPath::NoPath, _) => "none",
+    }
+}
+
 /// Whether `ip` is in 100.64.0.0/10 (Tailscale and other CGNAT overlays).
 pub fn is_cgnat(ip: std::net::IpAddr) -> bool {
     match ip {
@@ -301,6 +335,7 @@ impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static> LinkStream for T {}
 pub struct Dialed {
     pub stream: Box<dyn LinkStream>,
     pub path: watch::Receiver<LinkPath>,
+    pub peer: PeerAddr,
     /// Holds the peer connection or tunnel open.
     pub guard: Box<dyn Any + Send>,
     /// The input lane's stream, when both sides negotiated one. It may open
@@ -476,6 +511,8 @@ pub struct Connected {
     pub link: Link,
     pub transport: TransportKind,
     pub path: watch::Receiver<LinkPath>,
+    /// The peer address of a direct path ([`route_name`]).
+    pub peer: PeerAddr,
     pub session_id: String,
     /// Both sides agreed on a WebRTC media session beside this (WireGuard)
     /// link; the phone opens it on demand ([`crate::hybrid`]).
@@ -526,7 +563,14 @@ pub async fn connect(
         link.attach_media(media.start(&link));
     }
     options.timeline.mark("link_ready");
-    Ok(Connected { link, transport: kind, path: dialed.path, session_id, webrtc_media: dialed.webrtc_media })
+    Ok(Connected {
+        link,
+        transport: kind,
+        path: dialed.path,
+        peer: dialed.peer,
+        session_id,
+        webrtc_media: dialed.webrtc_media,
+    })
 }
 
 /// Mac side: answer `first` and run a link on the result.
@@ -563,12 +607,40 @@ pub async fn answer(
         link.attach_media(media.start(&link));
     }
     options.timeline.mark("link_ready");
-    Ok(Connected { link, transport: kind, path: dialed.path, session_id, webrtc_media: dialed.webrtc_media })
+    Ok(Connected {
+        link,
+        transport: kind,
+        path: dialed.path,
+        peer: dialed.peer,
+        session_id,
+        webrtc_media: dialed.webrtc_media,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_route_is_lan_wan_or_relay_by_its_path_and_peer_address() {
+        let ip = |text: &str| Some(text.parse::<std::net::IpAddr>().unwrap());
+        // A Mac on ethernet and a phone on the same home wifi.
+        assert_eq!(route_name(LinkPath::Direct, ip("192.168.1.23")), "direct-lan");
+        assert_eq!(route_name(LinkPath::Direct, ip("10.0.0.5")), "direct-lan");
+        assert_eq!(route_name(LinkPath::Direct, ip("169.254.3.4")), "direct-lan");
+        assert_eq!(route_name(LinkPath::Direct, ip("fe80::1")), "direct-lan");
+        assert_eq!(route_name(LinkPath::Direct, ip("fd12:3456::1")), "direct-lan");
+        assert_eq!(route_name(LinkPath::Direct, ip("::ffff:192.168.1.23")), "direct-lan");
+        // A hole-punched public address, a carrier's CGNAT, a tailnet: routed.
+        assert_eq!(route_name(LinkPath::Direct, ip("203.0.113.9")), "direct-wan");
+        assert_eq!(route_name(LinkPath::Direct, ip("100.101.102.103")), "direct-wan");
+        assert_eq!(route_name(LinkPath::Direct, ip("fd7a:115c:a1e0::1")), "direct-wan");
+        assert_eq!(route_name(LinkPath::Direct, ip("2001:db8::1")), "direct-wan");
+        assert_eq!(route_name(LinkPath::Direct, None), "direct");
+        assert_eq!(route_name(LinkPath::Turn, ip("192.168.1.23")), "relay");
+        assert_eq!(route_name(LinkPath::TurnTls, None), "relay");
+        assert_eq!(route_name(LinkPath::NoPath, None), "none");
+    }
 
     fn error(session_id: Option<&str>) -> SignalingEvent {
         SignalingEvent::Error {
