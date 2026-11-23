@@ -404,7 +404,10 @@ public final class DaemonTerminalSession: TerminalSession {
         stopLeaseRefresh()
         if let client {
             log.notice("surface \(self.surface, privacy: .public): off screen past its grace, attach closed (the page keeps its cache)")
-            let release = attached && (sizeClaimed || outbox.contains { if case .release = $0 { true } else { false } })
+            // A claimed size, or a release still waiting behind another
+            // request: closing cancels that request, so send one answered.
+            let release = attached && (sizeClaimed || releasesInFlight > 0
+                || outbox.contains { if case .release = $0 { true } else { false } })
             let surface = surface
             Task {
                 if release {
