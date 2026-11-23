@@ -3,7 +3,7 @@ import SwiftUI
 
 /// DEBUG only (the terminal demo): workspace tabs host terminals through
 /// `TerminalTabPage`. The terminal screen (SPEC 10): Ghostty full bleed, system glass toolbar with
-/// the title menu and the keyboard toggle, the keyboard-pinned bottom stack,
+/// the title menu, the keyboard-pinned bottom stack,
 /// and the files-and-links sheet. Push it inside a NavigationStack.
 public struct TerminalScreen: View {
     @State private var model: TerminalModel
@@ -35,15 +35,9 @@ public struct TerminalScreen: View {
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .principal) { titleMenu }
+                // The keyboard's one control is the key row's trailing key
+                // (`KeyboardToggleKey`), not a second one here.
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button {
-                        model.toggleKeyboard()
-                    } label: {
-                        Image(systemName: model.keyboardVisible ? "keyboard.chevron.compact.down" : "keyboard")
-                            .contentTransition(.symbolEffect(.replace))
-                    }
-                    .accessibilityLabel(model.keyboardVisible ? "Hide Keyboard" : "Show Keyboard")
-                    .accessibilityIdentifier("terminal.keyboardToggle")
                     moreMenu
                 }
             }

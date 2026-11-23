@@ -77,16 +77,13 @@ final class TerminalJumpToBottomUITests: XCTestCase {
     func testJumpToBottomWithHideToolbar() throws {
         let app = launch()
         let keyboardKey = app.descendants(matching: .any)["terminal.key.keyboard"]
-        let hide = app.buttons["Hide Toolbar"]
         let window = app.windows.firstMatch.frame
-        let rowY = (keyboardKey.frame.midY - window.minY) / window.height
-        for _ in 0..<8 where !(hide.exists && hide.isHittable) {
-            app.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: rowY))
-                .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.38, dy: rowY)))
-        }
-        XCTAssertTrue(hide.waitForExistence(timeout: 5), "Hide Toolbar at the row's end\n\(app.debugDescription)")
+        // Hide Toolbar Too: the keyboard key's long-press menu.
+        keyboardKey.press(forDuration: 1.2)
+        let hide = app.buttons["Hide Toolbar Too"]
+        XCTAssertTrue(hide.waitForExistence(timeout: 5), "Hide Toolbar Too in the keyboard key's menu\n\(app.debugDescription)")
         hide.tap()
-        XCTAssertTrue(keyboardKey.waitForNonExistence(timeout: 5), "Hide Toolbar hides the key row")
+        XCTAssertTrue(keyboardKey.waitForNonExistence(timeout: 5), "Hide Toolbar Too hides the key row")
         let jump = app.buttons["terminal.jumpToBottom"]
         XCTAssertTrue(scrollUp(app, until: jump), "scrolled up with the toolbar hidden: Jump to bottom shows\n\(app.debugDescription)")
         XCTAssertEqual(jump.frame.midX, window.midX, accuracy: 2, "centered")

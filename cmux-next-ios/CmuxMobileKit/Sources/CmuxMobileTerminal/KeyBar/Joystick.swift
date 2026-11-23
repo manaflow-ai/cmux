@@ -215,7 +215,8 @@ struct Joystick: View {
             let frame = proxy.frame(in: .global)
             return CGPoint(x: frame.midX, y: frame.midY)
         } action: { engine.center = $0 }
-        .contentShape(.rect)
+        // 44 x 44 pt of touch around the 28 pt circle (`KeyRowHitTarget`).
+        .keyRowHitArea()
         .gesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { value in

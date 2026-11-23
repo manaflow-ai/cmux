@@ -4,9 +4,11 @@ import CmuxMobileDesign
 import SwiftUI
 
 /// The key row (classic cmux iOS's accessory toolbar): pinned at the leading
-/// edge the keyboard key, the joystick and the compose key; then a scroller
-/// of keys that hug their labels, in `KeyBarLayout`'s order (classic's, with
-/// the arrows before the agent launchers), ending in Hide Toolbar.
+/// edge the joystick and the compose key; then a scroller of keys that hug
+/// their labels, in `KeyBarLayout`'s order (the terminal keys, then the agent
+/// launchers last after a hairline); pinned at the trailing edge the one
+/// keyboard key (tap: show or hide the keyboard; long-press: Hide Toolbar
+/// Too). Every key takes touches over 44 x 44 pt (`KeyRowHitTarget`).
 /// It shows whether or not the keyboard is up. Each key is its own Liquid
 /// Glass cap (classic: `.glass()` / `.prominentGlass()`), in cmux NEXT's
 /// small-radius shape; there is no bar behind them.
@@ -18,6 +20,8 @@ struct TerminalKeyBar: View {
     @State private var clipped = KeyBarClippedKeys()
     /// The pinned keys' width: nothing is drawn under them.
     @State private var pinnedWidth: CGFloat = 0
+    /// The trailing keyboard key's width: nothing is drawn under it either.
+    @State private var trailingWidth: CGFloat = 0
     /// How far the row is scrolled past its start (points).
     @State private var scrolled: CGFloat = 0
 
@@ -52,27 +56,39 @@ struct TerminalKeyBar: View {
                 LinearGradient(colors: [.black.opacity(edge), .black], startPoint: .leading, endPoint: .trailing)
                     .frame(width: KeyRowFade.width)
                 Rectangle()
+                Color.clear.frame(width: trailingWidth)
             }
             // Measured from the scroller's own edge, not its safe area (the bar's inset).
             .ignoresSafeArea()
         }
-        .scrollEdgeEffectHidden(true, for: .leading)
+        .scrollEdgeEffectHidden(true, for: [.leading, .trailing])
         // The pinned keys are the scroller's leading bar, as a toolbar is a
         // scroll view's: the keys scroll under them.
         .safeAreaBar(edge: .leading, spacing: TerminalDockMetrics.keySpacing) {
             GlassEffectContainer(spacing: 0) {
-                HStack(spacing: 6) {
-                    KeyboardToggleKey(model: model)
+                // No spacing: each key's 44 pt hit area holds its share of the gap.
+                HStack(spacing: 0) {
                     Joystick(engine: model.joystickEngine)
                     KeyCap(key: .composer, model: model)
                         .accessibilityLabel(model.composerPresented ? "Hide Text Field" : "Show Text Field")
                 }
-                .padding(.leading, TerminalDockMetrics.horizontalInset)
+                .padding(.leading, TerminalDockMetrics.horizontalInset - KeyRowHitTarget.gap / 2)
             }
             // The gaps between the pinned keys take their taps too, so none
             // falls through to a hidden key scrolled under them.
             .contentShape(.rect)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { pinnedWidth = $0 }
+        }
+        // The one keyboard control, at the trailing edge: before there were
+        // three (this key at the leading edge, a nav-bar button and Hide
+        // Toolbar at the scroller's end).
+        .safeAreaBar(edge: .trailing, spacing: TerminalDockMetrics.keySpacing) {
+            GlassEffectContainer(spacing: 0) {
+                KeyboardToggleKey(model: model)
+                    .padding(.trailing, TerminalDockMetrics.horizontalInset - KeyRowHitTarget.gap / 2)
+            }
+            .contentShape(.rect)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { trailingWidth = $0 }
         }
         // Room above and below the 28 pt row for the glass's touch lift,
         // which the scroller would otherwise clip; the row's layout height
@@ -104,21 +120,35 @@ final class KeyBarClippedKeys {
     }
 }
 
-/// The scroller's keys (`KeyBarLayout`), ending in Hide Toolbar.
+/// The scroller's keys (`KeyBarLayout`), the launchers last after a hairline.
 struct KeyBarScrollerKeys: View {
     let model: TerminalModel
     let layout: KeyBarLayout
     let clipped: KeyBarClippedKeys
 
     var body: some View {
+        let separatorKey = layout.launcherSeparatorKey
         GlassEffectContainer(spacing: 0) {
             HStack(spacing: TerminalDockMetrics.keySpacing) {
                 ForEach(layout.scroller, id: \.self) { key in
+                    if key == separatorKey { KeyRowHairline() }
                     KeyBarScrollerKey(key: key, model: model, clipped: clipped)
                 }
             }
-            .padding(.trailing, TerminalDockMetrics.horizontalInset)
         }
+    }
+}
+
+/// The hairline before the agent launchers: they are commands, not keys.
+struct KeyRowHairline: View {
+    @Environment(\.displayScale) private var displayScale
+
+    var body: some View {
+        Rectangle()
+            .fill(Color.primary.opacity(0.3))
+            .frame(width: 1 / displayScale, height: 18)
+            .padding(.horizontal, 5)
+            .accessibilityHidden(true)
     }
 }
 
@@ -134,9 +164,20 @@ struct KeyBarScrollerKey: View {
             if key == .paste {
                 // The system paste control: no "Allow Paste" prompt (Codex QA F14).
                 // It draws its own cap: no glass over it (`PasteKeyCap`).
+                // Its view is the whole 44 x 44 pt hit area; it draws its cap
+                // inside (`PasteKeyHitView`).
                 PasteKeyCap(model: model)
-                    .frame(width: TerminalDockMetrics.minKeyWidth, height: TerminalDockMetrics.keyRowHeight)
-                    .clipShape(RoundedRectangle(cornerRadius: KeyRowGlass.cornerRadius, style: .continuous))
+                    .frame(width: KeyRowHitTarget.minimum, height: KeyRowHitTarget.minimum)
+                    .padding(.vertical, -KeyRowHitTarget.verticalSlop)
+            } else if case .launcher(let launcher) = key {
+                KeyCap(key: key, model: model)
+                    // A tap only types the command; running it is a choice.
+                    .contextMenu {
+                        Button("Run Now", systemImage: "return") { model.runLauncher(launcher) }
+                        Button("Insert", systemImage: "text.insert") { model.keyBar(key) }
+                    }
+                    .accessibilityHint("Types \(launcher.command) without running it. Touch and hold to run it now.")
+                    .accessibilityAction(named: "Run Now") { model.runLauncher(launcher) }
             } else {
                 KeyCap(key: key, model: model)
             }
@@ -155,9 +196,12 @@ struct KeyBarScrollerKey: View {
     }
 }
 
-/// The key row's first key (classic): the keyboard's glyph while it is down
-/// (tap: show it for the last input target), the hide glyph while it is up.
-/// The glyph cross-dissolves in 0.2 s.
+/// The key row's one keyboard control, pinned at its trailing edge: the
+/// keyboard's glyph while it is down (tap: show it for the last input
+/// target), the hide glyph while it is up; the glyph cross-dissolves in
+/// 0.2 s. Its long-press menu's Hide Toolbar Too takes the key row, the
+/// composer and the keyboard away until the next terminal tap (it was a
+/// key at the scroller's end).
 struct KeyboardToggleKey: View {
     let model: TerminalModel
 
@@ -173,14 +217,21 @@ struct KeyboardToggleKey: View {
                 .animation(.easeInOut(duration: 0.2).unlessReduceMotion, value: shown)
         }
         .buttonStyle(KeyCapStyle(width: TerminalDockMetrics.keyRowHeight + 12))
-        .keyGlass(armed: false)
+        .contextMenu {
+            Button(shown ? "Hide Keyboard" : "Show Keyboard",
+                   systemImage: shown ? "keyboard.chevron.compact.down" : "keyboard") { model.toggleKeyboard() }
+            Button("Hide Toolbar Too", systemImage: "chevron.down.square") { model.hideToolbar() }
+        }
         .accessibilityLabel(shown ? "Hide Keyboard" : "Show Keyboard")
+        .accessibilityHint("Touch and hold to hide the toolbar too.")
+        .accessibilityAction(named: "Hide Toolbar Too") { model.hideToolbar() }
         .accessibilityIdentifier("terminal.key.keyboard")
     }
 }
 
 /// One key cap: Liquid Glass, 28 pt tall, hugging its label (a glyph key is
-/// 32 pt wide), radius 8. A Button keeps the scroller scrollable; arrows
+/// 38 pt wide), radius 8, in a 44 x 44 pt hit area. An agent launcher leads
+/// with a dim `›_`: it types a command. A Button keeps the scroller scrollable; arrows
 /// repeat while held.
 struct KeyCap: View {
     let key: KeyBarKey
@@ -205,17 +256,25 @@ struct KeyCap: View {
                 if let symbol = key.symbolName {
                     Image(systemName: symbol)
                         .font(.system(size: 13, weight: .medium))
+                } else if key.isLauncher {
+                    HStack(spacing: 3) {
+                        Text("›_")
+                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(Color.primary.opacity(0.55))
+                        Text(key.label)
+                            .font(.system(size: 14, weight: .medium))
+                    }
+                    .lineLimit(1)
                 } else {
                     Text(key.label)
                         .font(.system(size: 14, weight: .medium))
                         .lineLimit(1)
                 }
             }
-            .foregroundStyle(locked || armed ? Color.cmuxMobileOnAccent : key == .hideChrome ? Color.primary.opacity(0.72) : .primary)
+            .foregroundStyle(locked || armed ? Color.cmuxMobileOnAccent : .primary)
         }
         .buttonStyle(KeyCapStyle(locked: locked, armed: armed,
                                  width: key.isGlyph ? TerminalDockMetrics.minKeyWidth : nil))
-        .keyGlass(armed: locked || armed)
         .buttonRepeatBehavior(key.repeats ? .enabled : .disabled)
         .sensoryFeedback(.impact(weight: .light, intensity: 0.6), trigger: taps)
         .accessibilityLabel(key.accessibilityLabel)
@@ -236,8 +295,9 @@ enum KeyClick {
 }
 
 /// A key cap's shape and size: 28 pt tall, hugging its label (a glyph key is
-/// 32 pt wide), radius 8 (cmux NEXT draws no capsules). The glass is
-/// `keyGlass`; pressed, the label dims a little under the glass's own lift.
+/// 38 pt wide), radius 8 (cmux NEXT draws no capsules), its glass
+/// (`keyGlass`), then its 44 x 44 pt hit area around it (`keyRowHitArea`);
+/// pressed, the label dims a little under the glass's own lift.
 struct KeyCapStyle: ButtonStyle {
     var locked = false
     var armed = false
@@ -257,7 +317,9 @@ struct KeyCapStyle: ButtonStyle {
             }
             .cmuxMobilePressFill(configuration.isPressed,
                                  in: RoundedRectangle(cornerRadius: KeyRowGlass.cornerRadius, style: .continuous))
-            .contentShape(.rect(cornerRadius: KeyRowGlass.cornerRadius, style: .continuous))
+            // The glass on the cap, before the hit area grows the view.
+            .keyGlass(armed: locked || armed)
+            .keyRowHitArea()
     }
 }
 
@@ -278,6 +340,20 @@ extension View {
         let shape = RoundedRectangle(cornerRadius: KeyRowGlass.cornerRadius, style: .continuous)
         return glassEffect(armed ? .regular.tint(Color.cmuxMobileAccent).interactive() : .regular.interactive(), in: shape)
     }
+
+    /// A key's hit area: at least 44 x 44 pt (Apple HIG, Accessibility:
+    /// "a hit region of at least 44x44 pt",
+    /// https://developer.apple.com/design/human-interface-guidelines/accessibility).
+    /// Sideways it takes half the 6 pt gap on each side (and is at least
+    /// 44 pt wide); up and down it reaches `KeyRowHitTarget.verticalSlop`
+    /// past the 28 pt cap without changing the row's layout height.
+    func keyRowHitArea() -> some View {
+        padding(.horizontal, KeyRowHitTarget.gap / 2)
+            .frame(minWidth: KeyRowHitTarget.minimum)
+            .padding(.vertical, KeyRowHitTarget.verticalSlop)
+            .contentShape(.rect)
+            .padding(.vertical, -KeyRowHitTarget.verticalSlop)
+    }
 }
 
 /// The key row's Paste: a `UIPasteControl` that pastes into the terminal
@@ -293,7 +369,7 @@ extension View {
 struct PasteKeyCap: UIViewRepresentable {
     let model: TerminalModel
 
-    func makeUIView(context: Context) -> UIPasteControl {
+    func makeUIView(context: Context) -> PasteKeyHitView {
         let configuration = UIPasteControl.Configuration()
         configuration.displayMode = .iconOnly
         configuration.cornerStyle = .medium
@@ -303,11 +379,44 @@ struct PasteKeyCap: UIViewRepresentable {
         let control = UIPasteControl(configuration: configuration)
         control.target = model.controller?.surface
         control.accessibilityIdentifier = "terminal.key.paste"
-        return control
+        return PasteKeyHitView(control: control)
     }
 
-    func updateUIView(_ control: UIPasteControl, context: Context) {
-        if control.target == nil { control.target = model.controller?.surface }
+    func updateUIView(_ view: PasteKeyHitView, context: Context) {
+        if view.control.target == nil { view.control.target = model.controller?.surface }
+    }
+}
+
+/// Paste's 44 x 44 pt hit area (`KeyRowHitTarget`) around its 38 x 28 pt
+/// cap: the paste control draws only its cap, and a touch anywhere in the
+/// area goes to it.
+final class PasteKeyHitView: UIView {
+    let control: UIPasteControl
+
+    init(control: UIPasteControl) {
+        self.control = control
+        super.init(frame: .zero)
+        control.layer.cornerRadius = KeyRowGlass.cornerRadius
+        control.layer.cornerCurve = .continuous
+        control.clipsToBounds = true
+        addSubview(control)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let cap = CGSize(width: TerminalDockMetrics.minKeyWidth, height: TerminalDockMetrics.keyRowHeight)
+        control.frame = CGRect(x: (bounds.width - cap.width) / 2, y: (bounds.height - cap.height) / 2,
+                               width: cap.width, height: cap.height)
+    }
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard isUserInteractionEnabled, !isHidden, alpha > 0.01, self.point(inside: point, with: event) else { return nil }
+        // The nearest point of the cap: what a touch there would hit.
+        let cap = control.frame.insetBy(dx: 1, dy: 1)
+        let nearest = CGPoint(x: min(max(point.x, cap.minX), cap.maxX), y: min(max(point.y, cap.minY), cap.maxY))
+        return control.hitTest(convert(nearest, to: control), with: event) ?? control
     }
 }
 #endif

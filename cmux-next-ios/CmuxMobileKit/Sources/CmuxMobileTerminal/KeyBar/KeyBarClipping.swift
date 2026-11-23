@@ -117,14 +117,17 @@ public struct ComposerDockState: Equatable, Sendable {
 }
 
 /// The dock's metrics (classic cmux iOS): a 28 pt key row of keys that hug
-/// their labels (glyph keys exactly 32 pt) 4 pt apart, 8 pt above the
-/// composer; the composer's controls are 40 pt circles beside a field whose
+/// their labels (glyph keys exactly 38 pt), each with a 44 x 44 pt hit area
+/// (`KeyRowHitTarget`) so the caps are 6 pt apart, 8 pt above the composer; the composer's controls are 40 pt circles beside a field whose
 /// one line is 40 pt tall, with a 28 pt send circle inside it; 12 pt side
 /// insets. The stack rests 8 pt above the keyboard or the safe area.
 public struct TerminalDockMetrics: Sendable {
     public static let keyRowHeight: CGFloat = 28
-    public static let keySpacing: CGFloat = 4
-    public static let minKeyWidth: CGFloat = 32
+    /// Between two keys' hit areas: none, they abut. The caps themselves are
+    /// `KeyRowHitTarget.gap` apart.
+    public static let keySpacing: CGFloat = 0
+    /// A glyph key's cap: with `KeyRowHitTarget.gap`, its hit area is 44 pt wide.
+    public static let minKeyWidth: CGFloat = KeyRowHitTarget.minimum - KeyRowHitTarget.gap
     /// Between the key row and the composer.
     public static let keyRowGap: CGFloat = 8
     public static let horizontalInset: CGFloat = 12
@@ -163,6 +166,34 @@ public struct TerminalDockMetrics: Sendable {
             if visibility.showsKeyRow { height += Self.keyRowGap }
         }
         return height
+    }
+}
+
+/// Every key of the key row takes touches over at least 44 x 44 pt, whatever
+/// its cap's drawn size. Apple Human Interface Guidelines, Accessibility
+/// (Buttons and controls): give every control "a hit region of at least
+/// 44x44 pt"
+/// (https://developer.apple.com/design/human-interface-guidelines/accessibility).
+/// The caps stay 28 pt tall; the hit area reaches 8 pt above and below the
+/// row (the row's host view is that tall, `TerminalViewController`), and
+/// sideways into the 6 pt gap between caps. Before, keys were 28 x 32 pt,
+/// 4 pt apart, and a thumb aimed at → could land on the launcher beside it.
+public struct KeyRowHitTarget: Sendable {
+    /// The HIG's minimum hit region, both ways.
+    public static let minimum: CGFloat = 44
+    /// Between two caps: each key's hit area takes half of it.
+    public static let gap: CGFloat = 6
+    /// How far a key's hit area reaches above and below its 28 pt cap.
+    public static let verticalSlop: CGFloat = (minimum - TerminalDockMetrics.keyRowHeight) / 2
+    /// The key row's host view: the row plus the slop above and below it.
+    public static let rowHitHeight: CGFloat = TerminalDockMetrics.keyRowHeight + 2 * verticalSlop
+
+    public init() {}
+
+    /// The hit area of a key whose cap is `cap` pt (its drawn size).
+    public func hitSize(cap: CGSize) -> CGSize {
+        CGSize(width: max(Self.minimum, cap.width + Self.gap),
+               height: max(Self.minimum, cap.height + 2 * Self.verticalSlop))
     }
 }
 

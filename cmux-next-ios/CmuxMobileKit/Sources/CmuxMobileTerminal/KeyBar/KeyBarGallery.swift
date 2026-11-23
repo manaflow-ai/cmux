@@ -11,7 +11,7 @@ public struct TerminalKeyBarGallery: View {
                                              artifactSource: MockArtifactSource())
 
     /// The whole row's width: every key of the longest layout.
-    private static let fullWidth: CGFloat = 1240
+    private static let fullWidth: CGFloat = 1800
 
     public init() {}
 

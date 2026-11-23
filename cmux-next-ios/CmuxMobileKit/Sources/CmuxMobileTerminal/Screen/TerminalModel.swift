@@ -772,10 +772,10 @@ public final class TerminalModel {
 
     func keyBar(_ key: KeyBarKey) {
         guard let surface = controller?.surface else { return }
-        // Keys that leave the terminal (classic: paste, zoom, compose, hide)
-        // first turn off an armed modifier, so it cannot linger unseen.
+        // Keys that leave the terminal (classic: paste, zoom, compose,
+        // launchers) first turn off an armed modifier, so it cannot linger unseen.
         let resetsModifiers: Bool = switch key {
-        case .paste, .zoomOut, .zoomIn, .composer, .hideChrome, .launcher: true
+        case .paste, .zoomOut, .zoomIn, .composer, .launcher: true
         default: false
         }
         if resetsModifiers { surface.input.sticky.reset() }
@@ -796,15 +796,32 @@ public final class TerminalModel {
         case .chord(let letter): surface.sendControl(letter)
         case .symbol(let text): surface.perform(surface.input.insertText(text))
         case .launcher(let launcher):
-            // Typed with its Return in one go, as classic sent its bytes.
-            surface.perform([.text(launcher.command)])
-            if launcher.pressesReturn { surface.sendKey(usage: TerminalHIDUsage.enter) }
+            // Typed, never run: Return is the person's (long-press: Run Now,
+            // `runLauncher`). A tap used to press Return as classic did.
+            surface.perform(launcher.input(.insert, router: surface.input))
         case .paste: surface.paste(nil)
         case .zoomOut, .zoomIn: zoom(larger: key == .zoomIn)
         case .composer: composeKeyTapped()
-        case .hideChrome: setChromeHidden(true)
         }
         sticky = surface.input.sticky
+    }
+
+    /// A launcher's long-press Run Now: types its command and presses Return.
+    func runLauncher(_ launcher: KeyBarLauncher) {
+        guard let surface = controller?.surface else { return }
+        surface.input.sticky.reset()
+        surface.perform(launcher.input(.run, router: surface.input))
+        sticky = surface.input.sticky
+    }
+
+    /// The keyboard key's long-press Hide Toolbar Too: the key row, the
+    /// composer and the keyboard go away until the next terminal tap.
+    func hideToolbar() {
+        if let surface = controller?.surface {
+            surface.input.sticky.reset()
+            sticky = surface.input.sticky
+        }
+        setChromeHidden(true)
     }
 
     /// The key row's zoom keys: one point smaller or larger, saved as the
@@ -836,7 +853,7 @@ public final class TerminalModel {
         controller?.dockChanged()
     }
 
-    /// Hide Toolbar: the key row, the composer and the keyboard go away until
+    /// Hide Toolbar Too: the key row, the composer and the keyboard go away until
     /// the next terminal tap. The composer and its draft stay as they were.
     func setChromeHidden(_ hidden: Bool) {
         guard chromeHidden != hidden else { return }

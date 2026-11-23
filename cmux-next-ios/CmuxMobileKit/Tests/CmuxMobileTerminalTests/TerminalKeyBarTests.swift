@@ -137,15 +137,20 @@ import Testing
     }
 }
 
-/// The key row: classic cmux iOS's keys in its default order.
+/// The key row: classic cmux iOS's keys, the launchers last (option B of cmux#50880).
 @Suite struct TerminalKeyRowTests {
-    @Test func theRowIsClassicsOrderWithTheArrowsBeforeTheAgents() {
-        // Leo, 2026-11-21: arrows "left of the weird claude/codex/ollama ... buttons".
-        #expect(Array(KeyBarKey.row.prefix(17)) == [
+    @Test func theRowHasOnlyKeysByTheArrowsAndTheLaunchersLast() {
+        // Leo, 2026-11-22, on Claude right after →: "surely we can think of more ergonomic ways to do things...?"
+        #expect(Array(KeyBarKey.row.prefix(14)) == [
             .control, .alternate, .command, .shift, .paste, .tab, .escape, .returnKey, .chord("c"), .chord("d"),
-            .up, .down, .left, .right, .launcher(.claude), .launcher(.codex), .launcher(.ollama),
+            .up, .down, .left, .right,
         ])
-        #expect(Array(KeyBarKey.row.suffix(3)) == [.zoomOut, .zoomIn, .hideChrome])
+        #expect(KeyBarKey.row[14] == .chord("l"), "a key, not a launcher, right after →")
+        #expect(Array(KeyBarKey.row.suffix(5)) == [
+            .zoomOut, .zoomIn, .launcher(.claude), .launcher(.codex), .launcher(.ollama),
+        ])
+        #expect(KeyBarLayout.standard == .agentsLast)
+        #expect(KeyBarLayout.standard.launcherSeparatorKey == .launcher(.claude), "the hairline before the launchers")
         #expect(Set(KeyBarKey.row).count == KeyBarKey.row.count)
         // The compose key is pinned, never in the scroller.
         #expect(!KeyBarKey.row.contains(.composer))
@@ -159,21 +164,61 @@ import Testing
             let row = layout.scroller
             #expect(Set(row) == reference, "\(layout)")
             #expect(row.count == reference.count, "\(layout)")
-            #expect(row.last == .hideChrome)
             let lastArrow = row.lastIndex { KeyBarKey.arrows.contains($0) }
-            let firstAgent = row.firstIndex { if case .launcher = $0 { true } else { false } }
+            let firstAgent = row.firstIndex(where: \.isLauncher)
             #expect(lastArrow! < firstAgent!, "\(layout)")
+            #expect(layout.launcherSeparatorKey == row[firstAgent!], "\(layout)")
         }
-        #expect(KeyBarLayout.standard == .arrowsBeforeAgents)
     }
 
     @Test func launchersTypeClassicsCommands() {
         #expect(KeyBarLauncher.claude.command == "claude --dangerously-skip-permissions")
-        #expect(KeyBarLauncher.claude.pressesReturn)
-        #expect(KeyBarLauncher.codex.pressesReturn)
         // Ollama waits for the model name.
         #expect(KeyBarLauncher.ollama.command == "ollama run ")
-        #expect(!KeyBarLauncher.ollama.pressesReturn)
+    }
+
+    /// A tap only types the command: one stray thumb used to run
+    /// `claude --dangerously-skip-permissions`. Run Now (long-press) adds Return.
+    @Test func aLauncherTapNeverPressesReturn() {
+        let router = TerminalInputRouter()
+        let enter = TerminalHIDUsage.ghosttyKeyCode(TerminalHIDUsage.enter)
+        for launcher in [KeyBarLauncher.claude, .codex, .ollama] {
+            let tap = launcher.input(.insert, router: router)
+            #expect(tap == [.text(launcher.command)], "\(launcher)")
+            let keys = tap.compactMap { action -> TerminalKeyEvent? in
+                if case .key(let event) = action { event } else { nil }
+            }
+            #expect(keys.isEmpty, "\(launcher): a tap sends no key, so no Return")
+            let run = launcher.input(.run, router: router)
+            #expect(run.first == .text(launcher.command))
+            let runKeys = run.compactMap { action -> TerminalKeyEvent? in
+                if case .key(let event) = action { event } else { nil }
+            }
+            #expect(runKeys.count == 2 && runKeys.allSatisfy { $0.keyCode == enter }, "\(launcher): Run Now presses Return")
+        }
+    }
+
+    /// Apple HIG, Accessibility: "a hit region of at least 44x44 pt"
+    /// (https://developer.apple.com/design/human-interface-guidelines/accessibility).
+    @Test func everyKeysHitAreaIsAtLeast44Points() {
+        let hit = KeyRowHitTarget()
+        let row = TerminalDockMetrics.keyRowHeight
+        let caps: [(String, CGSize)] = [
+            ("glyph key", CGSize(width: TerminalDockMetrics.minKeyWidth, height: row)),
+            ("word key", CGSize(width: 60, height: row)),
+            ("joystick", CGSize(width: JoystickGeometry.circle, height: JoystickGeometry.circle)),
+            ("keyboard key", CGSize(width: row + 12, height: row)),
+        ]
+        for (name, cap) in caps {
+            let size = hit.hitSize(cap: cap)
+            #expect(size.width >= 44 && size.height >= 44, "\(name): \(size)")
+        }
+        // A glyph key's hit area is exactly its share: 44 pt, caps 6 pt apart.
+        #expect(hit.hitSize(cap: caps[0].1) == CGSize(width: 44, height: 44))
+        #expect(KeyRowHitTarget.rowHitHeight >= 44, "the row's host view is the hit areas' height")
+        #expect(KeyRowHitTarget.verticalSlop == 8)
+        // The caps keep their 28 pt row: the PTY's rows are sized by it.
+        #expect(TerminalDockMetrics.keyRowHeight == 28)
     }
 
     @Test func keysFadeAtThePinnedKeysOnlyOnceScrolled() {

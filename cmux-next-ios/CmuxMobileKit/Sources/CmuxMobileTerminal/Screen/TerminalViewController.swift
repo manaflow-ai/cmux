@@ -74,7 +74,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// held still) never show in the sub-row band over row 1. As wide as
     /// the page's clip, so a panned or wider grid reaches the side padding.
     private let tuiAreaClip = UIView()
-    private let bottomStack = UIView()
+    /// Its key row's hit areas reach 8 pt above it (`KeyRowHitTarget`).
+    private let bottomStack = KeyRowHitSlopView(verticalSlop: KeyRowHitTarget.verticalSlop)
     private let bottomBacking = UIView()
     /// 24 pt fade above the composer card, shown only while rows are scrolled
     /// under it, so the row the card's edge cuts reads as "more below" (R2-6).
@@ -96,8 +97,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var replayStartedAt: CFTimeInterval?
     private var replayBytes = 0
     /// Holds the key row; Hide Toolbar folds it to 0 and hides it. The row
-    /// keeps its 28 pt layout pinned to the top.
-    private let keyBarClip = UIView()
+    /// keeps its 28 pt layout pinned to the top; its keys take touches 8 pt
+    /// above and below it, so each has a 44 x 44 pt hit area (`KeyRowHitTarget`).
+    private let keyBarClip = KeyRowHitSlopView(verticalSlop: KeyRowHitTarget.verticalSlop)
     private let scrollToBottomButton = UIButton(configuration: .glass())
     private var scrollButtonVisibility = JumpToBottomVisibility()
     private var keyBarHost: UIHostingController<TerminalKeyBar>!
@@ -699,10 +701,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             keyBarClip.leadingAnchor.constraint(equalTo: bottomStack.leadingAnchor),
             keyBarClip.trailingAnchor.constraint(equalTo: bottomStack.trailingAnchor),
             prioritized(keyBarClip.heightAnchor.constraint(equalToConstant: TerminalDockMetrics.keyRowHeight), .defaultHigh),
-            keyBar.view.topAnchor.constraint(equalTo: keyBarClip.topAnchor),
+            // The host is the row plus the keys' hit slop above and below:
+            // the keys still draw in the 28 pt slot (the row's layout
+            // height), but touch over 44 pt.
+            keyBar.view.topAnchor.constraint(equalTo: keyBarClip.topAnchor, constant: -KeyRowHitTarget.verticalSlop),
             keyBar.view.leadingAnchor.constraint(equalTo: keyBarClip.leadingAnchor),
             keyBar.view.trailingAnchor.constraint(equalTo: keyBarClip.trailingAnchor),
-            keyBar.view.heightAnchor.constraint(equalToConstant: TerminalDockMetrics.keyRowHeight),
+            keyBar.view.heightAnchor.constraint(equalToConstant: KeyRowHitTarget.rowHitHeight),
             keyRowGap,
             composer.view.leadingAnchor.constraint(equalTo: bottomStack.leadingAnchor),
             composer.view.trailingAnchor.constraint(equalTo: bottomStack.trailingAnchor),
@@ -4252,6 +4257,31 @@ final class DisplayLinkProxy: NSObject {
 }
 
 /// A view whose layer is a gradient.
+/// A view whose subviews take touches up to `verticalSlop` above and below
+/// its bounds: the key row's 44 pt hit areas (`KeyRowHitTarget`) around its
+/// 28 pt slot. In the slop only a subview takes a touch, never this view, so
+/// a touch there that hits no key still reaches the terminal behind.
+final class KeyRowHitSlopView: UIView {
+    let verticalSlop: CGFloat
+
+    init(verticalSlop: CGFloat) {
+        self.verticalSlop = verticalSlop
+        super.init(frame: .zero)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        bounds.insetBy(dx: 0, dy: -verticalSlop).contains(point)
+    }
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let hit = super.hitTest(point, with: event)
+        if hit === self, !bounds.contains(point) { return nil }
+        return hit
+    }
+}
+
 final class GradientView: UIView {
     override class var layerClass: AnyClass { CAGradientLayer.self }
     var gradient: CAGradientLayer { layer as! CAGradientLayer }

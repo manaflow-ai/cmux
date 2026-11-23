@@ -7,8 +7,6 @@ enum KeyBarKey: Hashable, Sendable {
     case paste, zoomOut, zoomIn
     /// The pinned compose key: opens, focuses or closes the composer (`ComposerDockState`).
     case composer
-    /// Hides the key row, the composer and the keyboard until the next terminal tap.
-    case hideChrome
     case chord(Character)
     case symbol(String)
     case launcher(KeyBarLauncher)
@@ -31,7 +29,7 @@ enum KeyBarKey: Hashable, Sendable {
         case .end: "End"
         case .pageUp: "PgUp"
         case .pageDown: "PgDn"
-        case .paste, .zoomOut, .zoomIn, .composer, .hideChrome: ""
+        case .paste, .zoomOut, .zoomIn, .composer: ""
         case .chord("l"): "Clear"
         case .chord(let letter): "^" + String(letter).uppercased()
         case .symbol(let text): text
@@ -47,7 +45,6 @@ enum KeyBarKey: Hashable, Sendable {
         case .zoomIn: "plus.magnifyingglass"
         // Shows or hides the text field (not "compose a new message").
         case .composer: "character.textbox"
-        case .hideChrome: "chevron.down.square"
         default: nil
         }
     }
@@ -73,7 +70,6 @@ enum KeyBarKey: Hashable, Sendable {
         case .zoomOut: "Zoom Out"
         case .zoomIn: "Zoom In"
         case .composer: "Text Field"
-        case .hideChrome: "Hide Toolbar"
         case .chord("l"): "Clear (Control-L)"
         case .chord(let letter): "Control " + String(letter).uppercased()
         case .symbol(let text): text
@@ -103,7 +99,6 @@ enum KeyBarKey: Hashable, Sendable {
         case .zoomOut: "zoom-out"
         case .zoomIn: "zoom-in"
         case .composer: "composer"
-        case .hideChrome: "hide-chrome"
         case .chord(let letter): "ctrl-" + String(letter).lowercased()
         case .symbol(let text): "symbol-" + text.unicodeScalars.map { String($0.value) }.joined(separator: "-")
         case .launcher(let launcher): "launcher-" + launcher.rawValue
@@ -123,7 +118,7 @@ enum KeyBarKey: Hashable, Sendable {
     var isGlyph: Bool {
         switch self {
         case .control, .alternate, .command, .shift, .up, .down, .left, .right, .returnKey: true
-        case .paste, .zoomOut, .zoomIn, .composer, .hideChrome: true
+        case .paste, .zoomOut, .zoomIn, .composer: true
         case .symbol: true
         default: false
         }
@@ -144,24 +139,32 @@ enum KeyBarKey: Hashable, Sendable {
 
     /// The arrow keys, in classic cmux iOS's order.
     static let arrows: [KeyBarKey] = [.up, .down, .left, .right]
+
+    var isLauncher: Bool {
+        if case .launcher = self { true } else { false }
+    }
 }
 
-/// Where the scroller puts the arrows. Leo, 2026-11-21: "dont move the arrow
-/// keys all the way left per se ofc just... move them left of the weird
-/// claude/codex/ollama (why do we have ollama!?) buttons...". Classic cmux
-/// iOS's order put them after the agent launchers, 14 keys in.
+/// Where the scroller puts the arrows and the agent launchers. Leo,
+/// 2026-11-21: "dont move the arrow keys all the way left per se ofc just...
+/// move them left of the weird claude/codex/ollama (why do we have
+/// ollama!?) buttons...". Then, 2026-11-22, on the launchers sitting right
+/// after the arrows: "surely we can think of more ergonomic ways to do
+/// things...?", and he picked option B of the debate (cmux#50880): the
+/// launchers go last, after a hairline, so nothing but keys is next to the
+/// arrows.
 public enum KeyBarLayout: String, CaseIterable, Sendable {
-    /// A, the default: classic's order with the arrows moved to just before
-    /// the agent launchers (after ^C ^D).
+    /// The arrows right before the agent launchers (after ^C ^D): the
+    /// default until 2026-11-22.
     case arrowsBeforeAgents
-    /// B: the arrows right after Esc, before Return, ^C and ^D.
+    /// The arrows right after Esc, before Return, ^C and ^D.
     case arrowsAfterEscape
-    /// C: as A, with the agent launchers moved to the end of the row (before
-    /// the zoom keys), so the terminal keys come first.
+    /// The default (option B): the terminal keys, then the zoom keys, then
+    /// the agent launchers at the very end, after a hairline.
     case agentsLast
 
     /// The layout the app uses.
-    public static let standard: KeyBarLayout = .arrowsBeforeAgents
+    public static let standard: KeyBarLayout = .agentsLast
 
     /// The layout the key row draws: `standard`, or in DEBUG builds the
     /// `-cmuxMobile.keyBarLayout arrowsBeforeAgents|arrowsAfterEscape|agentsLast`
@@ -177,13 +180,22 @@ public enum KeyBarLayout: String, CaseIterable, Sendable {
     /// The gallery's caption.
     public var title: String {
         switch self {
-        case .arrowsBeforeAgents: "A: arrows before the agents (default)"
-        case .arrowsAfterEscape: "B: arrows after Esc"
-        case .agentsLast: "C: arrows before the agents, agents last"
+        case .arrowsBeforeAgents: "Arrows right before the agents"
+        case .arrowsAfterEscape: "Arrows after Esc"
+        case .agentsLast: "Agents last, after a hairline (default)"
         }
     }
 
-    /// The scrolling keys, ending in Hide Toolbar. Built once per layout: the
+    /// The key the launchers' hairline is drawn before: the first launcher,
+    /// unless it starts the row.
+    var launcherSeparatorKey: KeyBarKey? {
+        let row = scroller
+        guard let first = row.firstIndex(where: \.isLauncher), first > 0 else { return nil }
+        return row[first]
+    }
+
+    /// The scrolling keys. The keyboard key is pinned at the trailing edge,
+    /// not in the scroller (one hide control). Built once per layout: the
     /// same array every time lets SwiftUI skip the scroller's keys on a
     /// scroll frame (a new array each body would rebuild them all).
     var scroller: [KeyBarKey] {
@@ -208,16 +220,18 @@ public enum KeyBarLayout: String, CaseIterable, Sendable {
             .chord("z"),
             .home, .end, .pageUp, .pageDown,
         ]
-        let end: [KeyBarKey] = [.zoomOut, .zoomIn, .hideChrome]
+        let zoom: [KeyBarKey] = [.zoomOut, .zoomIn]
         return switch self {
-        case .arrowsBeforeAgents: modifiers + chords + KeyBarKey.arrows + agents + tail + end
-        case .arrowsAfterEscape: modifiers + KeyBarKey.arrows + chords + agents + tail + end
-        case .agentsLast: modifiers + chords + KeyBarKey.arrows + tail + agents + end
+        case .arrowsBeforeAgents: modifiers + chords + KeyBarKey.arrows + agents + tail + zoom
+        case .arrowsAfterEscape: modifiers + KeyBarKey.arrows + chords + agents + tail + zoom
+        case .agentsLast: modifiers + chords + KeyBarKey.arrows + tail + zoom + agents
         }
     }
 }
 
-/// The key row's agent launchers (classic cmux iOS): each types its command line.
+/// The key row's agent launchers (classic cmux iOS): each types its command
+/// line. A tap only types it; the long-press menu's Run Now also presses
+/// Return (`KeyBarLauncherTap`).
 enum KeyBarLauncher: String, Hashable, Sendable {
     case claude, codex, ollama
 
@@ -229,8 +243,7 @@ enum KeyBarLauncher: String, Hashable, Sendable {
         }
     }
 
-    /// What the key types. Claude and Codex run at once; Ollama waits for the
-    /// model name, so it has no Return.
+    /// What the key types.
     var command: String {
         switch self {
         case .claude: "claude --dangerously-skip-permissions"
@@ -239,5 +252,18 @@ enum KeyBarLauncher: String, Hashable, Sendable {
         }
     }
 
-    var pressesReturn: Bool { self != .ollama }
+    /// What a tap (`.insert`) or Run Now (`.run`) sends. A tap never presses
+    /// Return: one stray thumb used to run `claude --dangerously-skip-permissions`
+    /// in whatever directory the pane was in (cmux#50880).
+    func input(_ tap: KeyBarLauncherTap, router: TerminalInputRouter) -> [TerminalInputAction] {
+        let typed: [TerminalInputAction] = [.text(command)]
+        guard tap == .run else { return typed }
+        return typed + router.plainKey(usage: TerminalHIDUsage.enter)
+    }
+}
+
+/// A launcher's two actions: a tap inserts its command; the long-press
+/// menu's Run Now inserts it and presses Return.
+enum KeyBarLauncherTap: Sendable {
+    case insert, run
 }
