@@ -280,7 +280,7 @@ def rescue_sequence(api: object, run: Mapping[str, object], *, wait_seconds: int
     they never hold the long owned-pool sweeper open with polling.
     """
     if wait_seconds:
-        sleep(max(0, min(wait_seconds, 300)))
+        sleep(max(0, min(wait_seconds, 300)))  # sleep-ok: the fixed queue budget above, one look after it, no polling
     decision = run_once(api, run)
     decisions = [decision]
     if not follow_retries or decision.action != "rescue":
@@ -288,7 +288,7 @@ def rescue_sequence(api: object, run: Mapping[str, object], *, wait_seconds: int
     attempt = int(run.get("run_attempt") or 0)
     if attempt + 1 >= MAX_ATTEMPT:
         return decisions
-    sleep(NO_START_SECONDS)
+    sleep(NO_START_SECONDS)  # sleep-ok: "no start" means not started within NO_START_SECONDS; the window is the test
     refreshed = api.run(_run_id(run))
     decisions.append(run_once(api, refreshed))
     return decisions
@@ -323,7 +323,7 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("GH_TOKEN is required")
     api = _client(args.source_root, token, repo, os.environ.get("READ_TOKEN", ""))
     if args.wait_seconds:
-        time.sleep(max(0, min(args.wait_seconds, 300)))
+        time.sleep(max(0, min(args.wait_seconds, 300)))  # sleep-ok: the run's fixed queue budget before its one look
     runs = [api.run(args.run_id)] if args.run_id else candidate_runs(api, repo)
     for run in runs:
         for decision in rescue_sequence(api, run, follow_retries=args.run_id is not None, sleep=time.sleep):
