@@ -88,6 +88,7 @@ class InstallGitHooksTests(unittest.TestCase):
             "scripts/webviews_bun_version.py",
             "scripts/check-webviews-bun-version.sh",
             *self.installed_sources(),
+            *self.copy_input_sources(),
         ):
             source, target = SOURCE / relative, root / relative
             if not source.exists():
@@ -107,6 +108,21 @@ class InstallGitHooksTests(unittest.TestCase):
         """
         text = (SOURCE / INSTALLER).read_text(encoding="utf-8")
         return sorted(set(re.findall(r"^\s*install\s+-m\s+\d+\s+(scripts/\S+)", text, re.MULTILINE)))
+
+    @staticmethod
+    def copy_input_sources():
+        """Every scripts/ file (not folder) scripts/git-hooks/checks-copy-inputs names, so a new input never leaves the fixture behind.
+
+        a37b6194 listed scripts/ci/generated_files_guard.py there and the stamp test failed with FileNotFoundError on
+        every pull request into feat-cmux-next until the fixture copied it; reading the list keeps the two in step.
+        """
+        path = SOURCE / "scripts/git-hooks/checks-copy-inputs"
+        if not path.exists():
+            return []
+        lines = path.read_text(encoding="utf-8").splitlines()
+        sources = (line.strip().split(" -> ")[0].strip() for line in lines
+                   if line.strip() and not line.strip().startswith("#"))
+        return sorted({source for source in sources if source.startswith("scripts/") and not source.endswith("/")})
 
     def git(self, *args, check=True):
         return subprocess.run(["git", "-C", str(self.repo), *args], env=self.env,
