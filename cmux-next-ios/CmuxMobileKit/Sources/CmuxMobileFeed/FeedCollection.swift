@@ -541,7 +541,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
             // Inserts and removals with the rest in order (a live event, a done swipe): edits, not a new
             // snapshot of every row to diff. Anything else (a re-sort) rebuilds the day sections.
             if !FeedListController.edit(&snapshot, from: previousGroups, to: shownGroups) {
-                snapshot.deleteSections(previousGroups.map { .day($0.section) })
+                snapshot.deleteSections(previousGroups.map { Section.day($0.section) })
                 Self.append(shownGroups, to: &snapshot)
             }
             // Another day leads the list: which sections show a label (and its height) is read again.
@@ -591,7 +591,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         guard let plan = FeedDayEdit(old: old, new: new) else { return false }
         if !plan.removed.isEmpty { snapshot.deleteItems(plan.removed) }
         for added in plan.addedSections {
-            snapshot.insertSections([.day(added.section)], afterSection: added.after.map { .day($0) } ?? .header)
+            snapshot.insertSections([.day(added.section)], afterSection: added.after.map { Section.day($0) } ?? .header)
         }
         for insert in plan.inserts {
             if let before = insert.before {
@@ -600,12 +600,12 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
                 snapshot.appendItems(insert.ids, toSection: .day(insert.section))
             }
         }
-        if !plan.removedSections.isEmpty { snapshot.deleteSections(plan.removedSections.map { .day($0) }) }
+        if !plan.removedSections.isEmpty { snapshot.deleteSections(plan.removedSections.map { Section.day($0) }) }
         return true
     }
 
     private static func append(_ groups: [FeedDayGroup], to snapshot: inout NSDiffableDataSourceSnapshot<Section, String>) {
-        snapshot.appendSections(groups.map { .day($0.section) })
+        snapshot.appendSections(groups.map { Section.day($0.section) })
         for group in groups { snapshot.appendItems(group.ids, toSection: .day(group.section)) }
     }
 
@@ -628,7 +628,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         let groups = days.groups(shownOrder.compactMap { items[$0] })
         if groups != shownGroups {
             var snapshot = dataSource.snapshot()
-            snapshot.deleteSections(shownGroups.map { .day($0.section) })
+            snapshot.deleteSections(shownGroups.map { Section.day($0.section) })
             Self.append(groups, to: &snapshot)
             shownGroups = groups
             UIView.performWithoutAnimation { dataSource.apply(snapshot, animatingDifferences: false) }
