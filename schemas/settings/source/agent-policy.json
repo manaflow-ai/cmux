@@ -713,6 +713,9 @@
         "sidebar.workspaceRow.log",
         "sidebar.workspaceRow.notification",
         "sidebar.workspaceRow.secondLineOrder",
+        "sidebar.workspaceRow.lines",
+        "sidebar.workspaceRow.linesByKind",
+        "sidebar.workspaceRow.linesByAgent",
         "sidebar.workspaceRow.terminal.icon",
         "sidebar.workspaceRow.terminal.directory",
         "sidebar.workspaceRow.terminal.branch",
@@ -1385,6 +1388,13 @@
       "why": "On, a live code build loads Swift patches into the running app: only the person turns that on.",
       "keys": [
         "labs.liveCode"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "On, new Codex chats run the binary in cmux's bundle folder instead of the installed CLI: only the person turns that on.",
+      "keys": [
+        "labs.bundledCodexAppServer"
       ]
     },
     {
