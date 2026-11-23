@@ -17,11 +17,21 @@ import Foundation
 /// grown past ``bound(afterLastCollection:)`` gets one full collection. A renderer of chats that stay open is
 /// checked too, at most once per ``delay``, and the bound keeps the blocking collection rare: it runs only once
 /// the garbage is about as large as what is live.
+///
+/// That bound alone leaves a quiet renderer holding up to its live size in garbage for good: with 500 browser
+/// tabs, 200 workspaces and 100 chats all hibernated on the fleet bench, the chat renderer sat at 128 MB used
+/// (bound 128-140 MB) and a 331.5 MB footprint, and one collection took it to 62 MB used and 217.9 MB. So once
+/// closes have stopped for ``settleDelay``, each such renderer holding ``settleBytes`` over what was live gets
+/// one more collection: one per burst of closes, when nothing is closing.
 @MainActor
 final class CEFPageRendererGC {
     static let delay: Duration = .seconds(10)
     /// The least growth worth a blocking collection, and the live size assumed before the first one.
     static let floorBytes = 64 << 20
+    /// How long after the last close of a burst the renderers are collected down to what is live.
+    static let settleDelay: Duration = .seconds(30)
+    /// The least garbage worth the collection once closes have stopped.
+    static let settleBytes = 16 << 20
 
     /// A live page, as the check picks its targets.
     struct Page: Equatable {
@@ -37,6 +47,7 @@ final class CEFPageRendererGC {
     }
 
     private let timer = DemandTimer(owner: "CEFPageRendererGC")
+    private let settleTimer = DemandTimer(owner: "CEFPageRendererGC.settle")
     private let pages: @MainActor () -> [Page]
     private let heapUsed: @MainActor (Int32) async -> Int?
     private let collect: @MainActor (Int32) async -> Void
@@ -55,16 +66,20 @@ final class CEFPageRendererGC {
     /// A cmux page closed: its renderer is checked within ``delay``.
     func pageClosed() {
         timer.scheduleIfIdle(after: Self.delay) { @MainActor [weak self] in await self?.check() }
+        // Replaces the pending one: it runs `settleDelay` after the last close.
+        settleTimer.schedule(after: Self.settleDelay) { @MainActor [weak self] in await self?.check(settled: true) }
     }
 
-    func check() async {
+    /// Collects each cmux page renderer past its bound; `settled` (closes have stopped) collects one holding
+    /// ``settleBytes`` over what its last collection left live.
+    func check(settled: Bool = false) async {
         guard !checking else { return }
         checking = true
         defer { checking = false }
         let targets = Self.targets(pages())
         live = live.filter { renderer, _ in targets.contains { $0.renderer == renderer } }
         for target in targets {
-            guard let used = await heapUsed(target.browser), used >= Self.bound(afterLastCollection: live[target.renderer]) else { continue }
+            guard let used = await heapUsed(target.browser), used >= (settled ? Self.settledBound(afterLastCollection: live[target.renderer]) : Self.bound(afterLastCollection: live[target.renderer])) else { continue }
             await collect(target.browser)
             if let after = await heapUsed(target.browser) { live[target.renderer] = after }
         }
@@ -76,6 +91,10 @@ final class CEFPageRendererGC {
         let live = max(live ?? floorBytes, 0)
         return max(2 * live, live + floorBytes)
     }
+
+    /// The used heap at which a renderer is collected once closes have stopped: ``settleBytes`` over what was
+    /// live after its last collection (a renderer never collected: ``settleBytes``).
+    static func settledBound(afterLastCollection live: Int?) -> Int { max(live ?? 0, 0) + settleBytes }
 
     /// One cmux page per renderer that hosts cmux pages (the lowest browser id of its main-frame renderer), in
     /// browser order. A page whose renderer is unknown is skipped: a page still loading has nothing to collect.

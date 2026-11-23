@@ -53,6 +53,36 @@ import Testing
         #expect(renderers.collected == [4, 4])
     }
 
+    /// The fleet bench's case: 62 MB live after the last collection, 128 MB used when closes stopped. Under the
+    /// bound (128-140 MB), so the burst check leaves it; the settled check collects it once.
+    @Test func onceClosesStopARendererHoldingGarbageUnderItsBoundIsCollected() async {
+        let renderers = Renderers()
+        renderers.used = [4: 200 * Self.mb]
+        let gc = CEFPageRendererGC(
+            pages: { [Page(browser: 4, isCmuxPage: true, rendererClients: [6])] },
+            heapUsed: { renderers.used[$0] },
+            collect: { browser in
+                renderers.collected.append(browser)
+                renderers.used[browser] = 62 * Self.mb
+            })
+        await gc.check()
+        #expect(renderers.collected == [4])
+        renderers.used[4] = 120 * Self.mb
+        await gc.check()
+        #expect(renderers.collected == [4], "under the bound: closes still coming leave it")
+        await gc.check(settled: true)
+        #expect(renderers.collected == [4, 4], "closes stopped: collected down to what is live")
+        // Nothing new to collect: a settled check with under 16 MB of garbage does nothing.
+        renderers.used[4] = 70 * Self.mb
+        await gc.check(settled: true)
+        #expect(renderers.collected == [4, 4])
+    }
+
+    @Test func theSettledBoundIsTheSettleFloorOverWhatWasLive() {
+        #expect(CEFPageRendererGC.settledBound(afterLastCollection: nil) == 16 * Self.mb)
+        #expect(CEFPageRendererGC.settledBound(afterLastCollection: 62 * Self.mb) == 78 * Self.mb)
+    }
+
     @Test func readsUsedSizeAndTheScheme() async {
         #expect(await CEFPageRendererGC.usedSize(#"{"usedSize":142032280,"totalSize":181190656}"#) == 142_032_280)
         #expect(await CEFPageRendererGC.usedSize("{}") == nil)
