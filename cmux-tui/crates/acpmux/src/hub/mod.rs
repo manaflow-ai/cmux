@@ -18,6 +18,8 @@ mod auto_background;
 pub use auto_background::AUTO_BACKGROUND_ENV;
 pub(crate) mod additional_dirs;
 pub(crate) mod admission;
+// A create over the cap with nowhere to go asks the fleet for a machine.
+pub(crate) mod admission_scale_up;
 mod adopted_fences;
 mod adoption;
 pub(crate) mod agent_hold;
@@ -195,6 +197,7 @@ pub(crate) use log_load::test_hold;
 #[cfg(test)]
 pub(crate) use log_load::{NOTE_BEFORE_CATCH_UP_LOCK, NOTE_BEFORE_REPLAY_SCAN, NOTE_IN_CATCH_UP};
 mod cold_archive;
+mod cold_segments;
 pub(crate) mod history_delete;
 pub(crate) mod inactive_archive;
 pub(crate) use cold_archive::COLD_CHANGED;
@@ -350,6 +353,7 @@ mod tags;
 mod tailnet_controller;
 mod tap;
 pub(crate) use crate::time_breakdown;
+mod capacity_retry;
 mod titles;
 mod tool_installs;
 mod tool_paths;
@@ -406,6 +410,8 @@ pub fn peer_snapshot_reads_fail(peer: &str, n: u32) {
 pub fn peer_snapshot_bound(n: usize) {
     peer_snapshot::BOUND_EVENTS.store(n, std::sync::atomic::Ordering::SeqCst);
 }
+mod moved_forward;
+pub use moved_forward::{MAX_MOVES_FOLLOWED, MOVED_HOPS_FIELD};
 mod peers;
 mod remote_rows;
 mod remote_table;
@@ -869,6 +875,7 @@ pub(super) type PromptOutcome = Arc<tokio::sync::watch::Sender<Option<Result<Val
 /// `turn_result`.
 #[derive(Debug, Default)]
 pub(super) struct StreamState {
+    capacity_retries: capacity_retry::Retries,
     /// `messageId` of the assistant message streaming now.
     pub(super) open_message: Option<String>,
     /// Set by a harness retry signal while `open_message` was streaming:
@@ -886,6 +893,9 @@ pub(super) struct StreamState {
     pub(super) reply_segment: Option<String>,
     /// Reply segments started in this turn, which numbers the next one.
     pub(super) reply_segments: u32,
+    /// Reply segments started outside any turn since the daemon started (`reply_segment_for`):
+    /// never reset, so text between turns never reuses an earlier id.
+    pub(super) loose_segments: u32,
     /// The turn `reply_segments` counts in, and the `messageId` of the segment streaming now.
     pub(super) segment_turn: Option<String>,
     pub(super) segment_message: Option<String>,
@@ -1135,6 +1145,13 @@ pub struct Hub {
     /// yet, and the wake of the worker that drops it (`cold_archive.rs`).
     pub(super) cold_rehydrated: Arc<StdMutex<std::collections::BTreeSet<String>>>,
     pub(super) cold_wake: Arc<Notify>,
+    /// Chats whose log sealed a segment since the cold segments' worker last looked, and its wake
+    /// (`cold_segments.rs`).
+    pub(super) cold_sealed: Arc<StdMutex<std::collections::BTreeSet<String>>>,
+    pub(super) cold_sealed_wake: Arc<Notify>,
+    /// Tests: the level the cold segments' worker moves at, in place of the settings file's.
+    #[cfg(test)]
+    pub(super) cold_segments_level: StdMutex<Option<Option<i32>>>,
     /// False from a deferred start with running agent hosts until adoption ends: prompts to
     /// those chats wait for it (`log_load.rs` `wait_adopted`).
     pub(crate) adoption_ready: tokio::sync::watch::Sender<bool>,
@@ -1624,6 +1641,10 @@ impl Hub {
             retention_wake: Arc::new(Notify::new()),
             cold_rehydrated: Default::default(),
             cold_wake: Arc::new(Notify::new()),
+            cold_sealed: Default::default(),
+            cold_sealed_wake: Arc::new(Notify::new()),
+            #[cfg(test)]
+            cold_segments_level: Default::default(),
             adoption_ready: tokio::sync::watch::channel(true).0,
             chat_adopted_wake: Notify::new(),
             catalog_ready: tokio::sync::watch::channel(true).0,
@@ -3155,7 +3176,7 @@ impl Hub {
         let mut timing = history_timing::Timing::default();
         let mut turns: Vec<Value> = Vec::new();
         let mut cur: Option<serde_json::Map<String, Value>> = None;
-        let _ = self.store.scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
+        let _ = self.scan_kinds_off(&session.id, &kinds, &mut |e: EventRecord| {
             let mut opened = false;
             match e.kind.as_str() {
                 "user_message" if e.msg.get("steer").and_then(Value::as_bool) != Some(true) => {

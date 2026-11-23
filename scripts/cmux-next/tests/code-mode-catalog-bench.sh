@@ -11,6 +11,8 @@ trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/build"
 TARGET_BUILD_DIR="$tmp/build" UNLOCALIZED_RESOURCES_FOLDER_PATH=Resources SRCROOT="$repo" \
   bash "$repo/scripts/cmux-next/bundle-cli-resources.sh" > "$out/package.log"
+# The app ships code-mode packed (pack-code-mode.py); time the catalogs as code mode reads them, unpacked.
+tar -xJf "$tmp/build/Resources/code-mode.tar.xz" -C "$tmp/build/Resources"
 # Verify the packaged bytes still decode to exactly the source catalogs before timing.
 bash "$repo/scripts/cmux-next/tests/compact-json.test.sh" > "$out/semantic-test.log"
 python3 - "$repo/scripts/cmux-next/code-mode-catalog-bench.mjs" "$repo" "$tmp/build/Resources/code-mode" "$out/results.json" "$bun" <<'PY'
