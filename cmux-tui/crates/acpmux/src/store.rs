@@ -1747,6 +1747,8 @@ pub(crate) use durability::{RecordClass, record_class, streamed};
 mod journal_store;
 #[cfg(test)]
 pub(crate) use journal_store::open_with_journal;
+#[cfg(test)]
+pub(crate) use journal_store::{DISK_RESERVE, set_test_free};
 mod log_sync;
 mod segment_writer;
 use segment_writer::SegmentWriter;
