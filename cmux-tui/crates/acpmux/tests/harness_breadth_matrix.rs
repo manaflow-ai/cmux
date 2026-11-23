@@ -99,10 +99,11 @@ fn scratch() -> PathBuf {
     for row in ROWS {
         let bin = root.join("bin").join(row.program);
         let log = root.join("bin").join(format!("{}.argv", row.program));
+        // Each argument ends in a NUL and each start in \x01: arguments may hold newlines.
         let script = format!(
-            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> {}\nexec python3 {} \"$@\"\n",
-            daemon_env::sh_quote(&log.to_string_lossy()),
+            "#!/bin/sh\nfor a in \"$@\"; do printf '%s\\0' \"$a\"; done >> {log}\nprintf '\\001' >> {log}\nexec python3 {} \"$@\"\n",
             daemon_env::sh_quote(row.stand_in),
+            log = daemon_env::sh_quote(&log.to_string_lossy()),
         );
         std::fs::write(&bin, script).unwrap();
         std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -259,13 +260,21 @@ async fn turn(c: &mut Client, root: &Path, row: &Row) -> Result<(), String> {
     if c.said(&session).trim().is_empty() {
         return Err("the turn ended with no agent text".into());
     }
-    // The program discovery found ran with exactly discovery's arguments, before any acpmux adds.
+    // The program discovery found ran with discovery's arguments, in order (acpmux may add its
+    // own around them: the Codex bridge puts `-c` options before `app-server`).
     let log = root.join("bin").join(format!("{}.argv", row.program));
-    let starts =
-        std::fs::read_to_string(&log).map_err(|e| format!("{} never ran: {e}", row.program))?;
-    let want = row.args.join(" ");
-    if !starts.lines().any(|line| line.starts_with(&want)) {
-        return Err(format!("{} ran as {starts:?}, want it to start with {want:?}", row.program));
+    let starts = std::fs::read(&log).map_err(|e| format!("{} never ran: {e}", row.program))?;
+    let starts = String::from_utf8_lossy(&starts);
+    let want: Vec<&str> = row.args.to_vec();
+    let ran_with = |start: &str| {
+        let args: Vec<&str> = start.split('\0').filter(|a| !a.is_empty()).collect();
+        want.is_empty() || args.windows(want.len()).any(|w| w == want.as_slice())
+    };
+    // Every start ends in \x01, so a start with no arguments is an empty piece before one.
+    let mut pieces = starts.split('\u{1}');
+    pieces.next_back();
+    if !pieces.any(ran_with) {
+        return Err(format!("{} never ran with {want:?}: {starts:?}", row.program));
     }
     let _ = c.request(method::SESSION_CLOSE, json!({"sessionId": session})).await;
     Ok(())
