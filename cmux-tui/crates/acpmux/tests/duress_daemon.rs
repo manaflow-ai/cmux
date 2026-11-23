@@ -96,6 +96,7 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "XDG_RUNTIME_DIR",
     "DBUS_SESSION_BUS_ADDRESS",
     "ACPMUX_DURESS_BIG_OFF",
+    "ACPMUX_DURESS_BIG_FORK",
     "ACPMUX_DURESS_PERF",
 ]);
 
@@ -2049,9 +2050,19 @@ fn bigchat_drivers(
             "fork",
             Box::new(move || {
                 let (mut rpc, mut s, mut j) = (None, Samples::default(), 0usize);
+                // EXPERIMENT: `ACPMUX_DURESS_BIG_FORK=cap:N` stops after N forks (the list stops
+                // growing); `purge` cancels each fork once made (forks go on, the list does not
+                // grow).
+                let mode = std::env::var("ACPMUX_DURESS_BIG_FORK").unwrap_or_default();
+                let cap = mode.strip_prefix("cap:").and_then(|n| n.parse::<usize>().ok());
+                let (mut purges, mut purged) = (Samples::default(), 0usize);
                 while Instant::now() < until && !b.is_empty() {
+                    if cap.is_some_and(|cap| j >= cap) {
+                        std::thread::sleep(Duration::from_millis(100));
+                        continue;
+                    }
                     let id = &b[j % b.len()];
-                    timed_call(
+                    let made = timed_call(
                         &mut rpc,
                         &sock,
                         &mut s,
@@ -2060,7 +2071,29 @@ fn bigchat_drivers(
                     "_meta": {"acpmux": {"name": format!("bigfork-{j}")}}}),
                     );
                     j += 1;
+                    let fork = made
+                        .as_ref()
+                        .and_then(|v| v.get("sessionId"))
+                        .and_then(Value::as_str)
+                        .map(str::to_owned);
+                    if mode == "purge"
+                        && let Some(fork) = fork
+                        && timed_call(
+                            &mut rpc,
+                            &sock,
+                            &mut purges,
+                            "_acpmux/kill",
+                            json!({"sessionId": fork, "cancelFork": true}),
+                        )
+                        .is_some()
+                    {
+                        purged += 1;
+                    }
                 }
+                eprintln!(
+                    "DURESS-FORKS mode {mode:?} made {j} purged {purged} purges {}",
+                    purges.json()
+                );
                 s.json()
             }),
         ));
