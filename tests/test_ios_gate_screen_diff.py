@@ -14,6 +14,7 @@ import struct
 import sys
 import tempfile
 import unittest
+from unittest import mock
 import zlib
 from pathlib import Path
 
@@ -223,6 +224,107 @@ class ScreenDiffTests(unittest.TestCase):
             self.assertEqual(rows, expected, f"filter {kind}")
         # Different filters for the same pixels are the same screen.
         self.assertEqual(self.mod.diff_images(png(pixels, 1), png(pixels, 4)).ratio, 0.0)
+
+
+class StillsArtifactTests(unittest.TestCase):
+    """The baseline comes from ios-gate-stills-*, or review-gate-path-* on runs before the split."""
+
+    def setUp(self) -> None:
+        self.mod = load()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def fetch(self, run_artifacts: dict[int, list[str]]) -> tuple[dict, list[str]]:
+        import io
+        import zipfile
+        runs = [{"id": rid, "conclusion": "success", "head_sha": "a" * 40, "html_url": ""} for rid in run_artifacts]
+        downloaded: list[str] = []
+
+        def api(url, token, deadline):
+            if "/workflows/" in url:
+                return json.dumps({"workflow_runs": runs}).encode()
+            rid = int(url.split("/runs/")[1].split("/")[0])
+            return json.dumps({"artifacts": [{"name": n, "id": n} for n in run_artifacts[rid]]}).encode()
+
+        def download(url, token, deadline, path):
+            downloaded.append(url.split("/artifacts/")[1].split("/")[0])
+            buffer = io.BytesIO()
+            with zipfile.ZipFile(buffer, "w") as archive:
+                archive.writestr("screens/iphone/a.png", b"x")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(buffer.getvalue())
+            return path
+
+        self.mod._api, self.mod._download = api, download
+        result = self.mod.fetch_baselines("o/r", "appstore", ["iphone"], Path(self.tmp.name), "t", "0")
+        return result, downloaded
+
+    def test_the_stills_artifact_is_read(self) -> None:
+        result, downloaded = self.fetch({1: ["review-gate-path-appstore-iphone", "ios-gate-stills-appstore-iphone"]})
+        self.assertEqual(downloaded, ["ios-gate-stills-appstore-iphone"])
+        self.assertIsNotNone(result["iphone"].directory)
+
+    def test_a_run_from_before_the_split_still_serves(self) -> None:
+        result, downloaded = self.fetch({1: ["review-gate-path-appstore-iphone"]})
+        self.assertEqual(downloaded, ["review-gate-path-appstore-iphone"])
+        self.assertIsNotNone(result["iphone"].directory)
+
+    def test_none_kept_names_the_stills_artifact(self) -> None:
+        result, _ = self.fetch({1: ["review-gate-lint-appstore"]})
+        self.assertIn("ios-gate-stills-appstore-iphone", result["iphone"].problem)
+
+
+class ApiRetryTests(unittest.TestCase):
+    """The first live runs lost the baseline to a bare 403 in 8 of 28 runs: say why, and try again."""
+
+    def setUp(self) -> None:
+        self.mod = load()
+        self.sleeps: list[float] = []
+        patch = mock.patch.object(self.mod.time, "sleep", self.sleeps.append)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def error(self, code: int, message: str = "", headers: dict | None = None):
+        import io
+        import urllib.error
+        body = json.dumps({"message": message}).encode()
+        return urllib.error.HTTPError("https://x", code, "Forbidden", headers or {}, io.BytesIO(body))
+
+    def run_api(self, answers: list):
+        calls = iter(answers)
+
+        def request(req, deadline=None, max_bytes=None, raise_errors=False):
+            answer = next(calls)
+            if isinstance(answer, Exception):
+                raise answer
+            return 200, answer, {}
+
+        class Clock:
+            def left(self, what):
+                return 10.0
+
+        original = self.mod.deadline_http.request
+        self.mod.deadline_http.request = request
+        try:
+            return self.mod._api("https://x", "t", Clock())
+        finally:
+            self.mod.deadline_http.request = original
+
+    def test_a_rate_limit_is_retried_after_its_wait(self) -> None:
+        body = self.run_api([self.error(403, "rate limit", {"retry-after": "7"}), b"{}"])
+        self.assertEqual(body, b"{}")
+        self.assertEqual(self.sleeps, [7.0])
+
+    def test_the_reason_is_kept_when_retries_run_out(self) -> None:
+        with self.assertRaises(RuntimeError) as caught:
+            self.run_api([self.error(403, "Resource not accessible by integration") for _ in range(3)])
+        self.assertIn("Resource not accessible by integration", str(caught.exception))
+        self.assertEqual(len(self.sleeps), 2)
+
+    def test_a_missing_page_is_not_retried(self) -> None:
+        with self.assertRaises(RuntimeError):
+            self.run_api([self.error(404, "Not Found")])
+        self.assertEqual(self.sleeps, [])
 
 
 if __name__ == "__main__":
