@@ -47,8 +47,10 @@ pub(super) enum Way {
 pub(super) fn split_way(args: &[String]) -> anyhow::Result<(Way, Vec<String>)> {
     let (mut carrier, mut ssh) = (false, false);
     let mut rest = Vec::with_capacity(args.len());
-    for (index, argument) in args.iter().enumerate() {
-        let is_value = index > 0 && args[index - 1] == "--ssh-arg";
+    let mut previous: Option<&str> = None;
+    for argument in args {
+        let is_value = previous == Some("--ssh-arg");
+        previous = Some(argument.as_str());
         match argument.as_str() {
             "--carrier" if !is_value => carrier = true,
             "--ssh" if !is_value => ssh = true,
