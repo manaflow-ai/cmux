@@ -1195,6 +1195,8 @@ export function drawPaneBody({
                           title={chatName}
                           onRename={renameFromTitle}
                           trail={titleTrail}
+                          icon={snapshot.summary?.icon}
+                          formerNames={snapshot.summary?.formerNames}
                         />
                         {/* Where the chat stands and its next action (header/ChatSummaryLine.tsx). */}
                         <ChatSummaryLine summary={snapshot.summary?.rollingSummary} />
@@ -1406,14 +1408,18 @@ export function drawPaneBody({
                   preview={previewShown ? computerUsePreview : null}
                   onClose={() => ignoreFailure(callNative("chat.computerUsePreview", { action: "close" }))}
                 />
-                {underHeader.watching && snapshot.summary?.watching && !snapshot.liveTakeOver && (
-                  <WatchBanner
-                    family={snapshot.summary.watching}
-                    bridged={snapshot.summary.bridged === true}
-                    onTakeOver={() => void directClient.current?.takeOver().catch(() => undefined)}
-                    onContinue={() => void directClient.current?.continueWatched().catch(() => undefined)}
-                  />
-                )}
+                {underHeader.watching &&
+                  snapshot.summary?.watching &&
+                  // A chat its terminal drives is a live view of the same session, not View Only.
+                  !snapshot.summary.terminal &&
+                  !snapshot.liveTakeOver && (
+                    <WatchBanner
+                      family={snapshot.summary.watching}
+                      bridged={snapshot.summary.bridged === true}
+                      onTakeOver={() => void directClient.current?.takeOver().catch(() => undefined)}
+                      onContinue={() => void directClient.current?.continueWatched().catch(() => undefined)}
+                    />
+                  )}
                 {underHeader.watching && snapshot.liveTakeOver && (
                   <LiveChatChoice
                     {...snapshot.liveTakeOver}
