@@ -1,7 +1,11 @@
 // One launch of a cmux NEXT app the way the Dock launches it (CMUX-629, CMUX-631), timed from outside the app.
 //
-//   launch-ready APP HOME_ROOT LABEL [SETTLE_S [SOCKET [MODES...]]]   MODES: shell, keys, layout, movequit, type
+//   launch-ready APP HOME_ROOT LABEL [SETTLE_S [SOCKET [MODES...]]]   MODES: shell, keys, layout, movequit, type, guest
 //                                                                      (separate or comma-separated)
+//
+// With `guest` (launch-ready.sh guest=1, a run on a person's own Mac while they work) the app opens without
+// activating and with CMUX_NEXT_NO_ACTIVATE=1, so the app never activates itself either: no focus is taken from what
+// they are typing into, its windows open behind theirs, and `active` stays null.
 //
 // With `shell` (launch-ready.sh state=bare), once the app marks `window_usable` the probe opens a terminal the way a
 // person's first one opens (`action.run newSurface` on the app's socket) and records `shell_requested`; the app's
@@ -66,6 +70,7 @@ guard socketPath.utf8.count <= 103 else { // sun_path less its NUL: the app coul
 let modes = Set(args.dropFirst(6).flatMap { $0.split(separator: ",").map(String.init) })
 let opensShell = modes.contains("shell"), typesKeys = modes.contains("keys"), samplesLayout = modes.contains("layout")
 let typesFirstKey = modes.contains("type"), movesBeforeQuit = modes.contains("movequit")
+let activates = !modes.contains("guest")
 var shellRequested: Double?
 let home = homeRoot.appendingPathComponent("h"), tmp = homeRoot.appendingPathComponent("t")
 for sub in ["Library/Preferences", "Library/Application Support", "Library/Caches", "Library/Logs"] {
@@ -145,10 +150,13 @@ if let user = ProcessInfo.processInfo.environment["USER"] { environment["USER"] 
 // A side with its own settings (launch-ready.sh engines=): the app reads HOME_ROOT/cmux-next.json, not the account's.
 let sideConfig = homeRoot.appendingPathComponent("cmux-next.json").path
 if FileManager.default.fileExists(atPath: sideConfig) { environment["CMUX_NEXT_CONFIG_FILE"] = sideConfig }
+// guest: the app itself never activates either (AppEnvironment.noActivate, CmuxApplication.refusesActivation): every
+// activation request is dropped and its windows open ordered back, still on screen for window_on_screen.
+if !activates { environment["CMUX_NEXT_NO_ACTIVATE"] = "1" }
 
 let configuration = NSWorkspace.OpenConfiguration()
 configuration.createsNewApplicationInstance = true
-configuration.activates = true
+configuration.activates = activates
 configuration.addsToRecentItems = false
 configuration.environment = environment
 configuration.arguments = ["-ApplePersistenceIgnoreState", "YES"]

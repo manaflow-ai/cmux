@@ -203,6 +203,26 @@ class TryPrDaemonTests(unittest.TestCase):
         self.assertIn("run again without --no-build", out.stdout)
         self.assertFalse([c for c in self.calls_of("hot-apply") if " apply " in f" {c} "])
 
+    def test_the_dev_build_a_person_opens_targets_production(self):
+        # Leo: "why is the stuff so weird to log in to dev builds?" A build a person opens signs in to cmux.com;
+        # an agent's build and --dev-backend keep the offline dev backend.
+        self.push_pr(RUST)
+        self.write_plan(parts=(), left={"Rust the app links (FFI)": [RUST]})
+        person = {k: v for k, v in self.env.items() if k != "CLAUDECODE" and not k.startswith("CODEX_")}
+        for env, extra, flag in ((person, (), "--production"),
+                                 (person, ("--dev-backend",), "--backend-mode local"),
+                                 ({**person, "CLAUDECODE": "1"}, (), "--backend-mode local"),
+                                 ({**person, "CODEX_THREAD_ID": "t"}, (), "--backend-mode local")):
+            with self.subTest(extra=extra, agent="CLAUDECODE" in env or "CODEX_THREAD_ID" in env):
+                self.env = env
+                out = self.try_pr("--here", "--dry-run", *extra)
+                self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+                build = next(line for line in out.stdout.splitlines() if line.startswith("would run:") and " build cmux " in line)
+                self.assertIn(flag, build)
+                other = "--backend-mode" if flag == "--production" else "--production"
+                self.assertNotIn(other, build)
+                self.assertIn("backend: production" if flag == "--production" else "backend: local dev backend", out.stdout)
+
     def test_an_app_with_rust_the_branch_lacks_is_refused(self):
         self.push_pr(RUST)
         self.write_plan(parts=(), left={"unrelated": ["the app's commit has Rust that the PR lacks"]})

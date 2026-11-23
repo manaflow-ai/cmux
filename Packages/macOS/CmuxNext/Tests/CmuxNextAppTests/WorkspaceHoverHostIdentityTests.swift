@@ -15,7 +15,7 @@ import Testing
     @Test(arguments: [SidebarMachine.Kind.cloud, .ssh, .server, .local])
     func thePreviewShowsHostIdentityWithoutOpeningDetails(_ kind: SidebarMachine.Kind) throws {
         var machine = SidebarMachine(id: MachineID("host"), name: "Build host", kind: kind)
-        // A custom machine mark must not obscure the requested cloud/globe distinction.
+        // A machine's own mark is the device it is (#43395); with none, a remote machine reads as the globe. Cloud has no mark.
         machine.icon = .symbol("star")
         let workspace = SidebarWorkspace(id: WorkspaceID("workspace"), machineID: machine.id, title: "Ship the fix")
         let content = WorkspaceHoverCardContent.make(workspace, machine: machine, now: Date())
@@ -30,7 +30,10 @@ import Testing
             let host = try #require(content.host)
             let label = kind == .cloud ? Strings.hoverCloud : machine.name
             #expect(host.text == label)
-            #expect(host.mark == (kind == .cloud ? nil : "globe"))
+            #expect(host.mark == (kind == .cloud ? nil : "star"))
+            var plain = machine
+            plain.icon = nil
+            #expect(WorkspaceHoverCardContent.make(workspace, machine: plain, now: Date()).host?.mark == (kind == .cloud ? nil : "globe"))
             if kind == .cloud { #expect(host.icon == .cloud) }
             #expect(view.lines.first == "Ship the fix \(label)", "the machine reads beside the title: \(view.lines)")
             #expect(count(label, in: view.lines) == 1)

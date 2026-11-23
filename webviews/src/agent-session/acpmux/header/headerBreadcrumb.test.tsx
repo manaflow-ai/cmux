@@ -1,7 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
-import { act } from "react";
+import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
 import { headerBreadcrumb } from "./headerState";
 import { ThreadTitle } from "./ThreadTitle";
@@ -69,10 +68,19 @@ test("a chat's private folder is no path: the header draws the plain title (rout
   expect(headerBreadcrumb({ cwd: "/home/me/chats/api" })).toEqual(["api"]);
 });
 
-test("off (no trail), the title draws exactly as before", () => {
-  const plain = renderToStaticMarkup(<ThreadTitle title="A chat" />);
-  expect(renderToStaticMarkup(<ThreadTitle title="A chat" trail={[]} />)).toBe(plain);
-  expect(renderToStaticMarkup(<ThreadTitle title="A chat" trail={undefined} />)).toBe(plain);
+test("off (no trail), the title draws exactly as before", async () => {
+  // Rendered in a DOM, not to a string: the title reads an experiment switch (a store with no server snapshot).
+  const container = installDom();
+  root = createRoot(container);
+  const markup = async (title: ReactElement): Promise<string> => {
+    await act(async () => {
+      root!.render(title);
+    });
+    return container.innerHTML;
+  };
+  const plain = await markup(<ThreadTitle title="A chat" />);
+  expect(await markup(<ThreadTitle title="A chat" trail={[]} />)).toBe(plain);
+  expect(await markup(<ThreadTitle title="A chat" trail={undefined} />)).toBe(plain);
   expect(plain).toBe('<span class="acpmux-thread-title">A chat</span>');
 });
 

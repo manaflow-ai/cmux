@@ -656,6 +656,16 @@ impl Conn {
     /// [`Self::send`] of the reply to a request whose method is `reply_to`: the size watch names
     /// it (`wire_size.rs`).
     fn send_replying(&self, msg: &Message, reply_to: Option<&str>) {
+        self.send_as(msg, reply_to, outbound::Row::None);
+    }
+
+    /// [`Self::send`] of a watcher's row of a chat, or of a line that must follow it
+    /// (`outbound.rs` [`outbound::Row`]): a newer row replaces one still queued.
+    fn send_row(&self, msg: &Message, row: outbound::Row) {
+        self.send_as(msg, None, row);
+    }
+
+    fn send_as(&self, msg: &Message, reply_to: Option<&str>, row: outbound::Row) {
         self.raise_gate();
         let redacted = if self.origin == Origin::Peer {
             let mut copy = msg.clone();
@@ -688,7 +698,7 @@ impl Conn {
                 if reply_to == Some(controls::METHOD) {
                     self.controls.reply(self, msg, line);
                 } else {
-                    self.out.push_in(line, outbound::reply_lane(msg, reply_to));
+                    self.out.lock().push_row(line, outbound::reply_lane(msg, reply_to), row);
                 }
             }
             Err(bytes) => self.left_out_too_large(msg.method(), bytes),
@@ -2005,6 +2015,14 @@ async fn serve_connection_from(
                             return;
                         }
                     };
+                    // Read after the daemon's stop drained this connection's requests
+                    // (`shutdown_drain.rs`): not served, answered as the drained ones were.
+                    if ticket.refused() {
+                        let answer = Err(shutdown_drain::restarting_error());
+                        dual_requests::finish(first, Some(&answer));
+                        conn.send_replying(&dual_requests::reply(id, answer), Some(&m));
+                        return;
+                    }
                     let route = || {
                         chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null), sender_token)
                     };
@@ -2275,6 +2293,13 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         }
         return;
     }
+    // The key of this chat's row in the queue (`outbound::Row`): its id, qualified for a peer's.
+    let row_key = || -> Arc<str> {
+        match &ev.remote {
+            Some(remote) => remote.qualified_id(&ev.session_id).into(),
+            None => Arc::from(ev.session_id.as_str()),
+        }
+    };
     // A chat's cold archive came or went (`hub/cold_archive.rs`): its row's `coldArchive`; or
     // another unlogged row change (`row_notice`). Not a logged record, so nothing but this
     // notice goes out for it.
@@ -2288,10 +2313,13 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             } else {
                 hub.session_list_summary(&s)
             };
-            conn.send(&Message::notification(
+            let msg = Message::notification(
                 method::MUX_SESSION_CHANGED,
                 json!({"sessionId": ev.session_id, "session": session, "kind": ev.record.kind, "recordKind": ev.record.kind, "seq": s.meta().last_seq, "listSeq": ev.list_seq}),
-            ));
+            );
+            // An attached chat's row stays among its updates; a watcher's is its latest state.
+            let row = if attached { outbound::Row::None } else { outbound::Row::Latest(row_key()) };
+            conn.send_row(&msg, row);
         }
         return;
     }
@@ -2421,10 +2449,13 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             // never relayed on to a Web client or another peer daemon.
             if rec.kind == crate::hub::PEER_PERMISSION_PENDING {
                 if !attached && !conn.origin.web_class() {
-                    conn.send(&Message::notification(
-                        method::MUX_PERMISSION_PENDING,
-                        peer_permission_pending(&ev.session_id, rec, remote),
-                    ));
+                    conn.send_row(
+                        &Message::notification(
+                            method::MUX_PERMISSION_PENDING,
+                            peer_permission_pending(&ev.session_id, rec, remote),
+                        ),
+                        outbound::Row::After(row_key()),
+                    );
                 }
                 return;
             }
@@ -2443,10 +2474,15 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                 let tools = attached || conn.watch_tools.load(Ordering::SeqCst);
                 let session: Value = serde_json::from_str(&remote.summary.changed_text(tools))
                     .unwrap_or(Value::Null);
-                conn.send(&Message::notification(
-                    method::MUX_SESSION_CHANGED,
-                    json!({"sessionId": sid, "qualifiedSessionId": remote.qualified_id(&ev.session_id), "session": session, "kind": rec.kind, "recordKind": rec.kind, "seq": rec.seq, "peer": remote.peer, "listSeq": ev.list_seq}),
-                ));
+                let row =
+                    if attached { outbound::Row::None } else { outbound::Row::Latest(row_key()) };
+                conn.send_row(
+                    &Message::notification(
+                        method::MUX_SESSION_CHANGED,
+                        json!({"sessionId": sid, "qualifiedSessionId": remote.qualified_id(&ev.session_id), "session": session, "kind": rec.kind, "recordKind": rec.kind, "seq": rec.seq, "peer": remote.peer, "listSeq": ev.list_seq}),
+                    ),
+                    row,
+                );
             }
             return;
         }
@@ -2456,7 +2492,11 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             if rec.msg.get("replaced") == Some(&Value::Bool(true)) {
                 params.set("replaced", Value::Bool(true));
             }
-            conn.send(&Message::notification(method::MUX_SESSION_CHANGED, params));
+            // A purge is not passed by a newer row (a `replaced` chat starts over after it).
+            conn.send_row(
+                &Message::notification(method::MUX_SESSION_CHANGED, params),
+                outbound::Row::After(row_key()),
+            );
             return;
         }
         // A deferred new chat has no attachment yet. Its command publication must still wake
@@ -2475,17 +2515,25 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             Some(if full { hub.session_summary(&s) } else { hub.session_list_summary(&s) })
         });
         if let Some(summary) = summary {
-            conn.send(&Message::notification(
-                method::MUX_SESSION_CHANGED,
-                json!({"sessionId": ev.session_id, "session": *summary, "kind": kind, "recordKind": rec.kind, "seq": rec.seq, "listSeq": ev.list_seq}),
-            ));
+            let row = if attached { outbound::Row::None } else { outbound::Row::Latest(row_key()) };
+            conn.send_row(
+                &Message::notification(
+                    method::MUX_SESSION_CHANGED,
+                    json!({"sessionId": ev.session_id, "session": *summary, "kind": kind, "recordKind": rec.kind, "seq": rec.seq, "listSeq": ev.list_seq}),
+                ),
+                row,
+            );
         }
-        // A watcher that is not attached still learns a permission is waiting.
+        // A watcher that is not attached still learns a permission is waiting, after the row
+        // that recorded it.
         if is_permission_ask(&rec.kind) && !attached {
-            conn.send(&Message::notification(
-                method::MUX_PERMISSION_PENDING,
-                permission_pending(&ev.session_id, rec, "watch"),
-            ));
+            conn.send_row(
+                &Message::notification(
+                    method::MUX_PERMISSION_PENDING,
+                    permission_pending(&ev.session_id, rec, "watch"),
+                ),
+                outbound::Row::After(row_key()),
+            );
         }
     }
 }
@@ -2527,6 +2575,10 @@ mod in_flight;
 #[cfg(test)]
 #[path = "latency_gauges_tests.rs"]
 mod latency_gauges_tests;
+pub(crate) mod shutdown_drain;
+#[cfg(test)]
+#[path = "shutdown_drain_tests.rs"]
+mod shutdown_drain_tests;
 pub(crate) use crate::clock_text::{civil_from_days, iso};
 pub(crate) use change_kind::session_change_kind;
 mod change_kind;
@@ -2534,6 +2586,7 @@ mod chat_windows;
 pub use chat_windows::live_tasks as live_chat_window_tasks;
 pub mod carrier;
 mod chats;
+pub(crate) use chats::usage_upload_loop;
 pub mod conn_auth;
 mod durable_gate;
 mod ephemeral;
@@ -2561,6 +2614,7 @@ mod lane_parent;
 mod list_reply;
 use lane_parent::lane_parent;
 mod bg_tasks;
+mod github_prs;
 mod goal;
 pub mod local_app;
 pub(crate) mod machine_enroll;
@@ -2609,6 +2663,7 @@ pub(crate) use redact::url_without_secrets;
 pub(crate) mod remote_guard;
 mod requests;
 pub use requests::{DURABLE_DISPATCH_FEATURE, SESSION_RESUME_FEATURE};
+mod account_sign_in;
 mod accounts;
 #[cfg(test)]
 mod attach_latency_bench;
