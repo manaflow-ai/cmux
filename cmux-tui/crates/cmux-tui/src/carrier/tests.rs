@@ -10,8 +10,8 @@ use super::answer::{
     Prefetched, TicketCache, grant_vmk, key_text, parse_answer, read_reply, token_subject,
 };
 use super::client::{
-    Marks, PARK_REDIAL, PEER_JOIN_REDIAL, classify, join_stalled, park_until, peer_join_wait,
-    pinned_daemon, resume_outcome,
+    Marks, PARK_REDIAL, PEER_JOIN_REDIAL, attempt_wait, classify, handshake_stalled, join_stalled,
+    park_until, peer_join_wait, pinned_daemon, resume_outcome,
 };
 use super::contract::{
     Failure, Phase, PhaseTimes, PhasesOf, StdinLine, Step, Vmk, answer_line, connected_line,
@@ -438,6 +438,23 @@ fn a_join_the_daemon_never_answers_is_redialed_in_seconds_and_backs_off() {
         "link transport failed: relay circuit join timed out"
     )));
     assert!(!join_stalled(&Failure::retry(Step::Parked, "relay allocation timed out")));
+}
+
+/// A joined circuit whose daemon never answers the handshake is given up after the join wait plus
+/// [`FIRST_HANDSHAKE_WAIT`] on the first attempt (9 s), not 15 s; each attempt that stalled there
+/// doubles the handshake part, up to 15 s, so a daemon that is only slow to answer still connects.
+#[test]
+fn a_handshake_the_daemon_never_answers_is_redialed_in_seconds_and_backs_off() {
+    let join = peer_join_wait(0);
+    assert_eq!(attempt_wait(join, 0), Duration::from_secs(9));
+    assert_eq!(attempt_wait(join, 1), Duration::from_secs(14));
+    assert_eq!(attempt_wait(join, 2), Duration::from_secs(15));
+    assert_eq!(attempt_wait(Duration::from_secs(15), 0), Duration::from_secs(15));
+    assert_eq!(attempt_wait(join, 40), Duration::from_secs(15));
+    let timeout =
+        ConnectionError::Crypto(CryptoError::HandshakeTimeout { timeout: Duration::from_secs(9) });
+    assert!(handshake_stalled(&classify(&timeout, Step::Handshake)));
+    assert!(!handshake_stalled(&Failure::retry(Step::Relay, "relay circuit join timed out")));
 }
 
 #[test]

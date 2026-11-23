@@ -322,6 +322,28 @@ pub(super) fn peer_join_wait(join_stalls: u32) -> Duration {
     PEER_JOIN_REDIAL.saturating_mul(1_u32 << join_stalls.min(8)).min(CONTROL_TIMEOUT)
 }
 
+/// How long a joined circuit's Noise handshake gets on the first attempt of a dial, past the
+/// circuit's own join wait (`handshake_stalls` 0). A handshake that connects takes 0.9 s at p50, 3.4 s at p99
+/// and 5.0 s at most (241 production dials); a fresh machine's first dial sometimes joins and then never
+/// gets an answer (production `cloud-chat-replies-production`, fresh machines, 11-22 12:59Z to 11-23 04:02Z:
+/// outcome `handshake`, 14.0 to 19.1 s with `handshake_ms` 14.9 s, and the redial connected in 0.8 to 1.3 s).
+pub(super) const FIRST_HANDSHAKE_WAIT: Duration = Duration::from_secs(5);
+
+/// One attempt's whole bound on its circuit join and Noise handshake together (cmux-remote's
+/// `attempt_timeout`): its join wait ([`peer_join_wait`]) plus [`FIRST_HANDSHAKE_WAIT`], the second
+/// doubled per earlier attempt of this dial whose handshake stalled, at most [`HANDSHAKE_TIMEOUT`]. A
+/// daemon that answers slowly every time still connects, on a later attempt.
+pub(super) fn attempt_wait(join_wait: Duration, handshake_stalls: u32) -> Duration {
+    join_wait
+        .saturating_add(FIRST_HANDSHAKE_WAIT.saturating_mul(1_u32 << handshake_stalls.min(8)))
+        .min(HANDSHAKE_TIMEOUT)
+}
+
+/// Whether `failure` is an attempt whose joined daemon never answered the Noise handshake.
+pub(super) fn handshake_stalled(failure: &Failure) -> bool {
+    failure.detail.contains("secure link handshake timed out")
+}
+
 /// Whether `failure` is an attempt whose daemon never joined its allocated circuit.
 pub(super) fn join_stalled(failure: &Failure) -> bool {
     failure.detail.contains("relay circuit join timed out")
@@ -371,6 +393,7 @@ async fn attempt(
     resume: &Arc<Resume>,
     current: &Arc<CurrentRoute>,
     join_wait: Duration,
+    handshake_wait: Duration,
 ) -> Result<Dialed, Failure> {
     step.set(Step::Ticket);
     step.mark(|marks| marks.started = Some(Instant::now()));
@@ -408,6 +431,7 @@ async fn attempt(
         session,
         set: &set,
         first: None,
+        handshake_wait,
     };
     let selected =
         select_initial_route(&set.routes, session, CARRIER_LANES, CARRIER_AUTH, false, &mut route)
@@ -442,6 +466,8 @@ struct RouteAttempt<'a> {
     set: &'a RouteSet,
     /// The first route's failure, when it failed.
     first: Option<Failure>,
+    /// The bound on this attempt's circuit join and Noise handshake ([`attempt_wait`]).
+    handshake_wait: Duration,
 }
 
 /// A failed route. A relay failure past the park that no retry fixes (a
@@ -582,7 +608,7 @@ impl RouteAttempt<'_> {
             lane_policy: CARRIER_LANES,
             limits: SessionLimits::default(),
             reconnect: ReconnectPolicy {
-                attempt_timeout: HANDSHAKE_TIMEOUT.min(remaining.max(Duration::from_millis(1))),
+                attempt_timeout: self.handshake_wait.min(remaining.max(Duration::from_millis(1))),
                 maximum_duration: Some(RESUME_DEADLINE),
                 ..ReconnectPolicy::default()
             },
@@ -858,6 +884,8 @@ struct Attempts {
     last: Option<Failure>,
     /// Attempts whose daemon never joined their allocated circuit ([`peer_join_wait`]).
     join_stalls: u32,
+    /// Attempts whose joined daemon never answered the handshake ([`attempt_wait`]).
+    handshake_stalls: u32,
 }
 
 /// One attempt's route line and phases line.
@@ -915,18 +943,19 @@ pub(super) async fn dial(plan: &DialPlan) -> Result<Dialed, Failure> {
             async move {
                 let step = Arc::new(Progress::default());
                 let started = Instant::now();
-                let (number, join_wait) = {
+                let (number, join_wait, handshake_wait) = {
                     let mut attempts = lock();
                     attempts.count = attempts.count.saturating_add(1);
                     attempts.current = Some((step.clone(), started));
-                    (attempts.count, peer_join_wait(attempts.join_stalls))
+                    let join_wait = peer_join_wait(attempts.join_stalls);
+                    (attempts.count, join_wait, attempt_wait(join_wait, attempts.handshake_stalls))
                 };
                 if let Some(progress) = &plan.progress {
                     progress.attempt(step.clone());
                 }
                 let result = match tokio::time::timeout_at(
                     plan.deadline,
-                    attempt(plan, &step, resume, current, join_wait),
+                    attempt(plan, &step, resume, current, join_wait, handshake_wait),
                 )
                 .await
                 {
@@ -938,6 +967,9 @@ pub(super) async fn dial(plan: &DialPlan) -> Result<Dialed, Failure> {
                     attempts.current = None;
                     if result.as_ref().err().is_some_and(join_stalled) {
                         attempts.join_stalls = attempts.join_stalls.saturating_add(1);
+                    }
+                    if result.as_ref().err().is_some_and(handshake_stalled) {
+                        attempts.handshake_stalls = attempts.handshake_stalls.saturating_add(1);
                     }
                 }
                 log_attempt(plan, number, result.as_ref().err(), &step, started.elapsed());
