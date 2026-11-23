@@ -1711,6 +1711,9 @@ jobs:
       - name: Validate a pull request head that changes no cmux-tui tree input builds no artifacts
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_branch_inputs.py
+      - name: Validate a tree request re-runs a failed run's failed jobs only and stops at 3 attempts
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_tui_tree_request_rerun.py
 
       - name: Validate the Team-signed tree signs only on nightly-next and holds no merge
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
