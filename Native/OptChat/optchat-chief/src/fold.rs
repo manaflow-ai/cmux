@@ -347,7 +347,24 @@ impl TurnFold {
                 if let Some(text) = self.last_talk.take() {
                     self.answered.push(text);
                 }
-                if !self.response_had_tool {
+                let failed = event.msg.get("is_error").and_then(Value::as_bool) == Some(true)
+                    || event
+                        .msg
+                        .get("subtype")
+                        .and_then(Value::as_str)
+                        .is_some_and(|subtype| subtype.starts_with("error"));
+                if failed {
+                    let detail = event
+                        .msg
+                        .get("result")
+                        .and_then(Value::as_str)
+                        .or_else(|| event.msg.get("subtype").and_then(Value::as_str))
+                        .unwrap_or("Claude Code reported an error")
+                        .to_owned();
+                    self.ended = Some(Ended {
+                        error: Some(detail),
+                    });
+                } else if !self.response_had_tool {
                     self.natural_end = true;
                     self.ended = Some(Ended { error: None });
                 }
@@ -557,6 +574,7 @@ impl TurnFold {
             self.answered.push(text);
         }
         self.ended = None;
+        self.natural_end = false;
         self.carries += 1;
         self.expect_carry = false;
         self.result_after_end = false;

@@ -63,7 +63,7 @@ fn an_over_limit_reply_splits_at_sentences() {
 
 #[test]
 fn a_split_never_breaks_links_or_fenced_code() {
-    let text = "The [release note](https://example.com/a.b) is ready. ```\nfirst line\nsecond line\n``` The follow-up is ready.";
+    let text = "The [release note v1.2](https://example.com/a.b) is ready. ```\nfirst line\nsecond line\n``` The follow-up is ready.";
     let parts = split_reply(text, 8);
     assert!(
         parts
@@ -79,16 +79,38 @@ fn a_split_never_breaks_links_or_fenced_code() {
 }
 
 #[test]
-fn a_split_keeps_list_items_together() {
-    let text = "- first task is done.\n- second task is done.\n- third task is done.";
-    let parts = split_reply(text, 6);
-    assert_eq!(parts.len(), 2);
+fn a_split_keeps_longer_and_tilde_fences_closed() {
+    let text = "Intro sentence. ``````\ncode. Still code.\n```\nstill code.\n``````\nAfter sentence. ~~~~~\ntilde code.\n~~~\nstill tilde code.\n~~~~~\nFinal sentence.";
+    let parts = split_reply(text, 3);
     assert!(
         parts
             .iter()
-            .all(|part| part.lines().all(|line| !line.trim().is_empty()))
+            .any(|part| part.contains("``````\ncode. Still code.\n```\nstill code.\n``````"))
     );
-    assert!(parts.iter().all(|part| reply_words(part) <= 6));
+    assert!(
+        parts
+            .iter()
+            .any(|part| part.contains("~~~~~\ntilde code.\n~~~\nstill tilde code.\n~~~~~"))
+    );
+}
+
+#[test]
+fn a_split_keeps_link_titles_with_sentence_punctuation() {
+    let text = "Read [the guide](https://example.com \"First. More details\"). Then continue here.";
+    let parts = split_reply(text, 4);
+    assert!(
+        parts
+            .iter()
+            .any(|part| part.contains("[the guide](https://example.com \"First. More details\")"))
+    );
+}
+
+#[test]
+fn a_split_keeps_list_items_together() {
+    let text = "- first task is done.\n- second task is done.\n- third task is done.";
+    let parts = split_reply(text, 6);
+    assert_eq!(parts, vec![text]);
+    assert!(parts[0].lines().all(|line| !line.trim().is_empty()));
 }
 
 // Nov 12-19 on Lawrence's Chief: 112 sends refused, most of them a status

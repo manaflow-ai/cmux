@@ -1,7 +1,7 @@
-//! The Chief's `send` tool (plans/cmux-next/chief-tools-DESIGN.md): one
-//! message posted now, with text, attached files and URLs, at the top level
-//! or in the thread of a user message. It goes through the outbox like a
-//! turn reply (retries, rate limits, idempotency), with the same subagent
+//! The Chief's `send` tool (plans/cmux-next/chief-tools-DESIGN.md): one or
+//! more messages posted now, with text, attached files and URLs, at the top
+//! level or in the thread of a user message. It goes through the outbox like
+//! a turn reply (retries, rate limits, idempotency), with the same subagent
 //! links, link cards and uploads (previews.rs, media.rs).
 //!
 //! An attachment is an explicit act: the Chief's Markdown links to local
@@ -110,11 +110,6 @@ impl Brain {
             "send-{conversation}-{turn}-{:016x}",
             super::replies::fnv(fingerprint.as_bytes())
         );
-        if self.sent_keys.contains(&key)
-            || self.state.outbox.iter().any(|e| e.idempotency_key == key)
-        {
-            return Ok("outcome: noop. this message is already sent".to_owned());
-        }
         // The text as a reply's (subagent links), then a URL line each.
         // The file manifest stays separate: attachment count must not
         // consume the message's text allowance.
@@ -152,9 +147,26 @@ impl Brain {
                 }
             })
             .collect();
+        let pending: Vec<usize> = part_keys
+            .iter()
+            .enumerate()
+            .filter_map(|(index, part_key)| {
+                let done = self.sent_keys.contains(part_key)
+                    || self
+                        .state
+                        .outbox
+                        .iter()
+                        .any(|entry| entry.idempotency_key == *part_key);
+                (!done).then_some(index)
+            })
+            .collect();
+        if pending.is_empty() {
+            return Ok("outcome: noop. this message is already sent".to_owned());
+        }
         if let Some(seconds) = call.delay_seconds {
-            let mut scheduled = Vec::with_capacity(text_parts.len());
-            for (index, part) in text_parts.iter().enumerate() {
+            let mut scheduled = Vec::with_capacity(pending.len());
+            for index in pending.iter().copied() {
+                let part = &text_parts[index];
                 let mut entry = super::reply_entry(conversation.clone(), &part_keys[index], part);
                 add_thread_refs(&thread, &mut entry);
                 scheduled.push(self.send_later(entry, part_keys[index].clone(), seconds)?);
@@ -168,8 +180,8 @@ impl Brain {
                 )
             });
         }
-        for part_key in &part_keys {
-            self.sent_keys.insert(part_key.clone());
+        for index in &pending {
+            self.sent_keys.insert(part_keys[*index].clone());
         }
         // The wake run's `result`: the posted text, or the files it sent.
         let posted = if text.is_empty() {
@@ -181,7 +193,8 @@ impl Brain {
         } else {
             text.clone()
         };
-        for (index, part) in text_parts.iter().enumerate() {
+        for index in pending.iter().copied() {
+            let part = &text_parts[index];
             let mut entry = super::reply_entry(conversation.clone(), &part_keys[index], part);
             add_thread_refs(&thread, &mut entry);
             let files = if index == 0 {
@@ -200,6 +213,7 @@ impl Brain {
         // (pacing::coalesce) shares that message's fate; a refused link
         // card retries as `{key}:text`, a refused thread as `{key}:top`.
         let mut refused = None;
+        let mut refused_part_key = None;
         for part_key in &part_keys {
             let mut under = part_key.clone();
             while let Some(into) = self.merged_sends.remove(&under) {
@@ -212,15 +226,21 @@ impl Brain {
             };
             if let Some(at) = self.refused.iter().position(|r| ours(&r.key)) {
                 refused = Some(self.refused.remove(at));
+                refused_part_key = Some(part_key);
                 break;
             }
         }
         if let Some(refused) = refused {
-            for part_key in &part_keys {
-                self.sent_keys.remove(part_key);
+            if let Some(part_key) = refused_part_key {
+                self.sent_keys.remove(&part_key);
             }
+            let status = if part_keys.len() == 1 {
+                "nothing was posted"
+            } else {
+                "one part was refused; other parts may be queued or posted"
+            };
             let mut error = format!(
-                "send: refused by the conversation, nothing was posted ({}): {}",
+                "send: refused by the conversation, {status} ({}): {}",
                 refused.reason,
                 refusal_meaning(&refused.reason)
             );
@@ -232,11 +252,22 @@ impl Brain {
             (0, 0) => String::new(),
             (f, u) => format!(" with {} attachment(s)", f + u),
         };
+        let mut queued_keys = std::collections::HashSet::new();
+        for part_key in &part_keys {
+            let mut resolved = part_key.clone();
+            queued_keys.insert(resolved.clone());
+            while let Some(into) = self.merged_sends.get(&resolved) {
+                resolved = into.clone();
+                queued_keys.insert(resolved.clone());
+            }
+            queued_keys.insert(format!("{resolved}:text"));
+            queued_keys.insert(format!("{resolved}:top"));
+        }
         let queued = self
             .state
             .outbox
             .iter()
-            .any(|e| part_keys.iter().any(|key| e.idempotency_key == *key));
+            .any(|entry| queued_keys.contains(&entry.idempotency_key));
         let mut answer = match (queued, placed, call.reply_to) {
             (true, placed, _) => format!(
                 "outcome: queued. not posted yet{what}: it waits its turn in the outbox (the gap after the last message, an upload or link previews){}; a refusal is told on your next send",

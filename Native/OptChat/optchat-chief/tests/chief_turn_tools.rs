@@ -1,7 +1,7 @@
 //! The Chief's turn tools (plans/cmux-next/chief-tools-DESIGN.md; the user,
 //! 2026-10-20: "you probably should have replied twice separately to the two
 //! different messages ... a `send message` tool ... a `stop` tool call ...
-//! another tool called `sleep`"): `send` posts one message now (text, files,
+//! another tool called `sleep`": `send` posts one or more messages now (text, files,
 //! a thread), `stop` ends the turn with no final text, `sleep` ends it and
 //! wakes the Chief later.
 
@@ -200,6 +200,20 @@ fn a_plain_reply_ends_without_a_stop_request_and_is_posted() {
     h.settle_posts();
 
     assert_eq!(h.agents.inner.lock().unwrap().prompts.len(), 1);
+    let model_requests = h
+        .agents
+        .inner
+        .lock()
+        .unwrap()
+        .events
+        .values()
+        .flatten()
+        .filter(|event| event.kind == "claude.assistant")
+        .count();
+    assert_eq!(
+        model_requests, 1,
+        "one model request; no follow-up stop request"
+    );
     assert_eq!(h.agents.inner.lock().unwrap().cancels.len(), 1);
     assert!(
         sends(&h)
@@ -747,9 +761,8 @@ fn turn_tools_send_splits_a_long_reply_without_a_resend() {
     h.settle_posts();
 }
 
-/// Leo, 2026-11-02: the 45-word refusal cost a resend each time Chief already
-/// knew its answer was long (a status list he asked for). `long: true` says so
-/// up front: the first send posts as is, and `send` without it is still gated.
+/// `long: true` keeps the explicit one-message escape hatch for an answer the
+/// user asked to receive as one block. The normal send path splits first.
 #[test]
 fn turn_tools_send_marked_long_posts_on_the_first_try() {
     assert_eq!(
@@ -764,16 +777,7 @@ fn turn_tools_send_marked_long_posts_on_the_first_try() {
         Call::parse("send", &json!({"text": "hi", "long": "yes"})).is_err(),
         "`long` must be a boolean"
     );
-    let mut h = Harness::new(default_script());
-    running(&mut h, "list every open PR");
     let long_text = "item ".repeat(80);
-    let sp = spawner(&h);
-    let gated = long_text.clone();
-    let refused = run(&mut h, move || sp.send(send(&gated)));
-    assert!(
-        refused.is_err(),
-        "unmarked long send is refused once: {refused:?}"
-    );
     let mut h = Harness::new(default_script());
     running(&mut h, "list every open PR");
     let sp = spawner(&h);

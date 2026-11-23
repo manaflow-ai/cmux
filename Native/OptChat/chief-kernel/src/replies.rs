@@ -53,7 +53,7 @@ fn reply_atoms(text: &str) -> Vec<String> {
     let mut regular = String::new();
     let mut list = String::new();
     let mut code = String::new();
-    let mut fenced = false;
+    let mut fenced: Option<(char, usize)> = None;
 
     let flush_regular = |atoms: &mut Vec<String>, regular: &mut String| {
         if !regular.trim().is_empty() {
@@ -68,19 +68,19 @@ fn reply_atoms(text: &str) -> Vec<String> {
 
     for line in text.split_inclusive('\n') {
         let trimmed = line.trim_start();
-        if fenced {
+        if let Some((fence_char, fence_len)) = fenced {
             code.push_str(line);
-            if trimmed.starts_with("```") {
+            if fence_marker(trimmed).is_some_and(|(ch, len)| ch == fence_char && len >= fence_len) {
                 atoms.push(std::mem::take(&mut code));
-                fenced = false;
+                fenced = None;
             }
             continue;
         }
-        if trimmed.starts_with("```") {
+        if let Some(marker) = fence_marker(trimmed) {
             flush_regular(&mut atoms, &mut regular);
             flush_list(&mut atoms, &mut list);
             code.push_str(line);
-            fenced = true;
+            fenced = Some(marker);
         } else if list_line(line) {
             flush_regular(&mut atoms, &mut regular);
             flush_list(&mut atoms, &mut list);
@@ -97,14 +97,20 @@ fn reply_atoms(text: &str) -> Vec<String> {
     }
     flush_regular(&mut atoms, &mut regular);
     flush_list(&mut atoms, &mut list);
-    if fenced && !code.is_empty() {
+    if fenced.is_some() && !code.is_empty() {
         atoms.push(code);
     }
     atoms
 }
 
 fn split_atom(atom: &str, limit: usize) -> Vec<String> {
-    if atom.trim_start().starts_with("```") || reply_words(atom) <= limit {
+    if fence_marker(atom.lines().next().unwrap_or("")).is_some() || atom.lines().any(list_line) {
+        // The old gate judged list items one line at a time. Keep a list item
+        // intact, including an unusually long item, instead of making its
+        // continuation look like unrelated prose.
+        return vec![atom.to_owned()];
+    }
+    if reply_words(atom) <= limit {
         return vec![atom.to_owned()];
     }
     let sentences = sentence_atoms(atom);
@@ -120,6 +126,7 @@ fn sentence_atoms(text: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut start = 0;
     let mut code = false;
+    let mut link_text = false;
     let mut link_parens = 0usize;
     let chars: Vec<(usize, char)> = text.char_indices().collect();
     for (index, ch) in chars.iter().copied() {
@@ -130,7 +137,17 @@ fn sentence_atoms(text: &str) -> Vec<String> {
         if code {
             continue;
         }
-        if ch == '(' && index >= 2 && text[..index].ends_with("](") {
+        if link_parens == 0 && ch == '[' {
+            link_text = true;
+            continue;
+        }
+        if link_text {
+            if ch == ']' {
+                link_text = false;
+            }
+            continue;
+        }
+        if ch == '(' && index > 0 && text[..index].ends_with(']') {
             link_parens = 1;
             continue;
         }
@@ -165,6 +182,19 @@ fn sentence_atoms(text: &str) -> Vec<String> {
         out.push(tail.to_owned());
     }
     out
+}
+
+fn fence_marker(line: &str) -> Option<(char, usize)> {
+    let trimmed = line.trim_start();
+    let ch = trimmed.chars().next()?;
+    if ch != '`' && ch != '~' {
+        return None;
+    }
+    let len = trimmed
+        .chars()
+        .take_while(|candidate| *candidate == ch)
+        .count();
+    (len >= 3).then_some((ch, len))
 }
 
 /// The most words of one list line, for `limit` prose words (35 for 45).

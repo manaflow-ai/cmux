@@ -1104,7 +1104,7 @@ pub enum Call {
         id: u64,
         text: String,
     },
-    /// `send` (brain/send.rs): one message now, with files, optionally in
+    /// `send` (brain/send.rs): one or more messages now, with files, optionally in
     /// a thread.
     Send(SendCall),
     /// `transcript` (brain/transcript.rs): the last `n` messages of the
