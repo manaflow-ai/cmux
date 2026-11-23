@@ -100,6 +100,7 @@ final class ComposerHeightCapUITests: XCTestCase {
 
     private func proof(screen: String, demo: String, name: String? = nil, extra: [String] = []) throws -> Readings {
         let app = XCUIApplication()
+        app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-demo", demo, "-cmux-mobile-composer-proof"] + extra
         app.launch()
         defer { app.terminate() }

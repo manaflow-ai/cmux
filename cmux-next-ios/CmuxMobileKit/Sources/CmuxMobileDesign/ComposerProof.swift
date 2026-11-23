@@ -46,9 +46,13 @@ import UIKit
         let probe = UIView(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
         probe.isAccessibilityElement = true
         probe.accessibilityIdentifier = "composer.proof.\(screen)"
+        probe.accessibilityLabel = "composer proof \(screen)"
         probe.alpha = 0.02
         probe.isUserInteractionEnabled = false
-        host.proofView.addSubview(probe)
+        // In the window, as KeyboardPinTrace's probe: a screen's own view can hide its
+        // subviews from accessibility (its own accessibilityElements, a hosting view).
+        for _ in 0..<50 where host.proofView.window == nil { await pause(0.1) }
+        (host.proofView.window ?? host.proofView).addSubview(probe)
         var lines: [String] = []
         func publish(_ state: String) {
             probe.accessibilityValue = ([state] + lines).joined(separator: "\n")
