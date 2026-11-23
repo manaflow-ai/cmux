@@ -4530,10 +4530,11 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
         let width = max(0, tuiClip.frame.width - 2 * Self.sidePadding)
         let height = CGFloat(rows) * cell.height
         let frame = CGRect(x: tuiClip.frame.minX + Self.sidePadding, y: tuiClip.frame.minY, width: width, height: height)
-        // The host's first rows, where they would sit unclipped: host point
-        // (x, y) is surface point (x, y) - surface.frame.origin, then the
-        // presented layer's own point.
-        let source = CGRect(x: -surface.frame.minX - frameLayer.frame.minX, y: -surface.frame.minY - frameLayer.frame.minY,
+        // The grid's first rows (its top, not the host's: a Mac grid taller
+        // than the area is shifted up by `tuiRowShift` rows), panned with the
+        // body: host x is surface x - surface.frame.minX, then the presented
+        // layer's own point.
+        let source = CGRect(x: -surface.frame.minX - frameLayer.frame.minX, y: -frameLayer.frame.minY,
                             width: width, height: height)
         let unit = CGRect(x: source.minX / frameLayer.bounds.width, y: source.minY / frameLayer.bounds.height,
                           width: source.width / frameLayer.bounds.width, height: source.height / frameLayer.bounds.height)
