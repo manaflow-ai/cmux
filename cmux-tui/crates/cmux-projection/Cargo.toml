@@ -20,6 +20,7 @@ flate2.workspace = true
 reqwest = { workspace = true, features = ["blocking"] }
 rustls.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 sha1 = "0.10"
 # The id check on every byte a peer, the controller SSD or R2 sends: SHA-1 that detects the known
 # collision attacks (the algorithm git itself ships), so a crafted collision is refused (hq RFD 0008).
