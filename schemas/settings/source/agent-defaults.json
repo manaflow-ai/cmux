@@ -177,6 +177,87 @@
           ]
         },
         {
+          "key": "agents.sandbox.mode",
+          "name": "sandboxMode",
+          "note": "acpmux reads it at each new chat (cmux-tui/crates/acpmux/src/agent_sandbox.rs). permissionMode (default, what acpmux did before): the sandbox follows the permission mode; the Codex bridge's modes carry their own sandbox_mode (ask and agent workspace-write, read-only read-only, agent-full-access danger-full-access) and Claude Code runs without its sandbox. workspaceWrite: full-access modes are off, as with sessions.allowFullAccess off, so Codex never runs danger-full-access; Claude Code starts with --settings sandbox.enabled true and sandbox.allowUnsandboxedCommands false, merged into the launch's own inline --settings (its sandbox covers Bash). A remote-origin chat keeps its own sandbox.",
+          "title": {
+            "key": "settings.agents.sandboxMode",
+            "text": "Agent Sandbox"
+          },
+          "help": {
+            "key": "settings.agents.sandboxMode.help",
+            "text": "Workspace Only keeps agents' writes inside their workspace and turns full-access modes off."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "permissionMode",
+              "title": {
+                "key": "settings.choice.sandboxPermissionMode",
+                "text": "Follow Permission Mode"
+              }
+            },
+            {
+              "value": "workspaceWrite",
+              "title": {
+                "key": "settings.choice.sandboxWorkspaceWrite",
+                "text": "Workspace Only"
+              }
+            }
+          ],
+          "default": "permissionMode",
+          "keywords": [
+            "sandbox",
+            "workspace",
+            "write",
+            "seatbelt",
+            "bubblewrap",
+            "full access",
+            "agent",
+            "claude",
+            "codex"
+          ]
+        },
+        {
+          "key": "agents.sandbox.network",
+          "name": "sandboxNetwork",
+          "note": "acpmux reads it at each new chat (cmux-tui/crates/acpmux/src/agent_sandbox.rs). harness (default, what acpmux did before): each harness's own; Codex's workspace-write sandbox has no network, Claude Code's sandbox asks per domain. allow: the codex app-server launch gets -c sandbox_workspace_write.network_access=true unless its command line or codex's config sets that key; a mode switched to mid-chat uses the bridge's own policy, which has no network. Claude Code's network rules stay its own. A remote-origin chat keeps its own.",
+          "title": {
+            "key": "settings.agents.sandboxNetwork",
+            "text": "Sandbox Network"
+          },
+          "help": {
+            "key": "settings.agents.sandboxNetwork.help",
+            "text": "Allow lets Codex's workspace sandbox reach the network."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "harness",
+              "title": {
+                "key": "settings.choice.sandboxNetworkHarness",
+                "text": "Harness Default"
+              }
+            },
+            {
+              "value": "allow",
+              "title": {
+                "key": "settings.choice.sandboxNetworkAllow",
+                "text": "Allow"
+              }
+            }
+          ],
+          "default": "harness",
+          "keywords": [
+            "sandbox",
+            "network",
+            "internet",
+            "codex",
+            "network_access",
+            "agent"
+          ]
+        },
+        {
           "key": "agents.modelRouter.model",
           "name": "modelRouterModel",
           "note": "The model the cmux model router profile (cmux) starts new chats on; acpmux reads it when it builds that profile (cmux-tui/crates/acpmux/src/config/discover.rs add_cmux_router). The choices are the router's DeepSeek models, default first (user 2026-10-28: DeepSeek only, the 10/17 build with images by default); CMUX_ROUTER_MODELS in acpmux and the backend allowlist (INFERENCE_MODEL_ALLOWLIST) hold the same list.",

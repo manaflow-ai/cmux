@@ -758,6 +758,15 @@ impl Hub {
             };
             crate::agent_env::AgentEnv::current().apply(&mut p.env, remote, &login);
         }
+        // `agents.sandbox.mode` `workspaceWrite` (agent_sandbox.rs): Claude Code starts with its
+        // sandbox on. A remote chain refuses a profile `--settings` and keeps its own sandbox.
+        if profile.kind == crate::config::HarnessKind::ClaudeStdio && !meta.remote_origin {
+            crate::agent_sandbox::claude_argv(
+                crate::agent_sandbox::Sandbox::current(),
+                &mut p.argv,
+                Path::new(&meta.cwd),
+            );
+        }
         // The MCP servers this chat turned off (`tools.rs`): Claude Code never calls their tools.
         if profile.kind == crate::config::HarnessKind::ClaudeStdio {
             p.argv.extend(super::tools::disallowed_args(&meta.tools));

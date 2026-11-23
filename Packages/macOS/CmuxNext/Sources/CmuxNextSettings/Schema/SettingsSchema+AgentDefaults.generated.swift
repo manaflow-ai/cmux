@@ -19,6 +19,14 @@ extension AgentDefaultsSettingsSchema {
     /// `agents.additionalDirectories`: Folders every new chat gets on top of its Sources, as Claude Code's additionalDirectories setting: Claude Code --add-dir, ACP additionalDirectories. acpmux adds them at chat creation (cmux-tui/crates/acpmux/src/hub/additional_dirs.rs); a folder that is not there is skipped; a remote-origin chat gets none.
     nonisolated static let additionalDirectoriesPath = ["agents", "additionalDirectories"]
     nonisolated static let additionalDirectoriesDefault: [String] = []
+    /// `agents.sandbox.mode`: acpmux reads it at each new chat (cmux-tui/crates/acpmux/src/agent_sandbox.rs). permissionMode (default, what acpmux did before): the sandbox follows the permission mode; the Codex bridge's modes carry their own sandbox_mode (ask and agent workspace-write, read-only read-only, agent-full-access danger-full-access) and Claude Code runs without its sandbox. workspaceWrite: full-access modes are off, as with sessions.allowFullAccess off, so Codex never runs danger-full-access; Claude Code starts with --settings sandbox.enabled true and sandbox.allowUnsandboxedCommands false, merged into the launch's own inline --settings (its sandbox covers Bash). A remote-origin chat keeps its own sandbox.
+    nonisolated static let sandboxModePath = ["agents", "sandbox", "mode"]
+    nonisolated static let sandboxModeDefault = "permissionMode"
+    nonisolated static let sandboxModeValues = ["permissionMode", "workspaceWrite"]
+    /// `agents.sandbox.network`: acpmux reads it at each new chat (cmux-tui/crates/acpmux/src/agent_sandbox.rs). harness (default, what acpmux did before): each harness's own; Codex's workspace-write sandbox has no network, Claude Code's sandbox asks per domain. allow: the codex app-server launch gets -c sandbox_workspace_write.network_access=true unless its command line or codex's config sets that key; a mode switched to mid-chat uses the bridge's own policy, which has no network. Claude Code's network rules stay its own. A remote-origin chat keeps its own.
+    nonisolated static let sandboxNetworkPath = ["agents", "sandbox", "network"]
+    nonisolated static let sandboxNetworkDefault = "harness"
+    nonisolated static let sandboxNetworkValues = ["harness", "allow"]
     /// `agents.modelRouter.model`: The model the cmux model router profile (cmux) starts new chats on; acpmux reads it when it builds that profile (cmux-tui/crates/acpmux/src/config/discover.rs add_cmux_router). The choices are the router's DeepSeek models, default first (user 2026-10-28: DeepSeek only, the 10/17 build with images by default); CMUX_ROUTER_MODELS in acpmux and the backend allowlist (INFERENCE_MODEL_ALLOWLIST) hold the same list.
     nonisolated static let modelRouterModelPath = ["agents", "modelRouter", "model"]
     nonisolated static let modelRouterModelDefault = "deepseek/deepseek-v4.1-flash-1017"
@@ -95,6 +103,32 @@ nonisolated enum AgentDefaultsSettingsSchema {
                 kind: .folderList,
                 default: .array(AgentDefaultsSettingsSchema.additionalDirectoriesDefault.map { .string($0) }),
                 keywords: ["folders", "directories", "add-dir", "additional", "sources", "agent", "claude", "codex"]
+            ),
+            SettingDescriptor(
+                AgentDefaultsSettingsSchema.sandboxModePath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agents.sandboxMode", "Agent Sandbox"),
+                help: SettingsText.keyed("settings.agents.sandboxMode.help", "Workspace Only keeps agents' writes inside their workspace and turns full-access modes off."),
+                kind: .choice([
+                    SettingChoice("permissionMode", SettingsText.keyed("settings.choice.sandboxPermissionMode", "Follow Permission Mode")),
+                    SettingChoice("workspaceWrite", SettingsText.keyed("settings.choice.sandboxWorkspaceWrite", "Workspace Only")),
+                ]),
+                default: .string(AgentDefaultsSettingsSchema.sandboxModeDefault),
+                keywords: ["sandbox", "workspace", "write", "seatbelt", "bubblewrap", "full access", "agent", "claude", "codex"]
+            ),
+            SettingDescriptor(
+                AgentDefaultsSettingsSchema.sandboxNetworkPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agents.sandboxNetwork", "Sandbox Network"),
+                help: SettingsText.keyed("settings.agents.sandboxNetwork.help", "Allow lets Codex's workspace sandbox reach the network."),
+                kind: .choice([
+                    SettingChoice("harness", SettingsText.keyed("settings.choice.sandboxNetworkHarness", "Harness Default")),
+                    SettingChoice("allow", SettingsText.keyed("settings.choice.sandboxNetworkAllow", "Allow")),
+                ]),
+                default: .string(AgentDefaultsSettingsSchema.sandboxNetworkDefault),
+                keywords: ["sandbox", "network", "internet", "codex", "network_access", "agent"]
             ),
             SettingDescriptor(
                 AgentDefaultsSettingsSchema.modelRouterModelPath,
