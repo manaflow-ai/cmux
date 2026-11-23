@@ -55,7 +55,9 @@ mod scheme;
 mod spec;
 mod tokens;
 
-pub use app_theme::{AppTheme, AppToken, Oklch, ThemeAccent, fit_contrast, from_oklch, oklch};
+pub use app_theme::{
+    AppTheme, AppToken, Oklch, ThemeAccent, fit_contrast, from_oklch, mix_oklab, oklch,
+};
 pub use colors::parse_color;
 pub use config::{
     Appearance, DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, Env, Loaded, THEME_ACCENT_KEY,
