@@ -306,6 +306,8 @@ await requireBrowserLane("agent-pane-restart-composer-still.test.ts", async () =
                 dock: read(".acpmux-dock"),
               }),
         });
+        // raf-read: getBoundingClientRect runs layout itself; each frame's sample is the layout the page
+        // will paint, and a dip shows up as one sample's height, so no painted-frame wait is needed.
         requestAnimationFrame(tick);
       };
       requestAnimationFrame(tick);

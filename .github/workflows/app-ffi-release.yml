@@ -73,6 +73,7 @@ on:
       - "cmux-tui/crates/cmux-palette-ranker/**"
       - "cmux-tui/crates/cmux-process/**"
       - "cmux-tui/crates/cmux-motion/**"
+      - "cmux-tui/crates/cmux-wallpaper/**"
       - "cmux-tui/crates/cmux-rd-core/**"
       - "cmux-tui/crates/cmux-rd-proto/**"
       - "cmux-tui/crates/cmux-rd-ffi/**"
