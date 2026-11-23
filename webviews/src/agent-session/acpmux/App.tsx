@@ -1,10 +1,8 @@
-import { BrowserSidebar } from "./browser/BrowserSidebar";
 import { composerHealthHarness } from "./composerPickerEntries";
 import { useFold } from "./conversation/fold";
 import { setSessionRefResolver } from "./conversation/sessionRefs";
 import { useStopThroughReconnect } from "./stopThroughReconnect";
 import React, {
-  Activity,
   useCallback,
   useEffect,
   useEffectEvent,
@@ -15,13 +13,10 @@ import React, {
   useState,
   useSyncExternalStore,
 } from "react";
-import { LivePresenceStack, LiveTypingLine } from "./multiplayer/LivePresence";
-import { ShareDialogHost } from "./share/ShareControl";
 import { useShareNudge } from "./share/shareNudgeModel";
 import { paneTipHost } from "./featureTipsModel";
 import { type CaptureMode, composerPlusSearchExtensions, PLUS_SEARCH_ACTIONS } from "./composerPlusRegistry";
 import { takeCapture } from "./composer/screenCapture";
-import { holdComposerPlace } from "./composer/composerHandover";
 import { chatOnThisMac, chatPlace, chatMachine as chatMachineOf } from "./chatMachine";
 import {
   CONNECT_ACTIONS,
@@ -67,19 +62,12 @@ import { hasNativeHost, postNative } from "./native";
 import { reportToastAvoidance } from "./toastAvoidance";
 import { OpenAppCard, afterLatestFooter } from "./OpenAppCard";
 import { setCloudPreviewContext, useCloudPreviewPorts } from "./cloudPreviewPorts";
-import { CloudEnvironmentEditor } from "./CloudEnvironmentEditor";
 import { useChatCloudEnvironment } from "./CloudEnvironmentChip";
 import { NativeError } from "./nativeError";
 import { errorMessage, isStartCancelled, knownRefusalText } from "./transportErrors";
 import { pageHostClient } from "./pageHost";
-import { NewTabPage } from "./NewTabPage";
-import { FOCUS_LOCATION_EVENT, type NewTabChat, type NewTabHost, pickedNewTabApp } from "./newTabModel";
-import { NewTabScreen, type NewTabScreenActions } from "./newtab/NewTabScreen";
-import { HistoryScreen } from "./newtab/HistoryScreen";
-import { NewTabAppPage } from "./newtab/NewTabAppPage";
-import { historyPages } from "./queue/historyPages";
-import type { AllChatsPage } from "./newtab/allChatsListModel";
-import { newTabScreenActions } from "./newtab/screenActions";
+import { type NewTabChat, type NewTabHost, pickedNewTabApp } from "./newTabModel";
+import { type NewTabScreenActions } from "./newtab/NewTabScreen";
 import { HarnessesScreen } from "./harnesses/HarnessesScreen";
 import { ContextScreen } from "./context/ContextScreen";
 import { contextAccess, contextSave } from "./context/contextAccess";
@@ -104,19 +92,16 @@ import {
   withCloudStartFolder,
   withCloudStartPick,
 } from "./newtab/draftFolder";
-import { cloudModePickFor as cloudModeFor, cloudSendAgent, useCloudModePick } from "./cloudModePick";
+import { cloudModePickFor as cloudModeFor, useCloudModePick } from "./cloudModePick";
 import { rememberStartedProject } from "./newtab/startedProject";
 import { shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { TaskGoalStrip } from "./TaskGoalStrip";
 import { hatPlanOf } from "./chatTaskList";
 import { goalHatPlace } from "./goalHat.experiment";
 import { jumpLatestPlace } from "./jumpPlace.experiment";
-import { jumpSide } from "./jumpPlace";
 import { githubFolderRepo } from "./githubRepos";
-import { StyleSwitch } from "./newtab/StyleSwitch";
 import { useSessionCommands } from "./newtab/useSessionCommands";
-import { screenTemplate, shownTemplate, pageStyle, pickNewTabStyle } from "./newtab/templates";
-import { newTabPageSubmit } from "./newtab/pageSubmit";
+import { shownTemplate } from "./newtab/templates";
 import { holdNewTabAttachments } from "./newtab/remoteAttachmentDraft";
 import { startNewTabTransition } from "./newtab/startTransition";
 import { PendingPaneDraw } from "./paneSnapshotLane";
@@ -192,22 +177,16 @@ import {
 import { keptChips } from "./composer/keptAttachments";
 import { chatAccessGrants } from "./header/grantsMenu";
 import { SIGN_IN_REQUIRED } from "./startRefusal";
-import { EmptyState, type EmptyStateProjects } from "./EmptyState";
+import { type EmptyStateProjects } from "./EmptyState";
 import { isNewChat, projectName } from "./emptyStateModel";
-import { TourStartContext } from "./repoTour/TourBlock";
 import type { TourOfferActions } from "./repoTour/TourOffer";
 import { dismissTour, isTourDismissed, offersTour, TOUR_PROMPT, type TourTask } from "./repoTour/tourModel";
-import { ChatUnavailableState } from "./ChatUnavailableState";
 import { useCloudChatRecovery } from "./useCloudChatRecovery";
 import { cloudChatRecoveryActive, cloudChatUnavailable, type CloudChatIdentity } from "./cloudChatRecovery";
 import { cloudSendWakes, cloudTypingWakes, type CloudWakeState } from "./cloudWake";
-import { PastChat } from "./PastChat";
 import { type PastTurn } from "./pastChatModel";
 import type { Project } from "./ProjectChooser";
 import { byRecentUse, parseProjectRepos } from "./projectRepos";
-import { answerFromHome } from "./homeInboxModel";
-import { HomeLists } from "./HomeLists";
-import { AgentDotGrid } from "./dotGrid/AgentDotGrid";
 import { agentDotGridArm } from "./dotGrid/agentDotGrid.experiment";
 import { lastChange, turnFiles, turnPathsOnly, turnRows, type PathRef, type TurnFile } from "./diff";
 import { opensTurn } from "./turnStart";
@@ -224,12 +203,9 @@ import {
   useComputerUsePreview,
   useComputerUsePreviewRoom,
 } from "./computerUse/computerUsePreview";
-import { ComputerUsePreviewCard } from "./computerUse/ComputerUsePreviewCard";
 import { askOnSingleCard, cardTakesShortcuts, heldOnCard } from "./permissionKeys";
 import { agentName } from "./agents";
 import { translate, usePaneLanguage, useT } from "./i18n";
-import { LINK_DOWN_SAID_MS } from "./afterDelay";
-import { PeerCopyBanner } from "./PeerCopyBanner";
 import { chatCloudMachine, createStopWaiter } from "./cloudMachineMenu";
 import { refreshCloudMachines, useCloudMachines, type CloudMachine } from "./cloudMachines";
 import { usePeerCloudMachine } from "./peerCloudMachine";
@@ -245,8 +221,6 @@ import {
   startingIn,
 } from "./startingSends";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
-import { Inspector, type ExportOutcome } from "./Inspector";
-import { SummaryButton } from "./summary/SummaryButton";
 import { SummaryCard } from "./summary/SummaryCard";
 import { transcriptBackground } from "./summary/sessionSummary";
 import { openSourceFile } from "./session-info/sourcesSectionModel";
@@ -281,11 +255,9 @@ import { SubagentTray } from "./subagents/SubagentTray";
 import { tuckTray } from "./subagents/trayPullTabModel";
 import { agentProgressSource } from "./subagents/agentProgressSource";
 import { AgentProgressContext, AgentProgressStore } from "./subagents/agentProgressStore";
-import { BackgroundTasksPanel } from "./backgroundTasks/BackgroundTasksPanel";
 import { isBackgroundPane, openBackgroundPane } from "./backgroundTasks/backgroundPane";
 import { OpenBackgroundTasks, requestBackgroundFocus, useBackgroundFocus } from "./backgroundTasks/openBackgroundTasks";
 import { backgroundGroups, type TaskCache } from "./backgroundTasks/backgroundTasks";
-import { backgroundTasksLook } from "./backgroundTasks/backgroundTasksLook.experiment";
 import { settleTrayExit } from "./subagents/trayMotionModel";
 import { configureWorkflowCardOpen, configureWorkflowCardSideTab } from "./summary/workflowCardModel";
 import {
@@ -302,7 +274,7 @@ import { lingeringTrayItems, trayItemEnd, useTrayLinger, TRAY_LINGER_MS } from "
 import { useSubagentTrayPlacement } from "./subagents/subagentTrayPlacement";
 import { SelectionReplyChip } from "./conversation/SelectionReply";
 import { setQuoteReplySink } from "./conversation/selectionReplyModel";
-import { AgentTonesContext, agentTone, agentTones } from "./subagents/agentTones";
+import { agentTone, agentTones } from "./subagents/agentTones";
 import { useSummaryCard, useSummaryColumn } from "./summary/cardState";
 import { chatHasSummaryContent } from "./summary/summaryContent";
 import { createWorkflowAdapter, workflowDetailRequest, type WorkflowDetailRequest } from "./summary/foldWorkflows";
@@ -310,7 +282,6 @@ import { workflowPaneId, workflowPaneRequest } from "./summary/workflowTranscrip
 import { useWorkflowTranscript } from "./summary/useWorkflowTranscript";
 import { releaseReaderScroll, useHeldWhileScrolling } from "./summary/heldWhileScrolling";
 import type { WorkflowAgent, WorkflowSummary } from "./summary/workflow";
-import { WorkflowSideTab } from "./summary/WorkflowSideTab";
 import {
   backToOpeningChat,
   showSubagent as showSubagentIn,
@@ -329,12 +300,11 @@ import { useTurnCheckpoints } from "./changes/useTurnCheckpoints";
 import { latestTurnCheckpointPair, readTurnFromRows } from "./changes/turnCheckpointSource";
 import { useComposerSettings } from "./composerSettings";
 import { restoredDecisions, type HunkDecision, type HunkReview } from "./changes/hunkReview";
-import { isWaitingForWords, useDictation, type DictationField } from "./dictation";
+import { useDictation, type DictationField } from "./dictation";
 import { DictationMic } from "./DictationMic";
 import { useComposerView } from "./composer/composerView";
-import { DictationNotice } from "./DictationNotice";
 import type { MarkdownFieldHandle } from "./MarkdownField";
-import { AgentNamesContext, AgentOpenContext, agentNames, agentViews } from "./conversation/agentNames";
+import { agentNames, agentViews } from "./conversation/agentNames";
 import { loadEditDiffHunks } from "./conversation/editDiffModel";
 import { loadHighlightedCode } from "./conversation/codeBlockModel";
 import { BackgroundTaskOutputContext, type BackgroundTaskOutputReader } from "./conversation/backgroundTaskOutput";
@@ -395,7 +365,6 @@ import {
   waitingAsks,
   closeTurnRuns,
   turnInsideIds,
-  turnView,
 } from "./conversation/turns";
 import { PendingAsks } from "./conversation/PendingAsks";
 import { forgetInsideTurn } from "./conversation/transcriptDisclosureModel";
@@ -415,17 +384,12 @@ import {
 import { turnPreviewUrl, turnServedUrl } from "./conversation/previewUrl";
 import { canFork, forksAnyTurn, latestForkSeq, canForkTurn } from "./conversation/messageMenu";
 import { callChipHost } from "./chips/host";
-import { ArtifactPanel, type SaveDocument } from "./conversation/ArtifactPanel";
+import { type SaveDocument } from "./conversation/ArtifactPanel";
 import { useArtifactCoversPane } from "./conversation/artifactPanelModel";
 import { pullRequestRef } from "./chips/pullRequestCardModel";
 import { branchesFromKey, branchesKey, messageBranches } from "./conversation/branches";
 import { ArtifactContext, type Artifact } from "./conversation/artifactPreview";
-import {
-  artifactVersionsForSession,
-  changeArtifactPin,
-  visibleArtifact,
-  type OpenedArtifact,
-} from "./conversation/artifactPin";
+import { artifactVersionsForSession, visibleArtifact, type OpenedArtifact } from "./conversation/artifactPin";
 import { uniqueArtifacts } from "./conversation/artifactDedupe";
 import { writtenArtifacts } from "./conversation/writtenArtifactsModel";
 import { artifactVersions, finishedReplyDocuments } from "./conversation/artifactVersions";
@@ -433,20 +397,15 @@ import { artifactLiveSource, mergeArtifactVersions } from "./conversation/artifa
 import { RenderPages, renderPages, renderVersions } from "./conversation/renderCall";
 import { ShortcutsContext, type ShortcutLabels } from "./shortcuts";
 import { notifyRevealRowsChanged, revealedMessage, revealMessageWhenShown, revealTurnWhenShown } from "./links";
-import { NeedsYouButton } from "./needsYou/NeedsYou";
 import { useNeedsYou } from "./needsYou/useNeedsYou";
 import type { ChatImage } from "./conversation/chatImages";
 import { viewerImages } from "./summary/chatGallery";
 import { ImageViewer } from "./conversation/ImageViewer";
 import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { useStreamAppendDeclaration } from "./devMotionAudit";
-import { ChatHeaderInlineStatus, ChatHeaderStatus } from "./header/ChatHeaderStatus";
-import { ChatHeaderTools } from "./header/ChatHeaderTools";
 import { HEADER_ACTIONS, type ChatMenuItem } from "./header/chatHeaderToolsModel";
-import { ThreadTitle } from "./header/ThreadTitle";
-import { ChatSummaryLine } from "./header/ChatSummaryLine";
 import { setHeaderState, useHeaderState } from "./header/headerState";
-import { tabRowStyle, useTabRow, useTabRowRoot, useTabRowTools } from "./header/tabRow";
+import { useTabRow, useTabRowRoot, useTabRowTools } from "./header/tabRow";
 import {
   subagentRelayPrompt,
   subagentRelaySteers,
@@ -462,7 +421,6 @@ import {
   cloudStartTeam,
   makeCloudSignInRetry,
   grantedCloudStart,
-  newTabProjectPick,
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
   type CloudStartAnswer,
@@ -482,12 +440,11 @@ import {
   rememberNewChatPlace,
 } from "./lastNewChatPlace";
 import { cloudStartStalled, watchCloudStartStall, type CloudStartProgress } from "./cloudStartProgress";
-import { CloudStartView } from "./CloudStartView";
 import { createCloudPlanSubscribe } from "./cloudPlanSubscribe";
 import { type CloudSignInWait } from "./cloudSignIn";
 import { retryWithSetUpPick, type CloudSetupAction, type CloudSetupNeed } from "./cloudSetup";
 import { ClaudeConnectContext, setupConnect } from "./claudeConnect";
-import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
+import { type QuickActionMode } from "./header/quickActions";
 import {
   useChatDisplay,
   useChatMinimap,
@@ -496,7 +453,6 @@ import {
   useTrayHandle,
   useTrayTucked,
 } from "./chatDisplay";
-import { ChatDisplaySettings } from "./ChatDisplaySettings";
 import { usePresentation } from "./conversation/presentation";
 import { PresentationContext } from "./conversation/presentationContextModel";
 import { thinkingVerbsFor, ThinkingVerbsContext } from "./conversation/thinkingVerbs";
@@ -505,10 +461,8 @@ import { mergeInboxNotices } from "./conversation/inboxNotice";
 import { cloudAgentLogin, localApiKeyLogin, SIGN_IN_ON_MACHINE } from "./cloudAgentLogin";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { archiveClosesTab, deleteClosesTab } from "./header/archiveClose";
-import { afterDeleteDismiss } from "./header/deleteDismiss";
-import { DeleteChatDialog } from "./header/DeleteChatDialog";
 import { avatarRows } from "./header/avatarRow";
-import { readChatMini, useChatMini } from "./header/miniRow";
+import { useChatMini } from "./header/miniRow";
 import { removeAgentAvatar, setAgentAvatar, useAgentAvatar } from "./agentAvatar";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
 import { sideChatPlace, sideChatRefusal, sideChatRow } from "./header/sideChatRow";
@@ -533,7 +487,6 @@ import { type HarnessHealth, type UpdateOffer, UpdateOfferContext } from "./harn
 import { HarnessUpdatesContext, useHarnessUpdateList } from "./harnessUpdateList";
 import { Notice, NoticeSlot } from "./NoticeSlot";
 import { createPaneToasts, paneNotices, postNativePaneToast } from "./paneToasts";
-import { ToastLayer } from "./ToastLayer";
 import { turnPhase } from "./turnPhase";
 import { type ForumRule, forumRules } from "./rulesNoticeModel";
 import { type SignIn, SignInContext, signedOutHarnesses } from "./signIn";
@@ -568,15 +521,11 @@ import { useBackgroundNotice } from "./conversation/backgroundNotice";
 import { type InstructionsFailure } from "./header/InstructionsNotice";
 import { showsFolderChoice } from "./folderChoiceModel";
 import { ownMachineFolders, type ExtraFolderDraft } from "./extraFolders";
-import { NewProjectUnsupported } from "./newtab/NewProjectName";
 import { type FolderAsk, confirmFolder, newChatInWorktree, newWorktree, pickFolder } from "./startFolderModel";
 import { useSyncedRef } from "../../diff-viewer/useSyncedRef";
 import { useWorktreeSetupStart } from "./worktreeSetup";
 import { NewTabFolderAsk } from "./NewTabFolderAsk";
-import { LiveChatChoice } from "./LiveChatChoice";
-import { WatchBanner } from "./WatchBanner";
 import { chiefOf, isTakenOver, managedBy, managerDrivingUntil, takeOverManaged } from "./managedBy";
-import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
 import { useExtensionCommands, withExtensionCommands } from "./composer/extensionCommands";
 import { continueTargets, mergedCommands, type CmuxCommand, type CmuxCommandResult } from "./cmuxCommands";
@@ -599,13 +548,11 @@ import { setFloatingState, useFloatingState } from "./floatingState";
 import { FailedSendsContext, type FailedSends } from "./conversation/promptDeliveryModel";
 import { failedRuns, type FailedRun } from "./sendFailure";
 import { clientWaiter } from "./lostPrompt";
-import { ReplayScreen } from "./replay/ReplayScreen";
 import { sessionReplay } from "./replay/replay.experiment";
-import { readSteerLog, recordSteer, type SteerAct } from "./steerQueue/log";
+import { readSteerLog, type SteerAct } from "./steerQueue/log";
 import { steerQueue } from "./steerQueue/model";
-import { SteerQueue, type SteerActions } from "./steerQueue/SteerQueue";
+import { type SteerActions } from "./steerQueue/SteerQueue";
 import { steerQueueExperiment } from "./steerQueue/steerQueue.experiment";
-import { StatusIsland } from "./statusIsland/StatusIsland";
 import { statusIslandExperiment } from "./statusIsland/statusIsland.experiment";
 import { useStatusIsland } from "./statusIsland/useStatusIsland";
 import { BtwNotes } from "./aside/btwNotes";
@@ -638,8 +585,6 @@ import {
   type RunMode,
   newTabRunModeRows,
 } from "./sandboxRun";
-import { SandboxRunView } from "./SandboxRunView";
-import { PaneFeatureTips } from "./featureTips";
 import { cloudChatHintDue, cloudChatHintShown, useCloudChatHint, useCloudChatHintClaim } from "./cloudChatHintModel";
 import { withCloudMachineSummary } from "./cloudSummary";
 import { callNative } from "./callNative";
@@ -669,7 +614,6 @@ import { turnEndedBetween, cachedSnapshot } from "./snapshotCache";
 import { newestTurnSummary, useFinishMoments } from "./finish/useFinishMoments";
 import { useDraftWaitOver } from "./draftSettleHold";
 import { focusRoute } from "../../ui/focusRoute";
-import { LiveTreePill } from "./header/LiveTreePill";
 import { paneSnapshotEffect } from "./pane/paneSnapshot";
 export { VirtualTranscript } from "./VirtualTranscript";
 export type { ScrollAnchor } from "./VirtualTranscript";
@@ -708,8 +652,9 @@ import { answerPrompt, askQuote } from "./conversation/nextStepAsk";
 import { type HatQuestionActions } from "./question/HatQuestions";
 import { reply as questionReply, replyParams, selection } from "./question/model";
 export { NewTabComposerChips, ChatComposerChips } from "./pane/ComposerChips";
-import { NewTabComposerChips, DefaultComposerChips } from "./pane/ComposerChips";
+import { DefaultComposerChips } from "./pane/ComposerChips";
 import { drawPaneComposer } from "./pane/PaneComposer";
+import { drawPaneBody } from "./pane/PaneBody";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -717,14 +662,6 @@ import { drawPaneComposer } from "./pane/PaneComposer";
 /// cards (conversation/CodeBlock.tsx, conversation/EditDiff.tsx), so opening it waits on nothing.
 
 /// A page action: the connected client's (chat actions run against acpmux), else the native host.
-/** Saves the inspector's export through the host's save panel (`pane.saveLog`): true is saved, false a cancelled panel. A host without it, or one that refuses the log, leaves the inspector to copy it. */
-async function saveLogNatively(text: string, suggestedName: string): Promise<ExportOutcome> {
-  try {
-    return (await callNative<boolean>("pane.saveLog", { text, suggestedName })) === true ? "saved" : "cancelled";
-  } catch {
-    return "unavailable";
-  }
-}
 
 /** Saves a side panel document through the host's save panel (`pane.saveFile`); a host without one, or a failed write, is unavailable (the panel copies the document instead). */
 const saveDocumentNatively: SaveDocument = async (text, suggestedName, kind) => {
@@ -9545,1001 +9482,251 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       }}
     />
   );
-  const pane = !knowsWhatItIs ? (
-    // Clear until it knows: the pane's background shows, never a chat screen a New Tab replaces.
-    <ShortcutsContext.Provider value={shortcuts}>
-      <section
-        ref={setShell}
-        className="acpmux-shell"
-        data-tab-row={inTabRow ? "" : undefined}
-        data-solo-tab={soloTab ? "" : undefined}
-        aria-busy="true"
-        style={inTabRow ? tabRowStyle(tabRow) : undefined}
-      />
-    </ShortcutsContext.Provider>
-  ) : (
-    <ShortcutsContext.Provider value={shortcuts}>
-      <section
-        ref={setShell}
-        className="acpmux-shell"
-        data-tab-row={inTabRow ? "" : undefined}
-        data-solo-tab={soloTab ? "" : undefined}
-        data-background-pane={ownBackgroundPane ? "" : undefined}
-        aria-label={composerSnapshot.summary?.title || t("header.agentChat")}
-        style={inTabRow ? tabRowStyle(tabRow) : undefined}
-      >
-        {document.documentElement.hasAttribute("data-cmux-browser-pane") && connected && (
-          <BrowserSidebar
-            sessions={snapshot.sessions}
-            workspaces={snapshot.browserWorkspaces}
-            selected={snapshot.sessionId}
-            onSelect={selectSession}
-            onRefresh={() => void directClient.current?.refreshBrowserWorkspaces()}
-          />
-        )}
-        {steering && steerQueueOn ? (
-          <SteerQueue
-            items={steerItems}
-            now={steerNow || Date.now()}
-            actions={steerActions}
-            onClose={() => setSteering(false)}
-            onAct={(item, act, text) =>
-              setSteerLog((log) =>
-                recordSteer(log, { sessionId: item.sessionId, act, ...(text ? { text } : {}), at: Date.now() }),
-              )
-            }
-          />
-        ) : null}
-        {statusIsland ? (
-          <StatusIsland
-            state={statusIsland}
-            actions={{
-              answer: needsYou.actions.answer,
-              goTo: needsYou.actions.goTo,
-              // The chat on screen: its failure is right here, at the foot of the transcript. Another
-              // chat opens beside this one (`chat.asks.open`), which the host does only for a chat on
-              // this Mac's acpmux and never from New Tab: there the card offers no Open Chat.
-              openSession: (sessionId) => {
-                if (sessionId === snapshot.sessionId) {
-                  const failures = document.querySelectorAll(".cv-turn-error__cause");
-                  failures[failures.length - 1]?.scrollIntoView({ block: "nearest" });
-                  return;
-                }
-                void callNative("chat.asks.open", { sessionId }).catch(() => undefined);
-              },
-              canOpen: (sessionId) =>
-                !showNewTab &&
-                (sessionId === snapshot.sessionId ||
-                  !snapshot.sessions.some((session) => session.sessionId === sessionId && session.peer)),
-            }}
-          />
-        ) : null}
-        <div
-          className="acpmux-main"
-          data-new-chat={freshView && !showNewTab ? "" : undefined}
-          // Settings' `agentPane.emptyChatComposerPosition`: "center" sits a new chat's composer in the
-          // middle of the pane (styles.css); absent, it docks at the bottom as always.
-          data-empty-chat-composer={
-            freshView && !showNewTab && emptyChatComposerPosition === "center" ? "center" : undefined
-          }
-          // The transcript runs the pane's height under the bottom stack (bottomStack.css) while the
-          // stage shows it; a new chat's hero, a handoff review, the diff and the inspector keep it in flow.
-          data-dock={!reviewing && !freshView && !inspectorOpen ? "float" : undefined}
-          data-summary={summaryCard.column ? "inline" : "popover"}
-          data-cu-preview={previewBeside ? "" : undefined}
-          // The jump stack's place and side (jumpPlace.css): the whole stack moves together.
-          data-jump-place={jumpPlaceArm}
-          data-jump-side={jumpSide(jumpPlaceArm, trayHandle)}
-          data-vscode-minimap={chatMinimapBeside ? "" : undefined}
-          // A question or permission card in the bottom stack (conversation.css). An attribute, not a
-          // `:has()` over the pane: that would be checked again for every node a streamed chunk inserts
-          // into the transcript, and restyle the composer each time.
-          data-asks={hasBottomAsk ? "" : undefined}
-          // data-jump-latest: Jump to latest is up (hidden under the inspector), set by setJumpLatestShown.
-          ref={setPaneMain}
-        >
-          <div ref={setToastTop} className="acpmux-toasts-top" />
-          {!harnessesOpen &&
-            showNewTab &&
-            !newTab.history &&
-            !newTabApp &&
-            pageStyle(shownTemplate(newTab)) !== "minimal" && (
-              <StyleSwitch
-                current={pageStyle(shownTemplate(newTab))}
-                onPick={(next) =>
-                  pickNewTabStyle(next, {
-                    callNative,
-                    show: (template) => setNewTab((current) => current && { ...current, template }),
-                  })
-                }
-                onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
-              />
-            )}
-          {showNewTab && folderAskView}
-          {newTabApp && !harnessesOpen ? (
-            <NewTabAppPage
-              key={`${newTabGeneration}:${newTabApp}`}
-              app={newTabApp}
-              {...(newTab?.cwd ? { cwd: newTab.cwd } : {})}
-              onUnavailable={() => setNewTabAppGone(newTabAdoptions)}
-              inputToken={newTab?.inputToken}
-              onInputReady={(token) => void callNative("newTab.inputReady", { token })}
-            />
-          ) : showNewTab && !newTab.history && shownTemplate(newTab) !== "classic" ? (
-            <>
-              {/* Setup keeps this page's draft and project, while its hidden input effects stop. */}
-              <Activity mode={harnessesOpen ? "hidden" : "visible"}>
-                <NewTabScreen
-                  onSetup={(resume) => {
-                    setupContinuation.current = resume;
-                    setHarnessesOpen(true);
-                  }}
-                  onCmuxCommand={(command, args) => handleCmuxCommand(command, args, true)}
-                  onImportFile={importFile}
-                  importError={importError}
-                  importSandboxed={sandbox.mode === "sandboxed"}
-                  // The machine the person last picked for a new chat (cmux#46019), while acpmux lists it.
-                  {...(newTabStartMachine ? { startMachine: newTabStartMachine } : {})}
-                  onCommands={(harness, cwd) => {
-                    void callNative("chat.new", { harness, ...(cwd ? { cwd } : {}), deferred: true }).catch(
-                      () => undefined,
-                    );
-                  }}
-                  key={newTabGeneration}
-                  environments
-                  onLeaveDraft={leaveNewTabDraft}
-                  takeDraft={takeNewTabDraft}
-                  {...(cloudPickPending ? { cloudPick: takeCloudPick } : {})}
-                  {...(cloudHintShown ? { cloudHint: { onClose: cloudHint.close } } : {})}
-                  {...(newTabRunMode
-                    ? {
-                        runMode: newTabRunMode,
-                        // A page-side refusal goes to the chat view, which says why (SandboxRunView), with
-                        // the prompt and attachments put back in its composer.
-                        ...(!cloudStart && cloudWaitsForCheck && !sandbox.unread
-                          ? {
-                              cloudStatus: (
-                                <output className="acpmux-switch-notice">
-                                  <span>{t("cloudStart.checkingTab")}</span>
-                                </output>
-                              ),
-                            }
-                          : {}),
-                        ...(!cloudStart && typeof cloudHeld === "object"
-                          ? {
-                              cloudStatus: (
-                                <output className="acpmux-switch-notice acpmux-folder-choice">
-                                  <span role="alert">{cloudHeld.refusal}</span>{" "}
-                                  <button
-                                    type="button"
-                                    className="acpmux-folder-choice-button"
-                                    onClick={() => {
-                                      const { prompt, cwd } = cloudHeld;
-                                      setCloudHeld(undefined);
-                                      void openCloudChatWith({
-                                        ...(prompt ? { prompt } : {}),
-                                        ...(cwd ? { cwd } : {}),
-                                      }).catch(() => undefined);
-                                    }}
-                                  >
-                                    {t("cloudStart.openNewCloudChat")}
-                                  </button>
-                                </output>
-                              ),
-                            }
-                          : {}),
-                        ...(cloudStart
-                          ? {
-                              cloudStatus: (
-                                <CloudStartView
-                                  start={cloudStart}
-                                  bubble={cloudStart.state === "starting"}
-                                  onAnswer={answerCloudStart}
-                                  onRetry={retryCloudStart}
-                                  onSignIn={cloudSignInRetry}
-                                  planStore={cloudPlanStore}
-                                  onRunHere={runCloudHere}
-                                  onDismiss={dismissCloudFailure}
-                                  onSwitchTeam={switchTeamAndRetry}
-                                  onOpenNewCloudChat={openNewCloudChatForStart}
-                                  {...cloudTooBigActions}
-                                  onSetUp={setUpCloud}
-                                  onSetUpDismiss={dismissCloudSetUp}
-                                />
-                              ),
-                            }
-                          : {}),
-                        // The page stays locked through a stall: its send would start a chat in this tab.
-                        cloudStarting: cloudSendHeld || cloudPageHeld,
-                        onCloud: (
-                          harness: string,
-                          text: string,
-                          cwd: string | undefined,
-                          model: string | undefined,
-                          attachments: ComposerAttachment[],
-                        ) => {
-                          const folder = cloudStartFolder(cwd);
-                          // New Tab sends use this callback directly, so record their complete folder too.
-                          // Otherwise Retry would reuse the pane's previous folder.
-                          cloudRetryFolder.current = folder;
-                          return sendToCloud(
-                            text,
-                            attachments,
-                            {
-                              ...folder,
-                              // The agent the Mode chip names and its pick: a harness with no
-                              // Cloud start mode is left out, so the machine starts Claude.
-                              ...cloudSendAgent(
-                                snapshot.catalog.find((entry) => entry.id === harness)?.family,
-                                harness,
-                                model,
-                              ),
-                            },
-                            true,
-                          );
-                        },
-                        onSandbox: (harness: string, text: string, attachments: ComposerAttachment[]) => {
-                          // Only a run this tab can make goes: a Sandboxed pick left over once a session opened here is refused.
-                          const started = sandboxing ? startSandbox(text, attachments.length, harness) : sandboxNotNow;
-                          if (started !== false) newTabSandboxSent.current = true;
-                          if (typeof started !== "string") return started;
-                          heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
-                          setSandboxDraftMoved(true);
-                          sandbox.refuse(text, started);
-                          return true;
-                        },
-                      }
-                    : {})}
-                  onConnect={connectMachine}
-                  onRefreshMachines={() => void directClient.current?.refreshPeers()}
-                  onNewProject={(name) => {
-                    const client = directClient.current;
-                    return client?.newProjectSupported
-                      ? client.newProject(name)
-                      : Promise.reject(new NewProjectUnsupported());
-                  }}
-                  onNewWorktree={(cwd) => {
-                    let folder: string | undefined;
-                    return newWorktree(callNative, cwd, (used) => {
-                      folder = used;
-                    }).then(() => folder);
-                  }}
-                  accessory={<DictationMic dictation={dictation} />}
-                  upload={uploadFiles}
-                  dictating={isWaitingForWords(dictation.state)}
-                  dictationField={newTabDictationField}
-                  dictation={dictation}
-                  notice={
-                    <>
-                      <DictationNotice dictation={dictation} />
-                      {sandboxUncheckedNotice && sandboxUnchecked}
-                    </>
-                  }
-                  startNotice={trustQuestion}
-                  // The host answers only for a page on this Mac; another machine's keeps the refusal.
-                  {...(!quick ? { localPaths } : {})}
-                  template={screenTemplate(shownTemplate(newTab))}
-                  {...(newTab.allChats === false ? { allChats: false } : {})}
-                  {...(newTab.suggestionOrder ? { suggestionOrder: newTab.suggestionOrder } : {})}
-                  snapshot={
-                    commandSession
-                      ? { ...newTabSnapshot, commands: withExtensionCommands(pendingCommands ?? [], extensionCommands) }
-                      : newTabSnapshot
-                  }
-                  {...(newTabFixError ? { fixError: newTabFixError } : {})}
-                  omnibar={newTab.omnibar}
-                  location={newTab.location}
-                  lastAgent={newTab.lastAgent}
-                  home={newTab.home}
-                  {...(newTab.startedProject ? { startedProject: newTab.startedProject } : {})}
-                  knownProjects={newTabKnownProjects}
-                  {...(newTab.openTabs ? { openTabs: newTab.openTabs } : {})}
-                  // The field takes keys from its first render (the host's buffer hands them over at
-                  // once); only a submit waits for acpmux (`whenHandshaken`).
-                  inputToken={newTab.inputToken}
-                  {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
-                  {...(startFolder ? { startCwd: startFolder } : {})}
-                  onPromptTyped={onNewTabPromptTyped}
-                  onCloudMachinePicked={quick ? undefined : onCloudMachinePicked}
-                  // Leo, 2026-10-31: "JUST PASSING THE SELECTED FOLDER/'PROJECT' WHEN YOU PICK CLOUD THAT'S
-                  // THE BEST WAY. IT JUST GOES IT JUST WORKS". A project picked here goes to the host on its
-                  // click (workspace.useFolder, as the chat composer's chip does in chooseProject), so a Cloud
-                  // send copies it: cloud.startChat copies only the pane's own folders, and a recent project
-                  // this page lists was none until the person sent in it here (#29294). Not on Return: the
-                  // grant spends a gesture, and the Return's is the start's. Only a folder Cloud would copy
-                  // (never home or above it, cloudStartFolder), and whenever Cloud may be offered, the
-                  // host's sandbox check still out included (newTabProjectPick); a home or root answer
-                  // asks nothing here (the local start still asks on Return).
-                  {...newTabProjectPick(callNative, cloudOfferable, cloudFolderGrant.granting)}
-                  {...(!handshaken ? { startPending: true } : {})}
-                  {...(newTabChatsPending ? { chatsPending: true } : {})}
-                  {...((newTab.host ?? machineName) ? { machineName: (newTab.host ?? machineName)! } : {})}
-                  projects={newTabProjects}
-                  onBrowseProject={() => callNative<{ cwd?: string }>("project.browse").then((result) => result?.cwd)}
-                  // Add folder…: folders the new chat sees beside its project (extraFolders.ts).
-                  extraFolders={{
-                    draft: extraFolderDraft,
-                    onChange: setExtraFolderDraft,
-                    onBrowse: () => callNative<{ cwd?: string }>("project.browse").then((result) => result?.cwd),
-                  }}
-                  chips={registryChips ?? NewTabComposerChips}
-                  focusField={newTab.focusesField !== false}
-                  onPlusCommand={runNewTabPlusSearch}
-                  {...withSubmitAfterHandshake(
-                    newTabScreenActions({
-                      callNative,
-                      cwd: newTab.cwd,
-                      chatCwd: startFolder,
-                      requestFolder,
-                      startsHere: () => !directClient.current?.startsOnSend,
-                      // A start belongs to this New Tab visit. Cmd-T adoption, chat selection,
-                      // or another start advances the marker and fences every late completion.
-                      // Harness starts may reconnect their client while the queued prompt waits;
-                      // direct starts remain tied to the client that received the click.
-                      startScope: (allowReconnect) => {
-                        const generation = newTabStartGeneration.current;
-                        const page = newTabGeneration;
-                        const client = directClient.current;
-                        return () =>
-                          newTabStartGeneration.current === generation &&
-                          newTabGeneration === page &&
-                          (allowReconnect || directClient.current === client);
-                      },
-                      // The chat's composer glides from where New Tab's drew (composer/composerHandover.ts).
-                      leave: () => {
-                        holdComposerPlace();
-                        setNewTab(undefined);
-                      },
-                      selectSession,
-                      showAllChats,
-                      runShell: (command, cwd) => {
-                        if (cwd) setProjectDraft(cwd);
-                        shellRuns.start(command, cwd ? { cwd } : {});
-                      },
-                      clearError: () => setNewTabFixError(undefined),
-                      showError: (error) => {
-                        console.warn("agent pane: Fix in a new worktree failed", error);
-                        setNewTabFixError(knownRefusalText(error) ?? translate("chat.newFailed"));
-                      },
-                    }),
-                  )}
-                  // A chat card's Compress Chat or Decompress Chat: acpmux's cold archive, on this page's
-                  // connection. acpmux answers it to this Mac's own app only, never a remote one.
-                  {...(snapshot.origin !== "remote" && snapshot.origin !== "peer"
-                    ? {
-                        onColdArchive: (sessionId: string, archived: boolean) =>
-                          directClient.current?.coldArchive(sessionId, archived) ??
-                          Promise.reject(new Error(translate("error.notOpen"))),
-                      }
-                    : {})}
-                />
-              </Activity>
-              {harnessesOpen && harnessesPage}
-            </>
-          ) : harnessesOpen ? (
-            harnessesPage
-          ) : contextOpen && !showNewTab ? (
-            contextPage
-          ) : showNewTab && newTab.history ? (
-            <HistoryScreen
-              load={(params) => callNative<AllChatsPage | undefined>("chats.page", params)}
-              onOpen={(key) => callNative("chats.open", { key })}
-              onOpenInTerminal={(key) => void callNative("chats.openInTerminal", { key }).catch(() => undefined)}
-              onViewOnly={(key) => void callNative("chats.watch", { key }).catch(() => undefined)}
-              // Waiting on you and Costs read this Mac's acpmux, which answers them to its own app only
-              // (an older acpmux that names no origin says on the tab that it keeps neither yet).
-              {...(snapshot.origin !== "remote" && snapshot.origin !== "peer"
-                ? historyPages({
-                    client: () => directClient.current,
-                    callNative,
-                    selectSession,
-                    asks: snapshot.asks ?? [],
-                    sessions: snapshot.sessions,
-                  })
-                : {})}
-            />
-          ) : showNewTab ? (
-            <NewTabPage
-              onCmuxCommand={(command, args) => handleCmuxCommand(command, args, true)}
-              onImportFile={importFile}
-              importError={importError}
-              importSandboxed={sandbox.mode === "sandboxed"}
-              key={newTabGeneration}
-              snapshot={newTabSnapshot}
-              hotkeys={newTab.hotkeys}
-              initialKind={newTab.initialKind}
-              cwd={newTab.cwd}
-              {...(newTab.startedProject ? { startedProject: newTab.startedProject } : {})}
-              {...(newTab.home ? { home: newTab.home } : {})}
-              knownProjects={newTabKnownProjects}
-              host={newTab.host ?? machineName}
-              location={newTab.location}
-              omnibar={newTab.omnibar}
-              projects={newTabProjects}
-              // The same deferred chips as the other templates: a pick before the chat starts opens
-              // the page's chat behind it, as on the New Tab screen, never the active chat's path.
-              chips={registryChips ?? NewTabComposerChips}
-              {...(newTab.lastAgent ? { lastAgent: newTab.lastAgent } : {})}
-              // A terminal or browser tab opens at once; a chat waits for acpmux (cx-hnpxh).
-              onSubmit={newTabPageSubmit({ callNative, whenHandshaken, startChat: chatFromNewTab })}
-              onJump={(target, id) => void callNative("tab.jump", { target, id })}
-              onOpenSession={selectSession}
-              onShowAll={showAllChats}
-              onBrowseProject={() => callNative<{ cwd?: string }>("project.browse").then((result) => result?.cwd)}
-              onEditShortcut={(kind) => void callNative("shortcut.edit", { kind })}
-              inputToken={newTab.inputToken}
-              onInputReady={(token) => void callNative("newTab.inputReady", { token })}
-              onLeaveDraft={leaveNewTabDraft}
-              takeDraft={takeNewTabDraft}
-              onFieldEdit={newTabFieldEdited}
-            />
-          ) : replaying && replaying === snapshot.sessionId ? (
-            <ReplayScreen
-              sessionId={replaying}
-              title={snapshot.summary?.title || snapshot.summary?.name}
-              load={loadReplay}
-              onClose={() => setReplaying(undefined)}
-              onContinue={
-                snapshot.canFork
-                  ? (throughSeq) => {
-                      setReplaying(undefined);
-                      void directClient.current?.fork(throughSeq);
-                    }
-                  : undefined
-              }
-              transcript={(replayed) => (
-                <VirtualTranscript
-                  // The replayed rows fold into turns as the live chat's do (turnViewFrom above):
-                  // raw, a turn's tool calls sit in activity rows the transcript draws no line for.
-                  rows={turnView(replayed.rows, folds, {
-                    working: replayed.isWorking,
-                    clockOffset: replayed.clockOffsetMs,
-                    turnStartedAtMs: replayed.turnStartedAtMs,
-                    agentFamily: replayed.summary?.family ?? snapshot.summary?.family,
-                  })}
-                  sessionId={`replay:${replaying}`}
-                  // A replay draws under its chat's view too (conversation/viewFolds.ts), as the live transcript.
-                  expanded={folds}
-                  showMinimap={minimapVisible}
-                  // It draws in the same .acpmux-main, so its column ends where the live one's does.
-                  endReserve={columnEndReserve}
-                  minimapBeside={chatMinimapBeside}
-                  registry={noDismissRegistry}
-                  onToggleActivity={toggleActivity}
-                />
-              )}
-            />
-          ) : null}
-          {(showsChatView || premountsChatView) && (
-            // Its own key space: the classic page beside it is keyed by `newTabGeneration` (0 and up),
-            // and a shared key let React lose the page's fiber and mount the page again beside it.
-            <Activity
-              key={`chat-view-${chatViewMount.current.key}`}
-              mode={showsChatView || parkVisible ? "visible" : "hidden"}
-            >
-              <div
-                className={`acpmux-stage${inspectorOpen ? " acpmux-inspecting" : ""}`}
-                data-solo-tab={soloUnder ? "" : undefined}
-                style={parkStyle ?? (inTabRow ? tabRowStyle(tabRow) : undefined)}
-                inert={parkedVisible || undefined}
-              >
-                {/* In the tab row the native tabs draw over this band, so a tooltip stays out of it
-                    (ui/titleTooltips.ts `data-tooltip-covered`). */}
-                <header
-                  className="acpmux-header"
-                  data-tab-row={inTabRow ? "" : undefined}
-                  data-tooltip-covered={inTabRow ? "" : undefined}
-                >
-                  <ChatHeaderStatus status={header.status} detail={header.detail}>
-                    {!inTabRow && !showNewTab && snapshot.sessionId && (
-                      <span className="acpmux-header-status-content">
-                        <ThreadTitle key={snapshot.sessionId} title={chatName} onRename={renameFromTitle} />
-                        {/* Where the chat stands and its next action (header/ChatSummaryLine.tsx). */}
-                        <ChatSummaryLine summary={snapshot.summary?.rollingSummary} />
-                      </span>
-                    )}
-                  </ChatHeaderStatus>
-                  <div className="acpmux-handoff-header-tools" ref={tabRowTools}>
-                    {liveTreeEnabled && snapshot.sessionId && (
-                      <LiveTreePill key={snapshot.sessionId} cwd={snapshot.summary?.cwd} readStatus={readLiveTree} />
-                    )}
-                    <LivePresenceStack
-                      sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
-                      fallback={snapshot.presence}
-                    />
-                    {/* No Share button here: Share… lives in the ••• menu (Leo, 2026-11-07: "would that
-                        defeat the minimalism? ... you'd want to put it in the dot dot dot area").
-                        This only hosts its dialog; the faces before it draw only when someone else
-                        is here. */}
-                    {snapshot.sessionId && !showNewTab && hasNativeHost() && (
-                      <ShareDialogHost
-                        key={snapshot.sessionId}
-                        sessionId={snapshot.sessionId}
-                        chat={chatName}
-                        open={shareOpen}
-                        onOpenChange={setShareOpen}
-                      />
-                    )}
-                    {/* No title in the tab row: the pane's tab already names the chat (Leo, 2026-11-01). */}
-                    {inTabRow && (
-                      <ChatHeaderInlineStatus status={header.status} detail={header.detail}>
-                        {!showNewTab && snapshot.sessionId ? (
-                          <ChatSummaryLine summary={snapshot.summary?.rollingSummary} inline />
-                        ) : undefined}
-                      </ChatHeaderInlineStatus>
-                    )}
-                    <ChatHeaderTools
-                      chat={snapshot.sessionId}
-                      nativeRowTools={{
-                        enabled: inTabRow && tabRow.nativeRowTools === true && !inspectorOpen,
-                        callNative,
-                        panel: sessionInfo.on
-                          ? {
-                              // The native row's wire id for Session Info's toggle (header/nativeRowTools.ts), kept as the host knows it.
-                              id: "inspector",
-                              label: t("sessionInfo.title"),
-                              toggled: sessionInfo.shown === true,
-                              run: sessionInfo.toggle,
-                            }
-                          : {
-                              id: "summary",
-                              label: t("summary.open"),
-                              toggled: summaryCard.shown,
-                              run: summaryCard.toggle,
-                            },
-                      }}
-                      nativeNeedsYou={{ items: needsYou.items, mode: needsYou.mode, actions: needsYou.actions }}
-                      tabTools={!quick}
-                      pullRequestChip={!readOnlySubagent}
-                      // A new chat's picked folder too: New Worktree names its branch before the first prompt.
-                      folder={localCwd ?? (remoteChat ? undefined : startFolder)}
-                      readStatus={readFolderStatus}
-                      statusKey={snapshot.isWorking}
-                      working={snapshot.isWorking === true}
-                      // Apply brings a worktree chat's work to its main checkout (cx-lyqio.4); a new chat has none yet.
-                      onApplyWorktree={
-                        snapshot.sessionId && localCwd
-                          ? (key: string) =>
-                              callNative("git.worktree.apply", {
-                                session_id: snapshot.sessionId,
-                                idempotency_key: key,
-                              })
-                          : undefined
-                      }
-                      // Remove cleans the worktree up (cx-lyqio.5); discard only on "Remove anyway".
-                      onRemoveWorktree={
-                        snapshot.sessionId && localCwd
-                          ? (key: string, discard: boolean) =>
-                              callNative("git.worktree.remove", {
-                                session_id: snapshot.sessionId,
-                                idempotency_key: key,
-                                ...(discard ? { discard: true } : {}),
-                              })
-                          : undefined
-                      }
-                      // A merge asks the header again, so the chip shows the pull request merged.
-                      onMergePullRequest={
-                        localCwd
-                          ? ({ number, url }) =>
-                              callNative("git.pullRequest", { action: "merge", number, url }).then((value) => {
-                                const result = value as {
-                                  merged?: unknown;
-                                  queued?: unknown;
-                                } | null;
-                                if (result?.merged !== true && result?.queued !== true)
-                                  throw new Error(translate("header.prMergeFailed"));
-                                void callNative("pane.tabState", { refresh: true })
-                                  .then(setHeaderState)
-                                  .catch(() => undefined);
-                                return { queued: result.queued === true };
-                              })
-                          : undefined
-                      }
-                      // The glass toolbar's search chip (Settings > Advanced > Experiments): the palette's chats page.
-                      onSearch={showAllChats}
-                      onTerminal={(mode) => runSplitAction(HEADER_ACTIONS.terminal, localCwd, mode)}
-                      onSplitDown={(mode) => runSplitAction(HEADER_ACTIONS.splitDown, localCwd, mode)}
-                      onBrowser={(mode) => runSplitAction(HEADER_ACTIONS.browser, undefined, mode)}
-                      // Changes owns the diff of the chat's folder, read on the chat's machine (a Cloud chat's too).
-                      hasChanges={lastEditTurn !== undefined && chatCwd !== undefined}
-                      onChanges={toggleChanges}
-                      onFiles={localCwd ? (mode) => runSplitAction(HEADER_ACTIONS.files, localCwd, mode) : undefined}
-                      previewUrl={previewUrl}
-                      onPreview={(url, mode) => {
-                        ignoreFailure(
-                          callNative("pane.action", {
-                            id: HEADER_ACTIONS.preview,
-                            ...(url ? { url } : {}),
-                            mode,
-                          }),
-                        );
-                        window.setTimeout(refreshTabState, 400);
-                      }}
-                      sideTabs={sideTabs}
-                      onSideTabs={toggleSideTabs}
-                      onPointerEnter={quick ? undefined : refreshTabState}
-                      onCustomize={(list) => {
-                        // Shown at once; the App saves it to layout.json, whose watch pushes it to every chat.
-                        // A save the App refused (layout.json mid-edit) puts the buttons back.
-                        const before = quickActions();
-                        configureQuickActions({ quickActions: list });
-                        callNative("pane.setQuickActions", { quickActions: list }).catch(() =>
-                          configureQuickActions({ quickActions: before }),
-                        );
-                      }}
-                      sessionInfo={sessionInfo.button}
-                      inbox={<NeedsYouButton items={needsYou.items} mode={needsYou.mode} actions={needsYou.actions} />}
-                      inboxRelevant={needsYou.items.length > 0}
-                      newButton={
-                        quick
-                          ? undefined
-                          : {
-                              available: {
-                                sideChat: sideChat !== undefined,
-                                // chat.newHere needs a started chat that is not a Cloud chat (canMove, as the folder menu's
-                                // New Chat) and its folder; another machine's only when absolute.
-                                newTab: canMove && chatCwd !== undefined && (!remoteChat || chatCwd.startsWith("/")),
-                              },
-                              make: (kind) => {
-                                if (kind === "terminal") newTerminal();
-                                else if (kind === "browser") newBrowser();
-                                else if (kind === "sideChat") sideChat?.onSelect?.();
-                                // The New Tab page beside the chat, in the chat's folder: it starts a chat or opens anything else.
-                                else if (chatCwd) ignoreFailure(callNative("chat.newHere", { cwd: chatCwd }));
-                              },
-                            }
-                      }
-                      summary={sessionInfo.on ? null : (native) => <SummaryButton card={summaryCard} native={native} />}
-                      menu={chatMenu}
-                      onMenuOpen={() => Promise.all([readTabState(true), readChatMini()])}
-                      expand={continuing && canContinue ? "continue" : undefined}
-                      onExpanded={stopContinuing}
-                    />
-                  </div>
-                </header>
-                {/* A feature tip under its header control (featureTips.tsx; it portals out). */}
-                {!quick && !showNewTab && snapshot.sessionId && <PaneFeatureTips streaming={turnWorking} />}
-                {!sessionInfo.on && !summaryCard.column && summaryPanel}
-                {underHeader.checkpointReview && checkpoints.review}
-                {/* The lines under the header drop in from the top (ui/popupSurface.css `data-enter`). */}
-                {underHeader.liveChat && snapshot.liveChat && (
-                  <LiveChatChoice
-                    {...snapshot.liveChat}
-                    onChoose={(choice) => void callNative("chat.adoptLive", { choice }).catch(() => undefined)}
-                  />
-                )}
-                {underHeader.unavailable && cloudUnavailable && (
-                  <ChatUnavailableState
-                    line
-                    unavailable={cloudUnavailable}
-                    onResumeMachine={cloudRecovery.resume}
-                    resuming={cloudRecovery.resuming}
-                    error={cloudRecovery.error}
-                    {...(machineName ? { machine: machineName } : {})}
-                    onRemove={() => runHeaderAction(HEADER_ACTIONS.close)}
-                    onReconnect={() => {
-                      cloudRecovery.refresh();
-                      void directClient.current?.recheckMissing();
-                    }}
-                    onResume={showAllChats}
-                    onClose={() => runHeaderAction(HEADER_ACTIONS.close)}
-                  />
-                )}
-                {underHeader.peerCopy && snapshot.peerCopy && (
-                  <PeerCopyBanner
-                    key={`${snapshot.sessionId ?? ""}:${snapshot.peerCopy.peer}`}
-                    copy={snapshot.peerCopy}
-                    machine={peerMachine.state}
-                    onResume={peerMachine.resume}
-                    asked={peerMachine.asked}
-                    onReconnect={reconnectPeer}
-                    // An ssh peer's offline copy waits out acpmux's own redial (LINK_DOWN_SAID_MS): a
-                    // drop that heals on its own says nothing (Leo, 2026-11-14).
-                    noteDelayMs={snapshot.peerKinds?.[snapshot.peerCopy.peer] === "ssh" ? LINK_DOWN_SAID_MS : undefined}
-                  />
-                )}
-                {/* Computer use's live preview: the app this chat's agent drives, at the top right. Always
-                    mounted: with no card it draws the last one's exit, then nothing (cardMotion.ts). */}
-                <ComputerUsePreviewCard
-                  preview={previewShown ? computerUsePreview : null}
-                  onClose={() => ignoreFailure(callNative("chat.computerUsePreview", { action: "close" }))}
-                />
-                {underHeader.watching && snapshot.summary?.watching && !snapshot.liveTakeOver && (
-                  <WatchBanner
-                    family={snapshot.summary.watching}
-                    bridged={snapshot.summary.bridged === true}
-                    onTakeOver={() => void directClient.current?.takeOver().catch(() => undefined)}
-                    onContinue={() => void directClient.current?.continueWatched().catch(() => undefined)}
-                  />
-                )}
-                {underHeader.watching && snapshot.liveTakeOver && (
-                  <LiveChatChoice
-                    {...snapshot.liveTakeOver}
-                    onChoose={(choice) => void callNative("chat.adoptLive", { choice }).catch(() => undefined)}
-                  />
-                )}
-                {underHeader.handoffError && snapshot.handoff?.error && (
-                  <p className="acpmux-handoff-error" role="alert" data-enter="top">
-                    {snapshot.handoff.error}
-                  </p>
-                )}
-                {viewedSandbox ? (
-                  // The person opened the tab's Sandboxed Run: it shows whatever the chat's state
-                  // (its composer is hidden while it does).
-                  <SandboxRunView
-                    run={viewedSandbox}
-                    onCheckAgain={() => void sandbox.read()}
-                    unread={sandbox.unread}
-                    onBack={() => {
-                      pendingWake.current = sandboxWake.current ?? pendingWake.current;
-                      sandboxWake.current = undefined;
-                      setSandboxViewing(false);
-                    }}
-                  />
-                ) : reviewing && handoff && snapshot.handoff ? (
-                  <HandoffReviewMessage
-                    key={`${handoff.handoffId}:${reviewReload}`}
-                    record={handoff}
-                    state={snapshot.handoff}
-                    strings={handoffLabels}
-                    onSave={(review) => callNative("chat.handoff.draft", { review })}
-                    onStart={(review) => callNative("chat.handoff.start", { review })}
-                    onReturn={() => selectSession(handoff.source.sessionId)}
-                    onDiscard={() => ignoreFailure(callNative("chat.handoff.discard"))}
-                    onReload={() =>
-                      ignoreFailure(callNative("chat.handoff.get").then(() => setReviewReload((value) => value + 1)))
-                    }
-                  />
-                ) : cloudUnavailable && !missingRows ? (
-                  // The tab's chat is not here: which case it is, centered where the chat would be.
-                  <ChatUnavailableState
-                    unavailable={cloudUnavailable}
-                    onResumeMachine={cloudRecovery.resume}
-                    resuming={cloudRecovery.resuming}
-                    error={cloudRecovery.error}
-                    {...(snapshot.missingSession ? { session: snapshot.missingSession } : {})}
-                    {...(machineName ? { machine: machineName } : {})}
-                    onRemove={() => runHeaderAction(HEADER_ACTIONS.close)}
-                    onReconnect={() => {
-                      cloudRecovery.refresh();
-                      void directClient.current?.recheckMissing();
-                    }}
-                    onResume={showAllChats}
-                    onClose={() => runHeaderAction(HEADER_ACTIONS.close)}
-                  />
-                ) : freshView && pastTurns && (!pastWaitsForTrust || trustAsk.ask) ? (
-                  <PastChat turns={pastTurns} {...(githubRepository ? { githubRepository } : {})} />
-                ) : cloudStartShown ? (
-                  <CloudStartView
-                    start={cloudStart}
-                    onAnswer={answerCloudStart}
-                    onRetry={retryCloudStart}
-                    onSignIn={cloudSignInRetry}
-                    planStore={cloudPlanStore}
-                    onRunHere={runCloudHere}
-                    onDismiss={dismissCloudFailure}
-                    onSwitchTeam={switchTeamAndRetry}
-                    onOpenNewCloudChat={openNewCloudChatForStart}
-                    {...cloudTooBigActions}
-                    onSetUp={setUpCloud}
-                    onSetUpDismiss={dismissCloudSetUp}
-                  />
-                ) : sandboxView && !snapshot.sessionId && (sandboxHoldsChat || sandbox.mode === "sandboxed") ? (
-                  <SandboxRunView
-                    run={sandboxView}
-                    onCheckAgain={() => void sandbox.read()}
-                    unread={sandbox.unread}
-                    // Sandboxed can't run here now: the person says how the message goes instead.
-                    {...(sandboxRetryable(sandboxView) ? { onPersistent: () => sandbox.setMode("persistent") } : {})}
-                  />
-                ) : freshView && !premountsChatView ? (
-                  <EmptyState
-                    project={projectName(composerSnapshot.summary?.cwd)}
-                    picker={heroPicker}
-                    tour={tourOffer}
-                  />
-                ) : (
-                  <AgentTonesContext.Provider value={chatTones}>
-                    <AgentNamesContext.Provider value={chatAgentNames}>
-                      <AgentOpenContext.Provider value={chatAgentOpen}>
-                        <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
-                          <TourStartContext.Provider value={tourHere ? startTourTask : undefined}>
-                            {transcript}
-                          </TourStartContext.Provider>
-                        </BackgroundTaskOutputContext.Provider>
-                      </AgentOpenContext.Provider>
-                    </AgentNamesContext.Provider>
-                  </AgentTonesContext.Provider>
-                )}
-                {displayAnchor && (
-                  <ChatDisplaySettings
-                    open
-                    anchor={displayAnchor}
-                    onOpenChange={(open) => !open && setDisplayAnchor(null)}
-                  />
-                )}
-                {inspectorOpen && (
-                  <Inspector
-                    snapshot={snapshot}
-                    sessionEvents={() => directClient.current?.sessionEvents() ?? []}
-                    onClose={closeInspector}
-                    onExport={saveLogNatively}
-                    perf={sendPerf}
-                  />
-                )}
-              </div>
-              <div ref={setDock} className="acpmux-dock" style={parkStyle} inert={parkedVisible || undefined}>
-                {/* The pane's toasts stand on the stack's top edge, over the transcript (ToastLayer.tsx). */}
-                <ToastLayer queue={paneToasts} topHost={toastTop} />
-                {asks}
-                {/* Between the hero and the docked composer. */}
-                {/* A Sandboxed send holds the new chat: no recent chat replaces it while it is out.
-                    Neither does a Cloud start's chat, which shows its sent message (CloudStartView). */}
-                {freshView && !premountsChatView && !sandboxHoldsChat && !viewedSandbox && !cloudStartShown && (
-                  <div className="acpmux-home-area">
-                    {dotGridArm !== "off" && (
-                      <AgentDotGrid
-                        sessions={snapshot.sessions}
-                        currentId={snapshot.sessionId}
-                        onSelect={selectSession}
-                        size={dotGridArm === "compact" ? "compact" : "regular"}
-                      />
-                    )}
-                    <HomeLists
-                      sessions={snapshot.sessions}
-                      currentId={snapshot.sessionId}
-                      asks={snapshot.asks}
-                      tabs={needsYou.attentionTabs}
-                      onSelect={selectSession}
-                      onOpen={(item) =>
-                        item.kind === "tab" ? needsYou.actions.goTo(item) : selectSession(item.sessionId)
-                      }
-                      onAnswer={(item, choice) => answerFromHome(callNative, item, choice, selectSession)}
-                      shortcuts={!hasBottomAsk}
-                    />
-                  </div>
-                )}
-                {hostLine}
-                {forkPendingLine}
-                <LiveTypingLine
-                  sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
-                  fallback={snapshot.presence}
-                />
-                {/* A draft a refusal put back stays in reach even once the tab's run shows. */}
-                {(!sandboxHoldsChat || sandboxDraftMoved) && !viewedSandbox && composer}
-              </div>
-            </Activity>
-          )}
-        </div>
-        {!harnessesOpen &&
-          !showNewTab &&
-          !(replaying && replaying === snapshot.sessionId) &&
-          !inspectorOpen &&
-          !sessionInfo.on &&
-          summaryCard.column &&
-          summaryPanel}
-        {/* Beside the chat view only: New Tab, Harnesses and a replay have no session header. */}
-        {!harnessesOpen &&
-          !contextOpen &&
-          !showNewTab &&
-          !(replaying && replaying === snapshot.sessionId) &&
-          sessionInfo.panel}
-        {artifact && liveArtifact && (
-          <ArtifactPanel
-            key={artifact.opened}
-            artifact={liveArtifact}
-            versions={artifactVersionList}
-            pinned={!!artifact.pinned}
-            sourceTitle={artifact.sourceTitle}
-            onPinChange={
-              artifact.sessionId
-                ? (pinned) =>
-                    setArtifact((current) =>
-                      changeArtifactPin(current, pinned, snapshot.sessionId, artifactVersionList),
-                    )
-                : undefined
-            }
-            onClose={() => setArtifact(undefined)}
-            onSave={saveDocumentNatively}
-          />
-        )}
-        {/* Under the side panel in its column, or the column itself (backgroundTasks.css). */}
-        {backgroundPanel && !harnessesOpen && !showNewTab && (
-          <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
-            {/* A command is a card there, its output read as the composer hat's tail reads it. */}
-            <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
-              <BackgroundTasksPanel
-                groups={backgroundList}
-                readsOutput={
-                  chatProcessesHere(snapshot.summary) &&
-                  clientEpoch > 0 &&
-                  directClient.current !== undefined &&
-                  backgroundTaskOutput !== undefined
-                }
-                views={snapshot.subagentViews}
-                look={experimentArm(backgroundTasksLook)}
-                expanded={backgroundPanel.expanded}
-                focus={backgroundFocus}
-                stopsAgents={stopSubagent !== undefined}
-                workflow={backgroundWorkflowReads}
-                ownLog={backgroundOwnLogReads}
-                onStop={(target) =>
-                  target.kind === "agent"
-                    ? (stopSubagent?.(target.id) ?? Promise.reject(new Error()))
-                    : stopProcess(target.id)
-                }
-                onClearFinished={(ids) =>
-                  setBackgroundPanel((panel) => panel && { ...panel, dismissed: new Set([...panel.dismissed, ...ids]) })
-                }
-                // Its own tab has the tab's own close and the whole tab already: no Expand or Close.
-                onExpand={
-                  ownBackgroundPane
-                    ? undefined
-                    : () => setBackgroundPanel((panel) => panel && { ...panel, expanded: !panel.expanded })
-                }
-                onClose={ownBackgroundPane ? undefined : () => setBackgroundPanel(undefined)}
-                onOpenSession={openOfferChat}
-                onOpenCommand={(task) => {
-                  const command = panelCommands.find((candidate) => candidate.id === task.id);
-                  if (command) openTrayCommand(command);
-                }}
-              />
-            </BackgroundTaskOutputContext.Provider>
-          </SubagentClockContext.Provider>
-        )}
-        {imageView && (
-          <ImageViewer
-            images={imageView.images}
-            index={imageView.index}
-            onIndex={(index) => setImageView((current) => current && { ...current, index })}
-            onClose={() => setImageView(undefined)}
-          />
-        )}
-        <CloudEnvironmentEditor />
-        <DeleteChatDialog
-          open={deleteConfirmOpen}
-          onOpenChange={(next) => {
-            setDeleteConfirmOpen(next);
-            if (!next) {
-              setDeleteConfirmSession(undefined);
-              deleteInFlight.current = afterDeleteDismiss(
-                deleteInFlight.current,
-                directClient.current?.purgeInFlight === true,
-              );
-            }
-          }}
-          onDismiss={() => {
-            setDeleteConfirmOpen(false);
-            setDeleteConfirmSession(undefined);
-            deleteInFlight.current = afterDeleteDismiss(
-              deleteInFlight.current,
-              directClient.current?.purgeInFlight === true,
-            );
-          }}
-          onConfirm={() => ignoreFailure(deleteChat())}
-          title={t("permission.verb.delete")}
-          body={t("chatMenu.deleteConfirmBody")}
-          closeLabel={t("chatMenu.close")}
-        />
-        {workflowSideTab &&
-          !harnessesOpen &&
-          !showNewTab &&
-          !replaying &&
-          !inspectorOpen &&
-          !artifact &&
-          !imageView && (
-            <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
-              <WorkflowSideTab
-                workflow={workflowSideTab}
-                onClose={closeWorkflowSideTab}
-                onStop={stopSubagent}
-                onOpenWorkflowAgent={showWorkflowAgent}
-              />
-            </SubagentClockContext.Provider>
-          )}
-      </section>
-    </ShortcutsContext.Provider>
-  );
+  const pane = drawPaneBody({
+    knowsWhatItIs,
+    shortcuts,
+    setShell,
+    inTabRow,
+    header,
+    soloTab,
+    tabRow,
+    ownBackgroundPane,
+    composerSnapshot,
+    t,
+    connected,
+    snapshot,
+    selectSession,
+    directClient,
+    steering,
+    steerQueueOn,
+    steerItems,
+    steerNow,
+    steerActions,
+    setSteering,
+    setSteerLog,
+    statusIsland,
+    needsYou,
+    freshView,
+    emptyChatComposerPosition,
+    reviewing,
+    inspectorOpen,
+    summaryCard,
+    previewBeside,
+    jumpPlaceArm,
+    trayHandle,
+    chatMinimapBeside,
+    hasBottomAsk,
+    setPaneMain,
+    setToastTop,
+    harnessesOpen,
+    newTabApp,
+    setNewTab,
+    folderAskView,
+    newTabGeneration,
+    setNewTabAppGone,
+    newTabAdoptions,
+    setupContinuation,
+    setHarnessesOpen,
+    handleCmuxCommand,
+    importFile,
+    importError,
+    sandbox,
+    newTabStartMachine,
+    leaveNewTabDraft,
+    takeNewTabDraft,
+    cloudPickPending,
+    takeCloudPick,
+    cloudHintShown,
+    cloudHint,
+    newTabRunMode,
+    cloudWaitsForCheck,
+    cloudHeld,
+    setCloudHeld,
+    openCloudChatWith,
+    answerCloudStart,
+    retryCloudStart,
+    cloudSignInRetry,
+    cloudPlanStore,
+    runCloudHere,
+    dismissCloudFailure,
+    switchTeamAndRetry,
+    openNewCloudChatForStart,
+    cloudTooBigActions,
+    setUpCloud,
+    dismissCloudSetUp,
+    cloudSendHeld,
+    cloudPageHeld,
+    cloudRetryFolder,
+    sendToCloud,
+    sandboxing,
+    startSandbox,
+    sandboxNotNow,
+    newTabSandboxSent,
+    heldBack,
+    setSandboxDraftMoved,
+    connectMachine,
+    dictation,
+    uploadFiles,
+    newTabDictationField,
+    sandboxUncheckedNotice,
+    sandboxUnchecked,
+    trustQuestion,
+    quick,
+    localPaths,
+    commandSession,
+    newTabSnapshot,
+    pendingCommands,
+    extensionCommands,
+    newTabFixError,
+    newTabKnownProjects,
+    startFolder,
+    onNewTabPromptTyped,
+    onCloudMachinePicked,
+    cloudOfferable,
+    cloudFolderGrant,
+    handshaken,
+    newTabChatsPending,
+    machineName,
+    newTabProjects,
+    extraFolderDraft,
+    setExtraFolderDraft,
+    registryChips,
+    runNewTabPlusSearch,
+    withSubmitAfterHandshake,
+    requestFolder,
+    newTabStartGeneration,
+    showAllChats,
+    setProjectDraft,
+    shellRuns,
+    setNewTabFixError,
+    harnessesPage,
+    contextOpen,
+    contextPage,
+    whenHandshaken,
+    chatFromNewTab,
+    newTabFieldEdited,
+    replaying,
+    loadReplay,
+    setReplaying,
+    folds,
+    minimapVisible,
+    columnEndReserve,
+    noDismissRegistry,
+    toggleActivity,
+    showsChatView,
+    premountsChatView,
+    chatViewMount,
+    parkVisible,
+    soloUnder,
+    parkStyle,
+    parkedVisible,
+    chatName,
+    renameFromTitle,
+    tabRowTools,
+    liveTreeEnabled,
+    readLiveTree,
+    shareOpen,
+    setShareOpen,
+    sessionInfo,
+    readOnlySubagent,
+    localCwd,
+    remoteChat,
+    runSplitAction,
+    lastEditTurn,
+    chatCwd,
+    toggleChanges,
+    previewUrl,
+    ignoreFailure,
+    refreshTabState,
+    sideTabs,
+    toggleSideTabs,
+    sideChat,
+    canMove,
+    newTerminal,
+    newBrowser,
+    chatMenu,
+    readTabState,
+    continuing,
+    canContinue,
+    stopContinuing,
+    turnWorking,
+    summaryPanel,
+    underHeader,
+    checkpoints,
+    cloudUnavailable,
+    cloudRecovery,
+    runHeaderAction,
+    peerMachine,
+    reconnectPeer,
+    previewShown,
+    computerUsePreview,
+    viewedSandbox,
+    pendingWake,
+    sandboxWake,
+    setSandboxViewing,
+    handoff,
+    reviewReload,
+    handoffLabels,
+    setReviewReload,
+    missingRows,
+    pastTurns,
+    pastWaitsForTrust,
+    trustAsk,
+    githubRepository,
+    sandboxView,
+    sandboxHoldsChat,
+    heroPicker,
+    tourOffer,
+    chatTones,
+    chatAgentNames,
+    chatAgentOpen,
+    backgroundTaskOutput,
+    tourHere,
+    startTourTask,
+    transcript,
+    displayAnchor,
+    setDisplayAnchor,
+    closeInspector,
+    sendPerf,
+    setDock,
+    paneToasts,
+    toastTop,
+    asks,
+    dotGridArm,
+    hostLine,
+    forkPendingLine,
+    sandboxDraftMoved,
+    composer,
+    artifact,
+    liveArtifact,
+    artifactVersionList,
+    setArtifact,
+    saveDocumentNatively,
+    backgroundPanel,
+    backgroundList,
+    clientEpoch,
+    backgroundFocus,
+    stopSubagent,
+    backgroundWorkflowReads,
+    backgroundOwnLogReads,
+    stopProcess,
+    setBackgroundPanel,
+    panelCommands,
+    openTrayCommand,
+    imageView,
+    setImageView,
+    deleteConfirmOpen,
+    setDeleteConfirmOpen,
+    setDeleteConfirmSession,
+    deleteInFlight,
+    deleteChat,
+    workflowSideTab,
+    closeWorkflowSideTab,
+    showWorkflowAgent,
+    // Each pair as the render narrowed it (PaneBody.tsx `NewTabShown`, `CloudStartShown`).
+    ...(showNewTab ? { showNewTab, newTab } : { showNewTab, newTab }),
+    ...(cloudStartShown ? { cloudStartShown, cloudStart } : { cloudStartShown, cloudStart }),
+  });
   return (
     <SignInContext.Provider value={signIn}>
       <ChatAccountsContext.Provider value={chatAccounts}>
