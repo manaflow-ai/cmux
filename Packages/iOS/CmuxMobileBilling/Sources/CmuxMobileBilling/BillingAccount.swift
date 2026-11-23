@@ -39,6 +39,18 @@ public struct BillingAccount: Sendable, Equatable, Codable {
         self.products = products
     }
 
+    /// The paid plans the plans screen describes when this build sells none
+    /// (an ineligible account gets no products): Pro and Max, plus Go when the
+    /// account is on it or it is on sale, smallest first. Without these an
+    /// ineligible account, such as every TestFlight and dev build in
+    /// production, saw a plans screen with no plans on it.
+    public var catalogPlanIDs: [BillingPlanID] {
+        var plans: Set<BillingPlanID> = [.pro, .max]
+        plans.formUnion(products.map(\.planID).filter { $0.rank > 0 })
+        if currentPlan.planID.rank > 0 { plans.insert(currentPlan.planID) }
+        return plans.sorted()
+    }
+
     enum CodingKeys: String, CodingKey {
         case appAccountToken
         case eligible

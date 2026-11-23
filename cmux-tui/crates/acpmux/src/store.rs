@@ -27,8 +27,10 @@ pub use superseded::{Superseded, starts_prompt};
 mod kind_heads;
 mod kind_index;
 mod segment_starts;
+mod segment_table;
 pub use kind_heads::KindHead;
 pub use kind_index::{DIR as KIND_INDEX_DIR, INDEXED_KINDS};
+use segment_table::SegmentList;
 mod fork_view;
 pub use fork_view::{
     ForkView, HISTORY_KINDS, HistoryFence, HistoryRef, HistoryWriter, fence_history,
@@ -252,6 +254,12 @@ pub struct SessionMeta {
     /// applied at spawn, not through set_model.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_request: Option<String>,
+    /// The effort a new Claude Code chat starts on, given at spawn as `--effort` instead of a
+    /// `session/set_config_option` after `initialize` (`hub/lifecycle.rs`). A start before the
+    /// harness reported its options reads it (`model_options::spawn_effort`); its reported
+    /// effort wins after that.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort_request: Option<String>,
     pub cwd: PathBuf,
     /// Folders the chat sees beside `cwd` (ACP `session/new` `additionalDirectories`, its
     /// Sources): every start of its harness gets them (`hub/additional_dirs.rs`). Absolute,
@@ -268,6 +276,11 @@ pub struct SessionMeta {
     /// Codex keeps the goal in its thread, so it is set once.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub stop_condition_sent: bool,
+    /// Read-only work in a folder the person chose not to trust (`_meta.acpmux.restricted`,
+    /// `hub/restricted.rs`): every start of its Claude Code skips the folder's settings and MCP
+    /// servers, and it keeps the review policy.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub restricted: bool,
     #[serde(default)]
     pub agent_session_id: Option<String>,
     /// Claude Code can replace its native session id when a chat is forked. Keep ids this
@@ -1735,9 +1748,13 @@ mod journal_store;
 #[cfg(test)]
 pub(crate) use journal_store::open_with_journal;
 mod log_sync;
+mod segment_writer;
+use segment_writer::SegmentWriter;
 pub mod open_logs;
 #[cfg(test)]
-pub(crate) use journal_store::pause_next_log_write_on_this_thread;
+pub(crate) use journal_store::{
+    hold_next_read_fence_on_this_thread, pause_next_log_write_on_this_thread,
+};
 pub(crate) use log_sync::SyncFailed;
 #[cfg(all(test, unix))]
 mod sync_model;
@@ -1777,6 +1794,7 @@ pub struct LocalStore {
     kind_heads: kind_heads::KindHeads,
     /// Each segment's first seq, once read (`store/segment_starts.rs`).
     pub(crate) segment_starts: segment_starts::SegmentStarts,
+    segment_table: segment_table::SegmentTable,
     #[cfg(test)]
     pub(crate) meta_saves: std::sync::Arc<std::sync::atomic::AtomicU64>,
 }
@@ -1798,29 +1816,6 @@ const PARKED: &str = "parked.json";
 /// The folder of a chat's held tool output bodies (`Store::keep_held`), beside its log.
 const HELD: &str = "held";
 
-struct SegmentWriter {
-    index: u32,
-    file: File,
-    written: u64,
-    used: u64,
-}
-
-impl SegmentWriter {
-    /// Closes the log, durable first as `flush` would have made it. Called under the
-    /// writers' lock, so the cache never holds more than `open_logs` and a session's
-    /// records stay in order. A failed sync is logged and noted in `failed`: its records were
-    /// written (an append is never synced on its own), so only a machine crash before the kernel
-    /// writes them back loses them, as it would any append since the last `flush`.
-    fn close(self, id: &str, failed: &std::sync::atomic::AtomicBool) {
-        if let Err(e) = log_sync::sync_segment(&self.file, false) {
-            #[cfg(test)]
-            log_sync::hold(&log_sync::HOLD_BEFORE_CLOSE_NOTE);
-            failed.store(true, std::sync::atomic::Ordering::SeqCst);
-            tracing::warn!(session = %id, "sync event log on close: {e}");
-        }
-    }
-}
-
 impl LocalStore {
     pub fn new(root: PathBuf, segment_bytes: u64) -> Result<Self> {
         crate::config::private_state_dir(&root)
@@ -1838,6 +1833,7 @@ impl LocalStore {
             parts: Default::default(),
             kind_heads: Default::default(),
             segment_starts: Default::default(),
+            segment_table: Default::default(),
             #[cfg(test)]
             meta_saves: Default::default(),
         })
@@ -1864,7 +1860,7 @@ impl LocalStore {
     /// listing. The listing is taken again whatever `rehydrate` answers: another thread's
     /// rehydrate may have put the log back since the first, and this one then answers false
     /// (review of #39141: an append went on in `000001` of a log that ran on past it).
-    fn segments(&self, id: &str) -> Result<Vec<(u32, PathBuf)>> {
+    fn segments(&self, id: &str) -> Result<SegmentList> {
         let (segments, cut_pending) = self.list_segments(id)?;
         if !cut_pending {
             return Ok(segments);
@@ -1880,7 +1876,7 @@ impl LocalStore {
     /// The log's segments, in order, as the folder lists them, and whether a cut's intent
     /// (`store/compact.rs` `CUT`) is beside them: read in the same listing, so it costs nothing.
     /// A cold archive's log is rehydrated first (`store/cold.rs`).
-    fn list_segments(&self, id: &str) -> Result<(Vec<(u32, PathBuf)>, bool)> {
+    fn list_segments(&self, id: &str) -> Result<(SegmentList, bool)> {
         let listed = self.listed_files(id)?;
         if listed.0.is_empty() {
             self.rehydrate(id)?;
@@ -1890,31 +1886,13 @@ impl LocalStore {
     }
 
     /// The segments on the disk now, never rehydrated.
-    fn segment_files(&self, id: &str) -> Result<Vec<(u32, PathBuf)>> {
+    fn segment_files(&self, id: &str) -> Result<SegmentList> {
         Ok(self.listed_files(id)?.0)
     }
 
     /// [`Self::segment_files`], and whether a cut's intent is beside them.
-    fn listed_files(&self, id: &str) -> Result<(Vec<(u32, PathBuf)>, bool)> {
-        let dir = self.dir(id).join("events");
-        let mut out = Vec::new();
-        let mut cut_pending = false;
-        let Ok(rd) = std::fs::read_dir(&dir) else {
-            return Ok((out, false));
-        };
-        for entry in rd {
-            let entry = entry?;
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if name == compact::CUT {
-                cut_pending = true;
-            } else if let Some(stem) = name.strip_suffix(".ndjson")
-                && let Ok(idx) = stem.parse::<u32>()
-            {
-                out.push((idx, entry.path()));
-            }
-        }
-        out.sort();
-        Ok((out, cut_pending))
+    fn listed_files(&self, id: &str) -> Result<(SegmentList, bool)> {
+        self.segment_table.list(id, &self.dir(id).join("events"))
     }
 
     fn list_entry(
@@ -2034,7 +2012,7 @@ impl LocalStore {
         };
         let file = open_private_append(&path)?;
         let written = cut_torn_tail(&file, &path)?;
-        Ok(SegmentWriter { index, file, written, used: 0 })
+        Ok(SegmentWriter::new(index, file, written, 0))
     }
 }
 
@@ -2071,79 +2049,6 @@ fn note_write_budget(record: &EventRecord, bytes: usize) {
     }
     if let Some(warning) = EVENT_LOG_BUDGET.note(&record.kind, bytes, &record.msg, now_ms()) {
         tracing::warn!("{warning}");
-    }
-}
-
-impl LocalStore {
-    /// One whole serialized record (`line` ends with its newline) at the end of `id`'s log: the
-    /// body of [`Store::append`], and the journal store's write of a journaled line
-    /// (`store/journal_store.rs`). Refused once the store is sealed.
-    pub(super) fn append_line(&self, id: &str, line: &[u8]) -> Result<()> {
-        // One lock hold from the eviction to the write: the least recently written log is
-        // closed before this one opens, so no more than `open_logs` are ever open, and no other
-        // append comes between (a session's records stay in order). Its sync runs under the lock,
-        // once per eviction: only while more than `open_logs` sessions are written.
-        let _open = self.writable()?;
-        let mut writers = self.writers.lock_or_recover();
-        if !writers.open.contains_key(id)
-            && writers.open.len() >= self.open_logs
-            && let Some(oldest) =
-                writers.open.iter().min_by_key(|(_, w)| w.used).map(|(k, _)| k.clone())
-            && let Some(w) = writers.open.remove(&oldest)
-        {
-            w.close(&oldest, &self.sync_failed);
-        }
-        if !writers.open.contains_key(id) {
-            // A cut left halfway is finished before anything is appended past it.
-            self.finish_cut_locked(id, &mut writers)?;
-            let writer = self.open_writer(id)?;
-            writers.open.insert(id.to_owned(), writer);
-        }
-        writers.clock += 1;
-        let clock = writers.clock;
-        let full = writers.open.get(id).is_some_and(|w| w.written >= self.segment_bytes);
-        if full && let Some(old) = writers.open.remove(id) {
-            // The full segment closes before the next one opens (rare: once per segment).
-            let index = old.index + 1;
-            old.close(id, &self.sync_failed);
-            let path = self.dir(id).join("events").join(format!("{index:06}.ndjson"));
-            let file = open_private_append(&path)?;
-            writers
-                .open
-                .insert(id.to_owned(), SegmentWriter { index, file, written: 0, used: clock });
-        }
-        let Some(w) = writers.open.get_mut(id) else {
-            anyhow::bail!("no segment writer for session {id}");
-        };
-        w.used = clock;
-        #[cfg(debug_assertions)]
-        disk_fault::write()?;
-        #[cfg(test)]
-        let wrote = match test_write_fault::take() {
-            Some(kept) => w.file.write_all(&line[..kept.min(line.len())]).and(Err(
-                std::io::Error::new(std::io::ErrorKind::StorageFull, "no space left (a test)"),
-            )),
-            None => w.file.write_all(line),
-        };
-        #[cfg(not(test))]
-        let wrote = w.file.write_all(line);
-        if let Err(e) = wrote {
-            // A full disk (or a signal) can write part of the line before the error. Cut it back
-            // to the last whole record, or the next append is glued onto the torn bytes: the
-            // merged line reads as no record, so that record is lost and a strict read fails.
-            // If the cut fails too, the writer is closed, not dropped: its earlier appends are
-            // synced as at any close (a checkpoint's `sync_log` takes a log with no open writer
-            // as synced), and the next open cuts the tail.
-            let segment = self.dir(id).join("events").join(format!("{:06}.ndjson", w.index));
-            if cut_back(&segment, w.written).is_err()
-                && let Some(w) = writers.open.remove(id)
-            {
-                w.close(id, &self.sync_failed);
-            }
-            return Err(e.into());
-        }
-        w.written += line.len() as u64;
-        Ok(())
     }
 }
 
@@ -2356,7 +2261,7 @@ impl Store for LocalStore {
     fn flush_session(&self, id: &str) -> Result<()> {
         let writers = self.writers.lock_or_recover();
         if let Some(writer) = writers.open.get(id) {
-            log_sync::sync_segment(&writer.file, true).map_err(SyncFailed)?;
+            log_sync::sync_segment(writer.file(), true).map_err(SyncFailed)?;
         }
         let session = self.dir(id);
         sync_directory(&session.join("events"))?;
@@ -2663,7 +2568,7 @@ impl Store for LocalStore {
 
     fn flush(&self) -> Result<()> {
         for w in self.writers.lock_or_recover().open.values() {
-            log_sync::sync_segment(&w.file, false)?;
+            log_sync::sync_segment(w.file(), false)?;
         }
         Ok(())
     }
@@ -2679,9 +2584,7 @@ impl Store for LocalStore {
 
     fn close_log(&self, id: &str) {
         let mut writers = self.writers.lock_or_recover();
-        if let Some(w) = writers.open.remove(id) {
-            w.close(id, &self.sync_failed);
-        }
+        self.close_writer_locked(id, &mut writers);
     }
 
     fn compacted_seq(&self, id: &str) -> Option<u64> {
@@ -2816,9 +2719,12 @@ impl Store for LocalStore {
 
     fn delete(&self, id: &str) -> Result<()> {
         let _open = self.writable()?;
-        self.writers.lock_or_recover().open.remove(id);
+        if let Some(w) = self.writers.lock_or_recover().open.remove(id) {
+            w.retire();
+        }
         self.kind_heads.forget(id);
         self.segment_starts.forget(id);
+        self.segment_table.forget(id);
         let dir = self.dir(id);
         // macOS returns ENOTEMPTY when a file lands mid-removal; retry briefly.
         let mut last = None;
