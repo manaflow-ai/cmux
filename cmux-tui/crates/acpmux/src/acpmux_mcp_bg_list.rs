@@ -6,7 +6,7 @@
 //! 24 h on one VM). `limit`, `offset` and `state` pick the page; `full` adds each task's whole
 //! command and output tail; `all` still widens it to other callers' tasks.
 
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 /// The tasks a bare call lists, and the most any call does.
 const LIMIT: usize = 30;
@@ -15,6 +15,10 @@ const MAX_LIMIT: usize = 500;
 const COMMAND_CHARS: usize = 100;
 /// What `state` takes: a task's own state, or its outcome (`bg_run::outcome`).
 const STATES: [&str; 7] = ["running", "exited", "stopped", "killed", "lost", "ok", "failed"];
+/// The keys a call picks its page with, in the order a hint lists them.
+const KEYS: [&str; 5] = ["state", "limit", "offset", "full", "all"];
+/// The keys the daemon or the server itself reads, which are not a page's and not a mistake.
+const PASSED_ON: [&str; 4] = ["sessionId", "callerSubagent", "description", "_meta"];
 
 /// The page a call asks for, taken out of its arguments (the daemon lists the whole chat).
 #[derive(Debug, PartialEq)]
@@ -23,7 +27,7 @@ pub(super) struct Page {
     offset: usize,
     state: Option<&'static str>,
     full: bool,
-    /// What the call's arguments were read as, when not as given (a misspelt state).
+    /// What the call's arguments were read as, when not as given (a misspelt state or key).
     notes: Vec<String>,
 }
 
@@ -33,6 +37,7 @@ impl Page {
             return Err("arguments must be an object".into());
         };
         let mut notes = Vec::new();
+        Self::read_near_miss_keys(p, &mut notes);
         let number = |v: Option<Value>, key: &str| -> Result<Option<usize>, String> {
             match v {
                 None | Some(Value::Null) => Ok(None),
@@ -75,6 +80,31 @@ impl Page {
             }
         };
         Ok(Self { limit, offset, state, full, notes })
+    }
+
+    /// A key no argument has, read as the page key it is a near miss for (`status` for `state`,
+    /// as a misspelt state value is read as the state it means), else named in the answer and
+    /// dropped. Both used to go to the daemon, which does not read them either, so
+    /// `{"status": "running"}` quietly answered a whole unfiltered page that looked like one.
+    fn read_near_miss_keys(p: &mut Map<String, Value>, notes: &mut Vec<String>) {
+        let strange: Vec<String> = (p.keys())
+            .filter(|k| !KEYS.contains(&k.as_str()) && !PASSED_ON.contains(&k.as_str()))
+            .cloned()
+            .collect();
+        for key in strange {
+            let meant = crate::mcp_hint::nearest(&key, KEYS).filter(|k| !p.contains_key(*k));
+            let value = p.remove(&key).unwrap_or(Value::Null);
+            match meant {
+                Some(k) => {
+                    notes.push(format!("key {key:?} read as {k:?}"));
+                    p.insert(k.to_owned(), value);
+                }
+                None => notes.push(format!(
+                    "{key:?} is not one of {}, so it picked nothing",
+                    KEYS.join(", ")
+                )),
+            }
+        }
     }
 
     /// The daemon's whole list as this page: the structured result, its tasks newest first and
@@ -271,6 +301,60 @@ mod tests {
         assert!(Page::take(&mut json!({"limit": "many"})).is_err());
         let (_, text) = page(json!({"state": "lost"})).apply(listed(3), NOW);
         assert_eq!(text, "No lost tasks.");
+    }
+
+    /// `status` is `state`'s near miss (as `runing` is `running`'s): it picks exactly the page
+    /// `state` picks, and the answer says it was read that way. It used to go to the daemon,
+    /// which does not read it either, so the call answered an unfiltered page.
+    #[test]
+    fn status_picks_the_page_state_picks_and_says_so() {
+        let (by_status, text) =
+            page(json!({"status": "running", "limit": 5})).apply(listed(10), NOW);
+        let (by_state, _) = page(json!({"state": "running", "limit": 5})).apply(listed(10), NOW);
+        assert_eq!(by_status, by_state);
+        let ids: Vec<&str> = by_status["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(ids, ["t9", "t7", "t5", "t3", "t1"]);
+        assert_eq!(
+            by_status["total"],
+            json!(5),
+            "the filter ran, so the page is not the whole list"
+        );
+        assert!(text.ends_with("(key \"status\" read as \"state\")"), "{text}");
+        // A near-miss key takes the state's own near-miss reading too, and both are said.
+        let (s, text) = page(json!({"status": "runing"})).apply(listed(4), NOW);
+        assert_eq!(s["total"], json!(2));
+        assert!(text.contains("(key \"status\" read as \"state\")"), "{text}");
+        assert!(text.contains("(state \"runing\" read as \"running\")"), "{text}");
+        // A near miss is not read over a key the call already gave.
+        let (s, text) = page(json!({"status": "running", "state": "failed"})).apply(listed(8), NOW);
+        assert_eq!(s["total"], json!(2), "state failed stands: {text}");
+    }
+
+    /// A key that is nobody's near miss is named in the answer, not quietly passed on: a filter
+    /// the call thought it set and did not is worse than a page it knows is unfiltered.
+    #[test]
+    fn an_unknown_key_is_named_not_ignored() {
+        let (s, text) = page(json!({"nonsense": "running", "limit": 2})).apply(listed(6), NOW);
+        assert_eq!(s["total"], json!(6), "nothing was filtered");
+        assert!(
+            text.ends_with(
+                "(\"nonsense\" is not one of state, limit, offset, full, all, so it picked nothing)"
+            ),
+            "{text}"
+        );
+        let mut args = json!({"nonsense": 1, "sessionId": "s", "all": true});
+        let taken = Page::take(&mut args).unwrap();
+        assert_eq!(
+            args,
+            json!({"sessionId": "s", "all": true}),
+            "the daemon's keys stay, the stray one goes"
+        );
+        assert_eq!(taken.notes.len(), 1, "{:?}", taken.notes);
     }
 
     #[test]

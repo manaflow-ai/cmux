@@ -22,6 +22,9 @@ use serde_json::value::RawValue;
 
 pub use accepts::{Accepted, accepts, effective_value, is_hex_color};
 pub use backdrop::normalize_backdrop;
+pub use backdrop::{
+    RECENTS_CAP, is_selection as is_background, previous_background, recents_of, record_recent,
+};
 pub use build_defaults::{BUILD_DEFAULTS_ENV, build_defaults_from};
 pub use chat_roots::chat_root_is_valid;
 pub use retired::{Replaced, replaced_by_row, replaced_keys, retired_keys, retired_reason};
@@ -160,6 +163,13 @@ pub enum DomainKind {
     /// `appearance.backgroundMemory`: what each background mode last showed
     /// (`rotate`, `folder`, `off`; Swift `BackdropSelectionSetting.acceptsMemory`).
     BackdropMemory,
+    /// `appearance.backgroundPlacement`: picture ids to placement texts
+    /// (`crate::backdrop_placement`; Swift `BackdropPlacement`).
+    BackdropPlacement,
+    /// `appearance.backgroundRecents`: the backgrounds shown before, newest
+    /// first, each an `appearance.background` value, at most
+    /// `backdrop::RECENTS_CAP` (Swift `BackdropSelectionSetting.acceptsRecents`).
+    BackdropRecents,
     /// `agents.chats.roots`: absolute folders outside the protected ones
     /// (Swift `ChatRootValidator`).
     ChatRoots,
@@ -172,6 +182,10 @@ pub enum DomainKind {
     /// `agentPane.display.commandLabels`: a list of preset names and command
     /// label rules (Swift `CommandLabelsSetting.accepts`).
     CommandLabels,
+    /// `agentPane.display.transcriptTokens`: an object of transcript look
+    /// tokens, each in its range (`crate::transcript_look`; Swift
+    /// `TranscriptTokensSetting.accepts` checks the shape only).
+    TranscriptTokens,
     /// `tabs.newTabApp`: an id an app manifest may have
     /// (`app_id::is_valid_app_id`, the manifest schema's pattern; Swift `NewTabAppSetting.isValidID`).
     AppId,
@@ -452,6 +466,8 @@ fn row(raw: Value, text: RowText) -> Result<Row, String> {
         "domain:backdrop_schedule" => Validation::Domain(DomainKind::BackdropSchedule),
         "domain:backdrop_location" => Validation::Domain(DomainKind::BackdropLocation),
         "domain:backdrop_memory" => Validation::Domain(DomainKind::BackdropMemory),
+        "domain:backdrop_placement" => Validation::Domain(DomainKind::BackdropPlacement),
+        "domain:backdrop_recents" => Validation::Domain(DomainKind::BackdropRecents),
         "domain:chat_roots" => Validation::Domain(DomainKind::ChatRoots),
         "domain:search_template" => Validation::Domain(DomainKind::SearchTemplate),
         "domain:custom_densities" => Validation::Domain(DomainKind::CustomDensities),
@@ -462,6 +478,7 @@ fn row(raw: Value, text: RowText) -> Result<Row, String> {
         "domain:sidebar_row_lines_by_agent" => {
             Validation::Domain(DomainKind::SidebarRowLinesByAgent)
         }
+        "domain:transcript_tokens" => Validation::Domain(DomainKind::TranscriptTokens),
         other => return Err(format!("{}: unknown validation {other}", parsed.key)),
     };
     Ok(Row {

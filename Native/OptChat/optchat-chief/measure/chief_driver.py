@@ -43,6 +43,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--scenario", required=True, choices=["smoke", "soak", "interrupt", "codex6", "import", "effort", "warm20", "chiefux", "coordinator", "mcp", "responsive", "brain"])
 ap.add_argument("--engine-harness", default="", help="brain scenario: engine.json's turn harness (hermes, openclaw); empty: the default harness (--harness)")
 ap.add_argument("--engine-model", default="", help="brain scenario: engine.json's turn model")
+ap.add_argument("--keep-brain-logs", default="", help="brain scenario: on a failed check, copy the brain homes' logs here")
 ap.add_argument("--brain-base-url", default="", help="brain scenario: engine.json's brain_base_url (the open-source brains' model gateway)")
 ap.add_argument("--expect-fallback", action="store_true", help="brain scenario: the brain cannot run here; check the fallback instead")
 ap.add_argument("--out", required=True)
@@ -838,7 +839,7 @@ try:
 
         r5, t5 = say(f"Use the Chief's sleep tool (`chief sleep 30 \"reply WAKE-{tag}\"` from your shell when you "
                      f"have no sleep tool) to wake in 30 seconds. When that wake comes, reply with exactly WAKE-{tag}.",
-                     "wake", lambda t: f"WAKE-{tag}" in t, 900)
+                     "wake", lambda t: len(t) > 0, 900)
         # The wake turn comes about 30 s after the sleep: wait for it, then for its reply (a reply
         # that only echoed the word before the wake does not count).
         deadline = time.time() + 300
@@ -855,7 +856,11 @@ try:
                 if f"WAKE-{tag}" in woke_text and idle(woke_at):
                     break
                 time.sleep(1)
-        proof["scheduled_wake"] = bool(wake_turns) and f"WAKE-{tag}" in woke_text
+        # The word belongs only to the scheduled [wake] turn: in the first turn's reply it is an
+        # answer given before the wake, a fail (cmux-ci step 9414d0906724).
+        early = f"WAKE-{tag}" in (r5 or "")
+        log(f"BRAIN wake check: wake_turns={len(wake_turns)} early_word={early}")
+        proof["scheduled_wake"] = bool(wake_turns) and f"WAKE-{tag}" in woke_text and not early
         harnesses = sorted({str(e.get("harness")) for e in trace_events() if e.get("ev") == "turn.start"})
         try:
             brain_states = json.load(open(os.path.join(MUX, "optchat", "brains", "state.json")))
@@ -904,6 +909,87 @@ try:
                     lines = open(os.path.join(root, "agent.log"), errors="replace").read().splitlines()
                     for l in [l for l in lines if "tool" in l.lower()][-40:]:
                         log(f"BRAIN diag agent.log: {l[:300]}")
+            # Why the brain refused or failed a session: Hermes names it at WARNING level
+            # ("receipt refused: storage_unavailable at restore_policy, caused by ...") in its own
+            # logs, and only "Internal error" reaches the Chief (cmux-ci step be2ad7da45a6).
+            bad = re.compile(r"refused|storage_unavailable|invalid polic|Traceback|ERROR|Exception|caused by", re.I)
+            for root, _dirs, files in os.walk(MUX):
+                if os.sep + "brains" + os.sep not in root + os.sep:
+                    continue
+                for name in sorted(f for f in files if f.endswith(".log")):
+                    try:
+                        lines = open(os.path.join(root, name), errors="replace").read().splitlines()
+                    except OSError:
+                        continue
+                    for l in [l for l in lines if bad.search(l)][-30:]:
+                        log(f"BRAIN diag brain {name}: {l[:400]}")
+            # The brain's own answer to a session start, outside acpmux: on an isolated fleet step
+            # every Hermes session/new returned "Internal error" (storage_unavailable) and Hermes
+            # wrote no log (cmux-ci step 299ab54c8170). Same brain home, same cwd folder.
+            if opts.engine_harness == "hermes" and not proof.get("turns_on_brain", True):
+                home = os.path.join(MUX, "optchat", "brains", "hermes")
+                exe = shutil.which("hermes", path=os.path.join(os.environ["HOME"], ".local", "bin") + os.pathsep + BINS) or "hermes"
+                listing = []
+                for root, dirs, files in os.walk(home):
+                    for n in dirs + files:
+                        q = os.path.join(root, n)
+                        try:
+                            st = os.lstat(q)
+                            listing.append(f"{oct(st.st_mode)[-4:]} {st.st_uid} {st.st_size} {os.path.relpath(q, home)}")
+                        except OSError as e:
+                            listing.append(f"? {os.path.relpath(q, home)}: {e}")
+                for l in listing[:60]:
+                    log(f"BRAIN diag brain home: {l}")
+                # The whole of the brain's small logs: errors.log held 334 bytes and no line the
+                # scan above matched (cmux-ci step 7bbe8c84fdd9).
+                for n in ("errors.log", "agent.log"):
+                    q = os.path.join(home, "logs", n)
+                    try:
+                        text = open(q, errors="replace").read()
+                    except OSError:
+                        continue
+                    for l in text.splitlines()[-40:]:
+                        log(f"BRAIN diag brain logs/{n}: {l[:400]}")
+                env = dict(os.environ, HERMES_HOME=home)
+                cwd = os.path.join(MUX, "optchat", "session")
+                try:
+                    p = subprocess.Popen([exe, "acp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                         stderr=subprocess.PIPE, text=True, env=env, cwd=cwd if os.path.isdir(cwd) else None)
+                    msgs = [{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": 1, "clientCapabilities": {}}},
+                            {"jsonrpc": "2.0", "id": 2, "method": "session/new", "params": {"cwd": cwd, "mcpServers": []}}]
+                    try:
+                        out, err = p.communicate("".join(json.dumps(m) + "\n" for m in msgs), timeout=240)
+                    except subprocess.TimeoutExpired:
+                        p.kill()
+                        out, err = p.communicate()
+                    for l in [l for l in out.splitlines() if '"id": 2' in l or '"id":2' in l][:3]:
+                        log(f"BRAIN diag hermes probe reply: {l[:600]}")
+                    if not any('"id": 2' in l or '"id":2' in l for l in out.splitlines()):
+                        log(f"BRAIN diag hermes probe: no session/new reply (exit {p.returncode}); stdout tail: {out[-400:]!r}")
+                    for l in [l for l in err.splitlines() if "registered" not in l][-40:]:
+                        log(f"BRAIN diag hermes probe stderr: {l[:400]}")
+                except OSError as e:
+                    log(f"BRAIN diag hermes probe failed to start: {e}")
+        if not all(proof.values()) and opts.keep_brain_logs:
+            # The brain homes' logs, for the job's artifact (chief-brain-proof.sh --artifact). A copy
+            # error is logged, never raised: run.json and the exit code come after it.
+            try:
+                for root, _dirs, files in os.walk(MUX):
+                    if os.sep + "brains" + os.sep not in root + os.sep:
+                        continue
+                    for name in files:
+                        if name.endswith(".log") or name in ("config.yaml", "state.json"):
+                            rel = os.path.relpath(os.path.join(root, name), MUX)
+                            dst = os.path.join(opts.keep_brain_logs, rel)
+                            os.makedirs(os.path.dirname(dst), exist_ok=True)
+                            shutil.copyfile(os.path.join(root, name), dst)
+                os.makedirs(opts.keep_brain_logs, exist_ok=True)
+                for name in ("host.log", "daemon.log"):
+                    if os.path.exists(os.path.join(OUT, name)):
+                        shutil.copyfile(os.path.join(OUT, name), os.path.join(opts.keep_brain_logs, name))
+                log(f"BRAIN diag brain logs kept in {opts.keep_brain_logs}")
+            except OSError as e:
+                log(f"BRAIN diag keeping the brain logs failed: {e}")
         json.dump(run, open(os.path.join(OUT, "run.json"), "w"), indent=1)
         raise SystemExit(0 if all(proof.values()) else 1)
 

@@ -137,6 +137,14 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
         Accepted::Shape(
             "an object of rotate (daily or folder:<absolute path>), folder (folder:<absolute path>) and off (none or a fixed background)",
         )
+    } else if row.validation == super::Validation::Domain(DomainKind::BackdropPlacement) {
+        Accepted::Shape(
+            "an object of picture ids to fill, fit, center or stretch, then optionally X Y (0 to 1) and a zoom (1 to 4), such as \"fill 0.3 0.7 1.5\"",
+        )
+    } else if row.validation == super::Validation::Domain(DomainKind::BackdropRecents) {
+        Accepted::Shape(
+            "an array of at most 8 different backgrounds (none, daily, a listed painting, desktop, system:, file: or folder:<absolute path>, youtube:<video id>), newest first",
+        )
     } else if row.validation == super::Validation::Domain(DomainKind::ChatRoots) {
         Accepted::Shape(
             "an array of absolute folders outside / , the home folder, other volumes and privacy-protected folders",
@@ -148,6 +156,10 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
     } else if row.validation == super::Validation::Domain(DomainKind::CommandLabels) {
         Accepted::Shape(
             "an array of preset names and rule objects, each with a label and a program or match",
+        )
+    } else if row.validation == super::Validation::Domain(DomainKind::TranscriptTokens) {
+        Accepted::Shape(
+            "an object of transcript look tokens, each in its range (docs/cmux-next/transcript-customization.md)",
         )
     } else if row.validation == super::Validation::Domain(DomainKind::AppId) {
         Accepted::Shape("an app id, publisher/name in lowercase letters, digits and -")
@@ -232,6 +244,12 @@ fn row_accepts(row: &Row, value: &Value, domains: &Domains) -> bool {
         super::Validation::Domain(DomainKind::BackdropMemory) => {
             return super::backdrop::is_memory(value);
         }
+        super::Validation::Domain(DomainKind::BackdropPlacement) => {
+            return crate::backdrop_placement::is_placement_map(value);
+        }
+        super::Validation::Domain(DomainKind::BackdropRecents) => {
+            return super::backdrop::is_recents(value);
+        }
         super::Validation::Domain(DomainKind::CustomDensities) => {
             return value.as_array().is_some_and(|items| items.iter().all(is_custom_density));
         }
@@ -240,6 +258,9 @@ fn row_accepts(row: &Row, value: &Value, domains: &Domains) -> bool {
         }
         super::Validation::Domain(DomainKind::AppId) => {
             return value.as_str().is_some_and(super::app_id::is_valid_app_id);
+        }
+        super::Validation::Domain(DomainKind::TranscriptTokens) => {
+            return crate::transcript_look::accepts_tokens(value);
         }
         _ => {}
     }
@@ -253,7 +274,8 @@ fn row_accepts(row: &Row, value: &Value, domains: &Domains) -> bool {
         let folder = text
             .strip_prefix("folder:")
             .is_some_and(|path| path.starts_with('/') && path.len() > 1);
-        return path || folder || is_accepted(&row.kind, value, domains);
+        let live = super::backdrop::is_live(text);
+        return path || folder || live || is_accepted(&row.kind, value, domains);
     }
     is_accepted(&row.kind, value, domains)
 }
@@ -496,6 +518,8 @@ fn domain_name(kind: DomainKind) -> &'static str {
         DomainKind::BackdropSchedule => "backdrop_schedule",
         DomainKind::BackdropLocation => "backdrop_location",
         DomainKind::BackdropMemory => "backdrop_memory",
+        DomainKind::BackdropPlacement => "backdrop_placement",
+        DomainKind::BackdropRecents => "backdrop_recents",
         DomainKind::ChatRoots => "chat_roots",
         DomainKind::SearchTemplate => "search_template",
         DomainKind::CustomDensities => "custom_densities",
@@ -504,6 +528,7 @@ fn domain_name(kind: DomainKind) -> &'static str {
         DomainKind::SidebarRowLines => "sidebar_row_lines",
         DomainKind::SidebarRowLinesByKind => "sidebar_row_lines_by_kind",
         DomainKind::SidebarRowLinesByAgent => "sidebar_row_lines_by_agent",
+        DomainKind::TranscriptTokens => "transcript_tokens",
     }
 }
 

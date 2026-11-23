@@ -74,9 +74,37 @@ elif [ -n "${CMUX_NEXT_JOB_BUILT:-}" ]; then
   return 2
 fi
 
+cmux_next_warm_select_xcode() {
+  [ "$(uname -s)" = Darwin ] || return 0
+  # Fleet exporters do not have Actions' preceding Select Xcode step. Use
+  # the same pool/explicit pin as package-test-lane.sh, never the host default.
+  if [ -z "${DEVELOPER_DIR:-}" ]; then
+    local xcode_env status
+    xcode_env="$(mktemp)" || return $?
+    if GITHUB_ENV="$xcode_env" CMUX_CI_SKIP_XCODE_SELECT=1 \
+        bash "$cmux_next_warm_ci_dir/../select-ci-xcode.sh"; then
+      DEVELOPER_DIR="$(sed -n 's/^DEVELOPER_DIR=//p' "$xcode_env" | tail -n 1)"
+      rm -f "$xcode_env"
+      [ -n "$DEVELOPER_DIR" ] || return 2
+      export DEVELOPER_DIR
+    else
+      status=$?
+      rm -f "$xcode_env"
+      return "$status"
+    fi
+  fi
+  # A Python/xcrun shim may have inherited the Command Line Tools SDK.
+  # Resolve it from the selected compiler before either the guard or build.
+  SDKROOT="$(env -u SDKROOT xcrun --sdk macosx --show-sdk-path)" || return $?
+  [ -n "$SDKROOT" ] && [ -d "$SDKROOT" ] || return 2
+  export SDKROOT
+  echo "Xcode: $DEVELOPER_DIR; SDK: $SDKROOT"
+}
+
 cmux_next_warm_build() {
   local pkgdir="$1" built_ref="$1/.build/.cmux-ci-built-ref"
   shift
+  cmux_next_warm_select_xcode || return $?
   if [ -f "$built_ref" ]; then
     echo "ci-phase .build last built at $(cut -c1-12 "$built_ref")"
   else

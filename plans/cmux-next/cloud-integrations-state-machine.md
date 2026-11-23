@@ -192,10 +192,9 @@ covers the repo (one repo, at most 1 h, never at rest); the person's own login s
    passes; the running NIGHTLY process had started 11-16 and never relaunched after the update. Not a Cloud bug:
    nothing tells the person or the CLI that the running build is older than the installed one. Fix: the app offers
    "Restart to update" when its bundle on disk is newer, and the CLI warns when the app it reaches is another build.
-8. **The cmux MCP is never offered to agents until asked.** `cmux setup mcp` reported `needs_user` with
-   `agents.cmuxMcp: "ask"` on the same account, so agents he starts get no cmux MCP tools until he answers. This is
-   by design (a consent), recorded here as an edge: the state is `ask → yes | no`, and `ask` should be visible
-   where the agent's tools are listed, not only in setup.
+8. **The cmux MCP was never offered to agents until asked.** `cmux setup mcp` reported `needs_user` with
+   `agents.cmuxMcp: "ask"` on the same account. Fixed: `agents.cmuxMcp` is now on by default and only `off` turns
+   it off, so agents started in cmux get cmux's tools with no question.
 
 Measured on the same account, no GitHub link: `GET /v1/integrations/github/status` answers `connection: null`
 (the unlinked state of section 1); `GET /v1/integrations/github/repos` answers 404 `integration.not_found` in

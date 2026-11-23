@@ -79,6 +79,7 @@ const MARK = "\u0001";
 
 export function SentMessageLine({
   tool,
+  messageAt,
   state,
   target,
   targetSession,
@@ -92,6 +93,7 @@ export function SentMessageLine({
 }: {
   /// The call: Find in Chat opens the row when its match is in it.
   tool: Tool;
+  messageAt?: number;
   state: SendState;
   /// Who it went to, by name.
   target: string;
@@ -272,7 +274,7 @@ export function SentMessageLine({
                 copies the words, as a received message's does. */}
             <CardCopy text={text} />
             <div className="cv-received__text selectable">
-              <AgentMessageBody text={text} commits="quiet" />
+              <AgentMessageBody text={text} commits="quiet" messageAt={tool.startedAt ?? messageAt} />
             </div>
           </>
         ) : (
@@ -391,10 +393,12 @@ export function RawToggle({
 /// request and response.
 export function AcpmuxSendLine({
   tool,
+  messageAt,
   send,
   grouped = false,
 }: {
   tool: Tool;
+  messageAt?: number;
   send: AcpmuxSendCallPart;
   /// Inside a group of sends (`SentMessageGroup`): the group's line says what else the call ran.
   grouped?: boolean;
@@ -419,6 +423,7 @@ export function AcpmuxSendLine({
   return (
     <SentMessageLine
       tool={tool}
+      messageAt={messageAt}
       state={send.state}
       target={send.target}
       text={send.text}
