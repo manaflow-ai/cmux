@@ -1727,6 +1727,154 @@
       },
       "rows": [
         {
+          "key": "editor.default",
+          "note": "The editor Open in Editor opens a chat's or workspace's folder in, and the agent pane's file.open where: editor (EditorDefaultSetting). The ids are cmux-window-rules editors::EDITORS (window_editors_table); window_editors_pick takes it when that editor is installed, else the first installed in table order. auto (the default) is that first one.",
+          "title": {
+            "key": "settings.editor.default",
+            "text": "Open in Editor"
+          },
+          "help": {
+            "key": "settings.editor.default.help",
+            "text": "The app Open in Editor opens a folder or file in; Text Editor, when set, opens files and picks it here. One not installed uses the first editor found."
+          },
+          "kind": "choice",
+          "swift_owner": "EditorDefaultSetting",
+          "choices": [
+            {
+              "value": "auto",
+              "title": {
+                "key": "settings.choice.editor.firstFound",
+                "text": "The First Editor Found"
+              }
+            },
+            {
+              "value": "vscode",
+              "title": {
+                "key": null,
+                "text": "Visual Studio Code"
+              }
+            },
+            {
+              "value": "cursor",
+              "title": {
+                "key": null,
+                "text": "Cursor"
+              }
+            },
+            {
+              "value": "zed",
+              "title": {
+                "key": null,
+                "text": "Zed"
+              }
+            },
+            {
+              "value": "xcode",
+              "title": {
+                "key": null,
+                "text": "Xcode"
+              }
+            },
+            {
+              "value": "sublime",
+              "title": {
+                "key": null,
+                "text": "Sublime Text"
+              }
+            },
+            {
+              "value": "intellij",
+              "title": {
+                "key": null,
+                "text": "IntelliJ IDEA"
+              }
+            },
+            {
+              "value": "webstorm",
+              "title": {
+                "key": null,
+                "text": "WebStorm"
+              }
+            },
+            {
+              "value": "pycharm",
+              "title": {
+                "key": null,
+                "text": "PyCharm"
+              }
+            },
+            {
+              "value": "goland",
+              "title": {
+                "key": null,
+                "text": "GoLand"
+              }
+            },
+            {
+              "value": "rustrover",
+              "title": {
+                "key": null,
+                "text": "RustRover"
+              }
+            },
+            {
+              "value": "clion",
+              "title": {
+                "key": null,
+                "text": "CLion"
+              }
+            },
+            {
+              "value": "phpstorm",
+              "title": {
+                "key": null,
+                "text": "PhpStorm"
+              }
+            },
+            {
+              "value": "rubymine",
+              "title": {
+                "key": null,
+                "text": "RubyMine"
+              }
+            },
+            {
+              "value": "rider",
+              "title": {
+                "key": null,
+                "text": "Rider"
+              }
+            },
+            {
+              "value": "fleet",
+              "title": {
+                "key": null,
+                "text": "Fleet"
+              }
+            },
+            {
+              "value": "nova",
+              "title": {
+                "key": null,
+                "text": "Nova"
+              }
+            }
+          ],
+          "default": "auto",
+          "keywords": [
+            "editor",
+            "open in",
+            "ide",
+            "vscode",
+            "cursor",
+            "zed",
+            "xcode",
+            "jetbrains",
+            "folder",
+            "default"
+          ]
+        },
+        {
           "key": "files.textEditor",
           "title": {
             "key": "settings.files.textEditor",
@@ -1734,7 +1882,7 @@
           },
           "help": {
             "key": "settings.files.textEditor.help",
-            "text": "An app name, bundle ID or app path. Empty uses your source code app."
+            "text": "An app name, bundle ID or app path. Empty uses Open in Editor's app, else your source code app."
           },
           "kind": "text",
           "swift_owner": "TextEditorSetting",

@@ -31,11 +31,14 @@ permissions:
   contents: read
 
 concurrency:
-  # Pull requests merge with the branch tip, so only its key is restored: a
-  # newer push cancels an older build, and the cache holds one live entry
-  # instead of one per push (about 45 a day touch cmux-tui).
+  # Pull requests merge with the branch tip, so only its key is restored. A
+  # build takes 11-25 min and feat-cmux-next takes a cmux-tui push about every
+  # 5 min, so cancelling in progress left no run finishing (91 of 100 runs
+  # cancelled, 2026-11-22). Instead the running build finishes and only the
+  # newest push waits behind it (GitHub drops older pending runs): about one
+  # saved key per build, not one per push.
   group: cmux-tui-headless-debug-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
@@ -49,7 +52,7 @@ jobs:
   build:
     name: headless debug cmux-tui
     if: github.repository_owner == 'manaflow-ai'
-    runs-on: ${{ !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 30
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
@@ -115,6 +118,8 @@ jobs:
         if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-headless-debug

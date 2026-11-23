@@ -28,6 +28,17 @@ final class ChromeIconButton: ClickableButton {
     var onDensityChange: (() -> Void)?  // the density changed (the profile button sizes its avatar again)
     private let holdTimer = DemandTimer(owner: "ChromeIconButton.hold")
     private var showedHoldMenu = false
+    /// A press opens the button's menu at once instead of on the release (the toolbar's media,
+    /// Downloads, profile, theme and More), as a pop-up button's `NSMenu` and Chrome's toolbar menus do,
+    /// so press, drag onto a row and release picks it (Leo: "so he click and hold on the context menu
+    /// start and then it goes over and then release should go"). A native menu tracks the held press
+    /// itself; a glass one follows it through ``pressTracker``.
+    var opensOnPress = false
+    /// The glass menu this button's held press opened (``GlassMenu/trackPress(_:)``): the button keeps
+    /// the mouse, so it hands the press's drags and its release on. Cleared at each press and release.
+    var pressTracker: ((NSEvent) -> Void)?
+    /// Whether a press that opened the menu (``opensOnPress``) is still held.
+    private(set) var holdsPress = false
 
     init(icon: IconName, label: String, action: Selector?, target: AnyObject?, toolbar: Bool = false, toolTip: Bool = true) {
         isToolbar = toolbar
@@ -235,7 +246,7 @@ final class ChromeIconButton: ClickableButton {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        menuProvider?() ?? super.menu(for: event)
+        NSMenu.withoutSystemItems(menuProvider?() ?? super.menu(for: event))
     }
 
     /// A right-click presses a button whose press opens a menu (the toolbar's
@@ -251,11 +262,35 @@ final class ChromeIconButton: ClickableButton {
     /// clicking (long-press Back and Forward).
     override func mouseDown(with event: NSEvent) {
         showedHoldMenu = false
+        pressTracker = nil
+        holdsPress = false
+        // Control-click stays a right-click (`menu(for:)`); every other press opens the menu now.
+        if opensOnPress, isEnabled, !event.modifierFlags.contains(.control) {
+            holdsPress = true
+            _ = sendAction(action, to: target)
+            return
+        }
         if menuProvider != nil, isEnabled {
             holdTimer.schedule(after: .milliseconds(400)) { @MainActor [weak self] in self?.showHoldMenu() }
         }
         super.mouseDown(with: event)
         holdTimer.cancel()
+    }
+
+    /// The held press's drags go to the menu it opened (``pressTracker``).
+    override func mouseDragged(with event: NSEvent) {
+        guard holdsPress else { return super.mouseDragged(with: event) }
+        pressTracker?(event)
+    }
+
+    /// The held press's release goes to the menu it opened: on a row it runs it, on the button it is a
+    /// click and the menu stays open, anywhere else it closes the menu (``GlassMenu/trackPress(_:)``).
+    override func mouseUp(with event: NSEvent) {
+        guard holdsPress else { return super.mouseUp(with: event) }
+        holdsPress = false
+        let tracker = pressTracker
+        pressTracker = nil
+        tracker?(event)
     }
 
     override func sendAction(_ action: Selector?, to target: Any?) -> Bool {
@@ -435,6 +470,12 @@ class ChromeTextField: NSTextField {
     /// at the body size after some density switches).
     var densityFont: NSFont { BrowserMetrics.bodyFont }
 
+    /// The text, placeholder and caret colors, read inside the field's theme scope. A field on a surface of its own
+    /// (the omnibar's, `AddressField`) returns the inks fitted to it.
+    var themedTextColor: NSColor { Palette.textPrimary } // theme-scoped
+    var themedPlaceholderColor: NSColor { Palette.textSecondary } // theme-scoped
+    var themedCaretColor: NSColor { Palette.caret } // theme-scoped
+
     func setPlaceholder(_ text: String) {
         placeholderText = text
         applyPlaceholder()
@@ -451,16 +492,19 @@ class ChromeTextField: NSTextField {
     }
 
     private func applyColors() {
-        performWithTheme { textColor = Palette.textPrimary }
+        performWithTheme { textColor = themedTextColor }
         applyPlaceholder()
         applyEditorColors()
     }
+
+    /// Re-reads the field's colors (a change of the surface under it with no appearance change).
+    func reapplyColors() { applyColors() }
 
     private func applyPlaceholder() {
         guard !placeholderText.isEmpty else { return }
         performWithTheme {
             setPlaceholderKeepingEdit(NSAttributedString(string: placeholderText, attributes: [
-                .foregroundColor: Palette.textSecondary,
+                .foregroundColor: themedPlaceholderColor,
                 .font: font ?? BrowserMetrics.bodyFont,
             ]))
         }
@@ -469,7 +513,7 @@ class ChromeTextField: NSTextField {
     private func applyEditorColors() {
         guard let editor = currentEditor() as? NSTextView else { return }
         performWithTheme {
-            editor.insertionPointColor = Palette.caret
+            editor.insertionPointColor = themedCaretColor
             editor.selectedTextAttributes = [.backgroundColor: Palette.textSelection]
         }
     }

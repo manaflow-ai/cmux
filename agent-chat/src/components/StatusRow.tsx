@@ -2,7 +2,7 @@ import { Popover } from "@base-ui-components/react/popover";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type RefObject, type SetStateAction } from "react";
 import { menuActionForKey } from "../keymap";
 import type { OptionValue, Provider, SessionOption } from "../session";
-import { BarsIcon, BoltIcon, Check, Chevron, EllipsisIcon, FolderIcon, PinwheelSpinner, PlanIcon, ProviderIcon, SearchIcon, ShieldIcon, SparkIcon, basename } from "./icons";
+import { BarsIcon, BoltIcon, Check, Chevron, EllipsisIcon, FolderIcon, Spinner, PlanIcon, ProviderIcon, SearchIcon, ShieldIcon, SparkIcon, basename } from "./icons";
 import { CmdkMenu, type CmdkGroup } from "./CmdkMenu";
 import { HintTooltip } from "./Tooltips";
 import { currentChoice, effortFill, isOffLikeValue, optionAction, optionTooltip, optionsForSelectedModel, prettyValue, visibleChoices } from "./options";
@@ -400,7 +400,7 @@ export function HarnessModelPicker({
         aria-label={isCurrentProviderLoading ? loadingLabel : undefined}
         aria-hidden={isCurrentProviderLoading ? undefined : true}
       >
-        <PinwheelSpinner size={11} />
+        <Spinner size={11} />
       </span>
       <span className="chev"><Chevron /></span>
     </button>
@@ -447,7 +447,7 @@ export function HarnessModelPicker({
                               <ProviderIcon provider={p} />
                               {loadingProviderIds.has(p.id) ? (
                                 <span className="rail-loading-indicator" aria-hidden="true">
-                                  <PinwheelSpinner size={8} />
+                                  <Spinner size={8} />
                                 </span>
                               ) : null}
                             </button>
@@ -492,7 +492,7 @@ export function HarnessModelPicker({
                     </div>
                     {isListLoading && listItems.length ? (
                       <div className="model-picker-loading" role="status" aria-live="polite">
-                        <PinwheelSpinner size={listItems.length ? 12 : 20} />
+                        <Spinner size={listItems.length ? 12 : 20} />
                         <span>{loadingLabel}</span>
                       </div>
                     ) : null}
@@ -503,7 +503,7 @@ export function HarnessModelPicker({
                       aria-live={isListLoading && !listItems.length ? "polite" : undefined}
                       aria-hidden={isListLoading && !listItems.length ? undefined : true}
                     >
-                      <PinwheelSpinner size={20} />
+                      <Spinner size={20} />
                       <span>{loadingLabel}</span>
                     </div>
                     <div className="model-picker-list" id="model-picker-list" role="listbox" aria-label="Models" aria-busy={isListLoading} ref={listRef}>
@@ -607,7 +607,7 @@ export function StatusRow({
         : <StaticProvider provider={providerInfo} running={running} />}
       {loadingProviderIds?.has(provider) ? (
         <span className="effort-picker-loading" role="status" aria-label={effortLoadingLabel()}>
-          <PinwheelSpinner size={11} />
+          <Spinner size={11} />
           <span>{effortLoadingLabel()}</span>
         </span>
       ) : null}

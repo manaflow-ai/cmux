@@ -4,8 +4,8 @@ import CmuxNextTestSupport
 import Foundation
 import Testing
 
-/// The omnibar, cut down (Lawrence 2026-11-21, "drastically simplify all parts of the UI"): at rest the field shows the
-/// host alone; the site-info chip of a secure page and the star of a page not bookmarked show only on hover or focus,
+/// The omnibar, cut down (Lawrence 2026-11-21, "drastically simplify all parts of the UI"): at rest the field shows
+/// Chrome's compact URL (the host alone read as a wrong link, https://github.com/manaflow-ai/cmux/issues/50986); the site-info chip of a secure page and the star of a page not bookmarked show only on hover or focus,
 /// keeping their room; a suggestion row is its title and the host, at most 6 rows; the placeholder is a short
 /// "Search or enter address".
 @MainActor
@@ -26,19 +26,27 @@ struct OmnibarCutsTests {
         return (bar, window)
     }
 
-    // MARK: 1. The host alone at rest
+    // MARK: 1. The page's address at rest
 
+    /// At rest the field shows which page this is, as Chrome does: the host and the path, query and fragment, without
+    /// `https://` or `www.` (`http://` stays, so an insecure page reads as one). A pull request read `github.com` alone,
+    /// and a person took the bar for a wrong link (https://github.com/manaflow-ai/cmux/issues/50986).
     @Test(arguments: [
-        ("https://www.github.com/manaflow-ai/cmux/pull/1?tab=files#diff", "github.com"),
-        ("http://example.com/login?next=%2Fhome", "example.com"),
-        ("http://localhost:3000/dashboard", "localhost:3000"),
+        ("https://github.com/manaflow-ai/cmux/pull/47051", "github.com/manaflow-ai/cmux/pull/47051"),
+        ("https://www.github.com/manaflow-ai/cmux/pull/1?tab=files#diff", "github.com/manaflow-ai/cmux/pull/1?tab=files#diff"),
+        ("http://example.com/login?next=%2Fhome", "http://example.com/login?next=/home"),
+        ("http://localhost:3000/dashboard", "http://localhost:3000/dashboard"),
         ("https://claude.ai/", "claude.ai"),
     ])
-    func atRestTheFieldShowsTheHostAlone(address: String, host: String) throws {
+    func atRestTheFieldShowsThePagesAddress(address: String, shown: String) throws {
         let (bar, window) = try bar(address)
         defer { window.closeAfterTest() }
-        #expect(bar.state.fieldText == host, "at rest \(address) shows \(bar.state.fieldText.debugDescription)")
-        #expect(bar.field.stringValue == host)
+        #expect(bar.state.fieldText == shown, "at rest \(address) shows \(bar.state.fieldText.debugDescription)")
+        #expect(bar.field.stringValue == shown)
+        // The host at full strength, the rest drawn too (the path dimmed, never cut from the text).
+        let value = bar.field.attributedStringValue
+        let host = try #require(BrowserURLDisplay.hostRange(in: value.string, for: URL(string: address)))
+        #expect(host.length > 0 && value.string == shown)
     }
 
     /// Cmd-L shows the whole address to edit, selected.
@@ -50,28 +58,30 @@ struct OmnibarCutsTests {
         #expect(bar.state.fieldText == address)
     }
 
-    // MARK: 2. Quiet icons
+    // MARK: 2. The chip and the star always show
 
-    /// A secure page's site-info chip and the hollow star are clear at rest and keep their room; a bookmarked page's
-    /// filled star and a page that is not secure ("Not secure") show.
-    @Test func quietIconsAreClearAtRestAndKeepTheirRoom() throws {
+    /// A secure page's site-info chip and the hollow star show at rest, not only on hover or focus: a star that was
+    /// clear until the pointer came read as missing, and a click turned it white
+    /// (https://github.com/manaflow-ai/cmux/issues/50986). Bookmarking and focus change neither, nor move the field.
+    @Test func theChipAndTheStarShowAtRestAndInEveryState() throws {
         let (bar, window) = try bar("https://github.com/manaflow-ai/cmux")
         defer { window.closeAfterTest() }
         bar.setBookmarkStar(.off)
         window.contentView?.layoutSubtreeIfNeeded()
-        #expect(bar.chip.alphaValue == 0, "a secure page's chip shows at rest")
-        #expect(bar.starButton.alphaValue == 0, "the hollow star shows at rest")
-        #expect(!bar.chip.isHidden && !bar.starButton.isHidden, "a quiet icon keeps its room")
+        #expect(bar.chip.alphaValue == 1, "a secure page's chip is clear at rest")
+        #expect(bar.starButton.alphaValue == 1, "the hollow star is clear at rest")
+        #expect(!bar.chip.isHidden && !bar.starButton.isHidden)
         let fieldAtRest = bar.field.frame
 
         bar.setBookmarkStar(.on)
         #expect(bar.starButton.alphaValue == 1, "a bookmarked page's star hides")
         bar.setBookmarkStar(.off)
+        #expect(bar.starButton.alphaValue == 1, "the star hides after unbookmarking")
 
         bar.focus()
         window.contentView?.layoutSubtreeIfNeeded()
-        #expect(bar.chip.alphaValue == 1 && bar.starButton.alphaValue == 1, "focus does not show the quiet icons")
-        #expect(bar.field.frame == fieldAtRest, "the icons' coming moved the field: \(fieldAtRest) to \(bar.field.frame)")
+        #expect(bar.chip.alphaValue == 1 && bar.starButton.alphaValue == 1, "focus hides an icon")
+        #expect(bar.field.frame == fieldAtRest, "focus moved the field: \(fieldAtRest) to \(bar.field.frame)")
     }
 
     /// The address bar holds no profile avatar, at rest or focused (Leo 2026-11-22, "why do we have the profile icon
