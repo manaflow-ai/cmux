@@ -16,6 +16,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 
 | bench | wraps (script) | what |
 |---|---|---|
+| web-assets | `web-asset-duplicates.sh` / `web-asset-duplicates.py`, or `--import` JSON | Exact stored-file copies, recognized base64 font copies, normalized archive experiment. `--host anywhere --arg root=EXTRACTED_BUNDLES`; no app/runtime claim. |
 | published-idle | `published-idle-power.sh` (pinned prepared PID, then `--import`) | Process CPU energy, wakeups and footprint including descendants; rejects incomplete windows. |
 | bundle | `bundle-size.sh` (DMG on a fleet Mac), an .app tree, or `--compare-zip URL` | Bundle size by component, against other apps. |
 | launch | `launch-ready.sh` | Dock launch: bounce end, first window, main, first frame, every launch mark. |
