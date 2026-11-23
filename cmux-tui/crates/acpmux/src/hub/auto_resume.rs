@@ -66,7 +66,9 @@
 //! - An agent started on an earlier daemon's vault egress proxy (its `HTTPS_PROXY` port closed,
 //!   its CA gone: `vault/egress.rs`) is restarted before the attempt, between turns, so the
 //!   attempt runs in a process that can reach the model (2026-11-21: 20 chats on one machine
-//!   spent every attempt on `ECONNREFUSED` in the same stale process).
+//!   spent every attempt on `ECONNREFUSED` in the same stale process; 2026-11-22: ~30 Freestyle
+//!   chats failed on `UNABLE_TO_VERIFY_LEAF_SIGNATURE`, the new proxy's CA, and were not
+//!   continued until TLS-verification errors counted as `transport`).
 
 use cmux_json::JsonSet as _;
 

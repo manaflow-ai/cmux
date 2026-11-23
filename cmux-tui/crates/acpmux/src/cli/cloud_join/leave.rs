@@ -245,11 +245,11 @@ pub(super) fn after_host_stop(stopped: Result<(), String>, revoked: bool) -> Hos
 }
 
 pub(super) async fn run(local_only: bool, json_out: bool) -> Result<()> {
-    let _lock = join_lock().map_err(|_| store_error())?;
+    let _lock = join_lock().map_err(store_error_from)?;
     let home = state_dir();
-    let Some(record) = load_at(&home).map_err(|_| store_error())? else {
+    let Some(record) = load_at(&home).map_err(store_error_from)? else {
         // Nothing joined; a stray joined `meshRelay` still goes, as the person asked to leave.
-        let removed = remove_stray_join_relay(&home).map_err(|_| store_error())?;
+        let removed = remove_stray_join_relay(&home).map_err(store_error_from)?;
         let out = json!({"left": false, "joined": false, "removed": removed});
         if json_out {
             crate::cli::output::print_json(&out);
@@ -299,7 +299,7 @@ pub(super) async fn run(local_only: bool, json_out: bool) -> Result<()> {
         HostStep::Remove => None,
         HostStep::RemoveThenFail(failure) => Some(failure),
     };
-    let removed = remove_local(&home, copy).map_err(|_| store_error())?;
+    let removed = remove_local(&home, copy).map_err(store_error_from)?;
     let daemon = tokio::time::timeout(
         // timeout: a daemon that never answers is reported not running; the leave is done.
         std::time::Duration::from_secs(2),

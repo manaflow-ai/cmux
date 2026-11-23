@@ -65,14 +65,14 @@ extension TabContentCache {
         return await finishPageCapture(request, key: key, accepts: accepts)
     }
 
-    /// Asks the engine for `entry`'s picture in this turn, at most one per page at a time (`version`: the page's then).
-    private func beginPageCapture(_ entry: BrowserEntry, key: String) -> (request: BrowserPictureRequest, version: Int)? {
+    /// Asks the engine for `entry`'s picture in this turn, at most one per page at a time (`version`, `url`: the page's then).
+    private func beginPageCapture(_ entry: BrowserEntry, key: String) -> (request: BrowserPictureRequest, version: Int, url: String?)? {
         guard pageCapturesInFlight.insert(key).inserted else { return nil }
-        return (entry.tab.beginThumbnail(), entry.tab.state.pictureVersion)
+        return (entry.tab.beginThumbnail(), entry.tab.state.pictureVersion, entry.tab.state.url?.absoluteString)
     }
 
     /// Awaits a capture ``beginPageCapture(_:key:)`` started, under the capture deadline, and keeps it when `accepts`.
-    private func finishPageCapture(_ capture: (request: BrowserPictureRequest, version: Int), key: String, accepts: @escaping () -> Bool) async -> CGImage? {
+    private func finishPageCapture(_ capture: (request: BrowserPictureRequest, version: Int, url: String?), key: String, accepts: @escaping () -> Bool) async -> CGImage? {
         defer { pageCapturesInFlight.remove(key) }
         let version = capture.version, budget = pageCaptureDeadline
         guard let image = try? await ControlDeadline.shared.run(method: "preview.capture", deadline: .now + budget, { @MainActor in
@@ -84,7 +84,7 @@ extension TabContentCache {
         // Kept compressed, once per tab, for the tab's life: a hibernated Chromium tab wakes to it (fork API 24 pictures
         // no hidden page); decoded 640 px pictures in the 16 MB budget kept only about 14 pages' (fleet e2fb152d, 05f0ba3c).
         pageThumbnails.insertCompressingLater(fitted, for: key)  // nobody who waits for this picture waits for its encode
-        pageThumbnailVersions[key] = blank ? nil : version
+        pageThumbnailVersions[key] = blank ? nil : version; pageThumbnailURLs[key] = blank ? nil : capture.url
         return image
     }
 
