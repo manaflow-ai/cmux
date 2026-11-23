@@ -21,7 +21,7 @@ workflow file itself is an input of every one of its checks. A check may also ta
                         feat-cmux-next) that run the same checks on the push that lands the pull request.
 
 `route` writes KEY=true|false to $GITHUB_OUTPUT for each listed job of --workflow (KEY: the job id, "-" as "_"). The
-workflow's `fast-check-route` job (the 2-vCPU pool, a blob-less checkout of the merge commit) runs it, and each listed
+workflow's `fast-check-route` job (the one Linux label, a blob-less checkout of the merge commit) runs it, and each listed
 job's `if:` carries `needs.fast-check-route.outputs.KEY != 'false'`: a skipped job reports skipped, which a required
 check reads as passed, and an empty output (the router failed, or a push or dispatch where the route job does not run)
 runs the job. Every check runs when:
@@ -35,7 +35,7 @@ runs the job. Every check runs when:
 
   - every workflow and job the map lists exists, and every declared input names a tracked path;
   - each listed job needs fast-check-route and its `if:` reads the route; the route job lists the job's output and
-    runs on the 2-vCPU pool (ROUTE_RUNS_ON);
+    runs on the one Linux label (ROUTE_RUNS_ON);
   - the workflow runs on a feat-cmux-next push, or each push_cover workflow does;
   - what the job reads is inside its inputs: every repository path its steps name, followed into each Python or shell
     script it names (a Python script's local imports and its string literals naming a tracked path, a shell script's
@@ -59,7 +59,7 @@ MAP = "scripts/ci/fast-check-inputs.json"
 SELF = (MAP, "scripts/ci/fast_check_route.py", "tests/test_ci_fast_check_route.py")
 FULL_LABEL = "full-ci"
 # The smallest pool runner: no GitHub-hosted label (the runner-label policy refuses one).
-ROUTE_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2 }}"
+ROUTE_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}"
 ROUTE_JOB = "fast-check-route"
 BRANCH = "feat-cmux-next"
 
@@ -393,7 +393,7 @@ def check(root: Path = ROOT, files: list[str] | None = None) -> list[str]:
                 problems.append(f"{where}: {ROUTE_JOB} does not output {output_key(job_id)}")
             if job_field(route_block, "runs-on").strip() != ROUTE_RUNS_ON:
                 problems.append(f"{where}: {ROUTE_JOB} runs on {job_field(route_block, 'runs-on').strip()!r}, "
-                                f"not the 2-vCPU pool (ROUTE_RUNS_ON): the decision takes no heavy runner")
+                                f"not the one Linux label (ROUTE_RUNS_ON): the decision takes no heavy runner")
         covers = spec.get("push_cover")
         if covers is None and not pushes_branch(text):
             problems.append(f"{where}: no {BRANCH} push starts {workflow} and the check names no push_cover, so a "

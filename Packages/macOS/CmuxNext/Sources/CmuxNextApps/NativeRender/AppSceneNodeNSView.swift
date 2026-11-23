@@ -5,7 +5,7 @@ import CmuxNextDesign
 /// id and calls ``configure(_:)`` with each new value of the node, so an `update` op reconfigures the
 /// view in place rather than rebuilding the section. Subclasses draw their node type; this base
 /// applies the props every node accepts (padding, help, opacity, disabled, and the decorations:
-/// `frame`, `background`, `borderColor`, `cornerRadius`, `hoverBackground`, `rotation`), a tap for a
+/// `frame`, `background`, `glass`, `borderColor`, `cornerRadius`, `hoverBackground`, `rotation`), a tap for a
 /// node with an `onTap` handler, and its context `menu`. Layout is manual: a parent asks
 /// ``height(width:)`` and ``naturalWidth`` and sets the frame. Colors are painted in ``paint()``,
 /// inside the view's theme scope, on each draw.
@@ -39,6 +39,8 @@ class AppSceneNodeNSView: NSView {
     var decorationHover: PointerHover?
     /// Whether the pointer is over a node with a `hoverBackground`.
     var isDecorationHovered = false
+    /// The App's own glass under the node's content, while the node has a `glass` level.
+    var decorationGlass: (level: GlassLevel, view: NSView)?
     /// Draws a gradient `background` under the node's content; made the first time a node asks for one.
     var decorationGradient: CAGradientLayer?
 

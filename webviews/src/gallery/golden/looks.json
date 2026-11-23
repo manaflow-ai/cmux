@@ -173,6 +173,24 @@
       "title": "Tandem (add-on)",
       "note": "The Tandem example add-on, drawn from captured references (examples/looks/tandem/README.md).",
       "setup": "examples/looks/tandem"
+    },
+    {
+      "id": "shadcn-addon",
+      "title": "shadcn (add-on)",
+      "note": "The shadcn/ui exemplar look, from its setup folder alone: neutral tokens, hairline cards, Geist, a muted tab track.",
+      "setup": "examples/looks/shadcn"
+    },
+    {
+      "id": "material-addon",
+      "title": "Material (add-on)",
+      "note": "The Material 3 exemplar look, from its setup folder alone: tonal surfaces, Roboto, a 20 px tonal prompt bubble.",
+      "setup": "examples/looks/material"
+    },
+    {
+      "id": "apple-addon",
+      "title": "Apple (add-on)",
+      "note": "The macOS exemplar look, from its setup folder alone: a vibrant source-list sidebar, SF, systemBlue, an 18 px bubble.",
+      "setup": "examples/looks/apple"
     }
   ]
 }

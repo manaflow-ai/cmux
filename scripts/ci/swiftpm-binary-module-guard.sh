@@ -293,6 +293,21 @@ swiftpm_purge_build_outputs() {
   done
 }
 
+# swiftpm_unverified_build SCRATCH: the fleet worker kept this .build after a
+# step whose build never finished (stopped at its max-run, cancelled, or failed)
+# and marked it unverified (hq build-fleet cmd/worker step_warm.go,
+# warmUnverifiedFile). SwiftPM resumes such a build where it stopped: the
+# 2026-11-21 CmuxNext suite steps on lent minis were stopped at 180 min with 27
+# of 13,437-15,760 targets left, and the worker used to drop the .build, so the
+# next step compiled all of them again. When a build on an unverified .build
+# fails, the caller builds once more from clean outputs, so a bad leftover (the
+# 2026-10-10 undefined-symbols link) never reports red. A complete build
+# removes the marker (record_built_ref, run-swift-testing-suites.sh). The worker
+# keeps an unfinished .build only for a step whose script calls this function.
+swiftpm_unverified_build() {
+  [ -f "$1/.cmux-ci-unverified" ]
+}
+
 swiftpm_stale_module_failure() {
   bash "$(dirname "${BASH_SOURCE[0]}")/../cmux-next/stale-pcm-retry-needed.sh" "$1"
 }

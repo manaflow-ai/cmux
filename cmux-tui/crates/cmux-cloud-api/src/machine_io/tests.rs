@@ -227,6 +227,28 @@ fn mints_once_then_reuses_the_cached_session_with_only_the_identity_token() {
     }
 }
 
+/// The daemon names no cache folder (`machine::worker` drops `cache_dir`), so before the memory
+/// cache every exec on a Worker machine minted a client session first: a round trip to the cmux
+/// API on each step of a chat start. With no folder the session now stays in the process.
+#[test]
+fn with_no_cache_folder_a_long_lived_process_still_mints_once() {
+    let origin_cell = Arc::new(Mutex::new(String::new()));
+    let cell = Arc::clone(&origin_cell);
+    let (origin, seen) =
+        fake(move |s| if s.is_mint() { minted(&cell.lock().unwrap()) } else { stat_reply() });
+    *origin_cell.lock().unwrap() = origin.clone();
+    let dir = tempfile::tempdir().unwrap();
+    let mut req = request(&origin, dir.path(), Op::Stat);
+    req.cache_dir = None;
+    let (route, _) = go(&req, T0);
+    assert_eq!(route, Route::Direct);
+    let (route, _) = go(&req, T0 + 60_000);
+    assert_eq!(route, Route::Direct);
+    assert_eq!(count(&seen, Seen::is_mint), 1, "the second call reuses the session in memory");
+    assert_eq!(count(&seen, Seen::is_exec_await), 2);
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0, "nothing is written to disk");
+}
+
 #[test]
 fn renews_a_session_close_to_its_end_and_keeps_the_cache_private() {
     use std::os::unix::fs::PermissionsExt;

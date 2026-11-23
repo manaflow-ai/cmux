@@ -9,20 +9,34 @@ final class FolderWatchStream: @unchecked Sendable { // crash-allow: `stream` ch
     private let latency: CFTimeInterval
     private let continuation: AsyncStream<FolderChange>.Continuation
     private let queue = DispatchQueue(label: "cmux.files.fsevents", qos: .userInitiated)
+    private let watchesRoot: @Sendable () -> Bool
     private var stream: FSEventStreamRef?
+    /// Whether this stream watches the folder itself (asked once, at the start, on `queue`).
+    var watchingRoot = true
 
-    init(folder: URL, latency: CFTimeInterval, continuation: AsyncStream<FolderChange>.Continuation) {
+    init(folder: URL, latency: CFTimeInterval, watchesRoot: @escaping @Sendable () -> Bool = { true },
+         continuation: AsyncStream<FolderChange>.Continuation) {
         self.folderPath = folder.path.hasSuffix("/") ? String(folder.path.dropLast()) : folder.path
         self.latency = latency
+        self.watchesRoot = watchesRoot
         self.continuation = continuation
+    }
+
+    /// The stream's flags. `kFSEventStreamCreateFlagWatchRoot` makes FSEvents open the folder in
+    /// this process to follow it when it moves: a read of `~/Downloads` that macOS charges to the
+    /// app. A build that reads folders in another process (``DirectoryListing/readsOutOfProcess``)
+    /// leaves it out and learns of a move or removal of the folder from that folder's own event.
+    static func flags(watchingRoot: Bool) -> FSEventStreamCreateFlags {
+        FSEventStreamCreateFlags(kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagNoDefer
+            | (watchingRoot ? kFSEventStreamCreateFlagWatchRoot : 0) | kFSEventStreamCreateFlagUseCFTypes)
     }
 
     func start() {
         queue.async { [self] in
             var context = FSEventStreamContext(version: 0, info: Unmanaged.passUnretained(self).toOpaque(),
                                                retain: nil, release: nil, copyDescription: nil)
-            let flags = FSEventStreamCreateFlags(kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagNoDefer
-                | kFSEventStreamCreateFlagWatchRoot | kFSEventStreamCreateFlagUseCFTypes)
+            watchingRoot = watchesRoot()
+            let flags = Self.flags(watchingRoot: watchingRoot)
             guard let created = FSEventStreamCreate(nil, folderWatchCallback, &context, [folderPath] as CFArray,
                                                     FSEventStreamEventId(kFSEventStreamEventIdSinceNow), latency, flags)
             else { continuation.finish(); return }
@@ -45,7 +59,7 @@ final class FolderWatchStream: @unchecked Sendable { // crash-allow: `stream` ch
         }
     }
 
-    fileprivate func deliver(paths: [String], flags: [FSEventStreamEventFlags]) {
+    func deliver(paths: [String], flags: [FSEventStreamEventFlags]) {
         var items: [String] = []
         var rescan = false
         for (path, flag) in zip(paths, flags) {
@@ -55,7 +69,12 @@ final class FolderWatchStream: @unchecked Sendable { // crash-allow: `stream` ch
                 continue
             }
             let trimmed = path.hasSuffix("/") ? String(path.dropLast()) : path
-            if trimmed == folderPath { continue }
+            if trimmed == folderPath {
+                // Without the root watch, the folder's own removal or rename comes as its own event.
+                let gone = FSEventStreamEventFlags(kFSEventStreamEventFlagItemRemoved | kFSEventStreamEventFlagItemRenamed)
+                if !watchingRoot, flag & gone != 0 { rescan = true }
+                continue
+            }
             let parent = (trimmed as NSString).deletingLastPathComponent
             guard parent == folderPath else { continue }
             items.append((trimmed as NSString).lastPathComponent)

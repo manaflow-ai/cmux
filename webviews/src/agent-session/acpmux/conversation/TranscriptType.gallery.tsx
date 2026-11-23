@@ -181,7 +181,6 @@ function TranscriptType({
         value={{
           switchModel: () => {},
           reauthenticate: () => {},
-          transferCloudCredentials: async () => {},
           route: { name: "Claude Code", hostKind: "cloud" },
         }}
       >
