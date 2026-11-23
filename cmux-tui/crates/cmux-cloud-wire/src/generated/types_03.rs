@@ -4,6 +4,46 @@
 #[allow(unused_imports)]
 use super::*;
 
+/// status is derived (resolved while the root's resolution is newer than every live reply); title and owner come from the root's thread object; resolved_by and resolved_at only while resolved.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeThreadSummary {
+    pub root: MessageId,
+    pub reply_count: i64,
+    pub last_reply_seq: Option<i64>,
+    pub last_reply_at: Option<Timestamp>,
+    pub authors: Vec<ParticipantId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<HomeThreadStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<ParticipantId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved_by: Option<ParticipantId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved_at: Option<Timestamp>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Host {
+    pub id: HostId,
+    pub name: String,
+    pub platform: Platform,
+    pub owner_user: UserId,
+    pub enrolled_by: InstallId,
+    pub enrolled_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<HostKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wg_public_key: Option<WgPublicKey>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network: Option<ServerNetworkState>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub orphaned: Option<HostOrphaned>,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HostOrphaned {
     pub at: i64,
@@ -859,12 +899,4 @@ pub struct TeamModelsPolicyState {
     pub revision: i64,
     pub updated_at: Option<i64>,
     pub updated_by: Option<UserId>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicy {
-    pub version: i64,
-    pub values: TeamPolicyValues,
-    pub updated_at: Option<i64>,
-    pub updated_by: Option<String>,
 }

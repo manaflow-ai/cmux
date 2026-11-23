@@ -4,6 +4,45 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ConnectionAccount {
+    pub key: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+}
+
+wire_enum! {
+    ConnectionSharing {
+        Private = "private",
+        Team = "team",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ConnectionResources {
+    pub repos: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub linked_by_github_id: Option<i64>,
+}
+
+/// One integration connection (a provider account linked to a team).
+pub type ConnectionId = String;
+
+wire_enum! {
+    ConnectionStatus {
+        Pending = "pending",
+        Active = "active",
+        NeedsReauth = "needs_reauth",
+        Error = "error",
+        Revoked = "revoked",
+        Expired = "expired",
+    }
+}
+
+/// conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair).
+pub type ConversationId = String;
+
 wire_enum! {
     ConversationKind {
         Chief = "chief",
@@ -858,44 +897,4 @@ wire_enum! {
         Open = "open",
         Resolved = "resolved",
     }
-}
-
-/// status is derived (resolved while the root's resolution is newer than every live reply); title and owner come from the root's thread object; resolved_by and resolved_at only while resolved.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeThreadSummary {
-    pub root: MessageId,
-    pub reply_count: i64,
-    pub last_reply_seq: Option<i64>,
-    pub last_reply_at: Option<Timestamp>,
-    pub authors: Vec<ParticipantId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub status: Option<HomeThreadStatus>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub owner: Option<ParticipantId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub resolved_by: Option<ParticipantId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub resolved_at: Option<Timestamp>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct Host {
-    pub id: HostId,
-    pub name: String,
-    pub platform: Platform,
-    pub owner_user: UserId,
-    pub enrolled_by: InstallId,
-    pub enrolled_at: i64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub kind: Option<HostKind>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub wg_public_key: Option<WgPublicKey>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tags: Option<Vec<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub network: Option<ServerNetworkState>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub orphaned: Option<HostOrphaned>,
 }
