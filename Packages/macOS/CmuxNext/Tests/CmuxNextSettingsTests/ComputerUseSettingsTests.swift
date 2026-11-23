@@ -144,7 +144,7 @@ import Testing
         #expect(Set(object.keys) == ["mode", "deniedApps", "allowOwnMachines", "pauseOnTakeover", "allowForeground", "showCursor",
                                      "cursorTag", "settle", "cloudVm", "menus", "livePreview"])
         #expect(object["cursorTag"] as? String == "hover")
-        #expect(object["settle"] as? String == "adaptive")
+        #expect(object["settle"] as? String == "openai")
         #expect(object["mode"] as? String == "approvedApps")
         #expect(object["deniedApps"] as? [String] == ["com.example.a"])
         #expect(object["allowForeground"] as? Bool == true)
@@ -177,11 +177,11 @@ import Testing
     }
 
     /// The agent cursor's tag (hover by default) and what agents wait for after each action
-    /// (adaptive by default): rows with their choices, read from the file, sent in the policy as
+    /// (openai, no wait, by default): rows with their choices, read from the file, sent in the policy as
     /// `cursorTag` and `settle`; an unknown value keeps the default and says so.
     @Test func theCursorTagAndSettleRowsReachThePolicy() throws {
         let defaults = computerUse(.object([:]))
-        #expect(defaults.cursorTag == .hover && defaults.settle == .adaptive)
+        #expect(defaults.cursorTag == .hover && defaults.settle == .openai)
         let tag = try #require(SettingsSchema.descriptor(for: ComputerUseSettings.cursorTagPath))
         #expect(tag.defaultValue == .string("hover"))
         #expect(tag.title == "Agent Cursor Tag")
@@ -199,7 +199,7 @@ import Testing
         #expect(object["cursorTag"] as? String == "always" && object["settle"] as? String == "openai")
         let bad = CmuxConfigSnapshot.parse(.object(["computerUse": .object(["cursorTag": .string("blink"), "settle": .string("soon")])]),
                                            validDensities: [], validMetrics: [])
-        #expect(bad.computerUse.cursorTag == .hover && bad.computerUse.settle == .adaptive)
+        #expect(bad.computerUse.cursorTag == .hover && bad.computerUse.settle == .openai)
         #expect(bad.diagnostics.contains { $0.path == "computerUse.cursorTag" })
         #expect(bad.diagnostics.contains { $0.path == "computerUse.settle" })
     }
