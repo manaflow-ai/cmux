@@ -173,7 +173,10 @@ struct MacScreenStateControlTests {
         #expect(try rows(pages).count == 1, "the home tab is not a screen")
         #expect(idle["tab"]?.stringValue == "a")
         #expect(idle["device_id"]?.stringValue == deviceID)
-        #expect(idle["phase"]?.stringValue == "ended")
+        // Opened by automation that waits for the person: the Connect card, no stream started yet.
+        #expect(idle["phase"] == CmuxNextSettings.JSONValue.null)
+        #expect(idle["hub_phase"]?.stringValue == "idle" && idle["state"]?.stringValue == "idle")
+        #expect(idle["started_by"] == CmuxNextSettings.JSONValue.null)
         #expect(idle["connected"]?.boolValue == false && idle["has_frame"]?.boolValue == false)
         #expect(idle["first_frame_ms"] == CmuxNextSettings.JSONValue.null && idle["connect_started_at"] == CmuxNextSettings.JSONValue.null)
         #expect(idle["frame_interval_ms"] == CmuxNextSettings.JSONValue.null)
@@ -196,6 +199,7 @@ struct MacScreenStateControlTests {
         session.framePresented(size: CGSize(width: 1920, height: 1080))
 
         let live = try #require(try rows(pages, tab: "a").first)
+        #expect(live["phase"]?.stringValue == "ended", "a connect began: the phase is the session's")
         #expect(live["connect_started_at"]?.stringValue == "2023-11-14T22:13:20Z")
         // A picture showed: the read names the stage it reached and when each stage before it ended.
         #expect(live["connect_stage"]?.stringValue == "shown")

@@ -687,6 +687,26 @@ struct MacScreenHubViewerTests {
         #expect(viewer.phase == .refused(.notSignedIn, requested: .view))
         #expect(viewer.lastScope == .view)
     }
+
+    /// An open in the first seconds after launch, before the saved sign-in restored, asks
+    /// again once the hub comes, instead of keeping "Not Signed In".
+    @Test func aRequestRefusedForNoHubAsksAgainWhenTheHubComes() {
+        @MainActor final class Box { var hub: DeviceHub? }
+        let current = Box()
+        let viewer = MacScreenHubViewer(deviceID: hostID) { current.hub }
+        viewer.request(.full)
+        #expect(viewer.phase == .refused(.notSignedIn, requested: .full))
+        viewer.hubArrived()
+        #expect(viewer.phase == .refused(.notSignedIn, requested: .full), "still no hub: nothing to ask")
+        current.hub = testHub()
+        viewer.hubArrived()
+        #expect(viewer.phase == .requesting(.full))
+        // Any other card stays as it is when a hub comes.
+        viewer.cancel()
+        viewer.phase = .refused(.permissionNone, requested: .view)
+        viewer.hubArrived()
+        #expect(viewer.phase == .refused(.permissionNone, requested: .view))
+    }
 }
 
 /// Mac Screen routes each `session.*` push to the device tab it names.

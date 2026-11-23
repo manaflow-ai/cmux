@@ -38,6 +38,8 @@ public final class MacScreenPaneModel {
     public internal(set) var systemShortcuts: MacScreenSystemShortcuts?
     /// The device hub tab's session: its request, approval and ticket; nil for an unsupported record.
     public let hub: MacScreenHubViewer?
+    /// The agent that started this tab's view without a person's click; nil for a person's.
+    public internal(set) var startedBy: MacScreenStarter?
     /// Holds the card's in-between states back (``MacScreenCardQuiet``); tests give it a manual clock.
     @ObservationIgnored var quiet = MacScreenCardQuiet()
     /// A look fixed for this pane (the gallery and tests draw one look); nil follows Debug Settings `macScreen.viewerLook`.
