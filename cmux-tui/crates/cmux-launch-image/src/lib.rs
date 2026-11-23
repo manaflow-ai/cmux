@@ -24,6 +24,11 @@
 //! launch record names that path with the pixel size read from the same bytes,
 //! so the record and the image always describe the same frame.
 //!
+//! Publishes in one folder (threads or processes) take turns on its hidden
+//! [`LOCK_NAME`] file for the naming, link and caps, never the write: a publish's
+//! image is its window's newest when it links, and no other publish's caps can
+//! remove it before the record names it.
+//!
 //! # Caps
 //!
 //! [`Caps`]: an image over `max_image_bytes` is refused (the window keeps its
