@@ -2561,6 +2561,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-tab-snapshots"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "cmux-tailnet"
 version = "0.1.0"
 dependencies = [
