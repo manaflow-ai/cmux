@@ -166,7 +166,12 @@ generator in scripts/ci/generated-files.json writes, or that is named or headed 
 2026-11-22, #49757 committed a settings-sources output the SwiftPM build plugin makes, and the package stopped
 compiling). CI's full guard (cmux-next-guards.yml) still judges hand edits, rule changes and the baseline.
 
-Not here (they stay on CI and the fleet): generated-file freshness (gen-*.py --check), god files,
+Committed generated files are fresh (GENERATED_FRESH_CHECK, local runs only like the highlights): when the push
+changes a "committed" generator's generator, inputs or outputs (generated-files.json, a pure-Python gen-*.py with
+--check) and the checkout is the pushed head with no uncommitted edits, the generator's --check runs there; a stale
+one is run for real (the fix lands in the checkout) and the push is refused until the rewritten files are committed.
+
+Not here (they stay on CI and the fleet): the other generators (cargo, node and gofmt ones), god files,
 the app size cap, script tests, Swift and Rust builds and tests.
 
   scripts/cmux-next/prepush-gate.py                  # what HEAD adds over the integration branch it left
@@ -2449,6 +2454,105 @@ def new_generated_files(repo: Path, base: str, head: str, trusted_scripts: Path 
     return found
 
 
+GENERATED_FRESH_CHECK = "Committed generated files match their generators (gen-*.py --check, regenerated here)"
+GENERATED_CONFIG = "scripts/ci/generated-files.json"
+
+
+def generated_glob(pattern: str) -> re.Pattern[str]:
+    """generated_files_guard.py's glob: `**/` spans any directories (or none), `**` anything, `*` and `?` one level."""
+    out, i = [], 0
+    while i < len(pattern):
+        if pattern.startswith("**/", i):
+            out.append(r"(?:.*/)?")
+            i += 3
+        elif pattern.startswith("**", i):
+            out.append(r".*")
+            i += 2
+        elif pattern[i] in "*?":
+            out.append(r"[^/]*" if pattern[i] == "*" else r"[^/]")
+            i += 1
+        else:
+            out.append(re.escape(pattern[i]))
+            i += 1
+    return re.compile("".join(out) + r"\Z")
+
+
+def fresh_generators(repo: Path, base: str, head: str, changed: list[str]) -> list[dict]:
+    """The base's "committed" generators with a Python `--check` whose generator, inputs or outputs the push changes.
+    The rules are the base's (a push cannot widen what is judged), read from git objects."""
+    raw = blob_at(repo, base, GENERATED_CONFIG)
+    if raw is None:
+        return []
+    try:
+        generators = json.loads(raw).get("generators", [])
+    except (ValueError, AttributeError):
+        return []
+    picked = []
+    for entry in generators:
+        if not isinstance(entry, dict) or entry.get("status") != "committed" or entry.get("check") != ["--check"]:
+            continue
+        script = entry.get("generator", "")
+        if not (script.startswith(SCRIPTS + "/") and script.endswith(".py")):
+            continue  # a .py beside the checks only: the installed copy has it, and it needs no build or tool
+        patterns = [generated_glob(g) for g in [script, *entry.get("inputs", []), *entry.get("outputs", [])]]
+        if any(pattern.match(path) for path in changed for pattern in patterns):
+            picked.append(entry)
+    return picked
+
+
+def generated_freshness(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
+    """`<output>: stale ...` per committed generated file the pushed head does not match its generator on, for each
+    "committed" generator (generated-files.json) with a `--check` whose generator, inputs or outputs the push
+    changes. These generators read and write far more than the json lists (motion-scale walks the webviews trees),
+    so the check runs in the checkout itself, and only when the checkout is the pushed head: HEAD is HEAD and no
+    tracked file differs from it. The script it runs is the checkout's, and on a hook run only when its bytes are the
+    installed reviewed copy's (the hook never runs code a push controls); a push that changes a generator leaves it
+    to CI's generated drift job.
+
+    Mistakes this mechanical are fixed, not only refused (Leo, 2026-11-23: "Mistakes should also be auto fixed and
+    ran properly a lot of these are pretty mechanical"): a stale generator is run for real in the checkout, and the
+    refusal names the files it rewrote, to commit and push again."""
+    changed = [n for n in git(repo, "diff", "--name-only", "--no-renames", "-z", base, head).decode().split("\0") if n]
+    picked = fresh_generators(repo, base, head, changed)
+    if not picked:
+        return []
+    head_now = git(repo, "rev-parse", "--verify", "--quiet", "HEAD", check=False).decode().strip()
+    dirty = git(repo, "status", "--porcelain", "-z", "--untracked-files=no", check=False).strip(b"\0")
+    names = ", ".join(entry.get("id", "?") for entry in picked)
+    if head_now != head or dirty:
+        why = "the checkout is not at the pushed head" if head_now != head else "the checkout has uncommitted edits"
+        log(f"prepush-gate: generated freshness ({names}) not checked: {why}; CI's generated drift job judges it.")
+        return []
+    found: list[str] = []
+    for entry in picked:
+        script = entry["generator"]
+        code_bytes = check_script(repo, head, script, trusted_scripts, base)
+        if code_bytes is None or not (repo / script).is_file():
+            continue  # a commit older than this generator, or one that deletes it
+        if code_bytes != (repo / script).read_bytes():
+            log(f"prepush-gate: {entry.get('id')}: the push changes {script}, so its freshness is left to CI's "
+                "generated drift job (the hook runs only the installed copy).")
+            continue
+        code, out = run(["python3", "-I", str(repo / script), "--check"], repo, timeout=60)
+        if code == 0:
+            continue
+        stopped = no_verdict(code, out, (0, 1))
+        if stopped:
+            found.append(NoVerdict(f"{script} --check {stopped} at the pushed head: {out_tail(out.splitlines())}"))
+            continue
+        before = set(git(repo, "diff", "--name-only", "-z").decode().split("\0")) - {""}
+        fix_code, fix_out = run(["python3", "-I", str(repo / script)], repo, timeout=60)
+        rewrote = sorted(set(git(repo, "diff", "--name-only", "-z").decode().split("\0")) - {""} - before)
+        if fix_code == 0 and rewrote:
+            shown = ", ".join(rewrote[:5]) + (f" and {len(rewrote) - 5} more" if len(rewrote) > 5 else "")
+            found.append(f"{script}: its outputs were stale at the pushed head, so it ran and rewrote {len(rewrote)} "
+                         f"file(s) in your checkout ({shown}): review and commit them, then push again")
+        else:
+            found.append(f"{script} --check fails at the pushed head and running it fixed nothing (exit {fix_code}); "
+                         f"fix what it says: {out_tail((out + fix_out).splitlines())}")
+    return found
+
+
 def conflict_markers(repo: Path, base: str, head: str) -> list[str]:
     """`file:line` of each conflict marker the push adds, in any file of the repository.
 
@@ -3176,6 +3280,12 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         generated = new_generated_files(repo, base, head, trusted_scripts)
         if generated:
             reserved.append((GENERATED_CHECK, generated))
+    # Local only (a hook run or a plain run): CI's generated drift job judges every pull request after the push.
+    # Cheap: only when the push changes a committed generator's generator, inputs or outputs.
+    if (highlights_layer if only is None else "generated-fresh" in only) and want(GENERATED_FRESH_CHECK):
+        stale = generated_freshness(repo, base, head, trusted_scripts)
+        if stale:
+            reserved.append((GENERATED_FRESH_CHECK, stale))
     # Local only, like the highlights (the 2026-10-23 no-new-CI rule, since lifted): CI's "Lint every workflow" step (actionlint, on
     # every pull request and every feat-cmux-next and main push) is the backstop. Here it meets a direct commit first.
     if (highlights_layer if only is None else "workflows" in only) and want(WORKFLOW_CHECK):
@@ -4028,7 +4138,7 @@ def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,swiftlint,reserved,ui-font,conflicts,"
                                        "cargo-lock,sidebar,crash-allow,crash-ratchet,freeze,highlights,pictures,workflows,"
                                        "single-host-fallbacks,redefinitions,port-drift,new-crate-versions,"
-                                       "settings-export-keys,main-twin,job-bounds,generated-files")
+                                       "settings-export-keys,main-twin,job-bounds,generated-files,generated-fresh")
     parser.add_argument("--timings", action="store_true")
     parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and its arch ratchet (they never run on CI)")
     parser.add_argument("--advisory-only", action="store_true", help=argparse.SUPPRESS)  # advisory_start's child
