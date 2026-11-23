@@ -330,7 +330,7 @@ download_sleep() {
     now="$(download_now_seconds)"
     printf '%s\n' "$((now + delay))" > "$ZIG_DOWNLOAD_TEST_CLOCK_FILE"
   else
-    sleep "$delay"
+    sleep "$delay"  # sleep-ok: retry backoff delay (the test clock stands in for it)
   fi
 }
 

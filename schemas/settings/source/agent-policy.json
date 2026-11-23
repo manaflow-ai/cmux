@@ -503,6 +503,8 @@
         "experiments.composerV2",
         "experiments.agentBadges",
         "experiments.agentBadgesBeam",
+        "experiments.menuStyleV2",
+        "experiments.menuRowStates",
         "experiments.toastsV2"
       ]
     },
@@ -1053,6 +1055,13 @@
       "keys": [
         "worktrees.autoCleanup",
         "worktrees.cleanBuildCaches"
+      ]
+    },
+    {
+      "agent": "destructive",
+      "why": "Deleting old chats removes their history from this machine for good: only the person sets it.",
+      "keys": [
+        "agents.chats.deleteHistoryAfterDays"
       ]
     },
     {
