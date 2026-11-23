@@ -17,6 +17,9 @@ Usage: link-routing-live.py TAG APP OUT_DIR
 """
 import json, os, socket, subprocess, sys, tempfile, time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from state_wait import wait_stable  # noqa: E402
+
 TAG, APP, OUT = sys.argv[1], sys.argv[2], sys.argv[3]
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 SOCKET = "/tmp/cmux-debug-%s.sock" % TAG
@@ -87,10 +90,22 @@ def palette_run(query, action):
     ranked = [item.get("id") for item in (rpc("palette.query", {"scope": "root", "query": query, "limit": 8}) or {}).get("items") or []]
     check("the palette lists %s" % action, any(str(i).endswith(action) for i in ranked), ranked)
     rpc("debug.key", {"key": "p", "modifiers": ["command", "shift"]})
-    time.sleep(1)  # test harness: the palette window appears
+    shown = wait(lambda: ((rpc("debug.focus") or {}).get("context") or {}).get("palette_open") is True, 10)
+    check("the palette window appears", shown)
     for char in query:
         rpc("debug.key", {"key": "space" if char == " " else char, "target": "palette"})
-    time.sleep(1.5)  # test harness: the palette ranks and paints its rows
+    # The palette ranked the typed query: its own answer (debug.palette.capture: query and selected row) shows the
+    # whole query with a selected row, and holds still.
+    probe = os.path.join(OUT, "palette-probe.png")
+
+    def ranked():
+        shot = rpc("debug.palette.capture", {"path": probe}, timeout=60) or {}
+        if shot.get("query") != query or not shot.get("selected"):
+            raise ValueError("not ranked yet: %r" % shot)
+        return json.dumps(shot.get("selected"), sort_keys=True)
+    ranked_rows = wait_stable(ranked, "the palette's rows for %r" % query, timeout=10, interval=0.1, reads=3,
+                              raise_on_timeout=False)
+    check("the palette ranks %r" % query, ranked_rows, ranked_rows)
     rpc("debug.palette.capture", {"path": os.path.join(OUT, "palette-%s.png" % action)}, timeout=60)
     print("palette return:", json.dumps(rpc("debug.key", {"key": "return", "target": "palette"}))[:200], flush=True)
 
@@ -151,7 +166,8 @@ try:
         return None
 
     check("the fixture workspace's terminal", wait(fixture_terminal, 30))
-    time.sleep(2)  # test harness: the shell starts and reports its cwd
+    # The shell started and reported its cwd: a path relative to its folder resolves (section 4 checks the rows).
+    check("the terminal reports its folder", wait(lambda: links({"menu": UNIQUE}).get("menu"), 20))
 
     # 1. Default setting: the terminal link and the agent-chat link open cmux browser tabs.
     check("default route is cmux", links({"route": "https://example.com/a"}).get("route") == "cmuxBrowser", links({"route": "https://example.com/a"}))

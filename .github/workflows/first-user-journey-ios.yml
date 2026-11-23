@@ -110,7 +110,7 @@ jobs:
     steps:
       - name: Result paths
         run: |
-          echo "DERIVED=$RUNNER_TEMP/dd" >> "$GITHUB_ENV"
+          echo "DERIVED=${CMUX_DERIVED_DATA_SLOT:-$RUNNER_TEMP/dd}" >> "$GITHUB_ENV"
           echo "RAW=$RUNNER_TEMP/raw" >> "$GITHUB_ENV"
           echo "OUT=$RUNNER_TEMP/first-user-journey-ios" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/dd" "$RUNNER_TEMP/raw" "$RUNNER_TEMP/first-user-journey-ios"

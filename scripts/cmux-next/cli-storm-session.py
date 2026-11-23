@@ -24,6 +24,7 @@ The storm's own pass criteria do not fail this run (--no-fail): the numbers are 
 import argparse, glob, json, os, subprocess, sys, tempfile, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+from state_wait import wait_stable  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
@@ -81,7 +82,13 @@ def main():
     try:
         if not stress.wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 180):
             sys.exit(f"the tagged app did not come up (exit={app.poll()})")
-        time.sleep(3)  # test script: the first window settles before the storm
+        # The first window settles before the storm: it shows a pane and its surfaces stop changing.
+        def surfaces():
+            windows = (rpc("debug.surfaces") or {}).get("windows") or []
+            if not any(w.get("panes") for w in windows):
+                raise LookupError("no pane yet")  # not readable yet: wait_stable counts it as no read
+            return json.dumps(windows, sort_keys=True)
+        wait_stable(surfaces, "the first window's surfaces", timeout=30, interval=0.2, reads=5)
         if opts.session == "stress":
             report["stress_session"] = stress.Stress(rpc).build()
             safe_print("STRESS-SESSION " + json.dumps(report["stress_session"]), flush=True)

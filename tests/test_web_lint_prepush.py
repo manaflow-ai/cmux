@@ -1568,7 +1568,9 @@ class WebLintPrePushTests(unittest.TestCase):
                 peak["seen"] = peak.get("seen", 0) + 1
                 if not weighty(words) and heavy_now:
                     overlapped.append(name)
-            time.sleep(0.3)  # long enough for the pool to start whatever it would run beside this one
+            # sleep-ok: a simulated command run time, the window the pool's overlap is measured in:
+            # long enough for the pool to start whatever it would run beside this one.
+            time.sleep(0.3)
             with lock:
                 running.discard(name)
             return subprocess.CompletedProcess(command, 0, "", "")
