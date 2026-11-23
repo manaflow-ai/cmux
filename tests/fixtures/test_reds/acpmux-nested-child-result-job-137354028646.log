@@ -1,0 +1,115 @@
+2026-11-22T21:19:37.3742349Z      Running unittests src/lib.rs (target/debug/deps/acpmux-acf66620b4e30d83)
+2026-11-22T21:19:37.3743188Z 
+2026-11-22T21:19:37.3743748Z running 6912 tests
+2026-11-22T21:19:37.4473198Z test cli::help_examples::tests::every_visible_command_has_an_about_line_and_examples ... FAILED
+2026-11-22T21:19:37.4839835Z test gauges::tests::a_phase_reports_its_length_and_a_mark_only_its_first_time ... FAILED
+2026-11-22T21:19:37.5395052Z test hub::list_tee::tests::eleven_thousand_rows_reconcile_with_a_thousand_changes_between_pages has been running for over 60 seconds
+2026-11-22T21:19:37.5399321Z test hub::outbox::tests::a_change_writes_the_same_bytes_with_ten_or_2500_deliveries_kept has been running for over 60 seconds
+2026-11-22T21:19:37.5400831Z test hub::peer_cache_disk_tests::a_change_costs_the_same_for_ten_rows_and_five_thousand has been running for over 60 seconds
+2026-11-22T21:19:37.5401954Z test hub::peer_notice_cost_tests::a_peer_notice_among_fifty_peers_copies_no_row_and_lands_on_its_own has been running for over 60 seconds
+2026-11-22T21:19:37.5404859Z test hub::peer_snapshot::tests::a_full_disk_keeps_the_records_and_writes_them_once_it_can has been running for over 60 seconds
+2026-11-22T21:19:37.5405598Z test hub::peers::tests::a_full_ring_of_a_peers_row_changes_holds_no_copy_of_the_rows has been running for over 60 seconds
+2026-11-22T21:19:37.5434360Z test hub::phone_floor_tests::concurrent_steers_from_two_phones_leave_no_one_devices_turn has been running for over 60 seconds
+2026-11-22T21:19:37.5547980Z test linux_sandbox::bwrap::tests::home_bind_survives_source_symlink_swap ... FAILED
+2026-11-22T21:19:37.5550299Z test linux_sandbox::bwrap::tests::real_home_planner_uses_the_runner_home ... FAILED
+2026-11-22T21:19:37.5550773Z test linux_sandbox::bwrap::tests::real_bwrap_isolates_mounts_processes_and_network ... FAILED
+2026-11-22T21:19:37.5553524Z test linux_sandbox::bwrap::tests::real_second_home_mount_hides_denied_names ... FAILED
+2026-11-22T21:19:37.5559909Z test linux_sandbox::bwrap::tests::regression_real_bwrap_hides_credentials_created_during_session ... FAILED
+2026-11-22T21:19:37.5738634Z test protocol::tests::protocol_ir_is_current ... FAILED
+2026-11-22T21:19:37.5841367Z test server::latency_gauges_tests::an_attach_is_a_sample_and_a_record_is_timed_to_its_last_connection ... FAILED
+2026-11-22T21:19:37.6170294Z test test_hooks_tree::the_crate_adds_no_process_wide_test_hook ... FAILED
+2026-11-22T21:19:37.6170767Z 
+2026-11-22T21:19:37.6170845Z failures:
+2026-11-22T21:19:37.6170850Z 
+2026-11-22T21:19:37.6171124Z ---- cli::help_examples::tests::every_visible_command_has_an_about_line_and_examples stdout ----
+2026-11-22T21:19:37.6171130Z 
+2026-11-22T21:19:37.6171666Z thread 'cli::help_examples::tests::every_visible_command_has_an_about_line_and_examples' (229346) panicked at crates/acpmux/src/cli/help_examples/tests.rs:85:5:
+2026-11-22T21:19:37.6171824Z add these to cli/help_examples (one entry per command path):
+2026-11-22T21:19:37.6171937Z acpmux share-host screens: no examples
+2026-11-22T21:19:37.6172036Z acpmux share-host start: no examples
+2026-11-22T21:19:37.6172142Z acpmux share-host stop: no examples
+2026-11-22T21:19:37.6172234Z acpmux share-host move: no examples
+2026-11-22T21:19:37.6172333Z acpmux share-host link: no examples
+2026-11-22T21:19:37.6172538Z note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+2026-11-22T21:19:37.6172701Z 
+2026-11-22T21:19:37.6172933Z ---- gauges::tests::a_phase_reports_its_length_and_a_mark_only_its_first_time stdout ----
+2026-11-22T21:19:37.6172938Z 
+2026-11-22T21:19:37.6173449Z thread 'gauges::tests::a_phase_reports_its_length_and_a_mark_only_its_first_time' (262849) panicked at crates/acpmux/src/gauges.rs:415:9:
+2026-11-22T21:19:37.6174880Z {"memory":{"peakRssBytes":1529647104,"rssBytes":1265893376},"peerLists":{"bytes":0,"lists":0,"peakBytes":0,"peakLists":0},"recordWrites":{"attach":{"count":5,"maxMs":217.413,"p50Ms":3.037,"p95Ms":217.413,"window":5},"fanout":{"count":1336,"dropped":7,"maxMs":1152.777,"p50Ms":4.022,"p95Ms":239.355,"resyncs":1,"window":1024},"records":1244,"storeNs":359952464,"writeNs":816070352},"startup":[{"atMs":0,"ms":5,"name":"store load"},{"atMs":5,"ms":0,"name":"socket ready"}],"uptimeMs":5}
+2026-11-22T21:19:37.6174889Z 
+2026-11-22T21:19:37.6175119Z ---- linux_sandbox::bwrap::tests::home_bind_survives_source_symlink_swap stdout ----
+2026-11-22T21:19:37.6175130Z 
+2026-11-22T21:19:37.6175556Z thread 'linux_sandbox::bwrap::tests::home_bind_survives_source_symlink_swap' (304448) panicked at crates/acpmux/src/linux_sandbox/bwrap.rs:1339:10:
+2026-11-22T21:19:37.6178250Z called `Result::unwrap()` on an `Err` value: "/tmp/acpmux-bwrap-test-01a2051f-9f76-7131-b93b-dc8bba2f2c40/claude-scratch/session is also visible at /tmp/systemd-private-27de98a8319f4b7ca004b7ae13fbaf80-actions.runner.manaflow-ai.cmux-runner-pool-c1bx-0007-2.service-Qxsqk7/tmp/acpmux-bwrap-test-01a2051f-9f76-7131-b93b-dc8bba2f2c40/claude-scratch/session; /tmp/acpmux-bwrap-test-01a2051f-9f76-7131-b93b-dc8bba2f2c40/spawn-tmp is also visible at /tmp/systemd-private-27de98a8319f4b7ca004b7ae13fbaf80-actions.runner.manaflow-ai.cmux-runner-pool-c1bx-0007-2.service-Qxsqk7/tmp/acpmux-bwrap-test-01a2051f-9f76-7131-b93b-dc8bba2f2c40/spawn-tmp"
+2026-11-22T21:19:37.6178260Z 
+2026-11-22T21:19:37.6178567Z ---- linux_sandbox::bwrap::tests::real_home_planner_uses_the_runner_home stdout ----
+2026-11-22T21:19:37.6178578Z 
+2026-11-22T21:19:37.6179017Z thread 'linux_sandbox::bwrap::tests::real_home_planner_uses_the_runner_home' (304495) panicked at crates/acpmux/src/linux_sandbox/bwrap.rs:1391:10:
+2026-11-22T21:19:37.6185417Z HOME planner accepts the runner filesystem: "/tmp/acpmux-bwrap-test-01a2051f-9f87-768a-aaef-28eb1d50797f/claude-scratch/session is also visible at /tmp/systemd-private-27de98a8319f4b7ca004b7ae13fbaf80-actions.runner.manaflow-ai.cmux-runner-pool-c1bx-0007-2.service-Qxsqk7/tmp/acpmux-bwrap-test-01a2051f-9f87-768a-aaef-28eb1d50797f/claude-scratch/session; /tmp/acpmux-bwrap-test-01a2051f-9f87-768a-aaef-28eb1d50797f/home/.claude/projects/session is also visible at /tmp/systemd-private-27de98a8319f4b7ca004b7ae13fbaf80-actions.runner.manaflow-ai.cmux-runner-pool-c1bx-0007-2.service-Qxsqk7/tmp/acpmux-bwrap-test-01a2051f-9f87-768a-aaef-28eb1d50797f/home/.claude/projects/session; /tmp/acpmux-bwrap-test-01a2051f-9f87-768a-aaef-28eb1d50797f/home/.claude/projects/session/memory is also visible at /tmp/systemd-private-27de98a8319f4b7ca004b7ae13fbaf80-actions.runner.manaflow-ai.cmux-runner-pool-c1bx-0007-2.service-Qxsqk7/tmp/acpmux-bwrap-test-01a2051f-9f87-768a-aaef-28eb1d50797f/home/.claude/projects/session/memory; /tmp/acpmux-bwrap-test-01a2051f-9f87-768a-aaef-28eb1d50797f/home/session with spaces is also visible at /tmp/systemd-private-27de98a8319f4b7ca004b7ae13fbaf80-actions.runner.manaflow-ai.cmux-runner-pool-c1bx-0007-2.service-Qxsqk7/tmp/acpmux-bwrap-test-01a2051f-9f87-768a-aaef-28eb1d50797f/home/session with spaces; /tmp/acpmux-bwrap-test-01a2051f-9f87-768a-aaef-28eb1d50797f/spawn-tmp is also visible at /tmp/systemd-private-27de98a8319f4b7ca004b7ae13fbaf80-actions.runner.manaflow-ai.cmux-runner-pool-c1bx-0007-2.service-Qxsqk7/tmp/acpmux-bwrap-test-01a2051f-9f87-768a-aaef-28eb1d50797f/spawn-tmp"
+2026-11-22T21:19:37.6185444Z 
+2026-11-22T21:19:37.6185768Z ---- linux_sandbox::bwrap::tests::real_bwrap_isolates_mounts_processes_and_network stdout ----
+2026-11-22T21:19:37.6186060Z running: real bwrap isolation test (/usr/bin/bwrap)
+2026-11-22T21:19:37.6186065Z 
+2026-11-22T21:19:37.6186538Z thread 'linux_sandbox::bwrap::tests::real_bwrap_isolates_mounts_processes_and_network' (304494) panicked at crates/acpmux/src/linux_sandbox/bwrap.rs:1604:10:
+2026-11-22T21:19:37.6188964Z called `Result::unwrap()` on an `Err` value: "/tmp/acpmux-bwrap-test-01a2051f-9f90-7384-8683-130f854edaa3/claude-scratch/session is also visible at /tmp/systemd-private-27de98a8319f4b7ca004b7ae13fbaf80-actions.runner.manaflow-ai.cmux-runner-pool-c1bx-0007-2.service-Qxsqk7/tmp/acpmux-bwrap-test-01a2051f-9f90-7384-8683-130f854edaa3/claude-scratch/session; /tmp/acpmux-bwrap-test-01a2051f-9f90-7384-8683-130f854edaa3/spawn-tmp is also visible at /tmp/systemd-private-27de98a8319f4b7ca004b7ae13fbaf80-actions.runner.manaflow-ai.cmux-runner-pool-c1bx-0007-2.service-Qxsqk7/tmp/acpmux-bwrap-test-01a2051f-9f90-7384-8683-130f854edaa3/spawn-tmp"
+2026-11-22T21:19:37.6188984Z 
+2026-11-22T21:19:37.6189213Z ---- linux_sandbox::bwrap::tests::real_second_home_mount_hides_denied_names stdout ----
+2026-11-22T21:19:37.6189223Z 
+2026-11-22T21:19:37.6189798Z thread 'linux_sandbox::bwrap::tests::real_second_home_mount_hides_denied_names' (304528) panicked at crates/acpmux/src/linux_sandbox/bwrap.rs:888:9:
+2026-11-22T21:19:37.6189807Z 
+2026-11-22T21:19:37.6189903Z running 1 test
+2026-11-22T21:19:37.6190266Z test linux_sandbox::bwrap::tests::real_second_home_mount_hides_denied_names ... FAILED
+2026-11-22T21:19:37.6190273Z 
+2026-11-22T21:19:37.6190359Z failures:
+2026-11-22T21:19:37.6190364Z 
+2026-11-22T21:19:37.6190437Z failures:
+2026-11-22T21:19:37.6190625Z     linux_sandbox::bwrap::tests::real_second_home_mount_hides_denied_names
+2026-11-22T21:19:37.6190630Z 
+2026-11-22T21:19:37.6190892Z test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6924 filtered out; finished in 0.01s
+2026-11-22T21:19:37.6190902Z 
+2026-11-22T21:19:37.6190905Z 
+2026-11-22T21:19:37.6190908Z 
+2026-11-22T21:19:37.6191334Z thread 'linux_sandbox::bwrap::tests::real_second_home_mount_hides_denied_names' (304589) panicked at crates/acpmux/src/linux_sandbox/bwrap.rs:948:82:
+2026-11-22T21:19:37.6193910Z called `Result::unwrap()` on an `Err` value: "/tmp/acpmux-bwrap-test-01a2051f-9fad-7377-925e-41d1cebafa05/claude-scratch/session is also visible at /tmp/systemd-private-27de98a8319f4b7ca004b7ae13fbaf80-actions.runner.manaflow-ai.cmux-runner-pool-c1bx-0007-2.service-Qxsqk7/tmp/acpmux-bwrap-test-01a2051f-9fad-7377-925e-41d1cebafa05/claude-scratch/session; /tmp/acpmux-bwrap-test-01a2051f-9fad-7377-925e-41d1cebafa05/spawn-tmp is also visible at /tmp/systemd-private-27de98a8319f4b7ca004b7ae13fbaf80-actions.runner.manaflow-ai.cmux-runner-pool-c1bx-0007-2.service-Qxsqk7/tmp/acpmux-bwrap-test-01a2051f-9fad-7377-925e-41d1cebafa05/spawn-tmp"
+2026-11-22T21:19:37.6194121Z note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+2026-11-22T21:19:37.6194125Z 
+2026-11-22T21:19:37.6194129Z 
+2026-11-22T21:19:37.6194436Z ---- linux_sandbox::bwrap::tests::regression_real_bwrap_hides_credentials_created_during_session stdout ----
+2026-11-22T21:19:37.6194445Z 
+2026-11-22T21:19:37.6194958Z thread 'linux_sandbox::bwrap::tests::regression_real_bwrap_hides_credentials_created_during_session' (304609) panicked at crates/acpmux/src/linux_sandbox/bwrap.rs:1063:10:
+2026-11-22T21:19:37.6197384Z called `Result::unwrap()` on an `Err` value: "/tmp/acpmux-bwrap-test-01a2051f-9fbd-7322-b401-31964d2f5162/claude-scratch/session is also visible at /tmp/systemd-private-27de98a8319f4b7ca004b7ae13fbaf80-actions.runner.manaflow-ai.cmux-runner-pool-c1bx-0007-2.service-Qxsqk7/tmp/acpmux-bwrap-test-01a2051f-9fbd-7322-b401-31964d2f5162/claude-scratch/session; /tmp/acpmux-bwrap-test-01a2051f-9fbd-7322-b401-31964d2f5162/spawn-tmp is also visible at /tmp/systemd-private-27de98a8319f4b7ca004b7ae13fbaf80-actions.runner.manaflow-ai.cmux-runner-pool-c1bx-0007-2.service-Qxsqk7/tmp/acpmux-bwrap-test-01a2051f-9fbd-7322-b401-31964d2f5162/spawn-tmp"
+2026-11-22T21:19:37.6197393Z 
+2026-11-22T21:19:37.6197681Z ---- protocol::tests::protocol_ir_is_current stdout ----
+2026-11-22T21:19:37.6197793Z ----- BEGIN acpmux-protocol.json -----
+2026-11-22T21:19:37.7154154Z ----- END acpmux-protocol.json -----
+2026-11-22T21:19:37.7154160Z 
+2026-11-22T21:19:37.7154491Z thread 'protocol::tests::protocol_ir_is_current' (321538) panicked at crates/acpmux/src/protocol/tests.rs:28:9:
+2026-11-22T21:19:37.7154969Z /home/runner/work/cmux/cmux/cmux-tui/crates/acpmux/spec/acpmux-protocol.json is stale: rerun with ACPMUX_PROTOCOL_BLESS=1 and regenerate the web types
+2026-11-22T21:19:37.7154974Z 
+2026-11-22T21:19:37.7155339Z ---- server::latency_gauges_tests::an_attach_is_a_sample_and_a_record_is_timed_to_its_last_connection stdout ----
+2026-11-22T21:19:37.7155353Z 
+2026-11-22T21:19:37.7155902Z thread 'server::latency_gauges_tests::an_attach_is_a_sample_and_a_record_is_timed_to_its_last_connection' (323227) panicked at crates/acpmux/src/server/latency_gauges_tests.rs:117:9:
+2026-11-22T21:19:37.7155987Z attach: null
+2026-11-22T21:19:37.7155991Z 
+2026-11-22T21:19:37.7156185Z ---- test_hooks_tree::the_crate_adds_no_process_wide_test_hook stdout ----
+2026-11-22T21:19:37.7156309Z test hooks: 1693 files, 1 findings in 17.291489636s
+2026-11-22T21:19:37.7157023Z cmux-tui/crates/acpmux/src/perf_watch.rs:873: GLOBAL: a closure in a process-wide cell; put it in a thread_local! behind an on_* guard, or serialize it and mark it `// test-hook-allow: serialized by <Mutex<()> static>, <why>`
+2026-11-22T21:19:37.7157029Z 
+2026-11-22T21:19:37.7157457Z thread 'test_hooks_tree::the_crate_adds_no_process_wide_test_hook' (328817) panicked at crates/acpmux/src/test_hooks_tree.rs:31:5:
+2026-11-22T21:19:37.7157730Z process-wide test hooks: a parallel test can replace or clear another's hook (cmux#41350):
+2026-11-22T21:19:37.7158475Z cmux-tui/crates/acpmux/src/perf_watch.rs:873: GLOBAL: a closure in a process-wide cell; put it in a thread_local! behind an on_* guard, or serialize it and mark it `// test-hook-allow: serialized by <Mutex<()> static>, <why>`
+2026-11-22T21:19:37.7158488Z 
+2026-11-22T21:19:37.7158491Z 
+2026-11-22T21:19:37.7158581Z failures:
+2026-11-22T21:19:37.7158802Z     cli::help_examples::tests::every_visible_command_has_an_about_line_and_examples
+2026-11-22T21:19:37.7158994Z     gauges::tests::a_phase_reports_its_length_and_a_mark_only_its_first_time
+2026-11-22T21:19:37.7159175Z     linux_sandbox::bwrap::tests::home_bind_survives_source_symlink_swap
+2026-11-22T21:19:37.7159375Z     linux_sandbox::bwrap::tests::real_bwrap_isolates_mounts_processes_and_network
+2026-11-22T21:19:37.7159548Z     linux_sandbox::bwrap::tests::real_home_planner_uses_the_runner_home
+2026-11-22T21:19:37.7159870Z     linux_sandbox::bwrap::tests::real_second_home_mount_hides_denied_names
+2026-11-22T21:19:37.7160183Z     linux_sandbox::bwrap::tests::regression_real_bwrap_hides_credentials_created_during_session
+2026-11-22T21:19:37.7160294Z     protocol::tests::protocol_ir_is_current
+2026-11-22T21:19:37.7160561Z     server::latency_gauges_tests::an_attach_is_a_sample_and_a_record_is_timed_to_its_last_connection
+2026-11-22T21:19:37.7160715Z     test_hooks_tree::the_crate_adds_no_process_wide_test_hook
+2026-11-22T21:19:37.7160719Z 
+2026-11-22T21:19:37.7161006Z test result: FAILED. 6825 passed; 10 failed; 77 ignored; 0 measured; 13 filtered out; finished in 271.20s

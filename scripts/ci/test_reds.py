@@ -554,6 +554,15 @@ PYTEST_TOTAL = re.compile(r"^=+ (.*?) =+$")
 PYTEST_COUNTED = re.compile(r"\b(\d+) (failed|errors?)\b")
 SWIFT_ISSUES = re.compile(r"^✘ Test run with \d+ tests?\b.*\bwith (\d+) issues?\b(?:.*?\bincluding (\d+) known issues?)?")
 SWIFT_ISSUE_LINE = re.compile(r"✘ (?:Test|Suite) .* recorded an issue\b")
+# A test that runs a test binary of its own (acpmux's bwrap tests re-run one test inside the sandbox) prints that
+# child's `running N tests` ... `test result:` inside its own captured output, so the parent's summary comes after it.
+# The child's summary and names are nested: its summary is set against nothing and resets nothing, and its names
+# never stand for the parent's, whose summary is set against the parent's own names (cmux#50921's acpmux tests log: a nested `0 passed; 1 failed` reset the count, and
+# the parent's `10 failed` read as unnamed). Depth counts libtest's `running` lines; cargo's own `Running`/`Doc-tests`
+# header starts each binary of the run at depth 0, so a binary cut short never hides the next one's summary.
+CARGO_RUNNING = re.compile(r"^running \d+ tests?$")
+CARGO_BINARY = re.compile(r"^\s*(?:Running|Doc-tests) \S")
+CARGO_RESULT = re.compile(r"^test result: ")
 
 
 def unnamed_failures(lines: list[str], steps: list[list[str]] | None = None) -> list[str]:
@@ -580,6 +589,7 @@ def runner_unnamed(lines: list[str]) -> list[str]:
     xc_family = 0  # XCTest, xcresult `FAILED:` and xcodebuild listing names, anywhere in LINES
     xc_summaries: list[str] = []
     listing = False
+    cargo_depth = 0  # libtest runs open in this binary: above 1, a test's own child binary (CARGO_RUNNING)
     for text in lines:
         if text.startswith(TAP_MARKER):
             continue
@@ -591,11 +601,20 @@ def runner_unnamed(lines: list[str]) -> list[str]:
         if text.strip() == XCODEBUILD_FAILING:
             listing = True
             continue
+        if CARGO_BINARY.match(text):
+            cargo_depth = 0
+        elif CARGO_RUNNING.match(text):
+            cargo_depth += 1
+        elif CARGO_RESULT.match(text):
+            cargo_depth -= 1
+            if cargo_depth > 0:
+                continue  # a child binary's summary, inside its parent test's output
+            cargo_depth = 0
         if FAILED[0].search(text) and SWIFT_ISSUE_LINE.search(text) or \
                 SUITE_FAILED.search(text) and SWIFT_ISSUE_LINE.search(text):
             since["swift"] += 1
         for runner, n in (("cargo", 2), ("unittest", 3), ("pytest", 4)):
-            if FAILED[n].search(text):
+            if FAILED[n].search(text) and not (runner == "cargo" and cargo_depth > 1):  # a child binary's name
                 since[runner] += 1
         if FAILED[1].search(text) or XCRESULT_FAILED.match(text):
             xc_family += 1

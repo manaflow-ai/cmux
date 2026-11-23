@@ -713,6 +713,30 @@ class ReportedFailuresAreAllNamed(unittest.TestCase):
             with self.subTest(runner=runner):
                 self.assertEqual(self.unnamed(*lines), [])
 
+    # cmux#50921's acpmux tests job 137354028646: bwrap's real_second_home_mount_hides_denied_names re-runs itself as
+    # a child test binary, whose `running 1 test` ... `test result: FAILED. 0 passed; 1 failed` lands in the parent's
+    # captured output; it reset the parent's count, so the parent's `10 failed` read as unnamed and base_red_excuse
+    # called a base red the head's own.
+    NESTED = ["     Running unittests src/lib.rs (target/debug/deps/acpmux-acf66620b4e30d83)", "running 3 tests",
+              "test a ... FAILED", "test b ... FAILED", "test c ... FAILED", "failures:", "---- a stdout ----",
+              "running 1 test", "test a ... FAILED", "failures:", "failures:", "    a",
+              "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6924 filtered out; finished in 0.01s",
+              "---- b stdout ----", "---- c stdout ----", "failures:", "    a", "    b", "    c"]
+
+    def test_a_child_binary_summary_inside_a_test_s_output_is_not_its_parent_s(self):
+        parent = "test result: FAILED. 0 passed; 3 failed; 0 ignored"
+        self.assertEqual(self.unnamed(*self.NESTED, parent), [])
+        # The parent's own count is still set against its names: one more than it named is unnamed.
+        self.assertEqual(self.unnamed(*self.NESTED, "test result: FAILED. 0 passed; 4 failed; 0 ignored"),
+                         ["test result: FAILED. 0 passed; 4 failed; 0 ignored"])
+
+    def test_a_binary_cut_short_never_hides_the_next_binary_s_summary(self):
+        # No `test result:` closes the first binary; cargo's next `Running` header starts the next at depth 0.
+        cut = ["     Running unittests src/lib.rs (target/debug/deps/a-1)", "running 2 tests",
+               "     Running unittests src/lib.rs (target/debug/deps/b-2)", "running 1 test",
+               "test result: FAILED. 0 passed; 1 failed; 0 ignored"]
+        self.assertEqual(self.unnamed(*cut), [cut[-1]])
+
     def test_the_recorded_fixtures_name_every_failure_they_report(self):
         for path in sorted(FIXTURES.glob("*.log")):
             with self.subTest(fixture=path.name):
