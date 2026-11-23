@@ -237,7 +237,7 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
     b.steer("Keep the public signature as it is.");
     b.tool("rg -n withRetry src", { ms: 500 });
     b.say(PARAGRAPH, { chunks: 3 });
-    b.steer("And add a test.", 40);
+    b.steer("And add a test.", { after: 40 });
     b.say(PARAGRAPH, { chunks: 3 });
     b.tool("bun test api/", { ms: 900 });
     b.say("Refactored, signature kept, test added.");

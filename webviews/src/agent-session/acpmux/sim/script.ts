@@ -369,24 +369,6 @@ export class SimBuilder {
     return this.record("mux", "status", { status: "ready" }, 10, "status ready");
   }
 
-  /** The person's own message typed while the turn runs (acpmux's `steer: true` from the pane): it opens no turn. */
-  steer(value: string, after = 400): this {
-    return this.record(
-      "mux",
-      "user_message",
-      {
-        text: value,
-        steer: true,
-        turnId: this.turnId,
-        promptId: `${this.promptId}-steer-${this.seq + 1}`,
-        client: "pane",
-        _meta: { origin: { actor: "person" } },
-      },
-      after,
-      `steer: ${value.slice(0, 40)}`,
-    );
-  }
-
   /** The agent's checklist (ACP `plan`): each entry `[content, status]`; none clears it. */
   plan(entries: [string, "pending" | "in_progress" | "completed"][], after = 300): this {
     return this.record(
