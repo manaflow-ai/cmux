@@ -20,6 +20,8 @@ mod actions;
 #[cfg(unix)]
 mod activation;
 #[cfg(unix)]
+mod app_settings;
+#[cfg(unix)]
 mod budget;
 #[cfg(unix)]
 mod calls;
@@ -27,6 +29,8 @@ mod calls;
 mod cancel;
 #[cfg(unix)]
 mod catalog;
+#[cfg(unix)]
+mod chat_actions;
 #[cfg(unix)]
 mod chat_widgets;
 #[cfg(unix)]
@@ -154,6 +158,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::panic_free::RecoverPoison;
 
+#[cfg(unix)]
+pub(crate) use chat_actions::{ChatActionRequest, ChatMessage};
 #[cfg(unix)]
 pub(crate) use mirror::{HiddenAccess, Origin, SetOp};
 #[cfg(unix)]
