@@ -1751,15 +1751,13 @@ impl ChildAgent {
                     if let Some(f) = fence.filter(|f| f.begin()) {
                         f.written();
                     }
-                    // Immediate local answer: feed it back as if claude replied.
-                    if let Message::Response { id, result, error } = reply
-                        && let Some(tx) = self.pending.lock().await.take(&id)
-                    {
-                        let _ = tx.send(match error {
-                            Some(e) => Err(e),
-                            None => Ok(result.unwrap_or(Value::Null)),
-                        });
-                    }
+                    self.answer_locally(reply).await;
+                    Ok(())
+                }
+                // Written first, so Claude Code reads them; then answered without it.
+                crate::claude_stdio::Outbound::LinesThenReply(lines, reply) => {
+                    self.claude_lines(lines, fence).await?;
+                    self.answer_locally(reply).await;
                     Ok(())
                 }
             }
@@ -1768,6 +1766,18 @@ impl ChildAgent {
                 .send((msg.to_line(), fence.cloned()))
                 .await
                 .map_err(|_| anyhow!("agent {} stdin closed", self.name))
+        }
+    }
+
+    /// The translator's own answer to a request of ours, as if claude replied.
+    async fn answer_locally(&self, reply: Message) {
+        if let Message::Response { id, result, error } = reply
+            && let Some(tx) = self.pending.lock().await.take(&id)
+        {
+            let _ = tx.send(match error {
+                Some(e) => Err(e),
+                None => Ok(result.unwrap_or(Value::Null)),
+            });
         }
     }
 
