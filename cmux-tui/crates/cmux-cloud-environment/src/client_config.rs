@@ -4,11 +4,16 @@
 use crate::{Configuration, Environment, Resolver, Selection, namespace};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::fs::{self, OpenOptions};
+use std::fs;
+#[cfg(feature = "fetch")]
+use std::fs::OpenOptions;
+#[cfg(feature = "fetch")]
 use std::io::Write;
-#[cfg(unix)]
+#[cfg(all(unix, feature = "fetch"))]
 use std::os::unix::fs::OpenOptionsExt;
+#[cfg(feature = "fetch")]
 use std::path::Path;
+#[cfg(feature = "fetch")]
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -76,6 +81,7 @@ pub fn check_create_capabilities(selection: &Selection, params: &Value) -> Resul
 
 /// Whether a create's parameters name a field whose meaning needs a backend capability
 /// (check_create_capabilities). `null` is an omitted field.
+#[cfg(feature = "fetch")]
 pub(crate) fn create_needs_capabilities(params: &Value) -> Result<bool, String> {
     let object = params
         .as_object()
@@ -134,6 +140,7 @@ fn cache_path(resolver: &Resolver, origin: &str) -> Result<std::path::PathBuf, S
         .join(format!("{}.json", namespace(origin))))
 }
 
+#[cfg(feature = "fetch")]
 pub(crate) async fn resolve(
     resolver: &Resolver,
     mut selection: Selection,
@@ -188,6 +195,7 @@ pub(crate) async fn resolve(
     }
 }
 
+#[cfg(feature = "fetch")]
 fn cached_or_fallback(
     mut selection: Selection,
     path: &Path,
@@ -253,21 +261,48 @@ pub(crate) fn is_loopback_origin(value: &str) -> bool {
     })
 }
 
-/// A tailnet backend: `https://<host>.<tailnet>.ts.net[:port]`, the name Tailscale Serve gives a
-/// dev VM's per-tag stack. HTTPS only (Serve's certificate); a bare `ts.net` or an IP never matches.
+/// A tailnet backend: `https://<machine>.tail137216.ts.net[:port]` ([`TEAM_TAILNET_SUFFIX`]), the
+/// name Tailscale Serve gives a dev VM's per-tag stack on the team's tailnet. HTTPS only (Serve's
+/// certificate); another tailnet's name, a bare `ts.net` or an IP never matches.
 pub(crate) fn is_tailnet_origin(value: &str) -> bool {
     url::Url::parse(value).is_ok_and(|url| {
         url.scheme() == "https"
             && matches!(url.host(), Some(url::Host::Domain(_)))
             && url.host_str().is_some_and(|host| {
-                host.strip_suffix(".ts.net").is_some_and(|name| {
-                    name.split('.').count() >= 2
-                        && name.split('.').all(|label| {
-                            !label.is_empty()
-                                && label.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
-                        })
+                host.strip_suffix(TEAM_TAILNET_SUFFIX).is_some_and(|machine| {
+                    !machine.is_empty()
+                        && machine.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
                 })
             })
+    })
+}
+
+/// The team's tailnet (its MagicDNS suffix): a tailnet origin is one machine of it,
+/// `https://<machine>.tail137216.ts.net[:port]`. Any other `*.ts.net` name is refused: a Tailscale
+/// Funnel name of another tailnet is public, so it is no dev stack of ours.
+pub(crate) const TEAM_TAILNET_SUFFIX: &str = ".tail137216.ts.net";
+
+/// The public suffix of a tag stack's origins (scripts/cmux-next/cloud-dev-stack/gateway).
+const PUBLIC_STACK_SUFFIX: &str = ".wdev.cmux.dev";
+
+/// A tag stack's public slot (`s<N>`, 1-3 digits) in a host `<svc>.s<N>.wdev.cmux.dev`, or None.
+fn public_stack_slot(host: &str) -> Option<(&str, &str)> {
+    let (service, rest) = host.strip_suffix(PUBLIC_STACK_SUFFIX)?.split_once('.')?;
+    let digits = rest.strip_prefix('s')?;
+    (!digits.is_empty() && digits.len() <= 3 && digits.bytes().all(|b| b.is_ascii_digit()))
+        .then_some((service, rest))
+}
+
+/// A tag stack's public API origin: `https://api.s<N>.wdev.cmux.dev`, HTTPS on the default port, the
+/// one host the gateway answers for a slot's API. Its mobile and hub siblings are never a backend.
+pub(crate) fn is_public_stack_origin(value: &str) -> bool {
+    url::Url::parse(value).is_ok_and(|url| {
+        url.scheme() == "https"
+            && url.port().is_none()
+            && url
+                .host_str()
+                .and_then(public_stack_slot)
+                .is_some_and(|(service, _)| service == "api")
     })
 }
 
@@ -282,6 +317,23 @@ fn allowed_origin(value: &str, selected: &str) -> Result<(), String> {
             Ok(())
         } else {
             Err(format!("remote client-config cannot name a loopback origin: {value}"))
+        };
+    }
+    // A public stack may name its own other services (the same slot's mobile and hub); no other
+    // backend may send credentials to a tag stack's public host, though it is under cmux.dev.
+    if let Some((service, slot)) = host(&origin).as_deref().and_then(public_stack_slot) {
+        let own_slot = is_public_stack_origin(selected)
+            && host(selected)
+                .as_deref()
+                .and_then(public_stack_slot)
+                .is_some_and(|(_, selected_slot)| selected_slot == slot);
+        return if own_slot
+            && matches!(service, "api" | "mobile" | "hub")
+            && url::Url::parse(&origin).is_ok_and(|u| u.scheme() == "https" && u.port().is_none())
+        {
+            Ok(())
+        } else {
+            Err(format!("client-config cannot name another tag stack's public host: {value}"))
         };
     }
     // A tailnet stack may name its own other services (same host, any port); no other backend
@@ -350,6 +402,7 @@ fn validate(config: &ClientConfig, selected: &str) -> Result<(), String> {
 }
 
 /// When a fetch started, in ms since the epoch: what its cache write is fenced by.
+#[cfg(feature = "fetch")]
 fn fetch_stamp() -> u128 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_millis())
 }
@@ -359,6 +412,7 @@ fn fetch_stamp() -> u128 {
 /// launch's starts, a `cloud env get` beside them), and their answers land in any order: without
 /// this an older answer could replace a newer one. Each write keeps its fetch's start beside the
 /// cache (`.started`), checked and written under an exclusive lock on `.lock`.
+#[cfg(feature = "fetch")]
 fn fenced_cache(path: &Path, body: &[u8], started: u128) -> Result<bool, String> {
     let stamp = path.with_extension("json.started");
     let lock_path = path.with_extension("json.lock");
@@ -385,6 +439,7 @@ fn fenced_cache(path: &Path, body: &[u8], started: u128) -> Result<bool, String>
     Ok(true)
 }
 
+#[cfg(feature = "fetch")]
 fn atomic_cache(path: &Path, body: &[u8]) -> Result<(), String> {
     let parent = path.parent().ok_or("client-config cache has no parent")?;
     fs::create_dir_all(parent).map_err(|error| format!("create client-config cache: {error}"))?;
@@ -407,6 +462,7 @@ fn atomic_cache(path: &Path, body: &[u8]) -> Result<(), String> {
     result
 }
 
+#[cfg(feature = "fetch")]
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -618,6 +674,52 @@ mod tests {
         assert_eq!(served.configuration, cached.configuration);
         let other = resolver.resolve(Some("http://127.0.0.1:1")).unwrap();
         assert!(resolver.client_config(other).await.is_err());
+    }
+
+    #[test]
+    fn a_public_stack_names_only_its_own_slots_services_and_no_one_else_names_a_public_stack() {
+        let stack = "https://api.s7.wdev.cmux.dev";
+        let mut own = config(stack);
+        own.configuration.mobile_origin = "https://mobile.s7.wdev.cmux.dev".into();
+        own.configuration.device_hub_origin = "https://hub.s7.wdev.cmux.dev".into();
+        validate(&own, stack).unwrap();
+        for other in [
+            "https://mobile.s8.wdev.cmux.dev",
+            "https://evil.s7.wdev.cmux.dev",
+            "https://mobile.s7.wdev.cmux.dev:8443",
+            "http://mobile.s7.wdev.cmux.dev",
+            "http://hub.s7.wdev.cmux.dev",
+        ] {
+            let mut cross = config(stack);
+            cross.configuration.mobile_origin = other.into();
+            assert!(validate(&cross, stack).is_err(), "{other}");
+        }
+        // The shared development deployment never sends a token to a tag stack, though it is cmux.dev.
+        let mut from_dev = config(crate::DEVELOPMENT_API);
+        from_dev.configuration.mobile_origin = "https://mobile.s7.wdev.cmux.dev".into();
+        assert!(validate(&from_dev, crate::DEVELOPMENT_API).is_err());
+    }
+
+    #[test]
+    fn public_stack_origins_are_one_slots_api_host_only() {
+        for good in ["https://api.s1.wdev.cmux.dev", "https://api.s123.wdev.cmux.dev/"] {
+            let origin = bare_origin(good).unwrap();
+            assert!(is_public_stack_origin(&origin), "{good}");
+        }
+        for bad in [
+            "http://api.s1.wdev.cmux.dev",
+            "https://api.s1.wdev.cmux.dev:8443",
+            "https://mobile.s1.wdev.cmux.dev",
+            "https://api.s1234.wdev.cmux.dev",
+            "https://api.s.wdev.cmux.dev",
+            "https://api.x1.wdev.cmux.dev",
+            "https://api.s1.wdev.cmux.dev.attacker.example",
+            "https://api.s1.wdev.cmux.dev.cmux.dev",
+            "https://wdev.cmux.dev",
+            "https://api.s1.other.cmux.dev",
+        ] {
+            assert!(!is_public_stack_origin(bad), "{bad}");
+        }
     }
 
     #[test]

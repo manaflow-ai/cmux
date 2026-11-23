@@ -80,6 +80,8 @@ extension SettingsSchema {
         "agents.hiddenChats.discard": "a hidden chat that is idle gives back its memory on its own; a working chat keeps it",
         // Leo (2026-11-14): "obviously if something isn't drawn/is completely proven idle then dont bother taking memory"; Lawrence (#38022): no perf switch. A hidden idle chat and an archived chat always give back their page.
         "agents.hiddenChats.discardAfterMinutes": "a hidden chat that is idle gives back its memory on its own; a working chat keeps it",
+        // Lawrence (2026-11-20): "remove share screen with chief". Its capture host had already gone with the cmux Computer Use helper.
+        "home.chiefPanel.seesScreen": "Share Screen with Chief is gone: the floating Chief no longer looks at the screen when it opens",
     ]
 
     /// Retired keys a row took the place of, by the row's path: the old key's path and what its

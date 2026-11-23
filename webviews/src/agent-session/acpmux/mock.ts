@@ -15,6 +15,7 @@ import {
   workedTurn,
   WORKED_SESSION,
   type SeedStep,
+  fleetListedSession,
 } from "./mockFixture";
 import { mockGitCommit, mockGitDiff, mockGitPush, mockGitStatus } from "./mockGit";
 import { mockFileSearch } from "./mockFiles";
@@ -61,6 +62,8 @@ type MockAuthGlobals = {
   cmuxAcpmuxMockSlowMs?: number;
   /** bench/update-one.bench.ts: that many more listed sessions beside the fixture's, with no history. */
   cmuxAcpmuxMockListSize?: number;
+  /** `fleet`: those listed sessions shaped as a fleet Mac's rows (mockFixture.ts `fleetListedSession`). */
+  cmuxAcpmuxMockListShape?: "fleet";
 };
 
 // Mock transport: the host answers `ready` with `{transport: "mock"}` when no
@@ -377,7 +380,9 @@ export class MockAcpmuxSocket {
       if (entry.status === "running" || entry.permission) this.openTurns.add(entry.sessionId);
     }
     const listSize = Number((globalThis as MockAuthGlobals).cmuxAcpmuxMockListSize ?? 0);
-    for (let index = 0; index < listSize; index += 1) this.sessions.push(listedSession(index, now));
+    const listed =
+      (globalThis as MockAuthGlobals).cmuxAcpmuxMockListShape === "fleet" ? fleetListedSession : listedSession;
+    for (let index = 0; index < listSize; index += 1) this.sessions.push(listed(index, now));
   }
 
   /// One field change of one session (a status dot, unread, a rename, a cost), told the client the way
@@ -620,6 +625,48 @@ export class MockAcpmuxSocket {
     this.touch(target, { status: "idle", indicator: "done" });
     if (other) this.touch(other, { indicator: null, status: "idle" });
     return { ticks, sidebar };
+  }
+
+  /// The turn `addLoadTools` left running, by session: its number and how many calls it has.
+  private openToolTurns = new Map<string, { turn: number; calls: number }>();
+
+  /// Adds `count` short tool calls to `target`'s running turn (starting one if none is), each as a busy
+  /// agent's: the call, then `gapMs` later its result, then `gapMs` before the next. No text streams, so
+  /// each call is one new row and every other render is waste. `keepOpen: false` ends the turn after.
+  async addLoadTools(
+    target: string,
+    options: { count: number; gapMs: number; keepOpen: boolean },
+  ): Promise<{ tools: number; events: number }> {
+    let open = this.openToolTurns.get(target);
+    if (!open) {
+      const turn = Number(this.sessions.find((entry) => entry.sessionId === target)?.turnCount ?? 0) + 1;
+      this.touch(target, { turnCount: turn, status: "running", indicator: "working" });
+      this.emit(target, { mux: "user_message", msg: { text: `Turn ${turn}: check every file` } });
+      this.emit(target, { mux: "turn_started" });
+      open = { turn, calls: 0 };
+      this.openToolTurns.set(target, open);
+    }
+    let events = 0;
+    for (let index = 0; index < options.count && !this.closed; index += 1) {
+      const call = `load-tools-${open.turn}-${open.calls}`;
+      const command = `rg -n check src/file${open.calls}.ts`;
+      open.calls += 1;
+      this.emit(target, { update: tool(call, "execute", command, "in_progress", { rawInput: { command } }) });
+      await this.delay(options.gapMs);
+      this.emit(target, {
+        update: done(call, {
+          content: [{ type: "content", content: { type: "text", text: `src/file${index}.ts:1: check\n` } }],
+        }),
+      });
+      events += 2;
+      await this.delay(options.gapMs);
+    }
+    if (!options.keepOpen) {
+      this.openToolTurns.delete(target);
+      this.emit(target, { mux: "turn_result", msg: { status: "completed" } });
+      this.touch(target, { status: "idle", indicator: "done" });
+    }
+    return { tools: options.count, events };
   }
 
   send(raw: string): void {

@@ -1,7 +1,11 @@
 // One launch of a cmux NEXT app the way the Dock launches it (CMUX-629, CMUX-631), timed from outside the app.
 //
-//   launch-ready APP HOME_ROOT LABEL [SETTLE_S [SOCKET [MODES...]]]   MODES: shell, keys, layout, movequit, type
+//   launch-ready APP HOME_ROOT LABEL [SETTLE_S [SOCKET [MODES...]]]   MODES: shell, keys, layout, movequit, type, guest
 //                                                                      (separate or comma-separated)
+//
+// With `guest` (launch-ready.sh guest=1, a run on a person's own Mac while they work) the app opens without
+// activating and with CMUX_NEXT_NO_ACTIVATE=1, so the app never activates itself either: no focus is taken from what
+// they are typing into, its windows open behind theirs, and `active` stays null.
 //
 // With `shell` (launch-ready.sh state=bare), once the app marks `window_usable` the probe opens a terminal the way a
 // person's first one opens (`action.run newSurface` on the app's socket) and records `shell_requested`; the app's
@@ -66,6 +70,7 @@ guard socketPath.utf8.count <= 103 else { // sun_path less its NUL: the app coul
 let modes = Set(args.dropFirst(6).flatMap { $0.split(separator: ",").map(String.init) })
 let opensShell = modes.contains("shell"), typesKeys = modes.contains("keys"), samplesLayout = modes.contains("layout")
 let typesFirstKey = modes.contains("type"), movesBeforeQuit = modes.contains("movequit")
+let activates = !modes.contains("guest")
 var shellRequested: Double?
 let home = homeRoot.appendingPathComponent("h"), tmp = homeRoot.appendingPathComponent("t")
 for sub in ["Library/Preferences", "Library/Application Support", "Library/Caches", "Library/Logs"] {
@@ -145,10 +150,13 @@ if let user = ProcessInfo.processInfo.environment["USER"] { environment["USER"] 
 // A side with its own settings (launch-ready.sh engines=): the app reads HOME_ROOT/cmux-next.json, not the account's.
 let sideConfig = homeRoot.appendingPathComponent("cmux-next.json").path
 if FileManager.default.fileExists(atPath: sideConfig) { environment["CMUX_NEXT_CONFIG_FILE"] = sideConfig }
+// guest: the app itself never activates either (AppEnvironment.noActivate, CmuxApplication.refusesActivation): every
+// activation request is dropped and its windows open ordered back, still on screen for window_on_screen.
+if !activates { environment["CMUX_NEXT_NO_ACTIVATE"] = "1" }
 
 let configuration = NSWorkspace.OpenConfiguration()
 configuration.createsNewApplicationInstance = true
-configuration.activates = true
+configuration.activates = activates
 configuration.addsToRecentItems = false
 configuration.environment = environment
 configuration.arguments = ["-ApplePersistenceIgnoreState", "YES"]
@@ -489,7 +497,10 @@ let timer = Timer(timeInterval: 0.001, repeats: true) { _ in
         if movesBeforeQuit { moveThenQuit(pid) } else { quitSent = now(); kill(pid, SIGTERM) }
     }
     if window == nil, quitSent == nil, t - requested > 30_000 { failure = "no window in 30 s"; quitSent = t; kill(pid, SIGTERM) }
-    if quitSent == nil, windowSeenAt != nil, app.isTerminated { quitSent = t }
+    // An app quit from outside (dev-loop-ceiling startup_loop SIGTERMs it, as reload.sh does): isTerminated alone can
+    // stay false after the process is gone, as launch-premain.swift and background-ready.swift already pair it with
+    // kill(pid, 0). 2026-11-21 step 4b9c45ea3d756d968ad03448: "launch-ready floor1 did not end 90 s after its app quit".
+    if quitSent == nil, app.isTerminated || kill(pid, 0) != 0 { quitSent = t }
     if let sent = quitSent {
         if app.isTerminated || kill(pid, 0) != 0 { done = true }
         else if t - sent > 30_000 { kill(pid, SIGKILL); done = true }
@@ -506,11 +517,28 @@ let keep = ["stub_main", "main_start", "main.warmup_started", "main.environment"
             "launch_snapshot_shown", "first_window_flushed", "did_finish_launching_end", "first_window_frame_committed", "home.first_page", "reveal.home",
             "deferred_windows_restored",
             // The bare launch's marks (piece 8): Home's composer takes keys; a terminal's shell printed its first output.
-            "window_usable", "first_shell_live",
+            "window_usable", "first_shell_live", "first_key_down",
             // A relaunch's restored terminal: its first frame, and with `type` the key typed at the first window frame,
             // when it left the app for the PTY, and its echo back (LaunchTypeProbe, LaunchInputMarks).
             "first_terminal_content_applied", "first_terminal_frame", "launch.visible_terminals_drawn",
             "terminal.probe_key_typed", "terminal_input_accepted", "terminal_echo"]
+// The launch's startup stages (startup-tti), each ms from process start to the earliest of its marks that came: the
+// table the app's launch-times.jsonl rows use (LaunchStages, LaunchTimesFile.swift) and scripts/ci/launch_stages.py;
+// tests/test_launch_stages.py keeps the three equal.
+let launchStages: [(stage: String, marks: [String])] = [
+    ("premain", ["main_start"]),
+    ("did_finish_launching", ["did_finish_launching_start"]),
+    ("daemon_connected", ["daemon_connected"]),
+    ("first_window_shown", ["launch_snapshot_shown", "first_window_flushed", "dfl.windows"]),
+    ("first_frame", ["first_window_frame_committed"]),
+    ("webview_ready", ["cef.ready"]),
+    ("first_chat_paint", ["agent_pane.painted", "agent_pane.newtab_painted", "home.saved_page_shown", "home.first_page"]),
+    ("first_interaction", ["terminal_echo", "agent_pane.input_echoed", "window_usable"]),
+]
+var stages: [String: Double] = [:]
+for (stage, names) in launchStages {
+    if let first = names.compactMap({ marks[$0] }).filter({ $0.isFinite && $0 >= 0 }).min() { stages[stage] = first.rounded(toPlaces: 1) }
+}
 var row: [String: Any] = [
     "label": label, "pid": app?.processIdentifier ?? 0, "start_epoch_ms": start ?? NSNull(),
     "request_to_start": start.map { ($0 - requested).rounded(toPlaces: 1) } ?? NSNull(),
@@ -526,14 +554,25 @@ var row: [String: Any] = [
     // its window still waited on the CLI (2026-11-17: 635 ms on a fresh home's prime launch, and no relaunch row).
     "marks": marks.filter { mark in
         label == "prime" || keep.contains(mark.key)
-            || ["dfl.", "home.", "reveal.", "cloud_env.", "app.", "daemon.", "launch_snapshot", "terminal."].contains { mark.key.hasPrefix($0) }
+            || ["dfl.", "home.", "reveal.", "cloud_env.", "app.", "daemon.", "launch_snapshot", "layout.", "web.layout.", "terminal.", "window.", "frame."].contains { mark.key.hasPrefix($0) }
     },
     "all_marks": marks.count,
+    "stages": stages,
     "shell_requested": rel(shellRequested),
     // The region the window showed first (home, pane, ...): the region a person saw, whichever it is.
     "first_reveal": marks.filter { $0.key.hasPrefix("reveal.") }.min { $0.value < $1.value }.map { String($0.key.dropFirst("reveal.".count)) } ?? NSNull(),
 ]
 if let frontAtQuit { row["front"] = frontAtQuit }
+// The settle (the app's layout.* marks, LaunchLayoutSettle), in ms after main_start like the summary's: the first frame
+// the watch read, the last change after it, and their difference, so a receipt can count pairs moving the same way.
+// Row key `settle`: `layout` is the probe's own layout=1 sampling below.
+if let first = marks["layout.first_frame"], let last = marks["layout.settle"] {
+    func afterMain(_ ms: Double) -> Any { marks["main_start"].map { (ms - $0).rounded(toPlaces: 1) } ?? NSNull() }
+    row["settle"] = ["first_frame_ms": afterMain(first), "settle_ms": afterMain(last),
+                     "settle_minus_first_frame_ms": (last - first).rounded(toPlaces: 1), "max_move_pt": marks["layout.max_move"] ?? 0]
+} else {
+    row["settle"] = "none"
+}
 if typesKeys {
     // first_key_ms: when the earliest sent key the sent message holds went out (step i: the window plus 100 i ms), ms
     // from process start as every time here; null when it holds none, or nothing was read back.

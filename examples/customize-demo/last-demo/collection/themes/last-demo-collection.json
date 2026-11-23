@@ -48,5 +48,10 @@
   // Arcade blocks, softened: small radii everywhere, a tight strip, a narrower sidebar.
   "appearance.density": "compact",
 
-  "ui.animationSpeed": "fast"
+  "ui.animationSpeed": "fast",
+
+  // Shape, not only color (Leo: "customizing the tabs/sidebars a lot deeper"): arcade blocks: square 2 pt tabs and rows, a tight strip, a narrower 260 pt sidebar.
+  "density": { "basedOn": "compact", "tokens": {"tabCornerRadius": 2, "tabCloseCornerRadius": 2, "verticalTabCornerRadius": 2, "sidebarCornerRadius": 2, "itemCornerRadius": 2, "tabGap": 3, "sidebarRowGap": 2, "sidebarWidth": 260 } },
+  "window.titlebarButtons": "always",
+  "agentPane.display.sessionInfo.placement": "overlay"
 }

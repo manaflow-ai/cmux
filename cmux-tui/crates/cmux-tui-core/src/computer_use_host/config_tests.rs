@@ -14,6 +14,15 @@ fn settings_keys_map_to_the_policy_and_missing_keys_keep_defaults() {
     assert_eq!(config.denied_apps, ["com.example.*"]);
     assert!(config.allow_foreground && !config.show_cursor);
     assert!(config.pause_on_takeover && config.allow_own_machines);
+    // computerUse.whileLocked is off unless the settings say so.
+    assert!(!config.while_locked);
+    let locked =
+        from_settings(&json!({"computerUse": {"whileLocked": true}}), PolicyConfig::default());
+    assert!(locked.while_locked);
+    // computerUse.alerts (list_alerts, dismiss_alert) is off unless the settings say so.
+    assert!(!config.alerts && !locked.alerts);
+    let alerts = from_settings(&json!({"computerUse": {"alerts": true}}), PolicyConfig::default());
+    assert!(alerts.alerts && !alerts.while_locked);
     assert_eq!(from_settings(&json!({}), PolicyConfig::default()), PolicyConfig::default());
     // An unknown mode keeps the default, never something wider than asked.
     assert_eq!(

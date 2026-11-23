@@ -1,0 +1,21 @@
+{
+  "cmuxProfile": 1,
+  "name": "codex-app-dark",
+  "description": "Looks like the Codex app in dark: a near-black page, a quiet sidebar of chats by project, white ink and grays with no color accent, a rounded composer.",
+  "settings": {
+    "appearance.themeFile": "codex-app-dark",
+    "sidebar.groupBy": "folder",
+    "sidebar.groupHeader.background": "sections",
+    "sidebar.groupHeader.memberCount": false,
+    "sidebar.workspaceRow.icon": false,
+    "sidebar.showColors": false,
+    "sidebar.showTimestamps": false,
+    "sidebar.detailedStatusIcons": false,
+    "tabs.hideLoneChatTab": true,
+    "agentPane.display.font.ui": "system-ui",
+    "agentPane.display.font.size": 14,
+    "agentPane.display.width": 760,
+    "agentPane.display.minimap": "off",
+    "agentPane.display.harnessPlacement": "compact"
+  }
+}

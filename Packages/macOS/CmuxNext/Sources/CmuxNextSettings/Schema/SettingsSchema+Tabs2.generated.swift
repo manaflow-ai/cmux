@@ -17,15 +17,11 @@ nonisolated enum TabSettingsSchema {
                 help: SettingsText.keyed("settings.tabs.newTabTemplate.help", "The layout of the New Tab page. Terminal opens a terminal instead."),
                 kind: .choice([
                     SettingChoice(NewTabTemplate.minimal.rawValue, SettingsText.keyed("settings.choice.newTabTemplateMinimal", "Minimal")),
-                    SettingChoice(NewTabTemplate.cards.rawValue, SettingsText.keyed("settings.choice.newTabTemplateCards", "Cards")),
-                    SettingChoice(NewTabTemplate.default.rawValue, SettingsText.keyed("settings.choice.newTabTemplateDefault", "Default")),
-                    SettingChoice(NewTabTemplate.threads.rawValue, SettingsText.keyed("settings.choice.newTabTemplateThreads", "Threads")),
-                    SettingChoice(NewTabTemplate.console.rawValue, SettingsText.keyed("settings.choice.newTabTemplateConsole", "Console")),
                     SettingChoice(NewTabTemplate.classic.rawValue, SettingsText.keyed("settings.choice.newTabTemplateClassic", "Classic")),
                     SettingChoice(NewTabTemplate.terminal.rawValue, SettingsText.keyed("settings.choice.newTabTemplateTerminal", "Terminal")),
                 ]),
                 default: .string(NewTabTemplate.fallback.rawValue),
-                keywords: ["new tab", "template", "layout", "page", "minimal", "greeting", "terminal", "classic", "threads", "console", "cards", "search", "ask"]
+                keywords: ["new tab", "template", "layout", "page", "minimal", "greeting", "terminal", "classic", "search", "ask"]
             ),
             SettingDescriptor(
                 NativeNewTabPageSetting.configPath,
@@ -178,6 +174,19 @@ nonisolated enum TabSettingsSchema {
                 ]),
                 default: .string(TabOverflowSetting.fallback.rawValue),
                 keywords: ["tab", "tabs", "overflow", "scroll", "scrolling", "shrink", "crowded", "width", "many"]
+            ),
+            SettingDescriptor(
+                TabShellIconThemeSetting.configPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.tabs.shellIconTheme", "Shell Tab Icons"),
+                help: SettingsText.keyed("settings.tabs.shellIconTheme.help", "Machines shows each shell tab with the icon of the machine it runs on."),
+                kind: .choice([
+                    SettingChoice(TabShellIconTheme.default.rawValue, SettingsText.keyed("settings.choice.default", "Default")),
+                    SettingChoice(TabShellIconTheme.machine.rawValue, SettingsText.keyed("settings.choice.tabShellIconThemeMachine", "Machines")),
+                ]),
+                default: .string(TabShellIconThemeSetting.fallback.rawValue),
+                keywords: ["tab", "tabs", "icon", "icons", "shell", "terminal", "machine", "machines", "theme", "ssh", "cloud", "remote"]
             ),
             SettingDescriptor(
                 LayoutMetricSetting.tabMaxWidthPath,

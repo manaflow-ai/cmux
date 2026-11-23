@@ -142,9 +142,8 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       variant: "no-project",
       card: ".acpmux-composer-box",
     },
-    // The strip heads the New Tab card in the Default template with Claude's quiet row: Cards draws it
-    // under its pill field, and since #24519 (2026-10-27, one quiet row) every other template with
-    // Claude's plain footer draws it in the quiet row under the box (NewTabScreen.tsx locationInFooter).
+    // The strip heads the New Tab card on Minimal with Claude's quiet row: since #24519 (2026-10-27, one
+    // quiet row) it draws in the quiet row under the box (NewTabScreen.tsx locationInFooter).
     {
       name: "the New Tab composer",
       entry: "agent-pane.new-tab",

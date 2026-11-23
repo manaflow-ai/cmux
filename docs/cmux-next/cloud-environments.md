@@ -82,6 +82,27 @@ team hubs, the hub's users and sessions) are its own; Postgres and Vitess (the m
 `backend/db/drizzle-mysql`). A stack has no TURN keys, APNs keys or Slack token: no relay ICE and no
 push from it.
 
+A stack lives as long as a dogfooded build may use it. Every stack port goes through the VM's router
+(`scripts/cmux-next/cloud-dev-stack/router.mjs`). After 2 h with no request, the stack's workerd
+stops but keeps its files, Durable Object data, credentials and ports. Its next request wakes it:
+the router holds that request until the stack answers, about 6 s when measured, so a build opened
+the next day finds its backend where it left it.
+
+The VM runs at most 16 stacks and keeps its memory and disk floors. A start or wake that does not
+fit stops the least recently used running stack. A stack is released 7 days after its last `up`,
+or earlier, least recently used first, when more than 48 are stopped or disk runs short. After
+that its origins stop answering (Serve is off for its ports) until the next `up` of the tag, and
+`cloud-dev-stack.sh status` shows it released. `cloud-dev-stack.sh stop --tag T` stops a stack by
+hand.
+
+A stack can also have a public origin, so a phone off the tailnet reaches it:
+`https://api.s<N>.wdev.cmux.dev` and its slot's `mobile.` and `hub.` hosts. `up` gives each stack a
+free slot and prints it (`Public:`), and `cloud-dev-stack.sh url --tag T --public` reads it back.
+The Worker `cmux-wdev-gateway` answers those hosts and admits a request only with a signed-in cmux
+team account's token, or a token the stack itself issued. It then sends the request through a
+Cloudflare Tunnel to the VM's router. Details and threat model: `cmux-next-ios/SECURITY.md`, "A
+tag's own Cloud backend".
+
 The tag's hand-off writes the choice next to the selection state, in
 `~/Library/Application Support/cmux-next/<bundle-id>/backend.json`
 (`{"backend": "<origin or name>"}`), so every launch of that tag uses it, from the Tag Opener

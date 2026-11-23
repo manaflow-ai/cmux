@@ -1,10 +1,46 @@
 // l10n-allow-file: gallery fixtures (public-safe sample Cloud data), not shipped UI.
 import { cloudPageEntry } from "../../gallery/format";
 import { sampleMachines, sampleSnapshots } from "./mockData";
-import type { CloudMachine, CloudRetention, CloudSnapshot, PortForward } from "./ops";
+import type { CloudDiskHealth, CloudMachine, CloudRetention, CloudSnapshot, PortForward } from "./ops";
 
 const machines = sampleMachines();
 const snapshots = sampleSnapshots();
+const diskReport = (
+  free_mb: number,
+  total_mb: number,
+  floor_mb: number,
+  observed_at = Date.now(),
+): CloudDiskHealth => ({
+  // The Cloud API computes the state; the fixture mirrors its floor rule.
+  state: free_mb <= floor_mb ? "warning" : "healthy",
+  free_mb,
+  used_mb: total_mb - free_mb,
+  total_mb,
+  floor_mb,
+  top_users: [
+    { path: "/var/lib/docker", used_mb: Math.round((total_mb - free_mb) * 0.52) },
+    { path: "/home/cmux/.cache", used_mb: Math.round((total_mb - free_mb) * 0.18) },
+  ],
+  observed_at,
+});
+const diskHealthyMachines = machines.map((machine) => ({
+  ...machine,
+  disk_health: diskReport(Math.round((machine.size.disk_mb ?? 65_536) * 0.58), machine.size.disk_mb ?? 65_536, 4_096),
+}));
+const diskWarningMachines = machines.map((machine, index) => ({
+  ...machine,
+  disk_health:
+    index === 0
+      ? diskReport(3_072, machine.size.disk_mb ?? 65_536, 4_096)
+      : diskReport(Math.round((machine.size.disk_mb ?? 65_536) * 0.58), machine.size.disk_mb ?? 65_536, 4_096),
+}));
+const diskStaleMachines = machines.map((machine, index) => ({
+  ...machine,
+  disk_health:
+    index === 0
+      ? diskReport(8_192, machine.size.disk_mb ?? 65_536, 4_096, Date.now() - 16 * 60_000)
+      : diskReport(Math.round((machine.size.disk_mb ?? 65_536) * 0.58), machine.size.disk_mb ?? 65_536, 4_096),
+}));
 const samplePorts: PortForward[] = [
   {
     machine: machines[0]!.id,
@@ -147,6 +183,7 @@ export default cloudPageEntry({
     "pages/cloud/CloudPage.tsx",
     "pages/cloud/MachineList.tsx",
     "pages/cloud/MachineDetail.tsx",
+    "pages/cloud/DiskHealth.tsx",
     "pages/cloud/CreateSheet.tsx",
     "pages/cloud/AccountPanel.tsx",
     "pages/cloud/DetailSections.tsx",
@@ -165,6 +202,24 @@ export default cloudPageEntry({
       machines,
       snapshots,
       ports: samplePorts,
+    },
+    "disk-healthy": {
+      note: "Fresh disk reports show free and used capacity with the configured floor and top users.",
+      action: "select-machine",
+      machines: diskHealthyMachines,
+      snapshots,
+    },
+    "disk-warning": {
+      note: "A machine is below its disk floor and warns before the volume fills.",
+      action: "select-machine",
+      machines: diskWarningMachines,
+      snapshots,
+    },
+    "disk-stale": {
+      note: "A stale disk report is called out so the operator does not trust an old capacity value.",
+      action: "select-machine",
+      machines: diskStaleMachines,
+      snapshots,
     },
     creating: {
       note: "The create machine sheet with plan sizes and snapshot choices.",
