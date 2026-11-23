@@ -5,11 +5,14 @@ import { toggleTurnFold, turnViewFrom, WORKED } from "../src/agent-session/acpmu
 
 // These pin how a running turn's calls draw in sight, the `open` live arm they were written for;
 // the shipped `folded` keeps them under a closed "Working for" (#50987, live-turn-folds-to-line.test.ts).
+let armsBefore: typeof globalThis.cmuxExperiments;
 beforeEach(() => {
-  globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "live-turn-work": "open" };
+  armsBefore = globalThis.cmuxExperiments;
+  globalThis.cmuxExperiments = { ...armsBefore, "live-turn-work": "open" };
 });
 afterEach(() => {
-  if (globalThis.cmuxExperiments) delete (globalThis.cmuxExperiments as Record<string, string>)["live-turn-work"];
+  if (armsBefore === undefined) delete globalThis.cmuxExperiments;
+  else globalThis.cmuxExperiments = armsBefore;
 });
 
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
