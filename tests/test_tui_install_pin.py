@@ -81,6 +81,10 @@ class Detector(unittest.TestCase):
         for line in self.PINNED:
             self.assertEqual(pin.bare_lines(line), [], line)
 
+    def test_a_wrapped_pin_constant_reads(self) -> None:
+        text = 'const INSTALL_STATIC_SHA256: &str =\n    "' + "b" * 64 + '";\n'
+        self.assertEqual(pin.PIN.findall(text), ["b" * 64])
+
     def test_the_readme_pin_reads(self) -> None:
         commit, digest = pin.readme_pin(README.read_text())
         self.assertEqual((len(commit), len(digest)), (40, 64))

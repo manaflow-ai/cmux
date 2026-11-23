@@ -42,7 +42,8 @@ SITES = (
     "cmux-tui/crates/acpmux/src/cli/pairing.rs",
     "web/app/lib/install-static-pin.ts",
 )
-PIN = re.compile(r'install_?static_?sha256\b[^"\n]*"([0-9a-f]*)"', re.IGNORECASE)
+# The value may sit on the next line (rustfmt wraps a long `const X: &str =`).
+PIN = re.compile(r'install_?static_?sha256\b[^"\n]*(?:\n[ \t]*)?"([0-9a-f]*)"', re.IGNORECASE)
 README_URL = re.compile(
     r"https://raw\.githubusercontent\.com/manaflow-ai/cmux/([0-9a-f]+)/web/public/tui/install-static\.sh"
     r' -o "\$d/install\.sh" && echo "([0-9a-f]+)  \$d/install\.sh"'
