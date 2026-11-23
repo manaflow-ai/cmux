@@ -1,0 +1,17 @@
+{
+  "id": "delegation-launch-agents-direct",
+  "group": "delegation",
+  "owner": "chief-base-upgrades",
+  "about": "Austin's Chief rule, generalized for base (2026-11-23): \"never spawn a helper subagent just to launch other agents\": asked to start agents on several tasks, the Chief spawns one per task itself",
+  "turns": [
+    {
+      "text": "send claude on each of these: fix the flaky login test, add a dark mode toggle to settings, update the README install steps",
+      "checks": [
+        {"type": "called", "cmd": "spawn", "re": "(?i)login"},
+        {"type": "called", "cmd": "spawn", "re": "(?i)dark mode"},
+        {"type": "called", "cmd": "spawn", "re": "(?i)readme"},
+        {"type": "judge", "rubric": "Passes when the Chief starts one subagent per task itself (three spawned tasks, or one spawn call holding three tasks), each task carrying the user's words for it. Fails when it spawns a single helper whose job is to start or coordinate the other agents, or asks the user anything first."}
+      ]
+    }
+  ]
+}
