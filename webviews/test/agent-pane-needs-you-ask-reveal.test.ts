@@ -29,11 +29,23 @@ test("the side chat starts once the pane shows the ask's chat, and never for ano
   const asked: string[] = [];
   const sideSession = async (sessionId: string, question: string) => void asked.push(`${sessionId}:${question}`);
   let shown: string | undefined;
+  // The pane has looked a few times and not yet shown the chat: nothing is asked.
+  let looks = 0;
+  let looked: () => void = () => undefined;
+  const lookedThrice = new Promise<void>((resolve) => (looked = resolve));
   const pending = runRevealedAsk(
     { sessionId: "other", question: "Why?" },
-    { ready: (id) => shown === id, sideSession, waitMs: 1000, stepMs: 5 },
+    {
+      ready: (id) => {
+        if (++looks === 3) looked();
+        return shown === id;
+      },
+      sideSession,
+      waitMs: 1000,
+      stepMs: 5,
+    },
   );
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await lookedThrice;
   expect(asked).toEqual([]);
   shown = "other";
   expect(await pending).toBe(true);
