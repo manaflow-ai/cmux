@@ -78,6 +78,80 @@ import UIKit
         #expect(!store.hasBlob(TabSnapshotStore.hash(bytes)))
     }
 
+    nonisolated static func hold(_ lock: NSLock) { lock.lock() }
+    nonisolated static func release(_ lock: NSLock) { lock.unlock() }
+
+    /// A save's blob and record are written under one lock: another tab closing in between
+    /// found the new blob unnamed and deleted it, leaving a record whose picture was gone.
+    @Test func aSaveRacingAnotherTabsCloseKeepsItsPicture() async throws {
+        let store = TabSnapshotStore(directory: Self.directory())
+        let shared = Data("shared".utf8), a = Self.key("a"), b = Self.key("b")
+        for round in 0..<5 {
+            let ms = Int64(round * 10)
+            // "a" names a picture of its own; "b" alone names the shared one.
+            store.save(Data("own-\(round)".utf8), pixelWidth: 1, pixelHeight: 1, capturedAtMs: ms, source: .phone, for: a)
+            store.save(shared, pixelWidth: 1, pixelHeight: 1, capturedAtMs: ms, source: .phone, for: b)
+            // Both calls queue on the held lock, the save first; on release the close used to
+            // run between the save's blob and its record.
+            Self.hold(store.lock)
+            let group = DispatchGroup()
+            DispatchQueue.global().async(group: group) {
+                store.save(shared, pixelWidth: 1, pixelHeight: 1, capturedAtMs: ms + 1, source: .phone, for: a)
+            }
+            try await Task.sleep(for: .milliseconds(20))
+            DispatchQueue.global().async(group: group) { store.remove(b) }
+            try await Task.sleep(for: .milliseconds(20))
+            Self.release(store.lock)
+            await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in group.notify(queue: .global()) { done.resume() } }
+            #expect(store.picture(a) == shared, "round \(round): the record's blob is on disk")
+        }
+    }
+
+    /// A tab closed while its picture was still being encoded: the late save never writes it back.
+    @Test func aPictureEncodedAfterItsTabClosedIsNotWritten() async throws {
+        let store = TabSnapshotStore(directory: Self.directory())
+        let snapshots = TabCardSnapshots(store: store, memoryPressure: MemoryPressure(observesSystem: false))
+        snapshots.put(Self.picture(.systemRed, width: 1200, height: 2600), for: Self.key("a"), pixelWidth: 520)
+        snapshots.remove(Self.key("a"))
+        try await Self.wait("the save finishes or is dropped") { snapshots.saves + snapshots.dropped == 1 }
+        await snapshots.diskSettled()
+        #expect(snapshots.dropped == 1)
+        #expect(store.record(Self.key("a")) == nil, "the closed tab's picture is not on disk")
+        #expect(snapshots.entry(Self.key("a")).image == nil, "nor on its card")
+    }
+
+    /// Sign-out: the account's pictures (its chats' and pages' contents) leave memory and disk;
+    /// another account's stay, and so does a blob that account's record names.
+    @Test func signingOutRemovesTheAccountsPicturesOnly() async throws {
+        let directory = Self.directory()
+        let store = TabSnapshotStore(directory: directory)
+        let shared = Data("shared".utf8), mine = Data("mine".utf8), favicon = Data("favicon".utf8)
+        store.save(mine, pixelWidth: 1, pixelHeight: 1, capturedAtMs: 1, source: .phone, for: Self.key("a"))
+        store.save(shared, pixelWidth: 1, pixelHeight: 1, capturedAtMs: 1, source: .phone, for: Self.key("b"))
+        store.save(shared, pixelWidth: 1, pixelHeight: 1, capturedAtMs: 1, source: .phone, for: Self.key("b", account: "user-2"))
+        store.putMacCards(["web": MacCardInfo(title: "Docs", kind: "browser")], accountID: "user-1", macID: "mac-1")
+        store.putMacBlob(favicon, hash: Self.hash(favicon), accountID: "user-2", macID: "mac-1")
+
+        let (cards, snapshots) = Self.cards(directory)
+        snapshots.put(Self.picture(.systemRed), for: Self.key("c"))
+        try await Self.wait("the picture is written") { snapshots.saves == 1 }
+        cards.save(favicon, hash: Self.hash(favicon), macID: "mac-1")
+        try await Self.wait("the Mac's blob is written") { store.macBlob(Self.hash(favicon), accountID: "user-1", macID: "mac-1") != nil }
+        #expect(!cards.heldBlobs(macID: "mac-1").isEmpty)
+
+        snapshots.signedOut(accountID: "user-1")
+        cards.signedOut()
+        await snapshots.diskSettled()
+        #expect(snapshots.entry(Self.key("c")).image == nil)
+        for tab in ["a", "b", "c"] { #expect(store.record(Self.key(tab)) == nil) }
+        #expect(!store.hasBlob(TabSnapshotStore.hash(mine)))
+        #expect(store.macBlob(Self.hash(favicon), accountID: "user-1", macID: "mac-1") == nil)
+        #expect(store.macCards(accountID: "user-1", macID: "mac-1").isEmpty)
+        #expect(cards.heldBlobs(macID: "mac-1").isEmpty, "the same account signing in again is not told it holds them")
+        #expect(store.picture(Self.key("b", account: "user-2")) == shared, "another account's picture stays")
+        #expect(store.macBlob(Self.hash(favicon), accountID: "user-2", macID: "mac-1") == favicon)
+    }
+
     @Test func anotherAccountNeverReadsThisAccountsPicture() {
         let store = TabSnapshotStore(directory: Self.directory())
         store.save(Data("mine".utf8), pixelWidth: 1, pixelHeight: 1, capturedAtMs: 1, source: .phone, for: Self.key("a"))

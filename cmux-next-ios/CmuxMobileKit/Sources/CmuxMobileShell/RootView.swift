@@ -400,6 +400,9 @@ public struct RootView: View {
             setupComplete = false
         } else {
             AccountSignOut().signedOut(userID: accountUserID, session: ending)
+            // Its tab cards' pictures show its chats and pages: they leave the disk too.
+            if let accountUserID { TabCardSnapshots.shared.signedOut(accountID: accountUserID) }
+            MacTabCards.shared.signedOut()
             accountUserID = nil
         }
         store.resetForSignOut()

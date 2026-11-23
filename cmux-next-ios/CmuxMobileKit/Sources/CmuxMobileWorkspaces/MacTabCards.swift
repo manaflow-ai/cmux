@@ -166,6 +166,16 @@ public final class MacTabCards {
         return account
     }
 
+    /// The account signed out and its files went (`TabCardSnapshots.signedOut`): nothing of
+    /// it is held, so the same account signing in again never tells a Mac it has those blobs.
+    public func signedOut() {
+        heldAccount = nil
+        held = [:]
+        warmed = []
+        arriving = [:]
+        entries = [:]
+    }
+
     public func entry(_ key: TabSnapshotKey) -> MacCardEntry {
         if let entry = entries[key] { return entry }
         let entry = MacCardEntry()

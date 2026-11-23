@@ -19,9 +19,14 @@ public struct TabSnapshotKey: Hashable, Sendable {
     }
 
     var fileComponent: String {
-        [accountID, macID, tabID].map { Data($0.utf8).base64EncodedString()
+        [accountID, macID, tabID].map(Self.encoded).joined(separator: "-")
+    }
+
+    /// One part of a file name: base64url without padding.
+    static func encoded(_ part: String) -> String {
+        Data(part.utf8).base64EncodedString()
             .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: "=", with: "") }.joined(separator: "-")
+            .replacingOccurrences(of: "=", with: "")
     }
 }
 
@@ -60,7 +65,8 @@ public struct TabSnapshotRecord: Codable, Equatable, Sendable {
 /// do we not have cached previews of the other tabs").
 public struct TabSnapshotStore: Sendable {
     public let directory: URL
-    private let lock = NSLock()
+    /// Every write and delete holds it (tests hold it too, to queue two calls on it).
+    let lock = NSLock()
 
     public init(directory: URL) {
         self.directory = directory
@@ -106,32 +112,42 @@ public struct TabSnapshotStore: Sendable {
     /// Stores bytes under their hash (a no-op when they are here already) and returns the hash.
     @discardableResult
     public func putBlob(_ data: Data) -> String {
-        let hash = Self.hash(data)
-        lock.withLock {
-            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            if !hasBlob(hash) { try? data.write(to: blobURL(hash), options: .atomic) }
-        }
-        return hash
+        lock.withLock { writeBlob(data) }
     }
 
     /// Sets the tab's record unless a newer capture is stored. The blob the
     /// old record named goes when no other record names it.
     public func put(_ record: TabSnapshotRecord, for key: TabSnapshotKey) {
+        lock.withLock { writeRecord(record, for: key) }
+    }
+
+    /// A picture captured now: its bytes and its record in one step, under one
+    /// lock, so another tab's close or replacement never finds the new blob
+    /// unnamed and deletes it before its record is written.
+    public func save(_ data: Data, pixelWidth: Int, pixelHeight: Int, capturedAtMs: Int64,
+                     source: TabSnapshotRecord.Source, for key: TabSnapshotKey) {
         lock.withLock {
-            let old = self.record(key)
-            if let old, old.capturedAtMs > record.capturedAtMs { return }
-            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            if let data = try? JSONEncoder().encode(record) { try? data.write(to: recordURL(key), options: .atomic) }
-            if let old, old.thumbHash != record.thumbHash { removeBlobIfUnnamed(old.thumbHash) }
+            let hash = writeBlob(data)
+            writeRecord(TabSnapshotRecord(thumbHash: hash, pixelWidth: pixelWidth, pixelHeight: pixelHeight,
+                                          capturedAtMs: capturedAtMs, source: source), for: key)
         }
     }
 
-    /// A picture captured now: its bytes and its record in one step.
-    public func save(_ data: Data, pixelWidth: Int, pixelHeight: Int, capturedAtMs: Int64,
-                     source: TabSnapshotRecord.Source, for key: TabSnapshotKey) {
-        let hash = putBlob(data)
-        put(TabSnapshotRecord(thumbHash: hash, pixelWidth: pixelWidth, pixelHeight: pixelHeight,
-                              capturedAtMs: capturedAtMs, source: source), for: key)
+    /// Called under the lock.
+    private func writeBlob(_ data: Data) -> String {
+        let hash = Self.hash(data)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        if !hasBlob(hash) { try? data.write(to: blobURL(hash), options: .atomic) }
+        return hash
+    }
+
+    /// Called under the lock.
+    private func writeRecord(_ record: TabSnapshotRecord, for key: TabSnapshotKey) {
+        let old = self.record(key)
+        if let old, old.capturedAtMs > record.capturedAtMs { return }
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        if let data = try? JSONEncoder().encode(record) { try? data.write(to: recordURL(key), options: .atomic) }
+        if let old, old.thumbHash != record.thumbHash { removeBlobIfUnnamed(old.thumbHash) }
     }
 
     /// The tab closed: its record goes, and its blob when nothing else names it.
@@ -140,6 +156,22 @@ public struct TabSnapshotStore: Sendable {
             guard let old = record(key) else { return }
             try? FileManager.default.removeItem(at: recordURL(key))
             removeBlobIfUnnamed(old.thumbHash)
+        }
+    }
+
+    /// The account signed out: its tabs' pictures go (the phone's records, its
+    /// Macs' folders), and every blob no other account's record names.
+    public func removeAccount(_ accountID: String) {
+        let account = TabSnapshotKey.encoded(accountID) + "-"
+        lock.withLock {
+            let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+            for file in files where file.lastPathComponent.hasPrefix("v1-" + account) || file.lastPathComponent.hasPrefix("mac-" + account) {
+                try? FileManager.default.removeItem(at: file)
+            }
+            let named = namedHashes()
+            for file in files where file.lastPathComponent.hasPrefix("blob-") && !named.contains(String(file.lastPathComponent.dropFirst(5))) {
+                try? FileManager.default.removeItem(at: file)
+            }
         }
     }
 
@@ -194,6 +226,11 @@ public final class TabCardSnapshots {
     public private(set) var loads = 0
     /// Pictures written to disk (tests).
     public private(set) var saves = 0
+    /// Pictures not written because their tab closed (or the account signed out) first (tests).
+    public private(set) var dropped = 0
+    /// Every disk write and delete, in the order the main actor asked for them,
+    /// so a tab's close always lands after a save it raced.
+    private let disk = DispatchQueue(label: "cmux.mobile.tab-snapshots.disk", qos: .utility)
     #if DEBUG
     /// Tabs whose picture this launch wrote to disk (the UI tests' `TabCardFaceProbe`).
     public private(set) var savedTabs: Set<String> = []
@@ -250,17 +287,38 @@ public final class TabCardSnapshots {
                     source: TabSnapshotRecord.Source = .phone, now: Date = Date()) {
         let ms = Int64(now.timeIntervalSince1970 * 1000)
         if pixelWidth <= 0 { show(image, key, capturedAtMs: ms) }
-        let store = store
+        // The tab is live while this entry is its entry: `remove` drops it.
+        let live = entry(key)
         Task.detached(priority: .utility) { [weak self] in
             var picture = image
             if pixelWidth > 0 {
                 picture = TabCardSnapshots.downscaled(image, pixelWidth: pixelWidth)
-                await self?.show(picture, key, capturedAtMs: ms)
+                await self?.showScaled(picture, key, live, capturedAtMs: ms)
             }
-            guard let data = picture.jpegData(compressionQuality: 0.8) else { return }
-            store.save(data, pixelWidth: Int(picture.size.width * picture.scale),
-                       pixelHeight: Int(picture.size.height * picture.scale), capturedAtMs: ms, source: source, for: key)
-            await self?.saved(key)
+            let data = picture.jpegData(compressionQuality: 0.8)
+            await self?.encoded(data, key, live, pixelWidth: Int(picture.size.width * picture.scale),
+                                pixelHeight: Int(picture.size.height * picture.scale), capturedAtMs: ms, source: source)
+        }
+    }
+
+    private func showScaled(_ image: UIImage, _ key: TabSnapshotKey, _ live: TabSnapshotEntry, capturedAtMs: Int64) {
+        guard entries[key] === live else { return }
+        show(image, key, capturedAtMs: capturedAtMs)
+    }
+
+    /// A picture encoded off the main thread: written unless its tab closed
+    /// meanwhile, queued behind every earlier close and ahead of every later one.
+    private func encoded(_ data: Data?, _ key: TabSnapshotKey, _ live: TabSnapshotEntry, pixelWidth: Int, pixelHeight: Int,
+                         capturedAtMs: Int64, source: TabSnapshotRecord.Source) {
+        guard entries[key] === live else {
+            dropped += 1
+            return
+        }
+        guard let data else { return }
+        let store = store
+        disk.async { [self] in
+            store.save(data, pixelWidth: pixelWidth, pixelHeight: pixelHeight, capturedAtMs: capturedAtMs, source: source, for: key)
+            Task { @MainActor in self.saved(key) }
         }
     }
 
@@ -291,7 +349,24 @@ public final class TabCardSnapshots {
         entries[key] = nil
         resident.removeAll { $0 == key }
         let store = store
-        Task.detached(priority: .utility) { store.remove(key) }
+        disk.async { store.remove(key) }
+    }
+
+    /// The account signed out: its pictures leave memory and the disk (they
+    /// show its chats and pages), and a save still encoding is dropped.
+    public func signedOut(accountID: String) {
+        for entry in entries.values { entry.image = nil }
+        entries = [:]
+        resident = []
+        guard !accountID.isEmpty else { return }
+        let store = store
+        disk.async { store.removeAccount(accountID) }
+    }
+
+    /// Runs after every disk write and delete asked for so far (tests).
+    func diskSettled() async {
+        let disk = disk
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in disk.async { done.resume() } }
     }
 
     private func touch(_ key: TabSnapshotKey) {
