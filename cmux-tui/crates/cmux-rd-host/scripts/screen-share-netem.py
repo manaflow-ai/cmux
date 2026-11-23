@@ -25,7 +25,7 @@ Each attempt is one fresh session (new keys, new link). Per attempt it records:
                   true when a marker arrived after the selected full-drop interval
 An attempt that does not connect, or ends before its samples, counts as a failed connect.
 """
-import argparse, json, os, select, subprocess, sys, time
+import argparse, json, os, select, shutil, subprocess, sys, time
 
 HOST_NS, VIEW_NS = "rdshare-h", "rdshare-v"
 HOST_IP, VIEW_IP = "10.77.0.1", "10.77.0.2"
@@ -54,15 +54,34 @@ def setup(args):
         sh(f"ip netns exec {ns} ethtool -K {dev} gso off tso off gro off", check=False)
     netem(args.rtt, args.loss)
     disp = args.display
+    if not shutil.which("Xvfb"):
+        sys.exit("screen-share-netem: Xvfb is not installed; the host has no display to capture")
     xvfb = subprocess.Popen(["ip", "netns", "exec", HOST_NS, "Xvfb", disp, "-screen", "0",
                              "1920x1080x24", "-nolisten", "tcp"],
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
     time.sleep(1.0)
+    started(xvfb, "Xvfb " + disp)
     app = subprocess.Popen(["ip", "netns", "exec", HOST_NS, args.bin, "testapp", "--display", disp,
                             "--workload", args.workload],
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                           stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
     time.sleep(1.0)
+    started(app, "testapp")
     return [app, xvfb]
+
+
+def started(proc, what):
+    """Stops the run when a helper exited during start-up: every attempt after it would fail
+    with the host's "Connection refused" and say nothing of why."""
+    if proc.poll() is None:
+        return
+    err = (proc.stderr.read() if proc.stderr else "").strip()
+    teardown()
+    sys.exit(f"screen-share-netem: {what} exited {proc.returncode} at start: {err[-400:]}")
+
+
+def run_status(records):
+    """The run's exit status: 1 when no attempt reached a first frame (it measured nothing)."""
+    return 0 if any(r.get("ok") for r in records) else 1
 
 
 def teardown():
@@ -95,23 +114,33 @@ def recovered_after_drop(drop_s, drop_restored, stalls_ms, host_ended):
     return drop_s is None or (drop_restored and not host_ended and bool(stalls_ms))
 
 
-STAGES = ("up", "inject", "draw_damage", "gate", "encode", "send", "down", "decode", "total")
+STAGES = ("up", "inject", "draw_damage", "gate", "capture", "encode", "send", "down", "decode",
+          "total")
+
+
+def capture_end(line):
+    """When a timing-log frame's capture ended: `capture_us`, or `release_us` on an older host
+    (before it became the gate's release it was the capture end). None on a non-frame line."""
+    return line.get("capture_us", line.get("release_us")) if "encoded_us" in line else None
 
 
 def stage_samples(samples, log_lines):
     """Per key press, where its time went: the bench's sample_times (viewer, ns) joined with the
-    host's CMUX_RD_TIMING_LOG (µs) on the frame's encode start (`capture_us` == `release_us`).
+    host's CMUX_RD_TIMING_LOG (µs) on the frame's capture end: `capture_us` on both (an older host
+    logs it as `release_us`).
 
       up           key sent -> host read the input datagram
       inject       read -> XTest injected
       draw_damage  injected -> the session saw X damage (the app draws, the X server reports it)
-      gate         damage seen -> encode start (settle window, frame-rate cap, encoder busy)
-      encode       encode start -> bitstream (XShm readback, I420 convert and OpenH264)
+      gate         damage seen -> capture start (settle window, frame-rate cap, encoder busy);
+                   a host without `capture_start_us` counts the capture here, to encode start
+      capture      capture start -> encode start (XShm readback and I420 convert)
+      encode       encode start -> bitstream (OpenH264)
       send         bitstream -> last datagram handed to the carrier (pacer)
       down         last datagram handed over -> frame complete on the viewer
       decode       complete -> decoded
     A sample gets a stage only when both ends are known; every value is in ms."""
-    frames = {d["release_us"]: d for d in log_lines if "release_us" in d}
+    frames = {capture_end(d): d for d in log_lines if capture_end(d) is not None}
     injects = sorted((d for d in log_lines if "inject_us" in d and d.get("recv_us")),
                      key=lambda d: d["recv_us"])
     out = []
@@ -120,15 +149,18 @@ def stage_samples(samples, log_lines):
         f = frames.get(s.get("capture_us"))
         inj = next((d for d in injects if d["recv_us"] >= sent_us), None)
         row = {"total": (s["decoded_ns"] - s["sent_ns"]) / 1e6}
-        if inj and (f is None or inj["inject_us"] <= f["release_us"]):
+        if inj and (f is None or inj["inject_us"] <= capture_end(f)):
             row["up"] = (inj["recv_us"] - sent_us) / 1000
             row["inject"] = (inj["inject_us"] - inj["recv_us"]) / 1000
             if f and f.get("damage_us"):
                 row["draw_damage"] = (f["damage_us"] - inj["inject_us"]) / 1000
         if f:
+            start = f.get("capture_start_us")
             if f.get("damage_us"):
-                row["gate"] = (f["release_us"] - f["damage_us"]) / 1000
-            row["encode"] = (f["encoded_us"] - f["release_us"]) / 1000
+                row["gate"] = ((start or capture_end(f)) - f["damage_us"]) / 1000
+            if start:
+                row["capture"] = (capture_end(f) - start) / 1000
+            row["encode"] = (f["encoded_us"] - (f.get("encode_start_us") or capture_end(f))) / 1000
             if f.get("sent_us"):
                 row["send"] = (f["sent_us"] - f["encoded_us"]) / 1000
                 if s.get("complete_ns"):
@@ -329,12 +361,14 @@ def main():
     procs = setup(args)
     out = open(args.out, "a") if args.out else None
     samples = []
+    records = []
     try:
         n = 0
         for drop_s in drop_seconds:
             for _ in range(args.attempts):
                 n += 1
                 rec = attempt(args, n, drop_s)
+                records.append(rec)
                 samples += rec.get("sample_times") or []
                 line = json.dumps(rec)
                 print(line, flush=True)
@@ -356,6 +390,8 @@ def main():
             except subprocess.TimeoutExpired:
                 p.kill()
         teardown()
+    if run_status(records):
+        sys.exit(f"screen-share-netem: none of {len(records)} attempts reached a first frame")
 
 
 if __name__ == "__main__":

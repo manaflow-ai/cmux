@@ -24,6 +24,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_cli_storm import Client  # noqa: E402
+from state_wait import wait_stable, wait_until  # noqa: E402
 
 PAGE = (
     "data:text/html,<title>nochw</title>"
@@ -64,9 +65,21 @@ class App:
         return [tab for window in focus.get("windows", []) for pane in window.get("topology", [])
                 for tab in pane.get("tabs", [])]
 
+    def loaded(self):
+        """The tab's document is fully loaded (a navigation's new document, not the old one)."""
+        return self.js("document.readyState === 'complete' && !window.__nochw_old")
+
     def navigate(self, url, settle=1.5):
+        # Mark the current document, navigate, then wait for a new one that finished loading.
+        try:
+            self.js("window.__nochw_old = true")
+        except RuntimeError:
+            pass  # no page to mark yet: any loaded document is then the new one
         self.cdp("Page.navigate", {"url": url})
-        time.sleep(settle)
+        # Best effort: cmux may route the URL elsewhere (chrome://newtab), leaving this document in place.
+        if not wait_until(self.loaded, f"{url} to load", timeout=max(10.0, settle * 5), interval=0.1,
+                          raise_on_timeout=False):
+            print(f"note: {url} did not load a new document in this tab", flush=True)
 
     def click(self, selector, modifiers=0, button="left"):
         box = self.js(f"(()=>{{const r=document.querySelector('{selector}').getBoundingClientRect();"
@@ -84,6 +97,11 @@ class App:
 
 def web_store_link(app):
     app.navigate("chrome://extensions", 2.0)
+    # The WebUI renders its links after load, inside shadow roots: wait for the Web Store link.
+    wait_until(lambda: app.js("""(()=>{let hit=false;const walk=(root)=>{root.querySelectorAll('a').forEach(e=>{
+        if(e.target==='_blank'&&e.href.includes('chromewebstore'))hit=true});
+        root.querySelectorAll('*').forEach(e=>{if(e.shadowRoot)walk(e.shadowRoot)})};walk(document);return hit})()"""),
+               "the Chrome Web Store link on chrome://extensions", timeout=10, interval=0.2, raise_on_timeout=False)
     return app.js("""(()=>{let hit=null;const walk=(root)=>{root.querySelectorAll('a').forEach(e=>{
         if(!hit&&e.target==='_blank'&&e.href.includes('chromewebstore'))hit=e});
         root.querySelectorAll('*').forEach(e=>{if(e.shadowRoot)walk(e.shadowRoot)})};
@@ -94,8 +112,12 @@ def fresh(action):
     """Runs `action` in a new Chromium tab showing PAGE (the previous source
     may have moved focus to another tab, pane or window)."""
     def run(app):
+        count = len(app.tabs())
         app.call("action.run", {"action": "tab new-chromium", "args": {"url": PAGE}})
-        time.sleep(2.0)
+        # The new tab is in the topology and its PAGE finished loading.
+        wait_until(lambda: len(app.tabs()) > count, "the new Chromium tab", timeout=10, interval=0.1)
+        wait_until(lambda: app.js("document.title === 'nochw' && document.readyState === 'complete'"),
+                   "the new tab's page to load", timeout=10, interval=0.1)
         return action(app)
     return run
 
@@ -151,7 +173,8 @@ def main():
             print("Chromium did not start", file=sys.stderr)
             return 2
         time.sleep(0.5)
-    time.sleep(1.5)
+    wait_until(lambda: app.js("document.readyState === 'complete'"), "the first Chromium tab's page to load",
+               timeout=15, interval=0.1)
     failures = 0
     for name, run in SOURCES:
         if args.only and not any(part.lower() in name.lower() for part in args.only):
@@ -162,7 +185,15 @@ def main():
             detail = run(app)
         except Exception as error:  # noqa: BLE001 - report and continue
             detail = f"error: {error}"
-        time.sleep(args.settle)
+        # What the source makes (a tab, a window, a guard block, a shown URL) shows up, then holds still. A
+        # source that makes nothing changes nothing: then --settle s is the window a Chromium window had to
+        # appear in.
+        seen = lambda: (app.windows(), len(app.tabs()), app.shown_urls())  # noqa: E731
+        start = seen()
+        if wait_until(lambda: seen() != start, f"{name} to change anything", timeout=args.settle, interval=0.1,
+                      raise_on_timeout=False):
+            wait_stable(seen, f"what {name} made", timeout=max(10.0, args.settle * 4), interval=0.2,
+                        raise_on_timeout=False)
         after = app.windows()
         offending = after.get("chromium_windows") or []
         blocked = (after.get("guard_blocked") or 0) - (before.get("guard_blocked") or 0)

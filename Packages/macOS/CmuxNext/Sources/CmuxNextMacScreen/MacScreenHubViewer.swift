@@ -20,6 +20,9 @@ public final class MacScreenHubViewer {
     /// the host sends when it could not start serving: no helper, a helper that stopped before
     /// the link); nil when no host reason came. A new request clears it.
     public internal(set) var hostFailure: String?
+    /// The session that ended here because the share moved (`session.ended` reason `moved`): its
+    /// replacement, when the hub pushes it to this app, finds this tab by it. Nil otherwise.
+    public internal(set) var movedSession: String?
 
     /// The hub, while this app is signed in to one.
     @ObservationIgnored var hub: @MainActor () -> DeviceHub?
@@ -72,6 +75,7 @@ public final class MacScreenHubViewer {
         failureEnd.cancel()
         failedWhileOffline = false
         hostFailure = nil
+        movedSession = nil
         cancelPending(endingSession: true)
         stopStream()
         lastScope = scope
@@ -89,6 +93,14 @@ public final class MacScreenHubViewer {
             }
             self?.requestReturned(answer, scope: scope, hub: hub, cancelled: Task.isCancelled)
         }
+    }
+
+    /// A hub came (the saved sign-in finished restoring, or the person signed in): a tab
+    /// refused only because there was none asks again for the scope it wanted. A tab opened
+    /// in the first seconds after launch otherwise kept "Not Signed In" after sign-in completed.
+    func hubArrived() {
+        guard case let .refused(.notSignedIn, requested) = phase, hub() != nil else { return }
+        request(requested)
     }
 
     /// The request's HTTP answer came back. Cancelled (the person cancelled,
@@ -299,13 +311,31 @@ public final class MacScreenHubViewer {
             pendingSignaling = try makeSignaling(ticket, hub)
         } catch {
             end(ticket.sessionId, reason: MacScreenHubReason.failed.rawValue, on: hub)
-            phase = .refused(.other, requested: ticket.scope)
+            phase = .refused(.other(reason: MacScreenHubRefusal.reason(error as? DeviceHubError ?? .transport(error.localizedDescription))),
+                             requested: ticket.scope)
             return
         }
         lastScope = ticket.scope
         phase = .streaming(sessionID: ticket.sessionId, scope: ticket.scope)
         onStreaming()
         startStream()
+    }
+
+    /// A viewer ticket for this tab's host that no request here asked for: the hub pushed it (a
+    /// share moved to this Mac, a host pushed its screen here). What the tab ran or showed stops,
+    /// and the ticket streams, as if a person had pressed Connect and the host had answered.
+    func acceptPushed(_ ticket: SessionTicket) {
+        guard ticket.role == .viewer, ticket.peer.id == deviceID else { return }
+        if case let .streaming(id, _) = phase, id == ticket.sessionId { return }
+        failureEnd.cancel()
+        failedSession = nil
+        failedWhileOffline = false
+        hostFailure = nil
+        movedSession = nil
+        resumeScope = nil
+        cancelPending(endingSession: true)
+        stopStream()
+        accept(ticket)
     }
 
     /// `session.denied`: the host's person said Deny.
@@ -336,8 +366,10 @@ public final class MacScreenHubViewer {
         phase = .revoked(reason: reason)
     }
 
-    /// `session.ended`.
+    /// `session.ended`. Reason `moved`: a new session replaced this one; the tab remembers which
+    /// ended so the replacement, if it comes to this app, takes the tab over (no failed card).
     func ended(reason: String?) {
+        if MacScreenEndReason(reason) == .moved, let id = phase.sessionID { movedSession = id }
         failureEnd.cancel()
         keepHostFailure(reason)
         if keepsFailedCard(reason) { return }
