@@ -35,7 +35,7 @@ struct MacScreenHomeSnapshot: Equatable {
         /// This Mac's access to it.
         var access: MacScreenAccess
         /// The SF Symbol of the kind of device it is, from its hub record.
-        var symbol: String? = nil
+        var symbol: String?
 
         /// The row's glyph: its kind's symbol when this macOS has it, else the icon of its platform.
         var glyph: String {
