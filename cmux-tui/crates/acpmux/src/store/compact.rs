@@ -222,13 +222,30 @@ impl LocalStore {
             CompactMode::Write { archive } => (true, archive, None),
             CompactMode::Truncate { after } => (true, None, Some(after)),
         };
+        let cold: Vec<u32> = segments
+            .iter()
+            .filter(|(_, path)| super::cold_segments::is_cold(path))
+            .map(|(index, _)| *index)
+            .collect();
+        let segments = hot_segments(segments.to_vec(), cut)?;
+        if segments.is_empty() {
+            return Ok(None);
+        }
         let archive = match archive {
             Some(root) => {
                 let kept = Archive::create(root, id, &now_ms().to_string())?;
-                let meta = self.dir(id).join("session.json");
+                let session = self.dir(id);
+                let meta = session.join("session.json");
                 if crate::home_fs::try_exists_nofollow(&meta)? {
                     // A copy: the chat's own file may be written again in place.
                     kept.keep(&meta, false, true)?;
+                }
+                // A cold segment is not rewritten, but the archive the person asked for holds the
+                // chat's whole history: each cold segment's archive and index as the chat holds
+                // them (`store/cold_segments.rs`), lossless (#43562 review P1-F1).
+                for index in cold {
+                    kept.keep(&super::cold_segments::zst_path(&session, index), true, false)?;
+                    kept.keep(&super::cold_segments::idx_path(&session, index), true, true)?;
                 }
                 Some(kept)
             }
@@ -323,6 +340,10 @@ impl LocalStore {
             // Listed as they are: a cut left halfway is a change (`stage_compaction` finished
             // any before it read the log).
             let (now, cut_pending) = self.list_segments(id)?;
+            // A cold segment is never rewritten (`hot_segments`); one that went cold since the
+            // pass read it is a change.
+            let now: Vec<_> =
+                now.into_iter().filter(|(_, p)| !super::cold_segments::is_cold(p)).collect();
             let unchanged = !cut_pending
                 && now.len() == staged.segments.len()
                 && now.iter().zip(&staged.segments).all(|((_, path), s)| {
@@ -385,6 +406,31 @@ impl LocalStore {
         write_durably(&self.marker(id), &serde_json::to_vec_pretty(&marker)?)?;
         Ok(true)
     }
+}
+
+/// The segments a pass rewrites: every one but a cold segment's archive
+/// (`store/cold_segments.rs`), which stays as it is, every byte. A cut (`after`) that would leave
+/// out a record of a cold segment is refused: a cold segment is never cut.
+fn hot_segments(segments: Vec<(u32, PathBuf)>, cut: Option<u64>) -> Result<Vec<(u32, PathBuf)>> {
+    let mut hot = Vec::with_capacity(segments.len());
+    for (index, path) in segments {
+        if !super::cold_segments::is_cold(&path) {
+            hot.push((index, path));
+            continue;
+        }
+        if let Some(after) = cut {
+            let mut last = None;
+            for_each_line_rev(&path, &mut |line| {
+                last = record_seq(line);
+                last.is_none()
+            })?;
+            anyhow::ensure!(
+                last.is_none_or(|seq| seq <= after),
+                "a cut past seq {after} reaches cold segment {index:06}: refused"
+            );
+        }
+    }
+    Ok(hot)
 }
 
 /// Writes `bytes` to `path` whole and durably, as `config::write_atomic` does, but a failed sync
@@ -509,7 +555,7 @@ fn cut_long_strings(value: &mut Value) -> bool {
 /// Drops a log file's pages from the page cache once it is read or written: a pass reads every
 /// old log once, and a daemon under a memory limit (huge-blue's cgroup) is charged for its cache.
 #[cfg(target_os = "linux")]
-fn drop_cache(file: &File) {
+pub(super) fn drop_cache(file: &File) {
     use std::os::fd::AsRawFd;
     // SAFETY: the descriptor is open for the call; the advice changes no file content.
     unsafe {
@@ -518,7 +564,7 @@ fn drop_cache(file: &File) {
 }
 
 #[cfg(not(target_os = "linux"))]
-fn drop_cache(_file: &File) {}
+pub(super) fn drop_cache(_file: &File) {}
 
 #[cfg(test)]
 #[path = "compact_tests.rs"]
