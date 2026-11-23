@@ -200,3 +200,14 @@ status=0; run CMUX_NEXT_SWIFT_COMPILATION_MODE=fast || status=$?
 [[ $status -eq 2 ]] || fail "an unknown compilation mode exited $status (want 2)"
 
 printf 'scheme compile DerivedData tests: ok\n'
+
+# 7. A runner's CMUX_DERIVED_DATA_SLOT (glaeda disk registry) is the DerivedData
+#    when no path argument is given: used as is and kept. An explicit path wins.
+reset
+mkdir -p "$TMP/slot"
+run CMUX_DERIVED_DATA_SLOT="$TMP/slot" || fail "slot run exited $?"
+[[ $(sort -u "$TMP/paths") == "$TMP/slot" ]] || fail "the slot was not the DerivedData: $(cat "$TMP/paths")"
+[[ -d "$TMP/slot" ]] || fail "the slot was removed"
+reset
+SC_ARG="$TMP/kept-dd" run CMUX_DERIVED_DATA_SLOT="$TMP/slot" || fail "slot with an argument exited $?"
+[[ $(sort -u "$TMP/paths") == "$TMP/kept-dd" ]] || fail "an explicit path did not win over the slot"
