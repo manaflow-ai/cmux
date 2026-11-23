@@ -30,8 +30,9 @@ public final class DaemonStore: StateResourceQueries {
                 workspaceList = newValue
                 return
             }
+            let old = workspaceList
             withMutation(keyPath: \.workspaces) { workspaceList = newValue }
-            adoptUnread()
+            adoptUnread(from: old)
         }
     }
     @ObservationIgnored var workspaceList: [WorkspaceModel] = []
@@ -40,6 +41,9 @@ public final class DaemonStore: StateResourceQueries {
     public internal(set) var groups: [WorkspaceGroupModel] = []
     /// Tabs the unread count read, one by one (tests: an observer of the badge reads no tab).
     @ObservationIgnored public internal(set) var unreadTabReads = 0
+    /// Workspaces whose unread contribution the store added or took out of ``unreadTotals``: what changed in the list,
+    /// never the whole list (tests: a Cmd-N among 5,000 workspaces visits one).
+    @ObservationIgnored public internal(set) var unreadWorkspaceVisits = 0
     /// The unread counts of all workspaces (``UnreadTotals``), summed from each workspace's own
     /// count when one changes and assigned only when the sum changes: an observer of the badge
     /// observes this one value, never the tabs.
@@ -134,6 +138,8 @@ public final class DaemonStore: StateResourceQueries {
     /// build (status ticks apply batches several hundred times a second).
     @ObservationIgnored var listGeneration: UInt64 = 0
     @ObservationIgnored var checkedListGeneration: UInt64?
+    /// Workspaces `recomputeSidebar` walked (tests: its work per flattening is one walk of the list, not one per group).
+    @ObservationIgnored public internal(set) var sidebarWorkspaceVisits = 0
     /// Nesting of batch applies; the hook runs when the outermost ends.
     @ObservationIgnored var applyDepth = 0
     @ObservationIgnored let updateCycles = UpdateCycleDetector(owner: "DaemonStore.apply")
@@ -611,12 +617,18 @@ public final class DaemonStore: StateResourceQueries {
         onWorkspaceListChanged?()
     }
 
+    /// One walk of the list (O(workspaces + groups)), not one per group with a scan of the groups per workspace.
     func recomputeSidebar() {
         listGeneration &+= 1
-        let ungrouped = workspaces.filter { workspace in workspace.group.map { id in !groups.contains { $0.id == id } } ?? true }
+        let known = Set(groups.lazy.map(\.id))
+        var ungrouped: [WorkspaceModel] = [], grouped: [WorkspaceGroupID: [WorkspaceModel]] = [:]
+        for workspace in workspaces {
+            sidebarWorkspaceVisits &+= 1
+            if let id = workspace.group, known.contains(id) { grouped[id, default: []].append(workspace) } else { ungrouped.append(workspace) }
+        }
         var sections = [SidebarSection(group: nil, workspaces: ungrouped)]
         for group in groups.sorted(by: { $0.index < $1.index }) {
-            sections.append(SidebarSection(group: group, workspaces: workspaces.filter { $0.group == group.id }))
+            sections.append(SidebarSection(group: group, workspaces: grouped[group.id] ?? []))
         }
         let unchanged = sections.count == sidebarSections.count && zip(sections, sidebarSections).allSatisfy { new, old in
             new.group === old.group && new.workspaces.count == old.workspaces.count
