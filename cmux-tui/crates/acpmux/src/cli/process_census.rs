@@ -147,11 +147,22 @@ fn age_secs(lstart: &str) -> Option<i64> {
 }
 
 /// What the daemon says about one session: its status and last update, when it answers.
+/// `gone` when the daemon has no such session.
 #[derive(Debug, Clone, Default)]
-struct SessionInfo {
-    status: Option<String>,
-    updated_at: Option<u64>,
+pub(crate) struct SessionInfo {
+    pub(crate) status: Option<String>,
+    pub(crate) updated_at: Option<u64>,
 }
+
+impl SessionInfo {
+    /// The daemon answered that it has no such session.
+    pub(crate) fn gone() -> Self {
+        SessionInfo { status: Some("gone".to_owned()), ..SessionInfo::default() }
+    }
+}
+
+/// Each session's info, by session id, as [`build`] reads it.
+pub(crate) type Sessions = std::collections::HashMap<String, SessionInfo>;
 
 async fn session_info(client: Option<&Client>, id: &str) -> SessionInfo {
     let Some(client) = client else { return SessionInfo::default() };
@@ -160,11 +171,87 @@ async fn session_info(client: Option<&Client>, id: &str) -> SessionInfo {
             status: v.get("status").and_then(Value::as_str).map(str::to_owned),
             updated_at: v.get("updatedAt").and_then(Value::as_u64),
         },
-        Err(e) if e.to_string().contains("no_session") => {
-            SessionInfo { status: Some("gone".to_owned()), ..SessionInfo::default() }
-        }
+        Err(e) if refused_as_no_session(&e) => SessionInfo::gone(),
         Err(_) => SessionInfo::default(),
     }
+}
+
+/// Whether the daemon's refusal says it has no such session: `session_name::not_found`, a
+/// not-found whose message starts "no session matches", read from the refusal itself, never a
+/// word inside the quoted name. That session reads `gone`, as the socket census reads one its
+/// hub does not hold. Any other failure (a timeout, a daemon gone) leaves the status unknown.
+pub(crate) fn is_no_session(e: &crate::rpc::RpcError) -> bool {
+    e.code == crate::rpc::RpcError::not_found("").code
+        && e.message.starts_with("no session matches ")
+}
+
+/// Whether a request to the daemon failed with its no-such-session refusal ([`is_no_session`]):
+/// the one test every CLI path that reads a session `gone` uses (`ps`, `gc`).
+pub(crate) fn refused_as_no_session(e: &anyhow::Error) -> bool {
+    e.downcast_ref::<crate::client::DaemonError>().is_some_and(|d| is_no_session(&d.0))
+}
+
+/// The most of one argument a trimmed census row keeps, and the most arguments it keeps.
+const ARG_KEEP_BYTES: usize = 256;
+const ARGS_KEPT: usize = 8;
+
+/// Fits a census (what [`build`] returns) in `budget` bytes for one socket reply: each `argv`,
+/// largest first, is cut to its first [`ARGS_KEPT`] arguments of at most [`ARG_KEEP_BYTES`]
+/// each, plus a last `"... (N bytes omitted)"`, until the census fits. Every row keeps its pid,
+/// owner, state and reason, so nothing a judgment rests on goes. The cut rows are counted in
+/// `omitted: {reason: "too_large", argvTrimmed, bytes}`. False when even the cut census does
+/// not fit: the caller refuses and points to `acpmux ps --json`, which has no reply limit.
+pub(crate) fn fit_census(census: &mut Value, budget: usize) -> bool {
+    let size = |v: &Value| serde_json::to_string(v).map_or(usize::MAX, |t| t.len());
+    let before = size(census);
+    if before <= budget {
+        return true;
+    }
+    let mut pointers = Vec::new();
+    for list in ["/processes", "/gc/candidates", "/gc/refused"] {
+        let rows = census.pointer(list).and_then(Value::as_array).map_or(0, Vec::len);
+        pointers.extend((0..rows).map(|i| format!("{list}/{i}/argv")));
+    }
+    // Room for the `omitted` mark added after the cut.
+    let room = budget.saturating_sub(256);
+    let trimmed =
+        crate::hub::reply_fit::shrink_largest(census, before, room, pointers, |argv, _| {
+            let args: Vec<String> = argv
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect();
+            let total: usize = args.iter().map(String::len).sum();
+            let mut kept: Vec<Value> = args
+                .iter()
+                .take(ARGS_KEPT)
+                .map(|a| Value::String(cut(a, ARG_KEEP_BYTES).to_owned()))
+                .collect();
+            let kept_bytes: usize = kept.iter().filter_map(Value::as_str).map(str::len).sum();
+            kept.push(Value::String(format!(
+                "... ({} bytes omitted)",
+                total.saturating_sub(kept_bytes)
+            )));
+            *argv = Value::Array(kept);
+        });
+    if let Some(map) = census.as_object_mut() {
+        map.insert(
+            "omitted".to_owned(),
+            json!({"reason": "too_large", "argvTrimmed": trimmed.len(), "bytes": before}),
+        );
+    }
+    size(census) <= budget
+}
+
+/// The start of `text`, at most `max` bytes, cut on a character boundary.
+fn cut(text: &str, max: usize) -> &str {
+    let mut end = text.len().min(max);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    text.get(..end).unwrap_or("")
 }
 
 /// The state of one process and why, from its verdict and its session.
@@ -206,13 +293,12 @@ fn state(o: &Owned, kind: &str, session: &SessionInfo) -> (&'static str, String)
 }
 
 /// Every process acpmux started here: acpmux's own, and every one carrying a session's marks.
-fn started_by_acpmux() -> (Vec<Owned>, Vec<tree::Started>) {
+fn started_by_acpmux(caller: Option<&str>) -> Vec<Owned> {
     let table = tree::all();
-    let caller = process_owner::caller_session();
     let daemon = process_owner::daemon_pid();
     let mut out = Vec::new();
     for p in &table {
-        let o = process_owner::own(p, &table, caller.as_deref());
+        let o = process_owner::own(p, &table, caller);
         let marked = o.marks.as_ref().is_some_and(|m| {
             m.session_id.is_some() || m.host_nonce.is_some() || m.task_mark.is_some()
         });
@@ -221,7 +307,7 @@ fn started_by_acpmux() -> (Vec<Owned>, Vec<tree::Started>) {
             out.push(o);
         }
     }
-    (out, table)
+    out
 }
 
 /// Why a live record still references `o`, if one does: its host, its harness, or the
@@ -241,32 +327,65 @@ fn referenced_by_live_host(o: &Owned, hosts: &[HostRow]) -> Option<String> {
     })
 }
 
-/// The whole census as JSON: `processes`, `state`, and `gc` (what `gc` would end, and what it
-/// refuses with the reason).
+/// What the census reads from the process table and this home's records, before it asks about
+/// any session. Blocking: it reads every process's environment and probes host locks.
+pub(crate) struct Gathered {
+    daemon: Option<u32>,
+    hosts: Vec<HostRow>,
+    bad: Vec<agent_host::UnreadableRecord>,
+    owned: Vec<Owned>,
+}
+
+/// Reads the processes acpmux started and its host records. `caller` is the session the asker
+/// runs in: its processes read `yours` instead of `live`, and are never `orphaned` or a gc
+/// candidate (gc never ends the asker's own processes), even when their agent host has ended.
+pub(crate) fn gather(caller: Option<&str>) -> Gathered {
+    let daemon = process_owner::daemon_pid();
+    let (hosts, bad) = host_rows();
+    let owned = started_by_acpmux(caller);
+    Gathered { daemon, hosts, bad, owned }
+}
+
+impl Gathered {
+    /// The sessions the gathered processes name, each once, in the order first named.
+    pub(crate) fn session_ids(&self) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        for id in self.owned.iter().filter_map(|o| o.marks.as_ref()?.session_id.clone()) {
+            if !out.contains(&id) {
+                out.push(id);
+            }
+        }
+        out
+    }
+}
+
+/// The whole census as JSON (`acpmux ps --json`), asking the running daemon about each session.
 pub async fn census() -> Value {
     let client = crate::daemon::connect(false).await.ok();
     let client = client.as_deref();
-    let daemon = process_owner::daemon_pid();
-    let (hosts, bad) = host_rows();
-    let (owned, _table) = started_by_acpmux();
-    let mut sessions: std::collections::HashMap<String, SessionInfo> = Default::default();
+    let gathered = gather(process_owner::caller_session().as_deref());
+    let mut sessions = Sessions::new();
+    for id in gathered.session_ids() {
+        let info = session_info(client, &id).await;
+        sessions.insert(id, info);
+    }
+    build(&gathered, &sessions, client.is_some())
+}
+
+/// The census as JSON: `processes`, `state`, and `gc` (what `gc` would end, and what it refuses
+/// with the reason), from `g` and each session's info in `sessions`. `connected`: the daemon
+/// answered (always, when the daemon builds it for `_acpmux/process/census`). Blocking: it probes
+/// locks and reads the process table again.
+pub(crate) fn build(g: &Gathered, sessions: &Sessions, connected: bool) -> Value {
+    let Gathered { daemon, hosts, bad, owned } = g;
+    let (daemon, hosts) = (*daemon, hosts.as_slice());
     let mut processes = Vec::new();
     let mut candidates = Vec::new();
     let mut refused = Vec::new();
-    for o in &owned {
+    for o in owned {
         let sid = o.marks.as_ref().and_then(|m| m.session_id.clone());
-        let info = match &sid {
-            Some(id) => match sessions.get(id) {
-                Some(i) => i.clone(),
-                None => {
-                    let i = session_info(client, id).await;
-                    sessions.insert(id.clone(), i.clone());
-                    i
-                }
-            },
-            None => SessionInfo::default(),
-        };
-        let k = kind(o, daemon, &hosts);
+        let info = sid.as_ref().and_then(|id| sessions.get(id)).cloned().unwrap_or_default();
+        let k = kind(o, daemon, hosts);
         let (st, reason) = state(o, k, &info);
         let m = o.marks.clone().unwrap_or_default();
         // The owner now: a live host record of the session names the host that owns it after
@@ -303,7 +422,7 @@ pub async fn census() -> Value {
         if o.verdict != Verdict::LeftBehind {
             continue;
         }
-        let refusal = referenced_by_live_host(o, &hosts);
+        let refusal = referenced_by_live_host(o, hosts);
         let row = json!({"pid": o.proc.pid, "started": o.proc.start(), "sessionId": m.session_id, "reason": reason, "argv": o.argv});
         match refusal {
             Some(why) => refused.push(json!({"pid": o.proc.pid, "refused": why, "argv": o.argv})),
@@ -312,7 +431,7 @@ pub async fn census() -> Value {
     }
 
     let mut records = Vec::new();
-    for h in &hosts {
+    for h in hosts {
         let stale = h.liveness == Liveness::Dead;
         records.push(json!({
             "path": agent_host::record_path(&h.dir, &h.record.session_id),
@@ -338,7 +457,7 @@ pub async fn census() -> Value {
         .iter()
         .map(|b| json!({"path": b.path, "sessionId": b.session_id, "reason": b.reason, "state": "unknown"}))
         .collect();
-    let stray = stray_live_locks(&LockNames::from_rows(&hosts, &bad));
+    let stray = stray_live_locks(&LockNames::from_rows(hosts, bad));
     let home = crate::config::home();
     let daemon_lock = home.join("daemon.lock");
     let daemon_state = json!({
@@ -348,7 +467,7 @@ pub async fn census() -> Value {
         "lockHeld": liveness_word(agent_host::liveness_of(&daemon_lock)),
         "socket": crate::config::socket_path(),
         "socketExists": crate::config::socket_path().exists(),
-        "connected": client.is_some(),
+        "connected": connected,
     });
     let in_use = processes.iter().filter(|p| *at(p, "/state") == "in-use").count();
     let idle = processes.iter().filter(|p| *at(p, "/state") == "idle").count();
