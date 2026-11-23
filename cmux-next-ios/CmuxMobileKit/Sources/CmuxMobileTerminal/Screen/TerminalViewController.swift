@@ -4413,7 +4413,7 @@ final class TerminalBottomStack: UIView {
 
     /// A point in the row (row coordinates) outside the button's target is
     /// the terminal's; a point outside the row is the stack's as before.
-    static func passesThrough(_ point: CGPoint, rowBounds: CGRect, target: CGRect) -> Bool {
+    nonisolated static func passesThrough(_ point: CGPoint, rowBounds: CGRect, target: CGRect) -> Bool {
         rowBounds.contains(point) && !target.contains(point)
     }
 }

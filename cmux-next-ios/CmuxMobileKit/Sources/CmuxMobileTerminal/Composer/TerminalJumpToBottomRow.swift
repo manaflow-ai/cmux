@@ -76,7 +76,7 @@ struct TerminalJumpToBottomRow: View {
     }
 
     /// The row's coordinate space: the host view's own bounds.
-    static let rowSpace = "terminal.jumpRow"
+    nonisolated static let rowSpace = "terminal.jumpRow"
     /// The pill as drawn.
     static let pillHeight: CGFloat = 28
     /// The tap target's height, the key-row gap included.
