@@ -1,7 +1,8 @@
-// The thread minimap's preview card (hovering a mark) is glass, as the chat's other hover cards
-// are (the link preview, a session's card): the popover glass level, its tint over its blur, never an
-// opaque fill (Leo, 2026-10-21: "a SOLID tooltip card"). Reduce Transparency makes the fill the solid
-// popup surface and the level's blur none (pages/shared/desktop.css).
+// The thread minimap's preview card (hovering a mark) is the one hover card glass of the chat's other
+// hover cards (the link preview, a session's card): .ui-card.ui-glass, never a fill of its own (Leo,
+// 2026-10-21: "a SOLID tooltip card"; 2026-11-20: "WHERE IS THE GLASS EVERYWHERE ALL THESE STUPID
+// F***ING HOVER TOOLTIPS AND HOVER PREVIEW SHIT"). Reduce Transparency makes the glass the solid
+// popup surface (--glass-opaque, glass.css).
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 
@@ -9,6 +10,10 @@ const css = readFileSync(
   new URL("../src/agent-session/acpmux/threadMinimap/threadMinimap.css", import.meta.url),
   "utf8",
 ).replace(/\/\*[\s\S]*?\*\//g, "");
+const markup = readFileSync(
+  new URL("../src/agent-session/acpmux/threadMinimap/PreviewCard.tsx", import.meta.url),
+  "utf8",
+);
 /// The declarations of the rule whose whole selector is `selector`.
 const rule = (selector: string) => {
   const at = css.search(new RegExp(`(^|\\})\\s*${selector.replaceAll(".", "\\.")}\\s*\\{`));
@@ -17,16 +22,17 @@ const rule = (selector: string) => {
   return css.slice(open + 1, css.indexOf("}", open));
 };
 
-test("the minimap card is the popover glass level: its tint over its blur", () => {
+test("the minimap card is the shared hover card glass, with no fill, blur or shadow of its own", () => {
+  expect(markup).toMatch(/className="ui-card ui-glass acpmux-minimap__card"/);
   const card = rule(".acpmux-minimap__card");
   expect(card).not.toBe("");
-  expect(card).toMatch(
-    /background:\s*color-mix\(in srgb, var\(--glass-surface\b.*var\(--ds-glass-popover-tint\), transparent\)/,
-  );
-  expect(card).toMatch(/(^|[^-])backdrop-filter:\s*var\(--ds-glass-popover-blur\)/);
-  expect(card).toMatch(/-webkit-backdrop-filter:\s*var\(--ds-glass-popover-blur\)/);
-  // Still the raised elevation step (subtle-elevation.test.ts).
-  expect(card).toMatch(/--elevation-2/);
+  expect(card).not.toMatch(/(^|[;\s])background(-color)?\s*:/);
+  expect(card).not.toMatch(/backdrop-filter\s*:/);
+  expect(card).not.toMatch(/box-shadow\s*:/);
+});
+
+test("Reduce Transparency makes it the solid popup surface", () => {
+  expect(rule(".acpmux-minimap__card")).toMatch(/--glass-opaque:\s*var\(--surface-popup\b/);
 });
 
 test("the card draws no accent: theme text tones only, never orange or a system color", () => {

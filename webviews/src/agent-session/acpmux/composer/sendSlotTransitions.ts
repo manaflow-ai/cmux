@@ -82,8 +82,7 @@ const enterStop: SlotTransition = {
   step: "standard",
   ease: "ease-out",
   reduced: "swap",
-  when: "gap",
-  why: "Claude's look empties the slot on a send; the turn's Stop arriving within GAP_MS grows in as that send's Stop. Later (a turn started elsewhere) it is drawn at once",
+  why: "Claude's look draws nothing at rest; the turn's Stop shows only once it has held (turnPresence.ts), so it grows in, the send's own Stop and a turn started elsewhere alike (Leo 2026-11-22: \"we ought to have a better fade in/fade out\")",
 };
 const unpop = (why: string): SlotTransition => ({
   morph: "unpop",

@@ -39,8 +39,9 @@ trust question keeps its draft's glyph, disabled; only its ink changes.
 - A glyph whose button leaves the bar (Claude's look emptying) is `instant`, because nothing is
   left to draw a copy in.
 - Nothing morphs on the first draw, or within 300 ms (`SETTLE_MS`) of a chat switch or read.
-- Claude's Stop grows in (`enter`) only when the slot emptied at most 400 ms (`GAP_MS`) ago. That
-  Stop belongs to the send. A turn started elsewhere draws its Stop at once.
+- Claude's Stop grows in (`enter`) from an empty slot, the send's own Stop and a turn started
+  elsewhere alike: it shows only once the turn held (turnPresence.ts, #51225), so its arrival is a
+  real change. A Stop that left and comes back is drawn at once.
 - A change of state that keeps its glyph and its button keeps its glyph. In Codex's look,
   `send-ready` to `sending` changes only the ink.
 - Changes into and out of `unsend` that change the glyph, with a button still drawn, run `unpop`.
