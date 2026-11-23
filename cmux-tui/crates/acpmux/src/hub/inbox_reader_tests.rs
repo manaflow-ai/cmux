@@ -14,6 +14,12 @@ fn item(prompt_id: &str, thread: &str, class: PromptClass, at: u64, text: &str) 
     item
 }
 
+/// When a result that came then steers into a running turn at once: its coalescing window
+/// ([`STEER_COALESCE_MS`], cmux#49385) has passed.
+fn due_result_at() -> u64 {
+    now_ms().saturating_sub(STEER_COALESCE_MS + 1)
+}
+
 /// A long status: past the whole-notice bound together with a second one, many lines.
 fn long(tag: &str) -> String {
     format!("{tag} status\n{}", "detail line about the build and its tests\n".repeat(120))
@@ -140,7 +146,7 @@ async fn a_notice_never_waits_and_a_later_one_shows_the_cached_summary() {
             Ok(format!("2|{tag} summarized"))
         }),
     );
-    let now = now_ms();
+    let now = due_result_at();
     session.inbox().items.push(item("f-a", "ta", PromptClass::Fyi, now, &long("alpha")));
     session.inbox().items.push(item("f-b", "tb", PromptClass::Result, now, &long("beta")));
     hub.inbox_review(&session);
@@ -178,7 +184,7 @@ async fn a_slow_reader_holds_no_notice() {
             Ok("1|late".into())
         }),
     );
-    let now = now_ms();
+    let now = due_result_at();
     session.inbox().items.push(item("s-a", "ta", PromptClass::Result, now, &long("alpha")));
     hub.inbox_reader_prefetch(
         &session,
@@ -364,8 +370,10 @@ async fn inbox_reader_latency() {
                 let started = Instant::now();
                 for i in 0..burst {
                     let id = format!("m-{i}");
-                    let mut it =
-                        item(&id, &format!("t-{i}"), PromptClass::Result, now_ms(), &long("x"));
+                    // A steer's results come due (`STEER_COALESCE_MS`): this measures the
+                    // reader, not the inbox's coalescing window, which is the same either way.
+                    let at = if path == "steer" { due_result_at() } else { now_ms() };
+                    let mut it = item(&id, &format!("t-{i}"), PromptClass::Result, at, &long("x"));
                     it.from = format!("lane-{i}");
                     it.report = true;
                     let text = it.text.clone();
