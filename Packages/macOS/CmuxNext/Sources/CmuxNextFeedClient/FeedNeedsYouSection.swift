@@ -19,7 +19,7 @@ package protocol FeedPinnedSectionHost: AnyObject {
 /// `.feed-needs` pad 4 each, `.feed-needs-header` 24, `--feed-needs-row` 40), so the height is
 /// their sum times the page's zoom (``zoom``), which follows `ui.scale` live.
 ///
-/// The integrations hub's approvals (``FeedNeedsYouHub``) show above the requests as cards of
+/// The integrations hub's approvals (``FeedNeedsYouHub``) show above the requests as rows of
 /// ``hubCardHeight`` each, up to ``hubRows``: they wait on the same person, and are answered there.
 @MainActor
 package final class FeedNeedsYouSection: NSView {
@@ -27,8 +27,8 @@ package final class FeedNeedsYouSection: NSView {
     package static let headerHeight: CGFloat = 24
     package static let rowHeight: CGFloat = 40
     package static let rows = 3
-    /// A hub approval card (`--feed-hub-card` in styles.css) and how many show before the page counts the rest.
-    package static let hubCardHeight: CGFloat = 84
+    /// A hub approval row (`.feed-hub-row` in styles.css: a request row) and how many show before the page counts the rest.
+    package static let hubCardHeight: CGFloat = rowHeight
     package static let hubRows = 2
 
     /// How many requests wait (0 hides the section).

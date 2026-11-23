@@ -3,7 +3,7 @@
 // one-click answers at the end; cards: the Feed's request cards; bar: one line with the count and
 // the first request (a click opens it). Past the limit the rest are only counted. It draws
 // nothing while nothing waits. The integrations hub's approvals (Chief only, hubApprovals.ts) come
-// first, as cards with Approve and Deny, up to HUB_ROWS (FeedNeedsYouSection.hubRows).
+// first, as request rows with Deny and Approve, up to HUB_ROWS (FeedNeedsYouSection.hubRows).
 import { useSyncExternalStore } from "react";
 import { cx } from "../../ui/cx";
 import { HubApprovalCard } from "./HubApprovalCard";
@@ -14,7 +14,7 @@ import { answersInline, groupEntries, relativeTime, splitNeedsYou } from "./mode
 import { Glyph, RequestCard } from "./parts";
 import type { ViewItem } from "./types";
 
-/** How many hub approval cards show before the header counts the rest. */
+/** How many hub approval rows show before the header counts the rest. */
 export const HUB_ROWS = 2;
 
 const NO_HUB: HubSnapshot = { rows: [] };
