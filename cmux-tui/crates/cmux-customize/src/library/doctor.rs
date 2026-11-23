@@ -260,6 +260,7 @@ impl Customize {
                     overlay: self.overlay_value(),
                     enabled: Some(Value::Bool(false)),
                     no_file: false,
+                    text: None,
                 };
                 self.write_web_dev(&WebTarget::Base, &off)?;
                 Ok(Fixed {
@@ -272,8 +273,12 @@ impl Customize {
             (FixKind::Off, "leftover") if web_dev => {
                 let (now, _) =
                     super::code::read_object(&self.roots().config_dir.join(super::code::WEB_DEV))?;
-                let keep =
-                    WebBase { overlay: None, enabled: now.get("enabled").cloned(), no_file: false };
+                let keep = WebBase {
+                    overlay: None,
+                    enabled: now.get("enabled").cloned(),
+                    no_file: false,
+                    text: None,
+                };
                 self.write_web_dev(&WebTarget::Base, &keep)?;
                 Ok(Fixed {
                     id: finding.id,
