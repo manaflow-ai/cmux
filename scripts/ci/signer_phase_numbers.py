@@ -41,7 +41,12 @@ _last_read = [0.0]
 
 
 def gh(path: str, raw: bool = False):
-    out = subprocess.run(["gh", "api", path], capture_output=True, text=True, check=False)
+    for attempt in range(4):
+        out = subprocess.run(["gh", "api", path], capture_output=True, text=True, check=False)
+        if out.returncode == 0 or "retry after" not in out.stderr:
+            break
+        # The broker's read pool asks for a short back-off; honor it.
+        time.sleep(30 * (attempt + 1))
     if out.returncode != 0:
         raise RuntimeError(f"gh api {path}: {out.stderr.strip()[:300]}")
     return out.stdout if raw else json.loads(out.stdout)
@@ -114,7 +119,11 @@ def jobs_of(run_id):
 
 def notary_rounds(job_id):
     """Rounds and Apple-side minutes from the rcodesign notary log lines."""
-    log = cached(f"log-{job_id}.txt", lambda: gh(f"repos/{REPO}/actions/jobs/{job_id}/logs", raw=True), raw=True)
+    try:
+        log = cached(f"log-{job_id}.txt", lambda: gh(f"repos/{REPO}/actions/jobs/{job_id}/logs", raw=True), raw=True)
+    except RuntimeError as err:
+        print(f"notary log of job {job_id} not read: {err}", file=sys.stderr)
+        return None, None
     rounds = len(re.findall(r"created submission ID: ", log))
     polls = [int(s) for s in re.findall(r"poll state after (\d+)s: Accepted", log)]
     return rounds, (sum(polls) if polls else None)
