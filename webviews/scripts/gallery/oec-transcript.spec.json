@@ -1,0 +1,104 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["dark", "none"]
+  ],
+  "shots": [
+    {
+      "name": "long-names-280",
+      "entry": "agent-pane.transcript-stress",
+      "variant": "long-names",
+      "width": 280,
+      "height": 560,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "long-names-480",
+      "entry": "agent-pane.transcript-stress",
+      "variant": "long-names",
+      "width": 480,
+      "height": 560,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "wrapped-text-280",
+      "entry": "agent-pane.transcript-stress",
+      "variant": "wrapped-text",
+      "width": 280,
+      "height": 560,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "wrapped-text-480",
+      "entry": "agent-pane.transcript-stress",
+      "variant": "wrapped-text",
+      "width": 480,
+      "height": 560,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "many-tools-280",
+      "entry": "agent-pane.transcript-stress",
+      "variant": "many-tools",
+      "width": 280,
+      "height": 560,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "many-tools-480",
+      "entry": "agent-pane.transcript-stress",
+      "variant": "many-tools",
+      "width": 480,
+      "height": 560,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "failed-tool-280",
+      "entry": "agent-pane.transcript-stress",
+      "variant": "failed-tool",
+      "width": 280,
+      "height": 560,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "failed-tool-480",
+      "entry": "agent-pane.transcript-stress",
+      "variant": "failed-tool",
+      "width": 480,
+      "height": 560,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "empty-280",
+      "entry": "agent-pane.transcript-stress",
+      "variant": "empty",
+      "width": 280,
+      "height": 560,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "empty-480",
+      "entry": "agent-pane.transcript-stress",
+      "variant": "empty",
+      "width": 480,
+      "height": 560,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "short-pane-280",
+      "entry": "agent-pane.transcript-stress",
+      "variant": "short-pane",
+      "width": 280,
+      "height": 220,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "short-pane-480",
+      "entry": "agent-pane.transcript-stress",
+      "variant": "short-pane",
+      "width": 480,
+      "height": 220,
+      "deviceScaleFactor": 1
+    }
+  ]
+}
