@@ -14,10 +14,12 @@
 //! controller's marker when it is on (mode `on`) and has this host's target,
 //! and the R2 channel otherwise: a controller that is down, a marker that is
 //! off, in `report` mode or unreadable is a note in the output, never a
-//! failed update. When the installed `~/.local/bin/acpmux` has another
-//! sha256 than the chosen build, this host's binary is downloaded, checked
-//! against it, and handed to [`update_peer`] on this machine ([`LocalRemote`]): it
-//! installs the binary, restarts `acpmux.service` (agents keep running and
+//! failed update. The controller's build of a commit has another sha256
+//! than R2's build of it, so when R2 decides, an installed build of the
+//! same commit (most likely the marker's) is kept. When the installed
+//! `~/.local/bin/acpmux` has another sha256 than the chosen build, this
+//! host's binary is downloaded, checked against it, and handed to
+//! [`update_peer`] on this machine ([`LocalRemote`]): it installs the binary, restarts `acpmux.service` (agents keep running and
 //! the new daemon adopts them, so what the restart interrupted resumes) and
 //! rolls back a daemon that does not come back on it. A build rolled back
 //! here is not tried again; the next one the channel names is. A failure
@@ -33,8 +35,8 @@ use super::super::host_auto_update::NO_AUTO_UPDATE;
 use super::super::host_lock::Lease;
 use super::super::{Remote, RemoteOut};
 use super::{
-    CLOUD_VM_MARK, OWN_UNIT, Outcome, PeerUpdate, UpdateOptions, embedded_build, is_own_unit,
-    local_target, update_peer,
+    CLOUD_VM_MARK, OWN_UNIT, Outcome, PeerUpdate, UpdateOptions, build_commit, embedded_build,
+    is_own_unit, local_target, update_peer,
 };
 use crate::cli::output::print_json;
 use anyhow::{Context, Result, anyhow, bail};
@@ -335,11 +337,18 @@ pub(super) struct Picked {
     pub(super) source: Source,
     /// Why the controller's marker was skipped, when the R2 channel decided.
     pub(super) marker_skipped: Option<String>,
+    /// Why the installed build was kept over the R2 channel's: it is built
+    /// from the same commit ([`same_commit`]).
+    pub(super) kept_installed: Option<String>,
 }
 
 impl Picked {
     fn json(&self) -> serde_json::Value {
-        json!({"source": self.source.name(), "markerSkipped": self.marker_skipped})
+        json!({
+            "source": self.source.name(),
+            "markerSkipped": self.marker_skipped,
+            "keptInstalled": self.kept_installed,
+        })
     }
 }
 
@@ -471,7 +480,11 @@ pub(super) async fn prepare(
         Some(ctl) => match ctl.marker(channel, paths.target).await {
             Err(why) => why,
             Ok(marker) => {
-                let picked = Picked { source: Source::Controller, marker_skipped: None };
+                let picked = Picked {
+                    source: Source::Controller,
+                    marker_skipped: None,
+                    kept_installed: None,
+                };
                 let sha = marker.sha256.clone();
                 let from = Origin::Controller(ctl);
                 match choose(paths, fetch, &downloads, installed.as_deref(), &sha, from).await? {
@@ -493,8 +506,21 @@ pub(super) async fn prepare(
             }
         },
     };
-    let picked = Picked { source: Source::R2, marker_skipped: Some(marker_skipped) };
+    let mut picked =
+        Picked { source: Source::R2, marker_skipped: Some(marker_skipped), kept_installed: None };
     let sha = feed.sha256_for(paths.target)?.to_owned();
+    // The controller's build of a commit has another sha256 than R2's build
+    // of it (another profile): an installed build of the channel's commit,
+    // most likely the marker's, is kept, not swapped for R2's every run the
+    // controller is down. One of a newer commit is kept by `apply`
+    // (`newerInstalled`). `--allow-downgrade` installs R2's build anyway.
+    let ours = installed.as_deref().filter(|_| !paths.allow_downgrade);
+    if let Some(bytes) = ours
+        && let Some(why) = same_commit(bytes, &feed.commit, None)
+    {
+        picked.kept_installed = Some(why);
+        return kept(paths, &downloads, bytes, feed.commit, rd, picked, lease);
+    }
     let from = Origin::R2(&feed);
     let step = match choose(paths, fetch, &downloads, installed.as_deref(), &sha, from).await? {
         Ok(Some(step)) => step,
@@ -502,6 +528,17 @@ pub(super) async fn prepare(
         // The R2 path has no lookup that can fall back.
         Err(why) => bail!(why),
     };
+    // The R2 binary may carry an older commit of the same tree than the
+    // channel's: compare the downloaded one's too.
+    if let (Some(bytes), Step::Install(dir)) = (ours, &step) {
+        let r2s = std::fs::read(dir.join(format!("acpmux-{}", paths.target))).ok();
+        if let Some(why) =
+            r2s.as_deref().and_then(|r2s| same_commit(bytes, &feed.commit, Some(r2s)))
+        {
+            picked.kept_installed = Some(why);
+            return kept(paths, &downloads, bytes, feed.commit, rd, picked, lease);
+        }
+    }
     Ok(Prepared::Ready(Plan {
         commit: feed.commit,
         dir: downloads.join(&sha),
@@ -510,6 +547,50 @@ pub(super) async fn prepare(
         rd,
         picked,
         allow_downgrade: paths.allow_downgrade,
+        lease,
+    }))
+}
+
+/// Why `installed` is the same commit's build as the R2 channel's: its
+/// embedded commit is `channel_commit`'s, or (`r2s`) the one R2's binary
+/// carries. None when its commit is unknown or another.
+fn same_commit(installed: &[u8], channel_commit: &str, r2s: Option<&[u8]>) -> Option<String> {
+    let build = embedded_build(installed)?;
+    let ours = build_commit(&build)?;
+    let theirs = match r2s {
+        None => channel_commit.to_owned(),
+        Some(bytes) => build_commit(&embedded_build(bytes)?)?.to_owned(),
+    };
+    let same = theirs.starts_with(ours) || ours.starts_with(&theirs);
+    same.then(|| {
+        format!(
+            "the installed build ({build}) is of the commit of the R2 channel's build ({theirs}), so it is kept"
+        )
+    })
+}
+
+/// A plan that keeps the installed binary ([`Step::Current`], its own
+/// download folder): the update still finishes a restart an earlier run left.
+fn kept(
+    paths: &Paths,
+    downloads: &Path,
+    bytes: &[u8],
+    commit: String,
+    rd: RdOutcome,
+    picked: Picked,
+    lease: Lease,
+) -> Result<Prepared> {
+    let sha = crate::sha256::sha256_hex(bytes);
+    let dir = downloads.join(&sha);
+    keep(&dir, paths.target, bytes)?;
+    Ok(Prepared::Ready(Plan {
+        commit,
+        sha256: sha,
+        step: Step::Current(embedded_build(bytes)),
+        rd,
+        picked,
+        allow_downgrade: paths.allow_downgrade,
+        dir,
         lease,
     }))
 }
@@ -539,7 +620,8 @@ async fn choose(
     sha: &str,
     from: Origin<'_>,
 ) -> Result<Result<Option<Step>, String>> {
-    prune(downloads, sha);
+    let installed_sha = installed.map(crate::sha256::sha256_hex);
+    prune(downloads, &[Some(sha), installed_sha.as_deref()]);
     let dir = downloads.join(sha);
     match installed {
         Some(bytes) if crate::sha256::sha256_hex(bytes) == sha => {
@@ -571,14 +653,16 @@ fn own_unit(unit: &Path) -> bool {
         && std::fs::read(unit).is_ok_and(|text| is_own_unit(&text))
 }
 
-/// Remove the download folders (`<sha256>/`) of builds other than `keep`,
-/// except a rolled-back build's [`ROLLED_BACK`] marker: only its binary goes,
-/// so the channel moving on and back never installs that build again.
-fn prune(downloads: &Path, keep: &str) {
+/// Remove the download folders (`<sha256>/`) of builds other than `keep`
+/// (the chosen build, and the installed one, which a run that keeps it
+/// holds there), except a rolled-back build's [`ROLLED_BACK`] marker: only
+/// its binary goes, so the channel moving on and back never installs that
+/// build again.
+fn prune(downloads: &Path, keep: &[Option<&str>]) {
     let Ok(entries) = std::fs::read_dir(downloads) else { return };
     for entry in entries.flatten() {
         let name = entry.file_name();
-        if !name.to_str().is_some_and(|n| n != keep && lower_hex(n, 64)) {
+        if !name.to_str().is_some_and(|n| !keep.contains(&Some(n)) && lower_hex(n, 64)) {
             continue;
         }
         let dir = entry.path();
@@ -756,8 +840,9 @@ impl Remote for LocalRemote {
 /// Prints the row `host update` prints for a peer, named by this host's name;
 /// `--json` prints `{"channel", "commit", "sha256", "source", "markerSkipped",
 /// "updated": [ROW]}`: `source` is `controller` (the build controller's
-/// marker) or `r2` (the channel file), and `markerSkipped` says why the
-/// marker was not used. With automatic updates off, another update of this
+/// marker) or `r2` (the channel file), `markerSkipped` says why the marker
+/// was not used, and `keptInstalled` why an installed build of the R2
+/// channel's commit (most likely the controller's) was kept. With automatic updates off, another update of this
 /// host running, or the chosen build rolled back here before, nothing
 /// happens: `{"channel", "skipped": "off" | "locked" | "rolledBack",
 /// "message", "updated": []}` (`rolledBack` with `source` and
@@ -811,6 +896,7 @@ pub(crate) async fn self_update(
             "sha256": plan.sha256,
             "source": plan.picked.source.name(),
             "markerSkipped": plan.picked.marker_skipped,
+            "keptInstalled": plan.picked.kept_installed,
             "updated": [up.to_json(&name, LocalRemote.host())],
             "cmuxRd": plan.rd.json(),
         }));

@@ -460,6 +460,68 @@ async fn a_marker_download_that_does_not_match_is_never_installed() {
     peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), OLD);
 }
 
+/// The controller's build of a commit has another sha256 than R2's build of
+/// it (another profile). Once the marker installed it, a run the controller
+/// is down (R2 decides) keeps it instead of swapping in R2's build of the same
+/// commit, whether the channel's commit or the one R2's binary carries says
+/// so; a build of unknown commit, or `--allow-downgrade`, takes R2's.
+#[tokio::test]
+#[cfg(unix)]
+async fn an_r2_fallback_keeps_the_controllers_build_of_the_same_commit() {
+    // The channel's commit (COMMIT) is in the build id; then one that only
+    // R2's binary carries (an older commit of the same tree).
+    for (name, build) in [("channel", "89abcdef0 2026-10-22"), ("tree", "13579bdf1 2026-10-19")] {
+        let peer = FakePeer::new(&format!("self-same-commit-{name}"));
+        let r2s = fake_acpmux(build, Some(build));
+        let controllers = format!("{r2s}# the controller's profile\n");
+        peer.exe(".local/bin/acpmux", &controllers);
+        peer.write("daemon", build);
+        let files = serving(&r2s);
+        let plan = ready(&peer, &files).await;
+        assert_eq!(plan.picked.source, Source::R2, "{name}");
+        let why = plan.picked.kept_installed.clone().unwrap_or_default();
+        assert!(why.contains("so it is kept"), "{name}: {why}");
+        assert!(matches!(&plan.step, Step::Current(Some(b)) if b == build), "{name}");
+        assert_eq!(plan.sha256, sha_of(&controllers), "{name}");
+        let downloaded = files.asked().contains(&binary_url());
+        assert_eq!(downloaded, name == "tree", "{name}: R2's binary is read only to compare");
+        let up = apply(&peer, &plan, TARGET, true);
+        assert_eq!(up.outcome, Outcome::Current, "{name}: {up:?}");
+        assert_eq!(peer.read(".local/bin/acpmux"), controllers, "{name}");
+        let calls = peer.take_calls();
+        assert!(!calls.iter().any(|c| c.contains("restart acpmux.service")), "{name}: {calls:?}");
+        drop(plan);
+        // The next run keeps it too, with nothing downloaded again.
+        let files = serving(&r2s);
+        let plan = ready(&peer, &files).await;
+        assert!(plan.picked.kept_installed.is_some(), "{name}");
+        assert!(files.asked().len() <= 2, "{name}: {:?}", files.asked());
+    }
+
+    // An installed build whose commit is unknown takes R2's.
+    let peer = FakePeer::new("self-same-commit-unknown");
+    let build = "89abcdef0 2026-10-22";
+    peer.exe(".local/bin/acpmux", "#!/bin/sh\necho no build id here\n");
+    let r2s = fake_acpmux(build, Some(build));
+    let plan = ready(&peer, &serving(&r2s)).await;
+    assert_eq!(plan.picked.kept_installed, None);
+    assert!(matches!(&plan.step, Step::Install(_)));
+    drop(plan);
+
+    // `--allow-downgrade` takes R2's build of the same commit.
+    let peer = FakePeer::new("self-same-commit-downgrade");
+    let controllers = format!("{r2s}# the controller's profile\n");
+    peer.exe(".local/bin/acpmux", &controllers);
+    peer.write("daemon", build);
+    let mut back = paths(&peer);
+    back.allow_downgrade = true;
+    let Prepared::Ready(plan) = prepare(&back, &serving(&r2s), None, CHANNEL).await.unwrap() else {
+        panic!("the self-update did not go ahead");
+    };
+    assert_eq!(plan.picked.kept_installed, None);
+    assert!(matches!(&plan.step, Step::Install(_)));
+}
+
 /// Lane hosts, 2026-11-23: several held b45cad3d8 (a lane branch's build, newer
 /// than the channel's head 7d439038 and containing the fix the channel lacked)
 /// while the timer kept trying to put the older channel build back, each try a
