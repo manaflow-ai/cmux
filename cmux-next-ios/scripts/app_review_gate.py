@@ -1457,7 +1457,12 @@ def main(argv: list[str] | None = None) -> int:
     version = sub.add_parser("version")
     version.add_argument("--source-root", default=".")
     version.add_argument("--lane", choices=LANES, default="appstore")
+    families = sub.add_parser("families", help="the app's shipped device families (1 iPhone, 2 iPad), comma-separated")
+    families.add_argument("--source-root", default=".")
     args = parser.parse_args(argv)
+    if args.cmd == "families":
+        print(",".join(sorted(app_device_families(Path(args.source_root)))))
+        return 0
     if args.cmd == "version":
         found = marketing_version(Path(args.source_root), args.lane)
         print(found)
