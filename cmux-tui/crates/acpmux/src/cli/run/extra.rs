@@ -389,18 +389,54 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::Rename { session, new_name, handle } => {
+        Command::Icon { session, icon } => {
+            let client = connect(true).await?;
+            let id = crate::cli::resolve::control_id(&client, &session).await?;
+            let Some(icon) = icon else {
+                let v = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
+                if json_out {
+                    print_json(&v.get("icon").cloned().unwrap_or_default());
+                    return Ok(());
+                }
+                match serde_json::from_value::<crate::session_icon::SessionIcon>(
+                    v.get("icon").cloned().unwrap_or_default(),
+                ) {
+                    Ok(icon) => println!("{}", icon.describe()),
+                    Err(_) => println!("none (its harness mark)"),
+                }
+                return Ok(());
+            };
+            let wire = crate::cli::icon_input::wire(&icon).await?;
+            let v = client
+                .request(method::MUX_RENAME, json!({"sessionId": id, "newIcon": wire}))
+                .await?;
+            if json_out {
+                print_json(&v);
+            } else {
+                match serde_json::from_value::<crate::session_icon::SessionIcon>(
+                    v.get("icon").cloned().unwrap_or_default(),
+                ) {
+                    Ok(icon) => println!("{}", icon.describe()),
+                    Err(_) => println!("cleared"),
+                }
+            }
+            Ok(())
+        }
+        Command::Rename { session, new_name, handle, icon } => {
             let client = connect(true).await?;
             let id = if handle {
                 crate::cli::resolve::control_id(&client, &session).await?
             } else {
                 resolve_id(&client, &session).await?
             };
-            let params = if handle {
+            let mut params = if handle {
                 json!({"sessionId": id, "newHandle": new_name})
             } else {
                 json!({"sessionId": id, "newName": new_name})
             };
+            if let (Some(icon), Some(fields)) = (icon, params.as_object_mut()) {
+                fields.insert("newIcon".into(), json!(crate::cli::icon_input::wire(&icon).await?));
+            }
             let v = client.request(method::MUX_RENAME, params).await?;
             if json_out {
                 print_json(&v)
@@ -803,6 +839,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             crate::cli::shutdown::run(end_agents, keep_agents, restart, json_out).await
         }
         Command::DaemonRestart => crate::cli::shutdown::restart(json_out).await,
+        Command::DaemonStats { by, since, top } => {
+            crate::cli::daemon_stats::run(by, &since, top, json_out).await
+        }
         #[cfg(unix)]
         Command::DaemonPrune { apply } => crate::daemon::prune::run_command(apply, json_out).await,
         #[cfg(not(unix))]
