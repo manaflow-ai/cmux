@@ -101,6 +101,13 @@ public struct AgentPaneHeaderHooks {
     /// Shows and focuses a tab that shows acpmux session `id` in any workspace or window, switching
     /// to it (Needs you's Jump to workspace, ``AgentPaneAskOpen``); false when no tab shows it.
     public var jumpToSession: @MainActor (String) -> Bool
+    /// Hands `reveal` (a ``AgentPaneView/revealTurn(_:)`` value) to the page of the tab that shows
+    /// acpmux session `id` already, the one ``showSession`` (else ``jumpToSession``) shows; false
+    /// when no tab shows it. Needs you's another chat's ask (``AgentPaneAskOpen``). Nil: none.
+    public var revealInSession: (@MainActor (_ session: String, _ reveal: String) -> Bool)?
+    /// ``openRight`` whose new tab's page gets `reveal` with its handshake (``revealInSession``).
+    /// Nil: no open takes a reveal.
+    public var openRightRevealing: (@MainActor (_ session: String, _ reveal: String) -> Bool)?
     /// Whether a tab in any workspace or window shows acpmux session `id` already, the one
     /// ``jumpToSession`` would switch to: the right-click's Go to Chat shows only then
     /// (``AgentPaneOfferOpen/goTo(_:sender:in:)``). None by default.
@@ -359,8 +366,8 @@ extension AgentPaneModel {
             return AgentPaneReply.success()
         case .offerOpen(let session, let sender):
             return AgentPaneOfferOpen.respond(session, sender: sender, in: self)
-        case .asksOpen(let session, let place):
-            return AgentPaneAskOpen.respond(session, at: place, in: self)
+        case .asksOpen(let session, let place, let there):
+            return AgentPaneAskOpen.respond(session, at: place, there: there, in: self)
         case .asksAnswer(let ask):
             return await ask.respond(in: self)
         case .newChatHere(let cwd):
