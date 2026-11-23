@@ -1,0 +1,97 @@
+{
+  "version": 1,
+  "build": "4525525951501",
+  "notes": "notes/4525525951501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 49132,
+      "title": "cmux-tui: move inline tests of the remaining crates to _tests.rs (no code change)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52624,
+      "title": "Exercise view-only sessions in the screen-sharing bench",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51277,
+      "title": "Agent chat: text files and large pastes past the budget upload as their UTF-8 text",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52140,
+      "title": "acpmux: the prompt index goes in bounded pages, newest first, read back from the end",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52059,
+      "title": "acpmux: time this daemon keeps a peer link from reading is not the peer's silence",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52154,
+      "title": "cloud-journey: send the first prompt with the agent's start, as the app does",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50897,
+      "title": "webviews: useExperimentSwitch gives a server snapshot so string-rendered rows stop throwing",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50213,
+      "title": "Extension author skill: one recipe per kind, each passing cmux ext dev --once in CI",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/50213/hv-abb6b349a3fa-video.mp4",
+      "source": "manual",
+      "note": "2 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 52547,
+      "title": "acpmux: a chat's terminal keys go through SocketDaemon::request (daemon_skew lint base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51382,
+      "title": "CI: report-only chat-open attach p50/p95 delta, base vs head, per PR",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50915,
+      "title": "feat(ios): every tab card keeps a last-known picture across launches",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52537,
+      "title": "Composer wrap test: only the chat composer checks controls at the cap (takes over #46744)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52416,
+      "title": "ci: package-conventions-lint gets 15 minutes; at 5 a passing scan was cancelled after it printed its pass",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51376,
+      "title": "acpmux: session_changed patches for phones, never to masked peers",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
