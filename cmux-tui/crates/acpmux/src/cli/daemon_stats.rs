@@ -60,7 +60,11 @@ fn human(bytes: u64) -> String {
         value /= 1024.0;
         unit += 1;
     }
-    if unit == 0 { format!("{bytes} B") } else { format!("{value:.1} {}", UNITS[unit]) }
+    if unit == 0 {
+        format!("{bytes} B")
+    } else {
+        format!("{value:.1} {}", UNITS.get(unit).copied().unwrap_or("GB"))
+    }
 }
 
 fn u(v: &Value, key: &str) -> u64 {

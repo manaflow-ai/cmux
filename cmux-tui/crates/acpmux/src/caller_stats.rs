@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Instant;
 
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 /// At most this many (caller, method) pairs remembered.
 pub const ENTRIES: usize = 512;
@@ -67,6 +67,10 @@ impl Entry {
     }
 
     /// The bucket of `secs`, cleared if it last held an older slot.
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "slot % SLOTS is always below SLOTS, the ring's length"
+    )]
     fn bucket(&mut self, secs: u64) -> &mut Bucket {
         let slot = secs / BUCKET_SECS;
         let bucket = &mut self.ring[(slot % SLOTS as u64) as usize];
@@ -105,13 +109,16 @@ impl Sum {
         self.reply_bytes += other.reply_bytes;
     }
 
-    fn json(self, window: u64) -> Value {
-        json!({
-            "requests": self.requests,
-            "requestBytes": self.request_bytes,
-            "replyBytes": self.reply_bytes,
-            "perMinute": (self.requests as f64 * 60.0 / window.max(1) as f64 * 10.0).round() / 10.0,
-        })
+    fn json(self, window: u64) -> Map<String, Value> {
+        let mut row = Map::new();
+        row.insert("requests".into(), json!(self.requests));
+        row.insert("requestBytes".into(), json!(self.request_bytes));
+        row.insert("replyBytes".into(), json!(self.reply_bytes));
+        row.insert(
+            "perMinute".into(),
+            json!((self.requests as f64 * 60.0 / window.max(1) as f64 * 10.0).round() / 10.0),
+        );
+        row
     }
 }
 
@@ -204,21 +211,25 @@ impl CallerStats {
                 .map(|(caller, (sum, mut by_method))| {
                     by_method.sort_by(|a, b| (b.1.requests, a.0).cmp(&(a.1.requests, b.0)));
                     let mut row = sum.json(window);
-                    row["client"] = json!(caller.client);
-                    row["origin"] = json!(caller.origin);
-                    row["pid"] = json!(caller.pid);
-                    row["session"] = json!(caller.session);
-                    row["sessionProven"] = json!(caller.proven);
-                    row["methods"] = by_method
-                        .into_iter()
-                        .take(METHODS_PER_CALLER)
-                        .map(|(method, sum)| {
-                            let mut m = sum.json(window);
-                            m["method"] = json!(method);
-                            m
-                        })
-                        .collect();
-                    row
+                    row.insert("client".into(), json!(caller.client));
+                    row.insert("origin".into(), json!(caller.origin));
+                    row.insert("pid".into(), json!(caller.pid));
+                    row.insert("session".into(), json!(caller.session));
+                    row.insert("sessionProven".into(), json!(caller.proven));
+                    row.insert(
+                        "methods".into(),
+                        by_method
+                            .into_iter()
+                            .take(METHODS_PER_CALLER)
+                            .map(|(method, sum)| {
+                                let mut m = sum.json(window);
+                                m.insert("method".into(), json!(method));
+                                Value::Object(m)
+                            })
+                            .collect::<Vec<Value>>()
+                            .into(),
+                    );
+                    Value::Object(row)
                 })
                 .collect();
             let mut methods: Vec<_> = methods.into_iter().collect();
@@ -229,9 +240,9 @@ impl CallerStats {
                 .take(top)
                 .map(|(method, (sum, n))| {
                     let mut row = sum.json(window);
-                    row["method"] = json!(method);
-                    row["callers"] = json!(n);
-                    row
+                    row.insert("method".into(), json!(method));
+                    row.insert("callers".into(), json!(n));
+                    Value::Object(row)
                 })
                 .collect();
             json!({
