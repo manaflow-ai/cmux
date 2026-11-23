@@ -273,6 +273,7 @@ mod tests {
             parked: None,
             last_seen_ms,
             pending_handover: false,
+            inline: Default::default(),
         }
     }
 
@@ -295,6 +296,7 @@ mod tests {
             }),
             last_seen_ms: 0,
             pending_handover: false,
+            inline: Default::default(),
         }
     }
 
