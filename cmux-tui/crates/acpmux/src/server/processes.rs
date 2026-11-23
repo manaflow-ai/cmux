@@ -81,7 +81,7 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
                     .ok_or_else(|| RpcError::invalid_params("sessionId must be a string"))?;
                 let session = hub.resolve(key)?;
                 if let (Some(recent), Some(before)) = (recent, before) {
-                    return Ok(hub.list_older_processes(&session, recent, before));
+                    return hub.list_older_processes(&session, recent, before);
                 }
                 if let Some(recent) = recent {
                     return hub.list_recent_processes(&session, recent, within);
