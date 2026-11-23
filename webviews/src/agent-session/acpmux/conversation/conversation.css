@@ -2785,6 +2785,11 @@ body {
   margin-top: 0;
   margin-inline-start: calc(var(--cv-disclosure-gap) - var(--cv-worked-gap, 2px));
 }
+/* The turn's header holds its chevron's slot while the turn runs, unseen (WorkingFor.tsx): the line
+   has the same parts in the same order in both phases, and the turn's end only shows it. */
+.cv-worked__chevron.is-reserved {
+  visibility: hidden;
+}
 /* The running line's counts (WorkingFor.tsx), after its label on the same 20px line. They keep
    to one line and give way at the line's end, never wrapping it to a second. The dot sits 4px
    from what comes before it, as from what follows it: the margin takes back the line's own gap,
