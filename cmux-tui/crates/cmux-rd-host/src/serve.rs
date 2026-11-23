@@ -618,6 +618,8 @@ fn serve_session(
     if show_cursor && crate::desktop::reports_cursor() {
         host_caps.push(cmux_rd_core::service::caps::CURSOR);
     }
+    // Frames over one FEC block keep their parity, in interleaved blocks (design D6).
+    host_caps.push(cmux_rd_core::service::caps::FEC_BLOCKS);
     if crate::desktop::scales_pictures() {
         host_caps.push(cmux_rd_core::service::caps::VIDEO_SCALED);
     }
