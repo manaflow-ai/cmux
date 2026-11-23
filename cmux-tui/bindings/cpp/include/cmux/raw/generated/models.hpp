@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "48a9924f50adb2f24246b423708d4d52b30d073665b9bc43fff9adb8d18ac320";
+inline constexpr std::string_view kProtocolIrSha256 = "cfa57e4d5ccb5c98d58ff93b3df07cdad945d66e8ab83f7b98c6da7d1fac4a5f";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -3469,7 +3469,12 @@ enum class HomeInboxKind {
 };
 
 struct HomeInboxRequest {
+    Field<std::vector<std::string>> ids{};
+    Field<std::uint64_t> limit{};
+    Field<std::uint64_t> offset{};
     Field<std::vector<std::string>> owners{};
+    Field<std::string> scope{};
+    Field<std::uint64_t> since{};
     friend bool operator==(const HomeInboxRequest&, const HomeInboxRequest&) = default;
 };
 
@@ -3478,6 +3483,7 @@ struct HomeInboxRow {
     std::optional<std::string> chief{};
     std::optional<HomeChiefState> chief_state{};
     std::string id{};
+    std::optional<std::uint64_t> index{};
     HomeInboxKind kind{};
     std::optional<std::string> last_author{};
     bool marked_unread{};
@@ -3493,8 +3499,15 @@ struct HomeInboxRow {
 
 struct HomeInboxResult {
     std::string cloud{};
+    std::optional<bool> full{};
     std::string me{};
+    std::optional<std::uint64_t> offset{};
+    std::optional<std::string> order{};
+    std::optional<std::vector<std::string>> removed{};
+    std::optional<std::uint64_t> revision{};
     std::vector<HomeInboxRow> rows{};
+    std::optional<std::uint64_t> total{};
+    std::optional<bool> window{};
     friend bool operator==(const HomeInboxResult&, const HomeInboxResult&) = default;
 };
 

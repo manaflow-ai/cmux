@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 48a9924f50adb2f24246b423708d4d52b30d073665b9bc43fff9adb8d18ac320. */
+/* cmux-tui mux protocol 12, IR cfa57e4d5ccb5c98d58ff93b3df07cdad945d66e8ab83f7b98c6da7d1fac4a5f. */
 
 
 import type * as T from "./types.js";
@@ -1422,12 +1422,24 @@ export type HistorySearchResult = {
 /** Protocol v12; authority: local-admin. */
 export interface HomeInboxRequest extends CmuxRequestBase {
   cmd: "home-inbox";
+  "ids"?: (Array<string>) | null;
+  "limit"?: (bigint) | null;
+  "offset"?: (bigint) | null;
   "owners"?: (Array<string>) | null;
+  "scope"?: (string) | null;
+  "since"?: (bigint) | null;
 }
 export type HomeInboxResult = {
   "cloud": string;
+  "full"?: boolean;
   "me": string;
+  "offset"?: bigint;
+  "order"?: string;
+  "removed"?: Array<string>;
+  "revision"?: bigint;
   "rows": Array<T.HomeInboxRow>;
+  "total"?: bigint;
+  "window"?: boolean;
 };
 
 /** Protocol v5; authority: control. */

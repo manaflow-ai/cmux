@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "48a9924f50adb2f24246b423708d4d52b30d073665b9bc43fff9adb8d18ac320";
+pub const ir_sha256 = "cfa57e4d5ccb5c98d58ff93b3df07cdad945d66e8ab83f7b98c6da7d1fac4a5f";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1117,6 +1117,7 @@ pub const HomeInboxRow = struct {
     chief: ?[]const u8 = null,
     chief_state: ?HomeChiefState = null,
     id: []const u8,
+    index: ?u64 = null,
     kind: HomeInboxKind,
     last_author: ?[]const u8 = null,
     marked_unread: bool,
@@ -1131,6 +1132,7 @@ pub const HomeInboxRow = struct {
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "chief",
         "chief_state",
+        "index",
         "last_author",
         "pin_position",
         "preview",
@@ -6934,13 +6936,35 @@ pub fn historySearch(client: anytype, request: HistorySearchRequest) !wire.Decod
 }
 
 pub const HomeInboxRequest = struct {
+    ids: wire.Field([]const []const u8) = .absent,
+    limit: wire.Field(u64) = .absent,
+    offset: wire.Field(u64) = .absent,
     owners: wire.Field([]const []const u8) = .absent,
+    scope: wire.Field([]const u8) = .absent,
+    since: wire.Field(u64) = .absent,
 };
 
 pub const HomeInboxResult = struct {
     cloud: []const u8,
+    full: ?bool = null,
     me: []const u8,
+    offset: ?u64 = null,
+    order: ?[]const u8 = null,
+    removed: ?[]const []const u8 = null,
+    revision: ?u64 = null,
     rows: []const HomeInboxRow,
+    total: ?u64 = null,
+    window: ?bool = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "full",
+        "offset",
+        "order",
+        "removed",
+        "revision",
+        "total",
+        "window",
+    };
 };
 
 pub fn homeInbox(client: anytype, request: HomeInboxRequest) !wire.Decoded(HomeInboxResult) {
