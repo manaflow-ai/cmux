@@ -332,6 +332,10 @@ path = "tests/test_install_zig_ci_reviewed_version.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_instrument_tokens.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_intent_familiar_warning.py"
 lane = "linux-guard"
 
@@ -573,6 +577,11 @@ lane = "linux-guard"
 path = "tests/test_prepush_fast_tier.py"
 lane = "manual"
 reason = "Bounded pre-push tier: cmux-ci test -- python3 tests/test_prepush_fast_tier.py; sandbox behavior needs warm Bun and Linux bubblewrap."
+
+[[test]]
+path = "tests/test_prepush_generated_freshness.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_prepush_generated_freshness.py"
 
 [[test]]
 path = "tests/test_prepush_no_verdict_never_subtracts.py"
