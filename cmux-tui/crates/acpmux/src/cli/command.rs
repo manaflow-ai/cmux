@@ -812,7 +812,19 @@ pub enum Command {
         /// Rename the spoken handle.
         #[arg(long)]
         handle: bool,
+        /// With --handle: set the icon too (as `acpmux icon`).
+        #[arg(long, requires = "handle")]
+        icon: Option<String>,
     },
+    /// Set the icon every surface draws for a session (tab, sidebar row, lists, chat header, a
+    /// message's sender): one emoji, an SF Symbol (`leaf.fill`, `sf:NAME`), an agent mark
+    /// (`claude`), an .svg/.png/.ico file, or a URL (an image, or a site whose favicon it takes).
+    /// `none` clears it; no ICON prints it. `@` is the session this shell runs in: an agent sets
+    /// its own icon with no one's leave.
+    #[command(
+        after_help = "Examples:\n  acpmux icon @ 🥭\n  acpmux icon @ sf:leaf.fill\n  acpmux icon @ ./mark.svg\n  acpmux icon @ https://github.com\n  acpmux rename @ Mango --handle --icon 🥭\n  acpmux icon @ none"
+    )]
+    Icon { session: String, icon: Option<String> },
     /// Give the session this shell runs in a stable name every machine that peers this one sends
     /// to: a Claude Code session acpmux did not start (the Claude desktop app's Code tab, a
     /// terminal `claude`). Run it from that session's own Bash tool: it delivers a one-time code
@@ -1304,7 +1316,12 @@ pub enum SessionCmd {
         /// Rename the spoken handle.
         #[arg(long)]
         handle: bool,
+        /// With --handle: set the icon too (as `acpmux icon`).
+        #[arg(long, requires = "handle")]
+        icon: Option<String>,
     },
+    /// Set the icon every surface draws for a session (as `acpmux icon`).
+    Icon { session: String, icon: Option<String> },
     /// Detach a session from the session that started it: its turns stop showing in that
     /// session's chat, and its `lane.reportsTo` tag goes. The session keeps running.
     Detach { session: String },
@@ -1811,8 +1828,9 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Route { facts } => Command::RouteDeath { facts },
             SessionCmd::Pause { session } => Command::PauseAgent { session },
             SessionCmd::Wake { session } => Command::WakeAgent { session },
-            SessionCmd::Rename { session, new_name, handle } => {
-                Command::Rename { session, new_name, handle }
+            SessionCmd::Icon { session, icon } => Command::Icon { session, icon },
+            SessionCmd::Rename { session, new_name, handle, icon } => {
+                Command::Rename { session, new_name, handle, icon }
             }
             SessionCmd::Detach { session } => Command::DetachParent { session },
             SessionCmd::Resume { session, open, mesh } if !mesh.mesh => {
