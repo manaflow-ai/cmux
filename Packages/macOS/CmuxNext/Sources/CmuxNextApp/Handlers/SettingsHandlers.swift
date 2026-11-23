@@ -19,6 +19,7 @@ enum SettingsHandlers {
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("palette.openCmuxSettingsFile", run: { _ in try openCmuxConfig(context) })
+        registry.bind("palette.copyCmuxSettingsFilePath", run: { _ in context.copy(cmuxConfigURL(context).path) })
         registry.bind("palette.openGhosttySettings", run: { _ in try openGhosttyConfig(context) })
         // Showing the Settings tab is local and immediate: the effect is done on this turn.
         registry.bindEffect("settings.customizeMenus", requires: nil, effect: { invocation in
@@ -131,10 +132,14 @@ enum SettingsHandlers {
         return settings
     }
 
+    /// The cmux-next.json this app reads: the loaded settings' file, else the default location.
+    static func cmuxConfigURL(_ context: AppActionContext) -> URL {
+        context.services.settings?.file.url ?? CmuxConfigFile.defaultURL()
+    }
+
     /// Opens cmux-next.json in the default editor, creating an empty one first.
     static func openCmuxConfig(_ context: AppActionContext) throws {
-        let url = context.services.settings?.file.url ?? CmuxConfigFile.defaultURL()
-        try openCreatingIfMissing(url, contents: "{\n}\n", context)
+        try openCreatingIfMissing(cmuxConfigURL(context), contents: "{\n}\n", context)
     }
 
     /// Opens Ghostty's config (terminal fonts, colors, keybinds), which cmux

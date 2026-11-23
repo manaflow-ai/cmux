@@ -51014,6 +51014,29 @@
     "zh-Hans": "排序方式",
     "zh-Hant": "排序方式"
    }
+  },
+  "action.palette.copyCmuxSettingsFilePath": {
+   "ar": "نسخ مسار cmux-next.json",
+   "bs": "Kopiraj putanju cmux-next.json",
+   "da": "Kopiér sti til cmux-next.json",
+   "de": "Pfad von cmux-next.json kopieren",
+   "en": "Copy cmux-next.json Path",
+   "es": "Copiar ruta de cmux-next.json",
+   "fr": "Copier le chemin de cmux-next.json",
+   "it": "Copia percorso di cmux-next.json",
+   "ja": "cmux-next.json のパスをコピー",
+   "km": "ចម្លងផ្លូវ cmux-next.json",
+   "ko": "cmux-next.json 경로 복사",
+   "nb": "Kopier banen til cmux-next.json",
+   "pl": "Kopiuj ścieżkę cmux-next.json",
+   "pt-BR": "Copiar caminho do cmux-next.json",
+   "ru": "Скопировать путь к cmux-next.json",
+   "th": "คัดลอกพาธของ cmux-next.json",
+   "tr": "cmux-next.json Yolunu Kopyala",
+   "uk": "Скопіювати шлях до cmux-next.json",
+   "vi": "Sao chép đường dẫn cmux-next.json",
+   "zh-Hans": "拷贝 cmux-next.json 路径",
+   "zh-Hant": "拷貝 cmux-next.json 路徑"
   }
  }
 }

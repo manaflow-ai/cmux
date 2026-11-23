@@ -37,6 +37,18 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "palette.copyCmuxSettingsFilePath",
+        group: GROUP,
+        title: t("ActionCatalog", "action.palette.copyCmuxSettingsFilePath", "Copy cmux-next.json Path"),
+        keywords: &["config", "settings", "cmux-next.json", "file", "path", "copy", "clipboard"],
+        category: "settings",
+        symbol: "doc.on.clipboard",
+        surfaces: PALETTE,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "settings copy-json-path",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "palette.openGhosttySettings",
         group: GROUP,
         title: t("ActionCatalog", "action.palette.openGhosttySettings", "Open Ghostty Config"),
