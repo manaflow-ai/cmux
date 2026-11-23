@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextDesignTokens
 import CmuxNextTestSupport
 import Foundation
 import ImageIO
@@ -109,6 +110,55 @@ import UniformTypeIdentifiers
             #expect(art.artView.frame == art.bounds)
             #expect(art.videoView.playerLayer.frame == art.videoView.bounds)
             #expect(art.shaderView.metalLayer.frame == art.shaderView.bounds)
+        }
+    }
+
+    /// Frosted over a picture (Desktop Wallpaper, Opacity 0.75, as Leo had it on 2026-11-23: "it went
+    /// only to the bottom left"): the blurred picture fills the window at every size, from a zero
+    /// frame, on a 2x backing. The art layer carries no live filter: the blur is in its contents, the
+    /// picture's own size, aspect-filled like the sharp one.
+    @Test func aFrostedPictureFillsTheWindowFromAZeroFrame() async throws {
+        _ = NSApplication.shared
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("custom-bg-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = try Self.writeImage(width: 640, height: 400, in: folder)
+        var input = ThemeInput.ghosttyDefault
+        input.backgroundOpacity = 0.75
+        input.backgroundBlur = 20
+        let tokens = ThemeTokens.derive(from: input)
+        let backdropSpec = WindowBackdrop(tokens, selection: .file(path: file.path))
+        #expect(backdropSpec.material == .frosted && backdropSpec.artBlurRadius > 0)
+        let images = BackdropImageStore(maxPixelSize: 1600)
+        let start = NSRect(origin: .zero, size: Self.sizes[0])
+        let window = NSWindow(contentRect: start, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let root = NSView(frame: start)
+        root.wantsLayer = true
+        // Leo's and Lawrence's Macs draw at 2x.
+        root.layer?.contentsScale = 2
+        window.contentView = root
+        let backdrop = WindowMaterialView(frame: .zero, images: images, videos: BackdropVideoPlayers(), fillsWindow: true)
+        backdrop.frame = root.bounds
+        backdrop.autoresizingMask = [.width, .height]
+        root.addSubview(backdrop)
+        window.orderFrontRegardless()
+        backdrop.apply(backdropSpec, tint: .black)
+        await backdrop.artLoad?.value
+        await backdrop.artBlur?.value
+        let art = try #require(backdrop.artImage)
+        let source = try #require(art.cgImage(forProposedRect: nil, context: nil, hints: nil))
+        for size in Self.sizes {
+            root.setFrameSize(size)
+            backdrop.displayIfNeeded()
+            let layer = try #require(backdrop.artView.layer)
+            #expect((layer.filters ?? []).isEmpty, "the still art carries a live filter at \(size)")
+            let shown = try #require(layer.contents.map { $0 as! CGImage }) // swiftlint:disable:this force_cast
+            #expect(shown.width == source.width && shown.height == source.height, "the blurred picture is not the picture's size")
+            #expect(backdrop.artView.frame == backdrop.bounds, "the frosted picture does not fill the window at \(size)")
+            #expect(layer.frame.size == size)
+            #expect(layer.contentsGravity == .resizeAspectFill)
         }
     }
 }

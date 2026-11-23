@@ -109,6 +109,12 @@ public final class WindowMaterialView: NSView {
     private(set) var hidesArt = false
     /// The blur on the art now (``WindowBackdrop/artBlurRadius``).
     private(set) var artBlurRadius = 0
+    /// The still art blurred once for Frosted (`artContents(for:)`): its picture, radius and result.
+    var blurredArt: (source: NSImage, radius: Int, image: CGImage)?
+    /// The picture and radius being blurred now, off the main actor.
+    var artBlurPending: (source: NSImage, radius: Int)?
+    /// Makes the blurred art; tests await its `value` to see it shown.
+    var artBlur: Task<Void, Never>?
 
     /// Creates an opaque backdrop (no material view, no tint).
     ///
@@ -390,17 +396,24 @@ public final class WindowMaterialView: NSView {
 
     func showArt(_ image: NSImage?) {
         artImage = image
-        artView.layer?.contents = artImage
+        showArtContents(image)
         artView.isHidden = hidesArt || artImage == nil
         noteGlassSourceChange()
     }
 
     /// Blurs the art and the video over it by `radius` points (``WindowBackdrop/artBlurRadius``);
-    /// 0 clears the blur. Filters are made for each view: they are mutable objects.
+    /// 0 clears the blur. The still art is blurred once into its contents (`artContents(for:)`);
+    /// the video and living wallpaper take live filters, made for each view (they are mutable).
     private func applyArtBlur(_ radius: Int) {
         guard radius != artBlurRadius else { return }
         artBlurRadius = radius
-        for view in [artView, videoView as NSView, shaderView as NSView] {
+        blurredArt = nil
+        artBlur?.cancel()
+        artBlur = nil
+        artBlurPending = nil
+        artView.layer?.removeAnimation(forKey: "contents")
+        showArtContents(artImage)
+        for view in [videoView as NSView, shaderView as NSView] {
             if radius > 0 { view.layerUsesCoreImageFilters = true }
             // Clamped first: the blur then reads the edge pixels past the edge, not transparency,
             // so the picture keeps no translucent rim.

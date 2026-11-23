@@ -40,16 +40,30 @@ import CmuxNextDesignTokens
     }
 
     /// Frosted over a picture blurs the picture by the material's radius; other materials leave it sharp.
-    @Test func frostedBlursThePicture() {
+    /// The still picture is blurred once into the art layer's contents, with no live filter on that
+    /// layer (a clamp under a layer filter drew bottom-left on Retina, Leo 2026-11-23); the video over
+    /// it keeps its live blur.
+    @Test func frostedBlursThePicture() async {
         let view = WindowMaterialView(frame: NSRect(x: 0, y: 0, width: 400, height: 300),
                                       images: BackdropImageStore(maxPixelSize: 64), videos: BackdropVideoPlayers())
         let work = BackdropSelection.art(.vanGoghStarryNight)
         view.apply(WindowBackdrop(Self.tokens(blur: 20), selection: work), tint: .black)
-        let blur = (view.artView.layer?.filters as? [CIFilter])?.first { $0.name == "CIGaussianBlur" }
-        #expect((blur?.value(forKey: kCIInputRadiusKey) as? NSNumber)?.doubleValue == 20)
+        await view.artLoad?.value
+        await view.artBlur?.value
+        #expect(view.artBlurRadius == 20)
+        #expect((view.artView.layer?.filters ?? []).isEmpty, "the still art carries a live filter")
+        if let art = view.artImage {
+            let contents = view.artView.layer?.contents
+            #expect(contents != nil && (contents as AnyObject) !== art, "Frosted shows the sharp picture")
+            // The blurred picture is the picture's own size: nothing is drawn at another size or offset.
+            let shown = contents.map { $0 as! CGImage } // swiftlint:disable:this force_cast
+            let source = art.cgImage(forProposedRect: nil, context: nil, hints: nil)
+            #expect(shown?.width == source?.width && shown?.height == source?.height)
+        }
         // The video over the art blurs the same way.
         #expect((view.videoView.layer?.filters as? [CIFilter])?.contains { $0.name == "CIGaussianBlur" } == true)
         view.apply(WindowBackdrop(Self.tokens(blur: 0), selection: work), tint: .black)
         #expect((view.artView.layer?.filters ?? []).isEmpty)
+        if let art = view.artImage { #expect((view.artView.layer?.contents as AnyObject) === art) }
     }
 }
