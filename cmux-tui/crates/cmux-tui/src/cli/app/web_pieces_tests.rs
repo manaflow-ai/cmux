@@ -9,7 +9,7 @@ use sha2::{Digest as _, Sha256};
 use super::super::{AppCommand, parse};
 use super::{
     CHANNELS, Check, Command, DEFAULT_BASE, Fetched, LOG_FILE, STATE_FILE, STATUS_LINES, apply,
-    base_url, fetch, file_url, log, status,
+    base_url, fetch, file_url, log, refused, status,
 };
 
 const A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -155,6 +155,78 @@ fn web_pieces_parses_its_options() {
     ] {
         assert!(parse(&args(bad)).is_err(), "{bad:?}");
     }
+}
+
+#[test]
+fn web_pieces_refused_parses_its_options() {
+    let words = ["app", "web-pieces", "refused", "--state", "/tmp/s", "--channel", "nightly"];
+    let mut good = words.to_vec();
+    good.extend(["--key", A]);
+    assert_eq!(
+        parse(&args(&good)).unwrap(),
+        Some(AppCommand::WebPieces(Command::Refused {
+            state: "/tmp/s".into(),
+            channel: "nightly".to_owned(),
+            key: A.to_owned(),
+        }))
+    );
+    let no_key = words.to_vec();
+    let mut bad_key = words.to_vec();
+    bad_key.extend(["--key", "AB"]);
+    let mut bad_channel = good.clone();
+    bad_channel[6] = "stable";
+    let mut no_state = good.clone();
+    no_state.drain(3..5);
+    let mut extra = good.clone();
+    extra.push("--offline");
+    for bad in [no_key, bad_key, bad_channel, no_state, extra] {
+        assert!(parse(&args(&bad)).is_err(), "{bad:?}");
+    }
+}
+
+/// A switch file of every-merge at `serial` that refuses the updates `refuse`.
+fn refusing(pair: &Ed25519KeyPair, serial: u64, refuse: &[&str]) -> Fetched {
+    let mut payload = file("every-merge", serial, json!({}));
+    payload["refuse"] = json!(refuse);
+    Fetched::Body(envelope(pair, &payload), None)
+}
+
+#[test]
+fn refused_answers_from_the_file_last_taken_with_no_write() {
+    let dir = tempfile::tempdir().unwrap();
+    let pair = pair(7);
+    // No file taken yet: nothing is refused, and nothing is written.
+    assert_eq!(refused(dir.path(), "every-merge", B), json!({"refused": false, "serial": 0}));
+    assert!(!dir.path().join(STATE_FILE).exists());
+
+    apply(&check(dir.path(), "every-merge"), Some(refusing(&pair, 4, &[B])), &keys(&pair), NOW)
+        .unwrap();
+    let state_before = std::fs::read(dir.path().join(STATE_FILE)).unwrap();
+    let log_before = std::fs::read(dir.path().join(LOG_FILE)).unwrap();
+    assert_eq!(refused(dir.path(), "every-merge", B), json!({"refused": true, "serial": 4}));
+    assert_eq!(refused(dir.path(), "every-merge", A), json!({"refused": false, "serial": 4}));
+    // Another channel's file says nothing about this one.
+    assert_eq!(refused(dir.path(), "nightly", B), json!({"refused": false, "serial": 0}));
+    assert_eq!(std::fs::read(dir.path().join(STATE_FILE)).unwrap(), state_before);
+    assert_eq!(std::fs::read(dir.path().join(LOG_FILE)).unwrap(), log_before);
+
+    // A later file that allows it again: no longer refused.
+    apply(&check(dir.path(), "every-merge"), Some(refusing(&pair, 5, &[])), &keys(&pair), NOW)
+        .unwrap();
+    assert_eq!(refused(dir.path(), "every-merge", B), json!({"refused": false, "serial": 5}));
+}
+
+#[test]
+fn refused_keeps_the_refusal_when_a_later_file_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let pair = pair(7);
+    apply(&check(dir.path(), "every-merge"), Some(refusing(&pair, 4, &[B])), &keys(&pair), NOW)
+        .unwrap();
+    // A forged file that would allow it is not taken: B stays refused.
+    let other = self::pair(9);
+    apply(&check(dir.path(), "every-merge"), Some(refusing(&other, 9, &[])), &keys(&pair), NOW)
+        .unwrap();
+    assert_eq!(refused(dir.path(), "every-merge", B), json!({"refused": true, "serial": 4}));
 }
 
 #[test]
@@ -432,6 +504,48 @@ fn a_drill_channel_reads_its_own_file_only() {
             .unwrap();
     assert_eq!(reply["refusal"]["code"], "wrong_channel", "{reply}");
     assert_eq!(reply["taken"], false);
+}
+
+#[test]
+fn a_drill_only_reports_a_refused_active_update() {
+    let dir = tempfile::tempdir().unwrap();
+    let pair = pair(7);
+    let mut payload = file("drill-every-merge", 4, json!({}));
+    payload["refuse"] = json!([A]);
+    let drill = Fetched::Body(envelope(&pair, &payload), None);
+    // The drill's file refuses the active update A: reported, never a roll back.
+    let reply =
+        apply(&check(dir.path(), "drill-every-merge"), Some(drill), &keys(&pair), NOW).unwrap();
+    assert_eq!(reply["taken"], true, "{reply}");
+    assert_eq!(reply["refused_active"], false, "{reply}");
+    assert_eq!(reply["drill_refused_active"], true, "{reply}");
+    // Nor does the drill block taking it.
+    assert_eq!(
+        refused(dir.path(), "drill-every-merge", A),
+        json!({"refused": false, "serial": 4, "drill_refused": true})
+    );
+    assert_eq!(
+        refused(dir.path(), "drill-every-merge", B),
+        json!({"refused": false, "serial": 4, "drill_refused": false})
+    );
+    // The offline plan from the drill's state says the same.
+    let mut offline = check(dir.path(), "drill-every-merge");
+    offline.offline = true;
+    let reply = apply(&offline, None, &keys(&pair), NOW).unwrap();
+    assert_eq!(reply["refused_active"], false, "{reply}");
+    assert_eq!(reply["drill_refused_active"], true, "{reply}");
+
+    // The real channel's refusal still rolls back, with no drill field.
+    let real = tempfile::tempdir().unwrap();
+    let reply = apply(
+        &check(real.path(), "every-merge"),
+        Some(refusing(&pair, 4, &[A])),
+        &keys(&pair),
+        NOW,
+    )
+    .unwrap();
+    assert_eq!(reply["refused_active"], true, "{reply}");
+    assert!(reply.get("drill_refused_active").is_none(), "{reply}");
 }
 
 #[test]

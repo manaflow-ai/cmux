@@ -351,7 +351,7 @@ class StopTests(unittest.TestCase):
             with self.assertRaises(Cancelled):
                 with m.lock:  # as launch(), sweep() and kill() hold it
                     os.kill(os.getpid(), signal.SIGTERM)
-                    time.sleep(5)
+                    time.sleep(5)  # sleep-ok: the held-lock work the SIGTERM must cut short (the test asserts < 5 s)
         finally:
             signal.signal(signal.SIGTERM, previous)
         worker.join(10)
