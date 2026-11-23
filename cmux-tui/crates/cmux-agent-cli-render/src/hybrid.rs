@@ -105,11 +105,16 @@ impl Overlay {
                 })
                 .collect();
             // A glyph that is not one ASCII character and the empty cell right of it (the right
-            // half of a wide glyph) change together, as one set: a blank written or erased over
-            // the right half alone erases the glyph in the viewer's terminal (a right half that
-            // looks blank, as one with only a foreground does, would otherwise go as a clear).
-            // The right half of a wide glyph has the glyph's style (the daemon's grid gives it),
-            // so the two go in one span; a blank right of a narrow glyph keeps its own style.
+            // half of a wide glyph): a blank written or erased over the right half erases the
+            // glyph in the viewer's terminal (a right half that looks blank, as one with only a
+            // foreground does, would otherwise go as a clear). So a right half that changes goes
+            // as a set, and its glyph is set with it. A glyph set over a right half that already
+            // looks right needs nothing more.
+            // The right half of a wide glyph has the glyph's style when the daemon's grid gives
+            // it, so the two go in one span. A right half of another style (a blank right of a
+            // narrow glyph, or a wide glyph's spacer the grid left plain) goes as its own span
+            // before the glyph's, so the glyph is written over it and stays.
+            let mut right_half = vec![false; changes.len()];
             for x in 0..changes.len().saturating_sub(1) {
                 let (Some(glyph), Some(right)) = (cell_at(real, y, x), cell_at(real, y, x + 1))
                 else {
@@ -118,15 +123,29 @@ impl Overlay {
                 let paired = right.text.is_empty()
                     && !glyph.text.is_empty()
                     && !matches!(glyph.text.as_bytes(), [b] if (0x20..=0x7e).contains(b));
-                let keep = |c: &Change| matches!(c, Change::Keep);
-                if paired && !(keep(&changes[x]) && keep(&changes[x + 1])) {
+                if paired && !matches!(changes[x + 1], Change::Keep) {
                     changes[x] = Change::Set(glyph.clone());
                     changes[x + 1] = Change::Set(right.clone());
+                    right_half[x + 1] = true;
                 }
             }
             let mut open: Option<Span> = None;
             for (x, change) in changes.into_iter().enumerate() {
                 let Ok(col) = u16::try_from(x) else { break };
+                if let (Change::Set(cell), Some(Span::Set { cells, .. })) = (&change, &mut open)
+                    && right_half[x]
+                    && cells.first().is_some_and(|first| first.style != cell.style)
+                {
+                    let glyph: Vec<Cell> = cells.pop().into_iter().collect();
+                    if !cells.is_empty() {
+                        spans.extend(open.take());
+                    }
+                    spans.push(Span::Set { row: row_no, col, cells: vec![cell.clone()] });
+                    // The glyph's span ends here: it starts left of this cell, so the next cell
+                    // cannot join it.
+                    spans.push(Span::Set { row: row_no, col: col.saturating_sub(1), cells: glyph });
+                    continue;
+                }
                 match (change, &mut open) {
                     (Change::Clear, Some(Span::Clear { len, .. })) => *len += 1,
                     (Change::Set(cell), Some(Span::Set { cells, .. }))
@@ -415,6 +434,30 @@ mod tests {
         let Span::Set { row: 0, col: 0, cells } = &spans[0] else { panic!("{spans:?}") };
         assert_eq!(cells.len(), 2, "{spans:?}");
         assert_eq!((cells[0].text.as_str(), cells[1].text.as_str()), ("漢", ""));
+    }
+
+    /// A wide glyph whose right half changes to another style (a plain spacer) is written after
+    /// its right half, so the blank there does not erase it.
+    #[test]
+    fn a_wide_glyph_goes_after_a_right_half_of_another_style() {
+        let drawn = Grid::blank(20, 4);
+        let mut overlay = Overlay::new(20, 4);
+        overlay.apply(&overlay.diff(&drawn, &grid(&[&[("abc", Style::PLAIN)]])));
+        let mut real = grid(&[&[("x漢y", Style::fg(174))]]);
+        real.cells[0][2].style = Style::PLAIN;
+        let spans = overlay.diff(&drawn, &real);
+        let at: Vec<(u16, u16, usize)> = spans
+            .iter()
+            .map(|s| match s {
+                Span::Set { row, col, cells } => (*row, *col, cells.len()),
+                Span::Clear { row, col, len } => (*row, *col, usize::from(*len)),
+            })
+            .collect();
+        assert_eq!(at, vec![(0, 0, 1), (0, 2, 1), (0, 1, 1), (0, 3, 1)], "{spans:?}");
+        let Span::Set { cells, .. } = &spans[2] else { panic!("{spans:?}") };
+        assert_eq!(cells[0].text, "漢");
+        overlay.apply(&spans);
+        assert_eq!(real.parity(&overlay.compose(&drawn)), (80, 80));
     }
 
     #[test]
