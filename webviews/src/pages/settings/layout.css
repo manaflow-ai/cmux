@@ -1294,6 +1294,18 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* The head's trailing end: Turn All Off (while any opt-in switch is on), then the count. */
+.checklist-head-trailing {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+}
+
+.link-button.checklist-turn-off {
+  min-height: 0;
+  font-size: var(--text-caption);
+}
+
 .checklist-toggle-all {
   display: inline-flex;
   align-items: center;
