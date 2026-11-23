@@ -16,10 +16,14 @@ record for another attempt; an unknown branch; a missing or malformed digest
 record; an artifact of another channel; a zip with extra members; a head
 SHA that is only on a tag with the branch's name; a run that built an app but
 has no prepare job; prepare jobs that disagree on publishing; a job from a newer
-attempt; an API redirect (never followed with the token).
+attempt; an API redirect (never followed with the token); a producing job
+that ran outside the trusted build pool (an owned pull request pool label, a
+runner name label alone, an unknown label, no labels or no runner name).
 Skipped (exit 0, admitted=false): a failed source run, a superseded attempt
 (before or during the downloads), a run that prepared no app, a run that does
-not publish (fast build). Admitted: main, nightly-next and rc runs.
+not publish (fast build). Admitted: main, nightly-next and rc runs, built on
+an ephemeral vendor Mac or a trusted-only owned pool. The admit tool's builder
+label shapes agree with scripts/ci/runner_label_policy.py.
 """
 
 from __future__ import annotations
@@ -90,7 +94,8 @@ def scenario(branch: str = "main", variants: tuple[str, ...] = ("arm64", "univer
         blob = zip_of({"cmux-prepared-app.tar.gz": tarball})
         blobs[artifact_id] = blob
         jobs.append({"id": job_id, "name": f"prepare-nightly-variant ({variant})", "conclusion": "success",
-                     "run_id": RUN_ID, "head_sha": HEAD, "run_attempt": ATTEMPT})
+                     "run_id": RUN_ID, "head_sha": HEAD, "run_attempt": ATTEMPT,
+                     "runner_name": f"blacksmith-runner-{index}", "labels": ["blacksmith-6vcpu-macos-26"]})
         annotations[job_id] = [
             {"annotation_level": "warning", "title": "Node.js 20 is deprecated", "message": "..."},
             {"annotation_level": "notice", "title": "nightly-prepared-app",
@@ -445,6 +450,77 @@ class AdmitCase(unittest.TestCase):
         result = self.run_tool(scenario("main"), run_id="1 2")
         self.assert_refused(result, "invalid source run id")
         self.assertEqual(result["requests"], [])
+
+    # ---------------------------------------------------------------- builder pool
+
+    def test_trusted_builders_are_admitted_and_recorded(self) -> None:
+        trusted = {
+            "glaeda-nightly-mini": ["glaeda-nightly-mini"],
+            "cmux15-glaeda": ["glaeda-trusted-std-xcode-26.6", "glaeda-runner-cmux15-glaeda"],
+            "slot-1": ["glaeda-nightly-xl-xcode-26.6"],
+            "ultra-signing": ["glaeda-trusted-next-signing"],
+            "blacksmith-12": ["blacksmith-12vcpu-macos-26"],
+        }
+        for runner, labels in trusted.items():
+            with self.subTest(labels=labels):
+                data = scenario("main", ("arm64",))
+                data["jobs"][2].update(runner_name=runner, labels=labels)
+                result = self.run_tool(data)
+                self.assert_admitted(result, data, "nightly", "nightly")
+                admission = json.loads((result["out"] / "admission.json").read_text(encoding="utf-8"))
+                self.assertEqual(admission["variants"][0]["builder"], {"runner_name": runner, "labels": labels})
+
+    def test_builder_outside_the_trusted_pool_is_refused(self) -> None:
+        refused = {
+            "a pull request pool": (["glaeda-std-xcode-26.6"], "label 'glaeda-std-xcode-26.6'"),
+            "a pull request side lane": (["glaeda-side-std-xcode-26.6"], "label 'glaeda-side-std-xcode-26.6'"),
+            "the iOS simulator pool": (["glaeda-ios-sim"], "label 'glaeda-ios-sim'"),
+            "a trusted pool plus a shared one": (["glaeda-trusted-std-xcode-26.6", "glaeda-std-xcode-26.6"],
+                                                 "label 'glaeda-std-xcode-26.6'"),
+            "a runner name alone": (["glaeda-runner-cmux15-glaeda"], "none of them a trusted build pool"),
+            "bare self-hosted": (["self-hosted", "macOS"], "label 'self-hosted'"),
+            "a hosted Mac": (["macos-26"], "label 'macos-26'"),
+            "no labels": ([], "has no runner labels"),
+        }
+        for case, (labels, reason) in refused.items():
+            with self.subTest(case=case):
+                data = scenario("main", ("arm64",))
+                data["jobs"][2]["labels"] = labels
+                result = self.run_tool(data)
+                self.assert_refused(result, reason)
+                self.assertFalse(any(path.startswith("/blob/") for path, _ in result["requests"]),
+                                 "a refused builder's artifact is never downloaded")
+
+    def test_builder_without_a_runner_name_is_refused(self) -> None:
+        data = scenario("main", ("arm64",))
+        data["jobs"][2]["runner_name"] = None
+        self.assert_refused(self.run_tool(data), "has no runner_name")
+
+    def test_builder_shapes_agree_with_the_runner_label_policy(self) -> None:
+        sys.path.insert(0, str(TOOL.parent))
+        try:
+            import nightly_sign_admit as admit
+            import runner_label_policy as policy
+        finally:
+            sys.path.remove(str(TOOL.parent))
+        # Every trusted pool label the tool accepts is one the policy keeps off pull requests.
+        for label in ("glaeda-trusted-std-xcode-26.6", "glaeda-trusted-aws-xl-xcode-26"):
+            self.assertTrue(admit.TRUSTED_POOL_LABEL.fullmatch(label), label)
+            self.assertIsNone(policy.trusted_pool_reason(label), label)
+        for label in ("glaeda-nightly-std-xcode-26.6", "glaeda-nightly-light-xcode-26.6"):
+            self.assertTrue(admit.TRUSTED_POOL_LABEL.fullmatch(label), label)
+            self.assertIsNone(policy.nightly_slot_reason(label), label)
+        self.assertTrue(admit.TRUSTED_POOL_LABEL.fullmatch(policy.CLASSIC_NIGHTLY_MINI_VARIABLES["CI_CLASSIC_NIGHTLY_MINI"]))
+        self.assertEqual(admit.RUNNER_NAME_LABEL.pattern, policy.RUNNER_NAME_LABEL.pattern)
+        # Every pull request pool label the policy allows a runner variable to name is refused as a builder.
+        for label in ("glaeda-std-xcode-26.6", "glaeda-aws-xl-xcode-26.6", "glaeda-gui-std-xcode-26.6", "glaeda-ios-sim"):
+            self.assertTrue(policy.OWNED_MAC_LABEL.fullmatch(label), label)
+            self.assertFalse(admit.TRUSTED_POOL_LABEL.fullmatch(label), label)
+            self.assertFalse(admit.EPHEMERAL_BUILDER_LABEL.fullmatch(label), label)
+        # Every ephemeral label the tool accepts is a cloud label the workflow guard approves.
+        for label in ("blacksmith-6vcpu-macos-26", "blacksmith-12vcpu-macos-15"):
+            self.assertTrue(admit.EPHEMERAL_BUILDER_LABEL.fullmatch(label), label)
+            self.assertIsNone(policy.forbidden_reason(label), label)
 
     # ---------------------------------------------------------------- skipped
 
