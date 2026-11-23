@@ -277,7 +277,7 @@ await requireBrowserLane("subagent-pane-layout-motion.test.ts", async () => {
       await settle(page, 30);
       // 4. A prompt typed until it wraps: the composer's one declared move (composer-growth).
       await step(page, "type-wrap");
-      await page.locator('form[data-composer-relay] [role="textbox"]').first().click();
+      await page.locator('form[data-composer-relay] [contenteditable="true"]').first().click();
       await page.keyboard.type(
         "Please also check that the rebased branch still passes the gallery's undeclared-move run before it lands, and say which states changed and by how many pixels each one moved, then post the table on the pull request so the reviewer sees it before the merge",
       );
