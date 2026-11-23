@@ -4689,7 +4689,8 @@ export class AcpmuxDirectClient {
         // close rejects what is still pending, so a reply inflating when the link drops is applied,
         // not shown as interrupted.
         if (inflating) {
-          const closeAfter = () => socket.onclose?.(event);
+          const onclose = socket.onclose;
+          const closeAfter = () => onclose?.call(socket, event as CloseEvent);
           void inflating.then(closeAfter, closeAfter);
           inflating = undefined;
           return;
