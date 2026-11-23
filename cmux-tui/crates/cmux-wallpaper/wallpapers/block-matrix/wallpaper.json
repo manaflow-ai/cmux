@@ -1,0 +1,29 @@
+{
+  "id": "block-matrix",
+  "name": "Block Matrix",
+  "description": "A fine, even matrix of faint dots. Blocks of dots ease in and out like a store filling and draining, a soft glow follows the pointer, and the agents' output lights a block now and then.",
+  "shader": "wallpaper.wgsl",
+  "fps": 30,
+  "scale": 0.75,
+  "interactive": true,
+  "agents": true,
+  "params": [
+    { "name": "pitch", "title": "Dot pitch (points)", "default": 5, "min": 3, "max": 16 },
+    { "name": "block", "title": "Block size (dots)", "default": 4, "min": 1, "max": 12 },
+    { "name": "radius", "title": "Glow radius (dots)", "default": 11, "min": 3, "max": 40 },
+    { "name": "glow", "title": "Pointer glow", "default": 1.0, "min": 0, "max": 1.5 },
+    { "name": "base", "title": "Matrix level", "default": 0.08, "min": 0, "max": 0.4 },
+    { "name": "ambient", "title": "Background blocks", "default": 0.39, "min": 0, "max": 1 },
+    { "name": "tint", "title": "Accent tint", "default": 0.0, "min": 0, "max": 1 },
+    { "name": "activity", "title": "Agent response", "default": 0.5, "min": 0, "max": 1.5 }
+  ],
+  "still": { "time": 21.0, "pointer": [0.3, 0.55] },
+  "variants": [
+    { "name": "Storage", "accent": "#3D7BFF", "params": { "pitch": 5, "block": 4, "radius": 11, "glow": 1.0, "base": 0.08, "ambient": 0.39, "tint": 0.0, "activity": 0.5 } },
+    { "name": "Storage Faint", "accent": "#3D7BFF", "params": { "pitch": 5, "block": 4, "radius": 9, "glow": 0.7, "base": 0.06, "ambient": 0.26, "tint": 0.0, "activity": 0.35 } },
+    { "name": "Storage Bright", "accent": "#3D7BFF", "params": { "pitch": 5, "block": 4, "radius": 12, "glow": 1.0, "base": 0.1, "ambient": 0.52, "tint": 0.0, "activity": 0.7 } },
+    { "name": "Ion", "accent": "#3D7BFF", "params": { "pitch": 5, "block": 4, "radius": 11, "glow": 1.0, "base": 0.08, "ambient": 0.39, "tint": 1.0, "activity": 0.5 } },
+    { "name": "Phosphor", "accent": "#35D07F", "params": { "pitch": 4, "block": 3, "radius": 10, "glow": 1.0, "base": 0.09, "ambient": 0.39, "tint": 0.95, "activity": 0.5 } },
+    { "name": "Ember", "accent": "#FF7A45", "params": { "pitch": 6, "block": 3, "radius": 9, "glow": 0.95, "base": 0.08, "ambient": 0.39, "tint": 0.9, "activity": 0.5 } }
+  ]
+}

@@ -198,6 +198,14 @@ jobs:
         timeout-minutes: 3
         run: python3 scripts/static-analysis/ratchet.py gitleaks --base HEAD^1 --head HEAD
 
+      # The runner-size guards also run in the ci guard group, but a pull request into feat-cmux-next skips that group
+      # unless labeled full-ci (Tier B), so #50338 and #47936 added literal blacksmith-6vcpu-macos-26 pins unseen and
+      # the push's red was never fixed forward. These take about 20 s, so every pull request runs them here.
+      - name: Fail on a job pinned to one runner size (runners.json pools)
+        if: ${{ !cancelled() }}
+        timeout-minutes: 3
+        run: python3 tests/test_ci_linux_single_size.py && python3 tests/test_ci_no_single_size_pins.py
+
   # One run per 30-minute window on the feat-cmux-next tip (base-coalesce.yml): the first push of each window runs
   # every job below, covering every push since the last run (each diffing step reads needs.coalesce.outputs.base
   # where it read event.before); the other pushes' jobs report skipped, with no runner taken. 18,301 runner-minutes a

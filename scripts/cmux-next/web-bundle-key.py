@@ -32,10 +32,16 @@ import sys
 # catalogs and the settings schema); schemas/settings is imported by the settings page and read
 # by gen-strings.mjs; the xcstrings catalogs feed gen-strings.mjs; the What's New highlights feed
 # gen-feature-tips.mjs (the agent pane's feature tips, build output gen-strings.mjs makes);
-# marked.min.js is inlined into the webviews app's agent-session.html.
+# marked.min.js is inlined into the webviews app's agent-session.html; the design, type and motion
+# scales feed gen-design-scale.mjs (its Tailwind theme and token list, build output gen-strings.mjs
+# makes: motion-scale.json is imported by no source, so a change to it left this key unchanged, and a
+# sparse checkout given these inputs had no file for it, 2026-11-22).
 INPUTS = [
     "webviews",
     "schemas/settings",
+    "schemas/design-scale/design-scale.json",
+    "schemas/type-scale/type-scale.json",
+    "schemas/motion-scale/motion-scale.json",
     ":(glob)release-notes/next/highlights/*.md",
     "Resources/markdown-viewer/marked.min.js",
     "scripts/build-webviews-app.sh",
