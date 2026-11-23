@@ -43,6 +43,11 @@ pub struct Scenario {
     /// Why there is no headless run, or which half of the case only the sim covers.
     #[serde(default)]
     pub headless_reason: Option<String>,
+    /// The bug this scenario reproduces is still open: its checks are expected to fail until the
+    /// fix lands. Names the open bug or fix lane. `scenario run` reports such a failure but does
+    /// not fail on it, and says so when the scenario starts passing (drop this field then).
+    #[serde(default)]
+    pub known_failing: Option<String>,
     /// `terminal` (PTY bytes into the phone's ghostty-vt) or `projection` (a Mac terminal, the
     /// hybrid/lean frames, the phone's terminal).
     #[serde(default)]
@@ -332,6 +337,9 @@ impl Scenario {
         }
         if self.sim.ui.is_empty() && self.sim.only.is_empty() {
             return Err("sim: name at least one UI suite (ui) or kit test (only)".to_owned());
+        }
+        if self.known_failing.as_deref().is_some_and(|why| why.trim().is_empty()) {
+            return Err("known_failing: name the open bug or the lane fixing it".to_owned());
         }
         if !self.headless {
             if self.headless_reason.as_deref().is_none_or(str::is_empty) {
@@ -739,6 +747,7 @@ pub fn report_json(
         "spec": scenario.spec,
         "headless": scenario.headless,
         "headless_reason": scenario.headless_reason,
+        "known_failing": scenario.known_failing,
         "checks": checks,
         "metrics": Value::Object(out_metrics),
         "sim": {
@@ -837,6 +846,10 @@ ui = ["TerminalScrollBench"]
         assert!(bad("headless = true", "headless = false").contains("headless_reason"));
         assert!(bad("name = \"tiny\"", "name = \"Tiny\"").contains("lowercase"));
         assert!(bad("ui = [\"TerminalScrollBench\"]", "ui = []").contains("kit test (only)"));
+        assert!(
+            bad("headless = true", "headless = true\nknown_failing = \" \"")
+                .contains("known_failing")
+        );
         // A path reset on a link with no address change and no stall_ms of its own.
         let reset = MINIMAL.replace(
             "kind = \"pause\"\nat_ms = 1000\nms = 1000",
@@ -845,6 +858,21 @@ ui = ["TerminalScrollBench"]
         assert!(Scenario::parse(&reset).unwrap_err().contains("stall_ms"));
         let handoff = reset.replace("stream_seconds=4", "stream_seconds=4,link=5g-lte-handoff");
         assert!(Scenario::parse(&handoff).is_ok());
+    }
+
+    #[test]
+    fn a_known_failing_scenario_says_which_bug_in_its_line() {
+        let plain = Scenario::parse(MINIMAL).unwrap();
+        assert_eq!(plain.known_failing, None);
+        let text =
+            MINIMAL.replace("headless = true", "headless = true\nknown_failing = \"#1 open\"");
+        let scenario = Scenario::parse(&text).unwrap();
+        let json = report_json(&scenario, 1, None, &Metrics::default(), &[], 0.0);
+        assert_eq!(json["known_failing"], "#1 open");
+        assert_eq!(
+            report_json(&plain, 1, None, &Metrics::default(), &[], 0.0)["known_failing"],
+            Value::Null
+        );
     }
 
     #[test]
