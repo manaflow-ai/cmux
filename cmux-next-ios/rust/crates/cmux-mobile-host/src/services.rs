@@ -243,10 +243,10 @@ const ACPMUX_MAX_MESSAGE_BYTES: usize = 64 << 20;
 /// `needs-you-v1`: the `needs-you` service (the Mac app's own open Feed requests, `needs_you.rs`).
 /// `appearance-v1`: the `appearance` and `appearance-wallpaper` services (the Mac's theme and
 /// wallpaper, `appearance.rs`).
-/// `phone-frames-v1`: the `phone-frames` service (the phone's terminal scroll frame times,
-/// logged to `phone-frames.jsonl`, `phone_frames.rs`).
 /// `pair-requests-v1`: the `pair-requests` service (a paired device answers a pairing request
 /// waiting on this Mac, `pair_requests.rs`).
+/// `phone-frames-v1`: the `phone-frames` service (the phone's terminal scroll frame times,
+/// logged to `phone-frames.jsonl`, `phone_frames.rs`).
 pub const CAPABILITIES: [&str; 9] = [
     "removal-v1",
     "file-preview-v1",
@@ -255,8 +255,8 @@ pub const CAPABILITIES: [&str; 9] = [
     "cloud-acpmux-v1",
     "needs-you-v1",
     "appearance-v1",
-    "phone-frames-v1",
     "pair-requests-v1",
+    "phone-frames-v1",
 ];
 /// Added to [`CAPABILITIES`] when this Mac can stream browser tabs (`browser`).
 pub const BROWSER_STREAM: &str = "browser-stream-v1";
@@ -2330,8 +2330,8 @@ mod tests {
                 "cloud-acpmux-v1",
                 "needs-you-v1",
                 "appearance-v1",
-                "phone-frames-v1",
-                "pair-requests-v1"
+                "pair-requests-v1",
+                "phone-frames-v1"
             ]
         );
         let launcher: crate::browser::Launcher = std::sync::Arc::new(|_| {
@@ -2348,8 +2348,8 @@ mod tests {
                 "cloud-acpmux-v1",
                 "needs-you-v1",
                 "appearance-v1",
-                "phone-frames-v1",
                 "pair-requests-v1",
+                "phone-frames-v1",
                 BROWSER_STREAM,
                 BROWSER_VIDEO_TRACK
             ]
