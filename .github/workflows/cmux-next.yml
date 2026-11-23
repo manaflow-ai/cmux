@@ -1586,6 +1586,7 @@ jobs:
             # The INTERNAL iOS builder's trigger decisions and What to Test notes.
             python3 tests/test_ios_internal_builder.py
             python3 tests/test_ios_internal_notes.py
+            python3 tests/test_ios_internal_yolo.py
             bash scripts/cmux-next/tests/pin-cmux-tui-resolve-newest.test.sh
             bash scripts/cmux-next/tests/pin-cmux-tui-fallback-key.test.sh
             bash scripts/cmux-next/tests/pin-cmux-tui-dispatch.test.sh
