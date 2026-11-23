@@ -376,26 +376,18 @@ async fn resolve_linux_pin(
             // build, and the download is still checked against that pin.
             let Some(cache) = cache else { return Ok(None) };
             let keys = cmux_signed_envelope::linux_release::trusted_keys();
-            let published =
-                match published_release(PUBLISHED_BASE_URL, identity, "linux", arch, &cache, &keys)
-                    .await?
-                {
-                    Some(found) => Some(found),
-                    None => match bundled_tree_key(&executable) {
-                        Some(key) => {
-                            published_tree_pin(
-                                PUBLISHED_BASE_URL,
-                                &key,
-                                "linux",
-                                arch,
-                                &cache,
-                                &keys,
-                            )
-                            .await?
-                        }
-                        None => None,
-                    },
-                };
+            let own =
+                published_release(PUBLISHED_BASE_URL, identity, "linux", arch, &cache, &keys).await;
+            let tree_key =
+                if matches!(own, Ok(Some(_))) { None } else { bundled_tree_key(&executable) };
+            let published = match tree_key {
+                None => own?,
+                Some(key) => commit_or_tree(
+                    own,
+                    published_tree_pin(PUBLISHED_BASE_URL, &key, "linux", arch, &cache, &keys)
+                        .await,
+                )?,
+            };
             let Some((published, commit)) = published else { return Ok(None) };
             Ok(Some((pin(&published.sha256, &commit), PinSource::Published(published))))
         }
@@ -413,6 +405,23 @@ async fn resolve_linux_pin(
         Some(Payload::Client(_) | Payload::ClientSlice(_)) => Err(BootstrapError::Configuration(
             "a Linux payload resolved to this client's own build".into(),
         )),
+    }
+}
+
+/// A tree-mode bundle's pin: its own commit's signed release file when that
+/// gives one, else its tree's. A commit published before release files were
+/// signed has only the unsigned manifest (`own` is the unsigned_only error):
+/// the tree's signed file still pins the same build, so that error stands only
+/// when the tree publishes nothing either. A tree file that fails to verify is
+/// its own error, never an unpinned download.
+fn commit_or_tree<T>(
+    own: Result<Option<T>, BootstrapError>,
+    tree: Result<Option<T>, BootstrapError>,
+) -> Result<Option<T>, BootstrapError> {
+    match (own, tree?) {
+        (Ok(Some(found)), _) => Ok(Some(found)),
+        (_, Some(found)) => Ok(Some(found)),
+        (own, None) => own,
     }
 }
 
@@ -1020,6 +1029,21 @@ mod published_release_tests {
             release_pin(&good, ReleasePlace::Commit(COMMIT), "linux", "x86_64", cache, &production)
                 .is_err()
         );
+    }
+
+    /// Review F1 (cmux#50221): a tree bundle whose commit has only the unsigned
+    /// manifest still takes its tree's signed release file.
+    #[test]
+    fn a_tree_bundle_tries_its_tree_before_refusing_an_unsigned_commit() {
+        let unsigned = || Err::<Option<u8>, _>(unsigned_only(COMMIT));
+        assert_eq!(commit_or_tree(unsigned(), Ok(Some(7))).unwrap(), Some(7));
+        let refused = commit_or_tree(unsigned(), Ok(None)).unwrap_err().to_string();
+        assert!(refused.contains("signed release file"), "{refused}");
+        assert_eq!(commit_or_tree(Ok(Some(1)), Ok(Some(7))).unwrap(), Some(1));
+        assert_eq!(commit_or_tree(Ok(None), Ok(Some(7))).unwrap(), Some(7));
+        assert_eq!(commit_or_tree::<u8>(Ok(None), Ok(None)).unwrap(), None);
+        let bad_tree = Err(BootstrapError::Configuration("bad tree".into()));
+        assert!(commit_or_tree(unsigned(), bad_tree).is_err());
     }
 
     #[test]
