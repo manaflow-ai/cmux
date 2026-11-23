@@ -15,6 +15,7 @@ cd "$(git rev-parse --show-toplevel)"
 # A step's checkout has empty submodules: reload.sh needs Ghostty's headers (GhosttyKit itself comes
 # from the pinned cache) and ghostty-next for the bundled cmux-tui.
 git submodule update --init --depth 1 ghostty ghostty-next >/dev/null
+. scripts/measure/require-chromium.sh
 tag="inftabs"
 out="$(mktemp -d)"
 # Remove the scratch folder on every exit (a failed build, a TERM), not only at the end: a leaked one holds a build.
@@ -31,7 +32,14 @@ for arg in "$@"; do
   esac
 done
 set -- ${bench_args[@]+"${bench_args[@]}"}
-CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" ${reload_config[@]+"${reload_config[@]}"} 2>&1 | tee "$out/reload.log"
+# The tabs are Chromium pages: a build with no engine opens none of them, and the run measures another mix
+# (step a985cca9a3ba on cmux19: tabs=0 of 500, after a 50 minute build and run).
+reload_status=0
+CMUX_NEXT_REQUIRE_CEF=1 CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" ${reload_config[@]+"${reload_config[@]}"} 2>&1 | tee "$out/reload.log" || reload_status=$?
+if [[ "$reload_status" -ne 0 ]]; then
+  measure_chromium_failure infinite-tabs "$out/reload.log" || true
+  exit "$reload_status"
+fi
 app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
 if [[ -z "$app" || ! -d "$app" ]]; then
   echo "infinite-tabs: the tagged reload printed no app path" >&2
