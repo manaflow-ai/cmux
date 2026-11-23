@@ -343,6 +343,7 @@ final class TerminalDemoDriver {
     private func tuiPan(_ variant: String) async {
         let load = variant.hasSuffix("-load")
         let screen = load ? String(variant.dropLast(5)) : variant
+        (model.session as? MockTerminalSession)?.stampsRedraws = true
         model.composerText = screen == "primary"
             ? (load ? "claudecli 12000 16" : "claudecli 1500 80")
             : (load ? "claudefull 12000 \(screen) stream=16" : "claudefull 1500 \(screen)")
@@ -358,6 +359,7 @@ final class TerminalDemoDriver {
         let meter = TerminalPanMeter(window: window, sends: { [weak session] in session?.sends ?? 0 })
         let bytes = session.bytesFromPhone, fetches = session.historyFetches, sends = session.sends
         let scrolls = session.appScrolls
+        session.paintSamples = []
         mark("tuipan-\(variant) ready isTUI=\(model.isTUI)")
         model.demoNote = "tuipan-\(variant) ready isTUI=\(model.isTUI)"
         // Until the pans are over: 4 s with no finger after the first (the
@@ -370,8 +372,16 @@ final class TerminalDemoDriver {
         meter.stop()
         let result = meter.summary + " bytes=\(session.bytesFromPhone - bytes) sends=\(session.sends - sends)"
             + " appScrolls=\(session.appScrolls - scrolls) fetches=\(session.historyFetches - fetches) touches=\(meter.touches) isTUI=\(model.isTUI)"
+            + Self.paintNote(session.paintSamples)
         model.demoNote = "tuipan-\(variant) done " + result
         mark(model.demoNote)
+    }
+
+    /// ` paint=N paintP50=MS paintP95=MS`: the screen's receive to the present that showed it
+    /// (``TerminalPaintTally``), over the stamped writes it reported.
+    static func paintNote(_ samples: [TerminalPaintTally.Sample]) -> String {
+        guard let paint = TerminalPaintTally.receiveToPaint(samples) else { return " paint=0" }
+        return String(format: " paint=%d paintP50=%.1f paintP95=%.1f", samples.count, paint.p50, paint.p95)
     }
 
     private func keyboard() async {

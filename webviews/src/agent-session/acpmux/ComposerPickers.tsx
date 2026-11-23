@@ -1637,6 +1637,7 @@ function AccessMenu({
           side={newTab ? "bottom" : "top"}
           align="start"
           className="acpmux-access-menu"
+          resize={{ id: "composer.access" }}
           // ui-allow: 1 to 9 pick the mode in that place while the menu is open, as in Claude's mode menu.
           onKeyDown={(event) => {
             if (event.metaKey || event.ctrlKey || event.altKey || !/^[1-9]$/.test(event.key)) return;
@@ -2058,6 +2059,8 @@ export function Picker({
   tooltip,
   shortcut,
   onOpen,
+  resizeId,
+  returnHint = false,
 }: {
   label: string;
   className: string;
@@ -2070,6 +2073,10 @@ export function Picker({
   /// The keycaps of the shortcut that opens it, shown after the tooltip (shortcuts.ts).
   shortcut?: string | undefined;
   onOpen?: () => void;
+  /// Resizable from its edges away from the button, its size kept under this name (ui/PopupResize.tsx).
+  resizeId?: string;
+  /// The highlighted row ends in the Return keycap and its choice's `verb` (the + menu). Off: no hint.
+  returnHint?: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement | null>(null);
@@ -2108,6 +2115,7 @@ export function Picker({
           // shared policy here also preserves prompt focus when a native capture is cancelled.
           finalFocus={undefined}
           className={cx("acpmux-menu acpmux-picker-menu", className)}
+          {...(resizeId ? { resize: { id: resizeId } } : {})}
         >
           {heading && (
             <div className="acpmux-menu-heading" aria-hidden="true">
@@ -2127,6 +2135,7 @@ export function Picker({
                         section={section}
                         current={choice.id === section.current}
                         warnUnrestricted={warnUnrestricted}
+                        returnHint={returnHint}
                         close={() => setMenuOpen(false)}
                       />
                     ))}
@@ -2139,6 +2148,7 @@ export function Picker({
                       section={section}
                       current={choice.id === section.current}
                       warnUnrestricted={warnUnrestricted}
+                      returnHint={returnHint}
                       close={() => setMenuOpen(false)}
                     />
                   ))
@@ -2157,12 +2167,14 @@ function PickerMenuItem({
   section,
   current,
   warnUnrestricted,
+  returnHint,
   close,
 }: {
   choice: Choice;
   section: Section;
   current: boolean;
   warnUnrestricted: boolean;
+  returnHint: boolean;
   close(): void;
 }) {
   return (
@@ -2193,6 +2205,12 @@ function PickerMenuItem({
         ) : (
           <span className="acpmux-menu-hint acpmux-menu-arg">{choice.hint}</span>
         ))}
+      {returnHint && choice.verb && (
+        <span className="acpmux-menu-return" aria-hidden="true">
+          <span className="acpmux-menu-return-verb">{choice.verb}</span>
+          <KeyHint keys="↩" />
+        </span>
+      )}
       {current && <CheckIcon />}
     </MenuItem>
   );

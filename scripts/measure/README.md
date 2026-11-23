@@ -33,6 +33,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | tui-idle | `tui-idle-ram.sh` (`tui-idle-ram.py`, `dhat-top.py`) on Linux CI | The idle cmux-tui daemon's anonymous PSS, PSS, threads, binary sections and (dhat=1) Rust heap at commits. |
 | chat-size | `chat-size-sweep.sh` on the Linux fleet | Real daemon open, pages at three depths, first token, prompt index and RSS at 1 MB, 100 MB, 1 GB and 4 GB, with ratios and a Markdown table. |
 | agent-turn | `cargo bench -p acpmux --bench turn_overhead` (`benches/turn_overhead.rs`) on Linux CI | One agent turn through a real acpmux daemon with a stand-in model that answers at once: send, harness, store, deliver, render, turn, shown (median and p95 over 100 turns). |
+| cloud-turn | `cargo bench -p acpmux --features hub-carrier --bench turn_overhead -- --route local`, then `--route relay` (`benches/turn_overhead.rs`, `turn_overhead/relay.rs`) on Linux CI | The agent-turn turns with the chat crossing a real relay on loopback (the Cloud carrier's relay, its client and the Noise link), beside the local route from the same binary: the same stages plus relay_in, relay_out and a pane attach (connect, handshake, first frame). |
 | daemon-latency | `tui-idle-ram.sh runs=0 latency=1` (`cmux-tui/scripts/bench-daemon-latency.py`, acpmux `start_under_load_bench`) on Linux CI | bin/cmux hot paths at commits in alternating rounds: daemon requests, the CLI end to end, acpmux send to first token (cold and warm). One run per commit, so `compare` matches the sides. |
 | acpmux-watch-bytes | acpmux `hub/stream_tell_tests.rs` (cargo, Linux CI) | Bytes one acpmux watcher is sent while 20 chats stream and the list is read 60 times. |
 | typing | `webviews/bench/composer-typing.bench.ts` (load modes L0-L3, Chromium and WebKit) on Linux CI | Composer keydown-to-paint p95/p99 and key integrity under idle, stream, ten streaming documents and a 100k-row stream. |
@@ -43,6 +44,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | dev-loop | `dev-loop-ceiling.sh` (`dev-loop/<loop>.sh`, `dev-loop/bound.py`) on a fleet Mac | Edit to running for web swap, daemon restart, Swift inject and the startup loop, each over its simulated stage-floor bound; worst ratio (goal dev-loop-ceiling). |
 | coord-sim | `coord-sim-linux.sh` (crate `cmux-tui/crates/coord-sim`) on Linux CI; also the perf cron's coord-sim part | Several synthetic coordinator chats at once into a release acpmux: event delivery p50/p95/p99, lost and duplicated events, attach and first paint under load, history paging, prompt ack and echo, daemon RSS and its slope, memory and CPU per chat. |
 | projection-way-back | `a_bench_of_bring_back` (`cmux-tui/crates/cmux-tui/tests/link_project_back.rs`) on Linux CI | Bring Back of a projected folder against today's pull (`seed pull --or-copy`) at N files and 50 edits, over a 50 ms RTT link; the plan step and the pure plan's cost. |
+| chief-latency | `chief-latency.sh` (`Native/OptChat/optchat-chief/measure/chief_driver.py --scenario latency`, `chief_latency.py`) on a fleet Mac, real model through SR2 | A scratch Chief built at two refs, alternating rounds of 15 typical asks (trivial, memory, tool, long reply, one and two subagents, a view rebuild): input tokens of each turn's first request and of every request, first token (warm, cold), turn p50/p90, cold share, refused sends, and a before/after markdown table for a PR body. |
 
 
 ## Dev loop
@@ -138,10 +140,12 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `perf-10x-drag-daemon.py` | Daemon-side cost of one drag value. | perf-10x | 2026-11-13 | active |
 | `pane-motion-films.sh` | One movie per pane act, for a person to look at (judges nothing). | - | 2026-11-15 | active |
 | `pane-motion-films.py` | Python driver for pane-motion-films.sh. | - | 2026-11-15 | active |
+| `window-resize-feel.sh` | Films of a window corner drag (and a pane divider drag) over chat transcripts, one fresh launch per CEF resize-sync arm (`--arms=NAME:LIVE_MS:DRAG_MS:FRAME_SHARE,...`), with frame intervals and CEF fence/commit deltas; for a person or a frame analysis (judges nothing). | Leo 2026-11-22, #50940 | 2026-11-22 | active |
+| `window-resize-feel.py` | Python driver for window-resize-feel.sh. | Leo 2026-11-22, #50940 | 2026-11-22 | active |
 | `pane-overflow-fade.sh` | Native presentation-layer measurement of the pane overflow fade. | - | 2026-10-28 | active |
 | `pane-overflow-bundle-setup.py` | Keeps historical bundle installs from deleting tracked placeholder docs. | - | 2026-10-26 | active |
 | `fullscreen-transition.sh` | Full screen enter and leave: lag, layout passes, resizes. | fullscreen-lag | 2026-10-27 | active |
-| `edit-repaint.sh` | Edit to repaint for cmux-next.json edits and customize saves (section, rows, pane), a palette command and a key binding. | - | 2026-11-19 | active |
+| `edit-repaint.sh` | Edit to repaint for cmux-next.json edits and customize saves (section, rows, pane, and a section card's `.glass` level), a palette command and a key binding. | - | 2026-11-23 | active |
 | `replay-build-bench.sh` | terminal VT replay build time, one text layout against two. | - | 2026-11-01 | active |
 | `pane-main-profile.sh` | One Instruments profile of the pane's 20 MB prompt bench. | - | 2026-10-05 | stale |
 | `pane-native-transport.sh` | Agent pane native transport against the page-world WebSocket. | - | 2026-11-07 | active |
@@ -207,6 +211,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `agent-loop.sh` | Agent loop on a published NEXT nightly: scripted UI change applied live. | hq#7149 L8 | 2026-11-05 | active |
 | `agent-loop.py` | Python driver for agent-loop.sh. | hq#7149 L8 | 2026-11-05 | active |
 | `chief-build-cache.sh` | Chief build cache timing before and after. | #28481 | 2026-10-30 | active |
+| `chief-latency.sh` | Chief latency before/after: a scratch Chief at two refs on one Mac, the 15-ask `latency` scenario with a real model (chief-latency bench; how to run: `Native/OptChat/optchat-chief/measure/README-latency.md`). | Chief latency lane | 2026-11-23 | active |
 | `chief-import.sh` | One Chief import of a 2,020-message corpus on a quiet Mac. | - | 2026-10-10 | stale |
 | `chief-prompt-bubble.sh` | Proof that a 140 KB Chief subagent prompt draws as the first bubble. | u4256 | 2026-10-27 | active |
 | `team-eval.sh` | One run of the coordinator-mode eval: one task, one arm. | - | 2026-11-07 | active |
