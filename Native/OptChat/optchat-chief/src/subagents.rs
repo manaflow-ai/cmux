@@ -2301,6 +2301,7 @@ impl Orchestrator for Spawner {
         let status = starting_status(&plan);
         let worker = self.clone();
         let plan_for_failure = plan.clone();
+        let plan_on_thread_error = plan.clone();
         let thread = std::thread::Builder::new()
             .name(format!("chief-spawn-{}", plan.spawn))
             .spawn(move || {
@@ -2326,7 +2327,7 @@ impl Orchestrator for Spawner {
         if let Err(error) = thread {
             let error = format!("could not start the spawn worker: {error}");
             (self.log)(&error);
-            self.fail_starting(&plan_for_failure, error);
+            self.fail_starting(&plan_on_thread_error, error);
         }
         Ok(status)
     }
