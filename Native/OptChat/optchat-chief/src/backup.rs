@@ -596,6 +596,14 @@ impl Backup {
 
     /// One attempt: scan what is new since the last push, then push it.
     pub fn run(&mut self, dir: &Path) -> Outcome {
+        self.run_at(dir, Instant::now())
+    }
+
+    /// Run a backup against a supplied clock. The persister uses [`Self::run`]
+    /// with the real clock. This entry point keeps retry-bound tests
+    /// deterministic without sleeping through the production backoff.
+    #[doc(hidden)]
+    pub fn run_at(&mut self, dir: &Path, now: Instant) -> Outcome {
         if let Some((error, attempts)) = &self.blocked {
             return Outcome::Blocked {
                 error: error.clone(),
@@ -603,7 +611,6 @@ impl Backup {
             };
         }
         if let Some(at) = self.due {
-            let now = Instant::now();
             if now < at {
                 return Outcome::Waiting {
                     error: self
@@ -614,7 +621,7 @@ impl Backup {
                 };
             }
         }
-        let outcome = self.attempt(dir);
+        let outcome = self.attempt(dir, now);
         match &outcome {
             Outcome::Failed { .. } | Outcome::Waiting { .. } | Outcome::Blocked { .. } => {}
             _ => {
@@ -631,7 +638,7 @@ impl Backup {
         outcome
     }
 
-    fn attempt(&mut self, dir: &Path) -> Outcome {
+    fn attempt(&mut self, dir: &Path, now: Instant) -> Outcome {
         let (url, tagged) = (self.config.url.is_some(), self.config.tagged);
         let remote = *self
             .remote
@@ -650,11 +657,11 @@ impl Backup {
         match self.scan(dir, &base) {
             Ok(Some((what, rule))) => return Outcome::Held { what, rule },
             Ok(None) => {}
-            Err(error) => return self.failed(error),
+            Err(error) => return self.failed(error, now),
         }
         match self.push(dir, &head) {
             Ok(head) => Outcome::Pushed { head },
-            Err(error) => self.failed(error),
+            Err(error) => self.failed(error, now),
         }
     }
 
@@ -724,9 +731,8 @@ impl Backup {
         ))
     }
 
-    fn failed(&mut self, error: String) -> Outcome {
+    fn failed(&mut self, error: String, now: Instant) -> Outcome {
         self.retries += 1;
-        let now = Instant::now();
         let until = *self.retry_until.get_or_insert(now + RETRY_WINDOW);
         if self.retries >= MAX_RETRIES || now >= until {
             self.due = None;

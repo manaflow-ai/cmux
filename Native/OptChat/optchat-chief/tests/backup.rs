@@ -158,18 +158,18 @@ fn an_unreachable_remote_is_retried_with_backoff() {
         panic!("the push must fail while the remote is missing")
     };
     assert!(backup.due().is_some());
-    let Outcome::Failed { retry: second, .. } = backup.run(&s.chat) else {
-        panic!("still missing")
+    let Outcome::Waiting { retry: second, .. } = backup.run(&s.chat) else {
+        panic!("a turn before due must not retry the push")
     };
-    assert!(
-        second > first,
-        "the jittered exponential delay still backs off"
-    );
+    assert!(second <= first, "the pending retry should count down");
     assert_eq!(status(&s)["state"], "retrying");
-    // The remote comes back: the next try pushes and the retry is cleared.
+    // A remote becoming available does not bypass the backoff. A fresh
+    // persister retries it after a restart, and clears the retry state.
     init_bare(&s.bare);
-    assert!(matches!(backup.run(&s.chat), Outcome::Pushed { .. }));
-    assert!(backup.due().is_none());
+    assert!(matches!(backup.run(&s.chat), Outcome::Waiting { .. }));
+    let mut recovered = Backup::new(s.config.clone());
+    assert!(matches!(recovered.run(&s.chat), Outcome::Pushed { .. }));
+    assert!(recovered.due().is_none());
 }
 
 #[test]
@@ -233,15 +233,39 @@ fn a_permanent_push_failure_becomes_visible_and_stops_retrying() {
     let s = setup();
     let mut backup = Backup::new(s.config.clone());
     turn(&s.chat, &["hello"], "turn:optchat:0:1");
+    let mut now = std::time::Instant::now();
     for _ in 0..7 {
-        assert!(matches!(backup.run(&s.chat), Outcome::Failed { .. }));
+        assert!(matches!(
+            backup.run_at(&s.chat, now),
+            Outcome::Failed { .. }
+        ));
+        now = backup.due().unwrap() + std::time::Duration::from_secs(1);
     }
-    let Outcome::Blocked { attempts, .. } = backup.run(&s.chat) else {
+    let Outcome::Blocked { attempts, .. } = backup.run_at(&s.chat, now) else {
         panic!("the retry budget must end in a visible blocked state")
     };
     assert_eq!(attempts, 8);
     assert!(backup.due().is_none());
     assert_eq!(status(&s)["state"], "blocked");
+    init_bare(&s.bare);
+    assert!(matches!(
+        backup.run_at(&s.chat, now),
+        Outcome::Blocked { .. }
+    ));
+    let remote_head = Command::new("git")
+        .args([
+            "-C",
+            s.bare.to_str().unwrap(),
+            "show-ref",
+            "--verify",
+            "refs/heads/main",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        !remote_head.status.success(),
+        "blocked backup must not retry"
+    );
 }
 
 #[test]
