@@ -12,6 +12,7 @@ import { TurnActionsContext } from "./turnActions";
 import { waterfall, WATERFALL_FIRST, type WaterfallSpan, type WaterfallTone } from "./waterfallSpans";
 import "./TurnWaterfall.css";
 import { spanTime } from "./turnWaterfallModel";
+import { WithFacts } from "../chips/FactsHoverCard";
 
 /// How the bars lay out: `bars` (label, then its bar on the shared axis), `stacked` (the label over
 /// a full-width bar) or `lanes` (one lane per kind of work, its bars side by side).
@@ -144,34 +145,46 @@ export function TurnWaterfall({
     const key = `${at}:${span.toolId ?? "thought"}`;
     return span.toolId && showCall ? (
       <li key={key}>
-        <button
-          type="button"
-          className={className}
-          aria-description={title}
-          data-tool-id={span.toolId}
-          onClick={() => showCall(span.toolId!, span.item.tool?.startedAt)}
-        >
-          {body}
-        </button>
+        <WithFacts facts={[{ value: title }]}>
+          {(facts) => (
+            <button
+              {...facts}
+              type="button"
+              className={className}
+              data-tool-id={span.toolId}
+              onClick={() => showCall(span.toolId!, span.item.tool?.startedAt)}
+            >
+              {body}
+            </button>
+          )}
+        </WithFacts>
       </li>
     ) : (
       <li key={key}>
-        <div className={className} aria-description={title}>
-          {body}
-        </div>
+        <WithFacts facts={[{ value: title }]}>
+          {(facts) => (
+            <div {...facts} className={className}>
+              {body}
+            </div>
+          )}
+        </WithFacts>
       </li>
     );
   };
   // The turn's time outside every call and thought, last, so the rows above and it fill the axis.
   const modelRow = (
     <li key="model">
-      <div className="cv-waterfall__span is-model" aria-description={modelTitle}>
-        <span className="cv-waterfall__label">
-          <span className="cv-waterfall__name">{modelLabel}</span>
-        </span>
-        <span className="cv-waterfall__track">{gapBars("cv-waterfall__bar")}</span>
-        <span className="cv-waterfall__time">{spanTime(t, chart.gapTotal)}</span>
-      </div>
+      <WithFacts facts={[{ value: modelTitle }]}>
+        {(facts) => (
+          <div {...facts} className="cv-waterfall__span is-model">
+            <span className="cv-waterfall__label">
+              <span className="cv-waterfall__name">{modelLabel}</span>
+            </span>
+            <span className="cv-waterfall__track">{gapBars("cv-waterfall__bar")}</span>
+            <span className="cv-waterfall__time">{spanTime(t, chart.gapTotal)}</span>
+          </div>
+        )}
+      </WithFacts>
     </li>
   );
   // Lanes: one row per kind of work, in the order each kind first ran.

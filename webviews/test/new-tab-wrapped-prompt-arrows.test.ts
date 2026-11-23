@@ -5,6 +5,8 @@
 // A prompt the field wraps onto several lines had no newline, so ↑ and ↓ never moved its caret: the
 // first ↑ left the top row typing lights, the next took the menu's last row. Now ↑ and ↓ walk the
 // wrapped lines like a text box, and ↓ on the last line reaches the menu (↑ on the first, its last row).
+// New Tab draws no Ask row and lights no row while typing (Return sends the prompt), so the menu holds
+// the web search row alone and ↓ from the last line lights it.
 //
 // Real Chromium and WebKit from Playwright on the gallery stage (jsdom has no layout, so no wrapping).
 // Locally: CMUX_BROWSER_TESTS=1 bun test test/new-tab-wrapped-prompt-arrows.test.ts
@@ -135,14 +137,14 @@ await requireBrowserLane("new-tab-wrapped-prompt-arrows.test.ts", async () => {
       expect(typed.newline).toBe(false);
       expect(lines).toBeGreaterThanOrEqual(3);
       expect(typed.caret).toBe(typed.length);
-      expect(typed.rows).toBeGreaterThan(1);
-      expect(typed.highlighted).toBe(0);
+      expect(typed.rows).toBeGreaterThanOrEqual(1);
+      expect(typed.highlighted).toBe(-1);
 
-      // ↑ from the last line moves the caret up a line each time; the top row typing lit stays.
+      // ↑ from the last line moves the caret up a line each time; no row lights.
       const carets = [typed.caret];
       for (let line = 1; line < lines; line++) {
         const after = await press(page, "ArrowUp", carets.at(-1)!);
-        expect({ line, highlighted: after.highlighted }).toEqual({ line, highlighted: 0 });
+        expect({ line, highlighted: after.highlighted }).toEqual({ line, highlighted: -1 });
         expect(after.caret).toBeLessThan(carets.at(-1)!);
         carets.push(after.caret);
       }
@@ -151,12 +153,12 @@ await requireBrowserLane("new-tab-wrapped-prompt-arrows.test.ts", async () => {
       for (let line = 1; line < lines; line++) {
         const after = await press(page, "ArrowDown", caret);
         caret = after.caret;
-        expect({ line, highlighted: after.highlighted }).toEqual({ line, highlighted: 0 });
+        expect({ line, highlighted: after.highlighted }).toEqual({ line, highlighted: -1 });
         expect(after.caret).toBeGreaterThan(carets[lines - line]!);
       }
-      // ↓ on the last line reaches the menu: the next row.
+      // ↓ on the last line reaches the menu: its first row.
       await page.keyboard.press("ArrowDown");
-      expect((await state(page)).highlighted).toBe(1);
+      expect((await state(page)).highlighted).toBe(0);
       await page.close();
     });
   }

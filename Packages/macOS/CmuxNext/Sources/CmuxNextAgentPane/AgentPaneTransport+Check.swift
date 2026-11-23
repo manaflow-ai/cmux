@@ -123,10 +123,19 @@ extension AgentPaneTransport {
 
     /// The off-main rules on one frame, in order (see ``Checked``).
     nonisolated static func checkOne(_ text: String, _ snapshot: Snapshot) -> Checked {
-        let object: [String: Any]
+        var object: [String: Any]
         switch AcpmuxPaneMethods.decideFrame(text, isFirst: snapshot.isFirst) {
         case .failure(let refusal): return .refuse(refusal.decision, spend: nil)
         case .success(let decided): object = decided
+        }
+        // The handshake fails safe: an initialize's unknown `_meta.acpmux` opt-ins are removed
+        // before every rule, so they never reach the daemon and never fail the connect (cmux#46563).
+        if let stripped = AcpmuxPaneMethods.strippingInitializeOptIns(object, modeFields: snapshot.modeFields) {
+            object = stripped.object
+            // Once per connection (an initialize is its first frame): the names only, each cut
+            // to 64 characters and at most 8 of them, never a value.
+            let names = stripped.keys.prefix(8).map { String($0.prefix(64)) }.joined(separator: ",")
+            Self.logger.notice("agent pane initialize stripped unknown _meta.acpmux keys=\(names, privacy: .public) count=\(stripped.keys.count, privacy: .public)")
         }
         let method = object["method"] as? String
         let pageID = object["id"].flatMap(AcpmuxPaneMethods.rawID)

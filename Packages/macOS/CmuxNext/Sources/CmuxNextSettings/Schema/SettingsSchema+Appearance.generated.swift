@@ -41,6 +41,12 @@ extension AccentSetting {
     public nonisolated static let fallback: ThemeAccent = .neutral
 }
 
+extension SelectionSetting {
+    /// `appearance.selection`: Off by default: accent is today's rule (the accent's tint when appearance.accent or the theme names one). neutral keeps the gray card whatever the accent (ThemeInput.selection).
+    public nonisolated static let configPath = ["appearance", "selection"]
+    public nonisolated static let fallback: ThemeSelection = .accent
+}
+
 extension ThemeFileSetting {
     /// `appearance.themeFile`.
     public nonisolated static let configPath = ["appearance", "themeFile"]
@@ -233,6 +239,12 @@ extension BordersSetting {
     /// `appearance.borders`.
     public nonisolated static let configPath = ["appearance", "borders"]
     public nonisolated static let fallback: BorderMode = .default
+}
+
+extension LiquidGlassSetting {
+    /// `appearance.liquidGlass`: Web pages only: off sends data-glass="off" with the web theme (WebTheme), and every web glass surface draws the solid look of Reduce Transparency (webviews ui/glass/glass.css). Scroll fades stay; native surfaces keep their material. Off by default: CMUX-653, Lawrence decided it at standup 2026-11-19.
+    public nonisolated static let configPath = ["appearance", "liquidGlass"]
+    public nonisolated static let fallback = false
 }
 
 extension PaneFocusSettings {
