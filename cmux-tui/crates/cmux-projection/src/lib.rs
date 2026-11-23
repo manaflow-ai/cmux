@@ -10,6 +10,8 @@
 //! commit's tree and the bytes from the host's own git object store, so a checkout costs one tree
 //! listing and writes no files.
 
+#[cfg(unix)]
+pub mod fsmonitor;
 pub mod git;
 pub mod layer;
 pub mod link;

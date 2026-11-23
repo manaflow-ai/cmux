@@ -7,17 +7,21 @@
 #               in each on the "Mac" first)
 #   REPO        the repo to run `git status` in, relative to MAC_FOLDER
 # env: RTT_MS (default 50), MBPS (default 400), ROOT (default ~/Projects/scratch/git-status-bench),
-#      BIN (slice_bench binary; default: built from this checkout), FSMONITOR=0 (leave git's
-#      fsmonitor off: the before arm), OUT (default $ROOT/results.jsonl)
+#      BIN (slice_bench binary; default: built from this checkout), HOOK (the cmux-projection
+#      binary; default: built beside it), FSMONITOR=0 (leave git's fsmonitor off and the mount
+#      without its git warm-up: the before arm), OUT (default $ROOT/results.jsonl)
 #
 # Git runs with the machine image's settings (core.checkStat=minimal, core.trustctime=false), as
-# the daemon's `git-stat.config` sets them. Each run appends one JSON line to $OUT:
-#   {fsmonitor, files, cold_s, warm_s, cold_asks, cold_link_bytes_down, edit_s, status_lines}
+# the daemon's `git-stat.config` sets them; with FSMONITOR=1 `core.fsmonitor` is the projection's
+# hook too, and the timed status starts once the mount says its git warm-up is done (it runs while
+# the agent's first model turn does; its own time is `ready_ms`). Each run appends one JSON line:
+#   {fsmonitor, files, cold_s, warm_s, cold_asks, cold_link_bytes_down, edit_s, status_lines, ready_ms}
 # where edit_s is a `git status` after one tracked file is edited and one untracked file made.
 set -euo pipefail
 
 MAC=$(cd "$1" && pwd)
 [ -z "${BIN:-}" ] || BIN=$(realpath "$BIN")
+[ -z "${HOOK:-}" ] || HOOK=$(realpath "$HOOK")
 REPO=$2
 RUNS=${3:-3}
 RTT_MS=${RTT_MS:-50}
@@ -47,9 +51,10 @@ since() { awk -v a="$1" -v b="$(now)" 'BEGIN { printf "%.3f", b - a }'; }
 stat_of() { python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get(sys.argv[2], 0))' "$1" "$2" 2>/dev/null || echo 0; }
 
 if [ -z "${BIN:-}" ]; then
-  (cd "$CHECKOUT/cmux-tui" && "$CARGO" build -q --release -p cmux-projection --example slice_bench)
+  (cd "$CHECKOUT/cmux-tui" && "$CARGO" build -q --release -p cmux-projection --example slice_bench --bin cmux-projection)
   BIN=$CHECKOUT/cmux-tui/target/release/examples/slice_bench
 fi
+HOOK=${HOOK:-$(dirname "$(dirname "$BIN")")/cmux-projection}
 FILES=$(git -C "$MAC/$REPO" ls-files | wc -l)
 
 "$BIN" serve "$MAC" "127.0.0.1:$P1" >"$ROOT/logs/serve.out" 2>"$ROOT/logs/serve.err" &
@@ -59,6 +64,9 @@ PIDS+=($!)
 for _ in $(seq 600); do [ -s "$ROOT/logs/serve.out" ] && break; sleep 0.1; done
 
 GIT=(git -c core.checkStat=minimal -c core.trustctime=false)
+if [ "$FSMONITOR" = 1 ]; then
+  GIT+=(-c fsmonitor.allowRemote=true -c "core.fsmonitor='$HOOK' fsmonitor-hook '$ROOT/state/fsmonitor.sock' '$ROOT/mnt'")
+fi
 for run in $(seq "$RUNS"); do
   rm -rf "$ROOT/state"
   mkdir -p "$ROOT/mnt" "$ROOT/state"
@@ -72,6 +80,10 @@ for run in $(seq "$RUNS"); do
   if [ "$FSMONITOR" = 1 ]; then
     for _ in $(seq 300); do grep -q '"fsmonitor_ready"' "$out" && break; sleep 0.05; done
   fi
+  ready_ms=$(python3 -I -c 'import json,sys
+for line in open(sys.argv[1]):
+    if "fsmonitor_ready" in line: print(json.loads(line)["ready_ms"]); break
+else: print(0)' "$out")
   sleep 0.3
   asks0=$(stat_of "$ROOT/link.json" writes_up); down0=$(stat_of "$ROOT/link.json" bytes_down)
   cd "$ROOT/mnt/$REPO"
@@ -86,6 +98,6 @@ for run in $(seq "$RUNS"); do
   cd "$ROOT"
   kill "$mount_pid"; wait "$mount_pid" 2>/dev/null || true
   mountpoint -q "$ROOT/mnt" && fusermount3 -u "$ROOT/mnt"
-  line="{\"fsmonitor\":$FSMONITOR,\"rtt_ms\":$RTT_MS,\"files\":$FILES,\"cold_s\":$cold,\"warm_s\":$warm,\"cold_asks\":$((asks1 - asks0)),\"cold_link_bytes_down\":$((down1 - down0)),\"status_lines\":$lines,\"edit_s\":$edit,\"edit_status_lines\":$edit_lines}"
+  line="{\"fsmonitor\":$FSMONITOR,\"rtt_ms\":$RTT_MS,\"files\":$FILES,\"cold_s\":$cold,\"warm_s\":$warm,\"cold_asks\":$((asks1 - asks0)),\"cold_link_bytes_down\":$((down1 - down0)),\"status_lines\":$lines,\"edit_s\":$edit,\"edit_status_lines\":$edit_lines,\"ready_ms\":$ready_ms}"
   echo "$line" | tee -a "$OUT"
 done

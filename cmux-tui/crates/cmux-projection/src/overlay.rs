@@ -358,6 +358,8 @@ pub struct Overlay {
     pins_file: PathBuf,
     /// The free disk a pin leaves untouched ([`pin::DEFAULT_PIN_RESERVE`]).
     pin_reserve: u64,
+    /// Every change made through this overlay, for git's fsmonitor hook ([`crate::fsmonitor`]).
+    journal: crate::fsmonitor::Journal,
 }
 
 /// Keys this thread is fetching; dropping it lets others waiting on them go on.
@@ -622,6 +624,16 @@ impl Overlay {
         let cache_index = Mutex::new(cache_on_disk(&cache));
         let pins_file = state.join(pin::PINS_FILE);
         let pins = pin::read_pins(&pins_file)?;
+        let temp_prefix = {
+            static OPENED: AtomicU64 = AtomicU64::new(0);
+            let now = std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+            fnv(&[
+                now.as_nanos().to_le_bytes().as_slice(),
+                &OPENED.fetch_add(1, Ordering::Relaxed).to_le_bytes(),
+                &std::process::id().to_le_bytes(),
+            ]
+            .concat())
+        };
         let overlay = Self {
             manifest,
             fetch,
@@ -637,17 +649,7 @@ impl Overlay {
             inflight: Mutex::new(HashSet::new()),
             landed: Condvar::new(),
             temp: AtomicU64::new(0),
-            temp_prefix: {
-                static OPENED: AtomicU64 = AtomicU64::new(0);
-                let now =
-                    std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
-                fnv(&[
-                    now.as_nanos().to_le_bytes().as_slice(),
-                    &OPENED.fetch_add(1, Ordering::Relaxed).to_le_bytes(),
-                    &std::process::id().to_le_bytes(),
-                ]
-                .concat())
-            },
+            temp_prefix,
             remote_reads: AtomicU64::new(0),
             remote_bytes: AtomicU64::new(0),
             cache_hits: AtomicU64::new(0),
@@ -657,6 +659,7 @@ impl Overlay {
             pins: Mutex::new(BTreeSet::new()),
             pins_file,
             pin_reserve: pin::DEFAULT_PIN_RESERVE,
+            journal: crate::fsmonitor::Journal::new(temp_prefix),
         };
         // Pins an earlier daemon recorded hold before anything is evicted (their paths are
         // resolved in this manifest; one it no longer has pins nothing).
@@ -1493,6 +1496,7 @@ impl Overlay {
                 let file = self.upper.open_existing(&path, access)?;
                 if flags & libc::O_TRUNC != 0 {
                     file.set_len(0).map_err(|error| io_errno(&error))?;
+                    self.journal.note(&path);
                 }
                 (Some(Arc::new(file)), None)
             }
@@ -1557,6 +1561,7 @@ impl Overlay {
         match self.handle_file(handle) {
             Some(file) => {
                 file.write_all_at(data, offset).map_err(|error| io_errno(&error))?;
+                self.note_ino(ino);
                 u32::try_from(data.len()).map_err(|_| EINVAL)
             }
             None if self.handles().contains_key(&handle) => Err(EBADF),
@@ -1570,6 +1575,7 @@ impl Overlay {
         self.ensure_upper(&path)?;
         let file = self.upper.open_existing(&path, libc::O_WRONLY)?;
         file.write_all_at(data, offset).map_err(|error| io_errno(&error))?;
+        self.journal.note(&path);
         u32::try_from(data.len()).map_err(|_| EINVAL)
     }
 
@@ -1577,7 +1583,11 @@ impl Overlay {
     pub fn fallocate(&self, handle: u64, offset: i64, length: i64, mode: i32) -> Result<(), i32> {
         let file = self.handle_file(handle).ok_or(EBADF)?;
         // SAFETY: the descriptor is open for the call.
-        check(unsafe { libc::fallocate(file.as_raw_fd(), mode, offset, length) })
+        check(unsafe { libc::fallocate(file.as_raw_fd(), mode, offset, length) })?;
+        if let Some(ino) = self.handles().get(&handle).map(|open| open.ino) {
+            self.note_ino(ino);
+        }
+        Ok(())
     }
 
     /// Readies `child` (in folder `parent`) for a new path: nothing there, its folder in upper.
@@ -1641,6 +1651,7 @@ impl Overlay {
         }
         self.adopt_new(&parent, &child, who, Some(mode & 0o7777))?;
         let attr = self.lookup_path(&child)?;
+        self.journal.note(&child);
         let handle =
             self.add_handle(Handle { ino: attr.ino, file: Some(Arc::new(file)), lower: None });
         Ok((attr, handle))
@@ -1651,6 +1662,7 @@ impl Overlay {
         self.make_room(&parent, &child)?;
         self.in_folder(&parent, || self.upper.mkdir(&child, 0o700))?;
         self.adopt_new(&parent, &child, who, Some(mode & 0o7777))?;
+        self.journal.note(&child);
         self.lookup_path(&child)
     }
 
@@ -1682,6 +1694,7 @@ impl Overlay {
             _ => return Err(EINVAL),
         }
         self.adopt_new(&parent, &child, who, Some(mode & 0o7777))?;
+        self.journal.note(&child);
         self.lookup_path(&child)
     }
 
@@ -1691,6 +1704,7 @@ impl Overlay {
         let target = target.as_os_str().as_encoded_bytes();
         self.in_folder(&parent, || self.upper.symlink(target, &child))?;
         self.adopt_new(&parent, &child, who, None)?;
+        self.journal.note(&child);
         self.lookup_path(&child)
     }
 
@@ -1710,6 +1724,7 @@ impl Overlay {
         let _ = self.lookup_path(&from)?;
         self.make_room(&to_parent, &to)?;
         self.in_folder(&to_parent, || self.upper.link(&from, &to))?;
+        self.journal.note(&to);
         self.lookup_path(&to)
     }
 
@@ -1738,7 +1753,9 @@ impl Overlay {
         } else {
             self.forget_name(path, ino, None, true);
         }
-        self.hide_lower(path)
+        self.hide_lower(path)?;
+        self.journal.note(path);
+        Ok(())
     }
 
     pub fn unlink(&self, parent: u64, name: &str) -> Result<(), i32> {
@@ -1778,6 +1795,25 @@ impl Overlay {
 
     /// rename(2), with `RENAME_NOREPLACE` or `RENAME_EXCHANGE` in `flags`.
     pub fn rename(
+        &self,
+        parent: u64,
+        name: &str,
+        new_parent: u64,
+        new_name: &str,
+        flags: u32,
+    ) -> Result<(), i32> {
+        self.rename_names(parent, name, new_parent, new_name, flags)?;
+        // Both names changed (a folder's every path under them too: git reads a path it does not
+        // track as a folder).
+        for (folder, name) in [(parent, name), (new_parent, new_name)] {
+            if let Ok((_, path)) = self.child(folder, name) {
+                self.journal.note(&path);
+            }
+        }
+        Ok(())
+    }
+
+    fn rename_names(
         &self,
         parent: u64,
         name: &str,
@@ -1912,6 +1948,14 @@ impl Overlay {
     /// setattr(2)-family changes to `ino`, through open handle `handle` when the kernel names one
     /// (an `ftruncate` of a file deleted while open).
     pub fn setattr(&self, ino: u64, handle: Option<u64>, set: Set) -> Result<Attr, i32> {
+        let attr = self.set_attr(ino, handle, set)?;
+        if set != Set::default() {
+            self.note_ino(ino);
+        }
+        Ok(attr)
+    }
+
+    fn set_attr(&self, ino: u64, handle: Option<u64>, set: Set) -> Result<Attr, i32> {
         let by_handle = handle.and_then(|handle| self.handle_file(handle));
         // A change through an open handle goes to the file it holds: no lookup, no open.
         if let Some(file) = &by_handle
@@ -2020,6 +2064,9 @@ impl Overlay {
 
 #[path = "pin.rs"]
 pub mod pin;
+
+#[path = "git_warm.rs"]
+pub mod git_warm;
 
 #[cfg(test)]
 #[path = "overlay_tests.rs"]

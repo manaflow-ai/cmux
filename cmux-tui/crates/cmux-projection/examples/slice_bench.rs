@@ -428,6 +428,25 @@ fn mount(args: &[String]) -> anyhow::Result<()> {
     );
     println!("mounted");
     std::io::stdout().flush()?;
+    // SLICE_FSMONITOR=1: what a fresh mount does for git (RFD 0007, hard case 2): answer git's
+    // fsmonitor hook on `STATE/fsmonitor.sock`, fetch what a first `git status` reads, and prime
+    // each repo's index; one JSON line when done.
+    if std::env::var("SLICE_FSMONITOR").is_ok_and(|value| value == "1") {
+        let warming = Instant::now();
+        overlay.serve_fsmonitor(&Path::new(state).join("fsmonitor.sock"))?;
+        let warm = overlay.warm_git();
+        let warm_ms = ms(warming);
+        let primed = overlay.prime_git();
+        println!(
+            "{{\"fsmonitor_ready\":true,\"warm_ms\":{warm_ms:.1},\"ready_ms\":{:.1},\"repos\":{},\"warm_files\":{},\"warm_bytes\":{},\"warm_fetched_bytes\":{},\"primed\":{primed}}}",
+            ms(warming),
+            warm.repos,
+            warm.files,
+            warm.bytes,
+            warm.fetched_bytes
+        );
+        std::io::stdout().flush()?;
+    }
     linux::wait_for(&signals, &at);
     let stats = overlay.stats();
     println!(

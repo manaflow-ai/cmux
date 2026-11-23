@@ -5,7 +5,11 @@
 //!                           [--name NAME] [--ready-file FILE]
 //! cmux-projection git-unmount --at PATH
 //! cmux-projection seed --git-dir MIRROR --listen ADDR [--rate BYTES_PER_S] [--conns N]
+//! cmux-projection fsmonitor-hook SOCKET MOUNT VERSION [TOKEN]
 //! ```
+//!
+//! `fsmonitor-hook` is git's `core.fsmonitor` for a projected repo: it asks the projection serving
+//! SOCKET (mounted at MOUNT) what changed since TOKEN (`cmux_projection::fsmonitor`).
 //!
 //! `git-mount` mounts commit REV of the bare repo MIRROR at PATH and serves it until PATH is
 //! unmounted (`git-unmount`, or `fusermount3 -u PATH`). What it writes lands in an upper folder
@@ -21,8 +25,27 @@
 //! and only the rest come from GitHub; `CMUX_PROJECTION_PEERS=0` sends them all to GitHub. `seed` serves MIRROR's blobs read only on ADDR
 //! (a tailnet or VPC address, never 0.0.0.0) for the other hosts' chains.
 
+#[cfg(unix)]
+fn fsmonitor_hook() -> Option<std::process::ExitCode> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let (command, rest) = args.split_first()?;
+    if command != "fsmonitor-hook" {
+        return None;
+    }
+    Some(match cmux_projection::fsmonitor::run_hook(rest) {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("cmux-projection fsmonitor-hook: {error}");
+            std::process::ExitCode::FAILURE
+        }
+    })
+}
+
 #[cfg(target_os = "linux")]
 fn main() -> std::process::ExitCode {
+    if let Some(code) = fsmonitor_hook() {
+        return code;
+    }
     match linux::run(std::env::args().skip(1).collect()) {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(error) => {
@@ -34,6 +57,10 @@ fn main() -> std::process::ExitCode {
 
 #[cfg(not(target_os = "linux"))]
 fn main() -> std::process::ExitCode {
+    #[cfg(unix)]
+    if let Some(code) = fsmonitor_hook() {
+        return code;
+    }
     eprintln!("cmux-projection: mounts are Linux only");
     std::process::ExitCode::from(2)
 }
