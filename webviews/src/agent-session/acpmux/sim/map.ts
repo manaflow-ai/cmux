@@ -158,12 +158,24 @@ export const EVERYWHERE: {
     check: (run) => {
       const end = run.traces.at(-1);
       if (!end?.rows || end.working || !end.turnEnded) return [];
-      return want(end.rows.at(-1)?.kind === "turnSummary", `the chat rests on ${end.rows.at(-1)?.kind}, not a footer`);
+      // A fork's boundary line ("Forked from …", direct.ts `forked-from-<seq>`) sits under the parent's last
+      // footer: the copied turns end there, so the chat rests on the footer above it.
+      const rows = end.rows.filter((row) => !row.id.startsWith("forked-from-"));
+      return want(rows.at(-1)?.kind === "turnSummary", `the chat rests on ${rows.at(-1)?.kind}, not a footer`);
     },
   },
 ];
 
 export const MAP: MapEntry[] = [
+  // ---- Forks: what a fork made mid-stream draws (fork-hammer, #50021). ----
+  {
+    id: "fork-mid-stream",
+    when: "Fork Conversation on a chat whose reply is still streaming.",
+    wrong: "The fork drew the parent's live turn as still running, or lost the cut-off reply.",
+    expected:
+      "The fork draws the turns its records hold, the cut-off reply ended under its footer, then the Forked from line; it is idle.",
+    scenario: "fork-mid-stream",
+  },
   // ---- Gaps and folds: the three rules (README "The rules"), on the shapes Leo reported. ----
   {
     id: "plain-turn",
