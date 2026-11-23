@@ -107,6 +107,7 @@ impl Customize {
                 overlay: self.overlay_value(),
                 enabled: Some(Value::Bool(false)),
                 no_file: false,
+                text: None,
             };
             self.write_web_dev(&WebTarget::Base, &off)?;
             out.overlay_off = true;
