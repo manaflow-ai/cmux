@@ -134,56 +134,49 @@ public struct CloudAPIClient: Sendable {
 
     // MARK: Domains and publications
 
-    // cmux-platform's previews (docs/cloud-previews.md) on a preview client (``previewClient(baseURL:)``): a
-    // publication is one machine port's preview, `vm_…:port`. The sign-in client answers 501 and sends nothing.
+    // cmux-platform's previews (docs/cloud-previews.md) on a preview client (``previewClient(baseURL:)``), sent by the
+    // daemon (cmux-cloud-api `previews.rs`): a publication is one machine port's preview, `vm_…:port`. The sign-in
+    // client answers 501 and sends nothing.
 
-    /// `GET /v1/cloud/domains`: the domains Cloud publications are served on (the platform's managed one).
+    /// The daemon's `cloud.vm.domains`: the domains Cloud publications are served on (the platform's managed one).
     public func listDomains() async throws -> [CloudDomain] {
-        struct List: Decodable { var domains: [CloudDomain] }
-        return try await sendPreviews("GET", "/v1/cloud/domains", as: List.self).domains
+        try await previewCall("vm.domains", [:], as: [CloudDomain].self)
     }
 
-    /// `GET /v1/cloud/previews`: the signed-in person's publications in the current team.
+    /// The daemon's `cloud.vm.publications`: the signed-in person's publications in the current team.
     public func listPublications() async throws -> [CloudPublication] {
-        struct List: Decodable { var previews: [CloudPublication] }
-        return try await sendPreviews("GET", "/v1/cloud/previews", as: List.self).previews
+        try await previewCall("vm.publications", [:], as: [CloudPublication].self)
     }
 
-    /// `POST /v1/cloud/machines/{id}/previews/{port}/api-keys`: publishes `port` of the machine behind
-    /// cmux sign-in (a refresh, when it has no preview yet) and mints an API key for it in one call.
-    /// Calling it again for the same port reuses the publication and mints another key.
+    /// The daemon's `cloud.vm.provision_api`: publishes `port` of the machine behind cmux sign-in (a refresh,
+    /// when it has no preview yet) and mints an API key for it in one call. Calling it again for the same
+    /// port reuses the publication and mints another key.
     public func provisionAPI(machineID: String, port: Int, keyName: String? = nil) async throws -> CloudProvisionedAPI {
-        let body: [String: any Sendable] = keyName.map { ["name": $0] } ?? [:]
-        return try await sendPreviews("POST", "\(machinePath)/\(queryComponent(machineID))/previews/\(port)/api-keys", body: body,
-                                      timeout: .seconds(120), as: CloudProvisionedAPI.self)
+        var args: [String: any Sendable] = ["machine": machineID, "port": port]
+        if let keyName { args["keyName"] = keyName }
+        return try await previewCall("vm.provision_api", args, timeout: .seconds(125), as: CloudProvisionedAPI.self)
     }
 
-    /// The live API keys of a publication, named by its id or hostname.
+    /// The daemon's `cloud.vm.publication_api_keys`: the live API keys of a publication, named by its id or
+    /// hostname (the daemon resolves it from the publication list, so two bounded requests).
     public func listPublicationAPIKeys(_ publication: String) async throws -> [CloudPublicationAPIKey] {
-        struct List: Decodable { var apiKeys: [CloudPublicationAPIKey] }
-        return try await sendPreviews("GET", "\(try await publicationPath(publication))/api-keys", as: List.self).apiKeys
+        try await previewCall("vm.publication_api_keys", ["publication": publication], timeout: .seconds(65),
+                              as: [CloudPublicationAPIKey].self)
     }
 
-    /// Revokes one key; its next request is refused at the edge.
+    /// The daemon's `cloud.vm.revoke_publication_api_key`: revokes one key; its next request is refused at the edge.
     public func revokePublicationAPIKey(_ publication: String, keyID: String) async throws -> CloudPublicationAPIKey {
-        struct Revoked: Decodable { var apiKey: CloudPublicationAPIKey }
-        let path = "\(try await publicationPath(publication))/api-keys/\(queryComponent(keyID))"
-        return try await sendPreviews("DELETE", path, as: Revoked.self).apiKey
+        try await previewCall("vm.revoke_publication_api_key", ["publication": publication, "keyId": keyID],
+                              timeout: .seconds(65), as: CloudPublicationAPIKey.self)
     }
 
-    /// `/v1/cloud/machines/{id}/previews/{port}` of the publication whose id or hostname is `publication`.
-    private func publicationPath(_ publication: String) async throws -> String {
-        guard let found = try await listPublications().first(where: { $0.id == publication || $0.hostname == publication }),
-              let machine = found.vmId, let port = found.port else {
-            throw CloudAPIError.http(status: 404, code: "cloud.preview.not_found", message: "no such publication: \(publication)")
-        }
-        return "\(machinePath)/\(queryComponent(machine))/previews/\(port)"
-    }
-
-    private func sendPreviews<T: Decodable>(_ method: String, _ path: String, body: [String: any Sendable]? = nil,
-                                            timeout: Duration = .seconds(20), as type: T.Type) async throws -> T {
+    /// One preview or publication call through the daemon, its body decoded as `type`. The daemon bounds
+    /// each request at 30 s (120 s for a key's create); `timeout` bounds the child a little past that.
+    func previewCall<T: Decodable>(_ call: String, _ args: [String: any Sendable], timeout: Duration = .seconds(35),
+                                   as type: T.Type) async throws -> T {
         try requireWorker(code: "machine.previews_unsupported")
-        return try await send(method, path, body: body, timeout: timeout, as: type)
+        let data = try await daemon(call, args, timeout: timeout)
+        return try CloudMachineRules().answer(data, as: T.self, context: "cloud.\(call)")
     }
 
     /// Machine, file, SCP and preview calls are cmux-platform's: the sign-in client refuses them with a
@@ -197,10 +190,6 @@ public struct CloudAPIClient: Sendable {
         // second query item or fragment into the request URL.
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~/"))
         return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
-    }
-
-    private func queryComponent(_ value: String) -> String {
-        value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed.subtracting(.init(charactersIn: "/?&=#"))) ?? value
     }
 
     // MARK: Runs
