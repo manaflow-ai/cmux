@@ -130,9 +130,11 @@ fn a_page_reloaded_alone_is_not_escalated_once_its_siblings_stall_too() {
 }
 
 /// Pages that stay silent after a renderer restart (another renderer, or the Mac still in swap)
-/// restart nothing more until that restart had its boot wait.
+/// restart nothing more until that restart's backoff ([`crate::policy::shared_wait_after`])
+/// passed, and the next restart, for whichever page is silent longest then, is the stall's
+/// attempt 2.
 #[test]
-fn one_renderer_restart_per_boot_wait_for_a_stall() {
+fn one_renderer_restart_per_backoff_for_a_stall() {
     let mut h = model();
     chats(&mut h, &[A, B, C]);
     h.beat(B, 1_000);
@@ -140,9 +142,9 @@ fn one_renderer_restart_per_boot_wait_for_a_stall() {
     assert_eq!(run_beating(&mut h, 0, 120_000, &[]), vec![(120_000, A.into(), RestartRenderer, 1)]);
     h.event(A, "loaded", 121_000, None);
     h.rest(A, 122_000);
-    assert_eq!(run_beating(&mut h, 120_500, 149_999, &[]), vec![]);
+    assert_eq!(run_beating(&mut h, 120_500, 239_999, &[]), vec![]);
     assert_eq!(
-        run_beating(&mut h, 150_000, 150_000, &[]),
-        vec![(150_000, B.into(), RestartRenderer, 1)]
+        run_beating(&mut h, 240_000, 240_000, &[]),
+        vec![(240_000, B.into(), RestartRenderer, 2)]
     );
 }

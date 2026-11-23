@@ -22,6 +22,14 @@ export type CheckpointSnapshot = {
   rows: readonly { kind: string; seq?: number }[];
 };
 
+/** Lifecycle facts sent without constructing a hidden page's snapshot. */
+export type CheckpointTurnState = {
+  sessionId?: string;
+  isWorking: boolean;
+  turnsEnded: number;
+  completedSeq?: number;
+};
+
 /// `chat.turnCheckpoint`'s answer, as far as the page reads it.
 export type TurnCheckpointAnswer = {
   rowId?: unknown;
@@ -190,17 +198,29 @@ export class CloudTurnCheckpoints {
   }
 
   observe(snapshot: CheckpointSnapshot): void {
-    const next = {
+    this.observeState({
       session: snapshot.sessionId,
       working: snapshot.isWorking,
       turnsEnded: snapshot.turnsEnded,
       newest: latestForkSeq(snapshot.rows),
-    };
+    });
+  }
+
+  observeHiddenTurn(state: CheckpointTurnState): void {
+    this.observeState({
+      session: state.sessionId,
+      working: state.isWorking,
+      turnsEnded: state.turnsEnded,
+      newest: state.completedSeq ?? (state.sessionId === this.last?.session ? this.last?.newest : undefined),
+    });
+  }
+
+  private observeState(next: { session?: string; working: boolean; turnsEnded?: number; newest?: number }): void {
     const last = this.last;
     this.last = next;
     if (!last || last.session !== next.session) {
       this.ended = false;
-      this.before = latestForkSeq(snapshot.rows);
+      this.before = next.newest;
       return;
     }
     if (turnEndedBetween(last, next)) this.ended = true;
@@ -212,7 +232,7 @@ export class CloudTurnCheckpoints {
       this.waiting = undefined;
     }
     if (!this.ended || next.working) return;
-    const afterSeq = latestForkSeq(snapshot.rows);
+    const afterSeq = next.newest;
     if (afterSeq === undefined || afterSeq === this.before) return;
     this.ended = false;
     this.before = afterSeq;

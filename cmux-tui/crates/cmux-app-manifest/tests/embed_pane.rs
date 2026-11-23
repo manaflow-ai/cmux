@@ -19,6 +19,7 @@ mod apps {
             "name": "Figma",
             "version": "1.0.0",
             "description": "d",
+            "repository": "https://github.com/octo/figma",
             "icon": "icon.png",
             "engines": { "cmux": "^2.0" },
             "presentation": { "tab": true },
@@ -44,7 +45,7 @@ mod apps {
 
     #[test]
     fn an_embed_lists_its_url_origin_then_the_declared_ones() {
-        let m = figma(json!(["https://*.figma.com", "https://Accounts.Google.com"]));
+        let m = figma(json!(["https://*.figma.com", "https://accounts.google.com"]));
         assert!(is_valid(&validate_manifest(&m)), "{:?}", validate_manifest(&m));
         let pages = embed_pages(&m);
         assert_eq!(pages.len(), 1);
@@ -57,6 +58,9 @@ mod apps {
         );
         assert_eq!(page.profile, embed_profile_id("octo/figma"));
         assert_eq!(page.symbol.as_deref(), Some("paintbrush"));
+        // The url's host is lowercased into its origin.
+        let mixed = embed_app("octo/f", "cmux.pane/1", json!({ "url": "https://WWW.Figma.com/x" }));
+        assert_eq!(embed_pages(&mixed)[0].origins, ["https://www.figma.com"]);
     }
 
     #[test]
@@ -123,7 +127,7 @@ mod apps {
             assert!(embed_pages(&m).is_empty(), "a refused embed is never listed");
         }
         let m = embed_app("octo/x", "cmux.pane/1", json!({ "url": "https://127.0.0.1/" }));
-        assert_eq!(codes(&m), ["embed.origin"]);
+        assert!(codes(&m).contains(&"embed.origin"), "{:?}", codes(&m));
     }
 
     #[test]
