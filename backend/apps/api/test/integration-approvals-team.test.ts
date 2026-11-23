@@ -130,3 +130,18 @@ describe("integration.approval.get across teams (G8)", { timeout: 60_000 }, () =
     expect(withSso).toMatchObject({ team: owner.team, sso_team: owner.team })
   })
 })
+
+describe("integration.approval.get for a Cloud approval", { timeout: 60_000 }, () => {
+  it("reads it from the posting team's CloudDO, never 'no route for owner'", async () => {
+    const person = await signIn("g8x-cloud-approval")
+    const request = `apr_${crypto.randomUUID().replace(/-/g, "")}`
+    const prompt = { action: { type: "tool", tool: "cloud.machine.delete", summary: "delete a machine", risk: "destructive", input: { approval: { team: person.team, request, digest: "d" } } }, scopes: ["once"] }
+    const feed = testEnv.FEED_DO.get(testEnv.FEED_DO.idFromName(person.user))
+    expect((await feed.integrationApproval(person.user, person.team, prompt, APPROVAL_TTL_MS, `approval:${request}`, "cloud")).ok).toBe(true)
+    const view = await read(person.token, "integration.approval.get", { request })
+    // The test Worker has no CLOUD_DO binding: reaching the CloudDO client answers its retryable outage.
+    expect(view.status).toBe(503)
+    expect(JSON.stringify(view.json)).toContain("no CLOUD_DO binding")
+    expect(JSON.stringify(view.json)).not.toContain("no route for owner")
+  })
+})
