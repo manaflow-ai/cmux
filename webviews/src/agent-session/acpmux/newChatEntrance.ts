@@ -38,7 +38,7 @@ export const NEW_CHAT_STAGGER_MS = 40;
 
 /** What moves, top to bottom; the composer is outside the hero, in the pane's dock. */
 const PARTS = {
-  // The question and the tour offer hanging under it move as one.
+  // The plain new chat's repo tour offer (EmptyState.tsx), when its folder has one.
   title: ".acpmux-empty-title-anchor",
   sub: ".acpmux-empty-choose",
 } as const;

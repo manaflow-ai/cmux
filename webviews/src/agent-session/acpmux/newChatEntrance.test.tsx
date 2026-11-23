@@ -104,11 +104,14 @@ afterEach(async () => {
   saved.clear();
 });
 
-/** A new chat as App.tsx lays it out: the hero over the dock's composer. */
+/** A folder no chat has used: the plain new chat offers its repo tour, the part over the composer. */
+const tour = { onTake: () => undefined, onDismiss: () => undefined };
+
+/** A new chat as the chat view lays it out: the plain new chat over the dock's composer. */
 function Pane({ entrance, hero = true, chat }: { entrance?: NewChatEntrance; hero?: boolean; chat?: string }) {
   return (
     <div className="acpmux-main" data-new-chat="">
-      {hero && <EmptyState {...(entrance ? { entrance } : {})} {...(chat ? { entranceKey: chat } : {})} />}
+      {hero && <EmptyState tour={tour} {...(entrance ? { entrance } : {})} {...(chat ? { entranceKey: chat } : {})} />}
       <div className="acpmux-dock">
         <div className="acpmux-composer">
           <textarea aria-label="Message" />
@@ -124,6 +127,10 @@ async function render(container: HTMLElement, element: React.ReactElement) {
 }
 
 const macrotask = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+/** The release is a MessageChannel task, which a timer task may run before: wait for it, at most 50 tasks. */
+async function tasksUntil(done: () => boolean) {
+  for (let i = 0; i < 50 && !done(); i++) await macrotask();
+}
 
 function paintFrame() {
   const run = frames;
@@ -176,7 +183,7 @@ test("the entrance holds at time zero through the first frame and plays from the
   paintFrame();
   // The frame callback runs before rendering: still held.
   expect(animations.every((animation) => animation.playState === "paused")).toBe(true);
-  await macrotask();
+  await tasksUntil(() => animations.every((animation) => animation.playState === "running"));
   expect(animations.every((animation) => animation.playState === "running")).toBe(true);
 });
 
