@@ -1143,7 +1143,7 @@ impl Peer {
                 _ = &mut handshake_deadline, if !self.link().is_ready() || !listed => {
                     break Err(timed_out(handshake_started));
                 }
-                due = ping.tick() => {
+                _ = ping.tick() => {
                     // The selector moved the session to a faster path: the link moves while no
                     // request is out on it, and its list is in (one read after ready has no
                     // request out between its pages).
@@ -1163,11 +1163,7 @@ impl Peer {
                         tracing::info!(peer = %self.name, "silence budget {}s (was {}s; longest wait for an answer {}ms)", silence.as_secs(), was.as_secs(), gap.as_millis());
                     }
                     let silent = heard.as_ref().map_or(last_frame.elapsed(), |h| h.silent().min(last_frame.elapsed()));
-                    // A tick this late means this daemon did not run (a host at load 90 with its
-                    // swap full, cmux#52200): what the peer sent meanwhile is still unread, so the
-                    // stall is this host's, not the peer's silence.
-                    let late = now.saturating_duration_since(due);
-                    if silent.saturating_sub(late) >= silence {
+                    if silent >= silence {
                         self.with_silence(|b| b.dropped(now));
                         break Err(format!("peer stopped answering ({}s without a frame)", silent.as_secs()));
                     }
