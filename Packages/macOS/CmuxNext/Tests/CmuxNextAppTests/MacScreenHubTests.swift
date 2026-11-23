@@ -1461,6 +1461,46 @@ struct MacScreenRdWishTests {
     }
 }
 
+/// The `remoteDesktop.*` defaults seed a new session's toolbar picks, and its offer carries them:
+/// the quality's wish, the frame rate limit as a cap on `a=cmux-rd-max-fps`, the bitrate limit as `a=cmux-rd-max-kbps`.
+struct MacScreenRemoteDesktopDefaultsTests {
+    @Test func autoDefaultsAreTodaysPicks() {
+        #expect(MacScreenPages.preferences(RemoteDesktopDefaults()) == ScreenPreferences())
+    }
+
+    @Test func eachQualityMapsToTheToolbarsPreset() {
+        var defaults = RemoteDesktopDefaults()
+        let presets: [(RemoteDesktopQuality, ScreenQuality)] = [(.auto, .auto), (.sharpText, .high), (.smoothMotion, .smooth), (.lowBandwidth, .low)]
+        for (quality, preset) in presets {
+            defaults.quality = quality
+            #expect(MacScreenPages.preferences(defaults).quality == preset)
+        }
+    }
+
+    @Test func theLimitsReachTheOffer() throws {
+        var defaults = RemoteDesktopDefaults()
+        defaults.quality = .smoothMotion
+        defaults.maxFps = 30
+        defaults.maxBitrateMbps = 4
+        let preferences = MacScreenPages.preferences(defaults)
+        let wish = MacScreenRdDocument.wish(preferences.quality, refresh: 120, paneWidth: 1000, maxFps: defaults.maxFps)
+        #expect(wish == (1920, 30))
+        var offer = MacScreenRdDocument(key: String(repeating: "ab", count: 32))
+        offer.maxWidth = wish.maxWidth
+        offer.maxFps = wish.maxFps
+        offer.customize(preferences)
+        #expect(offer.text.contains("a=cmux-rd-max-fps:30\r\n"))
+        #expect(offer.text.contains("a=cmux-rd-max-kbps:4000\r\n"))
+        #expect(try #require(MacScreenRdDocument(text: offer.text)) == offer)
+    }
+
+    @Test func theFrameRateLimitOnlyLowers() {
+        #expect(MacScreenRdDocument.wish(.low, refresh: 120, maxFps: 90).maxFps == 60, "a cap over the preset's rate raised it")
+        #expect(MacScreenRdDocument.wish(.auto, refresh: 120, maxFps: 15).maxFps == 15, "the cap is not floored at 30")
+        #expect(MacScreenRdDocument.wish(.auto, refresh: 120).maxFps == 120, "no cap changed the rate")
+    }
+}
+
 /// Customize's bitrate cap and cursor ride the offer; the defaults add no line (today's offer).
 struct MacScreenRdCustomizeTests {
     @Test func customizeWishesRoundTripAndDefaultsAddNothing() throws {
