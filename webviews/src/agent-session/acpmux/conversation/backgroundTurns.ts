@@ -208,7 +208,10 @@ export function openBackgroundTurns(rows: readonly AcpmuxRow[], start: number, e
   let open = "";
   for (let at = start; at < end; at += 1) {
     const row = rows[at]!;
-    if (row.kind === BACKGROUND_TURN && expanded.has(row.id)) open += `${row.id} `;
+    if (row.kind !== BACKGROUND_TURN) continue;
+    // Its own line, and the "Worked for" over its work once it ended (turns.ts `foldTailTurns`).
+    const worked = expanded.has(`worked-${row.id}`);
+    if (worked || expanded.has(row.id)) open += `${row.id}${worked ? "+" : ""} `;
   }
   return open;
 }

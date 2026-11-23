@@ -53,6 +53,8 @@ GCP_NIGHTLY_LINUX = "cmux-gcp-nightly-x64"
 # same-repository job. The linux, linux_2 and linux_8 pools list it after the GCP lead, so a full GCP pool overflows
 # to it before Blacksmith (Leo, 2026-11-19: "stop ... relying on [Blacksmith]. [...] We could use Freestyle").
 FREESTYLE_LINUX = "cmux-freestyle-linux-x64"
+# The persistent Linux pool's label: same-repository jobs name it past their fork branch.
+PERSISTENT_LINUX = "cmux-linux"
 
 TOKEN = re.compile(
     r"\s*(?:(?P<str>'(?:[^']|'')*')|(?P<op>&&|\|\||==|!=|<=|>=|[!(),<>])|(?P<prop>\.[A-Za-z_][A-Za-z0-9_]*)"
