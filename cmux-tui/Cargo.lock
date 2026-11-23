@@ -1767,6 +1767,7 @@ name = "cmux-daemon-launch-core"
 version = "0.1.0"
 dependencies = [
  "cmux-local-auth",
+ "libc",
  "serde",
  "serde_json",
 ]
@@ -2665,6 +2666,7 @@ dependencies = [
  "cmux-conversation",
  "cmux-customize",
  "cmux-customize-recipes",
+ "cmux-daemon-launch-core",
  "cmux-device-kind",
  "cmux-fault",
  "cmux-file-lock",
