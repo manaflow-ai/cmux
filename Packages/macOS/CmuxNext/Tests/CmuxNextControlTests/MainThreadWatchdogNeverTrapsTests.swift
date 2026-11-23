@@ -65,8 +65,12 @@ import Testing
         clock.advance(by: .seconds(3))
         watchdog.heartbeat(.beforeWaiting)
         #expect(seen.values.withLock { $0 } == [stallBeat &+ 1], "onStall ran before the stall's heartbeat moved on")
-        #expect(!seen.asleepDuringLog.load(ordering: .relaxed), "onStall ran after the loop was published asleep")
-        #expect(watchdog.mainAsleep.load(ordering: .acquiring), "the before-waiting heartbeat left the loop awake")
+        // Loaded first: #expect(atomic.load(...)) expands to __checkFunctionCall, which needs a Copyable receiver,
+        // and Atomic<Bool> is not (Xcode 26.6: "requires that 'Atomic<Bool>' conform to 'Copyable'").
+        let asleepDuringLog = seen.asleepDuringLog.load(ordering: .relaxed)
+        let mainAsleep = watchdog.mainAsleep.load(ordering: .acquiring)
+        #expect(!asleepDuringLog, "onStall ran after the loop was published asleep")
+        #expect(mainAsleep, "the before-waiting heartbeat left the loop awake")
         // The ended hang's exact length is still there for its file.
         #expect(watchdog.closeEpisode(beat: stallBeat, lastElapsedNanos: 2_100_000_000) == 3_000_000_000)
     }
