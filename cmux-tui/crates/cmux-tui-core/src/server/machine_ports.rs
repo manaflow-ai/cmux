@@ -73,10 +73,7 @@ pub(crate) fn offered(table: &str) -> Vec<Listener> {
 
 fn counts(listener: &Listener) -> bool {
     (1024..EPHEMERAL_FROM).contains(&listener.port)
-        && !listener
-            .process
-            .as_deref()
-            .is_some_and(|name| SYSTEM_PROCESSES.contains(&name))
+        && !listener.process.as_deref().is_some_and(|name| SYSTEM_PROCESSES.contains(&name))
 }
 
 /// One listener of one table line, or None for a header, a non-listening row

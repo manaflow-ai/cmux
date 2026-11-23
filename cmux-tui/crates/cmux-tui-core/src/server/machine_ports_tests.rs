@@ -44,7 +44,10 @@ node      90210  leo   21u  IPv6 0x8f1c2e0d3c7a1b14      0t0  TCP [::1]:5173 (LI
 python3   90300  leo    3u  IPv4 0x8f1c2e0d3c7a1b15      0t0  TCP 127.0.0.1:8000 (LISTEN)
 Code\\x20H 90400  leo    3u  IPv4 0x8f1c2e0d3c7a1b16      0t0  TCP 127.0.0.1:4000 (LISTEN)
 ";
-    assert_eq!(ports(table), vec![named(4000, "Code H"), named(5173, "node"), named(8000, "python3")]);
+    assert_eq!(
+        ports(table),
+        vec![named(4000, "Code H"), named(5173, "node"), named(8000, "python3")]
+    );
 }
 
 #[test]

@@ -447,6 +447,7 @@ async fn finish(
             session_id: session_id.to_owned(),
         }),
         lane: lane.map(lane_stream),
+        liveness: None,
         media,
         webrtc_media: false,
     })

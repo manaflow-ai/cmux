@@ -161,7 +161,7 @@ extension AgentTabStore {
         }
         tabs.pageChats.environments = state.map { SavedEnvironments(url: $0.appending(path: "environments.json")) }
         // The environment picker's Cloud machines: the account's, with Open and Resume (`cloudMachine.*`).
-        tabs.cloudMachines.wire(services)
+        tabs.cloudMachines.wire(services); tabs.ownMachinePorts.wire(deliver: { [weak services] in services?.cloud.portChanged($0) }, machineIDs: { [weak tabs] in tabs.map { t in t.views.keys.compactMap { t.remoteMachineID(of: $0.key, machine: $0.machine) }.filter { !MachineRegistry.isCloudMachineID($0) } } ?? [] }, daemon: { [weak services] in services?.machines.anyDaemon(machine: $0)?.connection }) // its own machines' new dev servers (OwnMachinePortWatch)
         services.cloud.portChanged = { [weak tabs] change in
             guard let tabs, change.isBrowserPreview else { return }
             for (key, view) in tabs.views where tabs.remoteMachineID(of: key.key, machine: key.machine) == change.machineID {
@@ -255,11 +255,11 @@ extension AgentTabStore {
         // A chat opens on the right as a link does (LinkOpener, RightColumnPlacement): a split right of
         // the chat, else one split below what is already there (a plain split's terminal included), else a tab in the lower pane.
         // A pane of another machine holds no chat of this Mac's acpmux: nothing opens there.
-        tabs.openRightScoped = { [weak services] chat, session, host in
+        tabs.openRightScoped = { [weak services] chat, session, host, reveal in
             guard let services, let (_, pane) = services.locateTab(chat.key, onMachine: chat.machine), let source = services.paneController(for: pane) else { return false }
             return services.linkOpener.open(from: source, opening: .tool) { target, placed in
                 guard target.daemon.isLocal else { return false }
-                return tabs.openTab(in: target, session: session, host: host, select: placed == nil) { [weak services, weak tabs] key in
+                return tabs.openTab(in: target, session: session, host: host, select: placed == nil) { [weak services, weak tabs] key in if let reveal { tabs?.revealTurn(reveal, in: key, machine: target.daemon.machineID) } // a reveal is on the tab before its first show, as a subagent pane's (view(for:) hands it to the page)
                     // task-owner: one creation reply; ends after tree arrival, cancellation or the mirror deadline
                     Task { [weak services, weak tabs] in
                         guard let tabs else { return }
@@ -588,7 +588,7 @@ extension AgentTabStore {
         // pass AgentTabKey directly so duplicate ids remain isolated.
         tabs.openRight = { [weak tabs] chat, session, host in
             guard let tabs else { return false }
-            return tabs.openRightScoped?(tabs.tabKey(chat), session, host) ?? false
+            return tabs.openRightScoped?(tabs.tabKey(chat), session, host, nil) ?? false
         }
         tabs.openTool = { [weak tabs] chat, kind, cwd in
             guard let tabs else { return false }

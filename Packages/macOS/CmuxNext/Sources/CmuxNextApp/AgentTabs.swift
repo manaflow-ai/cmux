@@ -319,7 +319,7 @@ final class AgentTabStore {
     /// The one Read aloud voice every chat page speaks through, and Stop Reading Aloud stops.
     let readAloud = AgentPaneReadAloud()
     /// The Cloud machines each page's environment picker lists (`cloudMachine.*`); the app's peer approver for every host and page.
-    let cloudMachines = AgentPaneCloudMachines()
+    let cloudMachines = AgentPaneCloudMachines(), ownMachinePorts = OwnMachinePortWatch() // and an own machine's new dev servers, from its daemon, in the Open app card
     /// The iPhone host's Remote Control switch, which every page's Session Info shows (set by the wiring).
     var remoteControl: AgentPaneRemoteControl?
     let peerApprover: AgentPanePeerApprover?
@@ -364,7 +364,7 @@ final class AgentTabStore {
     /// Session `session` (of acpmux `host`, nil: this Mac's) on tab `chat`'s right as a link opens (``LinkOpener``,
     /// `layout.linkPlacement`): a tab in the pane there, else a new split, focused; false when nothing opened.
     var openRight: (@MainActor (_ chat: String, _ session: String, _ host: String?) -> Bool)?
-    var openRightScoped: (@MainActor (_ chat: AgentTabKey, _ session: String, _ host: String?) -> Bool)?
+    var openRightScoped: (@MainActor (_ chat: AgentTabKey, _ session: String, _ host: String?, _ reveal: String?) -> Bool)? // reveal: the new tab's page gets it with its handshake (``revealTurn(_:in:machine:)``)
     /// The header's Terminal or Browser on chat tab `chat`'s right (``AgentChatTabActions/openTool``).
     var openTool: (@MainActor (_ chat: String, _ kind: RightColumnPlacement.Kind, _ cwd: String?) -> Bool)?
     var openToolScoped: (@MainActor (_ chat: AgentTabKey, _ kind: RightColumnPlacement.Kind, _ cwd: String?) -> Bool)?
