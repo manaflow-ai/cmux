@@ -145,7 +145,7 @@ impl Head {
     /// The listing Session Info draws: `{configured, generation, revision, carried, proposals}`.
     pub fn listing(&self) -> std::io::Result<Value> {
         let read = self.read()?;
-        let Some(head) = read.head else {
+        let Some(head) = read.head.as_ref() else {
             return Ok(json!({
                 "configured": false,
                 "generation": read.generation,
@@ -184,11 +184,7 @@ impl Head {
                     .ok()
                     .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
                     .map(|since| since.as_millis() as u64);
-                proposals.push((
-                    at,
-                    id.to_string(),
-                    self.describe(&read, &head, id, &proposal, at),
-                ));
+                proposals.push((at, id.to_string(), self.describe(&read, head, id, &proposal, at)));
             }
         }
         // Newest first; the id keeps one order when two share a time.
