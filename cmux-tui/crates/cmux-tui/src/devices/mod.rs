@@ -11,7 +11,7 @@ use cmux_json::JsonSet as _;
 mod credential_env_tests;
 mod model;
 mod network;
-mod reach;
+pub(crate) mod reach;
 #[cfg(test)]
 mod reach_tests;
 mod removal;
@@ -321,6 +321,17 @@ pub(crate) const CREDENTIAL_ENV: &[&str] = &[
     "CMUX_PANE_APP_CREDENTIAL",
     "WEFT_ADMIN_TOKEN",
     "WEFT_TICKET_SEED",
+    // Cloud VM providers' credentials (cmux-vm-pool gce.rs, freestyle.rs): `cmux vm` reads them in
+    // its own process; no child this module starts makes a VM.
+    "CLOUDSDK_AUTH_ACCESS_TOKEN",
+    "GOOGLE_OAUTH_ACCESS_TOKEN",
+    "FREESTYLE_API_KEY",
+    // This machine's hub credential: acpmux reads it from its own store, never from the environment
+    // (joined_model_plane.rs), so an inherited copy is only a leak.
+    "CMUX_MACHINE_CREDENTIAL",
+    // Automation secrets' example names (cli/automation_secret.rs): a value under them is a secret.
+    "CMUX_PRO_KEY",
+    "MODELS_CATALOG_TOKEN",
 ];
 
 /// This program as `cmux` (argv[0]), so the `host` verbs, which exist only on the `cmux`

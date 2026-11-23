@@ -72,6 +72,20 @@ fn release_builds_use_the_release_features() {
     }
 }
 
+/// The channel binary ships without DWARF (32.8 MB to 6.0 MB on x86_64, CMUX-570) and keeps
+/// its symbol table; the release profile's `debug = 1` stays for cmux-rd-release.yml.
+#[test]
+fn channel_build_drops_debuginfo() {
+    let script = std::fs::read_to_string(crate_dir().join("scripts/build-channel.sh")).unwrap();
+    assert!(
+        script
+            .lines()
+            .any(|line| line.trim_start().starts_with("CARGO_PROFILE_RELEASE_STRIP=debuginfo ")
+                && line.contains("cargo zigbuild")),
+        "scripts/build-channel.sh must build with CARGO_PROFILE_RELEASE_STRIP=debuginfo"
+    );
+}
+
 #[test]
 fn release_crates_pass_the_license_gate() {
     for target in TARGETS {

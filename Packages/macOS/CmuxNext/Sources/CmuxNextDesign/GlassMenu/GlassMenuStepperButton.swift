@@ -21,8 +21,9 @@ final class GlassMenuStepperButton: NSView {
     private var isPressed = false { didSet { if oldValue != isPressed { needsDisplay = true } } }
     private var tracking: NSTrackingArea?
 
-    /// A button showing the SF Symbol `symbol`, labelled `label` for VoiceOver and its tooltip.
-    init(symbol: String, label: String, toolTip: String? = nil) {
+    /// A button showing the SF Symbol `symbol`, labelled `label` for VoiceOver and its tooltip, with `shortcut`'s keys
+    /// on the tooltip's keycap.
+    init(symbol: String, label: String, shortcut: String? = nil) {
         super.init(frame: NSRect(x: 0, y: 0, width: Self.side, height: Self.side))
         glyph.image = NSImage.menuSymbol(symbol)
         glyph.imageScaling = .scaleProportionallyDown
@@ -37,7 +38,9 @@ final class GlassMenuStepperButton: NSView {
             glyph.widthAnchor.constraint(equalToConstant: MenuMetrics.iconSize),
             glyph.heightAnchor.constraint(equalToConstant: MenuMetrics.iconSize),
         ])
-        self.toolTip = toolTip ?? label
+        // The text first: a shortcut set on a view with no tooltip yet is dropped.
+        themedToolTip = label
+        themedToolTipShortcut = shortcut
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel(label)

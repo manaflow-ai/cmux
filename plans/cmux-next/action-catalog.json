@@ -31778,6 +31778,81 @@
 
       ],
       "category" : "window",
+      "cliName" : "",
+      "computed" : {
+        "canonical_action_id" : "home.meetChief",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : true,
+      "group" : "HomeActionCatalog",
+      "hint" : null,
+      "id" : "home.meetChief",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "chief",
+        "meet",
+        "onboarding",
+        "intro",
+        "introduction",
+        "welcome",
+        "tour",
+        "first run",
+        "getting started",
+        "permissions",
+        "density",
+        "text size"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "sparkles",
+      "targets" : [
+
+      ],
+      "title" : "Meet Chief",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "window",
       "cliName" : "home open-chief",
       "computed" : {
         "canonical_action_id" : "home.openChief",
@@ -32626,7 +32701,7 @@
                 ]
               }
             ],
-            "when" : "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
+            "when" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
           },
           {
             "keys" : [
@@ -32638,7 +32713,7 @@
                 ]
               }
             ],
-            "when" : "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
+            "when" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
           }
         ],
         "is_palette_visible" : true,
@@ -32719,7 +32794,7 @@
                 ]
               }
             ],
-            "when" : "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
+            "when" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
           }
         ],
         "is_palette_visible" : true,
@@ -32800,7 +32875,7 @@
                 ]
               }
             ],
-            "when" : "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
+            "when" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
           }
         ],
         "is_palette_visible" : true,
@@ -76022,6 +76097,75 @@
     },
     {
       "arguments" : [
+
+      ],
+      "category" : "agents",
+      "cliName" : "action chief-toggle-computer",
+      "computed" : {
+        "canonical_action_id" : "chief.toggleComputer",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "AgentActionCatalog",
+      "hint" : null,
+      "id" : "chief.toggleComputer",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "chief",
+        "computer",
+        "screen",
+        "cloud",
+        "profile",
+        "panel",
+        "show",
+        "hide"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "desktopcomputer",
+      "targets" : [
+
+      ],
+      "title" : "Chief: Toggle Computer",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
         {
           "isAskedInPalette" : false,
           "isRequired" : false,
@@ -76198,182 +76342,6 @@
 
       ],
       "title" : "Roll Back Chief Move",
-      "waitsForKeyedCreate" : false,
-      "waitsForPerson" : false,
-      "waitsForResult" : false
-    },
-    {
-      "arguments" : [
-        {
-          "isAskedInPalette" : false,
-          "isRequired" : false,
-          "isSuppliedByTarget" : false,
-          "isTargetDescription" : false,
-          "isTargetName" : false,
-          "kind" : "string",
-          "name" : "chief",
-          "suggestions" : null,
-          "title" : "Cloud Chief"
-        },
-        {
-          "isAskedInPalette" : false,
-          "isRequired" : false,
-          "isSuppliedByTarget" : false,
-          "isTargetDescription" : false,
-          "isTargetName" : false,
-          "kind" : "string",
-          "name" : "source",
-          "suggestions" : null,
-          "title" : "Source"
-        }
-      ],
-      "category" : "agents",
-      "cliName" : "action chief-import-memories",
-      "computed" : {
-        "canonical_action_id" : "chief.importMemories",
-        "cli" : false,
-        "default_aliases" : [
-
-        ],
-        "is_palette_visible" : true,
-        "palette_family" : null,
-        "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
-      },
-      "defaultChord" : null,
-      "defaultShortcut" : null,
-      "description" : null,
-      "focuses" : false,
-      "group" : "AgentActionCatalog",
-      "hint" : null,
-      "id" : "chief.importMemories",
-      "isDebugOnly" : false,
-      "isDestructive" : false,
-      "isGlobalHotKey" : false,
-      "isPersonOnly" : false,
-      "keywords" : [
-        "chief",
-        "memory",
-        "memories",
-        "import",
-        "claude",
-        "claude code",
-        "codex",
-        "chatgpt",
-        "openai",
-        "bring",
-        "migrate",
-        "onboard"
-      ],
-      "mainMenu" : null,
-      "opensWorkspaceContent" : false,
-      "paletteTarget" : null,
-      "paletteTargetSource" : null,
-      "requires" : [
-
-      ],
-      "shortcutFamily" : null,
-      "shortcutLabel" : null,
-      "startsTerminal" : false,
-      "surfacePlan" : {
-        "cli" : {
-          "exempt" : "guiOnly"
-        },
-        "contextMenuExemption" : "noObject",
-        "contextMenus" : [
-
-        ],
-        "mcpExemption" : null,
-        "palette" : "offered"
-      },
-      "surfaces" : [
-        "palette"
-      ],
-      "symbol" : "square.and.arrow.down",
-      "targets" : [
-
-      ],
-      "title" : "Bring Your History",
-      "waitsForKeyedCreate" : false,
-      "waitsForPerson" : false,
-      "waitsForResult" : false
-    },
-    {
-      "arguments" : [
-        {
-          "isAskedInPalette" : false,
-          "isRequired" : false,
-          "isSuppliedByTarget" : false,
-          "isTargetDescription" : false,
-          "isTargetName" : false,
-          "kind" : "string",
-          "name" : "chief",
-          "suggestions" : null,
-          "title" : "Cloud Chief"
-        }
-      ],
-      "category" : "agents",
-      "cliName" : "action chief-import-memories-undo",
-      "computed" : {
-        "canonical_action_id" : "chief.importMemories.undo",
-        "cli" : false,
-        "default_aliases" : [
-
-        ],
-        "is_palette_visible" : true,
-        "palette_family" : null,
-        "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
-      },
-      "defaultChord" : null,
-      "defaultShortcut" : null,
-      "description" : null,
-      "focuses" : false,
-      "group" : "AgentActionCatalog",
-      "hint" : null,
-      "id" : "chief.importMemories.undo",
-      "isDebugOnly" : false,
-      "isDestructive" : false,
-      "isGlobalHotKey" : false,
-      "isPersonOnly" : false,
-      "keywords" : [
-        "chief",
-        "memory",
-        "memories",
-        "import",
-        "undo",
-        "take back",
-        "restore"
-      ],
-      "mainMenu" : null,
-      "opensWorkspaceContent" : false,
-      "paletteTarget" : null,
-      "paletteTargetSource" : null,
-      "requires" : [
-
-      ],
-      "shortcutFamily" : null,
-      "shortcutLabel" : null,
-      "startsTerminal" : false,
-      "surfacePlan" : {
-        "cli" : {
-          "exempt" : "guiOnly"
-        },
-        "contextMenuExemption" : "noObject",
-        "contextMenus" : [
-
-        ],
-        "mcpExemption" : null,
-        "palette" : "offered"
-      },
-      "surfaces" : [
-        "palette"
-      ],
-      "symbol" : "arrow.uturn.backward",
-      "targets" : [
-
-      ],
-      "title" : "Undo Last Memory Import",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -81989,6 +81957,97 @@
         "tab"
       ],
       "title" : "Move to Another Machine",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "machine",
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "chatMoveTargets"
+          },
+          "title" : "Machine"
+        }
+      ],
+      "category" : "cloud",
+      "cliName" : "agent move",
+      "computed" : {
+        "canonical_action_id" : "agent.moveToMachine",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : "Moves a started chat to an added machine or Auto, preserving history, queue, draft and worktree through acpmux session move. With no target, the palette lists connected machines and placement room. A running turn offers Move after this turn or Move now; uncommitted changes are explained before proceeding. The destination chat opens after a successful move. The CLI is cmux agent move SESSION --machine NAME|auto --json.",
+      "focuses" : false,
+      "group" : "CloudActionCatalog",
+      "hint" : null,
+      "id" : "agent.moveToMachine",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "move",
+        "machine",
+        "ssh",
+        "remote",
+        "peer",
+        "host",
+        "chat",
+        "agent",
+        "back",
+        "local",
+        "transfer"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "pointerMenuTrim",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "arrow.left.arrow.right",
+      "targets" : [
+        "tab"
+      ],
+      "title" : "Move Chat to Machine…",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -88965,6 +89024,223 @@
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : true,
       "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "machine",
+          "suggestions" : null,
+          "title" : "Machine"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "enumeration" : [
+              {
+                "title" : "Status",
+                "value" : "status"
+              },
+              {
+                "title" : "Take Over",
+                "value" : "take_over"
+              },
+              {
+                "title" : "Give Back to Chief",
+                "value" : "hand_back"
+              },
+              {
+                "title" : "Ask the Person to Take Over",
+                "value" : "request_human"
+              }
+            ]
+          },
+          "name" : "action",
+          "suggestions" : null,
+          "title" : "Control"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "reason",
+          "suggestions" : null,
+          "title" : "Reason"
+        }
+      ],
+      "category" : "cloud",
+      "cliName" : "cloud computer-control",
+      "computed" : {
+        "canonical_action_id" : "cloud.computerControl",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : "Who drives the Chief's computer on a Cloud machine (--machine <id>, the bare id): action status, request_human (with --reason: what the person should do), hand_back (ends your own ask) or take_over (the person only). Returns machine, holder (chief or human), since_ms and reason. While holder is human, send the computer no input.",
+      "focuses" : false,
+      "group" : "CloudSessionActionCatalog",
+      "hint" : null,
+      "id" : "cloud.computerControl",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "vm",
+        "cloud",
+        "chief",
+        "computer",
+        "desktop",
+        "control",
+        "take over",
+        "hand back",
+        "human"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : "pointerMenuTrim",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "hand.raised.square",
+      "targets" : [
+
+      ],
+      "title" : "Chief Computer Control…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : true
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "chief",
+          "suggestions" : null,
+          "title" : "Chief"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "op",
+          "suggestions" : null,
+          "title" : "Action"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "args",
+          "suggestions" : null,
+          "title" : "Arguments"
+        }
+      ],
+      "category" : "cloud",
+      "cliName" : "cloud chief-computer",
+      "computed" : {
+        "canonical_action_id" : "cloud.chiefComputer",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : "A Chief of this Mac uses its own Cloud computer (Set Up Computer in its profile; engine.json computer chief:<id>): --chief <id>, --op screenshot, windows, click, move, drag, scroll, type, key, open, control, request_human, hand_back or start, --args a JSON object of the op's fields (x, y, to_x, to_y, button, count, text, keys, direction, amount, url, reason, shot). Returns done, image (base64 PNG or JPEG), windows, screen and control; refused with computer.human_has_control while the person holds it.",
+      "focuses" : false,
+      "group" : "CloudSessionActionCatalog",
+      "hint" : null,
+      "id" : "cloud.chiefComputer",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "cloud",
+        "chief",
+        "computer",
+        "desktop",
+        "screenshot",
+        "click",
+        "type"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : "pointerMenuTrim",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "desktopcomputer",
+      "targets" : [
+
+      ],
+      "title" : "Use Chief’s Own Computer…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : true
     },
     {
       "arguments" : [
@@ -96466,6 +96742,78 @@
 
       ],
       "category" : "settings",
+      "cliName" : "action debug-tooltip-gallery",
+      "computed" : {
+        "canonical_action_id" : "debug.tooltipGallery",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "niche"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "SettingsActionCatalog",
+      "hint" : null,
+      "id" : "debug.tooltipGallery",
+      "isDebugOnly" : true,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "tooltip",
+        "tooltips",
+        "hover",
+        "help",
+        "shortcut",
+        "keycap",
+        "gallery",
+        "playground",
+        "debug"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "devOnly"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "questionmark.bubble",
+      "targets" : [
+
+      ],
+      "title" : "Tooltip Gallery",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "settings",
       "cliName" : "action debug-tab-bar-playground",
       "computed" : {
         "canonical_action_id" : "debug.tabBarPlayground",
@@ -96602,6 +96950,236 @@
 
       ],
       "title" : "All Themes Playground",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "int" : {
+              "max" : 7,
+              "min" : 1
+            }
+          },
+          "name" : "variant",
+          "suggestions" : null,
+          "title" : "Variant"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "int" : {
+              "max" : 9,
+              "min" : 0
+            }
+          },
+          "name" : "state",
+          "suggestions" : null,
+          "title" : "Menu State"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "bool",
+          "name" : "dark",
+          "suggestions" : null,
+          "title" : "Dark Look"
+        }
+      ],
+      "category" : "settings",
+      "cliName" : "action debug-env-secrets-playground",
+      "computed" : {
+        "canonical_action_id" : "debug.envSecretsPlayground",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "niche"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "SettingsActionCatalog",
+      "hint" : null,
+      "id" : "debug.envSecretsPlayground",
+      "isDebugOnly" : true,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "environment",
+        "variables",
+        "secrets",
+        "env",
+        "cloud",
+        "keys",
+        "hosts",
+        "playground",
+        "variants",
+        "debug"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "devOnly"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "key.horizontal",
+      "targets" : [
+
+      ],
+      "title" : "Environment Secrets Playground",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "int" : {
+              "max" : 7,
+              "min" : 1
+            }
+          },
+          "name" : "variant",
+          "suggestions" : null,
+          "title" : "Variant"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "int" : {
+              "max" : 9,
+              "min" : 0
+            }
+          },
+          "name" : "state",
+          "suggestions" : null,
+          "title" : "Menu State"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "bool",
+          "name" : "dark",
+          "suggestions" : null,
+          "title" : "Dark Look"
+        }
+      ],
+      "category" : "settings",
+      "cliName" : "action debug-env-secrets-playground",
+      "computed" : {
+        "canonical_action_id" : "debug.envSecretsPlayground",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "niche"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "SettingsActionCatalog",
+      "hint" : null,
+      "id" : "debug.envSecretsPlayground",
+      "isDebugOnly" : true,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "environment",
+        "variables",
+        "secrets",
+        "env",
+        "cloud",
+        "keys",
+        "hosts",
+        "playground",
+        "variants",
+        "debug"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "devOnly"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "key.horizontal",
+      "targets" : [
+
+      ],
+      "title" : "Environment Secrets Playground",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -126295,26 +126873,10 @@
                   "string" : "home-dock"
                 }
               ]
-            },
-            {
-              "equals" : [
-                "topPage",
-                {
-                  "string" : "import-history"
-                }
-              ]
-            },
-            {
-              "equals" : [
-                "pageId",
-                {
-                  "string" : "cmux.import-history"
-                }
-              ]
             }
           ]
         },
-        "when_text" : "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
+        "when_text" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
       },
       {
         "argument" : null,
@@ -126357,26 +126919,10 @@
                   "string" : "home-dock"
                 }
               ]
-            },
-            {
-              "equals" : [
-                "topPage",
-                {
-                  "string" : "import-history"
-                }
-              ]
-            },
-            {
-              "equals" : [
-                "pageId",
-                {
-                  "string" : "cmux.import-history"
-                }
-              ]
             }
           ]
         },
-        "when_text" : "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
+        "when_text" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
       },
       {
         "argument" : null,
@@ -126418,26 +126964,10 @@
                   "string" : "home-dock"
                 }
               ]
-            },
-            {
-              "equals" : [
-                "topPage",
-                {
-                  "string" : "import-history"
-                }
-              ]
-            },
-            {
-              "equals" : [
-                "pageId",
-                {
-                  "string" : "cmux.import-history"
-                }
-              ]
             }
           ]
         },
-        "when_text" : "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
+        "when_text" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
       },
       {
         "argument" : null,
@@ -126479,26 +127009,10 @@
                   "string" : "home-dock"
                 }
               ]
-            },
-            {
-              "equals" : [
-                "topPage",
-                {
-                  "string" : "import-history"
-                }
-              ]
-            },
-            {
-              "equals" : [
-                "pageId",
-                {
-                  "string" : "cmux.import-history"
-                }
-              ]
             }
           ]
         },
-        "when_text" : "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
+        "when_text" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
       },
       {
         "argument" : null,

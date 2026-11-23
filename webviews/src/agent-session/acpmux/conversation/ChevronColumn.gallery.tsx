@@ -80,7 +80,7 @@ function ChevronColumnGallery() {
           <ThoughtRow
             item={{
               kind: "thought",
-              text: "Thinking through the fixed column while checking that the trailing action slot never moves the disclosure control.",
+              text: "Thinking through the fixed column.\nThen checking that the trailing action slot never moves the disclosure control.",
             }}
             id="thought"
           />

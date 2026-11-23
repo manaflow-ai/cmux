@@ -13878,6 +13878,37 @@
       "args" : [
 
       ],
+      "cli" : "guiOnly",
+      "cli_name" : "",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.meetChief",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Meet Chief",
+      "title_key" : "action.home.meetChief",
+      "title_table" : "HomeActions"
+    },
+    {
+      "args" : [
+
+      ],
       "cli" : "offered",
       "cli_name" : "home open-chief",
       "context_menu" : "noObject",
@@ -14265,7 +14296,7 @@
               ]
             }
           ],
-          "when" : "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
+          "when" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
         },
         {
           "keys" : [
@@ -14277,7 +14308,7 @@
               ]
             }
           ],
-          "when" : "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
+          "when" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
         }
       ],
       "default_chord" : null,
@@ -14318,7 +14349,7 @@
               ]
             }
           ],
-          "when" : "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
+          "when" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
         }
       ],
       "default_chord" : null,
@@ -14359,7 +14390,7 @@
               ]
             }
           ],
-          "when" : "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
+          "when" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
         }
       ],
       "default_chord" : null,
@@ -32846,6 +32877,37 @@
     },
     {
       "args" : [
+
+      ],
+      "cli" : "guiOnly",
+      "cli_name" : "action chief-toggle-computer",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "chief.toggleComputer",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Chief: Toggle Computer",
+      "title_key" : "action.chief.toggleComputer",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
         {
           "kind" : "string",
           "name" : "target",
@@ -32918,81 +32980,6 @@
       "title" : "Roll Back Chief Move",
       "title_key" : "action.chief.moveRollback",
       "title_table" : "ActionCatalog"
-    },
-    {
-      "args" : [
-        {
-          "kind" : "string",
-          "name" : "chief",
-          "required" : false
-        },
-        {
-          "kind" : "string",
-          "name" : "source",
-          "required" : false
-        }
-      ],
-      "cli" : "guiOnly",
-      "cli_name" : "action chief-import-memories",
-      "context_menu" : "noObject",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "chief.importMemories",
-      "main_menu" : null,
-      "mcp" : "guiOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.agents",
-        "order" : 109,
-        "title" : "Agents",
-        "title_key" : "category.agents",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Bring Your History",
-      "title_key" : "action.chief.importMemories",
-      "title_table" : "Localizable"
-    },
-    {
-      "args" : [
-        {
-          "kind" : "string",
-          "name" : "chief",
-          "required" : false
-        }
-      ],
-      "cli" : "guiOnly",
-      "cli_name" : "action chief-import-memories-undo",
-      "context_menu" : "noObject",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "chief.importMemories.undo",
-      "main_menu" : null,
-      "mcp" : "guiOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.agents",
-        "order" : 109,
-        "title" : "Agents",
-        "title_key" : "category.agents",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Undo Last Memory Import",
-      "title_key" : "action.chief.importMemories.undo",
-      "title_table" : "Localizable"
     },
     {
       "args" : [
@@ -35425,6 +35412,41 @@
       "title" : "Move to Another Machine",
       "title_key" : "action.cloudMoveToMachine",
       "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "machine",
+          "required" : false
+        }
+      ],
+      "cli" : "ownerVerb",
+      "cli_name" : "agent move",
+      "context_menu" : "pointerMenuTrim",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agent.moveToMachine",
+      "main_menu" : null,
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move Chat to Machine…",
+      "title_key" : null,
+      "title_table" : null
     },
     {
       "args" : [
@@ -38807,6 +38829,102 @@
       "args" : [
         {
           "kind" : "string",
+          "name" : "machine",
+          "required" : true
+        },
+        {
+          "kind" : "enum",
+          "name" : "action",
+          "required" : true,
+          "values" : [
+            "status",
+            "take_over",
+            "hand_back",
+            "request_human"
+          ]
+        },
+        {
+          "kind" : "string",
+          "name" : "reason",
+          "required" : false
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "cloud computer-control",
+      "context_menu" : "pointerMenuTrim",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloud.computerControl",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Chief Computer Control…",
+      "title_key" : "action.cloud.computerControl",
+      "title_table" : "CloudSessionActions"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "chief",
+          "required" : true
+        },
+        {
+          "kind" : "string",
+          "name" : "op",
+          "required" : true
+        },
+        {
+          "kind" : "string",
+          "name" : "args",
+          "required" : false
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "cloud chief-computer",
+      "context_menu" : "pointerMenuTrim",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloud.chiefComputer",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Use Chief’s Own Computer…",
+      "title_key" : "action.cloud.chiefComputer",
+      "title_table" : "CloudSessionActions"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
           "name" : "icon",
           "required" : false
         }
@@ -41681,6 +41799,37 @@
       "palette_suggested" : null,
       "title" : "Keycap Playground",
       "title_key" : "action.debug.keycapPlayground",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "devOnly",
+      "cli_name" : "action debug-tooltip-gallery",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "debug.tooltipGallery",
+      "main_menu" : null,
+      "mcp" : "devOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Tooltip Gallery",
+      "title_key" : "action.debug.tooltipGallery",
       "title_table" : "ActionCatalog"
     },
     {

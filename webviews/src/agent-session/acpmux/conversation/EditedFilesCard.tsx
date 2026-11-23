@@ -23,6 +23,7 @@ import { SessionCwdContext, SessionEditsContext } from "../turnChanges/sessionRo
 import { useEditedFilesSettings } from "../turnChanges/settings";
 import { applyUndo, cancelUndo, checkUndo, useUndoState, type UndoState } from "../turnChanges/undoStore";
 import { setCardOpen, useCardOpen } from "../turnChanges/openStore";
+import { TurnShots } from "../turnChanges/TurnShotsPair";
 import { HEADER_TOGGLE_ATTRIBUTE, headerToggleClick } from "./headerToggle";
 import { DiffFile, Undo } from "./icons";
 import { Icon } from "../icons/Icon";
@@ -287,6 +288,8 @@ function Card({
           </div>
         );
       })}
+      {/* The turn's page pictures show with the card's contents: collapsed, they wait until it opens. */}
+      {row.ended === true && open && <TurnShots rowId={row.id} />}
       {open && (more > 0 || showAll) && !single && total > limit && (
         <button
           type="button"

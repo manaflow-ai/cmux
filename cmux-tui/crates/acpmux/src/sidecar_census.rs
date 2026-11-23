@@ -629,6 +629,22 @@ fn part_of(who: &crate::agent_host::tree::Identity, harness_programs: &[String])
     beside && runs_file(who, program)
 }
 
+/// The leader's own program when it is a native harness program by absolute path, not an
+/// interpreter, the file the kernel says it runs, and inside an npm install (`npm_install`): what
+/// a Codex session runs once npm's launcher is gone. Its helpers (`part_of`) are then the
+/// harness's. Before, only a relayed program had helpers, so every idle Codex session whose
+/// leader was the native program kept it, its `codex-code-mode-host` and its MCP servers up for
+/// good (29 of 42 idle sessions, about 3.6 GB, on one lane VM). A program in a shared folder
+/// (`/usr/local/bin/claude`) gets none: there `claude-*` is any program.
+#[cfg(unix)]
+fn native_leader(who: &crate::agent_host::tree::Identity) -> Option<String> {
+    let program = who.argv.first().filter(|w| w.starts_with('/'))?;
+    (!is_interpreter(program)
+        && runs_file(who, program)
+        && std::fs::canonicalize(&who.exe).is_ok_and(|exe| npm_install(&exe).is_some()))
+    .then(|| program.clone())
+}
+
 /// `Busy` with the first process that is neither a server (a child of the harness), under one, the
 /// harness's relayed program (`relays`, or a native wrapper's agent: `relays_for`) nor one of its
 /// helpers (`part_of`). Each is told by its identity (`identity_of`: exact argv, executable and
@@ -652,6 +668,15 @@ pub(crate) fn classify(
     };
     let mut harness: Vec<u32> = vec![leader];
     let mut harness_programs: Vec<String> = Vec::new();
+    // A leader that is itself a native program in an npm install (the Codex launcher replaced by
+    // `.../vendor/<triple>/bin/codex`) has its helpers beside it too (`codex-code-mode-host`),
+    // as a relayed one does (`native_leader`).
+    if launched.is_none()
+        && wrapped.is_none()
+        && let Some(program) = leader_identity.as_ref().and_then(native_leader)
+    {
+        harness_programs.push(program);
+    }
     let mut parts: Vec<u32> = Vec::new();
     let mut allowed: Vec<u32> = Vec::new();
     // Each child's identity is read once, however many passes look at it.
