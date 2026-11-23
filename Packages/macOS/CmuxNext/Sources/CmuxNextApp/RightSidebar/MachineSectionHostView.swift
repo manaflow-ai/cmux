@@ -7,10 +7,11 @@ public import CmuxNextServer
 
 extension AcpmuxPersonLine: JoinedDialLine {}
 
-/// Hosts the Machines section (no surface shows it now: the right sidebar that held it is gone; a React page, `MachineSectionPageProvider.makeSection`), made the first
-/// time the section shows: its provider reads the machine registry, each machine's last check, the
+/// Hosts the Machines page (a React page, `MachineSectionPageProvider.makeSection`) as the Machines top
+/// page (`TopPages.registerMachines`: `machines.show` and the sidebar's Machines item), made the first
+/// time a window shows it: its provider reads the machine registry, each machine's last check, the
 /// section's layout tunable and the person's machines joined through the hub (`cmux machine list`),
-/// read when the section is made and each time it shows. New Workspace and Add Machine… run
+/// read each time the page enters a window. New Workspace and Add Machine… run
 /// `workspace.newOnMachine` and `device.add`; a row's menus are the registry's native ones.
 final class MachineSectionHostView: NSView, RightSidebarRefreshing {
     let section: NSView  // a PageSectionHost; its page routes hold the provider
@@ -43,7 +44,13 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
             section.topAnchor.constraint(equalTo: topAnchor),
             section.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
-        refresh()
+    }
+
+    /// The joined list is read each time the page enters a window (a top page leaves the window while
+    /// the workspace shows), so a show catches up on machines that joined or left meanwhile.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil { refresh() }
     }
 
     @available(*, unavailable)

@@ -22,6 +22,7 @@ public struct SidebarBandItems {
         .searchChats: "agentPane.searchChats",
         .chief: ChiefSidebar.openAction,
         .automations: "automations.show",
+        .machines: "machines.show",
     ]
 
     /// Presentation of every built-in, app and workspace item in `layout` (a closed workspace dimmed); `registered` says

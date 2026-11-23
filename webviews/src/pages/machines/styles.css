@@ -237,3 +237,14 @@ html[data-cmux-page="machines"] body {
   outline: var(--cmux-focus-ring-width, 1.5px) solid var(--ds-color-focus);
   outline-offset: 0;
 }
+
+/* The Machines top page (`machines.show`, the sidebar's Machines item) fills the window's content
+   area: there the list is one readable column in the middle, its rows as in the section. A width a
+   sidebar section has keeps the section's layout. */
+@media (min-width: 640px) {
+  .machines {
+    --machines-column: 560px;
+    box-sizing: border-box;
+    padding: var(--ds-space-40) max(var(--ds-space-6), calc((100vw - var(--machines-column)) / 2)) var(--ds-space-6);
+  }
+}

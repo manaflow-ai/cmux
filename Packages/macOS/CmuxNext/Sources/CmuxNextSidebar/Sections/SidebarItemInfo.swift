@@ -173,6 +173,7 @@ extension SidebarBuiltIn {
         case .searchChats: "magnifyingglass"
         case .chief: "sparkles"
         case .automations: "clock.badge.checkmark"
+        case .machines: "desktopcomputer"
         }
     }
 
@@ -193,6 +194,7 @@ extension SidebarBuiltIn {
         case .searchChats: .search
         case .chief: .agentChief
         case .automations: .automation
+        case .machines: .machine
         }
     }
 
@@ -218,6 +220,7 @@ extension SidebarBuiltIn {
         case .searchChats: SectionStrings.searchChats
         case .chief: SectionStrings.chief
         case .automations: SectionStrings.automations
+        case .machines: SectionStrings.machines
         }
     }
 

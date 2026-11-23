@@ -1,7 +1,8 @@
-# Machines section: the right sidebar's machine list
+# Machines page: the person's machine list
 
-The right sidebar's Machines section (the cloud icon in its bar): this Mac, the Cloud, SSH and
-server machines the app connects to, and the person's machines joined through the hub. It is a
+The Machines page: this Mac, the Cloud, SSH and server machines the app connects to, and the
+person's machines joined through the hub. It was the right sidebar's Machines section until that
+sidebar went (#41025); it is now a top page (see "Where it lives"). It is a
 React page, `cmux-page://cmux.machines/` (`webviews/src/pages/machines/`), hosted in the section's slot by
 `PageSectionHost` (CmuxNextPages, the generic sidebar page host) and served by
 `MachineSectionPageProvider` (CmuxNextServer); `MachineSectionHostView` (CmuxNextApp) wires its actions.
@@ -83,10 +84,28 @@ New Workspace button (`tinted`). Shipped: `caption`. It moves nothing, keeps the
 narrow sidebar (the trailing words cut it), and reads Not now as an answer rather than an error (the
 tint paints it in the danger ink).
 
+## Where it lives
+
+The Machines page opens on top of the window, in the content area, as Home and the App Store open
+theirs (TOP-SECTION-ITEMS-ARE-PAGES): from Machines in Cmd+Shift+P (`machines.show`) and from the
+sidebar's Machines item (`SidebarBuiltIn.machines`, `TopPageRoute.page(.machines)`). The item is not
+in the default layout: Add to Sidebar or the App Store's "Machines in Sidebar" card adds it, and
+Remove from Sidebar (or turning the card off) gives back the sidebar as it was. In the content
+area the list is one column, 560 px wide, in the middle (`@media (min-width: 640px)` in
+`webviews/src/pages/machines/styles.css`); narrower, it keeps the section's layout.
+
+Variants (gallery `sidebar.machines-placement`): a Machines tile beside Home and App Store that opens
+the page (`tile`), a collapsible Machines section above the workspaces (`section`), and a Machines
+list in Settings > Devices (`settings`). Shipped: `tile`. Every machine already heads its own
+workspaces in the sidebar, so a section would show each name twice and take rows from the
+workspace list, folded or not; Settings puts daily work (New Workspace on a machine) two clicks deep
+in another window. The tile adds nothing to the default sidebar, and the page has the width for
+the joined rows' captions and their New Workspace.
+
 ## Host and cost
 
-- The page is made the first time the section shows (the right sidebar makes a section's view
-  then) and fills the section; it scrolls inside it, so the section's frame never changes size
+- The page is made the first time a window shows it (`TopPageHost` makes a page's view then) and
+  fills the content area; it scrolls inside it, so the section's frame never changes size
   with its content.
 - While the section is hidden the provider sends the page no change; the newest snapshot arrives,
   once, when it shows again. The joined rows' 90 s aging deadline runs only while the section is
