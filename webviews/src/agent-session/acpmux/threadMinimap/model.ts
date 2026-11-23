@@ -690,6 +690,9 @@ export type MinimapTurns = {
   loadedTicks?: readonly MinimapTick[];
   /// The rail row of the first held turn, past the indexed prompts (the count-only ones come before both).
   loadedStart?: number;
+  /// The prompts newer than the rows (the snapshot's `laterPrompts`, a window of the chat the reader scrolled far up
+  /// holds): rail rows after the held ones (railRows.ts), read as `earlier` is.
+  later?: PromptHeads;
   /// Historical prompts known only by count. They are not materialized in `turns` or `ticks`.
   pendingCount?: number;
   /// The list the next changed turns are written into (the one before `turns`), never `turns`.
@@ -727,6 +730,7 @@ export function minimapTurns(
   change?: RowsChange,
   earlier: PromptHeads = PromptHeads.EMPTY,
   promptCount = 0,
+  later: PromptHeads = PromptHeads.EMPTY,
 ): MinimapTurns {
   const prior = previous?.sessionId === sessionId ? previous : undefined;
   const reuse = prior;
@@ -853,7 +857,7 @@ export function minimapTurns(
     // ticks above the held ones, so the rail has its final length and every tick its final row on the
     // first frame; the index or a page then names them in place (Leo, 2026-11-03: "mostly i just
     // don't like it when the thing shifts and whatnot trying to center itself").
-    const pending = Math.max(0, promptCount - earlier.length - loadedTurns.length);
+    const pending = Math.max(0, promptCount - earlier.length - loadedTurns.length - later.length);
     return {
       rows,
       sessionId,
@@ -863,6 +867,7 @@ export function minimapTurns(
       loadedTicks,
       ...(spare ? { spare } : {}),
       ...(earlier.length ? { earlier } : {}),
+      ...(later.length ? { later } : {}),
       loadedStart: earlier.length,
       pendingCount: pending,
     };
@@ -984,7 +989,10 @@ export function currentTurn(
   low = firstLoaded;
   while (low < high) {
     const middle = (low + high) >>> 1;
-    if ((tops(turns.at(middle)!.index) ?? 0) <= anchor) low = middle + 1;
+    // A turn newer than the rows (railRows.ts `later`, index -1) has no top: it is below every held one. A held turn
+    // whose top is not placed yet reads as above, as before.
+    const turn = turns.at(middle)!;
+    if ((tops(turn.index) ?? (turn.index < 0 ? Infinity : 0)) <= anchor) low = middle + 1;
     else high = middle;
   }
   return Math.max(firstLoaded, low - 1);

@@ -27,10 +27,13 @@ test("every page row has exactly one home", () => {
 
 // In sidebar-section order: seven pages (one settings area, findings G6; David Beyer 2026-11-20:
 // Settings felt overwhelming; Leo 2026-11-22: "ay, fuck it we ball"), each opening on its first.
+// Terminal, Browser and Code Editor keep their own page, Tools (design court dp-d5c2e44ba3).
 test("the categories are the approved ones, in order", () => {
   expect(categories.map((category) => category.id)).toEqual([
-    // General: the app itself, what it tells you, its updates, the New Tab page and menus.
+    // General: the app itself, every customization one click away (Leo 2026-11-22), what it tells
+    // you, its updates, the New Tab page and menus.
     "general",
+    "customize",
     "notifications",
     "updates",
     "newTab",
@@ -41,7 +44,7 @@ test("the categories are the approved ones, in order", () => {
     "appearance",
     "sidebar",
     "tabs",
-    // AI: the chat, agents, Chief, models, computer use and MCP servers.
+    // AI: the chat, agents, Chief, models, computer use, MCP servers and integrations.
     "chat",
     "agents",
     "chief",
@@ -50,10 +53,15 @@ test("the categories are the approved ones, in order", () => {
     "computerUse",
     // Settings > MCP Servers: the services agents use for the person (user 2026-11-18).
     "mcpServers",
+    // Integrations: the integrations hub, linked accounts agents act through (Leo 2026-11-23: "an
+    // aggregator of integrations. linking up things like e.g. stripe so that your agents can refund for you").
+    "integrations",
     // Accounts and Devices. Mobile stays its own page (Lucas 2026-11-11).
     "accounts",
     "mobile",
-    // Devices holds what Server showed, and its old id opens it (next test).
+    // Devices holds what Server showed, and its old id opens it (next test). It sits under Accounts
+    // and Devices, where the join prompt's "Settings > Devices" points (Leo 2026-11-22: "i also
+    // couldnt find settings devices control").
     "devices",
     // Settings > Cloud: what Cloud chats run on, Cloud Environments and Cloud Workspaces.
     "cloud",
@@ -62,13 +70,14 @@ test("the categories are the approved ones, in order", () => {
     "import",
     "privacy",
     "keyboard",
-    // Terminal and Browser: the terminal, browser and code editor keep a top-level page (design court
+    // Tools: the terminal, browser and code editor keep a top-level page (design court
     // dp-d5c2e44ba3, 2026-11-23), not a place under Advanced.
     "terminal",
     "browser",
     "editor",
-    // Advanced: the app's internals.
+    // Advanced: the app's internals, and each installed extension's own declared settings.
     "advanced",
+    "extensions",
     "experimental",
     "development",
   ]);

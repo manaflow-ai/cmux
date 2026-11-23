@@ -164,7 +164,7 @@ def measure(app_pid, bundle, seconds, control):
     kinds = classify(app_pid, bundle)
     start = {pid: usage(pid) for pid in kinds}
     t0 = time.monotonic()
-    time.sleep(seconds)  # test script: the measurement window itself
+    time.sleep(seconds)  # sleep-ok: the CPU and wakeup measurement window itself
     wall = time.monotonic() - t0
     kinds.update({pid: kind for pid, kind in classify(app_pid, bundle).items() if pid not in kinds})
     rows = []

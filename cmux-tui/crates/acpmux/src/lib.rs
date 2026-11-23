@@ -42,9 +42,11 @@ pub mod bg_run;
 pub(crate) mod bounded_child;
 pub mod build_info;
 pub mod byo_endpoint;
+pub mod caller_stats;
 pub mod capabilities;
 pub mod catalog;
 pub mod chat_fork;
+pub mod chat_size_fixture;
 pub mod chatgpt;
 pub mod chats;
 pub mod claude_auth;
@@ -67,6 +69,8 @@ pub mod cmux_tui_service;
 pub mod codex_app_server;
 #[cfg(unix)]
 mod codex_auth_file;
+/// The opt-in bundled Codex app-server (Labs, off by default).
+pub mod codex_bundle;
 mod codex_cloud_auth;
 pub mod codex_cmux_entry;
 pub mod codex_desktop;
@@ -80,8 +84,10 @@ pub mod cpu_class;
 pub mod cwd_pin;
 pub mod daemon;
 pub(crate) mod daemon_parts;
+pub mod daemon_priority;
 pub mod daemon_skew;
 mod dead_temps;
+pub mod death_route;
 mod default_harness;
 pub mod deliver;
 pub mod deps;
@@ -94,6 +100,8 @@ mod fork_tests;
 pub mod forum;
 pub mod forum_mcp;
 pub mod frame_compress;
+/// The always-on frame tally of the visible chat (`_acpmux/perf {op:"frames"}`).
+pub mod frame_tally;
 pub mod gauges;
 pub mod generic_goal;
 pub mod git_state;
@@ -119,6 +127,7 @@ pub mod github_mcp {
 pub mod github_status;
 pub mod goal;
 pub mod hand;
+pub mod happy_dial;
 pub mod harness_admin;
 pub mod harness_config;
 pub mod harness_fixture;
@@ -145,6 +154,9 @@ pub mod idempotency;
 #[cfg(windows)]
 mod job;
 mod joined_model_plane;
+/// `cmux github` and the GitHub MCP bridge on a joined machine ask its hub (`joined_model_plane`).
+#[cfg(unix)]
+pub use joined_model_plane::install_github_source;
 pub mod launch_credential;
 pub mod launch_policy;
 pub mod left_on_mac;
@@ -161,6 +173,10 @@ pub mod login_env;
 pub mod lossy_lines;
 #[cfg(test)]
 mod lost_home_race_tests;
+/// Calls this machine runs for the person's other machines, over the hub carrier
+/// (`machine_call_service.rs`).
+#[cfg(feature = "hub-carrier")]
+pub mod machine_call_service;
 #[path = "cli/machine_consent.rs"]
 pub(crate) mod machine_consent;
 pub(crate) mod machine_info;
@@ -178,6 +194,7 @@ pub mod mcp_gateway;
 pub mod mcp_hint;
 pub mod mesh;
 pub mod mesh_control;
+pub mod mesh_gate;
 pub mod mesh_http;
 pub mod mesh_node_key;
 pub mod mesh_relay_config;
@@ -216,15 +233,18 @@ pub mod placement;
 pub mod plan_build_records;
 #[cfg(not(unix))]
 mod platform;
+pub mod pr_poller;
 pub mod pricing;
 pub mod probe_cleanup;
 pub mod probe_prompt;
+pub mod proc_exit;
 mod proc_start;
 pub mod prompt_cache_env;
 pub mod prompt_class;
 pub mod prompt_context;
 pub mod prompt_provenance;
 pub mod prompt_uploads;
+pub mod prompts;
 pub mod protected_folders;
 pub mod protocol;
 pub mod provenance_keys;
@@ -263,6 +283,7 @@ pub mod sent_by;
 pub mod server;
 pub mod session_env;
 mod session_handle;
+pub mod session_icon;
 pub mod session_identity;
 pub mod session_liveness;
 pub mod session_name;
@@ -278,6 +299,10 @@ pub mod sha256;
 pub mod share_approval;
 /// The share host: a joined Mac's daemon serves screen shares with no app running (`share_host/`).
 pub mod share_host;
+/// A hub move's pages over the hub carrier (`transfer_service.rs`, `hub/transfer_pull.rs`).
+#[cfg(feature = "hub-carrier")]
+pub mod transfer_service;
+pub(crate) mod worker_lock;
 // The shadow admission verdict beside each placement and create (cmuxterm-hq#7342).
 pub mod memory_inbox;
 pub mod prompt_coach;
@@ -295,7 +320,11 @@ mod single_shot_list_tests;
 #[cfg(test)]
 mod source_scan_smoke;
 pub mod sr2_cost_labels;
+pub mod sr2_priority;
+pub mod ssh_config_hosts;
 pub(crate) mod ssh_forward;
+pub(crate) mod ssh_forward_owners;
+pub mod stash;
 pub mod stats;
 pub(crate) mod stderr;
 pub mod store;
@@ -344,6 +373,7 @@ pub mod usage_stats;
 pub mod user_settings;
 pub mod vault;
 pub mod web_modes;
+pub mod web_tailnet;
 pub mod wire_size;
 pub mod wireguard;
 pub mod workflow_journal;
@@ -356,3 +386,6 @@ pub mod ws_auth;
 pub mod xhost_audit;
 
 pub mod model_catalog;
+/// The per-host model-name hot patch (`$ACPMUX_HOME/model-aliases.json`), read by
+/// `model_catalog::canonical_model`.
+pub mod model_hot_patch;

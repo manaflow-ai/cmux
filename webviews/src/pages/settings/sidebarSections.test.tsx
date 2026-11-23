@@ -27,14 +27,15 @@ function sidebar(container: ParentNode): Array<{ header: string | null; links: s
 
 test("the sidebar sections hold every category once, in category order", () => {
   expect(sidebarSections.flatMap((section) => section.categories)).toEqual(categories.map((category) => category.id));
-  // Six pages (one settings area, findings G6; Leo 2026-11-22: "ay, fuck it we ball"), every one titled
-  // and none drawn closed.
+  // Seven pages (one settings area, findings G6; Leo 2026-11-22: "ay, fuck it we ball"; Terminal, Browser
+  // and Code Editor keep their own page, design court dp-d5c2e44ba3), every one titled and none drawn closed.
   expect(sidebarSections.map((section) => section.id)).toEqual([
     "general",
     "appearance",
     "ai",
     "devices",
     "keyboard",
+    "tools",
     "advanced",
   ]);
   expect(sidebarSections.every((section) => section.title !== null)).toBe(true);
@@ -59,7 +60,7 @@ test("the sidebar draws seven page links, and the shown page's categories under 
     ["ai", "chat", "AI"],
     ["devices", "accounts", "Accounts and Devices"],
     ["keyboard", "keyboard", "Keyboard"],
-    ["terminalBrowser", "terminal", "Terminal and Browser"],
+    ["tools", "terminal", "Tools"],
     ["advanced", "advanced", "Advanced"],
   ]);
   // Every category is in the sidebar once; a closed page's other categories are inert.
