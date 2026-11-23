@@ -169,6 +169,12 @@ pub const CAPABILITIES: &[Capability] = &[
         id: "machine-enroll-v1",
         wire: &[method::MUX_MACHINE_ENROLL, method::MUX_MACHINE_LEAVE_IF_AUTO],
     },
+    // Door A: a machine this computer reaches by ssh joins through the hub in one call, and the
+    // ones it reaches but has not added are listed (`server/machine_join_ssh.rs`).
+    Capability {
+        id: crate::cli::ssh_join::CAPABILITY,
+        wire: &[method::MUX_MACHINE_JOIN_SSH, method::MUX_MACHINE_CANDIDATES],
+    },
     // The app reports only who is signed in; acpmux decides the enroll, its retry and the leave
     // (`server/sign_in_follow.rs`). A literal id, which the app's reference check reads.
     Capability { id: "machine-signed-in-v1", wire: &[method::MUX_MACHINE_SIGNED_IN] },

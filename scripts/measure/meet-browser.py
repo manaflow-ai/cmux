@@ -234,7 +234,7 @@ def select(rows, roots: set[int], path: str | None, extra: re.Pattern | None):
 def cpu_window(seconds: float, roots: set[int], path: str | None, extra: re.Pattern | None = None) -> dict:
     """CPU % of the browser's processes over `seconds` (cumulative CPU time from ps; 100 = one core)."""
     before = processes()
-    time.sleep(seconds)
+    time.sleep(seconds)  # sleep-ok: the CPU measurement window
     after = processes()
     keep = select(after, roots, path, extra)
     per = []
@@ -296,7 +296,18 @@ class Cmux:
                 break
             time.sleep(0.5)
         self.log(f"control socket {self.sock} pid {self.pid}")
-        time.sleep(5)  # the first window and its restore settle
+        # The first window and its restore are done once the snapshot's topology reads the same twice.
+        if self.sock:
+            deadline, last = time.monotonic() + 30, None
+            while time.monotonic() < deadline:
+                snap = self.rpc("snapshot.get", timeout=10)
+                current = json.dumps((snap or {}).get("topology", snap) if isinstance(snap, dict) else snap, sort_keys=True)
+                if current == last and not (isinstance(snap, dict) and snap.get("error")):
+                    break
+                last = current
+                time.sleep(0.5)
+            else:
+                self.log("snapshot still changing 30 s after launch")
         return self.sock is not None
 
     def stop(self):
@@ -546,7 +557,18 @@ class Driver:
         secs = OPTS.call
         idle = self.cpu(10)
         self.js(f"__m.start('loop', {secs})")
-        time.sleep(3)
+        # The call window starts once both peers are connected (the page sets R.loop running).
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            try:
+                state = (json.loads(self.js("__m.read('loop')") or "null") or {}).get("state")
+            except (TypeError, ValueError, AttributeError):
+                state = None
+            if state in ("running", "done", "threw"):
+                break
+            time.sleep(0.1)
+        else:
+            self.log(f"  {self.run} loop: call not running 15 s after start")
         busy = self.cpu(max(10, secs - 6))
         value = wait_result(self.run, "loop", secs + 20)
         value = {k: v for k, v in value.items() if k != "samples"} | {"samples": value.get("samples", [])[-5:]}
@@ -556,16 +578,34 @@ class Driver:
 
     def hidden(self):
         self.js("__m.start('hiddenStart')")
-        time.sleep(3)
+        # A visible baseline: 20 visible timer ticks (100 ms each) logged before the tab is covered.
+        self.wait_ticks("visible", 20, 15)
         hidden_how = self.hide()
-        time.sleep(20)
+        time.sleep(20)  # sleep-ok: the hidden window, the timer's throttling over 20 s covered is what is measured
         self.show()
-        time.sleep(2)
+        # Uncovered: wait until the page logs visible ticks again (10 of them, after the hidden ones).
+        self.wait_ticks("visible", 10, 15, after="hidden")
         self.js("__m.start('hiddenStop')")
         value = wait_result(self.run, "hidden", 10)
         value["how"] = hidden_how
         self.log(f"  {self.run} hidden: {json.dumps(value)[:300]}")
         return value
+
+    def wait_ticks(self, state, count, seconds, after=None):
+        """Wait until the page's hidden-test log has `count` ticks in `state` (after the last `after` tick)."""
+        expr = (f"(() => {{ const l = __m.R.hiddenLog || []; let i = {json.dumps(after)} ? "
+                f"l.map(z => z[1]).lastIndexOf({json.dumps(after)}) : -1; "
+                f"return l.slice(i + 1).filter(z => z[1] === {json.dumps(state)}).length; }})()")
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            try:
+                if int(self.js(expr) or 0) >= count:
+                    return True
+            except (TypeError, ValueError):
+                pass
+            time.sleep(0.1)
+        self.log(f"  {self.run} hidden: fewer than {count} {state} ticks in {seconds} s")
+        return False
 
     def meet(self):
         out = {}

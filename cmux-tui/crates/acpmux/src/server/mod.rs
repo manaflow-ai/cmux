@@ -494,6 +494,24 @@ impl Conn {
         self.caller.get().map(String::as_str)
     }
 
+    /// Who this connection is in the caller stats (`caller_stats.rs`): its client name, origin,
+    /// unix peer pid and the session its first `initialize` named.
+    fn stats_caller(&self) -> crate::caller_stats::Caller {
+        let pid = match self.socket_peer {
+            crate::sender_harness::SocketPeer::Pid(pid) => Some(pid),
+            _ => None,
+        };
+        let session = self.caller.get().map(|id| (id.clone(), true));
+        let session = session.or_else(|| self.unproven_caller.get().map(|id| (id.clone(), false)));
+        crate::caller_stats::Caller {
+            client: self.name.lock_or_recover().clone(),
+            origin: origin_usage_key(self.origin),
+            pid,
+            proven: session.as_ref().is_some_and(|(_, proven)| *proven),
+            session: session.map(|(id, _)| id),
+        }
+    }
+
     /// What its first `initialize` declared about its caller (`cli_caller.rs`).
     pub(super) fn declared(&self) -> Option<&crate::cli_caller::Declared> {
         self.declared.get()
@@ -697,6 +715,14 @@ impl Conn {
                         line.len(),
                     );
                 }
+                // The reply's share of its caller's bytes (`caller_stats.rs`).
+                if let (Some(m), Message::Response { .. }) = (reply_to, msg) {
+                    crate::caller_stats::global().observe_reply(
+                        &self.stats_caller(),
+                        m,
+                        line.len(),
+                    );
+                }
                 if reply_to == Some(controls::METHOD) {
                     self.controls.reply(self, msg, line);
                 } else {
@@ -759,6 +785,9 @@ impl Conn {
         }
         let what = method.map_or(crate::wire_size::What::Reply, crate::wire_size::What::ReplyTo);
         crate::wire_size::observe(what, bytes);
+        if let Some(m) = method {
+            crate::caller_stats::global().observe_reply(&self.stats_caller(), m, bytes);
+        }
         // Each client's share of the list it is sent (`list_bytes.rs`), by its name and origin.
         if matches!(method, Some(crate::rpc::method::MUX_WATCH | crate::rpc::method::MUX_SESSIONS))
         {
@@ -1853,6 +1882,9 @@ async fn serve_connection_from(
     let device_ended = web_device::credential_ended(&hub, &conn);
     tokio::pin!(device_ended);
     queue_gauge::register(&conn);
+    // A peer daemon's link mirrors the list and reads it again only when it links again: its
+    // list notices are never left out (`outbound.rs`). Named again at its `initialize`.
+    conn.out.describe(format!("{} {}", origin_usage_key(origin), conn.id), origin != Origin::Peer);
     tracing::debug!(conn = %conn.id, "client connected");
 
     let mut fan = fanout::start(hub.clone(), conn.clone(), flushes);
@@ -1920,6 +1952,7 @@ async fn serve_connection_from(
             }
             continue;
         }
+        let line_bytes = line.len();
         let msg = match Message::parse(&line) {
             Ok(m) => m,
             Err(e) => {
@@ -1929,6 +1962,15 @@ async fn serve_connection_from(
         };
         match msg {
             Message::Request { id, method: m, mut params } => {
+                // Every request its caller sent, refused ones too (`caller_stats.rs`); an
+                // `initialize` once it named the client, below.
+                if m != method::INITIALIZE {
+                    crate::caller_stats::global().observe_request(
+                        &conn.stats_caller(),
+                        &m,
+                        line_bytes,
+                    );
+                }
                 // An open of a chat's view is timed from here to its reply (`gauges.attach`).
                 let attach_from = crate::gauges::opens_a_chat(&m).then(std::time::Instant::now);
                 // Once a local connection has been admitted as a trigger
@@ -1981,6 +2023,14 @@ async fn serve_connection_from(
                 conn.bind_person(&hub, &m, &mut params);
                 if m == method::INITIALIZE {
                     requests::note_initialize(&conn, params.as_ref().unwrap_or(&Value::Null));
+                }
+                // After it named the client: an `initialize` counts under that name.
+                if m == method::INITIALIZE {
+                    crate::caller_stats::global().observe_request(
+                        &conn.stats_caller(),
+                        &m,
+                        line_bytes,
+                    );
                 }
                 // Before its reply is built: the reply says whether large messages go compressed.
                 if m == method::INITIALIZE
@@ -2243,6 +2293,10 @@ async fn serve_connection_from(
     // reconnecting to a forward port its bridge already closed, which another
     // process could bind (`hub/peer_lease.rs`).
     conn.end_peer_leases(&hub);
+    // The phones the owner's peer daemon vouched for on this link end with it (fail closed).
+    if hub.pairing.unvouch(&conn.id, None, None, 0) {
+        hub.hold_policies_again().await;
+    }
     ephemeral::release_all(&hub, &conn).await;
     tracing::debug!(conn = %conn.id, "client disconnected");
 }
@@ -2621,6 +2675,7 @@ mod goal;
 pub mod local_app;
 pub(crate) mod machine_enroll;
 pub(crate) mod machine_health;
+mod machine_join_ssh;
 #[cfg(feature = "hub-carrier")]
 mod machine_routes;
 mod machine_tunnel;
@@ -2665,6 +2720,7 @@ pub(crate) use redact::url_without_secrets;
 pub(crate) mod remote_guard;
 mod requests;
 pub use requests::{DURABLE_DISPATCH_FEATURE, SESSION_RESUME_FEATURE};
+mod account_sign_in;
 mod accounts;
 #[cfg(test)]
 mod attach_latency_bench;
