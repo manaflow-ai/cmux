@@ -31,13 +31,15 @@ public struct TerminalDemoRoot: View {
             // pane narrower than the phone), through the session the app builds
             // for a Mac terminal. `altproj`: htop already running in it, and
             // the Mac answering a claim a round trip later
-            // (`-CmuxMobileTerminalDemoMacLatencyMs`, default 60: LTE).
+            // (`-CmuxMobileTerminalDemoMacLatencyMs`, default 60: LTE), or never
+            // (`-CmuxMobileTerminalDemoMacKeepsSize YES`: Prefer this Mac).
             let defaults = UserDefaults.standard
             let grid = (defaults.string(forKey: "CmuxMobileTerminalDemoMacGrid") ?? "").split(separator: "x").compactMap { Int($0) }
             let alt = phases.contains("altproj")
             let latency = alt ? (defaults.object(forKey: "CmuxMobileTerminalDemoMacLatencyMs") as? Int ?? 60) : 0
             let mac = MacPaneMockSession(columns: grid.count == 2 ? grid.first ?? 120 : 120, rows: grid.count == 2 ? grid.last ?? 40 : 40,
-                                         program: alt ? "htop" : nil, latency: .milliseconds(latency))
+                                         program: alt ? "htop" : nil, latency: .milliseconds(latency),
+                                         keepsSize: alt && defaults.bool(forKey: "CmuxMobileTerminalDemoMacKeepsSize"))
             if alt {
                 altMac = mac
                 // Starts with no program remembered: the first htop is viewed, not fitted.
@@ -610,7 +612,9 @@ final class TerminalDemoDriver {
     /// UI test rotates, pinches and double taps until three zoom gestures
     /// land, or 75 s), `kbup` and `kb` (the keyboard shown and hidden),
     /// `typed` (`abc` typed into htop), `quit` (`q`), `again` (htop started
-    /// again from the shell), then `done`.
+    /// again from the shell), then `done`. A Mac that keeps its size
+    /// (`testAMacThatKeepsItsSize…`) skips the gestures stage: its test
+    /// drives none.
     private func alternateProjection() async {
         let mac = model.session.underlyingSession as? MacPaneMockSession
         func counters(_ stage: String) {
@@ -632,7 +636,7 @@ final class TerminalDemoDriver {
         await settle("attach", timeout: 8)
         await wait(1)
         var waited = 0.0
-        while model.zoomGestures < 3, waited < 75 {
+        while model.zoomGestures < 3, waited < (mac?.keepsSize == true ? 0 : 75) {
             counters("gestures")
             await wait(0.25)
             waited += 0.25

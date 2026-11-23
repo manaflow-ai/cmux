@@ -227,6 +227,70 @@ final class TerminalProjectionUITests: XCTestCase {
         XCTAssertLessThan(again.columns, 120, "htop again is at the phone's columns")
     }
 
+    /// The fallback (Leo, 2026-11-17: "Fall back if need be"): a Mac that
+    /// keeps its grid (Prefer this Mac) never answers the phone's claim.
+    /// htop typed into (claimed, remembered), quit and started again: the
+    /// Mac's PTY never resizes, and the held frames show at the Mac's grid
+    /// (zoomed) once the hold gives up (`fitHoldLimit`, 1.5 s), with no frame
+    /// at a wrong grid. Each stage's first right frame (ms) is in the note.
+    @MainActor
+    func testAMacThatKeepsItsSizeFallsBackToItsGridZoomed() throws {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
+        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-CmuxMobileTerminalDemo", "-CmuxMobileTerminalDemoEmbedded",
+                                "-CmuxMobileTerminalDemoPhases", "altproj", "-CmuxMobileTerminalDemoMacKeepsSize", "YES"]
+        app.launch()
+        let probe = app.staticTexts["debug.terminal-demo"]
+        XCTAssertTrue(probe.waitForExistence(timeout: 30), "the terminal demo's step label\n\(app.debugDescription)")
+
+        // `a.<stage>.mac<n>.cl<n>.rb<n>.st<ms>.uf<n>...cols<n>`, as the demo writes it.
+        func wait(for stage: String, timeout: TimeInterval = 60) -> [String: Int]? {
+            let deadline = Date().addingTimeInterval(timeout)
+            while Date() < deadline {
+                let parts = probe.label.split(separator: ".")
+                if parts.count >= 9, parts[0] == "a", parts[1] == stage {
+                    var out: [String: Int] = [:]
+                    for part in parts.dropFirst(2) {
+                        guard let digit = part.firstIndex(where: { $0 == "-" || $0.isNumber }), let n = Int(part[digit...]) else { continue }
+                        out[String(part[..<digit])] = n
+                    }
+                    return out
+                }
+                RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            }
+            return nil
+        }
+        guard let attached = wait(for: "attach") else { return XCTFail("htop never settled: \(probe.label)") }
+        guard let typed = wait(for: "typed") else { return XCTFail("typing never settled: \(probe.label)") }
+        guard let again = wait(for: "again") else { return XCTFail("htop never started again: \(probe.label)") }
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "altproj-keeps-size-again"
+        shot.lifetime = .keepAlways
+        add(shot)
+
+        let rows = [("attach into htop", attached), ("type abc into htop", typed), ("htop again (remembered, no answer)", again)]
+        let line = rows.map { row -> String in
+            let (name, c) = row
+            return "\(name)=mac\(c["mac"] ?? -1).cl\(c["cl"] ?? -1).rb\(c["rb"] ?? -1).st\(c["st"] ?? -1).uf\(c["uf"] ?? -1).cols\(c["cols"] ?? -1)"
+        }.joined(separator: " | ")
+        print("projection ui: altproj keeps size: \(line)")
+        let attachment = XCTAttachment(string: line)
+        attachment.name = "projection-ui altproj-keeps-size " + line
+        attachment.lifetime = .keepAlways
+        add(attachment)
+
+        for (name, counts) in rows {
+            XCTAssertEqual(counts["mac"], 0, "\(name): a Mac that keeps its size never resizes (\(counts))")
+            XCTAssertEqual(counts["cols"], 120, "\(name): htop at the Mac's grid (\(counts))")
+        }
+        XCTAssertGreaterThan(again["cl"] ?? 0, typed["cl"] ?? 0, "htop again claims at once (remembered)")
+        let settle = again["st"] ?? -1
+        XCTAssertGreaterThanOrEqual(settle, 1_400, "the held frames wait for the claim's answer (fitHoldLimit 1.5 s)")
+        XCTAssertLessThanOrEqual(settle, 3_000, "with no answer, the held frames show at the Mac's grid by 1.5 s + 1.5 s margin")
+        XCTAssertEqual(again["uf"], 0, "no frame of htop at a wrong grid (counted from the attach on), held or after")
+    }
+
     /// The zoom chrome's gallery: htop on the Mac's 120x40 grid zoomed past
     /// fit width with each variant (none, a column ruler, a minimap strip),
     /// its chrome kept up for the screenshot. Leo (rulebook): "3+ gallery variants".

@@ -14,7 +14,8 @@ import Foundation
 /// `htop` runs a full-screen app on the alternate screen (its screen redrawn
 /// at the PTY's grid on each SIGWINCH, `q` quits). `latency` delays the
 /// Mac's answer to a claim (a `resized` and its replay) by a round trip, as a
-/// phone on LTE sees it.
+/// phone on LTE sees it. `keepsSize`: a Mac that keeps its grid (Prefer
+/// this Mac): a claim never resizes the PTY and no `resized` comes back.
 ///
 /// It counts what reached the Mac: ``ptyResizes`` (grid changes of the PTY)
 /// and ``claimChanges`` (claims and releases the phone sent), and what came
@@ -22,6 +23,8 @@ import Foundation
 @MainActor
 public final class MacPaneMockSession: TerminalSession {
     public let paneGrid: (columns: Int, rows: Int)
+    /// The Mac keeps its grid whatever the phone claims (Prefer this Mac).
+    public let keepsSize: Bool
     /// The PTY's grid now.
     public private(set) var ptyGrid: (columns: Int, rows: Int)
     /// PTY resizes since the pane opened (SIGWINCHes the program got).
@@ -49,8 +52,9 @@ public final class MacPaneMockSession: TerminalSession {
     /// `transcript`: the pane's history (lines, oldest first); a short shell
     /// session by default.
     public init(columns: Int = 120, rows: Int = 40, transcript: [String]? = nil, program: String? = nil,
-                latency: Duration = .zero) {
+                latency: Duration = .zero, keepsSize: Bool = false) {
         paneGrid = (columns, rows)
+        self.keepsSize = keepsSize
         ptyGrid = paneGrid
         self.transcript = transcript ?? Self.session
         self.latency = latency
@@ -135,9 +139,10 @@ public final class MacPaneMockSession: TerminalSession {
         answer?.cancel()
     }
 
-    /// "Fit the smallest viewer": the claiming phone's grid where it is smaller.
+    /// "Fit the smallest viewer": the claiming phone's grid where it is
+    /// smaller (never, for a Mac that keeps its size).
     private var wantedGrid: (columns: Int, rows: Int) {
-        guard claims, let asked else { return paneGrid }
+        guard claims, !keepsSize, let asked else { return paneGrid }
         return (min(asked.columns, paneGrid.columns), min(asked.rows, paneGrid.rows))
     }
 
