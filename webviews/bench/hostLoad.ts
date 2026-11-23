@@ -62,6 +62,7 @@ export function normalizeRows(rows: readonly PerfRow[], factor: number): PerfRow
           ...row,
           p95: scale(row.p95),
           ...(row.p50 === undefined ? {} : { p50: scale(row.p50) }),
+          ...(row.samples === undefined ? {} : { samples: row.samples.map(scale) }),
           raw_p95: row.p95,
           load: factor,
         },

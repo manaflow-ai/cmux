@@ -208,6 +208,17 @@ def motion_link(series):
     }
 
 
+def fine_rate(rows):
+    """The viewer bench's `series_100ms` rows ([ms, bytes, kbps]) as [ms, Mbit/s, kbps]: the
+    received rate over each 100 ms bucket beside the host's newest target."""
+    out, prev = [], 0
+    for ms, nbytes, kbps in rows:
+        span = max(ms - prev, 1)
+        out.append([ms, round(nbytes * 8 / span / 1e3, 2), kbps])
+        prev = ms
+    return out
+
+
 def host_frames(lines, cap_fps):
     """Where a tick run's frames went, from the host's CMUX_RD_TIMING_LOG frame lines (µs on
     the host clock): how many the host encoded a second against the cap, the gaps between
@@ -926,7 +937,8 @@ MARKER_FLAGS = ("--motion", "--tick", "--verbose")
 # maps to the pattern of its value, or None for a switch, which is sent as `--flag 1` (cmux-rd's
 # options all take a value; `--flag=0` turns a switch off).
 NUMBER = r"[0-9]{1,9}"
-HOST_ARGS = {"--resolution-ladder": None, "--max-qp": NUMBER, "--max-kbps": NUMBER}
+HOST_ARGS = {"--resolution-ladder": None, "--max-qp": NUMBER, "--max-kbps": NUMBER,
+             "--stats-every-ms": NUMBER}
 VIEWER_ARGS = {"--caps": r"[a-z0-9._-]+(,[a-z0-9._-]+)*"}
 
 
@@ -2014,6 +2026,10 @@ class Orchestrator:
                     rec["fps"] = rep.get("fps")
                     rec["mbit_per_s"] = rep.get("bytes", 0) * 8 / max(rep.get("seconds", 1), 1e-3) / 1e6
                     rec.update(motion_link(rep.get("series") or []))
+                    if rep.get("series_100ms"):
+                        # [ms into the window, Mbit/s received, host target kbps] every 100 ms
+                        # (the target is fresh only with the host on --stats-every-ms 100).
+                        rec["rate_100ms"] = fine_rate(rep["series_100ms"])
                     if rep.get("marker_log") is not None:
                         rec["marker_log"] = rep["marker_log"]
                         # Each second's end (viewer wall ms) and the host's newest stats then.

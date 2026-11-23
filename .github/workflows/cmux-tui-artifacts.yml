@@ -255,6 +255,40 @@ jobs:
           SHA: ${{ github.sha }}
         run: python3 scripts/ci/cmux_tui_branch_inputs.py --ref "$REF" --sha "$SHA"
 
+  # Latest wins on feat-cmux-next, for the runs tree-preflight's group cannot replace: those an
+  # older definition of this workflow started (each in a push-<sha> group of its own, about 240
+  # queued on 2026-11-19, the oldest from 11-11). Each feat-cmux-next push cancels every older
+  # feat-cmux-next push run of this workflow that no runner ever took (attempt 1, no job with a
+  # runner or a step; scripts/ci/cmux_tui_feat_supersede.py). A started run is never cancelled, nor
+  # a dispatch, a re-run or a nightly-next push. On the one-minute control pool, beside
+  # tree-preflight (nothing needs it), so a backed-up owned lane label does not hold it.
+  supersede-feat-runs:
+    name: cancel superseded queued feat-cmux-next runs
+    if: ${{ github.event_name == 'push' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 }}
+    runs-on: ${{ fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    timeout-minutes: 10
+    continue-on-error: true
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          # BASH_ENV (above) sources scripts/ci/api_call_log/env.sh in every step.
+          sparse-checkout: |
+            scripts/ci/cmux_tui_feat_supersede.py
+            scripts/ci/deadline_http.py
+            scripts/ci/api_call_log/
+          sparse-checkout-cone-mode: false
+      - name: Cancel the older feat-cmux-next push runs no runner took
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+        run: python3 scripts/ci/cmux_tui_feat_supersede.py --repo "$GITHUB_REPOSITORY" --run-id "$RUN_ID"
+
   # Keep the common path cheap: a tree-addressed publication is complete when
   # all runtime binaries and checksum markers exist, so there is no reason to spend a macOS build
   # or daemon-test slot on another commit with the same inputs.
@@ -265,6 +299,21 @@ jobs:
     needs: [push-gate, coalesce]
     if: ${{ !cancelled() && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') && needs.push-gate.outputs.stale != 'true' && needs.push-gate.outputs.inputs_unchanged != 'true' && needs.coalesce.outputs.run != 'false' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    # Latest wins on feat-cmux-next (Leo: "if i wait for the nightly then i might as well just
+    # update to the thing"). Attempt 1 of every feat-cmux-next push preflight shares one group:
+    # GitHub keeps one admitted and one pending, and a newer push replaces the pending one, so a
+    # superseded push never takes a runner and the tip is preflighted next. The newest commit's
+    # mac-live.json lists the older commits in live_from, so nothing is lost. On 2026-11-19 the
+    # owned lane label handed runners out oldest first to about 240 queued push runs and
+    # channels/mac-live.json was 22 h behind the tip. Only the preflight is serialized (minutes;
+    # a whole run took 30 min to 16 h, so a run-level group would publish the tip hours late), and
+    # cancel-in-progress stays false. A dispatch (cmux-tui-tree-request.yml, request-nightly-next.sh's
+    # backfill), a nightly-next push, a lane push and a re-run each get a group of their own: a nightly
+    # still gets the tree of its exact commit. supersede-feat-runs below ends the older queued runs
+    # this group cannot reach; cmux-tui-artifacts-retry skips a run a newer push superseded.
+    concurrency:
+      group: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'cmux-tui-feat-push-preflight' || format('cmux-tui-preflight-{0}-{1}', github.run_id, github.run_attempt) }}
+      cancel-in-progress: false
     timeout-minutes: 10
     permissions:
       actions: read
@@ -1834,6 +1883,8 @@ jobs:
         if: steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui -> target
           shared-key: ${{ runner.os == 'macOS' && 'cmux-tui-macos' || 'cmux-tui-linux' }}
@@ -4989,6 +5040,9 @@ jobs:
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
           SIGNING_KEY: ${{ secrets.CMUX_WEB_OTA_SIGNING_KEY }}
+          # The dedicated Linux release key (linux-signed-packages.md section 3): signs the Linux release
+          # files beside SIGNING_KEY once web-update-keys.json lists it; unset, they carry SIGNING_KEY's alone.
+          LINUX_RELEASE_SIGNING_KEY: ${{ secrets.CMUX_LINUX_RELEASE_SIGNING_KEY }}
           GH_TOKEN: ${{ github.token }}  # gh run download, for the Linux release file
           VERIFY_PUBLISH: ${{ needs.verify-publish.result }}
         run: |
@@ -5378,7 +5432,7 @@ jobs:
   # 300 an hour, must not spend the 1,000-an-hour budget every workflow shares.
   drop-build-artifacts:
     name: drop this run's build artifacts
-    needs: [reject-untrusted-pin-ref, push-gate, coalesce, tree-preflight, tree-owner-wait, build, build-windows, darwin-fallback-plan, build-darwin-fallback, cmux-next-daemon-tests, publish-ref-notice, sentry-dsyms, publish, verify-publish, adopt-commit-manifest, rerun-deferred-commits, verify-cdn-publication, publish-windows, macos-cross-shadow, macos-cross-runtime-x86_64, publish-tree, publish-tree-windows, publish-tree-tested, point-feat-channel, point-windows-channel, mark-tree-commits, sweep-commit-manifests, sweep-pending-tree-notify, point-machine-channel-early, point-machine-channel, point-mac-live-channel, request-image-roll, request-nightly-next, request-team-signed-tree, notify-unpublished-tree]
+    needs: [reject-untrusted-pin-ref, push-gate, coalesce, supersede-feat-runs, tree-preflight, tree-owner-wait, build, build-windows, darwin-fallback-plan, build-darwin-fallback, cmux-next-daemon-tests, publish-ref-notice, sentry-dsyms, publish, verify-publish, adopt-commit-manifest, rerun-deferred-commits, verify-cdn-publication, publish-windows, macos-cross-shadow, macos-cross-runtime-x86_64, publish-tree, publish-tree-windows, publish-tree-tested, point-feat-channel, point-windows-channel, mark-tree-commits, sweep-commit-manifests, sweep-pending-tree-notify, point-machine-channel-early, point-machine-channel, point-mac-live-channel, request-image-roll, request-nightly-next, request-team-signed-tree, notify-unpublished-tree]
     # Not after notify-unpublished-tree ran: it must stay the run's last job so the
     # deferred run it re-runs finds this owner ended (cx-urd.26). Those runs keep
     # their artifacts to the 1-day retention.
