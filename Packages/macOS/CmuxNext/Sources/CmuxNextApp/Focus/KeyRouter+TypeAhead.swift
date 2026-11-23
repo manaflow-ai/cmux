@@ -89,6 +89,8 @@ extension KeyRouter {
         }
         decided.add(event)
         typeAhead.append(event.characters ?? "", surface: surface, now: .now)
+        // The queue owes this text to the page's view, not to its tab: the host's mark keeps the view with its tab (`AgentPaneHostTouch`).
+        if case .agent(let view)? = controller.content?.paneController(key: pane)?.currentContent { view.model.hostTouch.mark("type-ahead") }
         typeAheadFocus = TypeAheadWait(focus: focus.resolved, page: surface)
         readiness.whenReady { [weak self, weak readiness] in readiness.map { self?.flushTypeAhead(surface, into: $0) } }
         return true
@@ -122,7 +124,7 @@ extension KeyRouter {
         // task-owner: one queued insertion into the page, then its Deletes; the next flush runs after it
         Task { [weak self, weak readiness] in
             guard let self, let readiness else { return }
-            guard await readiness.insert(text, expectedEpoch: expectedEpoch) else {
+            guard let expectedEpoch = await readiness.insertTypedAhead(text, expectedEpoch: expectedEpoch) else {
                 // The original element disappeared or refused the insert; discard Deletes tied
                 // to that failed text so they cannot hit a later focused field.
                 self.typeAhead.takeDeletes()

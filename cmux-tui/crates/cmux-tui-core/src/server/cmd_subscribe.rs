@@ -158,6 +158,14 @@ pub(super) fn subscribe_command(
                 {
                     continue;
                 }
+                // A chat's shares changed: only to the owner's own connections that asked
+                // (`agent-session-share-events-v1`).
+                #[cfg(unix)]
+                MuxEvent::AgentSessionShareChanged { .. }
+                    if !super::agent_session_attach::hears_share_events(&event_mux, client) =>
+                {
+                    continue;
+                }
                 MuxEvent::ScreenDeviceChanged(_) if !trusted_screen_client => continue,
                 // Read the cache at send time rather than trusting a queued
                 // payload; a rapid rotation/removal cannot regress the app.
@@ -470,6 +478,7 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
         }),
         MuxEvent::AgentChanged {
             surface,
+            terminal_id,
             state,
             source,
             session,
@@ -478,18 +487,25 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             updated_at_ms,
             since_ms,
             last_prompt,
-        } => json!({
-            "event": "agent-changed",
-            "surface": surface,
-            "state": state.as_ref(),
-            "source": source.as_ref(),
-            "session": session.as_deref(),
-            "agent": agent.as_deref(),
-            "agent_session_id": agent_session_id.as_deref(),
-            "updated_at_ms": updated_at_ms,
-            "since_ms": since_ms,
-            "last_prompt": last_prompt.as_deref(),
-        }),
+        } => {
+            let mut event = json!({
+                "event": "agent-changed",
+                "surface": surface,
+                "state": state.as_ref(),
+                "source": source.as_ref(),
+                "session": session.as_deref(),
+                "agent": agent.as_deref(),
+                "agent_session_id": agent_session_id.as_deref(),
+                "updated_at_ms": updated_at_ms,
+                "since_ms": since_ms,
+                "last_prompt": last_prompt.as_deref(),
+            });
+            // Optional, never null: an older remote daemon's forwarded event names no terminal.
+            if let Some(terminal_id) = terminal_id.as_deref() {
+                event["terminal_id"] = json!(terminal_id);
+            }
+            event
+        }
         MuxEvent::AgentPresenceChanged { surface, presence } => {
             let presence = presence.as_deref();
             json!({
@@ -633,6 +649,10 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             "event": "keybindings-changed",
             "revision": change.revision,
             "origin": change.origin.as_str(),
+        }),
+        MuxEvent::AgentSessionShareChanged { session } => json!({
+            "event": "agent-session-share-changed",
+            "session": session,
         }),
         MuxEvent::TerminalRegistryChanged { registry_id, generation, terminal_revision } => json!({
             "event":"terminal-registry-changed",

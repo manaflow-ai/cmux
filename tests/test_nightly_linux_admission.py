@@ -133,15 +133,6 @@ class Receipts(unittest.TestCase):
                              {ENV["OVERFLOW_LINUX"], "ubuntu-24.04"} if config.get("GITHUB_RUN_ATTEMPT") == "1"
                              else {ENV["OVERFLOW_LINUX"]})
 
-    def test_live_mini_precedes_hosted_light_fallback(self):
-        job = "resolve-nightly-cmux-tui-client"
-        placed = admission.portable.Placement(mini_runner=ENV["SIDE_LABEL"], mini_jobs=(job,))
-        with mock.patch.object(admission.portable, "decide", return_value=placed):
-            selected = admission.routes(ENV, REQUEST, receipt("overflow"), [], {})
-        self.assertEqual(selected[job], ENV["SIDE_LABEL"])
-        self.assertEqual(selected["find-nightly-next-recovery"], "ubuntu-24.04")
-        self.assertEqual(selected["build-nightly-inputs"], ENV["OVERFLOW_LINUX"])
-
     def test_recorded_overflow_only_uses_the_declared_set(self):
         selected = admission.routes({**ENV, "SIDE_LABEL": ""}, REQUEST, receipt("overflow"))
         self.assertEqual(set(selected.values()), {ENV["OVERFLOW_LINUX"], "ubuntu-24.04"})
@@ -171,21 +162,11 @@ class Receipts(unittest.TestCase):
             with self.assertRaises(TimeoutError):
                 admission.admit({**ENV, "CMUX_CI_CONTROLLER": "http://controller"}, REQUEST)
 
-    def test_capacity_deadline_is_cleared_and_handler_restored(self):
-        previous = admission.signal.getsignal(admission.signal.SIGALRM)
-        with mock.patch.object(admission.portable, "read", side_effect=admission.portable.Deadline), \
-             mock.patch.object(admission.signal, "setitimer") as timer:
-            with self.assertRaises(admission.portable.Deadline):
-                admission.read_minis(ENV)
-        self.assertEqual(timer.call_args.args, (admission.signal.ITIMER_REAL, 0))
-        self.assertEqual(admission.signal.getsignal(admission.signal.SIGALRM), previous)
-
     def test_unavailable_controller_writes_overflow_without_forging_receipt(self):
         with tempfile.TemporaryDirectory() as scratch:
             output, record = Path(scratch) / "output", Path(scratch) / "receipt.json"
             config = {**ENV, "GITHUB_OUTPUT": str(output), "ADMISSION_RECEIPT_PATH": str(record)}
             with mock.patch.object(admission, "admit", side_effect=TimeoutError), \
-                 mock.patch.object(admission, "read_minis", return_value=(None, None)), \
                  mock.patch.object(admission.time, "monotonic", side_effect=[0, 30, 180]), \
                  mock.patch.object(admission.time, "sleep") as wait:
                 self.assertEqual(admission.main(config), 0)

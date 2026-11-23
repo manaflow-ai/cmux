@@ -1897,9 +1897,11 @@ svg[data-icon-fill] {
     .file-review-revert
   ) {
   opacity: 0;
-  transition: opacity 150ms ease-out;
+  transition: opacity var(--cmux-motion-micro) var(--cmux-ease-out);
 }
 .file-header:is(:hover, :focus-within)
+  :is(.file-review-viewed, .file-header-menu-button, .file-review-stage, .file-review-revert),
+.file-header:is(:has([data-popup-open]), :focus-within)
   :is(.file-review-viewed, .file-header-menu-button, .file-review-stage, .file-review-revert) {
   opacity: 1;
 }

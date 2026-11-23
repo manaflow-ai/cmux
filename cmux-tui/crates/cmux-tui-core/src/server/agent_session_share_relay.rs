@@ -594,7 +594,9 @@ impl Link {
         let watermark =
             records.iter().filter_map(|r| r.get("seq").and_then(Value::as_u64)).max().unwrap_or(0);
         let session = data.get("session").unwrap_or(&Value::Null);
-        let chat = json!({"title": session.get("title").or_else(|| session.get("name")),
+        let text =
+            |key: &'static str| session.get(key).and_then(Value::as_str).filter(|t| !t.is_empty());
+        let chat = json!({"title": text("title").or_else(|| text("name")),
             "harness": session.get("harness"), "status": session.get("status")});
         let snapshot = json!({"v": 1, "t": "snapshot", "to": self.guest_id, "chat": chat,
             "watermark": watermark, "prompts": prompts});

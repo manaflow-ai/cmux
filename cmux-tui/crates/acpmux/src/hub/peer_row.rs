@@ -6,7 +6,7 @@
 //! ([`PeerRow::listed`]); a reader that needs the whole row parses it then ([`PeerRow::value`]).
 //!
 //! The members a list writes itself (`stale`, `peerState`) or leaves out or cuts without tools
-//! (`tools`, `toolsMutable`, `title`), and `tags` (read on demand), are kept apart from the rest,
+//! (`tools`, `toolsMutable`, `timeBreakdown`, `title`), and `tags` (read on demand), are kept apart from the rest,
 //! so a list writes the row with no parse and no member twice.
 
 use super::*;
@@ -21,6 +21,8 @@ enum Apart {
     Title,
     Tools,
     ToolsMutable,
+    /// `timeBreakdown`, which a census row leaves out (`views::CENSUS_LEAVES_OUT`).
+    TimeBreakdown,
 }
 
 impl Apart {
@@ -32,6 +34,7 @@ impl Apart {
             "title" => Self::Title,
             "tools" => Self::Tools,
             "toolsMutable" => Self::ToolsMutable,
+            super::views::CENSUS_LEAVES_OUT => Self::TimeBreakdown,
             _ => return None,
         })
     }
@@ -44,6 +47,7 @@ impl Apart {
             Self::Title => "title",
             Self::Tools => "tools",
             Self::ToolsMutable => "toolsMutable",
+            Self::TimeBreakdown => super::views::CENSUS_LEAVES_OUT,
         }
     }
 }
@@ -71,6 +75,9 @@ struct Hot {
     stale: bool,
     /// Its `(mux.parent, mux.handle)` tags.
     pair: Option<(Box<str>, Box<str>)>,
+    /// Its `usageStats` as JSON text, when it carries any: what `_acpmux/usage` sends of the row
+    /// (`usage_answer.rs`), read with no parse of the rest.
+    usage_stats: Option<Box<str>>,
 }
 
 impl Hot {
@@ -106,6 +113,10 @@ impl Hot {
             last_seen: number("lastSeen"),
             stale: summary.get("stale") == Some(&Value::Bool(true)),
             pair: pair_of(summary),
+            usage_stats: summary
+                .get("usageStats")
+                .filter(|stats| !stats.is_null())
+                .map(|stats| json_text(stats).into()),
         }
     }
 }
@@ -193,8 +204,8 @@ impl PeerRow {
     }
 
     /// The row as JSON text: every member, `stale` as `stale` says (else as kept), `peerState`
-    /// as `peer_state` says (else as kept), and without tools (`tools`, `toolsMutable`, a long
-    /// title cut) unless `tools`.
+    /// as `peer_state` says (else as kept), and without tools (`tools`, `toolsMutable`,
+    /// `timeBreakdown`, a long title cut) unless `tools`.
     fn text_with(&self, stale: Option<bool>, peer_state: Option<&str>, tools: bool) -> String {
         if let Some(last_seen) = self.mark {
             let plain = Self { mark: None, ..self.clone() };
@@ -224,7 +235,7 @@ impl PeerRow {
             let value = match which {
                 Apart::Stale if stale.is_some() => continue,
                 Apart::PeerState if peer_state.is_some() => continue,
-                Apart::Tools | Apart::ToolsMutable if !tools => continue,
+                Apart::Tools | Apart::ToolsMutable | Apart::TimeBreakdown if !tools => continue,
                 Apart::Title if !tools => self.short_title.as_ref().unwrap_or(value),
                 _ => value,
             };
@@ -301,6 +312,11 @@ impl PeerRow {
 
     pub fn session_id(&self) -> Option<&str> {
         self.hot.session_id.as_deref()
+    }
+
+    /// Its `usageStats` as JSON text, when it carries any.
+    pub fn usage_stats_text(&self) -> Option<&str> {
+        self.hot.usage_stats.as_deref()
     }
 
     pub fn name(&self) -> Option<&str> {
@@ -390,6 +406,7 @@ mod tests {
             "sessionId": "s1", "name": "hb/x", "status": "running", "peer": "hb",
             "stale": false, "peerState": "old", "tags": {"mux.parent": "p", "mux.handle": "h"},
             "title": "t".repeat(400), "tools": [{"name": "a"}], "toolsMutable": true,
+            "timeBreakdown": {"totalMs": 9, "spans": [{"turnId": "t1"}]},
             "updatedAt": 5, "createdAt": 3, "pendingPermissions": 2,
         });
         let row = PeerRow::new(&summary);

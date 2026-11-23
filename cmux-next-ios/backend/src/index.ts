@@ -21,7 +21,7 @@ import {
 } from "./push.ts";
 import { hasIcon, mergePrefs, openStore, PUSH_KINDS, type Device, type Prefs, type PushKind, type Store } from "./store.ts"
 import { StoreSchemaError } from "./store-mysql.ts"
-import { userHubName, type Attachment, type HubOwner } from "./team-hub.ts"
+import { userHubName, type Attachment, type HubOwner, type Ingress } from "./team-hub.ts"
 import { Timing, timingFor } from "./timing.ts"
 import { WorkerEntrypoint } from "cloudflare:workers"
 
@@ -334,6 +334,13 @@ const publicDevice = (env: Env, { machineId, space: _space, ...d }: Device) => (
 const colo = (req: Request): string | null => {
   const c = (req as Request & { cf?: { colo?: unknown } }).cf?.colo
   return typeof c === "string" ? c : null
+}
+
+/** Where a request entered Cloudflare: colo, country and continent codes (`req.cf`), each null when unknown. */
+const ingressOf = (req: Request): Ingress => {
+  const cf = (req as Request & { cf?: { colo?: unknown; country?: unknown; continent?: unknown } }).cf
+  const code = (v: unknown) => (typeof v === "string" && /^[A-Z0-9]{2,4}$/.test(v) ? v : null)
+  return { colo: code(cf?.colo), country: code(cf?.country), continent: code(cf?.continent) }
 }
 
 const later = (a: string | null, b: string | null) => (!a ? b : !b ? a : a > b ? a : b)
@@ -761,7 +768,9 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     const hub = userHub(env, caller)
     // Fast path: the caller's hub knows the devices registered to the caller, so no database round trip.
     const claim = { userId: caller.userId, projectId: caller.projectId, deviceId, ownerKey: me, teamId, space }
-    const fast = new Headers({ upgrade: "websocket", "x-cmux-mobile-claim": JSON.stringify(claim) })
+    // Where the phone entered Cloudflare (its link_stat log lines, PROTOCOL.md "Link stats"); no address.
+    const ingress = JSON.stringify(ingressOf(req))
+    const fast = new Headers({ upgrade: "websocket", "x-cmux-mobile-claim": JSON.stringify(claim), "x-cmux-mobile-ingress": ingress })
     if (subprotocol) fast.set("x-cmux-mobile-subprotocol", "cmux-mobile.v1")
     const res = await t.span("hub", hub.fetch("https://team-hub/signal", { headers: fast }))
     if (res.status === 101) return res
@@ -774,7 +783,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     if (device.teamId !== teamId) throw new HttpError(403, "wrong_team", "device is registered in another team")
     await t.span("hub", hub.seed(who, { userId: caller.userId, projectId: caller.projectId }, macs.map((m) => ({ deviceId: m.deviceId, name: m.name, teamId: m.teamId, lastSeenAt: m.lastSeenAt, machineId: m.machineId }))))
     const att: Attachment = { userId: caller.userId, projectId: caller.projectId, deviceId, kind: device.kind, name: device.name, teamId }
-    const headers = new Headers({ upgrade: "websocket", "x-cmux-mobile-attachment": JSON.stringify(att), "x-cmux-mobile-owner-key": me, "x-cmux-mobile-space": space })
+    const headers = new Headers({ upgrade: "websocket", "x-cmux-mobile-attachment": JSON.stringify(att), "x-cmux-mobile-owner-key": me, "x-cmux-mobile-space": space, "x-cmux-mobile-ingress": ingress })
     if (subprotocol) headers.set("x-cmux-mobile-subprotocol", "cmux-mobile.v1")
     return t.span("hub", hub.fetch("https://team-hub/signal", { headers }))
   }

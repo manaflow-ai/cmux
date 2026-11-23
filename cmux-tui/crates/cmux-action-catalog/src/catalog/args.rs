@@ -288,6 +288,9 @@ pub const SAVED: Argument = Argument { name: "saved", title: t("ScreenActions", 
 pub const ON: Argument = Argument { name: "on", title: t("Localizable", "argument.on", "On"), kind: ArgKind::Bool, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const APP: Argument = Argument { name: "app", title: t("Localizable", "argument.app", "App"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+/// Open In ▸'s `app`: an installed code editor, listed by the App (cmux-window-rules `editors`), the default first.
+#[rustfmt::skip]
+pub const EDITOR: Argument = Argument { suggestions: Some(Suggestions { source: "editors", pinned: &[], other_title: None, allows_multiple: false }), ..APP };
 #[rustfmt::skip]
 pub const RANGE: Argument = Argument { name: "range", title: t("HistoryActions", "argument.history.range", "Time Range"), kind: ArgKind::Enumeration(CASES_HOUR_TODAY), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
@@ -306,6 +309,11 @@ pub const URL_2: Argument = Argument { name: "url", title: t("Localizable", "arg
 pub const THEME_2: Argument = Argument { name: "theme", title: t("Localizable", "argument.theme", "Theme"), kind: ArgKind::Enumeration(CASES_SYSTEM_LIGHT), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const DEVICE: Argument = Argument { name: "device", title: t("Localizable", "argument.device", "Device"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+/// `macScreen.open`'s `scope`: what an agent's or the CLI's open asks the device for (View Only or Full Control).
+#[rustfmt::skip]
+pub const CASES_SCREEN_VIEW_FULL: &[EnumCase] = &[EnumCase { value: "view", title: t("ActionCatalog", "argument.value.macScreen.scope.view", "View Only") }, EnumCase { value: "full", title: t("ActionCatalog", "argument.value.macScreen.scope.full", "Full Control") }];
+#[rustfmt::skip]
+pub const SCREEN_SCOPE: Argument = Argument { name: "scope", title: t("ActionCatalog", "argument.macScreen.scope", "Access"), kind: ArgKind::Enumeration(CASES_SCREEN_VIEW_FULL), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 /// `macScreen.open --autoconnect`: the opened tab connects to view without its Connect click, from the CLI too
 /// (default off: a non-person open waits at Connect).
 #[rustfmt::skip]
