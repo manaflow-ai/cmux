@@ -78,6 +78,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `relaunch-restore.sh` | Quit to usable time after Quit and Keep Sessions, on a published build; `base=SHA head=SHA` runs two builds as interleaved pairs with the load (`relaunch-restore-pairs.py`). | hq#7149 L5 | 2026-11-05 | active |
 | `relaunch-shift.sh` | Layout shift when the app relaunches after an update. | - | 2026-11-04 | active |
 | `first-load-after-restart.sh` | A chat's first load after a restart, frame by frame, at commits (shift and blank frames, settle time). | - | 2026-11-16 | active |
+| `host-line-shift-duress.sh` | The agent pane's chat rows and composer moving when the link drops and comes back, during a long streaming chat, optionally on a loaded machine, at commits. | - | 2026-11-23 | active |
 | `update-click-ab.sh` | Real Sparkle update, Restart to Update clicked soon after staging, base vs head. | CMUX-571 | 2026-11-15 | active |
 | `update-click-ab.py` | Summarizes update-click-ab.sh runs into medians. | CMUX-571 | 2026-11-15 | active |
 | `go-back-duress.sh` | Go back to the previous build (updates.rollback) right after an update, with live agent turns and terminals, on a quiet and a loaded Mac: click to the kept build's first window. | #41013, ask-c013f6fec6 | 2026-11-23 | active |

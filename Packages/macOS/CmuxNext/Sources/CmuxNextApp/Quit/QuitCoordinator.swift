@@ -177,6 +177,8 @@ final class QuitCoordinator {
     private func complete(_ choice: QuitSessionsChoice, _ sender: NSApplication) async {
         logger.notice("quit choice=\(choice.rawValue, privacy: .public)")
         DebugTimings.markLaunch("quit.decided")
+        let services = services
+        await services.updater.afterimage?.untilShown(limit: .milliseconds(600)) // a relaunch's pictures are up before any step takes a window off screen (RelaunchAfterimage)
         // Sparkle installs a staged update as the app exits unless `updates.installOnQuit` is off
         // (then it is cancelled now), once the keep for rollback its staging started ends (bounded).
         await services.updater.prepareForQuitAfterKeep()
