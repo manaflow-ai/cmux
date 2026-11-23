@@ -69,22 +69,38 @@ extension SettingsHarnesses {
             guard let fallback = Self.signInFallbacks[action] else { return .object([:]) }
             return try await runAccount(fallback, params)
         } catch let error as AcpmuxRPCError {
+            if Self.signInEnded(method, refusal: error.name) { signInPageClosed(params) }
             return ["reason": .string(error.name ?? "other")]
         }
         let value = (try? JSONValue.parse(reply)) ?? .object([:])
         switch method {
         case .accountSignIn:
-            if let page = Self.signInPage(value) { await openSignInPage?(page) }
+            if let page = Self.signInPage(value), let back = await openSignInPage?(page), let id = value["loginId"]?.stringValue { signInPageBack[id] = back }
             return ["signIn": value]
         case .accountSignInFinish:
+            signInPageClosed(params)
             await readSignIns(environment)
             return ["finished": value]
         case .accountSignInCancel:
+            signInPageClosed(params)
             return .object([:])
         default:
             await readSignIns(environment)
             return .object([:])
         }
+    }
+
+    /// Whether a finish or cancel refused with `refusal` ended its sign-in: a finish already running
+    /// (`busy`) or a wrong or missing code (`bad_code`, Claude's) leaves it running, so its page stays.
+    nonisolated static func signInEnded(_ method: AcpmuxHarnessMethod, refusal: String?) -> Bool {
+        (method == .accountSignInFinish || method == .accountSignInCancel) && refusal != "busy" && refusal != "bad_code"
+    }
+
+    /// The sign-in `params` names ended (finished, cancelled or expired): the code's page shows again
+    /// where its sign-in page still is the one shown (LinkOpener.openSignInPage).
+    private func signInPageClosed(_ params: JSONValue) {
+        guard let id = params["loginId"]?.stringValue else { return }
+        signInPageBack.removeValue(forKey: id)?()
     }
 
     /// Onboarding's two sign-in keys (`signInAccounts`, `signInReadiness`): both null until the daemon

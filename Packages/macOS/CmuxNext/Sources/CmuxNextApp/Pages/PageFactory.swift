@@ -193,7 +193,7 @@ struct PageFactory {
             updateState: { [weak services] in services?.agentHarnesses.updates?.state ?? .array([]) },
             refreshUpdates: { [weak services] in await services?.agentHarnesses.updates?.refresh() },
             unsupported: { AgentHarnessStrings.unsupported },
-            openSignInPage: { [weak services, weak native] url in _ = services.map { s in s.linkOpener.openWeb(url, from: native?.anchor().flatMap { s.linkOpener.source(containing: $0) }, background: true, revealing: true) } })
+            openSignInPage: { [weak services, weak native] url in services?.linkOpener.openSignInPage(url, beside: native?.anchor()) })
         (provider.accountsState, provider.accountsRun) = services.accounts.github.accountsPage(services.accounts.model, agentKeys: services.accounts.agentKeys, signIn: harnesses)
         provider.harnessesState = { harnesses.state }
         provider.harnessesRun = { params, context in try await harnesses.run(params, context: context) }
