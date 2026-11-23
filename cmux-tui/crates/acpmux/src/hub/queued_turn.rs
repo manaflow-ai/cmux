@@ -53,7 +53,7 @@ impl Hub {
         let hub = self.clone();
         let session = session.clone();
         let command = command.to_owned();
-        tokio::spawn(async move {
+        self.scope.spawn_until_cancelled("queued-turn", async move {
             tokio::time::sleep(HELD).await;
             hub.log_queued(&session, &turn_id, &command);
         });
