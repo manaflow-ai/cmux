@@ -94,7 +94,7 @@ public final class PerfProbes {
 
     /// A gated method other than `perf.hangs`: refused while off, else its probe's answer.
     public func handle(_ name: String, _ params: [String: JSONValue]) throws -> JSONValue {
-        try gate.require(name)
+        try gate.requireEnabled(for: name)
         if name == "perf.layout_counters" {
             guard case .object(var report) = layoutCounters(params) else { return .null }
             report["sources"] = nil // call sites stay out of the reply
@@ -121,7 +121,7 @@ public final class PerfProbes {
 
     /// `debug.hangs`' counters without its records: stalls, long frames, gaps over a 120 Hz frame, main run-loop wakes.
     nonisolated public static func hangs(gate: PerfProbeGate, watchdog: MainThreadWatchdog) throws -> JSONValue {
-        try gate.require("perf.hangs")
+        try gate.requireEnabled(for: "perf.hangs")
         let summary = watchdog.log.summary
         let longFrames = watchdog.longFrameStats
         let gaps = watchdog.gapStats
@@ -152,7 +152,7 @@ public final class PerfProbeGate: Sendable {
     func set(_ on: Bool) { enabled.store(on, ordering: .relaxed) }
 
     /// Throws `perf.probes_disabled` for `method` while the probes are off.
-    func require(_ method: String) throws {
+    func requireEnabled(for method: String) throws {
         guard isEnabled else { throw PerfProbes.disabledError(method) }
     }
 }

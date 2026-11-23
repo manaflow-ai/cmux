@@ -771,6 +771,20 @@ async function pasteParagraph(ctx: PlayContext, card: string) {
     throw new Error("a one-paragraph paste must say its size, never 1 line");
 }
 
+/// A Claude chat with the agent's everyday commands and two skills, for the discovery variants.
+function discoveryChat(): AcpmuxSnapshot {
+  return chat(finished, {
+    commands: [
+      { name: "clear", description: "Clear conversation history and free up context", source: "agent" },
+      { name: "compact", description: "Clear conversation history but keep a summary in context", source: "agent" },
+      { name: "init", description: "Initialize a new CLAUDE.md file with codebase documentation", source: "agent" },
+      { name: "review", description: "Review a pull request", source: "agent" },
+      { name: "release", description: "Cut a release with the team checklist", source: "skill" },
+      { name: "triage", description: "Sort new issues by area and urgency", source: "skill" },
+    ],
+  });
+}
+
 export default agentPaneEntry({
   id: "agent-pane.composer",
   title: "Composer",
@@ -2765,6 +2779,50 @@ export default agentPaneEntry({
         await ctx.click({ selector: "[contenteditable='true']" });
         await ctx.type("/");
         await ctx.waitFor(() => ctx.document.querySelector("#acpmux-slash-menu [role='option']"));
+      },
+    },
+    // Discovery without a bare "?" sheet (Leo 2026-11-22: "is there a /help? apparently not. welp. how
+    // should we do things?"): the real /help, then three disposable prototypes (discoveryPrototypes.tsx)
+    // mounted over the same chat for a taste pick.
+    "discovery-help-sheet": {
+      note: "Play: type /help and Return; the sheet lists the commands, the skills and the composer's keys, searchable.",
+      snapshot: discoveryChat(),
+      play: async (ctx) => {
+        await ctx.click({ selector: "[contenteditable='true']" });
+        await ctx.type("/help");
+        await ctx.waitFor(() => ctx.document.querySelector("#acpmux-slash-menu [role='option']"));
+        await ctx.press("Enter");
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-help-sheet [role='option']"));
+      },
+    },
+    "discovery-hint-line": {
+      note: "Prototype: a quiet line under the empty prompt names / @ ⌘↩ and /help.",
+      snapshot: discoveryChat(),
+      play: async (ctx) => {
+        (await import("./discoveryPrototypes")).mountHintLine(ctx.document);
+        await ctx.waitFor(() => ctx.document.querySelector("[data-prototype='hint-line']"));
+      },
+    },
+    "discovery-modifier-overlay": {
+      note: "Prototype: holding ⌘ a beat shows the composer's keys over the box; letting go hides them.",
+      snapshot: discoveryChat(),
+      play: async (ctx) => {
+        (await import("./discoveryPrototypes")).mountModifierOverlay(ctx.document);
+        await ctx.waitFor(() => ctx.document.querySelector("[data-prototype='modifier-overlay'] kbd"));
+      },
+    },
+    "discovery-help-button": {
+      note: "Prototype: a quiet ? before the context ring; pressing it opens /help.",
+      snapshot: discoveryChat(),
+      play: async (ctx) => {
+        (await import("./discoveryPrototypes")).mountHelpButton(ctx.document);
+        await ctx.waitFor(() => ctx.document.querySelector("[data-prototype='help-button']"));
+        // What pressing it does: the same sheet as /help.
+        await ctx.click({ selector: "[contenteditable='true']" });
+        await ctx.type("/help");
+        await ctx.waitFor(() => ctx.document.querySelector("#acpmux-slash-menu [role='option']"));
+        await ctx.press("Enter");
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-help-sheet [role='option']"));
       },
     },
     "slash-menu-full": {
