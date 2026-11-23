@@ -33,6 +33,8 @@ function TurnShotsGallery({ mode, arriveMs }: Props) {
       peek: () => settled,
       read: () =>
         new Promise((resolve) =>
+          // gallery-capture: `arrives`'s play `arrive` waits for the shots to land (data-arrived);
+          // every other arm starts with them settled.
           setTimeout(() => {
             settled = { pair: PAIR };
             resolve(PAIR);

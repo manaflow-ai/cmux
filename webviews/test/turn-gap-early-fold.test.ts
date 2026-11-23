@@ -88,11 +88,17 @@ const opened: Step[] = [
 test("user_message(turnId) > turn_started > tool_call: the Working for line has the head gap over it", async () => {
   for (const count of [7, 8]) {
     const { view, gap } = await after(opened, count, true);
-    const line = view.find((row) => row.kind === "working" && !row.below)!;
+    // Since #50242 the running header is the turn's Worked for row in its running phase.
+    const line = view.find((row) => row.kind === "worked" && row.turnPhase === "running")!;
+    // Since #49052 "Working for" stands from the turn's start where "Worked for" lands: over the
+    // message that opened the turn, under the turn before's footer, with the block gap a footer stands
+    // over "Worked for". The message sits under it, where the turn's open fold holds it.
     const above = view[view.indexOf(line) - 1]!;
-    expect(above.kind).toBe("user");
-    expect(above.incoming?.kind).toBe("message");
-    expect(gap(line.id)).toBe(TRANSCRIPT_RUN_GAP);
+    expect(above.kind).toBe("turnSummary");
+    expect(gap(line.id)).toBe(TRANSCRIPT_BLOCK_GAP);
+    const under = view[view.indexOf(line) + 1]!;
+    expect(under.kind).toBe("user");
+    expect(under.incoming?.kind).toBe("message");
   }
   // turn_result: the line becomes "Worked for" and the message folds into it, so the row over it is the turn
   // before's footer: the block gap a footer stands over "Worked for" (rowGapTable.test.ts footer -> worked).
@@ -122,9 +128,10 @@ for (const fold of [undefined, "runs"] as const)
       expect(view.filter((row) => row.kind === MESSAGE_RUN)).toHaveLength(0);
       expect(view.some((row) => row.kind === "activity")).toBe(true);
     }
-    // The agent's paragraph ends the run: it folds then, still mid-turn, as a run of calls does.
+    // The agent's paragraph, still mid-turn: live-turn-work defaults to `open` (#48766), so nothing
+    // folds until the turn ends.
     const said = await after(steered, 8, true);
-    expect(said.view.filter((row) => row.kind === MESSAGE_RUN)).toHaveLength(1);
+    expect(said.view.filter((row) => row.kind === MESSAGE_RUN)).toHaveLength(0);
     // And at turn_result it is folded too.
     const done = await after(steered, steered.length, false);
     const rows: AcpmuxRow[] = done.view;
@@ -214,6 +221,11 @@ test("turn_result (ended on work) > user_message(turnId, notice) > turn_started:
     const notice = view[at]!;
     expect(notice.incoming).toBeDefined();
     expect(view.slice(0, at).some((row) => row.kind === "worked")).toBe(true);
-    expect(gap(notice.id)).toBe(TRANSCRIPT_BLOCK_GAP);
+    // Once the turn starts, its "Working for" heads it over the notice (#49052), so the block gap
+    // under the footer goes to that line, and the notice sits under it.
+    const head = count === 7 ? view[at - 1]! : notice;
+    if (count === 7) expect(head.kind === "worked" && head.turnPhase === "running").toBe(true);
+    expect(view[view.indexOf(head) - 1]!.kind).toBe("turnSummary");
+    expect(gap(head.id)).toBe(TRANSCRIPT_BLOCK_GAP);
   }
 });

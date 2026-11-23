@@ -113,6 +113,11 @@ const DRAWN_FROM: readonly { field: string; from: readonly string[]; why: string
     why: "a reply-less turn's fold names the turns it joins by their fold keys, made from their prompts' ids",
   },
   {
+    field: "worked.foldedPrompt",
+    from: ["id", "user.at"],
+    why: "a turn another agent's message opened holds that message, its whole row, under its fold (#49052)",
+  },
+  {
     field: "row:worked",
     from: ["row:permissionRecord"],
     why: "v1's receipt is the work of its turn, which the turn folds",

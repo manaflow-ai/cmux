@@ -200,9 +200,14 @@ test("signed out, the Cloud row is Sign in for Cloud: one row, never Cloud and s
   expect(CONNECT_ACTIONS.cloudSignIn).toBe("palette.auth.signIn");
 });
 
-test("a sign-in answer that lands while the menu is open changes the Cloud row in place", async () => {
+// cmux#47677: with no new chat to point at Cloud (no `runMode`) and the chat not on Cloud, the plain
+// menu has no Cloud row; only a signed-out answer adds Sign in for Cloud. A sign-in that lands while it
+// is open takes that row away and adds none.
+test("a sign-in answer that lands while the menu is open drops the sign-in row and adds no Cloud row", async () => {
   const { setCloudMachinesForTestAccount } = await import("../src/agent-session/acpmux/cloudMachines");
   setCloudMachinesForTestAccount(false);
+  // Motion off: the list settles at once (rowPresence.ts keeps a leaving row while it shrinks out).
+  doc().documentElement.dataset.cmuxMotion = "off";
   await mount(true, { cloudMachines: [], onConnect: () => undefined });
   await openPicker();
   const rows = () =>
@@ -213,10 +218,10 @@ test("a sign-in answer that lands while the menu is open changes the Cloud row i
   expect(before.map(label)).toContain("Sign in for Cloud");
   await act(async () => setCloudMachinesForTestAccount(true));
   const after = rows();
-  // The same rows, the same count: only the Cloud row's words change.
-  expect(after.length).toBe(before.length);
-  expect(after.map(label)).toContain(t("composer.cloud"));
+  expect(after.length).toBe(before.length - 1);
+  expect(after.map(label)).not.toContain(t("composer.cloud"));
   expect(after.map(label)).not.toContain("Sign in for Cloud");
+  delete doc().documentElement.dataset.cmuxMotion;
 });
 
 test("with the account state kept from an earlier page, the menu's first rows are its settled rows", async () => {
@@ -253,8 +258,11 @@ test("with the account state kept from an earlier page, the menu's first rows ar
         await cloud.refreshCloudMachines();
       });
       expect(first).toEqual(labels());
-      expect(first.filter((name) => name === "Sign in for Cloud" || name === t("composer.cloud")).length).toBe(1);
-      expect(first).toContain(signedIn ? t("composer.cloud") : "Sign in for Cloud");
+      // Signed in, the plain menu has no Cloud row (cmux#47677); signed out, one Sign in for Cloud.
+      expect(first.filter((name) => name === "Sign in for Cloud" || name === t("composer.cloud")).length).toBe(
+        signedIn ? 0 : 1,
+      );
+      if (!signedIn) expect(first).toContain("Sign in for Cloud");
       act(() => root?.unmount());
       root = undefined;
       host.replaceChildren();
@@ -265,10 +273,10 @@ test("with the account state kept from an earlier page, the menu's first rows ar
   }
 });
 
-// Leo, 2026-11-07: "that shouldn't be showing by default". Before any answer the row is Cloud;
-// only an explicit signed-out answer makes it Sign in for Cloud (replaces #27973's absent-state
-// sign-in row).
-test("an absent Cloud account state shows Cloud, not sign-in; only an explicit signed-out answer offers sign-in", async () => {
+// Leo, 2026-11-07: "that shouldn't be showing by default". Before any answer there is no sign-in row;
+// only an explicit signed-out answer offers Sign in for Cloud (replaces #27973's absent-state sign-in
+// row). Off Cloud with no `runMode`, the plain menu has no Cloud row either (cmux#47677).
+test("an absent Cloud account state offers no sign-in; only an explicit signed-out answer does", async () => {
   const { setCloudMachinesForTestAccount } = await import("../src/agent-session/acpmux/cloudMachines");
   const rows = async () => {
     await openPicker();
@@ -276,16 +284,17 @@ test("an absent Cloud account state shows Cloud, not sign-in; only an explicit s
       item.querySelector(".acpmux-location-name"),
     );
   };
-  for (const [state, shown, hidden] of [
-    [undefined, t("composer.cloud"), "Sign in for Cloud"],
-    [true, t("composer.cloud"), "Sign in for Cloud"],
-    [false, "Sign in for Cloud", t("composer.cloud")],
+  for (const [state, shown] of [
+    [undefined, undefined],
+    [true, undefined],
+    [false, "Sign in for Cloud"],
   ] as const) {
     setCloudMachinesForTestAccount(state);
     await mount(true, { cloudMachines: [], onConnect: () => undefined });
     const labels = (await rows()).map(label);
-    expect(labels).toContain(shown);
-    expect(labels).not.toContain(hidden);
+    if (shown) expect(labels).toContain(shown);
+    else expect(labels).not.toContain("Sign in for Cloud");
+    expect(labels).not.toContain(t("composer.cloud"));
     act(() => root?.unmount());
     root = undefined;
     host.replaceChildren();

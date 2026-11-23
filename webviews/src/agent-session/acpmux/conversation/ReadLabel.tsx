@@ -13,7 +13,8 @@ export function ReadLabel({ path, full, t }: { path: string; full: string; t: Tr
   const name = path.replace(/\/+$/, "").split("/").pop() || path;
   const [before = "", after = ""] = t("command.read", { file: "\u0000" }).split("\u0000");
   const file = (
-    <WithFacts facts={[{ value: full, code: true }]}>
+    // A path that is its name says nothing more on hover (AgentTag.tsx: a title that shows already).
+    <WithFacts facts={[full !== name && { value: full, code: true }]}>
       {(facts) => (
         <span {...facts} className="cv-tool__file">
           {name}

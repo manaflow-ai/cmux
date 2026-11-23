@@ -77,7 +77,7 @@ reply           32      24       8      24      16      24      16      16      
 footer          32      24      24      24      24      24       8      24      24      32       8
 worked          32       0       0       0       0      16       0       0       0       0       0
 run             32      16       8      16       0       0       0       0       0      32       0
-peer            32      16       8      16       0       0       0       0       0      32       0
+peer            32      16       8      16       0       0       0       0       0      16       0
 bgTask          32      16       8      16       0       0       0       0       0      32       0
 group           32      16       8      16       0       0       0       0       0      32       0
 bgRun           32      16       8      16       0       0       0       0       0      16       0
@@ -99,7 +99,8 @@ test("the replaced look had a flush header and a blank band under every line", (
   const before = under("before", gapTable);
   for (const line of ["run", "peer", "bgTask", "group", "bgLine"]) {
     expect(before[line]!.worked).toBe(0);
-    expect(before[line]!.bgRun).toBe(32);
+    // Another agent's line is the prompt of the turn under it, so that turn opens nothing there (#44818).
+    expect(before[line]!.bgRun).toBe(line === "peer" ? 0 : 32);
   }
   const shipped = under("shipped", gapTable);
   for (const line of ["run", "peer", "bgTask", "group", "bgLine", "bgRun"]) {

@@ -547,13 +547,15 @@ test("the lock switch sends locked, and only when it changed", async () => {
   const container = installDom();
   const { service, calls } = fakeService();
   await mount(container, service, CHIEF);
-  const lock = container.querySelector<HTMLInputElement>("input[data-chief-lock]")!;
+  // An animated switch (ui/Switch, #47688): role switch, its state in aria-checked.
+  const lock = container.querySelector<HTMLElement>("[data-chief-lock]")!;
+  expect(lock.getAttribute("role")).toBe("switch");
   expect(lock.getAttribute("aria-label")).toBe(t("chief.lock.title"));
-  expect(lock.checked).toBe(false);
+  expect(lock.getAttribute("aria-checked")).toBe("false");
   await save(container);
   expect(lastSave(calls)?.locked).toBeUndefined();
   await click(lock);
-  expect(lock.checked).toBe(true);
+  expect(lock.getAttribute("aria-checked")).toBe("true");
   await save(container);
   expect(lastSave(calls)?.locked).toBe(true);
 });
@@ -597,7 +599,7 @@ test("without the host's relay the gesture fields, the backend and the lock show
   const { service } = fakeService(false);
   await mount(container, service, CHIEF);
   expect(byLabel<HTMLSelectElement>(container, t("chief.backend.title")).disabled).toBe(true);
-  expect(container.querySelector<HTMLInputElement>("input[data-chief-lock]")!.disabled).toBe(true);
+  expect(container.querySelector<HTMLElement>("[data-chief-lock]")!.getAttribute("aria-disabled")).toBe("true");
   expect(button(container, t("chief.history.undo")).disabled).toBe(true);
   expect(byLabel<HTMLInputElement>(container, t("chief.field.name")).disabled).toBe(false);
 });

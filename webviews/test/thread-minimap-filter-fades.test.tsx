@@ -166,14 +166,10 @@ test("Next Turn from above every kept prompt lands on the first one the filter k
   setChatDisplay({ "agentPane.display.minimap": "compact" });
   const root = createRoot(document.getElementById("root")!);
   try {
+    const view = turnView(turns, new Set());
     await act(async () =>
       root.render(
-        <VirtualTranscript
-          rows={turnView(turns, new Set())}
-          sessionId="rail-filter-next"
-          onToggleActivity={() => {}}
-          expanded={new Set()}
-        />,
+        <VirtualTranscript rows={view} sessionId="rail-filter-next" onToggleActivity={() => {}} expanded={new Set()} />,
       ),
     );
     const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
@@ -184,11 +180,14 @@ test("Next Turn from above every kept prompt lands on the first one the filter k
       await scrolled();
     });
     const prompts = turns.filter((entry) => entry.kind === "user");
-    /// The prompt being read: the last whose bubble is at or above 35 px under the view's top.
+    // A turn another agent's message opened starts at the "Worked for" that folds the message (#49052),
+    // as the rail reads it (threadMinimap/model.ts `foldedPrompt`).
+    const startOf = (entry: AcpmuxRow) => view.find((shown) => shown.foldedPrompt?.id === entry.id)?.id ?? entry.id;
+    /// The prompt being read: the last whose turn starts at or above 35 px under the view's top.
     const reading = () => {
       let read = 0;
       prompts.forEach((entry, index) => {
-        const node = document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${entry.id}"]`);
+        const node = document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${startOf(entry)}"]`);
         const top =
           Number.parseFloat(node?.style.top ?? "") + (Number.parseFloat(node?.style.marginTop ?? "") || 0) - 16;
         if (Math.max(0, 16 + top - 35) <= scroller.scrollTop + 1) read = index;
