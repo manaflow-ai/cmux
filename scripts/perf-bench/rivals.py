@@ -216,8 +216,10 @@ class Run:
         try:
             app.launch(profile)
             line = (watch.communicate(timeout=70)[0] or "").split()
-            self.record(app.name, round_no, f"{kind}-window", float(line[0]) - t0 if line else None, load=load,
-                        **({} if line else {"note": "no window within 60 s"}))
+            note = {} if line else {"note": "no window within 60 s"}
+            if line and kind == "fresh" and app.name in SYSTEM:
+                note = {"scope": "empty home only: a sealed system app has no new copy"}
+            self.record(app.name, round_no, f"{kind}-window", float(line[0]) - t0 if line else None, load=load, **note)
             peak = 0.0
             per_kind = {}
             end = time.monotonic() + self.args.after
