@@ -106,9 +106,74 @@ export function windowAt(index: HeightIndex, scrollTop: number, viewport: number
 }
 
 /**
- * Heights for `ids`: measured ones by id (a row keeps its height across pages and appends), the
- * estimate for the rest.
+ * What a row's height depends on besides the width it is laid out at: its content's version (turns.ts
+ * bumps it whenever the row's text, items or state change), whether its fold is open, and whether it
+ * draws its reply actions. Two renders with the same hash at the same width are the same height.
  */
-export function heightsFor(ids: readonly string[], measured: ReadonlyMap<string, number>, estimate: number): number[] {
-  return ids.map((id) => measured.get(id) ?? estimate);
+export function rowContentHash(version: number, open: boolean, actions: boolean): number {
+  return ((version * 4 + (open ? 2 : 0) + (actions ? 1 : 0)) % 2_147_483_647) | 0;
+}
+
+type CachedHeight = { readonly hash: number; readonly width: number; readonly height: number };
+
+/// The measurements a row keeps, newest first: enough to reopen a fold or go back to a width without
+/// measuring again, never a row's whole history.
+const KEPT_PER_ROW = 4;
+
+/**
+ * Measured heights keyed by row id, content hash and width (the design's height cache). An exact hit
+ * is a height to trust. A miss falls back to the row's own latest height at that width, then at any
+ * width, so a streamed token or a resize starts from the row's last size rather than the estimate;
+ * the commit after it mounts measures the real one.
+ */
+export class HeightCache {
+  private rows = new Map<string, CachedHeight[]>();
+
+  set(id: string, hash: number, width: number, height: number): void {
+    const kept = this.rows.get(id);
+    const entry = { hash, width, height };
+    if (!kept) {
+      this.rows.set(id, [entry]);
+      return;
+    }
+    const at = kept.findIndex((each) => each.hash === hash && each.width === width);
+    if (at >= 0) kept.splice(at, 1);
+    kept.unshift(entry);
+    if (kept.length > KEPT_PER_ROW) kept.length = KEPT_PER_ROW;
+  }
+
+  /** The height measured for exactly this content at this width, if there is one. */
+  exact(id: string, hash: number, width: number): number | undefined {
+    return this.rows.get(id)?.find((each) => each.hash === hash && each.width === width)?.height;
+  }
+
+  /** The best height known for the row: exact, else its latest at this width, else its latest. */
+  get(id: string, hash: number, width: number): number | undefined {
+    const kept = this.rows.get(id);
+    if (!kept) return undefined;
+    let sameWidth: number | undefined;
+    for (const each of kept) {
+      if (each.width !== width) continue;
+      if (each.hash === hash) return each.height;
+      sameWidth ??= each.height;
+    }
+    return sameWidth ?? kept[0]!.height;
+  }
+
+  get size(): number {
+    return this.rows.size;
+  }
+}
+
+/**
+ * Heights for `rows` at `width`: measured ones from the cache (a row keeps its height across pages
+ * and appends), the estimate for the rest.
+ */
+export function heightsFor(
+  rows: readonly { readonly id: string; readonly hash: number }[],
+  cache: HeightCache,
+  width: number,
+  estimate: number,
+): number[] {
+  return rows.map(({ id, hash }) => cache.get(id, hash, width) ?? estimate);
 }

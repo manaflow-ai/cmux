@@ -4,7 +4,8 @@
 //
 // One owner of geometry:
 // - Heights live in a prefix-sum tree (anchoredListModel.ts), measured by one ResizeObserver and
-//   kept by row id, so an older page or an append keeps every measured row's height.
+//   cached by row id, content hash and width (HeightCache), so an older page or an append keeps every
+//   measured row's height, and a reopened fold or a width it was drawn at before is exact at once.
 // - The reader's place is an anchor, a row id and an offset. Every commit (a render, a measured
 //   height, a resized viewport) restores it in the same frame, before paint: the layout effect after a
 //   render and the ResizeObserver callback both run before the browser paints.
@@ -21,7 +22,16 @@ import { rowKind } from "../virtualTranscriptModel";
 import { NoticeRow } from "../rows/NoticeRow";
 import { defaultRegistry } from "../rows/registry";
 import type { NativeRegistry, OpenDiff, RowProps } from "../rows/rowProps";
-import { HeightIndex, anchorAt, heightsFor, offsetFor, windowAt, type Anchor } from "./anchoredListModel";
+import {
+  HeightCache,
+  HeightIndex,
+  anchorAt,
+  heightsFor,
+  offsetFor,
+  rowContentHash,
+  windowAt,
+  type Anchor,
+} from "./anchoredListModel";
 import { focusRoute } from "../../../ui/focusRoute";
 import { useT } from "../i18n";
 import { writeScrollTop } from "./scrollController";
@@ -107,7 +117,11 @@ export function AnchoredTranscript({
   const t = useT();
   const scroller = useRef<HTMLDivElement>(null);
   const spacer = useRef<HTMLDivElement>(null);
-  const measured = useRef(new Map<string, number>());
+  // Another chat's rows share no heights with this one's.
+  const cacheFor = useRef<{ sessionId?: string; cache: HeightCache } | undefined>(undefined);
+  if (!cacheFor.current || cacheFor.current.sessionId !== sessionId)
+    cacheFor.current = { sessionId, cache: new HeightCache() };
+  const measured = cacheFor.current.cache;
   const anchor = useRef<Anchor | undefined>(undefined);
   const pinned = useRef(true);
   // The offset the controller last wrote: its scroll event is ours, not the reader's.
@@ -118,14 +132,30 @@ export function AnchoredTranscript({
   const reserve = useRef(0);
   const dockRef = useRef(dock);
   dockRef.current = dock;
-  const [view, setView] = useState({ top: 0, height: 0 });
+  const [view, setView] = useState({ top: 0, height: 0, width: 0 });
   // Whether the reader is away from the latest (Jump to latest shows); set only by their own scroll.
   const [behind, setBehind] = useState(false);
 
   const ids = useMemo(() => rows.map((row) => row.id), [rows]);
   const position = useMemo(() => new Map(ids.map((id, index) => [id, index])), [ids]);
-  // Rebuilt when the rows change (O(n), a few ms at 50k rows); a height change is O(log n).
-  const index = useMemo(() => new HeightIndex(heightsFor(ids, measured.current, ESTIMATE)), [ids]);
+  // What each row's height depends on besides the width: its version, its fold, its reply actions.
+  const keyed = useMemo(
+    () =>
+      rows.map((row, at) => ({
+        id: row.id,
+        hash: rowContentHash(row.version, row.foldOpen ?? expanded.has(row.id), hasReplyActions(row, rows[at + 1])),
+      })),
+    [rows, expanded],
+  );
+  const hashes = useMemo(() => new Map(keyed.map(({ id, hash }) => [id, hash])), [keyed]);
+  const hashesRef = useRef(hashes);
+  hashesRef.current = hashes;
+  const width = view.width;
+  const widthRef = useRef(width);
+  widthRef.current = width;
+  // Rebuilt when the rows, a row's content or the width change (O(n), a few ms at 50k rows); a
+  // measured height change is O(log n).
+  const index = useMemo(() => new HeightIndex(heightsFor(keyed, measured, width, ESTIMATE)), [keyed, measured, width]);
   const indexRef = useRef(index);
   indexRef.current = index;
   const positionRef = useRef(position);
@@ -165,6 +195,12 @@ export function AnchoredTranscript({
     const heights = indexRef.current;
     const stack = dockRef.current?.getBoundingClientRect();
     const view = scroller.current?.getBoundingClientRect();
+    // Heights are kept per width: a new width renders again with the heights known at it.
+    const width = Math.round(scroller.current?.clientWidth ?? 0);
+    if (width !== widthRef.current) {
+      widthRef.current = width;
+      setView((was) => (was.width === width ? was : { ...was, width }));
+    }
     reserve.current =
       stack && view && stack.height > 0 ? Math.max(0, Math.min(stack.height, view.bottom - stack.top)) : 0;
     const reads: [number, number, string][] = [];
@@ -175,7 +211,7 @@ export function AnchoredTranscript({
     let first = Infinity;
     for (const [at, height, id] of reads) {
       if (height <= 0) continue;
-      measured.current.set(id, height);
+      measured.set(id, hashesRef.current.get(id) ?? 0, widthRef.current, height);
       if (heights.set(at, height) !== 0) first = Math.min(first, at);
     }
     if (first !== Infinity)
@@ -184,7 +220,7 @@ export function AnchoredTranscript({
         if (at !== undefined && at > first) node.style.top = `${THREAD_TOP + heights.top(at)}px`;
       }
     restore();
-  }, [restore]);
+  }, [restore, measured]);
 
   // One observer for every mounted row and the scroller itself (the composer's growth shrinks it).
   const observer = useMemo(
@@ -219,7 +255,7 @@ export function AnchoredTranscript({
     // the same task, at the microtask after its DOM changed.
     const mutations = typeof MutationObserver === "undefined" ? undefined : new MutationObserver(commit);
     if (spacer.current) mutations?.observe(spacer.current, { subtree: true, childList: true, characterData: true });
-    setView({ top: node.scrollTop, height: node.clientHeight });
+    setView({ top: node.scrollTop, height: node.clientHeight, width: Math.round(node.clientWidth) });
     return () => {
       observer.disconnect();
       mutations?.disconnect();
@@ -237,7 +273,9 @@ export function AnchoredTranscript({
       anchor.current = pinned.current ? undefined : anchorAt(indexRef.current, idsRef.current, top - THREAD_TOP);
       setBehind(!pinned.current);
     }
-    setView((was) => (was.top === top && was.height === node.clientHeight ? was : { top, height: node.clientHeight }));
+    setView((was) =>
+      was.top === top && was.height === node.clientHeight ? was : { ...was, top, height: node.clientHeight },
+    );
     if (canLoadOlder && onLoadOlder && !loadingOlder.current && top < node.clientHeight * OLDER_VIEWPORTS) {
       loadingOlder.current = true;
       void onLoadOlder(false, true).finally(() => (loadingOlder.current = false));
