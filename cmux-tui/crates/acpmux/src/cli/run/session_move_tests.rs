@@ -889,6 +889,8 @@ fn outcome(name: &str, error: Option<&str>) -> Outcome {
         error: error.map(str::to_owned),
         error_code: None,
         preflight: preflight::Preflight::default(),
+        arrival_key: None,
+        reachable: None,
     }
 }
 
