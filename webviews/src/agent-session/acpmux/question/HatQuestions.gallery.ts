@@ -21,6 +21,14 @@ type Props = {
   refuse?: boolean;
   dismissLook?: "hover" | "always" | "corner";
   first?: "child";
+  ask?: "long" | "short";
+};
+
+// The whole ask (Leo, 2026-11-11, on a coordinator's [irreversible] deploy ask cut mid-word): More
+// opens who asks, the question and the line under it together, and the answers keep their order.
+const wholeAskPlay = async (ctx: PlayContext) => {
+  await ctx.click({ selector: ".acpmux-hat-questions__more" });
+  await ctx.waitFor(() => Boolean(ctx.document.querySelector(".acpmux-hat-questions__question[data-whole]")));
 };
 
 const prompt = (ctx: PlayContext) => ctx.document.querySelector(".acpmux-hat-questions__prompt")?.textContent ?? "";
@@ -142,6 +150,19 @@ export default componentEntry<Props>({
     "dismiss-corner": {
       note: "The × over the band's top corner, in no room of its own: it sits on the pager and the text runs under it. Rejected.",
       props: { first: "child", dismissLook: "corner" },
+    },
+    "whole-ask": {
+      note: "A long deploy ask at rest: who asks cut to the head's room, two lines of the question, the line under it cut, and More offered because some of it is cut.",
+      props: { ask: "long" },
+    },
+    "whole-ask-open": {
+      note: "Picked. More opened: who asks, the whole question and the whole line under it wrap at word breaks, and the answers stay under them in their order.",
+      props: { ask: "long" },
+      play: wholeAskPlay,
+    },
+    "whole-ask-short": {
+      note: "A short deploy ask: nothing is cut, so no More.",
+      props: { ask: "short" },
     },
     play: {
       note: "Step to the tagged ask, answer it with a click, then type a reply that withdraws the chat's own question.",

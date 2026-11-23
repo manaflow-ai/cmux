@@ -245,7 +245,8 @@ describe("one subtle elevation scale", () => {
       ".acpmux-permission-panel .acpmux-permission-card.acpmux-permission-surface",
       "--elevation-2",
     ],
-    ["agent-session/acpmux/newtab/screen.css", ".nt-box", "--elevation-1"],
+    // New Tab's composer box (NewTabScreen.tsx `nt-composer-surface nt-box`): its glass names the drop.
+    ["agent-session/acpmux/newtab/screen.css", ".nt-composer-surface", "--elevation-1"],
     ["agent-session/acpmux/styles.css", ".acpmux-newtab-box", "--elevation-2"],
     ["agent-session/acpmux/styles.css", ".acpmux-newtab-kind.is-selected", "--elevation-1"],
     ["agent-session/acpmux/styles.css", ".acpmux-file-search", "--elevation-2"],

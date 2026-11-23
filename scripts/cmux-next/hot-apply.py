@@ -192,7 +192,7 @@ COMPANIONS = (("app-host", "cmux-app-host"), ("cloud-server", "cmux-cloud"), ("b
 WEB_BASE = os.environ.get("CMUX_WEB_BUNDLES_BASE") or "https://files.cmux.com/cmux-next-web"
 # Each feat-cmux-next commit's hot keys (`keys`), published write-once by cmux-next-hot-keys.yml.
 HOT_KEYS_BASE = os.environ.get("CMUX_HOT_KEYS_BASE") or "https://files.cmux.com/cmux-next/hot-keys"
-HOT_KEYS_SCHEMA = 1
+HOT_KEYS_SCHEMA = 2  # 2: `web` also digests the catalogs gen-strings.mjs reads, `shell` no longer does
 # Beside each tree, its darwin build signed by the NEXT nightly's team (cmux-tui-team-signed.yml,
 # scripts/ci/cmux_tui_team_sign.py): what a Team-signed app takes.
 TEAM_SIGNED = "team-signed"
@@ -612,6 +612,21 @@ def ffi_digest(repo: Path, sha: str, blobs: dict[str, str], daemon: list[str]) -
     return hashlib.sha256("".join(f"{p}\0{blob}\n" for p, blob in sorted(set(entries))).encode()).hexdigest()
 
 
+def web_catalogs(repo: Path, sha: str, strings: list[str]) -> tuple[list[str], list[str]]:
+    """Split STRINGS (SHA's .xcstrings files) into the catalogs the web pages read and the rest. gen-strings.mjs
+    builds every page's strings table from its catalogs at web-build time, and the web source key hashes them
+    (web-bundle-key.py), so the bundle published for SHA carries those catalogs' words: they ride the web part.
+    The rest (Swift-only catalogs) stay with the Swift build. gen-strings.mjs is read from SHA, not the working tree."""
+    if not strings:
+        return [], []
+    try:
+        named = load("web_bundle_key", "web-bundle-key.py").gen_strings_catalogs_in(
+            git(repo, "show", f"{sha}:webviews/scripts/pages/gen-strings.mjs")) or []
+    except (RuntimeError, OSError):
+        named = []  # unreadable: every catalog stays with the Swift build, as before
+    return [p for p in strings if p in named], [p for p in strings if p not in named]
+
+
 def hot_keys(repo: Path, sha: str, web: str | None = None) -> dict:
     """SHA's hot keys: what `plan` compares instead of diffing two commits. Each key covers one bucket's files
     (live_apply.py's rules applied to every path of SHA's tree, as _plan applies them to a diff), so two commits
@@ -625,12 +640,13 @@ def hot_keys(repo: Path, sha: str, web: str | None = None) -> dict:
         blobs[path] = meta.split()[2]
     files = live_apply.classify([("M", p) for p in blobs], {})["files"]
     # cmux-tui's own native sources (a shim, the Zig binding) are daemon in live_apply.py: the tree build compiles them.
-    shell = files.get("rebuild", []) + files.get("swift-live", []) + files.get("strings", [])
+    web_strings, swift_strings = web_catalogs(repo, sha, files.get("strings", []))
+    shell = files.get("rebuild", []) + files.get("swift-live", []) + swift_strings
     daemon = files.get("daemon", [])
     abi = json.loads(git(repo, "show", f"{sha}:webviews/src/web-abi.json"))["abi"]
     return {"schema": HOT_KEYS_SCHEMA, "commit": sha, "tree_key": _tree_key(repo, sha),
             # `web` decides, `web_key` fetches: the source key also covers files no bundle ships (tests).
-            "web": set_digest(blobs, files.get("web-live", [])),
+            "web": set_digest(blobs, files.get("web-live", []) + web_strings),
             "web_key": web or _web_key(repo, sha), "web_abi": abi, "shell": set_digest(blobs, shell),
             # The app links the FFI release named by its pin, not the current FFI sources. Keep source-only
             # FFI edits out of this key; a repin changes the pin source and therefore the linked library.
@@ -795,11 +811,23 @@ def live_from(repo: Path, sha: str, limit: int = LIVE_FROM_MAX) -> dict:
     compatibility remains separate; it can apply parts and report the other layers as left.
     At most `limit` commits; `floor` is that commit, or None when the walk stopped at the limit. The
     signed Mac live update file names them (scripts/ci/cmux-machine-channel.py --purpose mac-live)."""
-    out: dict = {"sha": sha, "live_from": [], "floor": None, "floor_paths": []}
+    out: dict = {"sha": sha, "live_from": [], "floor": None, "floor_paths": [],
+                 "daemon_from": [], "daemon_floor": None, "daemon_floor_paths": []}
+    # daemon_from: the wider list of app commits that can run SHA's bin files beside their own app (daemon ABI
+    # only: the FFI pin and the Rust the Swift build reads). The nightly-live channel (`cmux app try channel`)
+    # reads it: it swaps only the daemon part and never claims the app is at SHA, so Swift, resources and web
+    # (which comes on its own channel) merged since the app's build wait for the next nightly. live_from stays
+    # the whole-app list, so a CLI that reads only live_from claims nothing new.
+    whole_app = True
     for commit in git(repo, "rev-list", "--first-parent", f"--max-count={limit}", sha).split():
-        out["live_from"].append(commit)
-        if paths := pins_daemon(repo, commit, whole_app=True):
-            out["floor"], out["floor_paths"] = commit, paths[:20]
+        out["daemon_from"].append(commit)
+        if whole_app:
+            out["live_from"].append(commit)
+            if paths := pins_daemon(repo, commit, whole_app=True):
+                out["floor"], out["floor_paths"] = commit, paths[:20]
+                whole_app = False
+        if paths := pins_daemon(repo, commit):
+            out["daemon_floor"], out["daemon_floor_paths"] = commit, paths[:20]
             break
     return out
 
@@ -843,10 +871,15 @@ def _plan(repo: Path, app: Path, sha: str, branch: bool, given_base: str | None,
         out["fork"] = fork
     result = live_apply.classify_range(str(repo), since, sha)
     files = result["files"]
-    for kind in ("swift-live", "rebuild", "strings"):
-        if files.get(kind):
-            out["left"][kind] = files[kind]
-    web = files.get("web-live", [])
+    web_strings, swift_strings = web_catalogs(repo, sha, files.get("strings", []))
+    for kind, paths in (("swift-live", files.get("swift-live")), ("rebuild", files.get("rebuild")), ("strings", swift_strings)):
+        if paths:
+            out["left"][kind] = paths
+    if files.get("strings"):
+        out["notes"].append("strings: " + ("the web pages' words ride the web part (gen-strings.mjs reads "
+                                           + ", ".join(web_strings) + "); " if web_strings else "")
+                            + "Swift's translations wait for the next build")
+    web = files.get("web-live", []) + web_strings
     if web and branch:
         # A branch's web is not published: try-pr.sh serves it from the branch (web-overlay.sh follow).
         out["left"]["web (not published for a branch)"] = web
