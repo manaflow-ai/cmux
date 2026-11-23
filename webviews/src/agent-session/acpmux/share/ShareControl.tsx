@@ -23,6 +23,7 @@ import {
   type ShareCall,
   type ShareRole,
   type ShareView,
+  normalAccount,
 } from "./shareState";
 import "./share.css";
 
