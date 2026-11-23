@@ -31,7 +31,7 @@ TEST_STEPS = {
 }
 ISSUE = re.compile(r"✘ Test (.+?) recorded an issue at ([^:]+\.swift):\d+:\d+: (.+)")
 SUMMARY = re.compile(r"✘ Test run with .* failed .* with (\d+) issues?\.")
-MARKERS = re.compile(r"^\+(?:<<<<<<<|>>>>>>>|=======$)", re.MULTILINE)
+MARKERS = re.compile(r"^\+(?:<<<<<<<|>>>>>>>|\|{7}(?: |$)|=======$)", re.MULTILINE)
 # A cmux-next swift test job log reached about 40 MB on 2026-11-01 (#28391), past the old 32 MiB cap, so
 # no such red could be compared with the base. Output goes to a temporary file, not memory, until read.
 MAX_OUTPUT = 256 * 1024 * 1024

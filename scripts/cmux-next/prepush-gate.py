@@ -67,7 +67,8 @@ and over a picture), or a hunk of a chrome-layer token source naming a chrome to
 trailer quoting Leo: his name and his words in quotes. #39984 dimmed the sidebar for a non-Leo issue (Leo
 2026-11-11: "bro why is the sidebar now a different color?"). CMUX_NEXT_CHECKS_SKIP_REASON does not skip it.
 Also on every push, in any file: "Merge conflict markers": a file the push adds both a `<<<<<<< ` and
-a `>>>>>>> ` line to (c779988d57d, 2026-10-22, broke CmuxNextAppTests). Nothing skips it.
+a `>>>>>>> ` line to (c779988d57d, 2026-10-22, broke CmuxNextAppTests), or a diff3 `||||||| ` line to (#50674,
+2026-11-22, broke cmux-mobile-host's tests). Nothing skips it.
 Also on every push: "UI font" (check-ui-font.py): the UI font stays the macOS system font with no
 letter-spacing and nothing bundled (schemas/type-scale/ui-font-pin.json; Lawrence 2026-11-07), and no
 webviews default font stack names Inter. It is not skippable either; only a `Font-order: <the user's
@@ -482,6 +483,9 @@ CHROME_QUOTE = re.compile(r"[\"“][^\"“”]{3,}[\"”]")
 # An added line that opens or closes a conflict hunk (`=======` alone is a Markdown or RST rule).
 CONFLICT_OPEN = re.compile(r"^<{7} ")
 CONFLICT_CLOSE = re.compile(r"^>{7} ")
+# diff3/zdiff3's merge-base line (`||||||| 4b816cb17582`). No source or fixture starts a line with it, so it counts
+# alone: #50674 (2026-11-22) left only this line at the end of cmux-mobile-host tests/host.rs and broke its target.
+CONFLICT_BASE = re.compile(r"^\|{7}( |$)")
 RESERVED_SCRIPT = SCRIPTS + "/check-ghostty-reserved-keys.py"
 RESERVED_LIST = "schemas/keybindings/ghostty-reserved-keys.json"
 RESERVED_SURFACES = "plans/cmux-next/action-surfaces.json"
@@ -2413,8 +2417,9 @@ def conflict_markers(repo: Path, base: str, head: str) -> list[str]:
     """`file:line` of each conflict marker the push adds, in any file of the repository.
 
     2026-10-22: c779988d57d landed `<<<<<<< HEAD` in SidebarNowLineTests.swift and CmuxNextAppTests
-    stopped compiling; no scanner reads a test file. A file counts only when the push adds both an
-    opening and a closing marker to it, so a fixture that mentions one marker never matches.
+    stopped compiling; no scanner reads a test file. A file counts when the push adds both an
+    opening and a closing marker to it, so a fixture that mentions one marker never matches, or adds a diff3
+    merge-base line, which a half-finished resolution leaves alone (#50674's `||||||| 4b816cb17582`).
     """
     # Fixed prefixes: with a user's diff.noprefix the `+++ b/` headers this parse reads would be missing. No
     # inter-hunk context: a user's diff.interHunkContext would put unchanged lines between the added ones.
@@ -2430,13 +2435,14 @@ def conflict_markers(repo: Path, base: str, head: str) -> list[str]:
             number = parse_tool_int(match.group(1), "diff hunk line") if match else 0
         elif line.startswith("+") and name:
             text = line[1:]
-            if CONFLICT_OPEN.match(text) or CONFLICT_CLOSE.match(text):
+            if CONFLICT_OPEN.match(text) or CONFLICT_CLOSE.match(text) or CONFLICT_BASE.match(text):
                 found[name].append((number, text))
             number += 1
         elif line.startswith(" ") and name:  # a context line, should one come, is a head line too
             number += 1
     return [f"{name}:{n}: {text}" for name, marks in sorted(found.items())
-            if any(CONFLICT_OPEN.match(t) for _, t in marks) and any(CONFLICT_CLOSE.match(t) for _, t in marks)
+            if any(CONFLICT_BASE.match(t) for _, t in marks)
+            or (any(CONFLICT_OPEN.match(t) for _, t in marks) and any(CONFLICT_CLOSE.match(t) for _, t in marks))
             for n, text in marks]
 
 
