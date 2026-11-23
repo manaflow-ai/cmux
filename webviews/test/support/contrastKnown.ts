@@ -1,5 +1,5 @@
 // The pairs cmux's chat draws under the WCAG minimum today, each with its cause, held by
-// golden-look-contrast.test.ts (the golden screen under every look). A failing line no entry matches
+// golden-look-contrast-N.test.ts (the golden screen under every look). A failing line no entry matches
 // is a new light-on-light or dark-on-dark pair.
 import type { ContrastLine } from "./contrastWalk";
 

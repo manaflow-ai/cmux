@@ -311,7 +311,7 @@ bun run golden:looks --setup ~/src/my-look --preview   # also writes ~/src/my-lo
 popover, which portal outside the chat: an open menu with a section label, shortcuts, an open submenu,
 a disabled and a red destructive row, beside the plan usage popover, a variant per look.
 
-The golden screen is the sample every look's contrast is checked on (`test/browser/golden-look-contrast.test.ts`):
+The golden screen is the sample every look's contrast is checked on (`test/browser/golden-look-contrast-{0,1,2,3}.test.ts` (one suite, `test/support/goldenLookContrastSuite.ts`)):
 both entries under every look the checkout carries, found rather than listed (`discoverLooks`: each
 shipped theme file, each setup folder and theme file under `examples/`, past the registry), in each
 scheme it draws. Every text under 4.5:1 (3:1 large text and icons) fails with its look, element, text,
