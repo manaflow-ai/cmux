@@ -61,7 +61,7 @@ import UIKit
     /// The warm-up draws the Feed's row shapes when it comes to rest, a frame's share at a time: it
     /// ran its whole queue back to back (74 ms of one frame, profile db0af69e). Each item costs
     /// 3 ms on a fake clock, so the count between two display frames is the budget's, not timing's.
-    @Test func theWarmUpTakesAFramesShareAtATime() throws {
+    @Test func theWarmUpTakesAFramesShareAtATime() async throws {
         let store = FeedStore.shared
         let saved = store.items
         store.replaceAll([])
@@ -73,9 +73,14 @@ import UIKit
         window.rootViewController = host
         window.makeKeyAndVisible()
         defer { window.isHidden = true }
+        // Waits by suspending, not by spinning the run loop inside this test's main-actor job: the
+        // list's own waits are main-actor tasks (its 150 ms settle after a scroll event, the warm-up's
+        // retry while not settled), and they cannot run until this job lets the main actor go
+        // (green-25 34faf23e: spinning, the list never settled and the warm-up drew 0 items).
+        func pause(_ seconds: Double) async { try? await Task.sleep(for: .seconds(seconds)) }
         var list: UITableView?
         for _ in 0..<100 where list == nil {
-            settle()
+            await pause(0.05)
             list = table(in: window)
         }
         let feed = try #require(list, "the Feed's table")
@@ -86,19 +91,27 @@ import UIKit
         // Items done between display frames.
         var lastDone = controller.warmItemsDone
         var perFrame: [Int] = []
+        var ticks = 0
         let token = FrameClock.shared.subscribe { _ in
+            ticks += 1
             perFrame.append(controller.warmItemsDone - lastDone)
             lastDone = controller.warmItemsDone
         }
         defer { FrameClock.shared.unsubscribe(token) }
         // Many row shapes at once: the warm-up queues one item per new shape.
         store.replaceAll(FeedStore.stressItems(count: 120, now: Date()))
-        for _ in 0..<300 where controller.warmQueueCount > 0 || controller.warmItemsDone == 0 { settle(0.02) }
-        settle(0.05)
-        #expect(controller.warmItemsDone > 3, "too few warm-up items to tell (\(controller.warmItemsDone))")
+        let queued = controller.warmQueueCount
+        let deadline = Date().addingTimeInterval(8)
+        while Date() < deadline, controller.warmQueueCount > 0 || controller.warmItemsDone == 0 { await pause(0.02) }
+        await pause(0.1)
+        let state = "queued \(queued), done \(controller.warmItemsDone), left \(controller.warmQueueCount), passes \(controller.warmBatches), frames \(ticks), settled \(controller.rowsSettled)"
         let budgetItems = Int(FeedListController.warmBudget / 0.003) + 1
+        // Enough items that the budget has to split them over frames, and frames to count them in:
+        // otherwise the check below passes with nothing measured.
+        #expect(controller.warmItemsDone > budgetItems * 2, "too few warm-up items to tell: \(state)")
+        #expect(ticks > 3, "too few display frames to count in: \(state)")
         #expect((perFrame.max() ?? 0) <= budgetItems,
-                "\(perFrame.max() ?? 0) warm-up items ran in one frame (at most \(budgetItems)): \(perFrame.filter { $0 > 0 })")
+                "\(perFrame.max() ?? 0) warm-up items ran in one frame (at most \(budgetItems)): \(perFrame.filter { $0 > 0 }); \(state)")
     }
 
     /// The spare is filled with the heaviest row (a permission card) but the first row that needs
