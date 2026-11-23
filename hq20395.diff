@@ -1,0 +1,143 @@
+diff --git a/build-fleet/mini-fleet.json b/build-fleet/mini-fleet.json
+--- a/build-fleet/mini-fleet.json
++++ b/build-fleet/mini-fleet.json
+@@ -100,7 +100,7 @@
+       "symbol-cache-cap": {"installer": "mini-ops/ops/symbol-cache-cap.sh", "label": "ai.manaflow.symbol-cache-cap", "every_s": 21600,
+                            "sha256": "49514fb65e9caee7e307445c4e72c631afdd04bdf4807911c289b1fa9614d5c7"},
+       "seed-root": {"installer": "mini-ops/ops/seed-root.sh", "label": "ai.manaflow.seed-root", "every_s": 1800,
+-                    "sha256": "f866b5e627aa8d629318a149f742e486bd97e2f13f90b76d0c25626e584beacd"},
++                    "sha256": "c86c5aba369d09c32f0096d1b0311f1b2842fca02e8c35be6a90204e2352048f"},
+       "job-user-home-reclaim": {"installer": "mini-ops/ops/job-user-home-reclaim.sh", "label": "ai.manaflow.job-user-home-reclaim",
+                                 "every_s": 1800, "sha256": "7d8d73607853074e3377f715c3f1188ca01bc09287ef195ec3e9998a8ebd30ca"}
+     },
+diff --git a/build-fleet/mini-ops/ops/seed-root.sh b/build-fleet/mini-ops/ops/seed-root.sh
+--- a/build-fleet/mini-ops/ops/seed-root.sh
++++ b/build-fleet/mini-ops/ops/seed-root.sh
+@@ -9,6 +9,11 @@
+ # valid. It takes that root only when /Users/runner/_work/cmux is a real directory, writable by the runner user,
+ # and holds the marker file .cmux-seed-root; otherwise the job builds cold. glaeda-disk (CMUX_SEED_ROOT) reads the
+ # same marker. Nothing created it until 2026-11-21, when it was made by hand on 14 minis.
++# It keeps a second root beside it the same way, /Users/runner/_work/cmux-2 (its job workspace
++# /Users/runner/_work/cmux-2/cmux): a job that finds the first held takes it on a mini with the disk for both
++# (owned_spm_scratch.py second_seed_fits; 7 of 15 cold 60-min fast-tier timeouts in 6 h on 2026-11-23 had the one
++# root held). A second root that is not a real directory, or exists without the marker, is left alone and named on
++# the line; the first is still kept.
+ # This installs the body below as a root LaunchDaemon that runs it every 30 minutes (glaeda-daemon-heal installs
+ # the same body fleet-wide, mini-fleet.json fleet_ops.deployed), and runs it once now. The body creates
+ # /Users/runner/_work (when missing) and /Users/runner/_work/cmux owned by the runner user, writes the marker, and
+@@ -42,6 +47,7 @@ base=${SEED_ROOT_BASE:-/Users/runner/_work}
+ leaf=cm""ux   # spelled apart: a published body names no fleet login (fleet_ops_test)
+ seed=$base/$leaf
+ marker=$seed/.cmux-seed-root
++seed2=$base/$leaf-2   # the second seed root (owned_spm_scratch.py SECOND_SEED_WORKSPACE, one level up)
+ fleet=${SEED_ROOT_FLEET_DIR:-/Users/Shared/cmux-build-fleet}
+ 
+ say() { echo "$h: $*"; }
+@@ -66,15 +72,28 @@ fi
+ if [ -L "$base" ] || { [ -e "$base" ] && [ ! -d "$base" ]; }; then
+   say "skip ($base is not a real directory)"; exit 0
+ fi
++# The second root is left alone, with the first still kept, for the same reasons the first would be skipped.
++alone2=""
++if [ -L "$seed2" ] || { [ -e "$seed2" ] && [ ! -d "$seed2" ]; }; then
++  alone2="$seed2 is not a real directory"
++elif [ -d "$seed2" ] && [ ! -e "$seed2/.cmux-seed-root" ]; then
++  alone2="$seed2 exists without .cmux-seed-root"
++fi
++note2() { [ -z "$alone2" ] || echo "; left alone: $alone2"; }
+ 
+ if [ "$dry" = 1 ]; then
+   todo=""
+   [ -d "$base" ] || todo="$todo create $base;"
+   [ -d "$seed" ] || todo="$todo create $seed;"
+   [ -e "$marker" ] || todo="$todo write marker;"
+   if [ -d "$seed" ] && [ "$(owner_of "$seed")" != "$user" ]; then todo="$todo chown $user $seed;"; fi
++  if [ -z "$alone2" ]; then
++    [ -d "$seed2" ] || todo="$todo create $seed2;"
++    [ -e "$seed2/.cmux-seed-root" ] || todo="$todo write $seed2 marker;"
++    if [ -d "$seed2" ] && [ "$(owner_of "$seed2")" != "$user" ]; then todo="$todo chown $user $seed2;"; fi
++  fi
+   todo=${todo# }
+-  if [ -z "$todo" ]; then say "ok (already in place)"; else say "unprovisioned (would: ${todo%;})"; fi
++  if [ -z "$todo" ]; then say "ok (already in place$(note2))"; else say "unprovisioned (would: ${todo%;}$(note2))"; fi
+   exit 0
+ fi
+ 
+@@ -84,22 +103,27 @@ if [ ! -d "$base" ]; then
+   chown "$user" "$base" || fail "cannot chown $base to $user"
+   did="$did created $base;"
+ fi
+-if [ ! -d "$seed" ]; then
+-  mkdir "$seed" || fail "cannot create $seed"
+-  did="$did created $seed;"
+-fi
+-if [ "$(owner_of "$seed")" != "$user" ]; then
+-  chown "$user" "$seed" || fail "cannot chown $seed to $user"
+-  did="$did chowned $seed;"
+-fi
+-if [ ! -e "$marker" ]; then
+-  printf 'CI seed root: provisioned by hq build-fleet/mini-ops/ops/seed-root.sh on %s at %s\n' \
+-    "$h" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$marker" || fail "cannot write $marker"
+-  chown "$user" "$marker" || fail "cannot chown $marker to $user"
+-  did="$did wrote marker;"
+-fi
++keep() {  # keep "$1" a directory the runner user owns, holding the marker; $2 names the marker in the line
++  local root=$1 mark=$1/.cmux-seed-root
++  if [ ! -d "$root" ]; then
++    mkdir "$root" || fail "cannot create $root"
++    did="$did created $root;"
++  fi
++  if [ "$(owner_of "$root")" != "$user" ]; then
++    chown "$user" "$root" || fail "cannot chown $root to $user"
++    did="$did chowned $root;"
++  fi
++  if [ ! -e "$mark" ]; then
++    printf 'CI seed root: provisioned by hq build-fleet/mini-ops/ops/seed-root.sh on %s at %s\n' \
++      "$h" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$mark" || fail "cannot write $mark"
++    chown "$user" "$mark" || fail "cannot chown $mark to $user"
++    did="$did wrote $2;"
++  fi
++}
++keep "$seed" marker
++[ -n "$alone2" ] || keep "$seed2" "$seed2 marker"
+ did=${did# }
+-if [ -z "$did" ]; then say "ok (already in place)"; else say "ok (${did%;})"; fi
++if [ -z "$did" ]; then say "ok (already in place$(note2))"; else say "ok (${did%;}$(note2))"; fi
+ BODY
+ chmod 755 "$body.next"
+ mv -f "$body.next" "$body"
+diff --git a/build-fleet/mini-ops/seed_root_test.py b/build-fleet/mini-ops/seed_root_test.py
+--- a/build-fleet/mini-ops/seed_root_test.py
++++ b/build-fleet/mini-ops/seed_root_test.py
+@@ -64,8 +64,29 @@ def test_creates_both_dirs_and_the_marker(self):
+         self.assertTrue(out.startswith("mini: ok (created"), out)
+         self.assertTrue(self.seed.is_dir())
+         self.assertIn("provisioned by hq build-fleet/mini-ops/ops/seed-root.sh", self.marker.read_text())
+-        # the unprivileged test user already owns what it makes, so the seed itself needs no chown here
+-        self.assertEqual(len((self.state / "chown").read_text().splitlines()), 2)
++        # the unprivileged test user already owns what it makes, so the seeds themselves need no chown here: the
++        # work dir and the two markers
++        self.assertEqual(len((self.state / "chown").read_text().splitlines()), 3)
++        self.assertTrue((self.base / "cmux-2" / ".cmux-seed-root").is_file(), "the second seed root too")
++
++    def test_the_second_root_is_kept_beside_the_first_and_left_alone_when_not_ours(self):
++        """2026-11-23: 7 of 15 cold 60-min fast-tier timeouts in 6 h had the one seed root held; a job that finds
++        it held takes /Users/runner/_work/cmux-2/cmux (cmux owned_spm_scratch.py SECOND_SEED_WORKSPACE)."""
++        second = self.base / "cmux-2"
++        self.base.mkdir(parents=True)
++        self.seed.mkdir()
++        self.marker.touch()
++        code, out = self.run_body("--dry-run")
++        self.assertEqual((code, out), (0, f"mini: unprovisioned (would: create {second}; write {second} marker)"))
++        self.assertEqual(self.run_body(), (0, f"mini: ok (created {second}; wrote {second} marker)"))
++        self.assertEqual(self.run_body(), (0, "mini: ok (already in place)"))
++        (second / ".cmux-seed-root").unlink()
++        (second / "theirs").write_text("x")
++        code, out = self.run_body()
++        self.assertEqual((code, out), (0, f"mini: ok (already in place; left alone: {second} exists without "
++                                          ".cmux-seed-root)"))
++        self.assertEqual(sorted(p.name for p in second.iterdir()), ["theirs"], "never adopted")
++        self.assertTrue(self.marker.exists(), "the first root is still kept")
+ 
+     def test_second_run_changes_nothing(self):
+         self.run_body()
