@@ -251,14 +251,15 @@ impl BindResult {
 /// section. That section is kept as `carrier.json` (0600,
 /// `carrier_entry.rs`) before `bound.json`; a bind without one leaves any
 /// existing `carrier.json` as it is.
-/// The bind as the Cloud role makes it: the updater's connect hold first, so
-/// the machine's first link is never cut by an update's restart, then the
-/// request. A person's machine from this bind on, and the supervisor's
-/// `Bound` (an instance id change) does not cover a bind of the same machine.
-/// The hold is the state dir's restart gate (`updater/gate.rs`), which every
-/// flip and restart goes through in whichever process runs it: either the
-/// flip sees this hold, or a restart was queued first and this answers None
-/// with `bind.json` left for the restarted service.
+/// The bind as the Cloud role makes it: the updater's connect hold and the
+/// bind's in-flight mark first, so the machine's first link is never cut by
+/// an update's or a rollback's restart, then the request, then the mark goes
+/// and the hold runs from the answer. A person's machine from this bind on,
+/// and the supervisor's `Bound` (an instance id change) does not cover a bind
+/// of the same machine. The hold is the state dir's restart gate
+/// (`updater/gate.rs`), which every flip and restart goes through in
+/// whichever process runs it. None, with `bind.json` left for a retry, when a
+/// restart was queued first (the restarted service binds) or the gate failed.
 #[allow(clippy::too_many_arguments)]
 pub fn hold_then_bind(
     paths: &crate::config::Paths,
@@ -271,16 +272,32 @@ pub fn hold_then_bind(
     now_wall_ms: u64,
 ) -> Option<BindResult> {
     #[cfg(unix)]
-    if !crate::updater::gate::hold_connects(
-        paths,
-        now_wall_ms,
-        crate::updater::gate::HoldKind::Connect,
-    ) {
-        return None;
+    {
+        let gate = crate::updater::gate::Gate::new(paths);
+        match gate.begin_bind(now_wall_ms) {
+            Ok(true) => {}
+            Ok(false) => return None,
+            Err(e) => {
+                eprintln!("cmux-host: cloud: bind: the restart gate failed ({e}); retrying");
+                return None;
+            }
+        }
+        let started = std::time::Instant::now();
+        let result =
+            bind_machine(store, http, key, wg_public_key, daemon, daemon_noise_key, now_wall_ms);
+        let took = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        let done_ms = now_wall_ms.saturating_add(took);
+        if let Err(e) = gate.end_bind(done_ms) {
+            // The mark lapses on its own; the hold taken before the request stands.
+            eprintln!("cmux-host: cloud: bind: clearing its in-flight mark failed: {e}");
+        }
+        Some(result)
     }
     #[cfg(not(unix))]
-    let _ = paths;
-    Some(bind_machine(store, http, key, wg_public_key, daemon, daemon_noise_key, now_wall_ms))
+    {
+        let _ = paths;
+        Some(bind_machine(store, http, key, wg_public_key, daemon, daemon_noise_key, now_wall_ms))
+    }
 }
 
 pub fn bind_machine(
@@ -706,6 +723,33 @@ impl<H: Http> CloudClient<H> {
     pub fn github_status(&mut self, now_wall_ms: u64) -> Value {
         let answer = self.platform_get(super::github_status::STATUS_PATH, now_wall_ms);
         super::github_status::reply_for(&answer)
+    }
+
+    /// The person's additions list (`POST /v1/install-counts/additions` on the environment's
+    /// platform as this machine's `vm` install, `additions.rs`). As [`Self::post_as_install`],
+    /// only a 401 or an `auth.*` 403 drops the cached bearer and retries once: a 403
+    /// `install_counts.not_shared` is the answer.
+    pub fn install_additions(&mut self, body: &Value, now_wall_ms: u64) -> Answer {
+        let url =
+            format!("{}{}", self.bound.env.platform_origin(), super::additions::ADDITIONS_PATH);
+        let send = |client: &mut Self| -> Option<(u16, Value)> {
+            let token = client.token(now_wall_ms).ok()?;
+            client.http.post(&url, body, Some(&token)).ok()
+        };
+        let Some((mut status, mut answer)) = send(self) else { return Answer::Transport };
+        let stale = status == 401
+            || (status == 403
+                && answer
+                    .field("error")
+                    .field("code")
+                    .as_str()
+                    .is_some_and(|c| c.starts_with("auth.")));
+        if stale {
+            self.cached = None;
+            let Some(again) = send(self) else { return Answer::Transport };
+            (status, answer) = again;
+        }
+        Answer::Http { status, body: answer }
     }
 
     /// A GitHub token for this machine (`POST /v1/integrations/github/token`

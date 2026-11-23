@@ -45,7 +45,7 @@ does. Native glass (the window, sidebar, native menus, the native tooltip) is no
 5. **Legibility floor.** Primary text keeps 4.5:1 and secondary 3:1 against the glass laid over
    pure black and pure white. If a level fails at its tint, the tint goes up for that level; the
    text never gets thinner. The tooltip already works this way (`TooltipSurface.tintAlpha`).
-   Secondary text on glass is one ink: the theme's text at `--ds-glass-ink-secondary` (64% light,
+   Secondary text on glass is one ink: the theme's text at `--ds-glass-ink-secondary` (68% light,
    68% dark, `glassInk` in the design scale) over the glass, which every glass surface's secondary
    tokens (`--cmux-text-secondary`, `--cmux-text-tertiary`, `--agent-muted`, `--page-text-2/3`,
    the composer placeholder and dim words, and a field's own placeholder) read inside `.ui-glass`.
@@ -177,8 +177,11 @@ surface takes after this change.
 
 ### Floating, native
 
-All on `Glass.makeSurface`, `makeMenuPanel` (menu level plus the 40% veil) or the neutral transient
-material; none changes here. Group editor, tab group editor, palette and its actions menu and
+All on `Glass.makeSurface`, `makeMenuPanel` (menu level plus the theme's veil: 40%, raised in 2% steps to
+at most 90% until the theme's primary text reads at 4.5:1 and its secondary at 3:1 over the glass on the
+window, on white and on black, rule 5; `GlassMenuMaterial.veil(for:)`) or the neutral transient material.
+Icon buttons on that glass (`OverflowButton`, `PlusButton`, `TitlebarBandButton`) fit their glyphs to it
+(`NSView.glassInk`), not to the opaque page: they read 1.35-2.84:1 there (NativeControlContrastAuditTests). Group editor, tab group editor, palette and its actions menu and
 shortcut recorder, `GlassMenu`, web popup host and declarative popups, native tooltip, shortcut hint
 chip, hover card panel and rows, native find pill, dialog card, toasts, agent cursor tag
 (`.hudWindow`), notifications panel, Downloads, Host Pressure, icon picker, native Session Info
