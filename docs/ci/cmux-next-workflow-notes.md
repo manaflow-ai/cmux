@@ -2195,11 +2195,13 @@ The darwin cross-toolchain install moved above these steps so the key can name i
 
 ## note-211
 
-Above `fast-tier-cargo: Fetch the ghostty-next Zig packages (cached, deadlined, retried)` in `.github/workflows/cmux-next.yml`.
+Retired: `fast-tier-cargo` no longer fetches the ghostty-next Zig packages first.
 
-ghostty-vt-sys's build.rs runs zig, which downloads the packages itself, once and
-unretried: a mid-stream read error failed the job (pkg/highway ReadFailed). Fetch
-them first, each attempt under a deadline and retried.
+The step was added because zig's own unretried download failed the job
+(pkg/highway ReadFailed). ghostty-vt-sys's build.rs now seeds the packages it
+needs from the mirror itself (`curl --retry 3 --retry-all-errors`) and runs zig
+mirror-only in CI, and on a warm cargo cache build.rs does not run at all. The
+step cost about 50 s per run even with every package already present.
 
 ## note-212
 
@@ -4950,3 +4952,19 @@ lan_cache_fetch.py's own bound is 5,420 s, longer than the 60-minute jobs that r
 ("LAN cache host unavailable (...: stalled)"), and the direct download then took 9 more: restores of
 1,289-1,600 s, in jobs cancelled at the 60-minute limit while still building CmuxNext. A healthy host
 serves the 3.6 GB seed in about 40 s, or 343 s when it first fills it from the bucket (wait 304 s).
+
+## note-553
+
+Above `jobs:` in `.github/workflows/cmux-next.yml`.
+
+The macOS jobs run as a side lane, like relay-tls.yml and reload-build.yml: Trusted runs (a same-repository
+pull request, a push or a dispatch) stay on vars.CI_SIDE_LANE_RUNNER, the minis' glaeda-side-* label, while
+owned pools are on (CI_PR_POOL_OWNED is 1). Fork pull requests keep their fallback. Manual reruns stay
+minis-first. The rescue re-admits a queued run after the five-minute queue alarm: placement first uses a free
+owned GUI/session Mac, then the workflow's Blacksmith macOS route. macos-placement records idle side runners
+with the main picker's idle_placement() and publishes free role labels for the bot retry, so a job does not
+keep a shared concurrency slot on a busy Blacksmith label indefinitely. When a job takes the side label,
+macos-placement uploads the owned-pool-watch marker: ci-owned-pool-rescue.yml's sweeper on main adopts the run
+(owned_pool_rescue.SIDE_WORKFLOW_PATHS) and re-runs a job a mini leaves queued or refuses. Bot attempt 2 and
+later drop the stale placement output and re-admits it through the same fast-checks/owned-Mac/Blacksmith
+order; a person's re-run stays on the side label.
