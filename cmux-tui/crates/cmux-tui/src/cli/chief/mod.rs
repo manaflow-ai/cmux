@@ -28,6 +28,7 @@ mod primary;
 pub(in crate::cli) mod registry;
 mod relocate;
 mod render;
+mod scheduled;
 mod script;
 mod script_text;
 mod shutdown;
