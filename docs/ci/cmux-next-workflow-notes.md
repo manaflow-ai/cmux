@@ -4935,3 +4935,37 @@ lan_cache_fetch.py's own bound is 5,420 s, longer than the 60-minute jobs that r
 ("LAN cache host unavailable (...: stalled)"), and the direct download then took 9 more: restores of
 1,289-1,600 s, in jobs cancelled at the 60-minute limit while still building CmuxNext. A healthy host
 serves the 3.6 GB seed in about 40 s, or 343 s when it first fills it from the bucket (wait 304 s).
+
+## note-553
+
+Above `web-bundles: Look up the web bundles in R2` in `.github/workflows/cmux-next.yml`.
+
+The job looks the bundles up before it sets up a toolchain: R2 first (what feat-cmux-next's pushes
+published; no credential), then this run's GitHub cache. Bun, the private bun, Node, the package cache
+and the build run only on a miss (`steps.hit`). A pull request whose web sources match feat-cmux-next's
+then takes a few seconds of lookups instead of about two minutes of toolchain setup (Setup Bun took
+102-124 s and checkout to key about 3 min on 2026-11-23 04:00Z jobs) before learning it had nothing to
+build, which is also less work a cancelled run throws away. A feat-cmux-next push that finds its key in
+R2 skips publishing it again. The Mac jobs read R2 first themselves (note-229); the artifact hand-off
+(note-398) still runs on a hit, from the restored directory.
+
+## note-554
+
+At the top of `jobs:` in `.github/workflows/cmux-next.yml`.
+
+The macOS jobs run as a side lane, like relay-tls.yml and reload-build.yml:
+Trusted runs (a same-repository pull request, a push or a dispatch) stay on
+vars.CI_SIDE_LANE_RUNNER, the minis' glaeda-side-* label, while owned pools
+are on (CI_PR_POOL_OWNED is 1). Fork pull requests keep their fallback.
+Manual reruns stay minis-first. The rescue re-admits a queued run after the
+five-minute queue alarm: placement first uses a free owned GUI/session Mac,
+then the workflow's Blacksmith macOS route. macos-placement records idle
+side runners with the main picker's idle_placement() and publishes free role
+labels for the bot retry, so a job does not keep a shared concurrency slot
+on a busy Blacksmith label indefinitely. When a job takes the side label, macos-placement uploads the
+owned-pool-watch marker:
+ci-owned-pool-rescue.yml's sweeper on main adopts the run
+(owned_pool_rescue.SIDE_WORKFLOW_PATHS) and re-runs a job a mini leaves
+queued or refuses. Bot attempt 2 and later drop the stale placement output
+and re-admits it through the same fast-checks/owned-Mac/Blacksmith order; a
+person's re-run stays on the side label.
