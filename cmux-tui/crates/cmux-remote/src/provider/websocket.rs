@@ -509,6 +509,7 @@ impl LinkGroup for WebSocketLinkGroup {
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities {
             carrier_encryption: self.endpoint.scheme() == "wss",
+            parallel_links: self.dialer.parallel_links(),
             ..ProviderCapabilities::WEBSOCKET
         }
     }

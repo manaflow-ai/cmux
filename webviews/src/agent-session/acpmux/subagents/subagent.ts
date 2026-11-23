@@ -28,6 +28,9 @@ export type Subagent = {
   action?: string;
   /// `action` is a shell call's title, the command as typed (its call's ACP kind is `execute`).
   actionShell?: boolean;
+  /// The ACP kind of that call (`read`, `edit`, `execute`, `fetch`, `think`, `other`; acpmux's
+  /// `tool_kind`): the composer hat says it as one bounded word, never the call (hatStep.ts).
+  actionKind?: string;
   /// Tokens it has used and tool calls it has made so far (Claude's task progress).
   tokens?: number;
   toolUses?: number;
