@@ -92,6 +92,8 @@ struct TabCard<Content: View>: View {
                     .truncationMode(.tail)
             }
             .frame(width: width, height: m.titleRow)
+            // A title never draws past its own card into a neighbour's.
+            .clipped()
             .padding(.top, 2)
             .offset(y: titleOffset)
             .opacity(titleOpacity)
@@ -454,7 +456,7 @@ struct TabOverview<Source: TabsDataSource>: View {
     private func menuSections(_ tab: TabsKitTab) -> [[CardMenuEntry]] {
         let pinned = source.pinnedTabIDs.contains(tab.id)
         var own = source.cardMenu(for: tab).flatMap { $0 }.map { item in
-            CardMenuEntry(title: item.title, symbol: item.systemImage, destructive: item.isDestructive) { item.action() }
+            CardMenuEntry(title: item.title, symbol: item.systemImage, symbolBundle: item.symbolBundle, destructive: item.isDestructive) { item.action() }
         }
         if pinned { own = Array(own.prefix(1)) }
         var main = own

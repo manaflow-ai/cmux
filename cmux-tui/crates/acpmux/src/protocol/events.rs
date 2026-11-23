@@ -31,6 +31,24 @@ pub struct SessionEvent {
     pub msg: Value,
 }
 
+/// `_acpmux/chunk` (`chunk-deltas-v1`, `server/chunk_deltas.rs`): an `agent_message_chunk`
+/// record, to a client whose `initialize` sent `_meta.acpmux.chunkDeltas: true`, as a delta of the
+/// last `_acpmux/event` it got that carried this `chunkRef`. The event it stands for is that one's
+/// params with this `seq`, `at` that frame's plus `dt` (the previous `_acpmux/chunk` of the same
+/// `ref` counts as that frame), and `msg.params.update.content.text` this `text`. A `ref` the
+/// client does not hold: it reads again from its cursor (`_acpmux/attach {afterSeq}`).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(transform = require_all)]
+pub struct ChunkDelta {
+    #[serde(rename = "ref")]
+    pub chunk_ref: u64,
+    pub seq: u64,
+    /// Unix ms since the frame before it of this `ref`.
+    pub dt: u64,
+    pub text: String,
+}
+
 /// Which records a page or an event stream carries: one kind, or any of
 /// several. Absent or null: every record.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -67,6 +85,13 @@ pub struct AttachParams {
     /// Default 2000.
     pub limit: Option<u64>,
     pub max_bytes: Option<u64>,
+    /// The `timeBreakdownVersion` of the breakdown copy this client holds (from an earlier
+    /// attach): while the chat's copy is the same, the reply's `session` leaves `timeBreakdown`
+    /// out (`server/requests/time_breakdown_gate.rs`). Absent, or another version: sent whole.
+    pub time_breakdown_version: Option<String>,
+    /// True from a client that never draws the breakdown (the phone): the reply's `session`
+    /// leaves `timeBreakdown` out whatever its version (`server/requests/time_breakdown_gate.rs`).
+    pub omit_time_breakdown: Option<bool>,
 }
 
 /// A session as `_acpmux/attach` returns it: its summary plus what an
@@ -113,6 +138,10 @@ pub struct AttachResult {
     /// The attaching person's seen cursor (`hub/seen.rs` `read_through`): the newest log seq they
     /// saw while attending; null before they saw any. An older acpmux leaves it out.
     pub read_through: Option<u64>,
+    /// The version of the session's `timeBreakdown` copy (a hash of it); null when it has none.
+    /// Sent back as the attach's `timeBreakdownVersion`, the next reply leaves an unchanged copy
+    /// out of `session`. An older acpmux leaves it out.
+    pub time_breakdown_version: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
