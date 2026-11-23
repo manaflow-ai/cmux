@@ -1037,10 +1037,12 @@ pub fn run(opts: &Opts) -> Res<()> {
             None => None,
         },
         service: cmux_rd_core::service::SERVICE_DESKTOP.into(),
-        // Upstream media needs both caps (rd change C4). `--caps A,B` offers more, such as
-        // `video.scaled` (the resolution ladder).
+        // Upstream media needs both caps (rd change C4). This reassembler rebuilds frames in
+        // interleaved FEC blocks. `--caps A,B` offers more, such as `video.scaled` (the
+        // resolution ladder).
         caps: {
-            let mut offered = vec![caps::CLOCK.into(), caps::LEDGER.into()];
+            let mut offered =
+                vec![caps::CLOCK.into(), caps::LEDGER.into(), caps::FEC_BLOCKS.into()];
             // Decoding with OpenH264 (Linux's only H.264 decoder, `--decoder openh264` on macOS):
             // ask an H.264 host for Constrained Baseline, the profile it shows correctly.
             if bench_decodes_with_openh264(opts.get("decoder")) {
