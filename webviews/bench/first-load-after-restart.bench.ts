@@ -173,6 +173,12 @@ const RELAUNCH_VIEWPORT = { width: VIEWPORT.width, height: VIEWPORT.height - HEI
 /// PAGES=N: the recorded page and N-1 other restored chat pages load at once, as a restart restores every
 /// workspace's chats (1, the default, is the recorded page alone).
 const PAGES = Number(process.env.PAGES ?? 1);
+/// VIDEO=DIR: records the first round's relaunch of each mode (the recorded page, as Playwright films it from the
+/// page's creation) to DIR/<mode>.webm, and writes DIR/<mode>.json with that round's marks in ms from navigation
+/// (first content, composer takes typing, settled, live) and where navigation falls in the film. Leo, 2026-11-23:
+/// "lawrence wanted to see a video of it ... like just perceived time to visible/settled and percieved interactive
+/// time". `bun scripts/restart-video.ts DIR` turns each into an mp4 with those marks drawn under it.
+const VIDEO_DIR = process.env.VIDEO ? path.resolve(process.env.VIDEO) : null;
 if (!Number.isInteger(PAGES) || PAGES < 1) throw new Error("PAGES must be a whole number of at least 1");
 const LATEST = `Answer ${TURNS}:`;
 const webviews = path.resolve(import.meta.dir, "..");
@@ -298,6 +304,8 @@ type Painted = FrameRecord & {
   bottomText: string;
   /// The live root was held clear (opacity 0) with no copy over it: nothing of the chat showed.
   rootHidden: boolean;
+  /// The composer takes typing in this frame: what is on top at its prompt is an editable field.
+  editable: boolean;
 };
 type LayoutShiftSeen = { at: number; value: number; moved: { node: string; from: number[]; to: number[] }[] };
 type Recording = {
@@ -454,6 +462,7 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
     scrollTop: number | null;
     bottomText: string;
     rootHidden: boolean;
+    editable: boolean;
   };
   let stopped = false;
   const recording = {
@@ -524,6 +533,18 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
       : Array.from(scope.querySelectorAll(".acpmux-composer-box"))
           .map((element) => element.getBoundingClientRect())
           .find((box) => box.height > 0);
+    // The composer takes typing when what is on top at its prompt is an editable field: the live editor, or a
+    // field drawn over the copy's prompt. Over a copy with no such field the hit is the copy's host, which takes
+    // none (a key there ends the copy and waits for the live editor).
+    const prompt = rootHidden ? undefined : scope.querySelector(".acpmux-composer-prompt")?.getBoundingClientRect();
+    const hit =
+      prompt && prompt.height > 0
+        ? document.elementFromPoint(prompt.left + Math.min(24, prompt.width / 2), prompt.top + prompt.height / 2)
+        : null;
+    const editable =
+      (hit instanceof HTMLElement && hit.isContentEditable) ||
+      hit instanceof HTMLTextAreaElement ||
+      hit instanceof HTMLInputElement;
     if (!recording.latestAt && rows.some((row) => row.text.includes(latest))) recording.latestAt = performance.now();
     if (!recording.liveLatestAt && !host && !rootHidden && rows.some((row) => row.text.includes(latest)))
       recording.liveLatestAt = performance.now();
@@ -535,6 +556,7 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
       scrollTop: scroller && !rootHidden ? scroller.scrollTop : null,
       bottomText: (rows.at(-1)?.text ?? "").trim().replace(/\s+/g, " ").slice(0, 48),
       rootHidden,
+      editable,
     };
   };
   window.cmuxAfterPaint(() => {
@@ -647,6 +669,8 @@ type Round = {
   /// When the copy drew and when the live page took over (chatSnapshot/paint.ts, live.ts), ms from navigation.
   copyShownMs: number | null;
   swapMs: number | null;
+  /// The first frame in which the composer took typing (ms from navigation), else null.
+  interactiveMs: number | null;
   /// Why no copy drew (boot.ts), or null when one did.
   copyMiss: string | null;
   tailAskedMs: number | null;
@@ -1161,6 +1185,7 @@ try {
           .map((shift) => ({ ...shift, at: shift.at - start.at })),
         copyShownMs: null,
         swapMs: null,
+        interactiveMs: null,
         copyMiss: "none: the spare draws the carried tail",
         tailAskedMs: null,
         readyAnsweredMs: null,
@@ -1182,10 +1207,25 @@ try {
 
   const openPage = async (mode: Mode, copy: ChatSnapshot): Promise<Round> => {
     servedCopy = ["native-ready-tail", "reopen-no-copy", "refused-no-copy"].includes(mode) ? null : copy;
+    // VIDEO: the first relaunch of each mode is filmed (a reopen's warm renderer has no recorder).
+    const filming = !!VIDEO_DIR && !isReopen(mode) && !filmed.has(mode);
     // A reopen builds its page in the warm renderer; a relaunch in a cold context.
     const context =
-      isReopen(mode) && warmContext ? warmContext : await browser.newContext({ viewport: RELAUNCH_VIEWPORT });
+      isReopen(mode) && warmContext
+        ? warmContext
+        : await browser.newContext({
+            viewport: RELAUNCH_VIEWPORT,
+            ...(filming
+              ? {
+                  recordVideo: {
+                    dir: fs.mkdtempSync(path.join(os.tmpdir(), "restart-video-")),
+                    size: RELAUNCH_VIEWPORT,
+                  },
+                }
+              : {}),
+          });
     // The recorded page first, then the other restored chats' pages (PAGES), all navigated at once.
+    const filmStartedAt = Date.now();
     const pages = await Promise.all(Array.from({ length: PAGES }, () => context.newPage()));
     if (context === warmContext) for (const one of pages) await one.setViewportSize(RELAUNCH_VIEWPORT);
     const page = pages[0]!;
@@ -1245,6 +1285,7 @@ try {
       if (mode.startsWith("native-ready") && got.readyAnsweredAt < DOWN_MS - 20)
         throw new Error(`native ready delay was not exercised: ${got.readyAnsweredAt}`);
       const since = (epoch: number) => (epoch ? epoch - got.origin : null);
+      if (filming) films.set(mode, { filmStartedAt, origin: got.origin });
       return {
         mode,
         metrics: classifyFrames(got.frames),
@@ -1254,6 +1295,7 @@ try {
         layoutShifts: got.layoutShifts,
         copyShownMs: got.shown?.at ?? null,
         swapMs: got.shown?.swappedAt ?? null,
+        interactiveMs: got.frames.find((frame) => frame.editable)?.t ?? null,
         copyMiss: got.miss,
         tailAskedMs: got.tailAskedAt || null,
         readyAnsweredMs: got.readyAnsweredAt || null,
@@ -1274,10 +1316,19 @@ try {
       downMode = undefined;
       downUntil = 0;
       servedCopy = null;
+      const video = filming ? page.video() : null;
       if (context === warmContext) for (const one of pages) await one.close();
       else await context.close();
+      if (video && films.has(mode) && VIDEO_DIR) {
+        fs.mkdirSync(VIDEO_DIR, { recursive: true });
+        await video.saveAs(path.join(VIDEO_DIR, `${mode}.webm`));
+        filmed.add(mode);
+      }
     }
   };
+  const filmed = new Set<Mode>();
+  /// Each filmed round: when its film started and its navigation's epoch (performance.timeOrigin).
+  const films = new Map<Mode, { filmStartedAt: number; origin: number }>();
 
   const byMode = new Map<Mode, Round[]>(MODES.map((mode) => [mode, []]));
   for (let round = 0; round < ROUNDS; round += 1)
@@ -1429,12 +1480,42 @@ try {
       notSettled: settled.filter((one) => one.settledMs === null).length,
       liveMs: split.live,
       attachMs: split.attach,
+      interactiveMs: median(numbers(rounds, (r) => r.interactiveMs)),
       shifts: median(settled.map((one) => one.shifts)),
       shiftPxMax: max(settled.map((one) => one.shiftPxMax)),
       bytesDown: median(rounds.map((r) => r.bytesDown)),
       settledEach: settled.map((one) => one.settledMs),
     };
     console.log(`RESTART_SETTLED_JSON ${JSON.stringify(settledRow)}`);
+    console.log(
+      `perceived [${mode}] (medians, ms from navigation): visible ${ms(settledRow.firstContentMs)}, takes typing ${ms(settledRow.interactiveMs)}, settled ${ms(settledRow.settledMs)}`,
+    );
+    const film = films.get(mode);
+    if (VIDEO_DIR && film && filmed.has(mode)) {
+      // The filmed round is each mode's first: its own marks, and where its navigation falls in the film (the film
+      // starts as its page is made; the page's clock starts at navigation).
+      const first = rounds[0]!;
+      const marks = {
+        mode,
+        video: `${mode}.webm`,
+        navigationInVideoMs: Math.max(0, Math.round(film.origin - film.filmStartedAt)),
+        viewport: RELAUNCH_VIEWPORT,
+        turns: TURNS,
+        downMs: DOWN_MS,
+        cpu: CPU,
+        pages: PAGES,
+        firstContentMs: first.metrics.firstContentMs,
+        copyShownMs: first.copyShownMs,
+        interactiveMs: first.interactiveMs,
+        swapMs: first.swapMs,
+        liveMs: first.liveLatestMs,
+        settledMs: settled[0]!.settledMs,
+        shifts: settled[0]!.shifts,
+        recordMs: recordMs(mode),
+      };
+      fs.writeFileSync(path.join(VIDEO_DIR, `${mode}.json`), `${JSON.stringify(marks, null, 2)}\n`);
+      console.log(`video [${mode}]: ${path.join(VIDEO_DIR, `${mode}.webm`)} (${JSON.stringify(marks)})`);
+    }
     json[`${mode}.settled`] = settledRow;
     for (const r of rounds) if (r.copyShownMs === null) console.log(`  warning: a round drew no copy (${r.copyMiss})`);
     // A round that never handed over to the live chat proves nothing: a copy held over the whole
