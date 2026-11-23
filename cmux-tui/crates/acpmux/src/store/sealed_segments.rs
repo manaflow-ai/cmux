@@ -1,8 +1,9 @@
 //! Segments zstd'd in place: `events/NNNNNN.ndjson.zst` where `NNNNNN.ndjson` was.
 //!
-//! acpmux never writes these. A disk-hygiene pass outside it compressed every segment of 133
-//! closed chats on one host during a disk-pressure episode (cmuxterm-hq
-//! docs/findings/2026-11-23-acpmux-orphan-zst-chats.md). The listing saw no `.ndjson`, a closed
+//! A shipped acpmux never writes these. On one host every segment of 133 closed chats was
+//! compressed in place during a disk-pressure episode (cmuxterm-hq
+//! docs/findings/2026-11-23-acpmux-orphan-zst-chats.md), most likely by an unmerged build that
+//! compressed closed chats' logs (level 9, long-distance matching, a 2^27 window). The listing saw no `.ndjson`, a closed
 //! chat with no log reads as a purged one (`LocalStore::has_records`), and the chats were gone
 //! from the list and from `acpmux last`.
 //!
@@ -39,6 +40,8 @@ pub(super) fn plain_name(name: &str) -> Option<&str> {
 fn decode_into(from: &Path, to: &Path) -> Result<u64> {
     let file = crate::home_fs::private_state_file(from)?;
     let mut decoder = zstd::stream::read::Decoder::new(file)?;
+    // A writer with long-distance matching may use a window past zstd's 128 MiB default limit.
+    decoder.window_log_max(31)?;
     let out = crate::config::private_state_create_new(to)?;
     let mut out = std::io::BufWriter::with_capacity(256 * 1024, out);
     let copied = std::io::copy(&mut decoder, &mut out)?;

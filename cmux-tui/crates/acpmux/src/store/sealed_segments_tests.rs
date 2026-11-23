@@ -55,7 +55,12 @@ fn zstd_in_place(path: &Path) {
     let mut out = path.as_os_str().to_owned();
     out.push(".zst");
     let output = std::fs::File::create(PathBuf::from(out)).unwrap();
-    zstd::stream::copy_encode(input, output, 3).unwrap();
+    // As the build that most likely wrote them did: level 9, long-distance matching, a 2^27 window.
+    let mut encoder = zstd::stream::write::Encoder::new(output, 9).unwrap();
+    encoder.long_distance_matching(true).unwrap();
+    encoder.window_log(27).unwrap();
+    std::io::copy(&mut std::io::BufReader::new(input), &mut encoder).unwrap();
+    encoder.finish().unwrap();
     std::fs::remove_file(path).unwrap();
 }
 
