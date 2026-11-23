@@ -293,8 +293,10 @@ async fn stall_like_a_loaded_mac(
 async fn a_stall_of_this_computer_is_not_the_peers_silence() {
     let (tx, mut notices) = mpsc::channel(1);
     let mut peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
-    Arc::get_mut(&mut peer).expect("only this test holds it").timings.handshake =
-        Duration::from_secs(3_600);
+    // No handshake here: the stand-in answers no request, and its link outlives both bounds.
+    let timings = &mut Arc::get_mut(&mut peer).expect("only this test holds it").timings;
+    (timings.handshake, timings.request) =
+        (Duration::from_secs(36_000), Duration::from_secs(36_000));
     let (ours, theirs) = tokio::io::duplex(1 << 20);
     let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
     let server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
@@ -392,8 +394,10 @@ async fn a_request_waits_for_a_peer_whose_round_trip_is_measured_slow() {
 async fn duress_link_drops_under_this_computers_stalls() {
     let (tx, mut notices) = mpsc::channel(1);
     let mut peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
-    Arc::get_mut(&mut peer).expect("only this test holds it").timings.handshake =
-        Duration::from_secs(3_600);
+    // No handshake here: the stand-in answers no request, and its link outlives both bounds.
+    let timings = &mut Arc::get_mut(&mut peer).expect("only this test holds it").timings;
+    (timings.handshake, timings.request) =
+        (Duration::from_secs(36_000), Duration::from_secs(36_000));
     let mut out_rx = peer.out_rx.lock().await.take().unwrap();
     let stalls = [3u64, 9, 5, 7, 4, 8, 6, 3, 9, 7].repeat(6);
     let mut next = 0;
@@ -425,4 +429,7 @@ async fn duress_link_drops_under_this_computers_stalls() {
         stalls.len(),
         why.len()
     );
+    for w in &why {
+        println!("DURESS drop: {w}");
+    }
 }
