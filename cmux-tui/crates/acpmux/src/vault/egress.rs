@@ -297,7 +297,7 @@ fn start(home: &Path) -> Result<Running, &'static str> {
     let (node_ca, bundle) =
         write_trust(&dir, authority.pem(), &inherited).map_err(|_| "vault.egress_trust_files")?;
     let argv: Vec<String> = std::env::args().collect();
-    let daemon = crate::cli::process_owner::is_daemon_run(&argv);
+    let daemon = crate::cli::is_daemon_run(&argv);
     let listener = bind_stable(&dir, daemon).map_err(|_| "vault.egress_bind")?;
     listener.set_nonblocking(true).map_err(|_| "vault.egress_bind")?;
     let port = listener.local_addr().map_err(|_| "vault.egress_bind")?.port();
@@ -546,15 +546,31 @@ mod tests {
 
     #[test]
     fn the_port_outlives_the_daemon_and_moves_only_when_taken() {
-        let dir = tempfile::tempdir().unwrap();
-        let first = bind_stable(dir.path(), true).unwrap();
-        let port = first.local_addr().unwrap().port();
-        let kept = std::fs::read_to_string(dir.path().join(PORT_FILE)).unwrap();
-        assert_eq!(kept.trim(), port.to_string());
-        // The daemon restarts: its listener is gone, the next one takes the same port.
-        drop(first);
-        let second = bind_stable(dir.path(), true).unwrap();
-        assert_eq!(second.local_addr().unwrap().port(), port);
+        // The port is an ephemeral one, so between the drop and the rebind a parallel test's
+        // `bind(0)` can be handed it (base, 2026-11-22: 42109 for 33863). Then the move is right;
+        // the test tries again on a new port, and fails only when the port was free to take.
+        let mut tries = 0;
+        // `_second` (not `_`) keeps the restarted listener, so the port stays taken for `third`.
+        let (dir, port, _second) = loop {
+            tries += 1;
+            let dir = tempfile::tempdir().unwrap();
+            let first = bind_stable(dir.path(), true).unwrap();
+            let port = first.local_addr().unwrap().port();
+            let kept = std::fs::read_to_string(dir.path().join(PORT_FILE)).unwrap();
+            assert_eq!(kept.trim(), port.to_string());
+            // The daemon restarts: its listener is gone, the next one takes the same port.
+            drop(first);
+            let second = bind_stable(dir.path(), true).unwrap();
+            if second.local_addr().unwrap().port() == port {
+                break (dir, port, second);
+            }
+            assert!(
+                std::net::TcpListener::bind(("127.0.0.1", port)).is_err(),
+                "port {port} was free, yet the restart moved to {:?}",
+                second.local_addr()
+            );
+            assert!(tries < 5, "another process took the freed port {tries} times in a row");
+        };
         // Another process holds it: a new port, written down for the next start.
         let third = bind_stable(dir.path(), true).unwrap();
         let moved = third.local_addr().unwrap().port();
