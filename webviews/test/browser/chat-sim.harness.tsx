@@ -12,7 +12,8 @@ import { useLayoutEffect, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { VirtualTranscript } from "../../src/agent-session/acpmux/App";
-import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
+import { baseMark, MARK_STATUS, MARK_STEP, MARK_WORKED } from "../../src/agent-session/acpmux/transcriptGrid";
+import { gridMark, type AcpmuxRow } from "../../src/agent-session/acpmux/model";
 import { runSimulationAsync, type SimResult } from "../../src/agent-session/acpmux/sim/run";
 import { parseRecords } from "../../src/agent-session/acpmux/sim/sanitize";
 import { replayScenario, type SimScenario } from "../../src/agent-session/acpmux/sim/script";
@@ -163,4 +164,43 @@ async function at(name: string, until: number) {
   return dump();
 }
 
-Object.assign(window, { __chatSim: { run, at, dump } });
+/** A drawn row's box at one step, and whether it is a one-line row (a step, a status line, "Worked for"). */
+type StepBox = { id: string; line: boolean; top: number; bottom: number };
+
+/** Plays `name` and returns every step's drawn rows, top to bottom, with which are one-line rows. */
+async function boxes(name: string): Promise<StepBox[][]> {
+  const scenario = await scenarioNamed(name);
+  const out: StepBox[][] = [];
+  let sends = 0;
+  let turn = 0;
+  await runSimulationAsync(scenario, async (rows, _step, _index, state) => {
+    if (state.turn !== turn) {
+      turn = state.turn;
+      sends += 1;
+    }
+    const first = await measure(rows, state.working, sends);
+    // The rows at rest: a row whose words rewrap at this width is measured, and the stack placed
+    // again, a frame or two after it is drawn (ResizeObserver); the spacing rule reads where they rest.
+    const settled = query.get("settle") === "0" ? first : await measure(rows, state.working, sends);
+    const drawn = settled;
+    const step: StepBox[] = [];
+    let prev: AcpmuxRow | undefined;
+    rows.forEach((row, at) => {
+      const box = drawn[at];
+      if (!box) return;
+      const mark = baseMark(gridMark(row, prev));
+      step.push({ id: row.id, line: mark === MARK_STEP || mark === MARK_STATUS || mark === MARK_WORKED, ...box });
+      prev = row;
+    });
+    out.push(step);
+    return first;
+  });
+  return out;
+}
+
+/** Sets the pane's width (px) for the next run: the narrow-pane spacing rule draws a scenario at two widths. */
+function setWidth(px: number) {
+  root.style.width = `${px}px`;
+}
+
+Object.assign(window, { __chatSim: { run, at, dump, setWidth, boxes } });
