@@ -73,7 +73,10 @@ mod linux {
                          --index FILE [--sparse FILE] [--keep DIR] [--trees DIR] [--ready-file FILE] [--allow-other]\n       \
                          cmux-projection git-unmount --at PATH\n       \
                          cmux-projection seed --git-dir MIRROR --listen ADDR [--rate BYTES_PER_S] \
-                         [--conns N]";
+                         [--conns N]\n       \
+                         cmux-projection share --listen IP:PORT --allow CIDR[,CIDR...]\n       \
+                         cmux-projection share-mount --from HOST[:PORT] --path FOLDER --at DIR \
+                         [--keep DIR] [--ready-file FILE]";
 
     #[derive(Default)]
     struct Args {
