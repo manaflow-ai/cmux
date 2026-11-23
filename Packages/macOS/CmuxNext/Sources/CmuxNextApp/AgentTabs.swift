@@ -320,6 +320,8 @@ final class AgentTabStore {
     let readAloud = AgentPaneReadAloud()
     /// The Cloud machines each page's environment picker lists (`cloudMachine.*`); the app's peer approver for every host and page.
     let cloudMachines = AgentPaneCloudMachines()
+    /// New dev servers on an own machine's chats, from that machine's daemon (``OwnMachinePortWatch``).
+    let ownMachinePorts = OwnMachinePortWatch()
     /// The iPhone host's Remote Control switch, which every page's Session Info shows (set by the wiring).
     var remoteControl: AgentPaneRemoteControl?
     let peerApprover: AgentPanePeerApprover?

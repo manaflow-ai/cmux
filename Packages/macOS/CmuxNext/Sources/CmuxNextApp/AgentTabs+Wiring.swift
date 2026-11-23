@@ -162,12 +162,26 @@ extension AgentTabStore {
         tabs.pageChats.environments = state.map { SavedEnvironments(url: $0.appending(path: "environments.json")) }
         // The environment picker's Cloud machines: the account's, with Open and Resume (`cloudMachine.*`).
         tabs.cloudMachines.wire(services)
-        services.cloud.portChanged = { [weak tabs] change in
+        let portChanged: @MainActor (CloudPortChange) -> Void = { [weak tabs] change in
             guard let tabs, change.isBrowserPreview else { return }
             for (key, view) in tabs.views where tabs.remoteMachineID(of: key.key, machine: key.machine) == change.machineID {
                 view.cloudPreviewPortOpened(port: change.port, process: change.process, machineID: change.machineID, state: change.state.rawValue, known: change.known)
             }
         }
+        services.cloud.portChanged = portChanged
+        // An own machine's new dev server, from its own daemon, in the same card (``OwnMachinePortWatch``).
+        tabs.ownMachinePorts.deliver = portChanged
+        tabs.ownMachinePorts.machines = { [weak tabs, weak services] in
+            guard let tabs, let services else { return [:] }
+            var found: [String: DaemonService] = [:]
+            for (key, _) in tabs.views {
+                guard let id = tabs.remoteMachineID(of: key.key, machine: key.machine), found[id] == nil, !MachineRegistry.isCloudMachineID(id),
+                      let daemon = services.machines.anyDaemon(machine: id) else { continue }
+                found[id] = daemon
+            }
+            return found
+        }
+        tabs.ownMachinePorts.start()
         tabs.remoteControl = services.iphone.remoteControl
         // The composer strip's machine dot: the sidebar header's same link state; using a machine
         // that is down runs its header's Reconnect, as `.page`: never a takeover (HQ #4877 G5).
