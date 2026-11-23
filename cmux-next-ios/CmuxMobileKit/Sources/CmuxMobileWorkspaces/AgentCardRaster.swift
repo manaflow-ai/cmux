@@ -327,13 +327,14 @@ struct AgentTabCard: View {
                                              visibleHeight: min(page.height, page.width * Self.cardAspect),
                                              topInset: topInset, bottomInset: bottomInset, scale: displayScale * cardScale,
                                              textSize: textSize)
+        let lastKnown = snapshot?.image
+        let face = Self.face(awaitingHistory: feed.awaitingHistory,
+                             mayShowPicture: feed.raster.map { key.mayShow($0.key) } ?? false,
+                             drawable: key.isDrawable, hasLastKnown: lastKnown != nil)
         Group {
             // The picture, also while a newer one waits for the grid to rest:
             // building a card never lays out a page of transcript then.
-            let lastKnown = snapshot?.image
-            switch Self.face(awaitingHistory: feed.awaitingHistory,
-                             mayShowPicture: feed.raster.map { key.mayShow($0.key) } ?? false,
-                             drawable: key.isDrawable, hasLastKnown: lastKnown != nil) {
+            switch face {
             case .picture:
                 if let raster = feed.raster {
                     Image(uiImage: raster.image)
@@ -352,6 +353,7 @@ struct AgentTabCard: View {
         }
         .onAppear { rasterizer.setShown(feed, true) }
         .onDisappear { rasterizer.setShown(feed, false) }
+        .modifier(TabCardFaceRecord(tabID: feed.snapshotKey?.tabID, face: "\(face)"))
         // Asked again when its picture is dropped (the cache's oldest goes, or a memory warning).
         .onChange(of: PictureRequest(key: key, drawn: feed.raster?.key == key), initial: true) { _, request in
             guard !request.drawn else { return }

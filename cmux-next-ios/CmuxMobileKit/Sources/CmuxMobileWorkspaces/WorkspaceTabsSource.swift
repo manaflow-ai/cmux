@@ -1303,6 +1303,9 @@ public final class WorkspaceTabsSource: TabsDataSource {
     }
 
     public func overviewVisibilityChanged(_ visible: Bool) {
+        #if DEBUG
+        TabCardFaceProbe.gridVisible(visible)
+        #endif
         setCardsFollow(shown: visible)
         if !visible {
             gridIdle = false
@@ -2634,12 +2637,12 @@ struct WorkspaceTabCard: View {
                 // A page not shown in this launch has no snapshot of its own: its last-known picture stands in.
                 let lastKnown = source.snapshotEntry(tab.id)?.image
                 if let model = source.nativeBrowser(tab) {
-                    BrowserCard(model: model, insets: insets, lastKnown: lastKnown)
+                    BrowserCard(model: model, insets: insets, lastKnown: lastKnown, tabID: tab.id)
                 } else if let model = source.streamedBrowser(tab) {
                     StreamedBrowserCard(model: model, lastKnown: lastKnown?.cgImage)
                 } else {
                     // The tab's model only if its page was shown: a card never makes a web view.
-                    BrowserCard(model: source.existingBrowser(tab.id), insets: insets, lastKnown: lastKnown)
+                    BrowserCard(model: source.existingBrowser(tab.id), insets: insets, lastKnown: lastKnown, tabID: tab.id)
                 }
             case .simulator:
                 if let model = source.simulator(tab) {

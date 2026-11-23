@@ -194,6 +194,10 @@ public final class TabCardSnapshots {
     public private(set) var loads = 0
     /// Pictures written to disk (tests).
     public private(set) var saves = 0
+    #if DEBUG
+    /// Tabs whose picture this launch wrote to disk (the UI tests' `TabCardFaceProbe`).
+    public private(set) var savedTabs: Set<String> = []
+    #endif
 
     public init(store: TabSnapshotStore = .standard, limit: Int = 40, memoryPressure: MemoryPressure = .shared) {
         self.store = store
@@ -256,7 +260,7 @@ public final class TabCardSnapshots {
             guard let data = picture.jpegData(compressionQuality: 0.8) else { return }
             store.save(data, pixelWidth: Int(picture.size.width * picture.scale),
                        pixelHeight: Int(picture.size.height * picture.scale), capturedAtMs: ms, source: source, for: key)
-            await self?.saved()
+            await self?.saved(key)
         }
     }
 
@@ -274,7 +278,12 @@ public final class TabCardSnapshots {
         touch(key)
     }
 
-    private func saved() { saves += 1 }
+    private func saved(_ key: TabSnapshotKey) {
+        saves += 1
+        #if DEBUG
+        savedTabs.insert(key.tabID)
+        #endif
+    }
 
     /// The tab closed: its picture goes from memory and disk.
     public func remove(_ key: TabSnapshotKey) {
