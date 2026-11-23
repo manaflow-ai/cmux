@@ -1897,6 +1897,8 @@ export const cloudIntroPasses = pgTable(
     refundId: text("refund_id"),
     startedAt: timestamp("started_at", { withTimezone: true }),
     endsAt: timestamp("ends_at", { withTimezone: true }),
+    /** Usage statements sent for this pass, keyed by pass day (21, 27, 30); see services/billing/cloudIntroStatements.ts. */
+    statements: jsonb("statements").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
