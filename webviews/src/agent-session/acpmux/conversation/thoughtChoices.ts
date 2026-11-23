@@ -25,3 +25,18 @@ export function forgetThoughtChoices(match: (id: string) => boolean): void {
     return match(view ? key.slice(view.length + 1) : key);
   });
 }
+
+/// The reader's choices on the thoughts of row `rowId` (ids `<row id>:thought:<n>`, in every view),
+/// as one string: "" when there are none. Part of the row's state signature (rowOpenState.ts).
+/// O(choices), and nothing when the reader opened or closed no thought.
+export function thoughtChoicesNaming(rowId: string): string {
+  if (thoughtChoices.size === 0) return "";
+  const prefix = `${rowId}:thought:`;
+  let out = "";
+  for (const [key, open] of thoughtChoices) {
+    const view = VIEWS.find((name) => key.startsWith(`${name}:`));
+    if (!(view ? key.slice(view.length + 1) : key).startsWith(prefix)) continue;
+    out += `${out === "" ? "" : ","}${key}=${open ? 1 : 0}`;
+  }
+  return out;
+}
