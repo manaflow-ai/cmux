@@ -31,10 +31,14 @@ import sys
 import time
 import uuid
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from state_wait import wait_stable, wait_until  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
+
 ENV = "CMUX_BENCH_CHAT_RENDERER_CRASH"
 CAP = 8
 MIN_PAGES = 10
-SETTLE_S = 20
+SETTLE_S = 60  # the most the killed renderer's pages may take to load again
 CHAT_ORIGIN = "cmux-page://cmux.agent"
 # Hidden chat pages stay loaded and running, so the kill finds every chat page live.
 CONFIG = {"browser": {"hibernation": "off", "freezeHiddenTabs": "off", "keepNeighborTabsAwake": 0}}
@@ -112,7 +116,21 @@ def crash(app) -> dict:
     print(f"CHAT-RENDERERS phase=kill pages={len(pages)} renderers={len(counts)} victim_pid={victim} "
           f"victim_pages={counts[victim]} pages_per_renderer={sorted(counts.values(), reverse=True)}", flush=True)
     os.kill(victim, signal.SIGKILL)
-    time.sleep(SETTLE_S)  # test script: the killed renderer's pages reload; the others must not notice
+    # The killed renderer's pages reload: none is on the victim any more and each answers in its new renderer.
+    # Then the page-to-renderer map settles, so a page another renderer lost late is in the read below.
+    victims = [p["browser"] for p in pages if p["renderer"] == victim]
+
+    def reloaded_all():
+        now = {p["browser"]: p["renderer"] for p in chat_pages(app)}
+        if any(now.get(b) in (None, victim) for b in victims):
+            return False
+        return all(evaluate(app, b, "1")[1] is None for b in victims)
+
+    if not wait_until(reloaded_all, f"the {len(victims)} pages of the killed renderer to load again",
+                      timeout=SETTLE_S, interval=0.5, raise_on_timeout=False):
+        safe_print(f"chat-renderer-crash: the killed renderer's pages did not all load again in {SETTLE_S} s", file=sys.stderr)
+    wait_stable(lambda: json.dumps(renderers(app), sort_keys=True), "the chat pages per renderer after the kill",
+                timeout=20, interval=0.5, reads=4, raise_on_timeout=False)
     reloaded, elsewhere = [], []
     for page in pages:
         value, error = evaluate(app, page["browser"], "String(window.__chatRendererCrashMark)")
