@@ -204,7 +204,7 @@ final class SidebarNoticeCardView: NSView {
                 addItems(notice.dismissMenu[...], to: menu)
             }
         }
-        return menu.items.isEmpty ? nil : menu
+        return NSMenu.withoutSystemItems(menu.items.isEmpty ? nil : menu)
     }
 
     /// The x's menu (the tip's Hide / Mute / Never), or nil when the x dismisses at once.

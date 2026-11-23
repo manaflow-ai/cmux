@@ -1,6 +1,6 @@
 //! The cmux API Worker's routes a person's own session calls outside the op path
 //! (`ownerAPIBaseURL`; cx-kvmz): the keyed acpmux start and its person_holds check on a Cloud
-//! machine, a fork run, the person's hand-offs and their turns, the harness login copy switch
+//! machine, a fork run (`fork_runs.rs`), the person's hand-offs and their turns, the harness login copy switch
 //! and the GitHub App status, repository list and Connect GitHub. The person key goes only in a request body; nothing is retried.
 
 use std::time::Duration;
@@ -74,7 +74,7 @@ pub(crate) async fn run(
                 ))),
             }
         }
-        "owner.fork_run" => fork_run(http, args).await,
+        "owner.fork_run" => crate::fork_runs::run(http, args).await,
         "owner.handoff_wait" => {
             let id = text(args, "id")?;
             if !is_handoff_id(id) {
@@ -210,50 +210,6 @@ async fn get(
         return Err(worker_error(reply.status, reply.json().as_ref()));
     }
     reply.json().ok_or_else(|| Failure::Decoding(format!("{path}: the answer is not JSON")))
-}
-
-/// `POST /v1/workspaces/{workspace}/fork-runs`: snapshots the source machine now and creates
-/// one durable child per harness. The value is a list, `{children}`, or one child; answers the list.
-async fn fork_run(http: &Http, args: &Map<String, Value>) -> Result<Value, Failure> {
-    let workspace = text(args, "workspace")?;
-    if !all(workspace, 128, id_byte) {
-        return Err(Failure::Transport("not a workspace id".into()));
-    }
-    let body = json!({
-        "clientKey": text(args, "clientKey")?, "sourceMachine": text(args, "sourceMachine")?,
-        "session": text(args, "session")?, "harnesses": args.get("harnesses").cloned().unwrap_or_else(|| json!([])),
-    });
-    let segments = ["v1", "workspaces", workspace, "fork-runs"];
-    let value = post_value(http, &segments, Body::Json(body), Duration::from_secs(180)).await?;
-    fork_children(value)
-        .ok_or_else(|| Failure::Decoding(format!("{}: no children", path_text(&segments))))
-}
-
-/// The children of a fork run's value, each `{id, harness, state, machineId?, error?}`.
-pub(crate) fn fork_children(value: Value) -> Option<Value> {
-    let list = match value {
-        Value::Array(list) => list,
-        Value::Object(mut object) => match object.remove("children") {
-            Some(Value::Array(list)) => list,
-            Some(Value::Null) | None => vec![Value::Object(object)],
-            Some(_) => return None,
-        },
-        _ => return None,
-    };
-    let child = |v: &Value| {
-        let text = |name: &str| v.get(name).and_then(Value::as_str);
-        // Absent or null is null; any other value than a string is no child.
-        let optional = |name: &str| match v.get(name) {
-            None | Some(Value::Null) => Some(Value::Null),
-            Some(Value::String(s)) => Some(json!(s)),
-            Some(_) => None,
-        };
-        Some(json!({
-            "id": text("id")?, "harness": text("harness")?, "state": text("state")?,
-            "machineId": optional("machineId")?, "error": optional("error")?,
-        }))
-    };
-    list.iter().map(child).collect::<Option<Vec<_>>>().map(Value::Array)
 }
 
 /// The most pages `owner.handoffs` reads (100 hand-offs each).
