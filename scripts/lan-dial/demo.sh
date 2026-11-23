@@ -2,10 +2,9 @@
 # lan-dial demo: from a background job on a fleet Mac, reach a LAN machine directly (before) and through the
 # lan-dial relay (after), with a Python that is not Apple's.
 #
-#   scripts/lan-dial/demo.sh [ROUNDS]
+#   scripts/lan-dial/demo.sh HOST PORT [PATH] [ROUNDS]     HOST:PORT an HTTP service on a LAN address
 #
-# Env: LAN_DIAL_DEMO_HOST and LAN_DIAL_DEMO_PORT (required: an HTTP service on a LAN address),
-# LAN_DIAL_DEMO_PATH (/), LAN_DIAL_PY (the Python to use; default the first
+# Env: LAN_DIAL_PY (the Python to use; default the first
 # python3 that is not /usr/bin/python3), LAN_DIAL_DEMO_OUT (where the receipt goes, default
 # .build/lan-dial-demo), LAN_DIAL_DEMO_KEEP=1 leaves the relay loaded afterwards.
 #
@@ -14,10 +13,10 @@
 set -uo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-rounds="${1:-${LAN_DIAL_DEMO_ROUNDS:-5}}"
-host="${LAN_DIAL_DEMO_HOST:?set LAN_DIAL_DEMO_HOST to a LAN address}"
-port="${LAN_DIAL_DEMO_PORT:?set LAN_DIAL_DEMO_PORT}"
-path="${LAN_DIAL_DEMO_PATH:-/}"
+host="${1:?usage: demo.sh HOST PORT [PATH] [ROUNDS]}"
+port="${2:?usage: demo.sh HOST PORT [PATH] [ROUNDS]}"
+path="${3:-/}"
+rounds="${4:-5}"
 out="${LAN_DIAL_DEMO_OUT:-$PWD/.build/lan-dial-demo}"
 mkdir -p "$out"
 
