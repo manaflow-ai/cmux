@@ -604,9 +604,7 @@ final class AgentTabStore {
         relaunchWake.hand(tabKey.relaunchKeyCandidates, to: model)
         (model.onCloudRepositoryLocal, model.miniUnreachable) = (cloudRepositoryLocal, kind != .local) // the mini sends through this Mac's acpmux
         wire(model, key: key, machine: tabKey.machine)
-        model.onListMachineFolder = { [weak self] path, files, machine in // the chooser's listing, from the picked (else the chat's own) machine's disk
-            await AgentRemoteMachineDisk.list(self.flatMap { $0.remoteMachineDiskScoped?($0.resolvedRemoteKey(tabKey), machine) }, path, files: files)
-        }
+        model.onListMachineFolder = { [weak self] path, files, machine in await AgentRemoteMachineDisk.list(self.flatMap { $0.remoteMachineDiskScoped?($0.resolvedRemoteKey(tabKey), machine) }, path, files: files) } // the picked (else the chat's own) machine's disk
         // A page of another machine's chat is never pooled as this Mac's spare (its host is that machine's).
         if !local {
             model.neverPooled = true
