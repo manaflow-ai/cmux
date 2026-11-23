@@ -53,7 +53,7 @@ function fill(label: string, values: Record<string, string | number>): string {
 async function api<T>(input: string, init?: RequestInit): Promise<{ ok: true; value: T } | { ok: false; error: ApiError }> {
   let response: Response;
   try {
-    response = await fetch(input, { ...init, credentials: "same-origin", cache: "no-store" });
+    response = await fetch(input, { signal: AbortSignal.timeout(30_000), ...init, credentials: "same-origin", cache: "no-store" });
   } catch {
     return { ok: false, error: {} };
   }

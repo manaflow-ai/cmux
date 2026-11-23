@@ -55,7 +55,7 @@ export async function resolveLinkSession(request: Request): Promise<SessionResul
 export function linkDeps(): LinkDeps {
   return {
     session: resolveLinkSession,
-    fetch: (input, init) => fetch(input, init),
+    fetch: (input, init) => fetch(input, { signal: AbortSignal.timeout(15_000), ...init }),
     baseUrl: platformBaseUrl(),
     authorListings: (owner) => loadAuthorListings(owner),
   };
