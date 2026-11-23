@@ -75,6 +75,21 @@ fn opencode_tucks_its_barred_box_and_hint_row() {
 }
 
 #[test]
+fn the_phones_fake_codex_tucks_its_rule_prompt_and_status() {
+    // `FakeCodexSession`'s live area (the simulator UI test's harness): a rule, `› `, a blank,
+    // the status line, at the screen's bottom.
+    let mut screen: Vec<String> = (1..=32).map(|n| format!("reply line {n}")).collect();
+    screen.push("─".repeat(40));
+    screen.push("› ".to_owned());
+    screen.push(String::new());
+    screen.push("Working (3s) · esc to interrupt".to_owned());
+    screen.push(String::new());
+    let t = harness_tuck("codex".to_owned(), screen);
+    assert_eq!(t.tuck_from, Some(32));
+    assert!(!t.prompt);
+}
+
+#[test]
 fn a_question_the_person_must_answer_never_tucks() {
     for (program, screen) in
         [("claude", CLAUDE_APPROVAL1), ("codex", CODEX_APPROVAL1), ("opencode", OPENCODE_APPROVAL1)]

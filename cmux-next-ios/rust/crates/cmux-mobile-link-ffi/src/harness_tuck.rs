@@ -172,13 +172,18 @@ fn boxed(rows: &[String]) -> Option<usize> {
     Some(with_status_above(rows, open))
 }
 
-/// Codex CLI: the footer (model and cwd, hints), a blank, the `›` line and its wrapped rows.
+/// Codex CLI: the footer (model and cwd, hints, or a live status line), a blank, the `›` line
+/// and its wrapped rows, and a rule over it if one is drawn.
 fn codex(rows: &[String]) -> Option<usize> {
     let last = last_text(rows)?;
     // The footer: indented rows up to the first blank above them.
     let mut i = last;
     let mut footer = 0;
-    while i > 0 && !blank(&rows[i]) && rows[i].starts_with("  ") && footer < MAX_FOOTER_ROWS {
+    while i > 0
+        && !blank(&rows[i])
+        && (rows[i].starts_with("  ") || live_status(&rows[i]))
+        && footer < MAX_FOOTER_ROWS
+    {
         footer += 1;
         i -= 1;
     }
@@ -196,6 +201,10 @@ fn codex(rows: &[String]) -> Option<usize> {
     }
     if !rows[i].starts_with('›') {
         return None;
+    }
+    // A rule drawn over the `›` line is the box's top.
+    if i > 0 && rule(&rows[i - 1]) {
+        i -= 1;
     }
     Some(with_status_above(rows, i))
 }
