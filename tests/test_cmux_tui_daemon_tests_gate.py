@@ -98,7 +98,9 @@ class DaemonTestsGateTests(unittest.TestCase):
         cache = step(daemon, "Cache cargo build")["with"]
         self.assertIn("'cmux-tui-linux'", cache["shared-key"])
         self.assertEqual(cache["cache-all-crates"], "true")
-        self.assertIn("cmux_next_", step(daemon, "cargo test cmux_next_")["run"])
+        self.assertIn("scripts/ci/cmux-next-daemon-tests.sh", step(daemon, "cargo test cmux_next_")["run"])
+        script = (ROOT / "scripts/ci/cmux-next-daemon-tests.sh").read_text(encoding="utf-8")
+        self.assertIn("--locked cmux_next_", script)
         self.assertNotIn("continue-on-error", daemon)
 
     def test_a_pass_writes_the_marker_without_naming_an_os(self) -> None:

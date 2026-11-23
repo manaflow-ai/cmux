@@ -1766,41 +1766,8 @@ jobs:
         if: steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true'
         working-directory: cmux-tui
         shell: bash
-        run: |
-          set -euo pipefail
-          # Only the members whose sources name cmux_next_ (the filter matches the
-          # test path, so no other member can hold one): skips the test binaries of
-          # every other member. Falls back to --workspace.
-          read -r -a members <<<"$(../scripts/ci/cmux-next-daemon-test-packages.sh)"
-          echo "cmux_next_ test members: ${members[*]}"
-          status=1
-          for attempt in 1 2 3; do
-            rm -f "$RUNNER_TEMP/cmux-next-tests.txt"
-            # One cargo invocation: a separate `-- --list` pass rebuilt acpmux and
-            # cmux-tui before the real run (2m39s, run 38014219284). The filter
-            # must still match tests: a run that passed none is red.
-            status=0
-            cargo test "${members[@]}" --locked cmux_next_ 2>&1 | tee "$RUNNER_TEMP/cmux-next-tests.txt" || status=$?
-            # A stale Cargo.lock: named with its fix (cargo-locks.py explain), never retried.
-            if [[ "$status" -ne 0 ]] && python3 ../scripts/cmux-next/cargo-locks.py explain "$RUNNER_TEMP/cmux-next-tests.txt"; then
-              exit "$status"
-            fi
-            if [[ "$status" -eq 0 ]]; then
-              if grep -qE 'test result: ok\. [1-9][0-9]* passed' "$RUNNER_TEMP/cmux-next-tests.txt"; then
-                break
-              fi
-              echo "::error::cargo test ran no cmux_next_ test (the filter matched nothing)" >&2
-              exit 1
-            fi
-            if [[ "$attempt" -lt 3 ]]; then
-              echo "cmux_next_ daemon tests failed on attempt $attempt/3; retrying Cargo registry and build fetches" >&2
-              sleep $((attempt * 10))
-            fi
-          done
-          if [[ "$status" -ne 0 ]]; then
-            echo "::error::cmux_next_ daemon tests failed after 3 attempts" >&2
-            exit "$status"
-          fi
+        # One script, so our own machines run the same gate (scripts/ci/cmux_tui_channel_keeper.py).
+        run: ../scripts/ci/cmux-next-daemon-tests.sh
 
       # Also after a failure or a cancel: end the daemon of this job's home and
       # its agents (shutdown never starts one), then delete the home.
