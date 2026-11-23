@@ -39,6 +39,13 @@ BUILDER_SCRIPT = "cmux-next-ios/scripts/testflight-build.sh"
 # commit on BUILDER_REF: failures on an older builder do not hold the first build on the new one.
 FAILURE_BACKOFF_START = dt.timedelta(minutes=30)
 FAILURE_BACKOFF_MAX = dt.timedelta(hours=6)
+# At most one upload per MIN_UPLOAD_GAP, counted from the newest successful or in-flight build's dispatch. Every
+# upload mails App Store Connect's notices to the team (2026-11-22: eight cmux INTERNAL uploads in five hours, each
+# an ITMS-90725 email). A person's dispatch (force) skips the gap.
+MIN_UPLOAD_GAP = dt.timedelta(hours=3)
+# iPhone YOLO builds (scripts/ci/ios_internal_yolo.py): feat-cmux-next plus a named list of PRs, stacked on a branch
+# under this prefix and built by the same builder. The plan tells them from nightlies by that branch's tip.
+YOLO_PREFIX = "ios-yolo/"
 
 # Paths that change the iPhone app besides the local packages CmuxMobileKit names.
 STATIC_PREFIXES = (
@@ -136,7 +143,9 @@ def plan(head: str, runs: list[dict], changed: list[str] | None, has_cmux_next_i
          builder_sha: str | None = None) -> Decision:
     """Whether to dispatch a build of `head`.
 
-    runs: this builder's runs, newest first: {id, sha, status, conclusion, created_at, submittable}.
+    runs: this builder's runs, newest first: {id, sha, status, conclusion, created_at, submittable, yolo}.
+    A yolo run (an ios-yolo/ stack, not a feat-cmux-next head) is never a nightly's base and never counts as a
+    nightly failure; waiting, it is not replaced; uploaded or running, it counts for MIN_UPLOAD_GAP.
     changed: files changed from the last uploaded SHA to head; None when unknown.
     since_failure: files changed from the newest failed run's SHA to head; None when unknown or not failing.
     force: a person dispatched the trigger; the failure backoff does not apply.
@@ -145,7 +154,8 @@ def plan(head: str, runs: list[dict], changed: list[str] | None, has_cmux_next_i
     """
     runs = sorted((r for r in runs if r.get("conclusion") not in ("cancelled", "skipped")),
                   key=lambda r: (_parse(r["created_at"]), r.get("id", 0)), reverse=True)
-    last_ok = next((r for r in runs if r.get("conclusion") == "success"), None)
+    nightly = [r for r in runs if not r.get("yolo")]
+    last_ok = next((r for r in nightly if r.get("conclusion") == "success"), None)
     base = last_ok["sha"] if last_ok else None
     if not has_cmux_next_ios:
         return Decision(False, "cmux-next-ios/ is not on feat-cmux-next yet (a191's merge)", base)
@@ -160,23 +170,25 @@ def plan(head: str, runs: list[dict], changed: list[str] | None, has_cmux_next_i
     # The builder's concurrency group keeps one waiting run, and a newer dispatch cancels it. A person's
     # submittable build (an App Store candidate) waiting there would be replaced by the next push's nightly
     # (run 45037765374, 2026-11-22, cancelled in under 3 min), so no nightly is dispatched until it starts.
-    waiting = next((r for r in runs if r.get("submittable") and r.get("status") in WAITING_STATUSES), None)
+    waiting = next((r for r in runs if (r.get("submittable") or r.get("yolo"))
+                    and r.get("status") in WAITING_STATUSES), None)
     if waiting:
-        return Decision(False, f"submittable build run {waiting.get('id')} of {waiting['sha'][:12]} is waiting to "
+        kind = "submittable" if waiting.get("submittable") else "YOLO"
+        return Decision(False, f"{kind} build run {waiting.get('id')} of {waiting['sha'][:12]} is waiting to "
                                "start; a dispatch now would replace it", base)
     stale = last_ok is None or now - _parse(last_ok["created_at"]) >= FALLBACK_AFTER
     def on_older_builder(r: dict) -> bool:
         return bool(builder_sha and r.get("builder") and r["builder"] != builder_sha)
 
-    failed = next((r for r in runs if r["sha"] == head and r.get("conclusion") == "failure"), None)
+    failed = next((r for r in nightly if r["sha"] == head and r.get("conclusion") == "failure"), None)
     if failed and on_older_builder(failed):
         failed = None
     if failed and now - _parse(failed["created_at"]) < FALLBACK_AFTER:
         return Decision(False, f"{head[:12]} already failed in run {failed.get('id')}; waiting for a new head", base)
-    streak, newest_failure = failure_streak(runs)
+    streak, newest_failure = failure_streak(nightly)
     if newest_failure and not force:
         failed_at, run_id = _parse(newest_failure["created_at"]), newest_failure.get("id")
-        if any(r.get("status") != "completed" for r in runs):
+        if any(r.get("status") != "completed" for r in nightly):
             # A dispatch now would start the moment the running build ends, before the plan sees how it ended.
             return Decision(False, f"BLOCKED: the builder is failing (run {run_id}) and a build is still running; "
                                    "the next push after it ends plans again", base)
@@ -190,6 +202,11 @@ def plan(head: str, runs: list[dict], changed: list[str] | None, has_cmux_next_i
         if not moved and now - failed_at < wait:
             return Decision(False, f"BLOCKED: {streak} builds failed in a row (newest run {run_id}); backing off "
                                    f"{wait} after it, until {(failed_at + wait).isoformat()}", base)
+    recent = next((r for r in runs if r.get("conclusion") == "success" or r.get("status") != "completed"), None)
+    if recent and not force and now - _parse(recent["created_at"]) < MIN_UPLOAD_GAP:
+        due = _parse(recent["created_at"]) + MIN_UPLOAD_GAP
+        return Decision(False, f"run {recent.get('id')} of {recent['sha'][:12]} started under {MIN_UPLOAD_GAP} ago; "
+                               f"the next upload waits until {due.isoformat()}", base)
     if last_ok is None:
         return Decision(True, "no upload yet from this builder", base)
     if changed is None:
@@ -271,6 +288,21 @@ def builder_runs(runner=subprocess.run, sleep=time.sleep) -> list[dict]:
                          "conclusion": r.get("conclusion"), "created_at": r["created_at"],
                          "builder": r.get("head_sha"),
                          "submittable": "(submittable)" in (r.get("display_title") or "")})
+    return runs
+
+
+def yolo_shas(runner=subprocess.run, sleep=time.sleep) -> set[str]:
+    """Tips of the ios-yolo/ stack branches; empty when there are none or GitHub cannot say."""
+    try:
+        data = _gh_json([f"repos/{REPO}/git/matching-refs/heads/{YOLO_PREFIX}"], runner=runner, sleep=sleep)
+    except (subprocess.CalledProcessError, GitHubUnavailable, OSError, ValueError):
+        return set()
+    return {r["object"]["sha"] for r in data if isinstance(r, dict) and r.get("object", {}).get("type") == "commit"}
+
+
+def mark_yolo(runs: list[dict], shas: set[str]) -> list[dict]:
+    for r in runs:
+        r["yolo"] = r["sha"] in shas
     return runs
 
 
@@ -357,7 +389,7 @@ def _write_outputs(decision: Decision) -> None:
 def cmd_plan(head: str, repo: str, runner=subprocess.run, sleep=time.sleep, force: bool = False) -> int:
     has_cmux_next_ios = _show(repo, head, PROJECT_YML) is not None
     try:
-        runs = builder_runs(runner=runner, sleep=sleep)
+        runs = mark_yolo(builder_runs(runner=runner, sleep=sleep), yolo_shas(runner=runner, sleep=sleep))
     except GitHubUnavailable as error:
         # Without the run list the plan cannot tell a new head from one already uploaded, so it
         # dispatches nothing; the next feat-cmux-next push plans again.
@@ -368,7 +400,7 @@ def cmd_plan(head: str, repo: str, runner=subprocess.run, sleep=time.sleep, forc
     tip = builder_tip(repo)
     first = plan(head, runs, [], has_cmux_next_ios, dt.datetime.now(dt.timezone.utc), STATIC_PREFIXES, ready)
     changed = changed_files(repo, first.base, head) if first.base else None
-    _, newest_failure = failure_streak(sorted(runs, key=lambda r: (_parse(r["created_at"]), r.get("id", 0)),
+    _, newest_failure = failure_streak(sorted((r for r in runs if not r.get("yolo")), key=lambda r: (_parse(r["created_at"]), r.get("id", 0)),
                                               reverse=True))
     since_failure = changed_files(repo, newest_failure["sha"], head) if newest_failure else None
     decision = plan(head, runs, changed, has_cmux_next_ios, dt.datetime.now(dt.timezone.utc),

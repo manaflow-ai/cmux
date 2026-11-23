@@ -298,6 +298,17 @@ pub(crate) fn respond_misc(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, 
             let facts: update_idle::IdleFacts = read(request)?;
             value(update_idle::decide(&facts))?
         }
+        // Settings > Updates' Next Check: seconds from now until the updater's next scheduled check.
+        b"window_update_next_check" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Facts {
+                seconds_since_last_check: Option<f64>,
+                interval_seconds: f64,
+            }
+            let facts: Facts = read(request)?;
+            json!({ "inSeconds": update_idle::next_check_in(facts.seconds_since_last_check, facts.interval_seconds) })
+        }
         _ => return Err(ERR_INVALID),
     };
     serde_json::to_vec(&answer).map_err(|_| ERR_INVALID)

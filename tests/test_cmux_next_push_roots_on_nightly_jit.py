@@ -29,7 +29,7 @@ PUSH = "github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'
 ARM = f"{PUSH}'{JIT_LABEL}'"
 POOL_ARM = f"{PUSH}'{POOL_LABEL}'"
 FORK = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
-POOL_ROOTS = ("push-head-preflight", "portable-placement", "macos-placement", "app-compile-placement",
+POOL_ROOTS = ("push-head-preflight", "macos-placement", "app-compile-placement",
               "release-compile-fast-admission", "dev-landing-place")
 EPHEMERAL_ROOTS = ("compile-status", "compile-status-handoff")
 

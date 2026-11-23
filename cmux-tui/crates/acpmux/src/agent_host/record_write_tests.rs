@@ -18,6 +18,7 @@ fn record(session: &str, nonce: &str) -> HostRecord {
         socket: PathBuf::from("/nonexistent.sock"),
         claude_translator: false,
         host_level: 0,
+        holder: None,
     }
 }
 

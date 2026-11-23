@@ -16,6 +16,8 @@ public final class DemoDirector {
         case feedScroll(toEvent: String)
         case feedScrollTop
         case feedExpand(event: String)
+        /// Opens or folds the stack of one chat's events that `event` leads.
+        case feedStack(event: String, expanded: Bool)
         /// Picks option ids per item (in item order), then submits.
         case answerQuestion(id: String, picks: [[String]])
         case feedReply(event: String, text: String)
