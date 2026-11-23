@@ -173,3 +173,12 @@ fn list_dir_lists_a_symlinked_folder_as_a_folder_with_its_own_path() {
     let _ = std::fs::remove_dir_all(home);
     let _ = std::fs::remove_dir_all(elsewhere);
 }
+
+#[test]
+fn list_dir_params_need_no_tab_for_a_chat_that_starts_here_from_another_mac() {
+    let none: ListDirParams = serde_json::from_value(json!({"path": "/srv"})).unwrap();
+    assert!(none.surface.is_none());
+    let some: ListDirParams = serde_json::from_value(json!({"surface": 3})).unwrap();
+    assert!(some.surface.is_some());
+    assert!(serde_json::from_value::<ListDirParams>(json!({"surface": 3, "bogus": 1})).is_err());
+}

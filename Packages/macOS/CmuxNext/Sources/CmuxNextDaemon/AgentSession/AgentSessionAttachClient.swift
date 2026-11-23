@@ -853,7 +853,7 @@ public actor AgentSessionAttachClient {
             object[key] = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
         }
         object["cmd"] = cmd
-        object["surface"] = surface
+        if surface != 0 { object["surface"] = surface } // 0: no tab (a folder listing for a chat that starts on this machine)
         // Integers stay integers (the daemon reads u64 seqs and surface ids).
         let fields = try JSONSerialization.data(withJSONObject: object)
         let response: LineTransport.Response

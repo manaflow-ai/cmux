@@ -251,9 +251,8 @@ final class AgentTabStore {
     var remoteFoldersScoped: (@MainActor (AgentTabKey) -> [String])?
     /// The folders the machine of tab `key` lists itself (`agent-session-folders`: its work folder,
     /// then the folders under it), for the same project list; none from an older daemon.
-    var remoteMachineDiskScoped: (@MainActor (AgentTabKey) -> AgentRemoteMachineDisk?)?
-    /// The disk of the machine the composer picked, by its name (`MachineRegistry.machineID(peer:)`); nil when none matches.
-    var remoteMachineDiskNamed: (@MainActor (String) -> AgentRemoteMachineDisk?)?
+    /// With a machine name (the composer's pick, `MachineRegistry.machineID(peer:)`) that machine's, else the tab's own.
+    var remoteMachineDiskScoped: (@MainActor (AgentTabKey, String?) -> AgentRemoteMachineDisk?)?
     /// Share with Me on the refused start of tab `key`'s chat: grants the signed-in person chats on
     /// its Cloud machine (``CloudCLICall/shareChatWithMe(machine:signedIn:socket:)``).
     var shareMachineWithMeScoped: (@MainActor (AgentTabKey) async -> AgentPaneMachineShare)?
@@ -606,8 +605,7 @@ final class AgentTabStore {
         (model.onCloudRepositoryLocal, model.miniUnreachable) = (cloudRepositoryLocal, kind != .local) // the mini sends through this Mac's acpmux
         wire(model, key: key, machine: tabKey.machine)
         model.onListMachineFolder = { [weak self] path, files, machine in // the chooser's listing, from the picked (else the chat's own) machine's disk
-            guard let self, let disk = machine.flatMap({ remoteMachineDiskNamed?($0) }) ?? remoteMachineDiskScoped?(resolvedRemoteKey(tabKey)) else { return AgentRemoteMachineDisk.unavailable }
-            return await disk.list(path, files: files)
+            await AgentRemoteMachineDisk.list(self.flatMap { $0.remoteMachineDiskScoped?($0.resolvedRemoteKey(tabKey), machine) }, path, files: files)
         }
         // A page of another machine's chat is never pooled as this Mac's spare (its host is that machine's).
         if !local {
@@ -616,7 +614,7 @@ final class AgentTabStore {
             model.onListRemoteProjects = { [weak self] query in
                 guard let self else { return [] }
                 let listed = remoteFoldersScoped?(resolvedRemoteKey(tabKey)) ?? []
-                let machine = await remoteMachineDiskScoped?(resolvedRemoteKey(tabKey))?.folders() ?? []
+                let machine = await remoteMachineDiskScoped?(resolvedRemoteKey(tabKey), nil)?.folders() ?? []
                 let folders = AgentRemoteStartFolders(listed: listed, machine: machine).merged
                 guard let query = query?.lowercased(), !query.isEmpty else { return folders }
                 return folders.filter { $0.lowercased().contains(query) }

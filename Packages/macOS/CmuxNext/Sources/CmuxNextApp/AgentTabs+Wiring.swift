@@ -378,14 +378,11 @@ extension AgentTabStore {
             guard let services, let (tab, _) = services.locateTab(key.key, onMachine: key.machine) else { return [] }
             return services.machines.daemon(forTab: tab).store.tabFolders
         }
-        tabs.remoteMachineDiskScoped = { [weak services] key in
-            guard let services, let (tab, _) = services.locateTab(key.key, onMachine: key.machine),
-                  let daemon = try? services.machines.agentDaemon(forTab: tab), !daemon.isLocal else { return nil }
-            return AgentRemoteMachineDisk(surface: tab.surface.rawValue, endpoint: AgentTabRemoteHost.endpoint(on: daemon), supports: daemon.supports)
-        }
-        tabs.remoteMachineDiskNamed = { [weak services] name in
-            guard let services, let id = services.machines.machineID(peer: name), let daemon = services.machines.anyDaemon(machine: id), !daemon.isLocal else { return nil }
-            return AgentRemoteMachineDisk(surface: 0, endpoint: AgentTabRemoteHost.endpoint(on: daemon), supports: daemon.supports)
+        tabs.remoteMachineDiskScoped = { [weak services] key, named in
+            guard let services else { return nil }
+            let picked = named.flatMap { services.machines.machineID(peer: $0) }.flatMap { services.machines.anyDaemon(machine: $0) }.map { (UInt64(0), $0) } // no tab there yet
+            guard let (surface, daemon) = picked ?? services.locateTab(key.key, onMachine: key.machine).flatMap({ tab in (try? services.machines.agentDaemon(forTab: tab.0)).map { (tab.0.surface.rawValue, $0) } }), !daemon.isLocal else { return nil }
+            return AgentRemoteMachineDisk(surface: surface, endpoint: AgentTabRemoteHost.endpoint(on: daemon), supports: daemon.supports)
         }
         tabs.shareMachineWithMeScoped = { [weak services, weak tabs] key in
             guard let services, let session = services.machines.session(key.machine) else {

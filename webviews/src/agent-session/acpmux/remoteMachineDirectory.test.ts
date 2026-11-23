@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 import { machineDirectory, machineDirectoryHost, type MachineListing } from "./remoteMachineDirectory";
 
+const list = (host: ReturnType<typeof machineDirectoryHost>) => host.list as NonNullable<typeof host.list>;
+
 const listing = (path: string, extra: Partial<MachineListing> = {}): MachineListing => ({
   path,
   parent: "/",
@@ -28,10 +30,10 @@ test("starts where the machine says, then maps ~ to its home", async () => {
     asked.push(params);
     return listing(typeof params.path === "string" ? params.path : "/home/dev");
   });
-  expect((await host.list(""))?.path).toBe("/home/dev");
-  await host.list("~");
-  await host.list("~/api");
-  await host.list("/srv");
+  expect((await list(host)(""))?.path).toBe("/home/dev");
+  await list(host)("~");
+  await list(host)("~/api");
+  await list(host)("/srv");
   expect(asked).toEqual([{}, { path: "/home/dev" }, { path: "/home/dev/api" }, { path: "/srv" }]);
 });
 
@@ -41,7 +43,7 @@ test("names the picked machine on every listing so the host addresses it", async
     asked.push(params);
     return listing("/home/dev");
   }, "lab-box");
-  await host.list("");
-  await host.list("/srv");
+  await list(host)("");
+  await list(host)("/srv");
   expect(asked).toEqual([{ machine: "lab-box" }, { path: "/srv", machine: "lab-box" }]);
 });

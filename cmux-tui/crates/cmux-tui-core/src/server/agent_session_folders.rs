@@ -72,7 +72,10 @@ pub(super) fn folders(
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct ListDirParams {
-    surface: SurfaceId,
+    /// An agent tab of this machine; none for a chat that starts here from another Mac's composer,
+    /// which has no tab here yet (the link's own checks still hold).
+    #[serde(default)]
+    surface: Option<SurfaceId>,
     /// An absolute folder; none or empty starts at the work folder, else the home folder.
     #[serde(default)]
     path: Option<String>,
@@ -84,7 +87,7 @@ pub(super) struct ListDirParams {
     hidden: bool,
 }
 
-/// `agent-session-list-dir {surface, path?, files?, hidden?}`: the folders of one folder of this
+/// `agent-session-list-dir {surface?, path?, files?, hidden?}`: the folders of one folder of this
 /// machine, for the app's folder chooser on another Mac (the same checks as `agent-session-folders`).
 /// Answers `{path, parent, home, work, entries: [{name, path, kind, repo}], truncated}`.
 pub(super) fn list_dir(
@@ -93,7 +96,7 @@ pub(super) fn list_dir(
     params: ListDirParams,
     writer: &MessageWriter,
 ) -> bool {
-    if !own_agent_tab(mux, params.surface) {
+    if params.surface.is_some_and(|surface| !own_agent_tab(mux, surface)) {
         return refuse(writer, id, Refusal::UnknownTab);
     }
     let home = crate::platform::home_dir();

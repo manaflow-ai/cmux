@@ -36,6 +36,9 @@ public struct AgentRemoteMachineDisk {
         } catch { return Self.failure("list_dir.unreachable", "This machine did not answer; check that it is online, or type the path") }
     }
 
+    /// `disk`'s listing, or what the chooser shows when there is no machine to ask.
+    public static func list(_ disk: Self?, _ path: String?, files: Bool) async -> [String: Any] { await disk?.list(path, files: files) ?? unavailable }
+
     /// What the chooser shows when no machine can answer.
     public static let unavailable = failure("list_dir.unavailable", "This machine is not connected yet")
 
