@@ -145,10 +145,11 @@ impl Hub {
         let Ok(entries) = std::fs::read_dir(transfers_dir()) else { return };
         for entry in entries.flatten() {
             let transfer_id = entry.file_name().to_string_lossy().into_owned();
-            // A receive (`in-…`) or a forget mark is not a move out.
+            // A receive (`in-…`), a forget mark or a prepare (`pre-…`) is not a move out.
             if !super::transfer::is_plain_id(&transfer_id)
                 || transfer_id.to_ascii_lowercase().starts_with("in-")
                 || transfer_id.starts_with("forgot-")
+                || transfer_id.starts_with("pre-")
             {
                 continue;
             }
