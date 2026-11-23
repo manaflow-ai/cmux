@@ -7111,7 +7111,15 @@ a.cv-sha:focus-visible {
   box-shadow: inset 0 -1px 0 var(--agent-border);
 }
 .acpmux-render-card-head .acpmux-review-changes {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
   height: 24px;
+}
+/* The head wraps by cardFit.css: its actions go under the title in a narrow card. Its end padding
+   (the icon button's overhang) belongs to the actions' line, so it stays. */
+.acpmux-render-card-head.cv-fit-row {
+  column-gap: var(--ds-space-2);
 }
 .acpmux-render-card-title {
   flex: 1;
@@ -8149,7 +8157,22 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 /* What an X acpmux refused adds after it (PendingSteer.tsx): quiet text, spaced from the X and Copy
    as a glyph sits in its slot. */
 .cv-user__kept {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   padding-inline: var(--cv-action-inset);
+}
+/* The row hangs from the bubble's right edge, so a narrow pane would run its note and Send now past
+   the column's left edge (Leo, 2026-11-22: "overlapping text via the buttosn when the pane is
+   small"). It is held to its row's width, and the note gives way first, cut with an ellipsis, so it
+   never runs under Send now or off the pane. Not a cardFit card: the row is right-anchored and
+   shrink-to-fit, which inline-size containment would collapse. */
+.cv-user__pending {
+  min-width: 0;
+  max-width: 100%;
+}
+.cv-user__pending > .cv-message-footer-row {
+  min-width: 0;
 }
 /* Reply on another agent's message (IncomingMessageCard.tsx): the editor under the opened
    message and its Details, and a quiet line once sent or when it was not. */

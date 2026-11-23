@@ -1,7 +1,8 @@
 // The card that closes a turn which edited files: a small diff glyph, "Edited 2 files" with the
-// totals, then Undo and View changes; under it one row per file in the chat's font (the dimmed folder,
-// the name, its counts). A card for one file has no rows: its header opens that file's changes
-// beside the chat. The data is turnChanges/model.ts; this file is only its view.
+// totals, then Undo; under it one row per file in the chat's font (the dimmed folder, the name, its
+// counts). A card for one file has no rows: its header opens that file's diff inside the card, and a
+// file row opens its own under it (EditDiff, as an opened edit call draws it). The changes pane is
+// the opened diff's Open in Changes icon. The data is turnChanges/model.ts; this file is only its view.
 //
 // Undo is a host revert (`turn.undo`): the host puts a file back only while it still holds the
 // turn's last bytes, and moves a file the turn created to the Trash. The Undo click asks the host
@@ -10,9 +11,13 @@
 // cmux.json `agentPane.editedFiles.*` (turnChanges/settings.ts): `show` always, collapsed (the
 // header only, a chevron shows the rows) or never (the plain tool rows); `maxRows` rows before
 // "Show N more"; `scope` turn, or session (one card, at the session's latest edit).
-import { useContext, useMemo, useState } from "react";
+import { useContext, useMemo, useState, type ReactNode } from "react";
 import { commonDirectory, turnFiles, turnPathsOnly, type PathRef, type TurnFile } from "../diff";
 import { ChevronDown } from "../changeIcons";
+import { EditDiff } from "./EditDiff";
+import { cornerAction } from "./cornerActions";
+import { useAnchoredCollapse, type AnchoredCollapse } from "./useAnchoredCollapse";
+import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { Counts } from "../changes/Counts";
 import { TurnCountsContext } from "../changes/TurnCountsContext";
 import { namesCheckpointFile, outsideRepository, turnCounts } from "../changes/turnCheckpoint";
@@ -29,6 +34,7 @@ import { DiffFile, Undo } from "./icons";
 import { Icon } from "../icons/Icon";
 import { ToolRows } from "./TurnRows";
 import { useTranscriptReadOnly } from "./readOnly";
+import "./cardFit.css";
 import "./EditedFilesCard.css";
 import { intl } from "../../../ui/intl";
 
@@ -145,21 +151,27 @@ function Card({
     : total === 1
       ? t("edited.one")
       : t("tools.edited.files", { n: total });
-  // Multi-file cards can fold their file list; a single file opens in the changes pane instead.
-  const headToggle = !single && total > 0 && settings.show === "collapsed" ? () => setOpen(!open) : undefined;
-  const headClick =
-    single && onOpenDiff
-      ? headerToggleClick((event) => onOpenDiff(row.id, single.path, event.currentTarget))
-      : headToggle
-        ? headerToggleClick(headToggle)
-        : undefined;
+  // One way to see a change, and it opens where the card is (Leo, 2026-11-22: "there's anther issue
+  // of you being able to click on it to view changes and also click on a view changes button.
+  // decide." then "it should be able to just open inline inside the fucking existing agent chat
+  // situation."): a card for one file opens that file's diff inside the card, from anywhere on its
+  // header or its chevron; a card for several folds its file list (collapsed setting) and each file
+  // row opens its own diff under it. The changes pane is one icon inside an opened diff.
+  const singleDiff = useInlineDiff(row.id, single);
+  const headToggle = single
+    ? singleDiff.toggle
+    : total > 0 && settings.show === "collapsed"
+      ? () => setOpen(!open)
+      : undefined;
+  const headClick = headToggle ? headerToggleClick(headToggle) : undefined;
+  const fullPath = single ? fromRoot(single.path) : undefined;
   // The host answers for the path Undo sent (turnChanges/model.ts `undoPath`), which may be another
   // spelling of the row's.
   const status = (file: TurnFile) =>
     fileStatus(undoState, changes.files.find((edited) => edited.key === pathKey(file))?.path ?? file.path);
   return (
     <div
-      className="acpmux-edited"
+      className="acpmux-edited cv-fit"
       data-earlier={earlier ? "" : undefined}
       data-undo={undoState.phase === "idle" ? undefined : undoState.phase}
     >
@@ -167,6 +179,7 @@ function Card({
       {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
       <div
         className="acpmux-edited-head"
+        ref={single ? singleDiff.headerRef : undefined}
         {...(headToggle ? { [HEADER_TOGGLE_ATTRIBUTE]: "" } : {})}
         // A control of its own for the transcript's gap selection (#26704), as the title was.
         data-interactive={headClick ? "" : undefined}
@@ -175,57 +188,63 @@ function Card({
         <span className="acpmux-edited-icon">
           <DiffFile size={20} />
         </span>
-        <div className="acpmux-edited-title">
-          <div>{title}</div>
-          <div className="acpmux-edited-sub">
-            {files.length > 0 &&
-              (reviewable ? (
-                <button
-                  type="button"
-                  className="acpmux-edited-summary"
-                  aria-label={`${t("edited.view")} +${counts.additions} -${counts.deletions}`}
-                  onClick={(event) => onOpenDiff(row.id, single?.path, event.currentTarget)}
-                >
-                  <span className="acpmux-edited-summary-counts">
-                    <Counts additions={counts.additions} deletions={counts.deletions} />
-                  </span>
-                  <span className="acpmux-edited-summary-link" aria-hidden="true">
-                    {t("edited.view")}
-                    <Icon name="link.external" size={14} />
-                  </span>
-                </button>
-              ) : (
-                <Counts additions={counts.additions} deletions={counts.deletions} />
-              ))}
-            {counts.outside && <span className="acpmux-edited-outside">{t("turn.outside.card")}</span>}
+        {/* The words and Undo share a line while the card is wide, Undo goes under the words when it
+            is narrow, and only its icon shows when narrower still (cardFit.css). The name is cut
+            with an ellipsis, never drawn under a button; its whole path shows on hover. */}
+        <div className="cv-fit-row acpmux-edited-main">
+          <div className="cv-fit-text acpmux-edited-title">
+            <div
+              className="acpmux-edited-name"
+              // tooltip-allow: the line shows the file name, cut to the line; the tooltip is its whole path
+              title={fullPath}
+              data-tooltip-force={fullPath ? "" : undefined}
+            >
+              {title}
+            </div>
+            <div className="acpmux-edited-sub">
+              {files.length > 0 && <Counts additions={counts.additions} deletions={counts.deletions} />}
+              {counts.outside && <span className="acpmux-edited-outside">{t("turn.outside.card")}</span>}
+            </div>
           </div>
+          {undoable && (
+            <div className="cv-fit-actions acpmux-edited-actions">
+              <UndoButton state={undoState} rowId={row.id} files={changes.files} t={t} />
+            </div>
+          )}
         </div>
-        {(undoable || reviewable) && (
-          <div className="acpmux-edited-actions">
-            {undoable && <UndoButton state={undoState} rowId={row.id} files={changes.files} t={t} />}
-            {reviewable && (
-              <button
-                type="button"
-                className="acpmux-review-changes"
-                onClick={(event) => onOpenDiff(row.id, single?.path, event.currentTarget)}
-              >
-                {t("edited.view")}
-              </button>
-            )}
-          </div>
-        )}
-        {!single && total > 0 && settings.show === "collapsed" && (
+        {single ? (
           <button
             type="button"
-            className="acpmux-edited-toggle"
-            aria-expanded={open}
-            aria-label={open ? t("edited.hideFiles") : t("edited.showFiles")}
-            onClick={() => setOpen(!open)}
+            className="acpmux-edited-toggle acpmux-edited-chevron"
+            aria-expanded={singleDiff.open}
+            aria-label={t("edited.view")}
+            onClick={singleDiff.toggle}
           >
-            <ChevronDown width={14} height={14} style={open ? { transform: "rotate(180deg)" } : undefined} />
+            <ChevronDown width={14} height={14} style={singleDiff.open ? { transform: "rotate(180deg)" } : undefined} />
           </button>
+        ) : (
+          total > 0 &&
+          settings.show === "collapsed" && (
+            <button
+              type="button"
+              className="acpmux-edited-toggle acpmux-edited-chevron"
+              aria-expanded={open}
+              aria-label={open ? t("edited.hideFiles") : t("edited.showFiles")}
+              onClick={() => setOpen(!open)}
+            >
+              <ChevronDown width={14} height={14} style={open ? { transform: "rotate(180deg)" } : undefined} />
+            </button>
+          )
         )}
       </div>
+      {single && (
+        <InlineDiff
+          fold={singleDiff}
+          file={single}
+          onOpen={reviewable ? (opener) => onOpenDiff(row.id, single.path, opener) : undefined}
+          t={t}
+        />
+      )}
       {undoState.phase === "confirm" && (
         <UndoConfirm
           summary={undoState.summary}
@@ -272,20 +291,16 @@ function Card({
         );
         const done = undoState.phase === "done" ? status(file) : undefined;
         return (
-          <div className="acpmux-edited-entry" key={entry.key}>
-            {onOpenDiff ? (
-              <button
-                type="button"
-                className="acpmux-edited-file"
-                onClick={(event) => onOpenDiff(row.id, file.path, event.currentTarget)}
-              >
-                {label}
-              </button>
-            ) : (
-              <div className="acpmux-edited-file">{label}</div>
-            )}
-            {done && <FileStatus status={done} path={file.path} rowId={row.id} onOpenDiff={onOpenDiff} t={t} />}
-          </div>
+          <FileEntry
+            key={entry.key}
+            rowId={row.id}
+            file={file}
+            title={displayPath}
+            label={label}
+            status={done && <FileStatus status={done} path={file.path} rowId={row.id} onOpenDiff={onOpenDiff} t={t} />}
+            onOpenDiff={onOpenDiff}
+            t={t}
+          />
         );
       })}
       {/* The turn's page pictures show with the card's contents: collapsed, they wait until it opens. */}
@@ -301,6 +316,100 @@ function Card({
           <ChevronDown width={12} height={12} style={showAll ? { transform: "rotate(180deg)" } : undefined} />
         </button>
       )}
+    </div>
+  );
+}
+
+/// The open state of one file's diff inside card `rowId`: a transcript disclosure, so it outlives the
+/// card scrolling out of the virtualized transcript, and the shared fold (useAnchoredCollapse), so it
+/// opens only on the reader's click and the line they clicked stays where it is.
+function useInlineDiff(rowId: string, file: TurnFile | undefined): AnchoredCollapse {
+  const [open, setOpen] = useTranscriptDisclosure(`edited-diff:${rowId}:${file?.path ?? ""}`);
+  return useAnchoredCollapse({ open: Boolean(file) && open, onOpenChange: setOpen });
+}
+
+/// A file's diff, opened inside the card under the line that opened it.
+function InlineDiff({
+  fold,
+  file,
+  onOpen,
+  t,
+}: {
+  fold: AnchoredCollapse;
+  file: TurnFile;
+  onOpen?: (opener: HTMLElement) => void;
+  t: Translate;
+}) {
+  if (!fold.present) return null;
+  return (
+    <div {...fold.bodyProps}>
+      <div className="acpmux-edited-diff">
+        <EditDiff
+          file={file}
+          actions={
+            onOpen && (
+              <button
+                type="button"
+                className={`${cornerAction()} acpmux-edited-open`}
+                aria-label={t("edited.openChanges")}
+                title={t("edited.openChanges")}
+                onClick={(event) => onOpen(event.currentTarget)}
+              >
+                <Icon name="link.external" size={14} />
+              </button>
+            )
+          }
+        />
+      </div>
+    </div>
+  );
+}
+
+/// A file row of a card for several files: a click opens the file's diff under it.
+function FileEntry({
+  rowId,
+  file,
+  title,
+  label,
+  status,
+  onOpenDiff,
+  t,
+}: {
+  rowId: string;
+  file: TurnFile;
+  title: string;
+  label: ReactNode;
+  status: ReactNode;
+  onOpenDiff?: (rowId: string, path?: string, opener?: HTMLElement) => void;
+  t: Translate;
+}) {
+  const fold = useInlineDiff(rowId, file);
+  return (
+    <div className="acpmux-edited-entry">
+      <button
+        type="button"
+        className="acpmux-edited-file"
+        ref={fold.headerRef}
+        aria-expanded={fold.open}
+        // tooltip-allow: a long file path is cut to the row; its whole path is the tooltip
+        title={title}
+        onClick={fold.toggle}
+      >
+        {label}
+        <ChevronDown
+          width={12}
+          height={12}
+          className="acpmux-edited-file-chevron"
+          style={fold.open ? { transform: "rotate(180deg)" } : undefined}
+        />
+      </button>
+      {status}
+      <InlineDiff
+        fold={fold}
+        file={file}
+        onOpen={onOpenDiff ? (opener) => onOpenDiff(rowId, file.path, opener) : undefined}
+        t={t}
+      />
     </div>
   );
 }
@@ -336,13 +445,24 @@ function UndoButton({
     );
   }
   const busy = state.phase === "checking" || state.phase === "undoing" || state.phase === "confirm";
+  const label =
+    state.phase === "undoing"
+      ? t("edited.undoing")
+      : state.phase === "failed"
+        ? t("edited.undoFailed")
+        : t("edited.undo");
+  // In the narrowest card only the icon shows (cardFit.css): the words stay its name, and the page's
+  // tooltip says them while they are cut.
   return (
-    <button type="button" className="acpmux-edited-undo" disabled={busy} onClick={() => void checkUndo(rowId, files)}>
-      {state.phase === "undoing"
-        ? t("edited.undoing")
-        : state.phase === "failed"
-          ? t("edited.undoFailed")
-          : t("edited.undo")}
+    <button
+      type="button"
+      className="acpmux-edited-undo"
+      disabled={busy}
+      aria-label={label}
+      title={label}
+      onClick={() => void checkUndo(rowId, files)}
+    >
+      <span className="cv-fit-label">{label}</span>
       <Undo size={12} />
     </button>
   );
